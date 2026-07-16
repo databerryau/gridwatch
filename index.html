@@ -1,0 +1,991 @@
+<meta charset="utf-8">
+<!-- GRIDWATCH v1.1 — tutorial build -->
+<title>GRIDWATCH — Grid Dispatch Simulator</title>
+<style>
+:root{
+  --bg:#060a09; --pan:#0c1311; --pan2:#101a16; --edge:#1d2e28; --edge2:#2a4238;
+  --tx:#c9d8cf; --dim:#5f7168; --grn:#41e08b; --amb:#ffb02e; --red:#ff5040;
+  --cyn:#4fc7e8; --sol:#ffd84d; --vio:#b48cff;
+  --mono:ui-monospace,"Cascadia Mono","JetBrains Mono",Consolas,"Roboto Mono",Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--tx);font-family:var(--mono);font-size:13px}
+button{font-family:var(--mono);cursor:pointer}
+#crt{position:fixed;inset:0;pointer-events:none;z-index:50;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.13) 0 1px,transparent 1px 3px);}
+#vig{position:fixed;inset:0;pointer-events:none;z-index:51;
+  background:radial-gradient(ellipse at 50% 40%,transparent 60%,rgba(0,0,0,.38) 100%);}
+#app{display:flex;flex-direction:column;gap:8px;padding:8px;min-height:100vh;max-width:1720px;margin:0 auto}
+
+/* header */
+header{display:flex;align-items:center;gap:14px;background:var(--pan);border:1px solid var(--edge);
+  padding:7px 12px;flex-wrap:wrap}
+.brand{font-weight:700;letter-spacing:.18em;color:var(--grn);font-size:15px;text-shadow:0 0 8px rgba(65,224,139,.5)}
+.brand small{display:block;color:var(--dim);font-weight:400;font-size:9px;letter-spacing:.22em}
+.hchips{display:flex;gap:8px;flex-wrap:wrap;flex:1}
+.chip{background:var(--pan2);border:1px solid var(--edge);padding:3px 9px;min-width:86px}
+.chip label{display:block;font-size:8.5px;color:var(--dim);letter-spacing:.15em}
+.chip b{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.chip b.good{color:var(--grn)}.chip b.warn{color:var(--amb)}.chip b.crit{color:var(--red)}
+.hbtn{background:var(--pan2);border:1px solid var(--edge2);color:var(--tx);padding:6px 12px;
+  letter-spacing:.1em;font-size:11px}
+.hbtn:hover{border-color:var(--grn);color:var(--grn)}
+
+/* main grid */
+main{display:grid;grid-template-columns:300px minmax(0,1fr) 302px;gap:8px;align-items:stretch}
+.panel{background:var(--pan);border:1px solid var(--edge);padding:8px;display:flex;flex-direction:column;min-width:0}
+.ptitle{font-size:9.5px;color:var(--dim);letter-spacing:.2em;margin-bottom:6px;display:flex;justify-content:space-between}
+.ptitle .leg{letter-spacing:.05em}
+.leg i{font-style:normal;margin-left:8px}
+#colL,#colM,#colR{display:flex;flex-direction:column;gap:8px;min-width:0}
+canvas{display:block;width:100%}
+#cvG{height:196px}
+#cvF{height:132px}
+#cvD{height:252px}
+
+/* annunciator */
+#annun{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.ann{border:1px solid var(--edge);background:#0a100d;color:#33413a;text-align:center;
+  font-size:8.5px;letter-spacing:.08em;padding:7px 2px;user-select:none}
+.ann.on{color:#120b00;background:var(--amb);border-color:var(--amb);font-weight:700}
+.ann.crit{color:#fff;background:var(--red);border-color:var(--red);font-weight:700;animation:blink .5s steps(2) infinite}
+@keyframes blink{50%{filter:brightness(.35)}}
+@media(prefers-reduced-motion:reduce){.ann.crit{animation:none}}
+
+/* market / log */
+.kv{display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0;font-variant-numeric:tabular-nums}
+.kv span{color:var(--dim)}
+#log{overflow-y:auto;flex:1;min-height:120px;max-height:330px;font-size:10.5px;line-height:1.5}
+#log p{border-left:2px solid var(--edge);padding-left:6px;margin-bottom:4px;color:var(--dim)}
+#log p b{color:var(--tx);font-weight:400}
+#log p.info b{color:var(--cyn)} #log p.good b{color:var(--grn)}
+#log p.warn{border-color:var(--amb)} #log p.warn b{color:var(--amb)}
+#log p.crit{border-color:var(--red)} #log p.crit b{color:var(--red);font-weight:700}
+
+/* fleet */
+#fleet{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:8px}
+.card{background:var(--pan);border:1px solid var(--edge);padding:8px 9px;display:flex;flex-direction:column;gap:5px}
+.card.fault{border-color:var(--red)}
+.chead{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.06em}
+.lamp{width:8px;height:8px;border-radius:50%;background:#2a3a33;flex:none}
+.lamp.on{background:var(--grn);box-shadow:0 0 6px var(--grn)}
+.lamp.st{background:var(--amb);box-shadow:0 0 6px var(--amb)}
+.lamp.fl{background:var(--red);box-shadow:0 0 6px var(--red)}
+.ctype{margin-left:auto;color:var(--dim);font-size:8px;letter-spacing:.12em}
+.cout{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
+.cout small{font-size:9px;color:var(--dim);font-weight:400}
+.cstat{font-size:9px;color:var(--dim);min-height:12px;font-variant-numeric:tabular-nums}
+.cstat .up{color:var(--grn)} .cstat .dn{color:var(--amb)} .cstat .fl{color:var(--red)}
+input[type=range]{width:100%;height:16px;-webkit-appearance:none;appearance:none;background:transparent}
+input[type=range]::-webkit-slider-runnable-track{height:4px;background:var(--edge2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:15px;background:var(--tx);
+  margin-top:-5.5px;border:1px solid var(--bg)}
+input[type=range]::-moz-range-track{height:4px;background:var(--edge2)}
+input[type=range]::-moz-range-thumb{width:12px;height:15px;background:var(--tx);border:1px solid var(--bg);border-radius:0}
+.cfoot{display:flex;justify-content:space-between;align-items:center;font-size:9px;color:var(--dim)}
+.cbtn{background:var(--pan2);border:1px solid var(--edge2);color:var(--tx);font-size:9.5px;
+  padding:3px 9px;letter-spacing:.08em}
+.cbtn:hover:not(:disabled){border-color:var(--grn);color:var(--grn)}
+.cbtn:disabled{opacity:.35;cursor:not-allowed}
+.cbtn.stop:hover{border-color:var(--red);color:var(--red)}
+.bar{height:6px;background:#0a100d;border:1px solid var(--edge)}
+.bar i{display:block;height:100%;background:var(--vio)}
+.bar.h i{background:var(--cyn)}
+
+/* tutorial coach */
+#coach{position:fixed;right:12px;bottom:12px;width:362px;max-width:calc(100vw - 24px);z-index:80;
+  background:#0d1512;border:1px solid var(--amb);box-shadow:0 0 26px rgba(255,176,46,.22);
+  padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+#coach.hide{display:none}
+.cohead{display:flex;align-items:center;gap:8px;font-size:9px;color:var(--amb);letter-spacing:.2em}
+#coStep{color:var(--dim)}
+#coEnd{margin-left:auto;background:none;border:0;color:var(--dim);font-size:9px;
+  letter-spacing:.1em;text-decoration:underline;padding:0}
+#coEnd:hover{color:var(--red)}
+#coTitle{font-size:13px;font-weight:700;letter-spacing:.08em}
+#coBody{font-size:11.5px;line-height:1.6;color:#a8b8af}
+#coBody b{color:var(--amb);font-weight:600}
+#coTask{font-size:11px;color:var(--amb);border:1px dashed var(--edge2);padding:6px 8px}
+#coNext{align-self:flex-end;background:var(--amb);color:#120b00;border:0;font-weight:700;
+  font-size:11px;letter-spacing:.15em;padding:7px 16px}
+#coNext:disabled{opacity:.3;cursor:not-allowed}
+.tut-hi{position:relative;z-index:5;outline:2px solid var(--amb);outline-offset:2px;
+  box-shadow:0 0 22px rgba(255,176,46,.45);animation:tutpulse 1.6s ease-in-out infinite}
+@keyframes tutpulse{50%{box-shadow:0 0 8px rgba(255,176,46,.18)}}
+@media(prefers-reduced-motion:reduce){.tut-hi{animation:none}}
+.go.alt{background:none;border:1px solid var(--grn);color:var(--grn)}
+.gorow{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+
+/* overlays */
+.ov{position:fixed;inset:0;background:rgba(4,7,6,.92);z-index:100;display:flex;align-items:center;
+  justify-content:center;padding:20px;overflow-y:auto}
+.ov.hide{display:none}
+.obox{max-width:760px;background:var(--pan);border:1px solid var(--edge2);padding:28px 32px;margin:auto}
+.obox h1{color:var(--grn);letter-spacing:.25em;font-size:26px;text-shadow:0 0 12px rgba(65,224,139,.5)}
+.obox h1 small{display:block;color:var(--dim);font-size:10px;letter-spacing:.3em;margin-top:4px}
+.obox h2{color:var(--amb);font-size:12px;letter-spacing:.18em;margin:18px 0 6px}
+.obox p,.obox li{font-size:12px;line-height:1.65;color:var(--tx)}
+.obox ul{padding-left:18px}
+.obox .go{margin-top:22px;background:var(--grn);color:#04140b;border:0;font-weight:700;
+  font-size:14px;letter-spacing:.2em;padding:12px 34px}
+.obox .go:hover{filter:brightness(1.15)}
+.obox table{width:100%;border-collapse:collapse;margin:8px 0}
+.obox td{padding:4px 8px;border:1px solid var(--edge);font-size:11.5px;font-variant-numeric:tabular-nums}
+.obox td:first-child{color:var(--dim)}
+kbd{border:1px solid var(--edge2);padding:0 5px;font-size:10px}
+#grade{font-size:64px;font-weight:700;line-height:1;text-shadow:0 0 20px currentColor}
+.man h3{color:var(--cyn);font-size:11.5px;letter-spacing:.12em;margin:14px 0 3px}
+.man p{color:#a8b8af;font-size:11.5px}
+#pauseTag{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:60;background:var(--amb);
+  color:#120b00;font-weight:700;letter-spacing:.25em;padding:4px 18px;display:none}
+
+@media(max-width:1080px){
+  main{grid-template-columns:1fr 1fr}
+  #colM{grid-column:1/-1;order:-1}
+}
+@media(max-width:660px){
+  main{grid-template-columns:1fr}
+  #fleet{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+}
+</style>
+
+<div id="crt"></div><div id="vig"></div>
+<div id="pauseTag">■ PAUSED</div>
+<div id="app">
+<header>
+  <div class="brand">⏻ GRIDWATCH<small>MERIDIAN ISO · REGION S1 · 50 Hz</small></div>
+  <div class="hchips">
+    <div class="chip"><label>SHIFT TIME</label><b id="hClock">04:00</b></div>
+    <div class="chip"><label>SPOT $/MWh</label><b id="hPrice">—</b></div>
+    <div class="chip"><label>RESERVE MW</label><b id="hRes">—</b></div>
+    <div class="chip"><label>INERTIA MW·s/Hz</label><b id="hIn">—</b></div>
+    <div class="chip"><label>CO₂ kt</label><b id="hCo2">0.0</b></div>
+    <div class="chip"><label>SESSION P&L</label><b id="hPnl">$0</b></div>
+  </div>
+  <button class="hbtn" id="bPause" title="Pause / resume (Space)">⏸ PAUSE</button>
+  <button class="hbtn" id="bMute" title="Sound on/off">🔊</button>
+  <button class="hbtn" id="bMan">MANUAL</button>
+</header>
+
+<main>
+  <section id="colL">
+    <div class="panel" id="pG"><div class="ptitle">SYSTEM FREQUENCY</div><canvas id="cvG"></canvas></div>
+    <div class="panel" id="pA"><div class="ptitle">ANNUNCIATOR</div>
+      <div id="annun"></div>
+    </div>
+  </section>
+  <section id="colM">
+    <div class="panel" id="pF"><div class="ptitle"><span>FREQUENCY TRACE — LAST 3 H</span>
+      <span class="leg"><i style="color:var(--grn)">— f</i><i style="color:var(--dim)">▒ normal band</i></span></div>
+      <canvas id="cvF"></canvas></div>
+    <div class="panel" id="pD"><div class="ptitle"><span>DEMAND &amp; SUPPLY — 24 H SHIFT</span>
+      <span class="leg"><i style="color:var(--amb)">— demand</i><i style="color:var(--grn)">— supply</i><i style="color:var(--cyn)">— wind+solar</i><i style="color:var(--dim)">┄ forecast</i><i style="color:var(--red)">▒ shed</i></span></div>
+      <canvas id="cvD"></canvas></div>
+  </section>
+  <aside id="colR">
+    <div class="panel"><div class="ptitle">MARKET &amp; CONDITIONS</div>
+      <div class="kv"><span>SPOT PRICE</span><b id="mPrice">—</b></div>
+      <div class="kv"><span>RESERVE MARGIN</span><b id="mMarg">—</b></div>
+      <div class="kv"><span>GOV / FCAS RESPONSE</span><b id="mFcas">0 MW</b></div>
+      <div class="kv"><span>NET LOAD RAMP +1 H</span><b id="mRamp">—</b></div>
+      <div class="kv"><span>TEMPERATURE</span><b id="mTemp">—</b></div>
+      <div class="kv"><span>WIND RESOURCE</span><b id="mWind">—</b></div>
+      <div class="kv"><span>SOLAR RESOURCE</span><b id="mSol">—</b></div>
+      <div class="kv"><span>UNSERVED ENERGY</span><b id="mUse">0 MWh</b></div>
+      <div class="kv"><span>FREQ COMPLIANCE</span><b id="mCmp">100%</b></div>
+    </div>
+    <div class="panel" style="flex:1"><div class="ptitle">EVENT LOG</div><div id="log"></div></div>
+  </aside>
+</main>
+
+<footer id="fleet"></footer>
+</div>
+
+<!-- START -->
+<div class="ov" id="ovStart"><div class="obox">
+  <h1>GRIDWATCH<small>REAL-TIME GRID DISPATCH · MERIDIAN ISO REGION S1</small></h1>
+  <h2>SHIFT BRIEFING — 04:00 → 04:00</h2>
+  <p>You are the control-room dispatcher for a 7.7 GW regional power system. Your one physical law:
+  <b style="color:var(--grn)">generation must equal demand at every instant</b>, or system frequency drifts off 50.000 Hz.
+  Too far, too long, and the grid goes black.</p>
+  <ul style="margin-top:8px">
+    <li>Hold frequency inside <b>49.85 – 50.15 Hz</b>. Penalties accrue outside the band.</li>
+    <li>Set <b>MW setpoints</b> on each unit. Units ramp at realistic rates — coal is a freight train, batteries are instant.</li>
+    <li><b>Commit units early.</b> Coal takes 2 h to start, the CCGT 45 min. The evening peak will not wait for you.</li>
+    <li>Watch the <b>duck curve</b>: solar dies at sunset exactly as demand peaks. Plan the ramp.</li>
+    <li>Storms, heatwaves, unit trips and cloud fronts are on today's menu. The log gives warnings — read it.</li>
+    <li>You are paid spot price for energy served. Shedding load costs <b>$16,600/MWh</b>. Blackout ends your career.</li>
+  </ul>
+  <p style="margin-top:10px;color:var(--dim)">Shift runs 24 h in ≈12 min. <kbd>Space</kbd> pauses — planning while paused is allowed, and wise.
+  Open MANUAL any time for grid-physics background.</p>
+  <div class="gorow">
+    <button class="go" id="bTut">▶ TUTORIAL — FIRST DAY (RECOMMENDED)</button>
+    <button class="go alt" id="bStart">FULL SHIFT</button>
+  </div>
+</div></div>
+
+<!-- TUTORIAL COACH -->
+<div id="coach" class="hide">
+  <div class="cohead">OPERATIONS COACH <span id="coStep"></span><button id="coEnd">END TUTORIAL</button></div>
+  <div id="coTitle"></div>
+  <div id="coBody"></div>
+  <div id="coTask" class="hide"></div>
+  <button id="coNext">NEXT ▸</button>
+</div>
+
+<!-- MANUAL -->
+<div class="ov hide" id="ovMan"><div class="obox man">
+  <h1 style="font-size:18px">OPERATOR MANUAL</h1>
+  <h3>FREQUENCY = BALANCE</h3><p>All generators spin in lockstep at 50 Hz. Surplus generation accelerates them (frequency rises); deficit slows them (frequency falls). Frequency is the grid's live balance meter — steer it by matching supply to demand.</p>
+  <h3>INERTIA</h3><p>Heavy spinning machines (coal, gas, hydro) resist frequency change like a flywheel. With few synchronous units online — e.g. a solar-heavy midday — the same MW imbalance moves frequency far faster. Watch the INERTIA chip: below ~1,600 the grid is twitchy.</p>
+  <h3>GOVERNOR / FCAS</h3><p>Online units automatically inject or withdraw a little power against frequency deviation (droop response), and the battery contributes fast frequency response. This buys you seconds, not minutes — it saturates, silently drains battery charge, and you must still redispatch to restore balance.</p>
+  <h3>RAMP RATES &amp; COMMITMENT</h3><p>Setpoints aren't teleports. Coal moves ~12 MW/min, the CCGT 35, hydro 130, peakers 160, battery instantly. Off units need startup time (coal 2 h, CCGT 45 min, peakers 8 min). Running a unit above ~96% of capacity for long raises its trip risk.</p>
+  <h3>THE DUCK CURVE</h3><p>Solar suppresses net demand at midday, then vanishes into the evening peak. The dashed cyan forecast shows renewables ahead; NET LOAD RAMP +1H warns how much dispatchable power you must add per hour. The 17:00–20:00 ramp is the hardest part of the shift.</p>
+  <h3>BATTERY</h3><p>500 MW / 1,000 MWh. Negative setpoint charges (you buy energy at spot), positive discharges. Two hours at full power and it's empty — save charge for the peak and for trip response.</p>
+  <h3>HYDRO</h3><p>Fast and cheap but energy-limited: today's water allocation is 7,500 MWh (~8 h at full output). Ration it for peaks and emergencies.</p>
+  <h3>INTERCONNECTOR</h3><p>Imports up to 800 MW at a flat $58/MWh contract (export pays $40). Cheap firm supply — until a storm trips the line.</p>
+  <h3>UFLS — LOAD SHEDDING</h3><p>If frequency falls to 49.2 / 49.0 / 48.8 Hz, under-frequency relays automatically disconnect blocks of customers to save the system. Effective, brutal, expensive: unserved energy is valued at $16,600/MWh. Load restores in stages once frequency holds ≥49.95.</p>
+  <h3>SCARCITY PRICING</h3><p>Spot price rises steeply as reserve margin thins, up to the $16,600 cap during shedding. Your load is hedged with $300-strike cap contracts, so you're paid at most $300/MWh for energy served — price spikes never print money. They set what you pay for battery charging, and they're the grid screaming that you're one trip from disaster.</p>
+  <h3>CURTAILMENT</h3><p>Wind/solar LIMIT sliders cap renewable output. Use them if over-frequency threatens (e.g. sudden loss of load) or to keep thermal units above their minimums.</p>
+  <h3>EMERGENCY TOOLS</h3><p>DEMAND RESPONSE: 3 calls, each drops 350 MW for 1 h at $1,400/MWh. RESERVE DIESEL: 300 MW, 20 min start, $2,600/MWh. Expensive — losing the grid is more expensive.</p>
+  <h3>SCORING</h3><p>Graded on session P&amp;L, % of time in the normal band, and unserved energy. CO₂ is tracked for the debrief. Blackout = automatic F.</p>
+  <button class="go" id="bManX">CLOSE</button>
+</div></div>
+
+<!-- END -->
+<div class="ov hide" id="ovEnd"><div class="obox" id="endBox"></div></div>
+
+<script>
+'use strict';
+/* ---------- helpers ---------- */
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const fmt=n=>Math.round(n).toLocaleString('en-US');
+const fm$=n=>{const a=Math.abs(n);const s=n<0?'-$':'$';
+  return a>=1e6?s+(a/1e6).toFixed(2)+'M':a>=1e3?s+(a/1e3).toFixed(0)+'k':s+a.toFixed(0);};
+let _g2=null;function gauss(){if(_g2!==null){const v=_g2;_g2=null;return v;}
+  let u=0,v=0;while(!u)u=Math.random();while(!v)v=Math.random();
+  const r=Math.sqrt(-2*Math.log(u));_g2=r*Math.sin(2*Math.PI*v);return r*Math.cos(2*Math.PI*v);}
+function pw(pts,h){h=((h%24)+24)%24;let i=0;
+  while(i<pts.length-2&&pts[i+1][0]<=h)i++;
+  const a=pts[i],b=pts[i+1],u=clamp((h-a[0])/(b[0]-a[0]),0,1);
+  return a[1]+(b[1]-a[1])*(.5-.5*Math.cos(Math.PI*u));}
+
+/* ---------- static data ---------- */
+const DEM=[[0,4750],[1,4350],[2,4050],[3,3850],[3.5,3800],[4,3820],[5,3900],[6,4250],[7,5000],
+  [8,5600],[9,6000],[10,6300],[11,6500],[12,6650],[13,6800],[14,7000],[15,7150],[16,7350],
+  [17,7550],[18,7680],[18.8,7720],[19.5,7600],[20,7350],[21,6900],[22,6100],[23,5300],[24,4750]];
+const TMP=[[0,26],[4,23],[6,22],[9,27],[12,32],[15,35],[17,36],[19,33],[22,29],[24,26]];
+const SUNRISE=6.2,SUNSET=19.8,VOLL=16600;
+
+const F=[ // dispatchable fleet
+ {id:'coal',nm:'MT HAZEL COAL',cls:'COAL·STEAM',cap:2600,min:950,ramp:12,st:120,cost:26,co2:.95,H:5,startCost:8e4},
+ {id:'ccgt',nm:'RIVERTON CCGT',cls:'GAS·CC',cap:1300,min:350,ramp:35,st:45,cost:74,co2:.42,H:4.5,startCost:3e4},
+ {id:'gta',nm:'PEAKER GT·A',cls:'GAS·OCGT',cap:500,min:60,ramp:160,st:8,cost:148,co2:.63,H:3.5,startCost:8e3},
+ {id:'gtb',nm:'PEAKER GT·B',cls:'GAS·OCGT',cap:500,min:60,ramp:160,st:8,cost:152,co2:.63,H:3.5,startCost:8e3},
+ {id:'hyd',nm:'SNOWY GORGE HYDRO',cls:'HYDRO',cap:950,min:0,ramp:130,st:3,cost:9,co2:0,H:3.5,startCost:2e3},
+];
+const ANN=[['UNDER FREQ','uf'],['OVER FREQ','of'],['LOW RESERVE','lr'],['LOW INERTIA','li'],
+ ['UNIT TRIP','ut'],['I/C OUTAGE','ic'],['UFLS ACTIVE','ufls'],['STORAGE LOW','sl'],
+ ['RAMP ALERT','ra'],['HEATWAVE','hw'],['STORM','stm'],['PEAK WINDOW','pk']];
+
+/* ---------- state ---------- */
+let S;
+function freshState(){S={
+  t:0, run:false, over:false, tut:false, freq:50, dev:0,
+  money:0, rev:0, fuel:0, pen:0, co2:0, unserved:0,
+  ticks:0, okTicks:0, worstDev:0, maxPrice:0, outT:0,
+  noise:0, wind:.52, windMu:.55, cloud:.92, cloudMu:.92,
+  batt:{p:500,e:1000,soc:680,set:0,out:0,wear:6},
+  hydRes:7500,
+  ic:{lim:800,set:250,flow:250,ramp:100,fault:0},
+  wCurt:100,sCurt:100,
+  dr:{uses:3,left:0},
+  rert:{on:false,timer:0,out:0},
+  ufls:0, uflsHold:0,
+  heat:{active:false,ann:false,t0:1e9,t1:-1},
+  storm:{active:false,warn:false},
+  loadTrip:0, windDrought:false,
+  blackT:0, price:60, demand:0, served:0, supply:0, ren:0, M:3000, fcas:0,
+  aDem:[],aSup:[],aRen:[],aShed:[], histF:[], lastMin:-1,
+  ev:[], alarms:{}, prevAl:{},
+};
+F.forEach(u=>{Object.assign(u,{on:false,starting:0,out:0,set:u.min,fault:0,hot:0,derate:1,availF:1,subFault:0});});
+// initial commitment (04:00, ~3,800 MW)
+F[0].on=true;F[0].out=F[0].set=2000;
+F[1].on=true;F[1].out=F[1].set=520;
+F[4].on=true;F[4].out=F[4].set=400;
+}
+freshState();
+const capE=u=>u.cap*u.derate*u.availF, minE=u=>u.min*u.availF;
+
+/* ---------- schedule ---------- */
+function schedule(){
+  const ev=S.ev, R=Math.random;
+  const at=(t,fn,msg)=>ev.push({t,fn,msg,done:false});
+  const w=R(); // weather major decided first
+  // guaranteed big-unit trip — kept clear of a severe-weather evening peak
+  at(w<.8?(240+R()*330):(420+R()*540),()=>tripUnit(true));
+  if(R()<.55) at(120+R()*1200,()=>tripUnit(false));
+  if(w<.5){ // heatwave: announce 10:30, active 13:30–20:00
+    S.heat.t0=570;S.heat.t1=960;
+    at(390,()=>{S.heat.ann=true;log('warn','BOM SEVERE WEATHER: extreme heat this afternoon. Demand forecast +8%, thermal plant derated from 13:30.');beep(700);});
+    at(570,()=>{S.heat.active=true;S.cloudMu=Math.max(S.cloudMu,.98);
+      log('crit','HEATWAVE CONDITIONS. Demand rising, coal & gas capacity −7%. Skies clear — bank solar into the battery while you can.');beep(950,2);});
+    at(960,()=>{S.heat.active=false;log('good','Heat easing. Derates removed.');});
+  }else if(w<.8){ // evening storm
+    at(700,()=>{S.storm.warn=true;log('warn','STORM FRONT approaching from the west. Wind output will surge, then risk of turbine cut-out and interconnector faults. ETA ~1 h.');beep(700);});
+    at(760,()=>{S.storm.active=true;S.windMu=.95;log('crit','STORM ARRIVAL. Wind farms at storm output.');beep(950,2);});
+    at(790+R()*60,()=>{if(!S.storm.active)return;S.windMu=.18;
+      log('crit','WIND CUT-OUT: turbines exceeding survival speed. Gale Ridge output collapsing.');beep(950,2);});
+    at(800+R()*70,()=>{if(S.storm.active&&R()<.6)icTrip();});
+    at(900,()=>{S.storm.active=false;S.storm.warn=false;S.windMu=.5;log('info','Storm front passed.');});
+  }
+  if(R()<.65){ // cloud front (skip only rarely)
+    const t0=300+R()*300;
+    at(t0,()=>{log('warn','SATELLITE: cloud band moving over Sunplain solar precinct, ~20 min out.');beep(700);});
+    at(t0+20,()=>{S.cloudMu=.32;log('info','Cloud front overhead. Solar down to ~30% of clear-sky.');});
+    at(t0+20+40+R()*70,()=>{S.cloudMu=.92;log('info','Skies clearing over solar precinct.');});
+  }
+  if(R()<.45){ // industrial load trip → over-frequency test
+    const t0=360+R()*360;
+    at(t0,()=>{S.loadTrip=45;log('crit','ALCOA SMELTER POTLINE TRIP: 600 MW of load lost instantly. Over-frequency risk — reduce dispatch or curtail.');beep(950,2);});
+  }
+  if(R()<.35){ // wind drought in evening
+    at(840+R()*120,()=>{S.windMu=.12;S.windDrought=true;
+      log('warn','WIND DROUGHT: high-pressure ridge settling in. Wind resource collapsing for several hours.');beep(700);});
+  }
+  if(R()<.4) at(200+R()*1100,()=>icTrip());
+  // narrative beacons
+  at(110,()=>log('info','06:00 — morning ramp beginning. ~1,800 MW of demand growth by 09:00.'));
+  at(795,()=>log('warn','17:15 — DUCK CURVE: solar fading into the evening peak. Check NET LOAD RAMP and commit plant now.'));
+  at(1230,()=>log('info','00:30 — demand falling toward overnight trough. Mind thermal minimum-generation limits.'));
+}
+function tripUnit(big){
+  const cands=F.filter(u=>u.on&&!u.starting&&u.availF===1&&(!big||u.cap>=900));
+  const list=cands.length?cands:F.filter(u=>u.on&&!u.starting&&u.availF===1);
+  if(!list.length)return;
+  const u=list[Math.floor(Math.random()*list.length)];
+  if(u.id==='coal'||u.id==='ccgt'){ // multi-unit station: lose one machine
+    const frac=u.id==='coal'?.25:.5;
+    u.availF=1-frac;u.subFault=90+Math.random()*60;u.out*=(1-frac);
+    log('crit','UNIT TRIP: '+u.nm+' — one generating unit off ('+fmt(u.cap*frac)+
+        ' MW lost instantly). Station derated ~'+Math.round(u.subFault)+' min.');
+  }else{
+    u.on=false;u.out=0;u.starting=0;u.fault=90+Math.random()*60;
+    log('crit','UNIT TRIP: '+u.nm+' off-line ('+fmt(u.cap)+' MW unit). Protection lockout ~'+Math.round(u.fault)+' min.');
+  }
+  beep(950,3);
+}
+function icTrip(){
+  if(S.ic.fault>0)return;
+  S.ic.fault=90+Math.random()*90;S.ic.flow=0;
+  log('crit','INTERCONNECTOR TRIP: tie-line to Region N1 open. '+
+      'Import/export capability lost ~'+Math.round(S.ic.fault)+' min.');
+  beep(950,3);
+}
+
+/* ---------- audio ---------- */
+let AC=null,muted=false;
+function beep(f,n=1){
+  if(muted||!AC)return;
+  for(let i=0;i<n;i++){
+    const t=AC.currentTime+i*.22, o=AC.createOscillator(), g=AC.createGain();
+    o.type='square';o.frequency.value=f;
+    g.gain.setValueAtTime(.06,t);g.gain.exponentialRampToValueAtTime(.001,t+.15);
+    o.connect(g).connect(AC.destination);o.start(t);o.stop(t+.16);
+  }
+}
+
+/* ---------- log ---------- */
+function log(cls,msg){
+  const el=$('log'),p=document.createElement('p');p.className=cls;
+  p.innerHTML='<span style="color:var(--dim)">'+clock(S.t)+'</span> <b></b>';
+  p.querySelector('b').textContent=msg;
+  el.prepend(p);
+  while(el.children.length>70)el.lastChild.remove();
+}
+function clock(t){const m=Math.floor(240+t),h=Math.floor(m/60)%24;
+  return String(h).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
+
+/* ---------- model pieces ---------- */
+const demBase=h=>pw(DEM,h);
+function heatMod(h){ // demand multiplier from heatwave (with soft edges)
+  if(S.heat.t1<0)return 1;
+  const t=h*60-240; // simmin
+  if(t<S.heat.t0-60||t>S.heat.t1+60)return 1;
+  const rise=clamp((t-(S.heat.t0-60))/60,0,1),fall=clamp((S.heat.t1+60-t)/60,0,1);
+  return 1+.065*Math.min(rise,fall);
+}
+const hourNow=()=> (240+S.t)/60;
+function demandF(h){return demBase(h)*(S.heat.ann?heatMod(h):1);} // known forecast
+function solarClear(h){h=((h%24)+24)%24;
+  if(h<SUNRISE||h>SUNSET)return 0;
+  return Math.pow(Math.sin(Math.PI*(h-SUNRISE)/(SUNSET-SUNRISE)),1.35)*1400;}
+function priceOf(margin,shed){
+  if(shed>1)return VOLL;
+  return clamp(35+9/Math.pow(Math.max(margin,.008),1.4),35,VOLL);
+}
+
+/* ---------- tick ---------- */
+const DTS=0.2;               // sim-minutes per tick (2 sim-min / real second)
+function tick(){
+  if(!S.run||S.over)return;
+  const t=S.t+=DTS, h=hourNow(), dtH=DTS/60;
+  S.ticks++;
+  // events (suspended in tutorial)
+  if(!S.tut)for(const e of S.ev)if(!e.done&&t>=e.t){e.done=true;e.fn();}
+  // weather processes
+  S.wind=clamp(S.wind+(S.windMu-S.wind)*.004+gauss()*.006,.04,.98);
+  S.cloud=clamp(S.cloud+(S.cloudMu-S.cloud)*.01+gauss()*.008,.15,1);
+  S.noise+= -S.noise*.003+gauss()*(S.tut?2:5.5);
+  if(S.loadTrip>0)S.loadTrip-=DTS;
+  // demand
+  const dem=Math.max(0,demBase(h)*heatMod(h)+S.noise-(S.loadTrip>0?600:0));
+  // renewables
+  const solAvail=solarClear(h)*S.cloud, windAvail=1200*S.wind;
+  const sol=solAvail*S.sCurt/100, wnd=windAvail*S.wCurt/100;
+  S.ren=sol+wnd;
+  // thermal/hydro units
+  let disp=0,syncM=0,fuelCost=0,co2=0,govCap=0;
+  for(const u of F){
+    u.derate=(S.heat.active&&(u.cls.includes('GAS')||u.cls.includes('COAL')))?.93:1;
+    if(u.fault>0){u.fault-=DTS;if(u.fault<=0){u.fault=0;log('good',u.nm+' released from lockout — available to start.');}}
+    if(u.subFault>0){u.subFault-=DTS;
+      if(u.subFault<=0){u.subFault=0;u.availF=1;log('good',u.nm+': tripped machine repaired — full station capacity restored.');}}
+    if(u.starting>0){u.starting-=DTS;
+      if(u.starting<=0){u.starting=0;u.on=true;u.out=minE(u);log('good',u.nm+' synchronised to grid at minimum load.');}}
+    if(u.on){
+      const cE=capE(u), tgt=clamp(u.set,minE(u),cE), d=tgt-u.out, r=u.ramp*DTS;
+      u.out+=clamp(d,-r,r);
+      u.out=clamp(u.out,0,cE);
+      if(u.id==='hyd'){const r0=S.hydRes;S.hydRes-=u.out*dtH;
+        if(r0>2250&&S.hydRes<=2250)log('warn','SNOWY GORGE HYDRO: 30% of daily water allocation remaining. Budget it.');
+        if(r0>750&&S.hydRes<=750){log('crit','SNOWY GORGE HYDRO: water critical (10%). At full output the unit is minutes from a forced outage.');beep(950,2);}
+        if(S.hydRes<=0){S.hydRes=0;u.on=false;u.out=0;log('crit','SNOWY GORGE HYDRO: daily water allocation exhausted. Unit unavailable.');beep(950,2);}}
+      u.hot=(u.out>capE(u)*.96)?u.hot+DTS:0;
+      if(!S.tut&&u.hot>5&&Math.random()<.00012){tripUnit(false);u.hot=0;}
+      disp+=u.out;syncM+=u.cap*u.H;fuelCost+=u.out*u.cost*dtH;co2+=u.out*u.co2*dtH;
+      govCap+=u.cap;
+    }
+  }
+  // RERT diesel
+  if(S.rert.on&&S.rert.timer>0){S.rert.timer-=DTS;
+    if(S.rert.timer<=0){S.rert.timer=0;log('good','Reserve diesel fleet on-line: +300 MW.');}}
+  S.rert.out=(S.rert.on&&S.rert.timer<=0)?300:0;
+  if(S.rert.out){fuelCost+=300*2600*dtH;co2+=300*.8*dtH;disp+=S.rert.out;}
+  // interconnector
+  if(S.ic.fault>0){S.ic.fault-=DTS;S.ic.flow=0;
+    if(S.ic.fault<=0){S.ic.fault=0;log('good','Interconnector back in service.');}}
+  else{const d=clamp(S.ic.set,-S.ic.lim,S.ic.lim)-S.ic.flow,r=S.ic.ramp*DTS;S.ic.flow+=clamp(d,-r,r);}
+  // battery (player setpoint)
+  const B=S.batt;
+  let bset=clamp(B.set,-B.p,B.p);
+  if(B.soc<=1&&bset>0)bset=0;
+  if(B.soc>=B.e-1&&bset<0)bset=0;
+  B.out=bset;
+  // demand response
+  if(S.dr.left>0)S.dr.left-=DTS;
+  const drMW=S.dr.left>0?350:0;
+  // ---- frequency dynamics ----
+  const dev=S.dev;
+  // governor droop (sync units, limited headroom & 12% cap band)
+  let gov=0;
+  for(const u of F)if(u.on){
+    let g=clamp(-dev*u.cap*.35,-u.cap*.12,u.cap*.12);
+    g=clamp(g,-(Math.max(u.out-minE(u),0)),Math.max(capE(u)-u.out,0));
+    gov+=g;
+  }
+  // battery FCAS (auto, ±0.10 Hz deadband)
+  const fdev=Math.sign(dev)*Math.max(Math.abs(dev)-.10,0);
+  let bf=clamp(-fdev*1800,-Math.min(B.p+B.out,B.p),Math.min(B.p-B.out,B.p));
+  if(B.soc<=1&&bf>0)bf=0; if(B.soc>=B.e-1&&bf<0)bf=0;
+  B.soc=clamp(B.soc-(B.out+bf)*dtH,0,B.e);
+  S.fcas=gov+bf;
+  // UFLS relays
+  const f=S.freq;
+  if(f<49.2&&S.ufls<1){S.ufls=1;log('crit','UFLS STAGE 1: relays shed 5% of load (49.2 Hz).');beep(950,3);}
+  if(f<49.0&&S.ufls<2){S.ufls=2;log('crit','UFLS STAGE 2: total 12% of load shed (49.0 Hz).');beep(950,3);}
+  if(f<48.8&&S.ufls<3){S.ufls=3;log('crit','UFLS STAGE 3: total 21% of load shed (48.8 Hz). System in extremis.');beep(950,4);}
+  if(S.ufls>0){
+    const spare=F.reduce((a,u)=>a+(u.on?capE(u)-u.out:0),0);
+    if(f>=49.95&&spare>400){S.uflsHold+=DTS;
+      if(S.uflsHold>15){S.uflsHold=0;S.ufls--;
+        log('warn','UFLS: restoring one load block — expect a demand step of several hundred MW.');beep(700);}}
+    else S.uflsHold=0;
+  }
+  const shedFrac=[0,.05,.12,.21][S.ufls];
+  const shedMW=dem*shedFrac;
+  const demEff=dem*(1+.022*dev);       // load relief
+  const served=Math.max(0,demEff-shedMW-drMW);
+  const supply=disp+S.ren+B.out+S.ic.flow+gov+bf;
+  // inertia
+  S.M=Math.max(400,syncM/6+250);
+  const imb=supply-served;
+  S.freq=clamp(S.freq+imb/S.M*0.1+gauss()*(S.tut?.0005:.0012),47.5,52.5);
+  S.dev=S.freq-50;
+  // ---- economics ----
+  const availCap=F.reduce((a,u)=>a+(u.on?capE(u):0),0)
+      +windAvail+solAvail+(B.soc>50?B.p:B.p*B.soc/50)
+      +(S.ic.fault>0?0:Math.max(S.ic.lim-S.ic.flow,0))+S.rert.out;
+  const margin=(availCap-dem)/dem;
+  S.price=priceOf(margin,shedMW);
+  S.maxPrice=Math.max(S.maxPrice,S.price);
+  const rprice=Math.min(S.price,300); // load is hedged: $300 cap contracts
+  let cash=rprice*served*dtH;S.rev+=rprice*served*dtH;
+  cash-=fuelCost;S.fuel+=fuelCost;
+  const icCost=S.ic.flow>0?S.ic.flow*58*dtH:S.ic.flow*40*dtH; // export pays you (flow<0 ⇒ negative cost)
+  cash-=icCost;S.fuel+=icCost;
+  const bCost=(B.out<0?-B.out*S.price:B.out*B.wear)*dtH+Math.abs(bf)*B.wear*dtH;
+  cash-=bCost;S.fuel+=bCost;
+  if(drMW){cash-=drMW*1400*dtH;S.pen+=drMW*1400*dtH;}
+  if(shedMW){const c=shedMW*VOLL*dtH;cash-=c;S.pen+=c;S.unserved+=shedMW*dtH;}
+  const adev=Math.abs(S.dev);
+  if(adev>.15){const p=(adev-.15)*2e4*.1;cash-=p;S.pen+=p;}else S.okTicks++;
+  S.money+=cash;S.co2+=co2;S.demand=dem;S.served=served;S.supply=supply;
+  S.worstDev=Math.max(S.worstDev,adev);
+  if(shedMW||drMW)S.outT+=DTS;
+  // ---- alarms ----
+  const A=S.alarms;
+  A.uf=S.dev<-.15?(S.dev<-.5?2:1):0;
+  A.of=S.dev>.15?(S.dev>.5?2:1):0;
+  A.lr=(availCap-dem)<450?((availCap-dem)<150?2:1):0;
+  A.li=S.M<1600?(S.M<1000?2:1):0;
+  A.ut=F.some(u=>u.fault>0)?2:0;
+  A.ic=S.ic.fault>0?2:0;
+  A.ufls=S.ufls>0?2:0;
+  A.sl=(B.soc<B.e*.15||S.hydRes<975)?1:0;
+  const nl1=demandF(h+1)-(solarClear(h+1)*S.cloudMu+1200*S.windMu);
+  const nl0=demandF(h)-(solarClear(h)*S.cloudMu+1200*S.windMu);
+  A.ra=(nl1-nl0)>800?((nl1-nl0)>1200?2:1):0;
+  A.hw=S.heat.active?2:(S.heat.ann&&t<S.heat.t0?1:0);
+  A.stm=S.storm.active?2:(S.storm.warn?1:0);
+  A.pk=dem>7000?1:0;
+  for(const k in A){if(A[k]&&!S.prevAl[k])beep(A[k]>1?950:700,A[k]);S.prevAl[k]=A[k];}
+  // history (per sim-minute)
+  const mi=Math.floor(t);
+  if(mi>S.lastMin){S.lastMin=mi;
+    S.aDem.push(dem);S.aSup.push(supply);S.aRen.push(S.ren);S.aShed.push(shedMW+drMW);}
+  S.histF.push(S.freq);if(S.histF.length>1800)S.histF.shift();
+  // ---- endings ----
+  if(S.freq<=48.5||S.freq>=51.5)S.blackT+=99;
+  else if(S.freq<48.8||S.freq>51.2)S.blackT++;
+  else S.blackT=Math.max(0,S.blackT-3);
+  if(S.blackT>100)return endShift(true);
+  if(t>=1440)return endShift(false);
+  if(S.tut)tutTick();
+  draw();ui();
+}
+
+/* ---------- end & grading ---------- */
+function endShift(black){
+  S.over=true;S.run=false;
+  const cmp=100*S.okTicks/Math.max(S.ticks,1);
+  let g,gc,gt;
+  if(S.tut){g='—';gc='var(--amb)';
+    gt=black?'The training grid went black — no harm done. Note what dragged frequency down, then run it again.'
+            :'Training shift over. Run the tutorial again, or take the full shift when ready.';}
+  else if(black){g='F';gc='var(--red)';gt='SYSTEM BLACK — the region is dark. Restoration will take days.';}
+  else if(S.unserved===0&&cmp>=97&&S.money>=8e6){g='S';gc='var(--grn)';gt='FLAWLESS SHIFT. The control room applauds. Legend status.';}
+  else if(S.unserved<20&&cmp>=93&&S.money>=5.5e6){g='A';gc='var(--grn)';gt='Senior-dispatcher material. The grid barely noticed the weather.';}
+  else if(S.unserved<100&&cmp>=86&&S.money>=3e6){g='B';gc='var(--cyn)';gt='Solid work with some rough edges. The regulator sends a polite letter.';}
+  else if(S.unserved<400&&cmp>=72&&S.money>0){g='C';gc='var(--amb)';gt='You kept the lights (mostly) on. Remedial training scheduled.';}
+  else{g='D';gc='var(--red)';gt='The review board would like a word. Bring a lawyer.';}
+  const rows=[
+    ['SESSION P&L',fm$(S.money)],['ENERGY REVENUE',fm$(S.rev)],
+    ['FUEL / IMPORT / STORAGE',fm$(-S.fuel)],['PENALTIES & SHED COST',fm$(-S.pen)],
+    ['FREQ IN NORMAL BAND',cmp.toFixed(1)+'%'],['WORST DEVIATION',(S.worstDev).toFixed(2)+' Hz'],
+    ['UNSERVED ENERGY',fmt(S.unserved)+' MWh'],['MAX SPOT PRICE','$'+fmt(S.maxPrice)+'/MWh'],
+    ['CO₂ EMITTED',(S.co2/1000).toFixed(1)+' kt'],['SHED / DR DURATION',Math.round(S.outT)+' min'],
+  ].map(r=>'<tr><td>'+r[0]+'</td><td style="text-align:right">'+r[1]+'</td></tr>').join('');
+  const tips=[];
+  if(black)tips.push('Frequency left the survivable band. Keep battery charge and fast reserves in hand for the big contingency.');
+  if(S.unserved>0&&!black)tips.push('Load was shed — usually a sign the evening peak or a trip caught you under-committed. Start plant earlier.');
+  if(cmp<90)tips.push('Frequency spent long spells outside the band: chase balance with the battery and hydro first, then walk the slow units in behind them.');
+  if(S.co2>40000)tips.push('Heavy CO₂ day. Leaning harder on renewables + storage (and importing) can cut emissions without losing money.');
+  if(!tips.length)tips.push('Textbook dispatch: anticipate the net-load ramp, hold reserves, let the machines do the small stuff.');
+  $('endBox').innerHTML='<h1 style="font-size:18px">'+(black?'SYSTEM BLACK':'SHIFT COMPLETE')+
+    '<small>MERIDIAN ISO · SHIFT DEBRIEF</small></h1>'+
+    '<div id="grade" style="color:'+gc+'">'+g+'</div><p style="color:'+gc+'">'+gt+'</p>'+
+    '<table>'+rows+'</table><h2>DEBRIEF</h2><ul>'+tips.map(t=>'<li>'+t+'</li>').join('')+'</ul>'+
+    '<button class="go" id="bAgain">⟳ NEXT SHIFT</button>';
+  $('ovEnd').classList.remove('hide');
+  $('bAgain').onclick=restart;
+  if(black&&AC&&!muted)beep(180,5);
+}
+
+/* ---------- canvases ---------- */
+function fit(cv){const d=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+  if(cv.width!==w*d||cv.height!==h*d){cv.width=w*d;cv.height=h*d;}
+  const x=cv.getContext('2d');x.setTransform(d,0,0,d,0,0);return[x,w,h];}
+
+function drawGauge(){
+  const[x,W,H]=fit($('cvG'));x.clearRect(0,0,W,H);
+  const cx=W/2,cy=H*.62,R=Math.min(W*.42,H*.62),a0=Math.PI*1.14,a1=-Math.PI*.14;
+  const ang=f=>a0+(a1-a0)*clamp((f-48.5)/3,0,1);
+  const arc=(f1,f2,col,w)=>{x.beginPath();x.strokeStyle=col;x.lineWidth=w;
+    x.arc(cx,cy,R,-ang(f1),-ang(f2),false);x.stroke();};
+  arc(48.5,49,'#5a2320',10);arc(49,49.85,'#5c4416',10);arc(49.85,50.15,'#1c5c38',10);
+  arc(50.15,51,'#5c4416',10);arc(51,51.5,'#5a2320',10);
+  arc(49.85,50.15,'#41e08b',3);
+  // ticks
+  x.fillStyle='#5f7168';x.font='9px '+getComputedStyle(document.body).fontFamily;
+  x.textAlign='center';x.textBaseline='middle';
+  for(let i=0;i<=12;i++){
+    const f=48.5+i*.25,a=ang(f),big=i%2===0;
+    const r1=R-8,r2=big?R-16:R-12;
+    x.strokeStyle=big?'#8fa398':'#3a4a42';x.lineWidth=big?1.5:1;
+    x.beginPath();
+    x.moveTo(cx+Math.cos(a)*r1,cy-Math.sin(a)*r1);
+    x.lineTo(cx+Math.cos(a)*r2,cy-Math.sin(a)*r2);x.stroke();
+    if([49,49.5,50,50.5,51].some(v=>Math.abs(v-f)<.01))
+      x.fillText(f.toFixed(1),cx+Math.cos(a)*(R-27),cy-Math.sin(a)*(R-27));
+  }
+  // needle
+  const a=ang(S.freq);
+  x.strokeStyle='#e8f2ea';x.lineWidth=2.5;x.shadowColor='#41e08b';x.shadowBlur=8;
+  x.beginPath();x.moveTo(cx-Math.cos(a)*12,cy+Math.sin(a)*12);
+  x.lineTo(cx+Math.cos(a)*(R-20),cy-Math.sin(a)*(R-20));x.stroke();
+  x.shadowBlur=0;x.fillStyle='#e8f2ea';
+  x.beginPath();x.arc(cx,cy,4,0,7);x.fill();
+  // digital
+  const dv=Math.abs(S.dev);
+  x.fillStyle=dv>.5?'#ff5040':dv>.15?'#ffb02e':'#41e08b';
+  x.font='700 26px '+getComputedStyle(document.body).fontFamily;
+  x.shadowColor=x.fillStyle;x.shadowBlur=10;
+  x.fillText(S.freq.toFixed(3),cx,cy+R*.44);
+  x.shadowBlur=0;x.font='9px '+getComputedStyle(document.body).fontFamily;
+  x.fillStyle='#5f7168';x.fillText('Hz',cx,cy+R*.44+17);
+  x.restore();
+}
+function drawFreq(){
+  const[x,W,H]=fit($('cvF'));x.clearRect(0,0,W,H);
+  const f2y=f=>H-(f-48.8)/(51.2-48.8)*H;
+  x.fillStyle='rgba(65,224,139,.10)';x.fillRect(0,f2y(50.15),W,f2y(49.85)-f2y(50.15));
+  x.strokeStyle='#22332c';x.lineWidth=1;
+  [49,49.5,50,50.5,51].forEach(f=>{x.beginPath();x.moveTo(0,f2y(f));x.lineTo(W,f2y(f));x.stroke();
+    x.fillStyle='#5f7168';x.font='8.5px monospace';x.textAlign='left';x.fillText(f.toFixed(1),3,f2y(f)-2);});
+  const n=S.histF.length;if(n<2)return;
+  x.lineWidth=1.4;
+  let prev=null;
+  for(let i=0;i<n;i++){
+    const f=S.histF[i],X=i/1799*W,Y=f2y(f);
+    const c=Math.abs(f-50)>.5?'#ff5040':Math.abs(f-50)>.15?'#ffb02e':'#41e08b';
+    if(prev){x.strokeStyle=c;x.beginPath();x.moveTo(prev[0],prev[1]);x.lineTo(X,Y);x.stroke();}
+    prev=[X,Y];
+  }
+}
+function drawDem(){
+  const[x,W,H]=fit($('cvD'));x.clearRect(0,0,W,H);
+  const T=1440,ymax=9500,pad=14;
+  const tx=t=>t/T*W, ty=v=>H-pad-(v/ymax)*(H-pad-6);
+  // night shading & grid
+  x.fillStyle='rgba(79,199,232,.04)';
+  x.fillRect(tx((SUNRISE)*60-240),0,tx(SUNSET*60-240)-tx(SUNRISE*60-240),H-pad);
+  x.strokeStyle='#1a2822';x.lineWidth=1;x.font='8.5px monospace';x.textAlign='left';
+  for(let v=2000;v<ymax;v+=2000){x.beginPath();x.moveTo(0,ty(v));x.lineTo(W,ty(v));x.stroke();
+    x.fillStyle='#4a5a52';x.fillText((v/1000)+'G',3,ty(v)-2);}
+  x.textAlign='center';
+  for(let hh=0;hh<=24;hh+=4){const m=hh*60;x.beginPath();x.moveTo(tx(m),0);x.lineTo(tx(m),H-pad);
+    x.strokeStyle='#1a2822';x.stroke();
+    x.fillStyle='#4a5a52';x.fillText(String((4+hh)%24).padStart(2,'0'),tx(m),H-3);}
+  const n=S.aDem.length;
+  // forecast (dashed) from now to end
+  x.setLineDash([3,4]);
+  const fLine=(fn,col)=>{x.strokeStyle=col;x.lineWidth=1;x.beginPath();
+    for(let m=Math.max(n-1,0);m<=T;m+=8){const h=(240+m)/60,v=fn(h);
+      m===Math.max(n-1,0)?x.moveTo(tx(m),ty(v)):x.lineTo(tx(m),ty(v));}x.stroke();};
+  fLine(h=>demandF(h),'rgba(255,176,46,.5)');
+  fLine(h=>solarClear(h)*.92+1200*S.windMu,'rgba(79,199,232,.45)');
+  x.setLineDash([]);
+  if(n>1){
+    // shed fill
+    x.fillStyle='rgba(255,80,64,.35)';
+    for(let m=0;m<n;m++)if(S.aShed[m]>1&&S.aDem[m]!=null)x.fillRect(tx(m),ty(S.aDem[m]),Math.max(W/T,1),ty(S.aDem[m]-S.aShed[m])-ty(S.aDem[m]));
+    const line=(arr,col,w)=>{x.strokeStyle=col;x.lineWidth=w;x.beginPath();let pen=false;
+      for(let m=0;m<n;m++){const v=arr[m];if(v==null){pen=false;continue;}
+        pen?x.lineTo(tx(m),ty(v)):x.moveTo(tx(m),ty(v));pen=true;}x.stroke();};
+    line(S.aRen,'#4fc7e8',1);
+    line(S.aSup,'#41e08b',1.2);
+    line(S.aDem,'#ffb02e',1.4);
+  }
+  // now cursor
+  x.strokeStyle='rgba(232,242,234,.55)';x.lineWidth=1;
+  x.beginPath();x.moveTo(tx(S.t),0);x.lineTo(tx(S.t),H-pad);x.stroke();
+}
+function draw(){drawGauge();drawFreq();drawDem();}
+
+/* ---------- UI ---------- */
+function buildUI(){
+  // annunciator
+  $('annun').innerHTML=ANN.map(a=>'<div class="ann" id="an-'+a[1]+'">'+a[0]+'</div>').join('');
+  // fleet cards
+  const fl=$('fleet');let html='';
+  for(const u of F){
+    html+=`<div class="card" id="cd-${u.id}" title="Marginal cost $${u.cost}/MWh · ramp ${u.ramp} MW/min · start ${u.st} min · min gen ${u.min} MW">
+      <div class="chead"><span class="lamp" id="lp-${u.id}"></span>${u.nm}<span class="ctype">${u.cls}</span></div>
+      <div class="cout"><span id="o-${u.id}">0</span><small> / <span id="cp-${u.id}">${fmt(u.cap)}</span> MW</small></div>
+      <div class="cstat" id="st-${u.id}"></div>
+      ${u.id==='hyd'?'<div class="bar h" title="Water allocation remaining"><i id="hb" style="width:100%"></i></div>':''}
+      <input type="range" id="sl-${u.id}" min="0" max="${u.cap}" step="10" value="${u.set}" title="MW setpoint">
+      <div class="cfoot"><span>SET <b id="sv-${u.id}">${fmt(u.set)}</b> MW</span>
+      <button class="cbtn" id="bt-${u.id}"></button></div></div>`;
+  }
+  html+=`<div class="card" id="cd-batt" title="Negative charges (buys at spot), positive discharges. Auto-FCAS uses charge too.">
+    <div class="chead"><span class="lamp on" id="lp-batt"></span>BIG BATTERY<span class="ctype">BESS 500/1000</span></div>
+    <div class="cout"><span id="o-batt">0</span><small> MW <span id="bmode"></span></small></div>
+    <div class="cstat">SOC <span id="soc%">68%</span> · <span id="socMWh">680</span> MWh</div>
+    <div class="bar" title="State of charge"><i id="socbar" style="width:68%"></i></div>
+    <input type="range" id="sl-batt" min="-500" max="500" step="10" value="0" title="− charge · + discharge">
+    <div class="cfoot"><span>SET <b id="sv-batt">0</b> MW</span><span>±FCAS AUTO</span></div></div>`;
+  html+=`<div class="card" id="cd-ic" title="Import $58/MWh flat · export earns $40/MWh · ramps 100 MW/min">
+    <div class="chead"><span class="lamp on" id="lp-ic"></span>INTERCONNECTOR<span class="ctype">TIE N1 ±800</span></div>
+    <div class="cout"><span id="o-ic">250</span><small> MW <span id="icmode">IMPORT</span></small></div>
+    <div class="cstat" id="st-ic"></div>
+    <input type="range" id="sl-ic" min="-800" max="800" step="10" value="250" title="− export · + import">
+    <div class="cfoot"><span>SET <b id="sv-ic">250</b> MW</span><span>$58 IMP</span></div></div>`;
+  html+=`<div class="card" id="cd-wind" title="Limit slider curtails output below available wind">
+    <div class="chead"><span class="lamp on"></span>GALE RIDGE WIND<span class="ctype">VRE 1200</span></div>
+    <div class="cout"><span id="o-wind">0</span><small> / <span id="av-wind">0</span> MW AVAIL</small></div>
+    <div class="cstat" id="st-wind"></div>
+    <input type="range" id="sl-wind" min="0" max="100" step="5" value="100" title="Output limit %">
+    <div class="cfoot"><span>LIMIT <b id="sv-wind">100</b>%</span><span>$0/MWh</span></div></div>`;
+  html+=`<div class="card" id="cd-sol" title="Limit slider curtails output below available solar">
+    <div class="chead"><span class="lamp on"></span>SUNPLAIN SOLAR<span class="ctype">VRE 1400</span></div>
+    <div class="cout"><span id="o-sol">0</span><small> / <span id="av-sol">0</span> MW AVAIL</small></div>
+    <div class="cstat" id="st-sol"></div>
+    <input type="range" id="sl-sol" min="0" max="100" step="5" value="100" title="Output limit %">
+    <div class="cfoot"><span>LIMIT <b id="sv-sol">100</b>%</span><span>$0/MWh</span></div></div>`;
+  html+=`<div class="card" id="cd-ops" title="Emergency tools — expensive, but cheaper than shedding">
+    <div class="chead"><span class="lamp" id="lp-ops"></span>EMERGENCY OPS<span class="ctype">DR / RERT</span></div>
+    <div class="cstat" id="st-dr">DEMAND RESPONSE ●●●</div>
+    <button class="cbtn" id="bt-dr" style="width:100%">CALL DR −350 MW / 60 MIN</button>
+    <div class="cstat" id="st-rt">RESERVE DIESEL 300 MW · 20 MIN START · $2,600</div>
+    <button class="cbtn" id="bt-rt" style="width:100%">START RESERVE DIESEL</button></div>`;
+  fl.innerHTML=html;
+  // wiring
+  for(const u of F){
+    $('sl-'+u.id).addEventListener('input',e=>{u.set=+e.target.value;$('sv-'+u.id).textContent=fmt(u.set);});
+    $('bt-'+u.id).addEventListener('click',()=>{
+      if(u.fault>0)return;
+      if(u.on){u.on=false;u.starting=0;log('info',u.nm+' decommitted — output running down.');}
+      else if(u.starting>0){u.starting=0;log('info',u.nm+' start-up aborted.');}
+      else{if(u.id==='hyd'&&S.hydRes<=0)return;
+        u.starting=u.st;S.money-=u.startCost;S.fuel+=u.startCost;
+        log('info',u.nm+' start sequence initiated — on-line in '+u.st+' min (start cost '+fm$(u.startCost)+').');}
+    });
+  }
+  $('sl-batt').addEventListener('input',e=>{S.batt.set=+e.target.value;$('sv-batt').textContent=fmt(S.batt.set);});
+  $('sl-ic').addEventListener('input',e=>{S.ic.set=+e.target.value;$('sv-ic').textContent=fmt(S.ic.set);});
+  $('sl-wind').addEventListener('input',e=>{S.wCurt=+e.target.value;$('sv-wind').textContent=S.wCurt;});
+  $('sl-sol').addEventListener('input',e=>{S.sCurt=+e.target.value;$('sv-sol').textContent=S.sCurt;});
+  $('bt-dr').addEventListener('click',()=>{
+    if(S.dr.uses<=0||S.dr.left>0)return;
+    S.dr.uses--;S.dr.left=60;
+    log('warn','DEMAND RESPONSE CALLED: 350 MW of contracted load off for 60 min ($1,400/MWh). '+S.dr.uses+' call(s) left.');});
+  $('bt-rt').addEventListener('click',()=>{
+    S.rert.on=!S.rert.on;
+    if(S.rert.on){S.rert.timer=20;log('warn','Reserve diesel fleet start ordered — on-line in 20 min.');}
+    else{S.rert.timer=0;log('info','Reserve diesel fleet stood down.');}});
+}
+function ui(){
+  $('hClock').textContent=clock(S.t);
+  const pc=$('hPrice');pc.textContent='$'+fmt(S.price);
+  pc.className=S.price>1000?'crit':S.price>300?'warn':'good';
+  const res=Math.round(F.reduce((a,u)=>a+(u.on?capE(u)-u.out:0),0)
+    +(S.ic.fault?0:S.ic.lim-S.ic.flow)+(S.batt.soc>50?S.batt.p-S.batt.out:0));
+  const rc=$('hRes');rc.textContent=fmt(res);rc.className=res<150?'crit':res<450?'warn':'good';
+  const ic2=$('hIn');ic2.textContent=fmt(S.M);ic2.className=S.M<1000?'crit':S.M<1600?'warn':'good';
+  $('hCo2').textContent=(S.co2/1000).toFixed(1);
+  const pn=$('hPnl');pn.textContent=fm$(S.money);pn.className=S.money<0?'crit':'good';
+  // market panel
+  $('mPrice').textContent='$'+fmt(S.price)+'/MWh';
+  $('mMarg').textContent=fmt(res)+' MW spare';
+  $('mFcas').textContent=(S.fcas>=0?'+':'')+fmt(S.fcas)+' MW';
+  const h=hourNow();
+  const nl=(demandF(h+1)-(solarClear(h+1)*S.cloudMu+1200*S.windMu))-(demandF(h)-(solarClear(h)*S.cloudMu+1200*S.windMu));
+  const mr=$('mRamp');mr.textContent=(nl>=0?'+':'')+fmt(nl)+' MW/h';mr.style.color=nl>800?'var(--amb)':'var(--tx)';
+  $('mTemp').textContent=Math.round(pw(TMP,h)+(S.heat.active?7:S.heat.ann?3:0))+' °C';
+  $('mWind').textContent=Math.round(S.wind*100)+'%';
+  $('mSol').textContent=Math.round(S.cloud*100)+'% sky';
+  $('mUse').textContent=fmt(S.unserved)+' MWh';
+  const cmp=100*S.okTicks/Math.max(S.ticks,1);
+  const ce=$('mCmp');ce.textContent=cmp.toFixed(1)+'%';ce.style.color=cmp<90?'var(--red)':cmp<96?'var(--amb)':'var(--grn)';
+  // annunciator
+  for(const[,k]of ANN){const el=$('an-'+k),v=S.alarms[k]||0;
+    el.className='ann'+(v===2?' crit':v===1?' on':'');}
+  // fleet
+  for(const u of F){
+    $('o-'+u.id).textContent=fmt(u.out);
+    $('cp-'+u.id).textContent=fmt(capE(u));
+    const lp=$('lp-'+u.id);lp.className='lamp'+(u.fault>0||u.subFault>0?' fl':u.on?' on':u.starting>0?' st':'');
+    const st=$('st-'+u.id),card=$('cd-'+u.id);
+    card.classList.toggle('fault',u.fault>0||u.subFault>0);
+    const tgt=u.on?clamp(u.set,minE(u),capE(u)):0;
+    st.innerHTML=u.fault>0?'<span class="fl">FAULT — LOCKOUT '+Math.ceil(u.fault)+' MIN</span>'
+      :u.subFault>0?'<span class="fl">MACHINE DOWN — '+Math.ceil(u.subFault)+' MIN</span>'
+      :u.starting>0?'<span class="dn">STARTING — SYNC IN '+Math.ceil(u.starting)+' MIN</span>'
+      :!u.on?'OFF-LINE'
+      :Math.abs(tgt-u.out)>u.ramp*DTS?'<span class="'+(tgt>u.out?'up':'dn')+'">'+(tgt>u.out?'▲ RAMP UP':'▼ RAMP DOWN')+' → '+fmt(tgt)+'</span>'
+      :(u.derate<1?'<span class="dn">DERATED (HEAT)</span>':'ON TARGET');
+    $('bt-'+u.id).textContent=u.fault>0?'FAULT':u.starting>0?'ABORT':u.on?'STOP':'START';
+    $('bt-'+u.id).disabled=u.fault>0;
+    $('bt-'+u.id).classList.toggle('stop',u.on);
+  }
+  $('hb').style.width=(S.hydRes/7500*100)+'%';
+  const B=S.batt;
+  $('o-batt').textContent=fmt(Math.abs(B.out));
+  $('bmode').textContent=B.out>5?'DISCHARGE':B.out<-5?'CHARGE':'IDLE';
+  const sp=100*B.soc/B.e;
+  document.getElementById('soc%').textContent=Math.round(sp)+'%';
+  $('socMWh').textContent=fmt(B.soc);
+  $('socbar').style.width=sp+'%';
+  $('socbar').style.background=sp<15?'var(--red)':sp<30?'var(--amb)':'var(--vio)';
+  $('o-ic').textContent=fmt(Math.abs(S.ic.flow));
+  $('icmode').textContent=S.ic.flow>=0?'IMPORT':'EXPORT';
+  $('st-ic').innerHTML=S.ic.fault>0?'<span class="fl">LINE FAULT — '+Math.ceil(S.ic.fault)+' MIN</span>'
+    :Math.abs(clamp(S.ic.set,-750,750)-S.ic.flow)>2?'<span class="dn">RAMPING → '+fmt(S.ic.set)+'</span>':'STEADY';
+  $('lp-ic').className='lamp'+(S.ic.fault>0?' fl':' on');
+  const h2=hourNow();
+  const wA=1200*S.wind,sA=solarClear(h2)*S.cloud;
+  $('o-wind').textContent=fmt(wA*S.wCurt/100);$('av-wind').textContent=fmt(wA);
+  $('o-sol').textContent=fmt(sA*S.sCurt/100);$('av-sol').textContent=fmt(sA);
+  $('st-wind').textContent=S.wCurt<100?'CURTAILED':'FREE RUNNING';
+  $('st-sol').textContent=h2<SUNRISE||h2>SUNSET?'NIGHT':S.sCurt<100?'CURTAILED':'FREE RUNNING';
+  $('st-dr').textContent='DEMAND RESPONSE '+'●'.repeat(S.dr.uses)+'○'.repeat(3-S.dr.uses)+
+    (S.dr.left>0?' — ACTIVE '+Math.ceil(S.dr.left)+' MIN':'');
+  $('bt-dr').disabled=S.dr.uses<=0||S.dr.left>0;
+  $('st-rt').textContent=S.rert.on?(S.rert.timer>0?'DIESEL STARTING — '+Math.ceil(S.rert.timer)+' MIN':'DIESEL ON-LINE +300 MW'):'RESERVE DIESEL 300 MW · 20 MIN START · $2,600';
+  $('bt-rt').textContent=S.rert.on?'STAND DOWN DIESEL':'START RESERVE DIESEL';
+  $('lp-ops').className='lamp'+(S.rert.out||S.dr.left>0?' on':S.rert.on?' st':'');
+}
+
+/* ---------- control ---------- */
+function setPause(p){
+  if(S.over)return;
+  S.run=!p;
+  $('pauseTag').style.display=p?'block':'none';
+  $('bPause').textContent=p?'▶ RESUME':'⏸ PAUSE';
+}
+$('bPause').onclick=()=>setPause(S.run);
+document.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&$('ovStart').classList.contains('hide')&&
+     $('ovMan').classList.contains('hide')&&!S.over){e.preventDefault();setPause(S.run);}});
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&S.run)setPause(true);});
+$('bMute').onclick=()=>{muted=!muted;$('bMute').textContent=muted?'🔇':'🔊';};
+$('bMan').onclick=()=>{$('ovMan').classList.remove('hide');setPause(true);};
+$('bManX').onclick=()=>$('ovMan').classList.add('hide');
+$('bStart').onclick=()=>{
+  $('ovStart').classList.add('hide');
+  try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}
+  S.run=true;
+  log('info','04:00 — shift handover complete. System normal: 3.8 GW demand, coal + CCGT + hydro committed, tie importing 250 MW.');
+  log('info','Forecast: peak ~7.7 GW at 18:45. Check MANUAL for physics; watch the annunciator.');
+};
+
+/* ---------- restart (no page reload — works inside sandboxed frames) ---------- */
+function restart(){
+  freshState();schedule();
+  $('log').innerHTML='';
+  ['ovEnd','ovMan','coach'].forEach(id=>$(id).classList.add('hide'));
+  document.querySelectorAll('.tut-hi').forEach(e=>e.classList.remove('tut-hi'));
+  for(const u of F){const s=$('sl-'+u.id);if(s){s.value=u.set;$('sv-'+u.id).textContent=fmt(u.set);}}
+  $('sl-batt').value=0;$('sv-batt').textContent='0';
+  $('sl-ic').value=250;$('sv-ic').textContent='250';
+  $('sl-wind').value=100;$('sv-wind').textContent='100';
+  $('sl-sol').value=100;$('sv-sol').textContent='100';
+  $('pauseTag').style.display='none';$('bPause').textContent='⏸ PAUSE';
+  $('ovStart').classList.remove('hide');
+  draw();ui();
+}
+
+/* ---------- tutorial ---------- */
+const FU=Object.fromEntries(F.map(u=>[u.id,u]));
+const TUT=[
+ {hi:['#pG'],title:'THE ONLY NUMBER THAT MATTERS',
+  html:'You are the dispatcher. This dial is the whole job: <b>system frequency</b>. At exactly 50.000 Hz, generation equals demand across the region. Surplus power pushes it up; deficit drags it down. Your contract: keep the needle in the green band, <b>49.85–50.15 Hz</b>. Everything else on this desk exists to serve it.'},
+ {hi:['#pD'],title:'THE DAY AHEAD',
+  html:'<b>Amber</b> is customer demand — solid where it has happened, dashed where it is forecast. <b>Green</b> is your total supply. <b>Cyan</b> is wind + solar, which you get for free but cannot order around. Demand roughly doubles from the overnight trough to the evening peak, and it does not negotiate. Your job is to walk supply along that amber line — slightly <i>before</i> it moves.'},
+ {hi:['#fleet'],title:'YOUR MACHINES',
+  html:'The dispatch desk. Each card is a power station: the slider sets a <b>MW setpoint</b>, and the machine ramps toward it at its own speed — hydro sprints at 130 MW/min, coal crawls at 12. The lamp shows status; START/STOP commits a unit, and starting takes minutes (peakers) to hours (coal). Nothing teleports.'},
+ {hi:['#cd-hyd','#pG'],title:'TASK — CATCH THE SAG',
+  html:'We took over the desk about <b>250 MW short</b> — see the needle hanging low. Hydro is your fastest big lever. <b>Drag SNOWY GORGE HYDRO to about 600 MW</b> and watch frequency climb home.',
+  task:'Hydro output ≥ 500 MW and frequency holding near 50.00',
+  check:()=>FU.hyd.out>=500&&Math.abs(S.dev)<=.1},
+ {hi:['#cd-coal','#cd-hyd'],title:'SLOW GIANTS, FINITE WATER',
+  html:'Coal is the cheap workhorse — and the slowest thing you own: 2 h to start from cold, 12 MW/min on the slider, and it cannot run below 950 MW. Meanwhile, the hydro we&#39;ve been leaning on burns through a <b>daily water allocation</b> — the cyan bar, 7,500 MWh. Spend water on peaks and emergencies, not on convenience.',
+  onEnter:()=>tutJump(105,dem=>{const w=1200*S.wind;
+    FU.coal.out=FU.coal.set=2000;FU.ccgt.out=FU.ccgt.set=520;S.ic.set=250;S.ic.flow=250;
+    FU.hyd.out=FU.hyd.set=Math.round(clamp(dem-2000-520-250-w,100,950));})},
+ {hi:['#cd-gta','#cd-coal'],title:'TASK — COMMIT FOR THE MORNING RAMP',
+  html:'Sunrise is coming and with it ~1,800 MW of extra demand by 09:00. Coal alone cannot ramp that fast. <b>Press START on PEAKER GT·A</b> (8 min to sync) and <b>raise MT HAZEL COAL toward 2,400 MW</b> so the slow giant is already moving when you need it.',
+  task:'GT·A started · coal setpoint ≥ 2,300 MW',
+  check:()=>(FU.gta.on||FU.gta.starting>0)&&FU.coal.set>=2300},
+ {hi:['#cd-batt'],title:'THE BATTERY',
+  html:'500 MW of instant power with a 1,000 MWh tank — two hours flat out. Positive setpoint <b>discharges</b>, negative <b>charges</b> (buying energy at the spot price). It also fights sudden frequency swings automatically (<b>FCAS</b>) — which quietly drains stored charge. Treat charge like ammunition: keep it full before the evening peak.',
+  onEnter:()=>tutJump(210,dem=>{const w=1200*S.wind,so=solarClear(hourNow())*S.cloud;
+    FU.coal.out=FU.coal.set=2400;FU.ccgt.out=FU.ccgt.set=800;
+    FU.gta.starting=0;FU.gta.on=true;FU.gta.out=FU.gta.set=350;
+    FU.hyd.out=FU.hyd.set=Math.round(clamp(dem-2400-800-350-250-w-so,50,950));S.batt.set=0;
+    log('info','07:30 — desk note: coal made its target during the skip, Riverton loaded to 800 MW, GT·A carrying 350.');})},
+ {hi:['#pG','#cd-batt'],title:'TASK — SURVIVE A UNIT TRIP',
+  html:'<b>Bang.</b> One of Riverton CCGT&#39;s two trains just tripped — <b>400 MW gone in one second</b>. The battery&#39;s automatic response is already arresting the fall, but it will not hold forever. <b>Cover the loss</b>: battery discharge, hydro up — <b>bring frequency back above 49.94</b> and hold it.',
+  task:'Frequency restored ≥ 49.94 Hz and held',
+  check:()=>S.dev>=-.06,
+  onEnter:()=>{const c=FU.ccgt;c.availF=.5;c.subFault=25;c.out*=.5;
+    log('crit','RIVERTON CCGT: one train tripped — 50% of station capacity lost. Lockout ~25 min.');beep(950,3);}},
+ {hi:['#mkt','#pA'],title:'INSTRUMENTS & ALARMS',
+  html:'<b>RESERVE</b> is spare capacity you could still call on — keep several hundred MW in hand. <b>INERTIA</b> says how fast frequency moves when something breaks; low inertia = twitchy grid. The <b>spot price</b> climbs as reserve thins: $300 is a warning, $1,000+ is a siren. Annunciator tiles light for whatever needs you. And below <b>49.2 Hz</b>, under-frequency relays start disconnecting customers automatically at $16,600/MWh — the failure you are paid to prevent.'},
+ {hi:['#pD'],title:'THE DUCK CURVE — AND THE REAL SHIFT',
+  html:'One final trap: at sunset, solar dies exactly as demand peaks. From mid-afternoon, watch <b>NET LOAD RAMP +1H</b> and commit plant <i>early</i> — the 17:00–20:00 climb is the hardest hour of the day. If it all goes wrong: DEMAND RESPONSE (3 calls) and the reserve diesel are expensive, but cheaper than the alternative. That&#39;s the desk. The full shift is 24 hours, real weather, real failures, and a grade at the end. Good luck, dispatcher.'},
+];
+let tutStep=0,tutOk=0,tutDone=false;
+function tutJump(toMin,arrange){ // skip quiet stretches; re-balance the board for the new hour
+  S.t=toMin;S.noise=0;
+  arrange(demBase(hourNow()));
+  for(const u of F){const s=$('sl-'+u.id);if(s){s.value=u.set;$('sv-'+u.id).textContent=fmt(u.set);}}
+  $('sl-batt').value=S.batt.set;$('sv-batt').textContent=fmt(S.batt.set);
+  const m=Math.floor(S.t);
+  while(S.lastMin<m-1){S.lastMin++;S.aDem.push(null);S.aSup.push(null);S.aRen.push(null);S.aShed.push(0);}
+  S.freq=50;S.dev=0;S.histF=[];
+}
+function tutGo(i){
+  document.querySelectorAll('.tut-hi').forEach(e=>e.classList.remove('tut-hi'));
+  if(i>=TUT.length)return restart();
+  tutStep=i;tutOk=0;tutDone=false;
+  const s=TUT[i];
+  $('coStep').textContent=(i+1)+' / '+TUT.length;
+  $('coTitle').textContent=s.title;
+  $('coBody').innerHTML=s.html;
+  (s.hi||[]).forEach((sel,j)=>{const e=document.querySelector(sel);
+    if(e){e.classList.add('tut-hi');if(j===0)e.scrollIntoView({block:'nearest',behavior:'smooth'});}});
+  const tk=$('coTask');
+  if(s.check){tk.classList.remove('hide');tk.textContent='□ '+s.task;tk.style.color='var(--amb)';
+    $('coNext').disabled=true;setPause(false);}
+  else{tk.classList.add('hide');$('coNext').disabled=false;setPause(true);}
+  $('coNext').textContent=i===TUT.length-1?'FINISH — TAKE THE FULL SHIFT':'NEXT ▸';
+  if(s.onEnter)s.onEnter();
+  draw();ui();
+}
+function tutTick(){
+  const s=TUT[tutStep];if(!s||!s.check||tutDone)return;
+  tutOk=s.check()?tutOk+1:0;
+  if(tutOk>(tutStep===7?50:25)){tutDone=true;
+    const tk=$('coTask');tk.textContent='✓ '+s.task;tk.style.color='var(--grn)';
+    beep(1200,1);setTimeout(()=>tutGo(tutStep+1),1400);}
+}
+$('coNext').onclick=()=>{if(!$('coNext').disabled)tutGo(tutStep+1);};
+$('coEnd').onclick=restart;
+$('bTut').onclick=()=>{
+  $('ovStart').classList.add('hide');
+  try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}
+  S.tut=true;
+  const hy=FU.hyd;hy.out=hy.set=150;$('sl-hyd').value=150;$('sv-hyd').textContent='150';
+  $('coach').classList.remove('hide');
+  log('info','04:00 — training shift. No surprises today except the ones the coach arranges.');
+  tutGo(0);
+};
+buildUI();schedule();
+setInterval(tick,100);
+draw();ui();
+</script>
