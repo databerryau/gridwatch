@@ -1,5 +1,5 @@
 <meta charset="utf-8">
-<!-- GRIDWATCH v1.1 — tutorial build -->
+<!-- GRIDWATCH v2.0 — isometric build -->
 <title>GRIDWATCH — Grid Dispatch Simulator</title>
 <style>
 :root{
@@ -12,85 +12,97 @@
 html,body{background:var(--bg);color:var(--tx);font-family:var(--mono);font-size:13px}
 button{font-family:var(--mono);cursor:pointer}
 #crt{position:fixed;inset:0;pointer-events:none;z-index:50;
-  background:repeating-linear-gradient(0deg,rgba(0,0,0,.13) 0 1px,transparent 1px 3px);}
-#vig{position:fixed;inset:0;pointer-events:none;z-index:51;
-  background:radial-gradient(ellipse at 50% 40%,transparent 60%,rgba(0,0,0,.38) 100%);}
-#app{display:flex;flex-direction:column;gap:8px;padding:8px;min-height:100vh;max-width:1720px;margin:0 auto}
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.10) 0 1px,transparent 1px 3px);}
+#app{display:flex;flex-direction:column;gap:7px;padding:7px;min-height:100vh;max-width:1720px;margin:0 auto}
 
 /* header */
 header{display:flex;align-items:center;gap:14px;background:var(--pan);border:1px solid var(--edge);
-  padding:7px 12px;flex-wrap:wrap}
+  padding:6px 12px;flex-wrap:wrap}
 .brand{font-weight:700;letter-spacing:.18em;color:var(--grn);font-size:15px;text-shadow:0 0 8px rgba(65,224,139,.5)}
 .brand small{display:block;color:var(--dim);font-weight:400;font-size:9px;letter-spacing:.22em}
 .hchips{display:flex;gap:8px;flex-wrap:wrap;flex:1}
-.chip{background:var(--pan2);border:1px solid var(--edge);padding:3px 9px;min-width:86px}
+.chip{background:var(--pan2);border:1px solid var(--edge);padding:2px 9px;min-width:84px}
 .chip label{display:block;font-size:8.5px;color:var(--dim);letter-spacing:.15em}
-.chip b{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.chip b{font-size:13.5px;font-weight:600;font-variant-numeric:tabular-nums}
 .chip b.good{color:var(--grn)}.chip b.warn{color:var(--amb)}.chip b.crit{color:var(--red)}
 .hbtn{background:var(--pan2);border:1px solid var(--edge2);color:var(--tx);padding:6px 12px;
   letter-spacing:.1em;font-size:11px}
 .hbtn:hover{border-color:var(--grn);color:var(--grn)}
 
-/* main grid */
-main{display:grid;grid-template-columns:300px minmax(0,1fr) 302px;gap:8px;align-items:stretch}
-.panel{background:var(--pan);border:1px solid var(--edge);padding:8px;display:flex;flex-direction:column;min-width:0}
-.ptitle{font-size:9.5px;color:var(--dim);letter-spacing:.2em;margin-bottom:6px;display:flex;justify-content:space-between}
-.ptitle .leg{letter-spacing:.05em}
-.leg i{font-style:normal;margin-left:8px}
-#colL,#colM,#colR{display:flex;flex-direction:column;gap:8px;min-width:0}
+/* main */
+main{display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:7px;align-items:stretch}
+.panel{background:var(--pan);border:1px solid var(--edge);padding:7px;display:flex;flex-direction:column;min-width:0}
+.ptitle{font-size:9px;color:var(--dim);letter-spacing:.2em;margin-bottom:5px;display:flex;justify-content:space-between}
+.leg i{font-style:normal;margin-left:7px}
+#rail{display:flex;flex-direction:column;gap:7px;min-width:0}
 canvas{display:block;width:100%}
-#cvG{height:196px}
-#cvF{height:132px}
-#cvD{height:252px}
+#pMap{position:relative;padding:0;overflow:hidden}
+#cvM{height:100%;min-height:380px;image-rendering:pixelated;cursor:pointer;display:block}
+#tip{position:absolute;pointer-events:none;background:rgba(6,10,9,.92);border:1px solid var(--edge2);
+  padding:4px 8px;font-size:10px;display:none;z-index:6;white-space:nowrap}
+#tip b{color:var(--amb)}
+#cvG{height:138px}
+#cvF{height:86px}
+#cvD{height:170px}
+.kv{display:flex;justify-content:space-between;font-size:11px;padding:1.5px 0;font-variant-numeric:tabular-nums}
+.kv span{color:var(--dim)}
 
+/* dock */
+#dock{display:grid;grid-template-columns:236px minmax(0,1fr) 216px 296px;gap:7px;align-items:stretch}
+#strip{display:grid;grid-template-columns:repeat(2,1fr);gap:4px;align-content:start}
+.stile{background:var(--pan2);border:1px solid var(--edge);padding:4px 6px;cursor:pointer;
+  display:flex;align-items:center;gap:5px;font-size:9px;letter-spacing:.06em}
+.stile:hover{border-color:var(--amb)}
+.stile.sel{border-color:var(--amb);background:#161207}
+.stile b{width:34px;flex:none}
+.slamp{width:7px;height:7px;border-radius:50%;background:#2a3a33;flex:none}
+.slamp.on{background:var(--grn);box-shadow:0 0 5px var(--grn)}
+.slamp.st{background:var(--amb);box-shadow:0 0 5px var(--amb)}
+.slamp.fl{background:var(--red);box-shadow:0 0 5px var(--red)}
+.sbar{flex:1;height:5px;background:#0a100d;border:1px solid var(--edge)}
+.sbar i{display:block;height:100%;background:var(--grn);width:0}
+/* selected-asset control panel */
+#selP{gap:6px}
+.dhead{display:flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.08em}
+.dhead .lamp{width:9px;height:9px;border-radius:50%;background:#2a3a33}
+.lamp.on{background:var(--grn);box-shadow:0 0 6px var(--grn)}
+.lamp.st{background:var(--amb);box-shadow:0 0 6px var(--amb)}
+.lamp.fl{background:var(--red);box-shadow:0 0 6px var(--red)}
+.dtype{margin-left:auto;color:var(--dim);font-size:8.5px;letter-spacing:.12em}
+.dout{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
+.dout small{font-size:10px;color:var(--dim);font-weight:400}
+.dstat{font-size:10px;color:var(--dim);min-height:13px;font-variant-numeric:tabular-nums}
+.dstat .up{color:var(--grn)}.dstat .dn{color:var(--amb)}.dstat .fl{color:var(--red)}
+input[type=range]{width:100%;height:18px;-webkit-appearance:none;appearance:none;background:transparent}
+input[type=range]::-webkit-slider-runnable-track{height:5px;background:var(--edge2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:17px;background:var(--tx);
+  margin-top:-6px;border:1px solid var(--bg)}
+input[type=range]::-moz-range-track{height:5px;background:var(--edge2)}
+input[type=range]::-moz-range-thumb{width:14px;height:17px;background:var(--tx);border:1px solid var(--bg);border-radius:0}
+.dfoot{display:flex;justify-content:space-between;align-items:center;font-size:9.5px;color:var(--dim);gap:8px;flex-wrap:wrap}
+.cbtn{background:var(--pan2);border:1px solid var(--edge2);color:var(--tx);font-size:10px;
+  padding:5px 12px;letter-spacing:.08em}
+.cbtn:hover:not(:disabled){border-color:var(--grn);color:var(--grn)}
+.cbtn:disabled{opacity:.35;cursor:not-allowed}
+.cbtn.stop:hover{border-color:var(--red);color:var(--red)}
+.bar{height:7px;background:#0a100d;border:1px solid var(--edge)}
+.bar i{display:block;height:100%;background:var(--vio)}
+.bar.h i{background:var(--cyn)}
 /* annunciator */
-#annun{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+#annun{display:grid;grid-template-columns:repeat(2,1fr);gap:3px;align-content:start}
 .ann{border:1px solid var(--edge);background:#0a100d;color:#33413a;text-align:center;
-  font-size:8.5px;letter-spacing:.08em;padding:7px 2px;user-select:none}
+  font-size:8px;letter-spacing:.06em;padding:5.5px 2px;user-select:none}
 .ann.on{color:#120b00;background:var(--amb);border-color:var(--amb);font-weight:700}
 .ann.crit{color:#fff;background:var(--red);border-color:var(--red);font-weight:700;animation:blink .5s steps(2) infinite}
 @keyframes blink{50%{filter:brightness(.35)}}
 @media(prefers-reduced-motion:reduce){.ann.crit{animation:none}}
-
-/* market / log */
-.kv{display:flex;justify-content:space-between;font-size:11.5px;padding:2px 0;font-variant-numeric:tabular-nums}
-.kv span{color:var(--dim)}
-#log{overflow-y:auto;flex:1;min-height:120px;max-height:330px;font-size:10.5px;line-height:1.5}
-#log p{border-left:2px solid var(--edge);padding-left:6px;margin-bottom:4px;color:var(--dim)}
+#logP{max-height:158px}
+#log{overflow-y:auto;flex:1;min-height:90px;font-size:10px;line-height:1.5}
+#log p{border-left:2px solid var(--edge);padding-left:6px;margin-bottom:3px;color:var(--dim)}
 #log p b{color:var(--tx);font-weight:400}
 #log p.info b{color:var(--cyn)} #log p.good b{color:var(--grn)}
 #log p.warn{border-color:var(--amb)} #log p.warn b{color:var(--amb)}
 #log p.crit{border-color:var(--red)} #log p.crit b{color:var(--red);font-weight:700}
-
-/* fleet */
-#fleet{display:grid;grid-template-columns:repeat(auto-fit,minmax(172px,1fr));gap:8px}
-.card{background:var(--pan);border:1px solid var(--edge);padding:8px 9px;display:flex;flex-direction:column;gap:5px}
-.card.fault{border-color:var(--red)}
-.chead{display:flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.06em}
-.lamp{width:8px;height:8px;border-radius:50%;background:#2a3a33;flex:none}
-.lamp.on{background:var(--grn);box-shadow:0 0 6px var(--grn)}
-.lamp.st{background:var(--amb);box-shadow:0 0 6px var(--amb)}
-.lamp.fl{background:var(--red);box-shadow:0 0 6px var(--red)}
-.ctype{margin-left:auto;color:var(--dim);font-size:8px;letter-spacing:.12em}
-.cout{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
-.cout small{font-size:9px;color:var(--dim);font-weight:400}
-.cstat{font-size:9px;color:var(--dim);min-height:12px;font-variant-numeric:tabular-nums}
-.cstat .up{color:var(--grn)} .cstat .dn{color:var(--amb)} .cstat .fl{color:var(--red)}
-input[type=range]{width:100%;height:16px;-webkit-appearance:none;appearance:none;background:transparent}
-input[type=range]::-webkit-slider-runnable-track{height:4px;background:var(--edge2)}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:15px;background:var(--tx);
-  margin-top:-5.5px;border:1px solid var(--bg)}
-input[type=range]::-moz-range-track{height:4px;background:var(--edge2)}
-input[type=range]::-moz-range-thumb{width:12px;height:15px;background:var(--tx);border:1px solid var(--bg);border-radius:0}
-.cfoot{display:flex;justify-content:space-between;align-items:center;font-size:9px;color:var(--dim)}
-.cbtn{background:var(--pan2);border:1px solid var(--edge2);color:var(--tx);font-size:9.5px;
-  padding:3px 9px;letter-spacing:.08em}
-.cbtn:hover:not(:disabled){border-color:var(--grn);color:var(--grn)}
-.cbtn:disabled{opacity:.35;cursor:not-allowed}
-.cbtn.stop:hover{border-color:var(--red);color:var(--red)}
-.bar{height:6px;background:#0a100d;border:1px solid var(--edge)}
-.bar i{display:block;height:100%;background:var(--vio)}
-.bar.h i{background:var(--cyn)}
 
 /* tutorial coach */
 #coach{position:fixed;right:12px;bottom:12px;width:362px;max-width:calc(100vw - 24px);z-index:80;
@@ -140,16 +152,18 @@ kbd{border:1px solid var(--edge2);padding:0 5px;font-size:10px}
   color:#120b00;font-weight:700;letter-spacing:.25em;padding:4px 18px;display:none}
 
 @media(max-width:1080px){
-  main{grid-template-columns:1fr 1fr}
-  #colM{grid-column:1/-1;order:-1}
+  main{grid-template-columns:1fr}
+  #dock{grid-template-columns:1fr 1fr}
+  #strip{grid-template-columns:repeat(5,1fr);grid-column:1/-1}
+  #logP{grid-column:1/-1}
 }
 @media(max-width:660px){
-  main{grid-template-columns:1fr}
-  #fleet{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  #dock{grid-template-columns:1fr}
+  #strip{grid-template-columns:repeat(3,1fr)}
 }
 </style>
 
-<div id="crt"></div><div id="vig"></div>
+<div id="crt"></div>
 <div id="pauseTag">■ PAUSED</div>
 <div id="app">
 <header>
@@ -168,37 +182,30 @@ kbd{border:1px solid var(--edge2);padding:0 5px;font-size:10px}
 </header>
 
 <main>
-  <section id="colL">
+  <section class="panel" id="pMap"><canvas id="cvM"></canvas><div id="tip"></div></section>
+  <aside id="rail">
     <div class="panel" id="pG"><div class="ptitle">SYSTEM FREQUENCY</div><canvas id="cvG"></canvas></div>
-    <div class="panel" id="pA"><div class="ptitle">ANNUNCIATOR</div>
-      <div id="annun"></div>
-    </div>
-  </section>
-  <section id="colM">
-    <div class="panel" id="pF"><div class="ptitle"><span>FREQUENCY TRACE — LAST 3 H</span>
-      <span class="leg"><i style="color:var(--grn)">— f</i><i style="color:var(--dim)">▒ normal band</i></span></div>
-      <canvas id="cvF"></canvas></div>
-    <div class="panel" id="pD"><div class="ptitle"><span>DEMAND &amp; SUPPLY — 24 H SHIFT</span>
-      <span class="leg"><i style="color:var(--amb)">— demand</i><i style="color:var(--grn)">— supply</i><i style="color:var(--cyn)">— wind+solar</i><i style="color:var(--dim)">┄ forecast</i><i style="color:var(--red)">▒ shed</i></span></div>
+    <div class="panel" id="pF"><div class="ptitle"><span>FREQ TRACE — 3 H</span></div><canvas id="cvF"></canvas></div>
+    <div class="panel" id="pD"><div class="ptitle"><span>DEMAND &amp; SUPPLY — 24 H</span>
+      <span class="leg"><i style="color:var(--amb)">—dem</i><i style="color:var(--grn)">—sup</i><i style="color:var(--cyn)">—vre</i><i style="color:var(--dim)">┄fcst</i></span></div>
       <canvas id="cvD"></canvas></div>
-  </section>
-  <aside id="colR">
-    <div class="panel"><div class="ptitle">MARKET &amp; CONDITIONS</div>
+    <div class="panel" id="mkt">
+      <div class="ptitle">MARKET &amp; CONDITIONS</div>
       <div class="kv"><span>SPOT PRICE</span><b id="mPrice">—</b></div>
-      <div class="kv"><span>RESERVE MARGIN</span><b id="mMarg">—</b></div>
-      <div class="kv"><span>GOV / FCAS RESPONSE</span><b id="mFcas">0 MW</b></div>
+      <div class="kv"><span>GOV / FCAS</span><b id="mFcas">0 MW</b></div>
       <div class="kv"><span>NET LOAD RAMP +1 H</span><b id="mRamp">—</b></div>
-      <div class="kv"><span>TEMPERATURE</span><b id="mTemp">—</b></div>
-      <div class="kv"><span>WIND RESOURCE</span><b id="mWind">—</b></div>
-      <div class="kv"><span>SOLAR RESOURCE</span><b id="mSol">—</b></div>
-      <div class="kv"><span>UNSERVED ENERGY</span><b id="mUse">0 MWh</b></div>
-      <div class="kv"><span>FREQ COMPLIANCE</span><b id="mCmp">100%</b></div>
+      <div class="kv"><span>TEMP · WIND · SKY</span><b id="mWx">—</b></div>
+      <div class="kv"><span>UNSERVED · COMPLIANCE</span><b id="mQ">0 · 100%</b></div>
     </div>
-    <div class="panel" style="flex:1"><div class="ptitle">EVENT LOG</div><div id="log"></div></div>
   </aside>
 </main>
 
-<footer id="fleet"></footer>
+<footer id="dock">
+  <div class="panel"><div class="ptitle">FLEET — CLICK TO SELECT</div><div id="strip"></div></div>
+  <div class="panel" id="selP"></div>
+  <div class="panel"><div class="ptitle">ANNUNCIATOR</div><div id="annun"></div></div>
+  <div class="panel" id="logP"><div class="ptitle">EVENT LOG</div><div id="log"></div></div>
+</footer>
 </div>
 
 <!-- START -->
@@ -210,7 +217,7 @@ kbd{border:1px solid var(--edge2);padding:0 5px;font-size:10px}
   Too far, too long, and the grid goes black.</p>
   <ul style="margin-top:8px">
     <li>Hold frequency inside <b>49.85 – 50.15 Hz</b>. Penalties accrue outside the band.</li>
-    <li>Set <b>MW setpoints</b> on each unit. Units ramp at realistic rates — coal is a freight train, batteries are instant.</li>
+    <li><b>Click any building on the map</b> to open its controls. Machines ramp at realistic rates — coal is a freight train, batteries are instant.</li>
     <li><b>Commit units early.</b> Coal takes 2 h to start, the CCGT 45 min. The evening peak will not wait for you.</li>
     <li>Watch the <b>duck curve</b>: solar dies at sunset exactly as demand peaks. Plan the ramp.</li>
     <li>Storms, heatwaves, unit trips and cloud fronts are on today's menu. The log gives warnings — read it.</li>
@@ -237,17 +244,18 @@ kbd{border:1px solid var(--edge2);padding:0 5px;font-size:10px}
 <div class="ov hide" id="ovMan"><div class="obox man">
   <h1 style="font-size:18px">OPERATOR MANUAL</h1>
   <h3>FREQUENCY = BALANCE</h3><p>All generators spin in lockstep at 50 Hz. Surplus generation accelerates them (frequency rises); deficit slows them (frequency falls). Frequency is the grid's live balance meter — steer it by matching supply to demand.</p>
+  <h3>THE MAP</h3><p>Every asset is a building: click it (or its tile in the FLEET strip) to open controls in the dock. Bars above each plant show output vs available capacity. Smoke, spinning blades, dam level, battery charge and city lights all reflect the live simulation — a dark district means load shedding.</p>
   <h3>INERTIA</h3><p>Heavy spinning machines (coal, gas, hydro) resist frequency change like a flywheel. With few synchronous units online — e.g. a solar-heavy midday — the same MW imbalance moves frequency far faster. Watch the INERTIA chip: below ~1,600 the grid is twitchy.</p>
   <h3>GOVERNOR / FCAS</h3><p>Online units automatically inject or withdraw a little power against frequency deviation (droop response), and the battery contributes fast frequency response. This buys you seconds, not minutes — it saturates, silently drains battery charge, and you must still redispatch to restore balance.</p>
   <h3>RAMP RATES &amp; COMMITMENT</h3><p>Setpoints aren't teleports. Coal moves ~12 MW/min, the CCGT 35, hydro 130, peakers 160, battery instantly. Off units need startup time (coal 2 h, CCGT 45 min, peakers 8 min). Running a unit above ~96% of capacity for long raises its trip risk.</p>
   <h3>THE DUCK CURVE</h3><p>Solar suppresses net demand at midday, then vanishes into the evening peak. The dashed cyan forecast shows renewables ahead; NET LOAD RAMP +1H warns how much dispatchable power you must add per hour. The 17:00–20:00 ramp is the hardest part of the shift.</p>
   <h3>BATTERY</h3><p>500 MW / 1,000 MWh. Negative setpoint charges (you buy energy at spot), positive discharges. Two hours at full power and it's empty — save charge for the peak and for trip response.</p>
-  <h3>HYDRO</h3><p>Fast and cheap but energy-limited: today's water allocation is 7,500 MWh (~8 h at full output). Ration it for peaks and emergencies.</p>
+  <h3>HYDRO</h3><p>Fast and cheap but energy-limited: today's water allocation is 7,500 MWh (~8 h at full output) — the reservoir behind the dam drains visibly. Ration it for peaks and emergencies.</p>
   <h3>INTERCONNECTOR</h3><p>Imports up to 800 MW at a flat $58/MWh contract (export pays $40). Cheap firm supply — until a storm trips the line.</p>
-  <h3>UFLS — LOAD SHEDDING</h3><p>If frequency falls to 49.2 / 49.0 / 48.8 Hz, under-frequency relays automatically disconnect blocks of customers to save the system. Effective, brutal, expensive: unserved energy is valued at $16,600/MWh. Load restores in stages once frequency holds ≥49.95.</p>
+  <h3>UFLS — LOAD SHEDDING</h3><p>If frequency falls to 49.2 / 49.0 / 48.8 Hz, under-frequency relays automatically disconnect blocks of customers to save the system — you'll see districts go dark. Unserved energy is valued at $16,600/MWh. Load restores in stages once frequency holds ≥49.95.</p>
   <h3>SCARCITY PRICING</h3><p>Spot price rises steeply as reserve margin thins, up to the $16,600 cap during shedding. Your load is hedged with $300-strike cap contracts, so you're paid at most $300/MWh for energy served — price spikes never print money. They set what you pay for battery charging, and they're the grid screaming that you're one trip from disaster.</p>
   <h3>CURTAILMENT</h3><p>Wind/solar LIMIT sliders cap renewable output. Use them if over-frequency threatens (e.g. sudden loss of load) or to keep thermal units above their minimums.</p>
-  <h3>EMERGENCY TOOLS</h3><p>DEMAND RESPONSE: 3 calls, each drops 350 MW for 1 h at $1,400/MWh. RESERVE DIESEL: 300 MW, 20 min start, $2,600/MWh. Expensive — losing the grid is more expensive.</p>
+  <h3>EMERGENCY TOOLS</h3><p>Click the CITY for load-side tools. DEMAND RESPONSE: 3 calls, each drops 350 MW for 1 h at $1,400/MWh. RESERVE DIESEL: 300 MW, 20 min start, $2,600/MWh. Expensive — losing the grid is more expensive.</p>
   <h3>SCORING</h3><p>Graded on session P&amp;L, % of time in the normal band, and unserved energy. CO₂ is tracked for the debrief. Blackout = automatic F.</p>
   <button class="go" id="bManX">CLOSE</button>
 </div></div>
@@ -341,7 +349,7 @@ function schedule(){
     at(800+R()*70,()=>{if(S.storm.active&&R()<.6)icTrip();});
     at(900,()=>{S.storm.active=false;S.storm.warn=false;S.windMu=.5;log('info','Storm front passed.');});
   }
-  if(R()<.65){ // cloud front (skip only rarely)
+  if(R()<.65){ // cloud front
     const t0=300+R()*300;
     at(t0,()=>{log('warn','SATELLITE: cloud band moving over Sunplain solar precinct, ~20 min out.');beep(700);});
     at(t0+20,()=>{S.cloudMu=.32;log('info','Cloud front overhead. Solar down to ~30% of clear-sky.');});
@@ -356,7 +364,6 @@ function schedule(){
       log('warn','WIND DROUGHT: high-pressure ridge settling in. Wind resource collapsing for several hours.');beep(700);});
   }
   if(R()<.4) at(200+R()*1100,()=>icTrip());
-  // narrative beacons
   at(110,()=>log('info','06:00 — morning ramp beginning. ~1,800 MW of demand growth by 09:00.'));
   at(795,()=>log('warn','17:15 — DUCK CURVE: solar fading into the evening peak. Check NET LOAD RAMP and commit plant now.'));
   at(1230,()=>log('info','00:30 — demand falling toward overnight trough. Mind thermal minimum-generation limits.'));
@@ -375,14 +382,14 @@ function tripUnit(big){
     u.on=false;u.out=0;u.starting=0;u.fault=90+Math.random()*60;
     log('crit','UNIT TRIP: '+u.nm+' off-line ('+fmt(u.cap)+' MW unit). Protection lockout ~'+Math.round(u.fault)+' min.');
   }
-  beep(950,3);
+  flash=6;beep(950,3);
 }
 function icTrip(){
   if(S.ic.fault>0)return;
   S.ic.fault=90+Math.random()*90;S.ic.flow=0;
   log('crit','INTERCONNECTOR TRIP: tie-line to Region N1 open. '+
       'Import/export capability lost ~'+Math.round(S.ic.fault)+' min.');
-  beep(950,3);
+  flash=6;beep(950,3);
 }
 
 /* ---------- audio ---------- */
@@ -410,15 +417,15 @@ function clock(t){const m=Math.floor(240+t),h=Math.floor(m/60)%24;
 
 /* ---------- model pieces ---------- */
 const demBase=h=>pw(DEM,h);
-function heatMod(h){ // demand multiplier from heatwave (with soft edges)
+function heatMod(h){
   if(S.heat.t1<0)return 1;
-  const t=h*60-240; // simmin
+  const t=h*60-240;
   if(t<S.heat.t0-60||t>S.heat.t1+60)return 1;
   const rise=clamp((t-(S.heat.t0-60))/60,0,1),fall=clamp((S.heat.t1+60-t)/60,0,1);
   return 1+.065*Math.min(rise,fall);
 }
 const hourNow=()=> (240+S.t)/60;
-function demandF(h){return demBase(h)*(S.heat.ann?heatMod(h):1);} // known forecast
+function demandF(h){return demBase(h)*(S.heat.ann?heatMod(h):1);}
 function solarClear(h){h=((h%24)+24)%24;
   if(h<SUNRISE||h>SUNSET)return 0;
   return Math.pow(Math.sin(Math.PI*(h-SUNRISE)/(SUNSET-SUNRISE)),1.35)*1400;}
@@ -428,26 +435,21 @@ function priceOf(margin,shed){
 }
 
 /* ---------- tick ---------- */
-const DTS=0.2;               // sim-minutes per tick (2 sim-min / real second)
+const DTS=0.2;
 function tick(){
   if(!S.run||S.over)return;
   const t=S.t+=DTS, h=hourNow(), dtH=DTS/60;
   S.ticks++;
-  // events (suspended in tutorial)
   if(!S.tut)for(const e of S.ev)if(!e.done&&t>=e.t){e.done=true;e.fn();}
-  // weather processes
   S.wind=clamp(S.wind+(S.windMu-S.wind)*.004+gauss()*.006,.04,.98);
   S.cloud=clamp(S.cloud+(S.cloudMu-S.cloud)*.01+gauss()*.008,.15,1);
   S.noise+= -S.noise*.003+gauss()*(S.tut?2:5.5);
   if(S.loadTrip>0)S.loadTrip-=DTS;
-  // demand
   const dem=Math.max(0,demBase(h)*heatMod(h)+S.noise-(S.loadTrip>0?600:0));
-  // renewables
   const solAvail=solarClear(h)*S.cloud, windAvail=1200*S.wind;
   const sol=solAvail*S.sCurt/100, wnd=windAvail*S.wCurt/100;
   S.ren=sol+wnd;
-  // thermal/hydro units
-  let disp=0,syncM=0,fuelCost=0,co2=0,govCap=0;
+  let disp=0,syncM=0,fuelCost=0,co2=0;
   for(const u of F){
     u.derate=(S.heat.active&&(u.cls.includes('GAS')||u.cls.includes('COAL')))?.93:1;
     if(u.fault>0){u.fault-=DTS;if(u.fault<=0){u.fault=0;log('good',u.nm+' released from lockout — available to start.');}}
@@ -466,43 +468,35 @@ function tick(){
       u.hot=(u.out>capE(u)*.96)?u.hot+DTS:0;
       if(!S.tut&&u.hot>5&&Math.random()<.00012){tripUnit(false);u.hot=0;}
       disp+=u.out;syncM+=u.cap*u.H;fuelCost+=u.out*u.cost*dtH;co2+=u.out*u.co2*dtH;
-      govCap+=u.cap;
     }
   }
-  // RERT diesel
   if(S.rert.on&&S.rert.timer>0){S.rert.timer-=DTS;
     if(S.rert.timer<=0){S.rert.timer=0;log('good','Reserve diesel fleet on-line: +300 MW.');}}
   S.rert.out=(S.rert.on&&S.rert.timer<=0)?300:0;
   if(S.rert.out){fuelCost+=300*2600*dtH;co2+=300*.8*dtH;disp+=S.rert.out;}
-  // interconnector
   if(S.ic.fault>0){S.ic.fault-=DTS;S.ic.flow=0;
     if(S.ic.fault<=0){S.ic.fault=0;log('good','Interconnector back in service.');}}
   else{const d=clamp(S.ic.set,-S.ic.lim,S.ic.lim)-S.ic.flow,r=S.ic.ramp*DTS;S.ic.flow+=clamp(d,-r,r);}
-  // battery (player setpoint)
   const B=S.batt;
   let bset=clamp(B.set,-B.p,B.p);
   if(B.soc<=1&&bset>0)bset=0;
   if(B.soc>=B.e-1&&bset<0)bset=0;
   B.out=bset;
-  // demand response
   if(S.dr.left>0)S.dr.left-=DTS;
   const drMW=S.dr.left>0?350:0;
   // ---- frequency dynamics ----
   const dev=S.dev;
-  // governor droop (sync units, limited headroom & 12% cap band)
   let gov=0;
   for(const u of F)if(u.on){
     let g=clamp(-dev*u.cap*.35,-u.cap*.12,u.cap*.12);
     g=clamp(g,-(Math.max(u.out-minE(u),0)),Math.max(capE(u)-u.out,0));
     gov+=g;
   }
-  // battery FCAS (auto, ±0.10 Hz deadband)
   const fdev=Math.sign(dev)*Math.max(Math.abs(dev)-.10,0);
   let bf=clamp(-fdev*1800,-Math.min(B.p+B.out,B.p),Math.min(B.p-B.out,B.p));
   if(B.soc<=1&&bf>0)bf=0; if(B.soc>=B.e-1&&bf<0)bf=0;
   B.soc=clamp(B.soc-(B.out+bf)*dtH,0,B.e);
   S.fcas=gov+bf;
-  // UFLS relays
   const f=S.freq;
   if(f<49.2&&S.ufls<1){S.ufls=1;log('crit','UFLS STAGE 1: relays shed 5% of load (49.2 Hz).');beep(950,3);}
   if(f<49.0&&S.ufls<2){S.ufls=2;log('crit','UFLS STAGE 2: total 12% of load shed (49.0 Hz).');beep(950,3);}
@@ -516,10 +510,9 @@ function tick(){
   }
   const shedFrac=[0,.05,.12,.21][S.ufls];
   const shedMW=dem*shedFrac;
-  const demEff=dem*(1+.022*dev);       // load relief
+  const demEff=dem*(1+.022*dev);
   const served=Math.max(0,demEff-shedMW-drMW);
   const supply=disp+S.ren+B.out+S.ic.flow+gov+bf;
-  // inertia
   S.M=Math.max(400,syncM/6+250);
   const imb=supply-served;
   S.freq=clamp(S.freq+imb/S.M*0.1+gauss()*(S.tut?.0005:.0012),47.5,52.5);
@@ -534,7 +527,7 @@ function tick(){
   const rprice=Math.min(S.price,300); // load is hedged: $300 cap contracts
   let cash=rprice*served*dtH;S.rev+=rprice*served*dtH;
   cash-=fuelCost;S.fuel+=fuelCost;
-  const icCost=S.ic.flow>0?S.ic.flow*58*dtH:S.ic.flow*40*dtH; // export pays you (flow<0 ⇒ negative cost)
+  const icCost=S.ic.flow>0?S.ic.flow*58*dtH:S.ic.flow*40*dtH;
   cash-=icCost;S.fuel+=icCost;
   const bCost=(B.out<0?-B.out*S.price:B.out*B.wear)*dtH+Math.abs(bf)*B.wear*dtH;
   cash-=bCost;S.fuel+=bCost;
@@ -551,7 +544,7 @@ function tick(){
   A.of=S.dev>.15?(S.dev>.5?2:1):0;
   A.lr=(availCap-dem)<450?((availCap-dem)<150?2:1):0;
   A.li=S.M<1600?(S.M<1000?2:1):0;
-  A.ut=F.some(u=>u.fault>0)?2:0;
+  A.ut=F.some(u=>u.fault>0||u.subFault>0)?2:0;
   A.ic=S.ic.fault>0?2:0;
   A.ufls=S.ufls>0?2:0;
   A.sl=(B.soc<B.e*.15||S.hydRes<975)?1:0;
@@ -562,12 +555,10 @@ function tick(){
   A.stm=S.storm.active?2:(S.storm.warn?1:0);
   A.pk=dem>7000?1:0;
   for(const k in A){if(A[k]&&!S.prevAl[k])beep(A[k]>1?950:700,A[k]);S.prevAl[k]=A[k];}
-  // history (per sim-minute)
   const mi=Math.floor(t);
   if(mi>S.lastMin){S.lastMin=mi;
     S.aDem.push(dem);S.aSup.push(supply);S.aRen.push(S.ren);S.aShed.push(shedMW+drMW);}
   S.histF.push(S.freq);if(S.histF.length>1800)S.histF.shift();
-  // ---- endings ----
   if(S.freq<=48.5||S.freq>=51.5)S.blackT+=99;
   else if(S.freq<48.8||S.freq>51.2)S.blackT++;
   else S.blackT=Math.max(0,S.blackT-3);
@@ -614,7 +605,7 @@ function endShift(black){
   if(black&&AC&&!muted)beep(180,5);
 }
 
-/* ---------- canvases ---------- */
+/* ---------- chart canvases ---------- */
 function fit(cv){const d=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
   if(cv.width!==w*d||cv.height!==h*d){cv.width=w*d;cv.height=h*d;}
   const x=cv.getContext('2d');x.setTransform(d,0,0,d,0,0);return[x,w,h];}
@@ -625,38 +616,34 @@ function drawGauge(){
   const ang=f=>a0+(a1-a0)*clamp((f-48.5)/3,0,1);
   const arc=(f1,f2,col,w)=>{x.beginPath();x.strokeStyle=col;x.lineWidth=w;
     x.arc(cx,cy,R,-ang(f1),-ang(f2),false);x.stroke();};
-  arc(48.5,49,'#5a2320',10);arc(49,49.85,'#5c4416',10);arc(49.85,50.15,'#1c5c38',10);
-  arc(50.15,51,'#5c4416',10);arc(51,51.5,'#5a2320',10);
+  arc(48.5,49,'#5a2320',9);arc(49,49.85,'#5c4416',9);arc(49.85,50.15,'#1c5c38',9);
+  arc(50.15,51,'#5c4416',9);arc(51,51.5,'#5a2320',9);
   arc(49.85,50.15,'#41e08b',3);
-  // ticks
   x.fillStyle='#5f7168';x.font='9px '+getComputedStyle(document.body).fontFamily;
   x.textAlign='center';x.textBaseline='middle';
   for(let i=0;i<=12;i++){
     const f=48.5+i*.25,a=ang(f),big=i%2===0;
-    const r1=R-8,r2=big?R-16:R-12;
+    const r1=R-7,r2=big?R-14:R-11;
     x.strokeStyle=big?'#8fa398':'#3a4a42';x.lineWidth=big?1.5:1;
     x.beginPath();
     x.moveTo(cx+Math.cos(a)*r1,cy-Math.sin(a)*r1);
     x.lineTo(cx+Math.cos(a)*r2,cy-Math.sin(a)*r2);x.stroke();
     if([49,49.5,50,50.5,51].some(v=>Math.abs(v-f)<.01))
-      x.fillText(f.toFixed(1),cx+Math.cos(a)*(R-27),cy-Math.sin(a)*(R-27));
+      x.fillText(f.toFixed(1),cx+Math.cos(a)*(R-24),cy-Math.sin(a)*(R-24));
   }
-  // needle
   const a=ang(S.freq);
   x.strokeStyle='#e8f2ea';x.lineWidth=2.5;x.shadowColor='#41e08b';x.shadowBlur=8;
   x.beginPath();x.moveTo(cx-Math.cos(a)*12,cy+Math.sin(a)*12);
-  x.lineTo(cx+Math.cos(a)*(R-20),cy-Math.sin(a)*(R-20));x.stroke();
+  x.lineTo(cx+Math.cos(a)*(R-18),cy-Math.sin(a)*(R-18));x.stroke();
   x.shadowBlur=0;x.fillStyle='#e8f2ea';
   x.beginPath();x.arc(cx,cy,4,0,7);x.fill();
-  // digital
   const dv=Math.abs(S.dev);
   x.fillStyle=dv>.5?'#ff5040':dv>.15?'#ffb02e':'#41e08b';
-  x.font='700 26px '+getComputedStyle(document.body).fontFamily;
+  x.font='700 24px '+getComputedStyle(document.body).fontFamily;
   x.shadowColor=x.fillStyle;x.shadowBlur=10;
   x.fillText(S.freq.toFixed(3),cx,cy+R*.44);
   x.shadowBlur=0;x.font='9px '+getComputedStyle(document.body).fontFamily;
-  x.fillStyle='#5f7168';x.fillText('Hz',cx,cy+R*.44+17);
-  x.restore();
+  x.fillStyle='#5f7168';x.fillText('Hz',cx,cy+R*.44+16);
 }
 function drawFreq(){
   const[x,W,H]=fit($('cvF'));x.clearRect(0,0,W,H);
@@ -677,9 +664,8 @@ function drawFreq(){
 }
 function drawDem(){
   const[x,W,H]=fit($('cvD'));x.clearRect(0,0,W,H);
-  const T=1440,ymax=9500,pad=14;
-  const tx=t=>t/T*W, ty=v=>H-pad-(v/ymax)*(H-pad-6);
-  // night shading & grid
+  const T=1440,ymax=9500,pad=13;
+  const tx=t=>t/T*W, ty=v=>H-pad-(v/ymax)*(H-pad-5);
   x.fillStyle='rgba(79,199,232,.04)';
   x.fillRect(tx((SUNRISE)*60-240),0,tx(SUNSET*60-240)-tx(SUNRISE*60-240),H-pad);
   x.strokeStyle='#1a2822';x.lineWidth=1;x.font='8.5px monospace';x.textAlign='left';
@@ -690,7 +676,6 @@ function drawDem(){
     x.strokeStyle='#1a2822';x.stroke();
     x.fillStyle='#4a5a52';x.fillText(String((4+hh)%24).padStart(2,'0'),tx(m),H-3);}
   const n=S.aDem.length;
-  // forecast (dashed) from now to end
   x.setLineDash([3,4]);
   const fLine=(fn,col)=>{x.strokeStyle=col;x.lineWidth=1;x.beginPath();
     for(let m=Math.max(n-1,0);m<=T;m+=8){const h=(240+m)/60,v=fn(h);
@@ -699,7 +684,6 @@ function drawDem(){
   fLine(h=>solarClear(h)*.92+1200*S.windMu,'rgba(79,199,232,.45)');
   x.setLineDash([]);
   if(n>1){
-    // shed fill
     x.fillStyle='rgba(255,80,64,.35)';
     for(let m=0;m<n;m++)if(S.aShed[m]>1&&S.aDem[m]!=null)x.fillRect(tx(m),ty(S.aDem[m]),Math.max(W/T,1),ty(S.aDem[m]-S.aShed[m])-ty(S.aDem[m]));
     const line=(arr,col,w)=>{x.strokeStyle=col;x.lineWidth=w;x.beginPath();let pen=false;
@@ -709,84 +693,461 @@ function drawDem(){
     line(S.aSup,'#41e08b',1.2);
     line(S.aDem,'#ffb02e',1.4);
   }
-  // now cursor
   x.strokeStyle='rgba(232,242,234,.55)';x.lineWidth=1;
   x.beginPath();x.moveTo(tx(S.t),0);x.lineTo(tx(S.t),H-pad);x.stroke();
 }
-function draw(){drawGauge();drawFreq();drawDem();}
 
-/* ---------- UI ---------- */
-function buildUI(){
-  // annunciator
-  $('annun').innerHTML=ANN.map(a=>'<div class="ann" id="an-'+a[1]+'">'+a[0]+'</div>').join('');
-  // fleet cards
-  const fl=$('fleet');let html='';
-  for(const u of F){
-    html+=`<div class="card" id="cd-${u.id}" title="Marginal cost $${u.cost}/MWh · ramp ${u.ramp} MW/min · start ${u.st} min · min gen ${u.min} MW">
-      <div class="chead"><span class="lamp" id="lp-${u.id}"></span>${u.nm}<span class="ctype">${u.cls}</span></div>
-      <div class="cout"><span id="o-${u.id}">0</span><small> / <span id="cp-${u.id}">${fmt(u.cap)}</span> MW</small></div>
-      <div class="cstat" id="st-${u.id}"></div>
-      ${u.id==='hyd'?'<div class="bar h" title="Water allocation remaining"><i id="hb" style="width:100%"></i></div>':''}
-      <input type="range" id="sl-${u.id}" min="0" max="${u.cap}" step="10" value="${u.set}" title="MW setpoint">
-      <div class="cfoot"><span>SET <b id="sv-${u.id}">${fmt(u.set)}</b> MW</span>
-      <button class="cbtn" id="bt-${u.id}"></button></div></div>`;
+/* ================= ISOMETRIC MAP ================= */
+const MW_=560, MH_=330;                 // offscreen pixel-art resolution
+const off=document.createElement('canvas');off.width=MW_;off.height=MH_;
+const g=off.getContext('2d');
+let mapScale=1,mapOX=0,mapOY=0,flash=0,tutRing=null,sel='city',mapF=0;
+let smoke=[],bladeA=0,pktT=0;
+// stars fixed
+const STARS=Array.from({length:70},()=>[Math.random()*MW_|0,Math.random()*120|0,Math.random()]);
+// city buildings: [dx,dy,w,h,roofCol,winCols,winRows]
+const CITY=[[-46,4,16,22,'#8a5a44',3,4],[-28,12,14,16,'#7c8894',3,3],[-10,18,18,28,'#6f7f8f',4,6],
+ [10,10,14,20,'#8a5a44',3,4],[26,16,16,14,'#97705a',3,2],[-38,-8,12,12,'#7c8894',2,2],
+ [-18,-4,16,18,'#66765f',3,3],[2,-8,12,24,'#6f7f8f',2,5],[18,-2,14,12,'#8a5a44',3,2],
+ [34,2,12,18,'#7c8894',2,4],[-4,32,14,12,'#97705a',3,2],[14,30,12,10,'#7c8894',2,2]];
+const cityC=[275,168]; // city anchor (center)
+// building registry: anchor px + hit box + label
+const BLD={
+ coal:{x:118,y:96, box:[76,52,86,64], label:'MT HAZEL COAL'},
+ ccgt:{x:92,y:176, box:[52,138,82,52], label:'RIVERTON CCGT'},
+ gta:{x:152,y:228,box:[124,204,56,38], label:'PEAKER GT·A'},
+ gtb:{x:208,y:252,box:[180,228,56,38], label:'PEAKER GT·B'},
+ hyd:{x:436,y:84, box:[390,46,96,60], bar:[452,124], label:'SNOWY GORGE HYDRO'},
+ wind:{x:478,y:168,box:[440,120,104,86],label:'GALE RIDGE WIND'},
+ sol:{x:408,y:246,box:[356,222,110,52],label:'SUNPLAIN SOLAR'},
+ batt:{x:262,y:262,box:[228,242,72,36], label:'BIG BATTERY'},
+ ic:{x:330,y:52, box:[306,20,52,58],  label:'INTERCONNECTOR N1'},
+ city:{x:275,y:168,box:[218,140,116,66],label:'MERIDIAN CITY'},
+};
+// transmission routes to city
+const ROUTE={
+ coal:[[140,110],[190,138],[240,158]],
+ ccgt:[[116,184],[180,178],[228,172]],
+ gta:[[168,230],[210,204],[240,186]],
+ gtb:[[220,246],[248,212],[262,192]],
+ hyd:[[428,100],[380,128],[322,152]],
+ wind:[[462,176],[400,180],[334,172]],
+ sol:[[396,240],[352,212],[314,188]],
+ batt:[[268,254],[272,220],[274,196]],
+ ic:[[330,64],[314,104],[292,140]],
+};
+function cub(x,y,w,d,h,c){ // iso cuboid: (x,y)=front-bottom corner
+  const rX=x+w,rY=y-w*.5,lX=x-d,lY=y-d*.5,bX=x+w-d,bY=y-(w+d)*.5;
+  g.fillStyle=c[1];g.beginPath();g.moveTo(x,y);g.lineTo(lX,lY);g.lineTo(lX,lY-h);g.lineTo(x,y-h);g.fill();
+  g.fillStyle=c[2];g.beginPath();g.moveTo(x,y);g.lineTo(rX,rY);g.lineTo(rX,rY-h);g.lineTo(x,y-h);g.fill();
+  g.fillStyle=c[0];g.beginPath();g.moveTo(x,y-h);g.lineTo(rX,rY-h);g.lineTo(bX,bY-h);g.lineTo(lX,lY-h);g.fill();
+}
+function shade(c,f){ // hex → darkened rgb string
+  const n=parseInt(c.slice(1),16),r=(n>>16)&255,gg=(n>>8)&255,b=n&255;
+  return 'rgb('+(r*f|0)+','+(gg*f|0)+','+(b*f|0)+')';}
+function sunAmt(){ // 0 night → 1 midday
+  const h=hourNow()%24;
+  if(h<SUNRISE-1.2||h>SUNSET+1.2)return 0;
+  if(h<SUNRISE+1.2)return (h-(SUNRISE-1.2))/2.4;
+  if(h>SUNSET-1.2)return (SUNSET+1.2-h)/2.4;
+  return 1;
+}
+function drawMap(){
+  mapF++;
+  const cv=$('cvM');
+  const cw=cv.clientWidth,ch=cv.clientHeight;
+  if(cv.width!==cw||cv.height!==ch){cv.width=cw;cv.height=ch;}
+  const sun=sunAmt(),h=hourNow()%24;
+  const dusk=Math.max(0,1-Math.abs(sun-.32)*2.6); // orange blend near dawn/dusk
+  // ---- sky ----
+  const skyTop=['#0a1030','#f2a35c','#7db4dd'],skyBot=['#141b3e','#e8c07a','#b8d8ea'];
+  function mix3(cols){ // blend night/dusk/day
+    const w=[Math.max(0,1-sun*2)*(1-dusk),dusk,Math.max(0,sun*1.2-.2)*(1-dusk)];
+    const tot=w[0]+w[1]+w[2]||1;let r=0,gg=0,b=0;
+    cols.forEach((c,i)=>{const n=parseInt(c.slice(1),16);
+      r+=((n>>16)&255)*w[i]/tot;gg+=((n>>8)&255)*w[i]/tot;b+=(n&255)*w[i]/tot;});
+    return 'rgb('+(r|0)+','+(gg|0)+','+(b|0)+')';}
+  const grd=g.createLinearGradient(0,0,0,MH_);
+  grd.addColorStop(0,mix3(skyTop));grd.addColorStop(1,mix3(skyBot));
+  g.fillStyle=grd;g.fillRect(0,0,MW_,MH_);
+  // stars
+  if(sun<.3)for(const s of STARS)if(s[2]>sun*3){g.fillStyle='rgba(255,255,240,'+(0.7-sun*2)+')';g.fillRect(s[0],s[1],1,1);}
+  // sun / moon
+  const dayFrac=clamp((h-SUNRISE)/(SUNSET-SUNRISE),0,1);
+  if(sun>0){const sx=60+dayFrac*(MW_-120),sy=70-Math.sin(dayFrac*Math.PI)*45;
+    g.fillStyle=S.heat.active?'#ffcc55':'#fff2c8';g.beginPath();g.arc(sx,sy,7,0,7);g.fill();
+    g.fillStyle='rgba(255,240,190,.25)';g.beginPath();g.arc(sx,sy,11,0,7);g.fill();}
+  else{const mf=((h+24-SUNSET)%24)/((SUNRISE+24-SUNSET)%24);
+    const mx=60+mf*(MW_-120),my=60-Math.sin(mf*Math.PI)*35;
+    g.fillStyle='#e8e8d8';g.beginPath();g.arc(mx,my,5,0,7);g.fill();
+    g.fillStyle=mix3(skyTop);g.beginPath();g.arc(mx-2,my-1,4,0,7);g.fill();}
+  // ---- terrain diamond ----
+  const TCX=280,TCY=172,THW=268,THH=146;
+  const grass=sun>.4?'#4e8f4a':dusk>.3?'#54804a':'#2c4632';
+  g.fillStyle=grass;
+  g.beginPath();g.moveTo(TCX-THW,TCY);g.lineTo(TCX,TCY-THH);g.lineTo(TCX+THW,TCY);g.lineTo(TCX,TCY+THH);g.fill();
+  // tile checker
+  g.fillStyle='rgba(0,0,0,.06)';
+  for(let i=0;i<22;i++)for(let j=0;j<22;j++){
+    if((i+j)%2)continue;
+    const x=TCX+(i-j)*12- (0), y=TCY-THH+ (i+j)*6;
+    if(Math.abs(x-TCX)/THW+Math.abs(y-TCY)/THH<0.98){
+      g.beginPath();g.moveTo(x,y-6);g.lineTo(x+12,y);g.lineTo(x,y+6);g.lineTo(x-12,y);g.fill();}
   }
-  html+=`<div class="card" id="cd-batt" title="Negative charges (buys at spot), positive discharges. Auto-FCAS uses charge too.">
-    <div class="chead"><span class="lamp on" id="lp-batt"></span>BIG BATTERY<span class="ctype">BESS 500/1000</span></div>
-    <div class="cout"><span id="o-batt">0</span><small> MW <span id="bmode"></span></small></div>
-    <div class="cstat">SOC <span id="soc%">68%</span> · <span id="socMWh">680</span> MWh</div>
-    <div class="bar" title="State of charge"><i id="socbar" style="width:68%"></i></div>
-    <input type="range" id="sl-batt" min="-500" max="500" step="10" value="0" title="− charge · + discharge">
-    <div class="cfoot"><span>SET <b id="sv-batt">0</b> MW</span><span>±FCAS AUTO</span></div></div>`;
-  html+=`<div class="card" id="cd-ic" title="Import $58/MWh flat · export earns $40/MWh · ramps 100 MW/min">
-    <div class="chead"><span class="lamp on" id="lp-ic"></span>INTERCONNECTOR<span class="ctype">TIE N1 ±800</span></div>
-    <div class="cout"><span id="o-ic">250</span><small> MW <span id="icmode">IMPORT</span></small></div>
-    <div class="cstat" id="st-ic"></div>
-    <input type="range" id="sl-ic" min="-800" max="800" step="10" value="250" title="− export · + import">
-    <div class="cfoot"><span>SET <b id="sv-ic">250</b> MW</span><span>$58 IMP</span></div></div>`;
-  html+=`<div class="card" id="cd-wind" title="Limit slider curtails output below available wind">
-    <div class="chead"><span class="lamp on"></span>GALE RIDGE WIND<span class="ctype">VRE 1200</span></div>
-    <div class="cout"><span id="o-wind">0</span><small> / <span id="av-wind">0</span> MW AVAIL</small></div>
-    <div class="cstat" id="st-wind"></div>
-    <input type="range" id="sl-wind" min="0" max="100" step="5" value="100" title="Output limit %">
-    <div class="cfoot"><span>LIMIT <b id="sv-wind">100</b>%</span><span>$0/MWh</span></div></div>`;
-  html+=`<div class="card" id="cd-sol" title="Limit slider curtails output below available solar">
-    <div class="chead"><span class="lamp on"></span>SUNPLAIN SOLAR<span class="ctype">VRE 1400</span></div>
-    <div class="cout"><span id="o-sol">0</span><small> / <span id="av-sol">0</span> MW AVAIL</small></div>
-    <div class="cstat" id="st-sol"></div>
-    <input type="range" id="sl-sol" min="0" max="100" step="5" value="100" title="Output limit %">
-    <div class="cfoot"><span>LIMIT <b id="sv-sol">100</b>%</span><span>$0/MWh</span></div></div>`;
-  html+=`<div class="card" id="cd-ops" title="Emergency tools — expensive, but cheaper than shedding">
-    <div class="chead"><span class="lamp" id="lp-ops"></span>EMERGENCY OPS<span class="ctype">DR / RERT</span></div>
-    <div class="cstat" id="st-dr">DEMAND RESPONSE ●●●</div>
-    <button class="cbtn" id="bt-dr" style="width:100%">CALL DR −350 MW / 60 MIN</button>
-    <div class="cstat" id="st-rt">RESERVE DIESEL 300 MW · 20 MIN START · $2,600</div>
-    <button class="cbtn" id="bt-rt" style="width:100%">START RESERVE DIESEL</button></div>`;
-  fl.innerHTML=html;
-  // wiring
-  for(const u of F){
-    $('sl-'+u.id).addEventListener('input',e=>{u.set=+e.target.value;$('sv-'+u.id).textContent=fmt(u.set);});
-    $('bt-'+u.id).addEventListener('click',()=>{
+  // river + reservoir (top-right)
+  g.fillStyle=sun>.4?'#2e6fae':'#1c3d63';
+  g.beginPath();g.moveTo(392,40);g.lineTo(470,40);g.lineTo(500,72);g.lineTo(452,102);g.lineTo(404,74);g.fill(); // lake
+  g.beginPath();g.moveTo(452,102);g.lineTo(470,116);g.lineTo(452,132);g.lineTo(430,114);g.fill(); // tail race
+  // water level marks (allocation)
+  const wl=S.hydRes/7500;
+  g.fillStyle='rgba(255,255,255,.25)';
+  g.fillRect(408,58,(60*wl)|0,2);
+  // roads (light grid around city)
+  g.strokeStyle='rgba(60,60,60,.35)';g.lineWidth=3;
+  g.beginPath();g.moveTo(190,138);g.lineTo(275,180);g.lineTo(360,138);g.stroke();
+  g.beginPath();g.moveTo(210,215);g.lineTo(275,180);g.stroke();
+  // ---- transmission routes ----
+  g.lineWidth=1;
+  for(const id in ROUTE){
+    const r=ROUTE[id];
+    g.strokeStyle='rgba(30,30,30,.5)';
+    g.beginPath();g.moveTo(r[0][0],r[0][1]);for(const p of r)g.lineTo(p[0],p[1]);g.stroke();
+    for(const p of r){g.strokeStyle='rgba(40,40,40,.7)';
+      g.beginPath();g.moveTo(p[0],p[1]);g.lineTo(p[0],p[1]-6);g.stroke();
+      g.beginPath();g.moveTo(p[0]-2,p[1]-5);g.lineTo(p[0]+2,p[1]-5);g.stroke();}
+  }
+  // ---- buildings (painter order: back to front) ----
+  drawIC();drawCoal();drawHyd();drawWind();drawCCGT();drawCity();drawGT('gta');drawGT('gtb');drawSol();drawBatt();
+  if(S.rert.out||S.rert.on)drawDiesel();
+  // ---- night tint ----
+  const dark=1-Math.max(sun,.12);
+  if(dark>0.02){g.globalCompositeOperation='multiply';
+    g.fillStyle='rgba('+(120+dusk*90|0)+','+(130+dusk*40|0)+',170,'+(dark*.75)+')';
+    g.fillRect(0,0,MW_,MH_);g.globalCompositeOperation='source-over';}
+  // ---- emissive layer ----
+  drawLights(sun);
+  drawPackets();
+  drawClouds(sun);
+  if(S.storm.active)drawRain();
+  if(S.heat.active){g.fillStyle='rgba(255,140,30,.07)';g.fillRect(0,0,MW_,MH_);}
+  if(flash>0){flash--;if(flash%2){g.fillStyle='rgba(255,255,255,.5)';g.fillRect(0,0,MW_,MH_);}}
+  // ---- overlays: bars, selection, tut ring ----
+  drawBars();
+  drawSelRing(sel,'#e8f2ea');
+  if(tutRing){const id=typeof tutRing==='function'?tutRing():tutRing;
+    if(id&&(mapF%10<6))drawSelRing(id,'#ffb02e');}
+  // ---- blit to screen (pixelated) ----
+  const c2=cv.getContext('2d');
+  c2.imageSmoothingEnabled=false;
+  mapScale=Math.min(cw/MW_,ch/MH_);
+  mapOX=(cw-MW_*mapScale)/2;mapOY=(ch-MH_*mapScale)/2;
+  c2.fillStyle='#04070a';c2.fillRect(0,0,cw,ch);
+  c2.drawImage(off,mapOX,mapOY,MW_*mapScale,MH_*mapScale);
+}
+/* --- individual buildings --- */
+function drawCoal(){
+  const u=F[0],b=BLD.coal,x=b.x,y=b.y;
+  cub(x-18,y+14,26,14,20,['#9a8a7c','#7c6e60','#5f5348']); // main hall
+  cub(x+14,y+10,16,10,12,['#8a7a6c','#6e6156','#544a40']); // annex
+  cub(x-30,y+18,8,6,8,['#7a6a5e','#60544a','#4a4038']);    // coal store
+  g.fillStyle='#2a2a2a';g.fillRect(x-34,y+8,14,6);          // coal pile
+  // stacks
+  for(let i=0;i<2;i++){const sx=x-6+i*12,sy=y-6;
+    g.fillStyle='#7a4a42';g.fillRect(sx,sy-26,5,26);
+    g.fillStyle='#8f5a50';g.fillRect(sx,sy-26,2,26);
+    g.fillStyle='#ddd';g.fillRect(sx,sy-28,5,2);
+    if(u.on&&u.out>10&&Math.random()<u.out/u.cap*.9)smoke.push({x:sx+2,y:sy-28,a:1,r:1.5+Math.random()});
+  }
+  if(u.subFault>0){g.fillStyle='rgba(255,60,40,'+(mapF%10<5?.8:.3)+')';g.fillRect(x+8,y-4,8,8);}
+}
+function drawCCGT(){
+  const u=F[1],b=BLD.ccgt,x=b.x,y=b.y;
+  cub(x-14,y+8,18,10,12,['#c2c8ce','#9aa2aa','#767e86']); // train 1
+  cub(x+8,y+16,18,10,12,['#c2c8ce','#9aa2aa','#767e86']); // train 2
+  cub(x-22,y+14,7,6,16,['#8f98a0','#737b83','#5a626a']);  // HRSG stack
+  g.fillStyle='#4fc7e8';g.fillRect(x-12,y-2,12,2);
+  if(u.availF<1){g.fillStyle='rgba(255,60,40,'+(mapF%10<5?.85:.3)+')';g.fillRect(x+10,y+8,14,6);}
+  if(u.on&&u.out>10&&Math.random()<u.out/u.cap*.5)smoke.push({x:x-19,y:y-4,a:.7,r:1.2});
+}
+function drawGT(id){
+  const u=F.find(q=>q.id===id),b=BLD[id],x=b.x,y=b.y;
+  cub(x-10,y+6,12,7,9,['#a8b0b8','#868e96','#666e76']);
+  cub(x+4,y+9,8,5,6,['#98a0a8','#787f88','#5e6670']);
+  g.fillStyle='#c47b2c';g.fillRect(x-9,y-4,10,2);
+  g.fillStyle='#555';g.fillRect(x+10,y-4,3,8);
+  if(u.on&&u.out>10){g.fillStyle='rgba(255,170,60,'+(0.25+0.5*u.out/u.cap)+')';
+    g.fillRect(x+10,y-7,3,3);}
+  if(u.fault>0){g.fillStyle='rgba(255,60,40,'+(mapF%10<5?.85:.3)+')';g.fillRect(x-6,y-8,8,6);}
+}
+function drawHyd(){
+  const u=F[4],b=BLD.hyd,x=b.x,y=b.y;
+  // dam wall (arc of concrete)
+  g.fillStyle='#b9b4a8';g.beginPath();g.moveTo(452,102);g.lineTo(474,88);g.lineTo(478,96);g.lineTo(456,112);g.fill();
+  g.fillStyle='#948f83';g.fillRect(452,102,26,5);
+  cub(x+24,y+34,12,8,9,['#c8c3b7','#a29d91','#807b6f']); // powerhouse
+  // penstocks
+  g.strokeStyle='#6a655b';g.lineWidth=2;
+  g.beginPath();g.moveTo(462,100);g.lineTo(468,116);g.stroke();
+  if(u.on&&u.out>10){g.fillStyle='rgba(220,240,255,.7)';
+    for(let i=0;i<3;i++)g.fillRect(452+(mapF*2+i*8)%22,116+i*3,3,1);} // outflow spray
+  if(u.fault>0||S.hydRes<=0){g.fillStyle='rgba(255,60,40,'+(mapF%10<5?.85:.3)+')';g.fillRect(x+26,y+18,10,6);}
+}
+function drawWind(){
+  const b=BLD.wind;
+  const spin=(S.wind*S.wCurt/100)*(S.storm.active&&S.windMu<.3?0:1);
+  bladeA+=spin*.5;
+  [[458,140],[492,158],[464,184],[500,196],[478,214]].forEach((p,i)=>{
+    const[tx,ty]=p;
+    g.strokeStyle='#dfe5e8';g.lineWidth=1.5;
+    g.beginPath();g.moveTo(tx,ty);g.lineTo(tx,ty-16);g.stroke();
+    const a0=bladeA+i*1.1;
+    for(let k=0;k<3;k++){const a=a0+k*2.094;
+      g.beginPath();g.moveTo(tx,ty-16);g.lineTo(tx+Math.cos(a)*7,ty-16+Math.sin(a)*7);g.stroke();}
+    g.fillStyle='#c8d0d4';g.fillRect(tx-1,ty-17,2,2);
+  });
+}
+function drawSol(){
+  const b=BLD.sol,x=b.x,y=b.y,sun=sunAmt();
+  for(let r=0;r<3;r++)for(let c=0;c<4;c++){
+    const px=x-36+c*20+r*8, py=y-10+r*12-c*4;
+    g.fillStyle=sun>.15?'#274a78':'#152238';
+    g.beginPath();g.moveTo(px,py);g.lineTo(px+14,py-5);g.lineTo(px+18,py-1);g.lineTo(px+4,py+4);g.fill();
+    if(sun>.4&&((r*4+c+((mapF/8)|0))%12===0)){g.fillStyle='rgba(200,230,255,.85)';g.fillRect(px+7,py-2,3,2);}
+  }
+  g.fillStyle='#8a8a8a';g.fillRect(x-8,y+16,12,4);
+}
+function drawBatt(){
+  const b=BLD.batt,x=b.x,y=b.y,B=S.batt;
+  for(let i=0;i<3;i++)cub(x-18+i*14,y+6+i*2,10,6,8,['#e8ecef','#c2c8cc','#9aa2a8']);
+  const sp=B.soc/B.e;
+  g.fillStyle='#0a100d';g.fillRect(x-20,y-12,32,4);
+  g.fillStyle=sp<.15?'#ff5040':sp<.3?'#ffb02e':'#41e08b';g.fillRect(x-19,y-11,(30*sp)|0,2);
+}
+function drawIC(){
+  const b=BLD.ic,x=b.x,y=b.y;
+  [[x,y+16],[x-8,y-8],[x-16,y-32]].forEach(p=>{
+    g.strokeStyle='#3a3f44';g.lineWidth=1.5;
+    g.beginPath();g.moveTo(p[0],p[1]);g.lineTo(p[0],p[1]-18);g.stroke();
+    g.beginPath();g.moveTo(p[0]-6,p[1]-14);g.lineTo(p[0]+6,p[1]-14);g.stroke();
+    g.beginPath();g.moveTo(p[0]-4,p[1]-18);g.lineTo(p[0]+4,p[1]-18);g.stroke();
+  });
+  g.strokeStyle='rgba(40,44,48,.8)';g.lineWidth=1;
+  g.beginPath();g.moveTo(x-16,y-46);g.lineTo(x-8,y-22);g.lineTo(x,y+2);g.stroke();
+  if(S.ic.fault>0){g.fillStyle='rgba(255,60,40,'+(mapF%10<5?.85:.3)+')';g.fillRect(x-6,y-6,8,8);}
+}
+function drawCity(){
+  const litFrac=clamp(S.demand/9500,.1,1)*(sunAmt()<.35?1:.15);
+  const shedFrac=[0,.05,.12,.21][S.ufls]+(S.dr.left>0?.05:0);
+  CITY.forEach((cb,bi)=>{
+    const bx=cityC[0]+cb[0],by=cityC[1]+cb[1],w=cb[2],hh=cb[3];
+    const dark=bi<Math.round(shedFrac*2.4*CITY.length/ (1))&&shedFrac>0;
+    cub(bx,by,w,Math.max(4,w-8),hh,[cb[4],shade(cb[4],.72),shade(cb[4],.5)]);
+    // windows
+    const cols=cb[5],rows=cb[6];
+    for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+      const wx=bx+2+c*Math.max(3,(w-4)/cols),wy=by-hh+3+r*Math.max(3,(hh-4)/rows);
+      const lit=!dark&&((bi*31+r*7+c*13)%100)<litFrac*100;
+      g.fillStyle=lit?'#ffd76a':'rgba(20,30,40,.8)';
+      g.fillRect(wx,wy,2,2);
+    }
+    if(dark&&mapF%14<3){g.fillStyle='rgba(255,60,40,.25)';g.fillRect(bx-2,by-hh-2,w+6,hh+6);}
+  });
+}
+function drawDiesel(){
+  const x=318,y=210;
+  cub(x,y,8,5,6,['#8f8577','#6f6759','#565043']);
+  cub(x+10,y+4,8,5,6,['#8f8577','#6f6759','#565043']);
+  if(S.rert.out&&Math.random()<.5)smoke.push({x:x+6,y:y-8,a:.6,r:1});
+  if(S.rert.on&&!S.rert.out&&mapF%10<5){g.fillStyle='#ffb02e';g.fillRect(x+4,y-10,3,3);}
+}
+function drawLights(sun){
+  if(sun>.5)return;
+  const a=(1-sun*2)*.9;
+  // plant nav lights
+  g.fillStyle='rgba(255,60,60,'+a+')';
+  g.fillRect(BLD.coal.x-5,BLD.coal.y-40,2,2);g.fillRect(BLD.coal.x+7,BLD.coal.y-40,2,2);
+  g.fillRect(BLD.ic.x-17,BLD.ic.y-51,2,2);
+  g.fillStyle='rgba(255,220,150,'+a*.8+')';
+  g.fillRect(BLD.ccgt.x-6,BLD.ccgt.y+2,3,2);g.fillRect(BLD.hyd.x+30,BLD.hyd.y+30,3,2);
+  g.fillRect(BLD.batt.x-4,BLD.batt.y+2,3,2);
+}
+function drawPackets(){
+  pktT+=.5;
+  function flow(id,mw,rev){
+    if(Math.abs(mw)<15)return;
+    const r=ROUTE[id];let L=0;const segs=[];
+    for(let i=1;i<r.length;i++){const dx=r[i][0]-r[i-1][0],dy=r[i][1]-r[i-1][1];
+      const l=Math.hypot(dx,dy);segs.push([r[i-1],dx,dy,l]);L+=l;}
+    // extend to city
+    const last=r[r.length-1],dx=cityC[0]-last[0],dy=cityC[1]-8-last[1],l=Math.hypot(dx,dy);
+    segs.push([last,dx,dy,l]);L+=l;
+    const n=clamp(Math.round(Math.abs(mw)/160)+1,1,6),sp=18;
+    g.fillStyle=rev?'rgba(120,220,255,.95)':'rgba(255,200,80,.95)';
+    for(let k=0;k<n;k++){
+      let dPos=((pktT*(rev?-1:1))+k*L/n)%L;if(dPos<0)dPos+=L;
+      let acc=0;
+      for(const s of segs){if(dPos<=acc+s[3]){const f=(dPos-acc)/s[3];
+        g.fillRect(s[0][0]+s[1]*f-1,s[0][1]+s[2]*f-1,2,2);break;}acc+=s[3];}
+    }
+  }
+  flow('coal',F[0].out);flow('ccgt',F[1].out);flow('gta',F[2].out);flow('gtb',F[3].out);
+  flow('hyd',F[4].out);flow('wind',1200*S.wind*S.wCurt/100);
+  flow('sol',solarClear(hourNow())*S.cloud*S.sCurt/100);
+  flow('batt',S.batt.out,S.batt.out<0);
+  flow('ic',S.ic.flow,S.ic.flow<0);
+}
+let cloudX=0;
+function drawClouds(sun){
+  cloudX=(cloudX+.15)%MW_;
+  const cover=clamp(1-S.cloud,0,1)+(S.storm.active?.5:0);
+  if(cover<.1)return;
+  g.fillStyle=S.storm.active?'rgba(40,44,58,'+(0.5+cover*.3)+')':'rgba(230,232,238,'+(cover*.5)+')';
+  for(let i=0;i<4;i++){
+    const cx=(cloudX+i*150)%(MW_+120)-60, cy=38+((i*53)%40);
+    g.beginPath();g.ellipse(cx,cy,34+i*6,9,0,0,7);g.fill();
+    g.beginPath();g.ellipse(cx+20,cy-5,22,7,0,0,7);g.fill();
+  }
+}
+function drawRain(){
+  g.strokeStyle='rgba(160,190,230,.4)';g.lineWidth=1;
+  for(let i=0;i<50;i++){const rx=Math.random()*MW_,ry=Math.random()*MH_;
+    g.beginPath();g.moveTo(rx,ry);g.lineTo(rx-2,ry+6);g.stroke();}
+}
+function drawSmoke(){
+  g.save();
+  for(let i=smoke.length-1;i>=0;i--){const p=smoke[i];
+    p.y-=.4;p.x+=.25;p.a-=.02;p.r+=.06;
+    if(p.a<=0){smoke.splice(i,1);continue;}
+    g.fillStyle='rgba(200,200,205,'+(p.a*.5)+')';
+    g.beginPath();g.arc(p.x,p.y,p.r,0,7);g.fill();
+  }
+  if(smoke.length>240)smoke.splice(0,smoke.length-240);
+  g.restore();
+}
+function drawBars(){
+  drawSmoke();
+  function bar(id,frac,warn){
+    const b=BLD[id],bx=b.bar?b.bar[0]:b.x-8,by=b.bar?b.bar[1]:b.box[1]-6;
+    g.fillStyle='rgba(6,10,9,.75)';g.fillRect(bx-1,by-1,18,5);
+    g.fillStyle=warn?'#ff5040':'#41e08b';g.fillRect(bx,by,(16*clamp(frac,0,1))|0,3);
+  }
+  F.forEach(u=>bar(u.id,u.on?u.out/Math.max(capE(u),1):0,u.fault>0||u.subFault>0));
+  bar('wind',S.wind*S.wCurt/100);
+  bar('sol',solarClear(hourNow())*S.cloud*(S.sCurt/100)/1400);
+  bar('batt',Math.abs(S.batt.out)/500,false);
+  bar('ic',Math.abs(S.ic.flow)/800,S.ic.fault>0);
+}
+function drawSelRing(id,col){
+  const b=BLD[id];if(!b)return;
+  const[bx,by,bw,bh]=b.box;
+  g.strokeStyle=col;g.lineWidth=1;
+  const L=7;
+  [[bx,by,1,1],[bx+bw,by,-1,1],[bx,by+bh,1,-1],[bx+bw,by+bh,-1,-1]].forEach(c=>{
+    g.beginPath();g.moveTo(c[0]+c[2]*L,c[1]);g.lineTo(c[0],c[1]);g.lineTo(c[0],c[1]+c[3]*L);g.stroke();});
+}
+/* map interaction */
+function mapHit(e){
+  const cv=$('cvM'),r=cv.getBoundingClientRect();
+  const mx=(e.clientX-r.left-mapOX)/mapScale, my=(e.clientY-r.top-mapOY)/mapScale;
+  let best=null;
+  for(const id in BLD){const[bx,by,bw,bh]=BLD[id].box;
+    if(mx>=bx&&mx<=bx+bw&&my>=by&&my<=by+bh)best=id;}
+  return best;
+}
+$('cvM').addEventListener('click',e=>{const id=mapHit(e);if(id)select(id);});
+$('cvM').addEventListener('pointermove',e=>{
+  const id=mapHit(e),tip=$('tip');
+  if(!id){tip.style.display='none';$('cvM').style.cursor='default';return;}
+  $('cvM').style.cursor='pointer';
+  const r=$('cvM').getBoundingClientRect();
+  tip.style.display='block';
+  tip.style.left=(e.clientX-r.left+14)+'px';tip.style.top=(e.clientY-r.top+8)+'px';
+  tip.innerHTML='<b>'+BLD[id].label+'</b> '+tipLine(id);
+});
+$('cvM').addEventListener('pointerleave',()=>{$('tip').style.display='none';});
+function tipLine(id){
+  const u=F.find(q=>q.id===id);
+  if(u)return fmt(u.out)+' / '+fmt(capE(u))+' MW'+(u.fault>0?' · FAULT':u.starting>0?' · STARTING':u.on?'':' · OFF');
+  if(id==='wind')return fmt(1200*S.wind*S.wCurt/100)+' MW';
+  if(id==='sol')return fmt(solarClear(hourNow())*S.cloud*S.sCurt/100)+' MW';
+  if(id==='batt')return fmt(Math.abs(S.batt.out))+' MW · SOC '+Math.round(100*S.batt.soc/S.batt.e)+'%';
+  if(id==='ic')return fmt(Math.abs(S.ic.flow))+' MW '+(S.ic.flow>=0?'IMPORT':'EXPORT');
+  if(id==='city')return fmt(S.demand)+' MW demand';
+  return '';
+}
+
+/* ================= UI: strip + dock ================= */
+const STRIP=[['coal','COAL'],['ccgt','CCGT'],['gta','GT·A'],['gtb','GT·B'],['hyd','HYDR'],
+ ['wind','WIND'],['sol','SOLR'],['batt','BATT'],['ic','TIE'],['city','CITY']];
+function buildUI(){
+  $('annun').innerHTML=ANN.map(a=>'<div class="ann" id="an-'+a[1]+'">'+a[0]+'</div>').join('');
+  $('strip').innerHTML=STRIP.map(s=>'<div class="stile" id="st-'+s[0]+'"><span class="slamp" id="sl2-'+s[0]+'"></span><b>'+s[1]+'</b><div class="sbar"><i id="sb-'+s[0]+'"></i></div></div>').join('');
+  STRIP.forEach(s=>$('st-'+s[0]).addEventListener('click',()=>select(s[0])));
+}
+function select(id){sel=id;renderDock();ui();}
+function renderDock(){
+  const u=F.find(q=>q.id===sel);const P=$('selP');
+  if(u){
+    P.innerHTML=`<div class="dhead"><span class="lamp" id="dLamp"></span>${u.nm}<span class="dtype">${u.cls}</span></div>
+      <div class="dout"><span id="dOut">0</span><small> / <span id="dCap">${fmt(u.cap)}</span> MW</small></div>
+      <div class="dstat" id="dStat"></div>
+      ${sel==='hyd'?'<div class="bar h" title="Water allocation remaining"><i id="dWater" style="width:100%"></i></div>':''}
+      <input type="range" id="dSl" min="0" max="${u.cap}" step="10" value="${u.set}" title="MW setpoint">
+      <div class="dfoot"><span>SET <b id="dSet">${fmt(u.set)}</b> MW</span>
+        <span>$${u.cost}/MWh · ${u.ramp} MW/min · start ${u.st} min · min ${fmt(u.min)} MW</span>
+        <button class="cbtn" id="dBtn"></button></div>`;
+    $('dSl').addEventListener('input',e=>{u.set=+e.target.value;$('dSet').textContent=fmt(u.set);});
+    $('dBtn').addEventListener('click',()=>{
       if(u.fault>0)return;
       if(u.on){u.on=false;u.starting=0;log('info',u.nm+' decommitted — output running down.');}
       else if(u.starting>0){u.starting=0;log('info',u.nm+' start-up aborted.');}
       else{if(u.id==='hyd'&&S.hydRes<=0)return;
         u.starting=u.st;S.money-=u.startCost;S.fuel+=u.startCost;
         log('info',u.nm+' start sequence initiated — on-line in '+u.st+' min (start cost '+fm$(u.startCost)+').');}
+      ui();
     });
+  }else if(sel==='batt'){
+    P.innerHTML=`<div class="dhead"><span class="lamp on"></span>BIG BATTERY<span class="dtype">BESS 500 MW / 1,000 MWh</span></div>
+      <div class="dout"><span id="dOut">0</span><small> MW <span id="dMode">IDLE</span></small></div>
+      <div class="dstat">STATE OF CHARGE <span id="dSoc">68%</span> · <span id="dSocM">680</span> MWh · auto-FCAS active</div>
+      <div class="bar"><i id="dSocBar" style="width:68%"></i></div>
+      <input type="range" id="dSl" min="-500" max="500" step="10" value="${S.batt.set}" title="− charge · + discharge">
+      <div class="dfoot"><span>SET <b id="dSet">${fmt(S.batt.set)}</b> MW</span><span>− charges at spot price · + discharges ($6/MWh wear)</span></div>`;
+    $('dSl').addEventListener('input',e=>{S.batt.set=+e.target.value;$('dSet').textContent=fmt(S.batt.set);});
+  }else if(sel==='ic'){
+    P.innerHTML=`<div class="dhead"><span class="lamp on" id="dLamp"></span>INTERCONNECTOR<span class="dtype">TIE N1 ±800 MW</span></div>
+      <div class="dout"><span id="dOut">250</span><small> MW <span id="dMode">IMPORT</span></small></div>
+      <div class="dstat" id="dStat"></div>
+      <input type="range" id="dSl" min="-800" max="800" step="10" value="${S.ic.set}" title="− export · + import">
+      <div class="dfoot"><span>SET <b id="dSet">${fmt(S.ic.set)}</b> MW</span><span>import $58/MWh · export earns $40 · ramps 100 MW/min</span></div>`;
+    $('dSl').addEventListener('input',e=>{S.ic.set=+e.target.value;$('dSet').textContent=fmt(S.ic.set);});
+  }else if(sel==='wind'||sel==='sol'){
+    const w=sel==='wind';
+    P.innerHTML=`<div class="dhead"><span class="lamp on"></span>${w?'GALE RIDGE WIND':'SUNPLAIN SOLAR'}<span class="dtype">VRE ${w?'1,200':'1,400'} MW</span></div>
+      <div class="dout"><span id="dOut">0</span><small> / <span id="dAvail">0</span> MW AVAILABLE</small></div>
+      <div class="dstat" id="dStat">Output follows the weather — you can only limit it.</div>
+      <input type="range" id="dSl" min="0" max="100" step="5" value="${w?S.wCurt:S.sCurt}" title="Output limit %">
+      <div class="dfoot"><span>LIMIT <b id="dSet">${w?S.wCurt:S.sCurt}</b>%</span><span>$0/MWh · curtail to manage over-frequency or thermal minimums</span></div>`;
+    $('dSl').addEventListener('input',e=>{if(w)S.wCurt=+e.target.value;else S.sCurt=+e.target.value;
+      $('dSet').textContent=e.target.value;});
+  }else{ // city
+    P.innerHTML=`<div class="dhead"><span class="lamp on" id="dLamp"></span>MERIDIAN CITY<span class="dtype">LOAD CENTRE · 1.4M PEOPLE</span></div>
+      <div class="dout"><span id="dOut">0</span><small> MW DEMAND · <span id="dServe"></span></small></div>
+      <div class="dstat" id="dStat"></div>
+      <div class="dfoot" style="gap:6px">
+        <button class="cbtn" id="dDR">CALL DEMAND RESPONSE −350 MW / 60 MIN</button>
+        <button class="cbtn" id="dRT">START RESERVE DIESEL</button>
+      </div>
+      <div class="dstat" id="dOps"></div>`;
+    $('dDR').addEventListener('click',()=>{
+      if(S.dr.uses<=0||S.dr.left>0)return;
+      S.dr.uses--;S.dr.left=60;
+      log('warn','DEMAND RESPONSE CALLED: 350 MW of contracted load off for 60 min ($1,400/MWh). '+S.dr.uses+' call(s) left.');ui();});
+    $('dRT').addEventListener('click',()=>{
+      S.rert.on=!S.rert.on;
+      if(S.rert.on){S.rert.timer=20;log('warn','Reserve diesel fleet start ordered — on-line in 20 min.');}
+      else{S.rert.timer=0;log('info','Reserve diesel fleet stood down.');}ui();});
   }
-  $('sl-batt').addEventListener('input',e=>{S.batt.set=+e.target.value;$('sv-batt').textContent=fmt(S.batt.set);});
-  $('sl-ic').addEventListener('input',e=>{S.ic.set=+e.target.value;$('sv-ic').textContent=fmt(S.ic.set);});
-  $('sl-wind').addEventListener('input',e=>{S.wCurt=+e.target.value;$('sv-wind').textContent=S.wCurt;});
-  $('sl-sol').addEventListener('input',e=>{S.sCurt=+e.target.value;$('sv-sol').textContent=S.sCurt;});
-  $('bt-dr').addEventListener('click',()=>{
-    if(S.dr.uses<=0||S.dr.left>0)return;
-    S.dr.uses--;S.dr.left=60;
-    log('warn','DEMAND RESPONSE CALLED: 350 MW of contracted load off for 60 min ($1,400/MWh). '+S.dr.uses+' call(s) left.');});
-  $('bt-rt').addEventListener('click',()=>{
-    S.rert.on=!S.rert.on;
-    if(S.rert.on){S.rert.timer=20;log('warn','Reserve diesel fleet start ordered — on-line in 20 min.');}
-    else{S.rert.timer=0;log('info','Reserve diesel fleet stood down.');}});
 }
 function ui(){
   $('hClock').textContent=clock(S.t);
@@ -798,67 +1159,81 @@ function ui(){
   const ic2=$('hIn');ic2.textContent=fmt(S.M);ic2.className=S.M<1000?'crit':S.M<1600?'warn':'good';
   $('hCo2').textContent=(S.co2/1000).toFixed(1);
   const pn=$('hPnl');pn.textContent=fm$(S.money);pn.className=S.money<0?'crit':'good';
-  // market panel
   $('mPrice').textContent='$'+fmt(S.price)+'/MWh';
-  $('mMarg').textContent=fmt(res)+' MW spare';
   $('mFcas').textContent=(S.fcas>=0?'+':'')+fmt(S.fcas)+' MW';
   const h=hourNow();
   const nl=(demandF(h+1)-(solarClear(h+1)*S.cloudMu+1200*S.windMu))-(demandF(h)-(solarClear(h)*S.cloudMu+1200*S.windMu));
   const mr=$('mRamp');mr.textContent=(nl>=0?'+':'')+fmt(nl)+' MW/h';mr.style.color=nl>800?'var(--amb)':'var(--tx)';
-  $('mTemp').textContent=Math.round(pw(TMP,h)+(S.heat.active?7:S.heat.ann?3:0))+' °C';
-  $('mWind').textContent=Math.round(S.wind*100)+'%';
-  $('mSol').textContent=Math.round(S.cloud*100)+'% sky';
-  $('mUse').textContent=fmt(S.unserved)+' MWh';
+  $('mWx').textContent=Math.round(pw(TMP,h)+(S.heat.active?7:S.heat.ann?3:0))+'° · '+Math.round(S.wind*100)+'% · '+Math.round(S.cloud*100)+'%';
   const cmp=100*S.okTicks/Math.max(S.ticks,1);
-  const ce=$('mCmp');ce.textContent=cmp.toFixed(1)+'%';ce.style.color=cmp<90?'var(--red)':cmp<96?'var(--amb)':'var(--grn)';
-  // annunciator
+  const q=$('mQ');q.textContent=fmt(S.unserved)+' MWh · '+cmp.toFixed(1)+'%';
+  q.style.color=S.unserved>0?'var(--red)':cmp<96?'var(--amb)':'var(--grn)';
   for(const[,k]of ANN){const el=$('an-'+k),v=S.alarms[k]||0;
     el.className='ann'+(v===2?' crit':v===1?' on':'');}
-  // fleet
-  for(const u of F){
-    $('o-'+u.id).textContent=fmt(u.out);
-    $('cp-'+u.id).textContent=fmt(capE(u));
-    const lp=$('lp-'+u.id);lp.className='lamp'+(u.fault>0||u.subFault>0?' fl':u.on?' on':u.starting>0?' st':'');
-    const st=$('st-'+u.id),card=$('cd-'+u.id);
-    card.classList.toggle('fault',u.fault>0||u.subFault>0);
-    const tgt=u.on?clamp(u.set,minE(u),capE(u)):0;
-    st.innerHTML=u.fault>0?'<span class="fl">FAULT — LOCKOUT '+Math.ceil(u.fault)+' MIN</span>'
-      :u.subFault>0?'<span class="fl">MACHINE DOWN — '+Math.ceil(u.subFault)+' MIN</span>'
-      :u.starting>0?'<span class="dn">STARTING — SYNC IN '+Math.ceil(u.starting)+' MIN</span>'
-      :!u.on?'OFF-LINE'
-      :Math.abs(tgt-u.out)>u.ramp*DTS?'<span class="'+(tgt>u.out?'up':'dn')+'">'+(tgt>u.out?'▲ RAMP UP':'▼ RAMP DOWN')+' → '+fmt(tgt)+'</span>'
-      :(u.derate<1?'<span class="dn">DERATED (HEAT)</span>':'ON TARGET');
-    $('bt-'+u.id).textContent=u.fault>0?'FAULT':u.starting>0?'ABORT':u.on?'STOP':'START';
-    $('bt-'+u.id).disabled=u.fault>0;
-    $('bt-'+u.id).classList.toggle('stop',u.on);
+  // strip
+  for(const[id]of STRIP){
+    const t=$('st-'+id),lp=$('sl2-'+id),bb=$('sb-'+id);
+    t.classList.toggle('sel',sel===id);
+    const u=F.find(q2=>q2.id===id);
+    if(u){lp.className='slamp'+(u.fault>0||u.subFault>0?' fl':u.on?' on':u.starting>0?' st':'');
+      bb.style.width=(u.on?100*u.out/Math.max(capE(u),1):0)+'%';
+      bb.style.background=u.fault>0||u.subFault>0?'var(--red)':'var(--grn)';}
+    else if(id==='wind'){lp.className='slamp on';bb.style.width=(S.wind*S.wCurt)+'%';bb.style.background='var(--cyn)';}
+    else if(id==='sol'){const sv=solarClear(h)*S.cloud*S.sCurt/100/1400;lp.className='slamp'+(sv>0?' on':'');bb.style.width=(sv*100)+'%';bb.style.background='var(--sol)';}
+    else if(id==='batt'){lp.className='slamp on';bb.style.width=(100*S.batt.soc/S.batt.e)+'%';bb.style.background='var(--vio)';}
+    else if(id==='ic'){lp.className='slamp'+(S.ic.fault>0?' fl':' on');bb.style.width=(100*Math.abs(S.ic.flow)/800)+'%';bb.style.background=S.ic.fault>0?'var(--red)':'var(--grn)';}
+    else{lp.className='slamp on';bb.style.width=(100*S.demand/9500)+'%';bb.style.background=S.ufls>0?'var(--red)':'var(--amb)';}
   }
-  $('hb').style.width=(S.hydRes/7500*100)+'%';
-  const B=S.batt;
-  $('o-batt').textContent=fmt(Math.abs(B.out));
-  $('bmode').textContent=B.out>5?'DISCHARGE':B.out<-5?'CHARGE':'IDLE';
-  const sp=100*B.soc/B.e;
-  document.getElementById('soc%').textContent=Math.round(sp)+'%';
-  $('socMWh').textContent=fmt(B.soc);
-  $('socbar').style.width=sp+'%';
-  $('socbar').style.background=sp<15?'var(--red)':sp<30?'var(--amb)':'var(--vio)';
-  $('o-ic').textContent=fmt(Math.abs(S.ic.flow));
-  $('icmode').textContent=S.ic.flow>=0?'IMPORT':'EXPORT';
-  $('st-ic').innerHTML=S.ic.fault>0?'<span class="fl">LINE FAULT — '+Math.ceil(S.ic.fault)+' MIN</span>'
-    :Math.abs(clamp(S.ic.set,-750,750)-S.ic.flow)>2?'<span class="dn">RAMPING → '+fmt(S.ic.set)+'</span>':'STEADY';
-  $('lp-ic').className='lamp'+(S.ic.fault>0?' fl':' on');
-  const h2=hourNow();
-  const wA=1200*S.wind,sA=solarClear(h2)*S.cloud;
-  $('o-wind').textContent=fmt(wA*S.wCurt/100);$('av-wind').textContent=fmt(wA);
-  $('o-sol').textContent=fmt(sA*S.sCurt/100);$('av-sol').textContent=fmt(sA);
-  $('st-wind').textContent=S.wCurt<100?'CURTAILED':'FREE RUNNING';
-  $('st-sol').textContent=h2<SUNRISE||h2>SUNSET?'NIGHT':S.sCurt<100?'CURTAILED':'FREE RUNNING';
-  $('st-dr').textContent='DEMAND RESPONSE '+'●'.repeat(S.dr.uses)+'○'.repeat(3-S.dr.uses)+
-    (S.dr.left>0?' — ACTIVE '+Math.ceil(S.dr.left)+' MIN':'');
-  $('bt-dr').disabled=S.dr.uses<=0||S.dr.left>0;
-  $('st-rt').textContent=S.rert.on?(S.rert.timer>0?'DIESEL STARTING — '+Math.ceil(S.rert.timer)+' MIN':'DIESEL ON-LINE +300 MW'):'RESERVE DIESEL 300 MW · 20 MIN START · $2,600';
-  $('bt-rt').textContent=S.rert.on?'STAND DOWN DIESEL':'START RESERVE DIESEL';
-  $('lp-ops').className='lamp'+(S.rert.out||S.dr.left>0?' on':S.rert.on?' st':'');
+  // dock
+  const u=F.find(q2=>q2.id===sel);
+  if(u&&$('dOut')){
+    $('dOut').textContent=fmt(u.out);$('dCap').textContent=fmt(capE(u));
+    $('dLamp').className='lamp'+(u.fault>0||u.subFault>0?' fl':u.on?' on':u.starting>0?' st':'');
+    const tgt=u.on?clamp(u.set,minE(u),capE(u)):0;
+    $('dStat').innerHTML=u.fault>0?'<span class="fl">FAULT — LOCKOUT '+Math.ceil(u.fault)+' MIN</span>'
+      :u.subFault>0?'<span class="fl">ONE MACHINE DOWN — REPAIR '+Math.ceil(u.subFault)+' MIN</span>'
+      :u.starting>0?'<span class="dn">STARTING — SYNC IN '+Math.ceil(u.starting)+' MIN</span>'
+      :!u.on?'OFF-LINE — press START UNIT to commit'
+      :Math.abs(tgt-u.out)>u.ramp*DTS?'<span class="'+(tgt>u.out?'up':'dn')+'">'+(tgt>u.out?'▲ RAMPING UP':'▼ RAMPING DOWN')+' → '+fmt(tgt)+' MW</span>'
+      :(u.derate<1?'<span class="dn">DERATED (HEAT)</span>':'ON TARGET');
+    const bt=$('dBtn');
+    bt.textContent=u.fault>0?'FAULT':u.starting>0?'ABORT START':u.on?'SHUT DOWN':'START UNIT';
+    bt.disabled=u.fault>0;bt.classList.toggle('stop',u.on);
+    if(sel==='hyd'&&$('dWater'))$('dWater').style.width=(S.hydRes/7500*100)+'%';
+  }else if(sel==='batt'&&$('dOut')){
+    const B=S.batt;
+    $('dOut').textContent=fmt(Math.abs(B.out));
+    $('dMode').textContent=B.out>5?'DISCHARGE':B.out<-5?'CHARGE':'IDLE';
+    const sp=100*B.soc/B.e;
+    $('dSoc').textContent=Math.round(sp)+'%';$('dSocM').textContent=fmt(B.soc);
+    $('dSocBar').style.width=sp+'%';
+    $('dSocBar').style.background=sp<15?'var(--red)':sp<30?'var(--amb)':'var(--vio)';
+  }else if(sel==='ic'&&$('dOut')){
+    $('dOut').textContent=fmt(Math.abs(S.ic.flow));
+    $('dMode').textContent=S.ic.flow>=0?'IMPORT':'EXPORT';
+    $('dLamp').className='lamp'+(S.ic.fault>0?' fl':' on');
+    $('dStat').innerHTML=S.ic.fault>0?'<span class="fl">LINE FAULT — '+Math.ceil(S.ic.fault)+' MIN</span>'
+      :Math.abs(clamp(S.ic.set,-800,800)-S.ic.flow)>2?'<span class="dn">RAMPING → '+fmt(S.ic.set)+' MW</span>':'STEADY';
+  }else if((sel==='wind'||sel==='sol')&&$('dOut')){
+    const w=sel==='wind';
+    const avail=w?1200*S.wind:solarClear(h)*S.cloud;
+    $('dOut').textContent=fmt(avail*(w?S.wCurt:S.sCurt)/100);
+    $('dAvail').textContent=fmt(avail);
+    $('dStat').textContent=w?(S.storm.active?'STORM — cut-out risk':'Output follows the weather — you can only limit it.')
+      :(h<SUNRISE||h>SUNSET?'NIGHT — no output':'Output follows the sun — you can only limit it.');
+  }else if(sel==='city'&&$('dOut')){
+    $('dOut').textContent=fmt(S.demand);
+    $('dServe').textContent=S.ufls>0?'SHEDDING '+Math.round([0,5,12,21][S.ufls])+'%':'ALL SERVED';
+    $('dServe').style.color=S.ufls>0?'var(--red)':'var(--grn)';
+    $('dStat').textContent='Peak forecast '+fmt(demandF(18.8))+' MW at 18:45 · UFLS relays arm below 49.2 Hz';
+    $('dDR').disabled=S.dr.uses<=0||S.dr.left>0;
+    $('dOps').textContent='DR '+'●'.repeat(S.dr.uses)+'○'.repeat(3-S.dr.uses)+
+      (S.dr.left>0?' — ACTIVE '+Math.ceil(S.dr.left)+' MIN':'')+
+      '   ·   DIESEL: '+(S.rert.on?(S.rert.timer>0?'STARTING '+Math.ceil(S.rert.timer)+' MIN':'ON-LINE +300 MW'):'OFF');
+    $('dRT').textContent=S.rert.on?'STAND DOWN DIESEL':'START RESERVE DIESEL';
+  }
 }
+function draw(){drawGauge();drawFreq();drawDem();drawMap();}
 
 /* ---------- control ---------- */
 function setPause(p){
@@ -880,20 +1255,17 @@ $('bStart').onclick=()=>{
   try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}
   S.run=true;
   log('info','04:00 — shift handover complete. System normal: 3.8 GW demand, coal + CCGT + hydro committed, tie importing 250 MW.');
-  log('info','Forecast: peak ~7.7 GW at 18:45. Check MANUAL for physics; watch the annunciator.');
+  log('info','Forecast: peak ~7.7 GW at 18:45. Click buildings on the map to dispatch. Watch the annunciator.');
 };
 
 /* ---------- restart (no page reload — works inside sandboxed frames) ---------- */
 function restart(){
   freshState();schedule();
+  smoke=[];flash=0;tutRing=null;
   $('log').innerHTML='';
   ['ovEnd','ovMan','coach'].forEach(id=>$(id).classList.add('hide'));
   document.querySelectorAll('.tut-hi').forEach(e=>e.classList.remove('tut-hi'));
-  for(const u of F){const s=$('sl-'+u.id);if(s){s.value=u.set;$('sv-'+u.id).textContent=fmt(u.set);}}
-  $('sl-batt').value=0;$('sv-batt').textContent='0';
-  $('sl-ic').value=250;$('sv-ic').textContent='250';
-  $('sl-wind').value=100;$('sv-wind').textContent='100';
-  $('sl-sol').value=100;$('sv-sol').textContent='100';
+  sel='city';renderDock();
   $('pauseTag').style.display='none';$('bPause').textContent='⏸ PAUSE';
   $('ovStart').classList.remove('hide');
   draw();ui();
@@ -906,59 +1278,62 @@ const TUT=[
   html:'You are the dispatcher. This dial is the whole job: <b>system frequency</b>. At exactly 50.000 Hz, generation equals demand across the region. Surplus power pushes it up; deficit drags it down. Your contract: keep the needle in the green band, <b>49.85–50.15 Hz</b>. Everything else on this desk exists to serve it.'},
  {hi:['#pD'],title:'THE DAY AHEAD',
   html:'<b>Amber</b> is customer demand — solid where it has happened, dashed where it is forecast. <b>Green</b> is your total supply. <b>Cyan</b> is wind + solar, which you get for free but cannot order around. Demand roughly doubles from the overnight trough to the evening peak, and it does not negotiate. Your job is to walk supply along that amber line — slightly <i>before</i> it moves.'},
- {hi:['#fleet'],title:'YOUR MACHINES',
-  html:'The dispatch desk. Each card is a power station: the slider sets a <b>MW setpoint</b>, and the machine ramps toward it at its own speed — hydro sprints at 130 MW/min, coal crawls at 12. The lamp shows status; START/STOP commits a unit, and starting takes minutes (peakers) to hours (coal). Nothing teleports.'},
- {hi:['#cd-hyd','#pG'],title:'TASK — CATCH THE SAG',
-  html:'We took over the desk about <b>250 MW short</b> — see the needle hanging low. Hydro is your fastest big lever. <b>Drag SNOWY GORGE HYDRO to about 600 MW</b> and watch frequency climb home.',
+ {hi:['#pMap','#strip'],title:'THE MAP IS YOUR SWITCHYARD',
+  html:'Every asset is a real place: the coal station smoking in the west, the dam in the hills, turbines on the ridge, the city in the middle whose windows are your demand. <b>Click any building</b> (or its tile in the FLEET strip) to open its controls in the dock below. The little bars above each plant show output against available capacity — and power literally flows down the lines to the city.'},
+ {hi:['#pMap','#selP'],title:'TASK — CATCH THE SAG',ring:'hyd',
+  html:'We took over the desk about <b>250 MW short</b> — see the needle hanging low and the frequency trace sinking. Hydro is your fastest big machine. <b>Click the dam</b> (top right, by the lake) and <b>drag its setpoint to about 600 MW</b>. Watch the outflow start and the needle climb home.',
   task:'Hydro output ≥ 500 MW and frequency holding near 50.00',
   check:()=>FU.hyd.out>=500&&Math.abs(S.dev)<=.1},
- {hi:['#cd-coal','#cd-hyd'],title:'SLOW GIANTS, FINITE WATER',
-  html:'Coal is the cheap workhorse — and the slowest thing you own: 2 h to start from cold, 12 MW/min on the slider, and it cannot run below 950 MW. Meanwhile, the hydro we&#39;ve been leaning on burns through a <b>daily water allocation</b> — the cyan bar, 7,500 MWh. Spend water on peaks and emergencies, not on convenience.',
+ {hi:['#pMap'],title:'SLOW GIANTS, FINITE WATER',ring:'coal',
+  html:'The smoking giant in the west is coal — cheap, and the slowest thing you own: 2 h to start from cold, 12 MW/min on the slider, can&#39;t run below 950 MW. Meanwhile the dam&#39;s <b>reservoir is a budget</b>: 7,500 MWh a day, and you can watch the level fall. Spend water on peaks and emergencies, not on convenience.',
   onEnter:()=>tutJump(105,dem=>{const w=1200*S.wind;
     FU.coal.out=FU.coal.set=2000;FU.ccgt.out=FU.ccgt.set=520;S.ic.set=250;S.ic.flow=250;
     FU.hyd.out=FU.hyd.set=Math.round(clamp(dem-2000-520-250-w,100,950));})},
- {hi:['#cd-gta','#cd-coal'],title:'TASK — COMMIT FOR THE MORNING RAMP',
-  html:'Sunrise is coming and with it ~1,800 MW of extra demand by 09:00. Coal alone cannot ramp that fast. <b>Press START on PEAKER GT·A</b> (8 min to sync) and <b>raise MT HAZEL COAL toward 2,400 MW</b> so the slow giant is already moving when you need it.',
+ {hi:['#pMap','#selP'],title:'TASK — COMMIT FOR THE MORNING RAMP',
+  ring:()=>!(FU.gta.on||FU.gta.starting>0)?'gta':'coal',
+  html:'Sunrise is coming and with it ~1,800 MW of extra demand by 09:00. Coal alone cannot ramp that fast. <b>Click PEAKER GT·A</b> (the small turbine hall south-west of the city) and press <b>START UNIT</b> — it needs 8 minutes. Then <b>click the coal station</b> and set it toward <b>2,400 MW</b> so the slow giant is already moving when you need it.',
   task:'GT·A started · coal setpoint ≥ 2,300 MW',
   check:()=>(FU.gta.on||FU.gta.starting>0)&&FU.coal.set>=2300},
- {hi:['#cd-batt'],title:'THE BATTERY',
-  html:'500 MW of instant power with a 1,000 MWh tank — two hours flat out. Positive setpoint <b>discharges</b>, negative <b>charges</b> (buying energy at the spot price). It also fights sudden frequency swings automatically (<b>FCAS</b>) — which quietly drains stored charge. Treat charge like ammunition: keep it full before the evening peak.',
+ {hi:['#pMap'],title:'THE BATTERY',ring:'batt',
+  html:'The white containers south of the city are 500 MW of instant power with a 1,000 MWh tank — two hours flat out. Positive setpoint <b>discharges</b>, negative <b>charges</b> (buying energy at the spot price). It also fights sudden frequency swings automatically (<b>FCAS</b>) — which quietly drains the green charge bar. Treat charge like ammunition: keep it full before the evening peak.',
   onEnter:()=>tutJump(210,dem=>{const w=1200*S.wind,so=solarClear(hourNow())*S.cloud;
     FU.coal.out=FU.coal.set=2400;FU.ccgt.out=FU.ccgt.set=800;
     FU.gta.starting=0;FU.gta.on=true;FU.gta.out=FU.gta.set=350;
     FU.hyd.out=FU.hyd.set=Math.round(clamp(dem-2400-800-350-250-w-so,50,950));S.batt.set=0;
     log('info','07:30 — desk note: coal made its target during the skip, Riverton loaded to 800 MW, GT·A carrying 350.');})},
- {hi:['#pG','#cd-batt'],title:'TASK — SURVIVE A UNIT TRIP',
-  html:'<b>Bang.</b> One of Riverton CCGT&#39;s two trains just tripped — <b>400 MW gone in one second</b>. The battery&#39;s automatic response is already arresting the fall, but it will not hold forever. <b>Cover the loss</b>: battery discharge, hydro up — <b>bring frequency back above 49.94</b> and hold it.',
+ {hi:['#pG','#pMap'],title:'TASK — SURVIVE A UNIT TRIP',ring:'batt',
+  html:'<b>Bang.</b> One of Riverton CCGT&#39;s two trains just tripped — <b>400 MW gone in one second</b>. The battery&#39;s automatic response is already arresting the fall, but it will not hold forever. <b>Cover the loss</b>: click the battery and discharge, push the dam up — <b>bring frequency back above 49.94</b> and hold it.',
   task:'Frequency restored ≥ 49.94 Hz and held',
   check:()=>S.dev>=-.06,
-  onEnter:()=>{const c=FU.ccgt;c.availF=.5;c.subFault=25;c.out*=.5;
+  onEnter:()=>{const c=FU.ccgt;c.availF=.5;c.subFault=25;c.out*=.5;flash=6;
     log('crit','RIVERTON CCGT: one train tripped — 50% of station capacity lost. Lockout ~25 min.');beep(950,3);}},
- {hi:['#mkt','#pA'],title:'INSTRUMENTS & ALARMS',
-  html:'<b>RESERVE</b> is spare capacity you could still call on — keep several hundred MW in hand. <b>INERTIA</b> says how fast frequency moves when something breaks; low inertia = twitchy grid. The <b>spot price</b> climbs as reserve thins: $300 is a warning, $1,000+ is a siren. Annunciator tiles light for whatever needs you. And below <b>49.2 Hz</b>, under-frequency relays start disconnecting customers automatically at $16,600/MWh — the failure you are paid to prevent.'},
+ {hi:['#mkt','#annun'],title:'INSTRUMENTS & ALARMS',
+  html:'<b>RESERVE</b> is spare capacity you could still call on — keep several hundred MW in hand. <b>INERTIA</b> says how fast frequency moves when something breaks; low inertia = twitchy grid. The <b>spot price</b> climbs as reserve thins: $300 is a warning, $1,000+ is a siren. Annunciator tiles light for whatever needs you. And below <b>49.2 Hz</b>, under-frequency relays start disconnecting customers automatically at $16,600/MWh — you will see city districts go dark.',
+  onEnter:()=>{tutRing=null;}},
  {hi:['#pD'],title:'THE DUCK CURVE — AND THE REAL SHIFT',
-  html:'One final trap: at sunset, solar dies exactly as demand peaks. From mid-afternoon, watch <b>NET LOAD RAMP +1H</b> and commit plant <i>early</i> — the 17:00–20:00 climb is the hardest hour of the day. If it all goes wrong: DEMAND RESPONSE (3 calls) and the reserve diesel are expensive, but cheaper than the alternative. That&#39;s the desk. The full shift is 24 hours, real weather, real failures, and a grade at the end. Good luck, dispatcher.'},
+  html:'One final trap: at sunset, solar dies exactly as demand peaks — watch the map get dark and the city light up as the panels fade. From mid-afternoon, watch <b>NET LOAD RAMP +1H</b> and commit plant <i>early</i>. If it all goes wrong, <b>click the city</b>: DEMAND RESPONSE (3 calls) and the reserve diesel are expensive, but cheaper than the alternative. That&#39;s the desk. The full shift is 24 hours, real weather, real failures, and a grade at the end. Good luck, dispatcher.'},
 ];
 let tutStep=0,tutOk=0,tutDone=false;
-function tutJump(toMin,arrange){ // skip quiet stretches; re-balance the board for the new hour
+function tutJump(toMin,arrange){
   S.t=toMin;S.noise=0;
   arrange(demBase(hourNow()));
-  for(const u of F){const s=$('sl-'+u.id);if(s){s.value=u.set;$('sv-'+u.id).textContent=fmt(u.set);}}
-  $('sl-batt').value=S.batt.set;$('sv-batt').textContent=fmt(S.batt.set);
+  renderDock();
   const m=Math.floor(S.t);
   while(S.lastMin<m-1){S.lastMin++;S.aDem.push(null);S.aSup.push(null);S.aRen.push(null);S.aShed.push(0);}
   S.freq=50;S.dev=0;S.histF=[];
 }
 function tutGo(i){
   document.querySelectorAll('.tut-hi').forEach(e=>e.classList.remove('tut-hi'));
+  tutRing=null;
   if(i>=TUT.length)return restart();
   tutStep=i;tutOk=0;tutDone=false;
   const s=TUT[i];
   $('coStep').textContent=(i+1)+' / '+TUT.length;
   $('coTitle').textContent=s.title;
   $('coBody').innerHTML=s.html;
-  (s.hi||[]).forEach((sel,j)=>{const e=document.querySelector(sel);
+  (s.hi||[]).forEach((sl,j)=>{const e=document.querySelector(sl);
     if(e){e.classList.add('tut-hi');if(j===0)e.scrollIntoView({block:'nearest',behavior:'smooth'});}});
+  if(s.ring)tutRing=s.ring;
   const tk=$('coTask');
   if(s.check){tk.classList.remove('hide');tk.textContent='□ '+s.task;tk.style.color='var(--amb)';
     $('coNext').disabled=true;setPause(false);}
@@ -980,12 +1355,13 @@ $('bTut').onclick=()=>{
   $('ovStart').classList.add('hide');
   try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}
   S.tut=true;
-  const hy=FU.hyd;hy.out=hy.set=150;$('sl-hyd').value=150;$('sv-hyd').textContent='150';
+  const hy=FU.hyd;hy.out=hy.set=150;
+  select('hyd');
   $('coach').classList.remove('hide');
   log('info','04:00 — training shift. No surprises today except the ones the coach arranges.');
   tutGo(0);
 };
-buildUI();schedule();
-setInterval(tick,100);
+buildUI();renderDock();schedule();
+setInterval(()=>{tick();if(!S.run&&!S.over)drawMap();},100); // map keeps living while paused
 draw();ui();
 </script>
