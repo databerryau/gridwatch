@@ -28,10 +28,10 @@ one at a time.
 
 | # | Constraint | Why |
 |---|---|---|
-| C-1 | **Single self-contained HTML file, `index.html`.** No build step, no external requests. | Published two ways: GitHub Pages (`main` at `databerryau/gridwatch`) and a private Claude artifact. Both depend on one file. The game file *is* the Pages entry point — there is no copy or build step, and there must not be one, because that is what let the two drift apart before. |
+| C-1 | **Single self-contained HTML file, `index.html`.** No build step, no external requests. | The game file *is* the GitHub Pages entry point — there is no copy or build step, and there must not be one, because that is what let the repo drift 296 lines behind the local file. |
 | C-2 | `<meta charset="utf-8">` stays first. | Plain static servers garble the UTF-8 glyphs without it. |
-| C-3 | Restart is an in-page state reset (`freshState()` / `restart()`). Never `location.reload()`. | Unreliable inside the preview pane and the artifact sandbox. |
-| C-4 | The two published copies stay in sync when the game changes. | Otherwise the public link silently rots. |
+| C-3 | Restart is an in-page state reset (`freshState()` / `restart()`). Never `location.reload()`. | Unreliable inside the dev preview pane, and a reload would throw away the settings and saved shift that S-5 introduces. |
+| C-4 | **<https://databerryau.github.io/gridwatch/> is the one canonical host.** Shipping means pushing `main`. Do not publish the game to a Claude artifact link or anywhere else. | One host, one URL to share, nothing to keep in sync and nothing to silently rot. |
 | C-5 | Physics stays defensible. | The appeal is that it behaves like a real control room. Ease the *interface*, not the laws. |
 
 Soft budget: the file may grow to ~200 KB. Past that, revisit C-1.
@@ -460,4 +460,5 @@ the resulting PNG. The receiver script used for this review is worth keeping in
 - [ ] Manual pass: tutorial start → finish → drill → full shift
 - [ ] Manual pass at 1280×720, 1920×1080 and 390×844
 - [ ] Reduced-motion and colourblind settings verified
-- [ ] Pushed to `main` (GitHub Pages deploys from it) and the Claude artifact republished (C-4)
+- [ ] Pushed to `main`, Pages build green, live site verified (C-4):
+      `curl -sI https://databerryau.github.io/gridwatch/`
