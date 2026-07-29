@@ -1,0 +1,11 @@
+# OneDrive / Windows cruft
+desktop.ini
+Thumbs.db
+.DS_Store
+
+# Claude Code machine-local settings (launch.json is shared, this is not)
+.claude/settings.local.json
+
+# Scratch output from visual-QA captures
+shots/
+tools/shots/

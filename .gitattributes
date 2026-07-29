@@ -1,0 +1,4 @@
+# Keep the repo LF-only regardless of who clones it (Windows autocrlf, OneDrive, CI).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
