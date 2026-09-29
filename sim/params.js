@@ -1,0 +1,450 @@
+// sim/params.js: every model constant of the v4 core (spec F-13).
+//
+// Each constant is a record {value, unit, src} or {value, unit, simplified: true, note}.
+// Constants still unconfirmed (spec §8.3) also carry `unverified: true`. A record whose value
+// is uncertain within a stated band carries `range: [lo, hi]` (H-8: "every parameter inside
+// its §8 range"; tests/params.test.js checks that the value lies inside it).
+// No other file under sim/ may contain a numeric literal apart from 0, 1, 2, 50, 60 and
+// array indices (tests/params.test.js). Code reads plain values through `V`, which mirrors
+// `P` with each record replaced by its value, plus derived tables (V.MACHINES, V.STATIONS).
+//
+// Stage A (architect) owns this file. Stage B agents may ADD records (with src or
+// simplified), each ONLY between its own two marker lines at the end of P, so four parallel
+// branches merge without conflicts. Changing a value is tuning. Only the integration owner
+// bumps SIM_VERSION (once per merged change set, not per agent).
+
+export const SIM_VERSION = 'v4-core-0.2.0';
+
+const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
+const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);
+const UNVERIFIED = {unverified: true};
+
+// Sources quoted more than once (URLs are in SPEC.md §8.1).
+const F13 = 'SPEC F-13 fleet table (starting values, tuned against par, S-12)';
+const FOS = 'AEMC Frequency Operating Standard (2023), Tables A.2-A.3';
+const PFRR = 'AEMO interim Primary Frequency Response Requirements (2020) s3.3-3.4';
+const AEMO25 = 'AEMO technical review of the NEM frequency control landscape (2025) pp.31, 70';
+const UFLS_PAPER = 'AEMO dynamic arming options for UFLS (2023) App. A1.2';
+const FSIP = 'Split of the hot start into T1 (START to full speed) and T2 (breaker close to MIN), and T4 (MIN to <=5% before the breaker opens), per the NEM fast-start inflexibility profile; the split by class is unverified (§8.3)';
+const LEGACY = 'legacy index.html (v2.0 + Phase 0.1)';
+const GOV_RANGE = 'Range: §8.1 says governor response takes seconds, many slower than 2 s (FFR working paper 2017 s2.3.1); the range brackets that.';
+const RNG_SRC = 'MurmurHash3 fmix32 finaliser (Austin Appleby, public domain) and FNV-1a (Fowler/Noll/Vo, public domain)';
+
+// One dispatchable station (F-13 row); machines are committed individually.
+function station(id, name, cls, fields) {
+  return Object.assign({id, name, cls}, fields);
+}
+
+export const P = {
+  // ---------------------------------------------------------------- time (F-2, F-4, C-7)
+  PHYS_DT: simp(0.02, 's', 'Physics tick: 20 ms of grid time (F-2, F-4). An integration step, not a real-world value.'),
+  TICKS_PER_S: src(50, 'ticks/s', 'Definition: 1 s / PHYS_DT; every 50th tick runs the 1-s grid update (F-2)'),
+  DAY_START_H: src(4, 'h', LEGACY + ' L423: t = 0 is 04:00; the sim day runs 04:00 to 04:00'),
+  DAY_H: src(24, 'h', 'Definition'),
+  S_PER_MIN: src(60, 's/min', 'Definition'),
+  S_PER_H: src(3600, 's/h', 'Definition'),
+  MW_PER_GW: src(1000, 'MW/GW', 'Definition'),
+  KWH_PER_MWH: src(1000, 'kWh/MWh', 'Definition'),
+  CENTS_PER_DOLLAR: src(100, 'c/$', 'Definition'),
+  PCT: src(100, '%', 'Definition'),
+  PER_MILLE: src(1000, 'per-mille', 'Definition: ext series store fractions as integer per-mille (F-3 quantisation)'),
+  SERIES_STEP_S: simp(60, 's', 'Spacing of the pre-rolled ext series (F-3); values between samples are interpolated linearly.'),
+  MW_EPS: simp(1e-6, 'MW', 'Float tolerance for MW comparisons; numerical, not physical.'),
+
+  // ---------------------------------------------------------------- random streams (F-3)
+  RNG_GOLDEN: src(0x9e3779b9, 'u32', RNG_SRC + ' (golden-ratio increment)'),
+  RNG_FMIX_M1: src(0x85ebca6b, 'u32', RNG_SRC),
+  RNG_FMIX_M2: src(0xc2b2ae35, 'u32', RNG_SRC),
+  RNG_FMIX_S1: src(16, 'bits', RNG_SRC),
+  RNG_FMIX_S2: src(13, 'bits', RNG_SRC),
+  RNG_FNV_OFFSET: src(0x811c9dc5, 'u32', RNG_SRC),
+  RNG_FNV_PRIME: src(0x01000193, 'u32', RNG_SRC),
+  RNG_U32: src(4294967296, 'count', 'Definition: 2^32, maps a u32 hash to [0, 1)'),
+  RNG_NORMAL_TERMS: simp(12, 'count', 'normal() is Irwin-Hall: the sum of 12 uniforms minus 6 has mean 0 and variance 1 and uses only exact arithmetic, so it is bit-identical in every JS engine (risk 5). Tails are cut at +-6.'),
+  RNG_NORMAL_SALT: simp(0x6e6f726d, 'u32', 'Stream salt for normal() draws, so they never collide with uniform() draws on the same counters.'),
+  Z_P90: src(1.2816, 'sigma', 'Standard normal 90th percentile (P10/P90 band, L-2)'),
+
+  // ---------------------------------------------------------------- frequency physics (H-8)
+  F0_HZ: src(50, 'Hz', 'NEM nominal frequency (' + FOS + ')'),
+  LOAD_RELIEF: src(0.5, '% load per % frequency', 'AEMO load relief fact sheet (2023): mainland assumption 0.5% per 1% since 2020, kept by the 2023 review; the review estimated 0.6-0.8% by region (the range)', {range: [0.5, 0.8]}),
+  GOV_DROOP: src(0.05, 'pu', PFRR + ' (droop <=5%)'),
+  GOV_DEADBAND_HZ: src(0.015, 'Hz', PFRR + ' (deadband +-0.015 Hz)'),
+  GOV_CAP_FRAC: simp(0.12, 'pu of rating', 'H-8: governor response capped at +-12% of rating; the desk prototypes used 8-20%.'),
+  BATT_PFR_DEADBAND_HZ: src(0.015, 'Hz', AEMO25 + ' (battery deadband)'),
+  BATT_PFR_FULL_HZ: src(0.85, 'Hz beyond deadband', AEMO25 + ': most batteries reach full output 0.85 Hz beyond the deadband (~1.7% droop)'),
+  BATT_PFR_DEAD_S: simp(0.1, 's', 'H-8 battery dead time; the source says only "hundreds of ms" (' + AEMO25 + '). Range: dead time plus lag stays within 1 s.', {range: [0.1, 0.5]}),
+  BATT_PFR_LAG_S: simp(0.1, 's', 'H-8 battery first-order lag; see BATT_PFR_DEAD_S (same range).', {range: [0.1, 0.5]}),
+  GUARD_TRIGGER_HZ: simp(49.75, 'Hz', 'K-5 GUARD (contingency FFR) trigger. Real switched-controller settings are in the MASS and not yet checked (§8.3). Chosen between the normal band edge (49.85) and containment (49.5), so normal-band wander never fires it; the range is that interval.', {unverified: true, range: [49.5, 49.85]}),
+  GUARD_DELIVERY_S: src(1, 's', 'Very Fast raise FCAS timeframe, 1 s (Hornsdale report 2018; WattClarity 2023). Guard MW ramp linearly to full over this time after the trigger.'),
+  GUARD_SUSTAIN_S: simp(600, 's', 'H-8: guard sustained for 10 minutes once fired; sustain time unverified (§8.3).', UNVERIFIED),
+  GUARD_RAMP_OFF_S: simp(60, 's', 'After the sustain time the guard withdraws linearly over this time, so the withdrawal is not itself a contingency.'),
+  GUARD_REARM_HZ: simp(49.85, 'Hz', 'The spent guard re-arms once frequency is back above the normal band edge.'),
+  GUARD_STEP_MW: simp(50, 'MW', 'K-5: GUARD ring detents of 50 MW.'),
+  UF_SUSPEND_HZ: simp(49.85, 'Hz', 'H-10: under-frequency outside the normal band suspends scheduled battery charging (legacy L501 used -0.15 Hz).'),
+  UF_RESUME_HZ: simp(49.9, 'Hz', 'H-10: charging resumes above this (hysteresis; legacy L501 used -0.10 Hz).'),
+  F_CLAMP_LO_HZ: simp(46.5, 'Hz', 'H-7: the frequency clamp extends to 46.5 Hz (below the 47 Hz extreme limit).'),
+  F_CLAMP_HI_HZ: simp(53.5, 'Hz', 'Upper clamp, mirror of F_CLAMP_LO_HZ; the grid is black at 52 Hz anyway.'),
+  FHIST_LEN: simp(32, 'ticks', 'Frequency ring buffer (0.64 s): covers the longest governor dead time (0.5 s) and the 500-ms RoCoF window.'),
+  ROCOF_WINDOW_S: src(0.5, 's', FOS + ' Table A.2: RoCoF measured over any 500 ms'),
+  ROCOF_LIMIT_HZ_S: src(1, 'Hz/s', FOS + ' Table A.2: 1 Hz/s after a credible event (mainland)'),
+
+  // ---------------------------------------------------------------- UFLS, OFGS, collapse (H-6, H-7)
+  UFLS_FIRST_HZ: src(49, 'Hz', UFLS_PAPER + ': first stage 49.0 Hz'),
+  UFLS_STEP_HZ: simp(0.125, 'Hz', '§8.2: 8 stages 0.125 Hz apart (real schemes differ; QLD 2021: 8 blocks 49.00-48.60 Hz).'),
+  UFLS_STAGES: simp(8, 'count', '§8.2: eight stages, each two city districts (H-6).'),
+  UFLS_BLOCK_FRAC: simp(0.06, 'pu of load', '§8.2: about 6% of load per stage; the MW shed is the net load of the stage\'s two districts (P-12).'),
+  UFLS_DELAY_S: src(0.3, 's', UFLS_PAPER + ': ~0.1 s measure, ~0.1 s wait, then the breaker opens'),
+  BLACK_LO_HZ: src(47, 'Hz', FOS + ' Table A.3 extreme limit'),
+  BLACK_HI_HZ: src(52, 'Hz', FOS + ' Table A.3 extreme limit'),
+  COLLAPSE_BANDS: simp([{loHz: 47, hiHz: 47.5, holdS: 2}, {loHz: 47.5, hiHz: 48, holdS: 20}], 'Hz, s', '§8.2 / H-7: black after 2 s in 47.0-47.5 Hz or 20 s in 47.5-48.0 Hz; the 20-s window is compressed and labelled. Real collapse depends on protection settings.'),
+  OFGS_STAGES_HZ: src([51, 51.25, 51.5, 51.75], 'Hz', 'AEMO 2025 frequency review Table 1: wind trips in stages between 51 and 52 Hz (stage spacing simplified)'),
+  OFGS_STAGE_FRAC: simp(0.25, 'pu of wind output', 'Each OFGS stage trips a quarter of the wind output (H-7).'),
+  OFGS_DELAY_S: simp(0.3, 's', 'OFGS relay delay, taken equal to UFLS_DELAY_S.'),
+  OFGS_RECONNECT_S: simp(600, 's', 'Tripped wind reconnects after 10 grid-minutes back in the normal band.'),
+
+  // ---------------------------------------------------------------- operating standard (H-11, K-15, D-5)
+  NORMAL_LO_HZ: src(49.85, 'Hz', FOS + ': normal operating band'),
+  NORMAL_HI_HZ: src(50.15, 'Hz', FOS + ': normal operating band'),
+  CONTAIN_LO_HZ: src(49.5, 'Hz', FOS + ' Table A.3: credible contingency containment'),
+  CONTAIN_HI_HZ: src(50.5, 'Hz', FOS + ' Table A.3: credible contingency containment'),
+  FOS_RECOVER_S: src(300, 's', FOS + ': back in the normal band within 5 minutes'),
+  DIRECTED_BELOW_CONTAIN_S: simp(60, 's', 'H-11: directed shedding if frequency stays below 49.5 Hz for more than 1 grid-minute.'),
+  DIRECTED_INTERVAL_S: simp(60, 's', 'H-11: one district per grid-minute until frequency recovers.'),
+  EVENT_THRESHOLD_MW: src(50, 'MW', FOS + ' Table A.8: event threshold >50 MW (K-15 watch trigger)'),
+  SECURE_AGAIN_S: src(1800, 's', 'NER chapter 4 cl. 4.2.6: secure again within 30 minutes (D-5)'),
+  WATCH_S: simp(30, 's', 'K-15: the watch covers the first 30 grid-seconds after a contingency; no input is accepted during it.'),
+
+  // ---------------------------------------------------------------- security (H-4, K-10, K-13)
+  R5_WINDOW_MIN: simp(5, 'min', 'H-4: R5 is headroom deliverable within 5 minutes.'),
+  BATT_R5_SUSTAIN_H: simp(0.5, 'h', 'H-4: the battery counts what it can sustain for 30 minutes (SoC x 2).'),
+  SECURE_RATIO: simp(1.25, 'x L', '§8.2: LOR states via R5 >= 1.25 L (real LOR1 = below the two largest risks).'),
+  SECURE_NADIR_HZ: src(49.5, 'Hz', FOS + ' Table A.3 containment (H-4 TRIP PREVIEW condition)'),
+  PREVIEW_HORIZON_S: simp(10, 's', 'H-8/K-10: the TRIP PREVIEW runs the engine for 10 grid-seconds (stops early once the nadir has passed).'),
+  PREVIEW_REFRESH_S: simp(60, 's', 'Security refreshes the cached preview at most every 60 grid-s, or at once when marked dirty (any accepted input, a breaker change, a trip, or L moving; see PREVIEW_L_TOL_MW). Performance budget, not physics.'),
+  PREVIEW_L_TOL_MW: simp(20, 'MW', 'The cached TRIP PREVIEW is re-run as soon as L changes unit or moves by more than this since the preview ran (20 MW moves a 650-MW nadir by ~0.01 Hz). Performance budget, not physics.'),
+  RESTORE_MIN_HZ: simp(49.9, 'Hz', 'K-13 / J-19: restore permissive needs f >= 49.9 Hz.'),
+  RESTORE_R5_RATIO: simp(1.2, 'x district MW', 'K-13: restore permissive needs R5 >= 1.2 x the district cold-load MW.'),
+  RESTORE_INTERVAL_S: simp(300, 's', 'K-13: at least 5 grid-minutes between restores (Callide report s6.1: small groups every few minutes).'),
+  COLD_LOAD_FACTOR: simp(1.5, 'x', 'K-13 / §8.2: cold-load pickup 1.5x for districts dark more than 10 grid-minutes.'),
+  COLD_LOAD_AFTER_S: simp(600, 's', 'K-13: cold-load pickup applies after 10 grid-minutes dark.'),
+  COLD_LOAD_DECAY_S: simp(600, 's', 'K-13: the surge decays linearly over 10 grid-minutes.'),
+  DISTRICT_SHARE: simp(0.03, 'pu of demand', 'K-13 / U-1: a district is ~3% of demand; one UFLS stage is two districts.'),
+
+  // ---------------------------------------------------------------- AGC (K-2, L-8)
+  AGC_CYCLE_S: src(4, 's', 'Hornsdale initial-operation report (2018) s2.1: AGC setpoints up to every 4 s'),
+  AGC_BIAS_MW_PER_HZ: simp(800, 'MW/Hz', 'AGC frequency bias (about 1% of the 7.7 GW peak per 0.1 Hz). One-area ACE: the tie is DC and does not share frequency (§8.2).'),
+  AGC_KI_PER_S: simp(0.1, '1/s', 'AGC integral gain on ACE; a starting value for tuning (K-2 accept: >=97% of ticks in band on event-free days).'),
+  AGC_DEADBAND_HZ: simp(0.005, 'Hz', 'AGC ignores errors this small (keeps AGC from chasing needle noise).'),
+  AGC_LIMIT_ALARM_REAL_S: simp(5, 'real s', 'K-2: AGC LIMIT lights after >5 REAL seconds at the band limit. Real time is the app\'s business (C-7): the sim exposes agc.atLimitS in grid seconds.'),
+
+  // ---------------------------------------------------------------- unit behaviour (F-13, H-1, H-2, K-12, S-11)
+  SYNC_BLOCK_FRAC: simp(0.05, 'pu of rating', 'K-12 / H-1: breaker close picks up a block of <=5% of rating.'),
+  BREAKER_OPEN_FRAC: simp(0.05, 'pu of rating', 'H-1: the T4 shutdown ramp ends at <=5% of rating before the breaker opens.'),
+  AUTO_SYNC_S: simp(240, 's', 'K-12 / §8.2: the auto-synchroniser closes 4 grid-minutes after full speed (tunable 3-5, the range); real auto-sync time unverified (§8.3).', {unverified: true, range: [180, 300]}),
+  HOT_LOADING_FRAC: src(0.96, 'pu of available', 'H-2 / ' + LEGACY + ' L480: above 96% loading a unit runs hot'),
+  HOT_ARM_S: simp(300, 's', LEGACY + ' L481: trip risk applies after 5 grid-minutes hot.'),
+  HOT_TRIP_PER_H: simp(0.035, 'probability per grid-hour', 'H-2: trip risk ~3.5% per grid-hour while hot (legacy 0.00012 per 0.2-min tick). Drawn from the play stream.'),
+  HOT_TRIP_LOCKOUT_S: simp(7200, 's', 'Protection lockout after an overheat trip (legacy 90-150 min, L463).'),
+  HEAT_THERMAL_DERATE: src(0.07, 'pu', 'S-10 / ' + LEGACY + ' L462: heatwave derates coal and gas by 7%'),
+  HEAT_DEMAND_UPLIFT: src(0.065, 'pu', 'S-10 / ' + LEGACY + ' L433: heatwave demand +6.5%'),
+  HEAT_RAMP_S: src(3600, 's', LEGACY + ' L431-433: heat demand ramps in over the hour before onset and out over the hour after'),
+  HEAT_TEMP_UPLIFT_C: simp(7, 'degC', LEGACY + ' L1364: displayed temperature +7 degC during a heatwave.'),
+  HEAT_SHARE: src(0.15, 'share of days', 'S-10: heatwaves on 15% of days (' + LEGACY + ' L334-335)'),
+  STORM_SHARE: src(0.3, 'share of days', LEGACY + ' L334-335 after Phase 0.1: storm on 30% of days (D-8 changes this to 25% in Phase 2)'),
+
+  // ---------------------------------------------------------------- dispatchable fleet (F-13, S-11, P-6)
+  FLEET: [
+    station('coal', 'Mt Hazel coal', 'coal', {
+      machines: src(4, 'count', F13),
+      ratingMW: src(650, 'MW', F13),
+      minMW: src(240, 'MW', F13 + ' (37%)'),
+      rampMWMin: simp(3, 'MW/min per machine', '§8.2: 12 MW/min per station as today; the Aurecon 2021 new-build reference is 3%/min, 6.5x faster. Existing-unit ramps unverified (§8.3).', UNVERIFIED),
+      t1Min: simp(50, 'min', FSIP + '. 120-min hot start = T1 50 + T2 70.', UNVERIFIED),
+      t2Min: simp(70, 'min', FSIP + '. T2 70 min keeps the 5% to MIN climb within the 3 MW/min ramp.', UNVERIFIED),
+      t4Min: simp(70, 'min', FSIP + '. MIN (240) to 5% (32.5 MW) at <=3 MW/min.', UNVERIFIED),
+      offer: src(26, '$/MWh', F13 + '; P-6 coal above minimum'),
+      noLoadPerH: src(3000, '$/h per machine', F13),
+      startCost: simp(80000, '$ per start', LEGACY + ' L290 station start cost, applied per machine.'),
+      minUpH: src(8, 'h', F13 + '; S-11'),
+      minDownH: src(8, 'h', F13 + '; S-11'),
+      co2: src(0.95, 't/MWh', F13),
+      H: simp(5, 's', F13 + '; textbook inertia constant (§8.3: swing-equation constants unverified).'),
+    }),
+    station('ccgt', 'Riverton CCGT', 'ccgt', {
+      machines: src(2, 'count', F13),
+      ratingMW: src(650, 'MW', F13),
+      minMW: src(175, 'MW', F13),
+      rampMWMin: src(17.5, 'MW/min per unit', F13 + ' (legacy L291: 35 MW/min per station)'),
+      t1Min: simp(35, 'min', FSIP + '. 45-min hot start = T1 35 + T2 10.', UNVERIFIED),
+      t2Min: simp(10, 'min', FSIP, UNVERIFIED),
+      t4Min: simp(10, 'min', FSIP + '. MIN (175) to 5% at <=17.5 MW/min.', UNVERIFIED),
+      offer: src(74, '$/MWh', F13 + '; P-6'),
+      noLoadPerH: src(3000, '$/h per unit', F13),
+      startCost: simp(30000, '$ per start', LEGACY + ' L291 station start cost, applied per unit.'),
+      minUpH: src(4, 'h', F13 + '; S-11'),
+      minDownH: src(3, 'h', F13 + '; S-11'),
+      co2: src(0.42, 't/MWh', F13),
+      H: simp(4.5, 's', F13 + '; textbook (§8.3).'),
+    }),
+    station('gta', 'GT·A', 'ocgt', {
+      machines: src(1, 'count', F13),
+      ratingMW: src(500, 'MW', F13),
+      minMW: src(250, 'MW', F13 + ' (50%, Aurecon 2021 OCGT reference)'),
+      rampMWMin: src(160, 'MW/min', F13),
+      t1Min: simp(6, 'min', FSIP + '. 8-min hot start = T1 6 + T2 2.', UNVERIFIED),
+      t2Min: simp(2, 'min', FSIP, UNVERIFIED),
+      t4Min: simp(2, 'min', FSIP, UNVERIFIED),
+      offer: src(148, '$/MWh', F13 + '; P-6'),
+      noLoadPerH: src(4000, '$/h', F13),
+      startCost: simp(8000, '$ per start', LEGACY + ' L292.'),
+      minUpH: src(1, 'h', F13 + '; S-11'),
+      minDownH: src(0.5, 'h', F13 + '; S-11'),
+      co2: src(0.63, 't/MWh', F13),
+      H: simp(3.5, 's', F13 + '; textbook (§8.3).'),
+    }),
+    station('gtb', 'GT·B', 'ocgt', {
+      machines: src(2, 'count', F13 + ' (2 x 400: no simple-cycle GT above ~600 MW exists)'),
+      ratingMW: src(400, 'MW', F13),
+      minMW: src(200, 'MW', F13 + ' (50%)'),
+      rampMWMin: src(160, 'MW/min per machine', F13),
+      t1Min: simp(6, 'min', FSIP + '. 8-min hot start = T1 6 + T2 2.', UNVERIFIED),
+      t2Min: simp(2, 'min', FSIP, UNVERIFIED),
+      t4Min: simp(2, 'min', FSIP, UNVERIFIED),
+      offer: src(152, '$/MWh', F13 + '; P-6'),
+      noLoadPerH: src(4000, '$/h per machine', F13),
+      startCost: simp(8000, '$ per start', LEGACY + ' L293, applied per machine.'),
+      minUpH: src(1, 'h', F13 + '; S-11'),
+      minDownH: src(0.5, 'h', F13 + '; S-11'),
+      co2: src(0.63, 't/MWh', F13),
+      H: simp(3.5, 's', F13 + '; textbook (§8.3).'),
+    }),
+    station('gtc', 'GT·C', 'ocgt', {
+      machines: src(1, 'count', F13 + ' (new; S-12 difficulty knob)'),
+      ratingMW: src(300, 'MW', F13),
+      minMW: src(150, 'MW', F13),
+      rampMWMin: src(160, 'MW/min', F13),
+      t1Min: simp(4, 'min', FSIP + '. 5-min hot start = T1 4 + T2 1.', UNVERIFIED),
+      t2Min: simp(1, 'min', FSIP, UNVERIFIED),
+      t4Min: simp(1, 'min', FSIP, UNVERIFIED),
+      offer: src(156, '$/MWh', F13 + '; P-6'),
+      noLoadPerH: src(2400, '$/h', F13),
+      startCost: simp(8000, '$ per start', 'Taken equal to the other GTs (legacy L292).'),
+      minUpH: src(1, 'h', F13 + '; S-11'),
+      minDownH: src(0.5, 'h', F13 + '; S-11'),
+      co2: src(0.63, 't/MWh', F13),
+      H: simp(3.5, 's', F13 + '; textbook (§8.3).'),
+    }),
+    station('hydro', 'Greyfell Gorge hydro', 'hydro', {
+      machines: src(3, 'count', F13),
+      ratingMW: src(317, 'MW', F13),
+      minMW: src(0, 'MW', F13),
+      rampMWMin: src(130 / 3, 'MW/min per machine', F13 + ': 130 MW/min per station, split over 3 machines'),
+      t1Min: simp(3, 'min', FSIP + '. 3-min hot start, all T1 (MIN is 0, so no T2).', UNVERIFIED),
+      t2Min: simp(0, 'min', FSIP, UNVERIFIED),
+      t4Min: simp(0, 'min', FSIP + '. MIN is 0: the machine unloads at its ramp, then the breaker opens.', UNVERIFIED),
+      offer: simp(130, '$/MWh', 'P-6: water value $130 at full storage, rising as storage falls (HYDRO_WATER_VALUE).'),
+      noLoadPerH: simp(0, '$/h', 'F-13: none.'),
+      startCost: simp(2000, '$ per start', LEGACY + ' L294.'),
+      minUpH: simp(0, 'h', 'F-13: none.'),
+      minDownH: simp(0, 'h', 'F-13: none.'),
+      co2: src(0, 't/MWh', F13),
+      H: simp(3.5, 's', F13 + '; textbook (§8.3).'),
+    }),
+  ],
+
+  // Per technology class: governor dynamics (H-8) and AGC band (K-2).
+  CLASSES: {
+    coal: {thermal: true,
+      govDeadS: simp(0.5, 's', 'H-8 coal dead time; the FFR working paper (2017) s2.3.1 says only "seconds; many slower than 2 s". ' + GOV_RANGE, {range: [0.1, 1]}),
+      govLagS: simp(5, 's', 'H-8 coal first-order lag. ' + GOV_RANGE, {range: [1, 10]}),
+      agcBandFrac: simp(0.05, 'pu of rating', 'K-2: coal AGC band +-5% of capacity.')},
+    ccgt: {thermal: true,
+      govDeadS: simp(0.3, 's', 'H-8 CCGT dead time (FFR working paper 2017 s2.3.1, qualitative). ' + GOV_RANGE, {range: [0.1, 1]}),
+      govLagS: simp(3, 's', 'H-8 CCGT lag. ' + GOV_RANGE, {range: [1, 10]}),
+      agcBandFrac: simp(0.1, 'pu of rating', 'K-2: CCGT AGC band +-10%.')},
+    ocgt: {thermal: true,
+      govDeadS: simp(0.2, 's', 'H-8 OCGT dead time (FFR working paper 2017 s2.3.1, qualitative). ' + GOV_RANGE, {range: [0.1, 1]}),
+      govLagS: simp(1.5, 's', 'H-8 OCGT lag. ' + GOV_RANGE, {range: [1, 10]}),
+      agcBandFrac: simp(0.2, 'pu of rating', 'K-2: GT AGC band +-20%.')},
+    hydro: {thermal: false,
+      govDeadS: simp(0.5, 's', 'H-8 hydro dead time (FFR working paper 2017 s2.3.1, qualitative; the non-minimum-phase water column is not modelled). ' + GOV_RANGE, {range: [0.1, 1]}),
+      govLagS: simp(4, 's', 'H-8 hydro lag. ' + GOV_RANGE, {range: [1, 10]}),
+      agcBandFrac: simp(0.25, 'pu of rating', 'K-2: hydro AGC band +-25%.')},
+  },
+
+  // ---------------------------------------------------------------- hydro water (P-6, K-4)
+  HYDRO_ALLOCATION_MWH: simp(7500, 'MWh/day', '§8.2 daily hydro allocation (' + LEGACY + ' L308); real storages are seasonal.'),
+  HYDRO_WATER_VALUE: simp([[0, 5000], [0.1, 1000], [0.25, 300], [0.5, 160], [1, 130]], '[storage fraction, $/MWh]', 'P-6: water value $130 at full allocation, rising as storage falls; interpolated linearly. Shape is game tuning.'),
+  HYDRO_VAR_COST: simp(9, '$/MWh', LEGACY + ' L294 hydro running cost, used in CUSTOMER COST (S-2); the water value is an offer, not a cost.'),
+  HYDRO_WARN_FRACS: src([0.3, 0.1], 'pu of allocation', LEGACY + ' L477-478 storage warnings'),
+  HYDRO_STOP_MWH: simp(75, 'MWh', 'Below this storage the station is unloaded at its ramp, so it reaches zero before the water does (legacy L479 tripped it instead).'),
+
+  // ---------------------------------------------------------------- battery (F-13, H-8, H-10, K-5)
+  BATT_MW: src(500, 'MW', F13 + ' (grid-following)'),
+  BATT_MWH: src(1000, 'MWh', F13),
+  BATT_CHARGE_EFF: simp(0.85, 'pu', 'Round-trip efficiency, applied on charge. Not in the spec; typical utility Li-ion is 80-90% (unverified).', UNVERIFIED),
+  BATT_WEAR_PER_MWH: simp(6, '$/MWh throughput', LEGACY + ' L307 battery wear.'),
+  BATT_DISPATCH_RAMP_MW_S: simp(10, 'MW/s', 'DEVIATES FROM F-13 ("full swing in <1 s"): scheduled battery output (orders + AGC) moves at 600 MW/min, so a dial turn is not a self-made contingency; the <1-s full swing is used only by PFR and the guard (H-8). How fast real grid batteries follow dispatch targets is unverified.', UNVERIFIED),
+  BATT_FULL_EPS_MWH: simp(1, 'MWh', LEGACY + ' L500: FULL-HOLD engages within 1 MWh of full (H-10).'),
+
+  // ---------------------------------------------------------------- DC tie (F-13, K-6, P-6)
+  TIE_MAX_MW: src(800, 'MW', F13 + ': import and export <=800 MW'),
+  TIE_EXPORT_CAP_MW: src(300, 'MW', F13 + ' / J-14: export <=300 MW while the neighbour has the same sun'),
+  TIE_EXPORT_CAP_H: src([9, 16], 'h', F13 + ': export cap applies 09:00-16:00'),
+  TIE_RAMP_MW_MIN: src(100, 'MW/min', F13 + ' (' + LEGACY + ' L309)'),
+
+  // ---------------------------------------------------------------- wind and utility solar (F-13, P-6)
+  WIND_MW: src(1200, 'MW', F13),
+  SOLAR_MW: src(1400, 'MW', F13),
+  RENEWABLE_OFFER: src(-20, '$/MWh', 'P-6 / AEMO QED Q4 2025 s2.2: average negative price -$19.4'),
+  CURTAIL_STEP_PCT: simp(5, '%', LEGACY + ' L1326: curtailment slider steps (UI only; the sim accepts any 0-100).'),
+  FINE_NOISE_MW: simp(6, 'MW (sigma)', 'Second-to-second demand wobble (ext stream, white per grid second) so the needle is never perfectly still.'),
+
+  // ---------------------------------------------------------------- emergency resources (F-13, K-7)
+  RERT_MW: src(300, 'MW', F13),
+  RERT_LEAD_S: src(1200, 's', F13 + ' / K-7: 20-min lead'),
+  RERT_COST: src(16000, '$/MWh', 'AEMO RERT quarterly report Q4 2024: NSW activation $16,000/MWh (§9 Q-2)'),
+  RERT_CO2: simp(0.8, 't/MWh', F13 + ' (diesel).'),
+  RERT_RAMP_MW_MIN: simp(100, 'MW/min', 'The diesel fleet loads and stands down over 3 minutes rather than as one 300-MW step; RERT minimum activation unverified (§8.3).', UNVERIFIED),
+  DR_MW: src(350, 'MW', F13 + ' industrial DR'),
+  DR_CALLS: src(3, 'calls/day', F13),
+  DR_PRICE: src(1400, '$/MWh', F13 + ' / P-6'),
+  DR_DURATION_S: simp(3600, 's', LEGACY + ' L1341: a DR call lasts 60 minutes.'),
+  SMELTER_MW: src(256, 'MW', 'Boyne Island potline 2 trip, 256 MW (2021), Callide report s6.1 (F-13)'),
+  SMELTER_RETURN_MW_MIN: simp(25, 'MW/min', 'The potline reconnects over ~10 minutes after its outage (legacy returned 600 MW in one step, L455).'),
+
+  // ---------------------------------------------------------------- market (P-5 to P-8, H-12)
+  PRICE_CAP: src(23200, '$/MWh', 'AEMC schedule of reliability settings FY2026-27 (H-12, P-8)'),
+  PRICE_FLOOR: src(-1000, '$/MWh', 'AEMC MSL consultation paper (2026): market floor price (P-8)'),
+  VCR: src(30000, '$/MWh', 'AER VCR review 2024, NEM-wide (H-12): debrief footnote only, never in CUSTOMER COST'),
+  MIN_LOAD_OFFER: src(-1000, '$/MWh', 'P-6: thermal minimum-load blocks offered at the floor'),
+  STACK_START_WITHIN_S: simp(600, 's', 'P-5: the price stack holds offline units able to reach MIN within 10 minutes.'),
+  SCARCITY_FREE_X: simp(1.25, 'R5/L', 'P-7: no adder at R5/L >= 1.25.'),
+  SCARCITY_AT_ONE: simp(300, '$/MWh', 'P-7: adder rises linearly to $300 at R5/L = 1.'),
+  SCARCITY_QUAD: simp(4700, '$/MWh', 'P-7: below R5/L = 1 the adder is $300 + $4,700 (1 - x)^2. Labelled "generators re-bidding when supply is tight (abstraction)".'),
+
+  // ---------------------------------------------------------------- scorecard (S-1 to S-3, Y-4)
+  SPARK_BLOCK_S: src(7200, 's', 'Y-4: sparkline blocks of 2 hours'),
+  SPARK_BLOCKS: src(12, 'count', 'Y-4: 12 blocks from 04:00'),
+
+  // ---------------------------------------------------------------- forecasts (S-4, L-1, L-2)
+  FC_HORIZON_S: src(16200, 's', 'L-1: the Live Stack looks 4.5 h ahead (coal start plus climb, 4 h 17 min)'),
+  FC_STEP_S: src(300, 's', 'L-1: 5-minute columns'),
+  FC_SIGMA_NEAR: simp(0.006, 'pu of demand', 'L-2: demand forecast sigma 0.6% at 5-min lead (unverified, §8.3).', UNVERIFIED),
+  FC_SIGMA_FAR: simp(0.025, 'pu of demand', 'L-2: demand forecast sigma 2.5% at 4-h lead (unverified, §8.3).', UNVERIFIED),
+  FC_SIGMA_FAR_S: simp(14400, 's', 'L-2: lead at which FC_SIGMA_FAR applies; sigma is linear in lead between 5 min and 4 h.'),
+  FC_DRIFT_TAU_S: simp(3600, 's', 'S-4: wind and solar forecasts drift from the present value toward the climatological or announced value with this time constant.'),
+
+  // ---------------------------------------------------------------- par and the reference playback (S-4, D-2, D-5)
+  REF_PROFILE: simp([
+    {fromH: 4.5, toH: 6, rate: 540}, {fromH: 6, toH: 9, rate: 270}, {fromH: 9, toH: 11, rate: 480},
+    {fromH: 11, toH: 14.5, rate: 300}, {fromH: 14.5, toH: 16.5, rate: 240}, {fromH: 16.5, toH: 20, rate: 150},
+    {fromH: 20, toH: 21, rate: 300}, {fromH: 21, toH: 28, rate: 2100},
+  ], 'h, grid-s per real-s', 'D-2 clock profile (245 real s from 04:30). Hours are UNWRAPPED (DAY_START_H + s / 3600, so 21:00-04:00 is 21-28), never hourOfDay. Par paces its actions on it (S-4) even while the Phase 0.2-1 director runs a flat 120x.'),
+  REF_WATCH_REAL_S: simp(10.5, 'real s', 'D-2: compact watch; par never acts during it.'),
+  REF_RESPOND_CARD_S: simp(3, 'real s', 'D-2: respond card read time in the reference schedule.'),
+  RESPOND_RATE: simp(30, 'grid-s per real-s', 'D-5: RESPOND runs at 30x until frequency is back in band, for at most 5 grid-minutes.'),
+  RESPOND_MAX_S: simp(300, 's', 'D-5: at most 5 grid-minutes at 30x.'),
+  PLAYER_START_H: simp(4.5, 'h', '§4.1 / D-2: the desk opens at 04:30; 04:00-04:30 settles headless during the briefing. Par acts from here.'),
+  PAR_ACTION_GAP_REAL_S: src(3, 'real s', 'S-4: at most one discrete action per 3 real seconds of the reference playback'),
+  PAR_DECIDE_EVERY_S: simp(60, 's', 'runPar asks decide() at most once per grid-minute (and at the first second after a watch), so a headless day stays fast. Par cannot act more often than every ~360 grid-s anyway (3 real s at >=120x).'),
+  PROXY_COMPETENT_GAP_REAL_S: simp(6, 'real s', 'The "competent" player proxy (H-1, F-3, K-8, S-5): the L-0 plan plus par\'s rules at half par\'s pace, reading only observe(): a good human at the desk.'),
+  PAR_TIGHT_RATIO: src(1.05, 'x L', 'S-4 rule 2: if R5 < 1.05 L, import and start the next peaker'),
+  PAR_COMMIT_MARGIN_MW: src(700, 'MW', 'S-4 rule 3: commit when forecast net demand + 700 MW exceeds committed capacity + half the battery'),
+  PAR_COMMIT_LEAD_MIN: src(20, 'min', 'S-4 rule 3: look ahead the unit\'s start time + 20 min'),
+  PAR_DECOMMIT_MIN_ON_MIN: src(90, 'min', 'S-4 rule 4: decommit only after 90 min on'),
+  PAR_DECOMMIT_CLEAR_MIN: src(150, 'min', 'S-4 rule 4: ...when not needed for the next 150 min'),
+  PAR_WATER_HOLD_UNTIL_H: src(15.5, 'h', 'S-4 rule 5: hold water until 15:30'),
+  PAR_WATER_EMPTY_BY_H: src(21, 'h', 'S-4 rule 5: then release it linearly to 21:00'),
+  PAR_BATT_CHARGE_TO: src(0.97, 'pu SoC', 'S-4 rule 6: charge to 97%'),
+  PAR_BATT_CHARGE_H: src([9.5, 15.5], 'h', 'S-4 rule 6: charge 09:30-15:30'),
+  PAR_BATT_DISCHARGE_H: src([16.5, 22], 'h', 'S-4 rule 6: discharge 16:30-22:00 by merit order'),
+  PAR_MAX_LOADING: src(0.955, 'pu of available', 'S-4 rule 7: keep units at or below 95.5% loading unless that would shed load'),
+  PAR_RERT_LOOKAHEAD_MIN: src(25, 'min', 'S-4 rule 8: projected 25-min shortfall'),
+  PAR_RERT_MARGIN_MW: src(100, 'MW', 'S-4 rule 8: pre-arm when the shortfall is within 100 MW of firm capacity'),
+
+  // ================================================================ stage B additions
+  // Each stage B agent adds records ONLY between its own two marker lines (merge-safe).
+  // ---- stage B "physics" block: begin
+  // ---- stage B "physics" block: end
+  // ---- stage B "grid" block: begin
+  // ---- stage B "grid" block: end
+  // ---- stage B "market + events" block: begin
+  // ---- stage B "market + events" block: end
+  // ---- stage B "autopilot" block: begin
+  // ---- stage B "autopilot" block: end
+};
+
+// ------------------------------------------------------------------ plain values
+
+const META = new Set(['src', 'note', 'simplified', 'unverified', 'unit', 'range']);
+const isRecord = x => x !== null && typeof x === 'object' && !Array.isArray(x) && 'value' in x && 'unit' in x;
+
+/** Deep copy of `x` with every param record replaced by its value (meta keys dropped). */
+export function valuesOf(x) {
+  if (isRecord(x)) return valuesOf(x.value);
+  if (Array.isArray(x)) return x.map(valuesOf);
+  if (x !== null && typeof x === 'object') {
+    const o = {};
+    for (const k of Object.keys(x)) if (!META.has(k)) o[k] = valuesOf(x[k]);
+    return o;
+  }
+  return x;
+}
+
+function deepFreeze(x) {
+  if (x !== null && typeof x === 'object' && !Object.isFrozen(x)) {
+    Object.freeze(x);
+    for (const k of Object.keys(x)) deepFreeze(x[k]);
+  }
+  return x;
+}
+
+const v = valuesOf(P);
+const S_PER_MIN = v.S_PER_MIN, S_PER_H = v.S_PER_H;
+
+v.TICKS_PER_S = Math.round(1 / v.PHYS_DT);
+v.DAY_S = v.DAY_H * S_PER_H;
+v.DAY_TICKS = v.DAY_S * v.TICKS_PER_S;
+v.SERIES_LEN = v.DAY_S / v.SERIES_STEP_S + 1;
+v.PLAYER_START_S = (v.PLAYER_START_H - v.DAY_START_H) * S_PER_H;
+v.PLAYER_START_TICK = v.PLAYER_START_S * v.TICKS_PER_S;
+
+// Stations keyed by id, and one row per machine with everything the hot loops need
+// precomputed (per-second ramp, H x S, dead time in ticks, lag coefficient, bands).
+v.STATIONS = {};
+v.MACHINES = [];
+for (const st of v.FLEET) {
+  const cl = v.CLASSES[st.cls];
+  const first = v.MACHINES.length;
+  for (let j = 1; j <= st.machines; j++) {
+    v.MACHINES.push({
+      id: st.id + j, station: st.id, cls: st.cls, k: v.MACHINES.length, j,
+      name: st.name + (st.machines > 1 ? ' ' + j : ''),
+      thermal: cl.thermal,
+      ratingMW: st.ratingMW, minMW: st.minMW,
+      rampMWs: st.rampMWMin / S_PER_MIN,
+      t1S: st.t1Min * S_PER_MIN, t2S: st.t2Min * S_PER_MIN, t4S: st.t4Min * S_PER_MIN,
+      minUpS: st.minUpH * S_PER_H, minDownS: st.minDownH * S_PER_H,
+      offer: st.offer, noLoadPerS: st.noLoadPerH / S_PER_H, startCost: st.startCost, co2: st.co2,
+      H: st.H, ekMWs: st.H * st.ratingMW,
+      govDeadTicks: Math.round(cl.govDeadS / v.PHYS_DT), govAlpha: v.PHYS_DT / cl.govLagS,
+      govCapMW: v.GOV_CAP_FRAC * st.ratingMW,
+      govGainMWperHz: st.ratingMW / (v.GOV_DROOP * v.F0_HZ),
+      agcBandMW: cl.agcBandFrac * st.ratingMW,
+      syncBlockMW: v.SYNC_BLOCK_FRAC * st.ratingMW,
+      breakerOpenMW: v.BREAKER_OPEN_FRAC * st.ratingMW,
+    });
+  }
+  v.STATIONS[st.id] = Object.assign({}, st, {first, count: st.machines, totalMW: st.machines * st.ratingMW});
+}
+v.STATION_IDS = v.FLEET.map(s => s.id);
+v.MACHINE_IDS = v.MACHINES.map(m => m.id);
+
+/** Plain, frozen values of every param plus derived tables. Hot code hoists what it needs. */
+export const V = deepFreeze(v);
+
+/** Machine row by id ('coal1', 'gtb2', ...), or undefined. */
+export function machineById(id) {
+  return V.MACHINES.find(m => m.id === id);
+}

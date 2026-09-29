@@ -1,9 +1,10 @@
 {
   "private": true,
-  "description": "GRIDWATCH. A static site: nothing here is needed to play. `node --test` runs tests/*.test.js with no dependencies.",
+  "description": "GRIDWATCH. A static site served as-is (no build, no dependencies): index.html is the frozen legacy game, sim/ is the pure v4 core (see sim/README.md), content/ holds scenarios as data. `node --test` runs tests/*.test.js; `npm run test:slow` adds the multi-seed whole-day statistics (Node >= 20.6 for --env-file).",
   "type": "module",
   "scripts": {
     "test": "node --test",
+    "test:slow": "node --env-file=tests/slow.env --test",
     "baseline": "node tools/baseline.js",
     "golden": "node tools/baseline.js > tools/baseline.golden.md"
   }
