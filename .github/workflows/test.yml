@@ -1,0 +1,16 @@
+# Runs the test suite on every push and pull request. It only reports: GitHub Pages
+# deployment from main is unaffected (spec F-10).
+name: tests
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test

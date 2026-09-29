@@ -50,7 +50,8 @@ function gradeOf(S, black){
   return 'D';
 }
 
-// Weather class of the day, fixed by schedule(): heatwave if w<.5, storm if .5-.8, else calm.
+// Weather class of the day, fixed by schedule() (v2.0: heatwave if w<.5, storm if .5-.8;
+// since spec S-10: heatwave if w<.15, storm if .15-.45; else calm).
 function weatherClass(G){
   const S=G.S;
   if(S.heat.t1>0)return 'heat';
@@ -79,6 +80,10 @@ function load(opts={}){
   setDraw(f){draw=f;}, setUi(f){ui=f;}, setLog(f){log=f;}, setBeep(f){beep=f;},
   setRenderDock(f){renderDock=f;}, setEndShift(f){endShift=f;}, setTutTick(f){tutTick=f;},
   get tutStep(){return tutStep;},
+  // Unit orders shared with the dock (added in phase 0.1; absent in older builds).
+  startUnitFn: typeof startUnit==='function'?startUnit:null,
+  stopUnitFn: typeof stopUnit==='function'?stopUnit:null,
+  abortStopFn: typeof abortStop==='function'?abortStop:null,
 };`;
   const factory=new Function('document','window','Math','setInterval','setTimeout',
     'requestAnimationFrame','localStorage','getComputedStyle',src+exportsCode);
@@ -97,12 +102,18 @@ function load(opts={}){
       outT:S.outT,t:S.t,endClock:G.clock(S.t)};
   });
   // restart() in the page re-runs freshState()+schedule(); the page's top level already ran
-  // schedule(), so the event list is in place. Helpers mirroring the dock buttons:
+  // schedule(), so the event list is in place. Helpers for the dock buttons: they call the
+  // game's own order functions when the build has them, else mirror the v2.0 dock code.
   G.start=()=>{G.S.run=true;};
-  G.startUnit=id=>{const u=G.FU[id];if(u.fault>0||u.on||u.starting>0)return false;
+  G.startUnit=id=>{const u=G.FU[id];if(G.startUnitFn)return G.startUnitFn(u);
+    if(u.fault>0||u.on||u.starting>0)return false;
     if(id==='hyd'&&G.S.hydRes<=0)return false;
     u.starting=u.st;G.S.money-=u.startCost;G.S.fuel+=u.startCost;return true;};
-  G.stopUnit=id=>{const u=G.FU[id];u.on=false;u.starting=0;};
+  // STOP: from phase 0.1 the unit unloads to 5% before its breaker opens (spec H-1); a
+  // starting unit's start is aborted. v2.0 builds removed the output instantly.
+  G.stopUnit=id=>{const u=G.FU[id];if(u.starting>0){u.starting=0;return true;}
+    if(G.stopUnitFn)return G.stopUnitFn(u);u.on=false;u.starting=0;return true;};
+  G.abortStop=id=>G.abortStopFn?G.abortStopFn(G.FU[id]):false;
   G.callDR=()=>{const S=G.S;if(S.dr.uses<=0||S.dr.left>0)return false;S.dr.uses--;S.dr.left=60;return true;};
   G.toggleDiesel=on=>{const S=G.S;if(on===S.rert.on)return;S.rert.on=on;S.rert.timer=on?20:0;};
   G.weather=()=>weatherClass(G);
