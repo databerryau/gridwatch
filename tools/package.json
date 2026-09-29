@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "description": "Headless measurement tools for GRIDWATCH (CommonJS, no dependencies). Not loaded by the game. This file keeps tools/*.js CommonJS if the repo root later declares \"type\": \"module\".",
+  "type": "commonjs"
+}

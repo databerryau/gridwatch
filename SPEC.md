@@ -1,464 +1,2180 @@
-# GRIDWATCH — Improvement Spec & Requirements
+# GRIDWATCH — v4 Design Spec
 
-**Target release:** v3.0
-**Written:** 2026-07-30
-**Applies to:** `index.html` (v2.0, 1,522 lines, 88 KB, single file)
-**Repo:** [databerryau/gridwatch](https://github.com/databerryau/gridwatch) — `main` is the live GitHub Pages branch
+**Target release:** v4.0
+**Written:** 2026-09-30
+**Supersedes:** v3.0 (2026-07-30), which stays in git history
+**Applies to:** today's `index.html` (v2.0: 1,522 lines, 88,590 bytes, one file), which becomes a static multi-file site
+**Repo:** [databerryau/gridwatch](https://github.com/databerryau/gridwatch), branch `spec-v4`. `main` is the live GitHub Pages branch: <https://databerryau.github.io/gridwatch/>
 **Status:** planning — not yet implemented
 
----
+**How to read this.**
+- §0–§2 say what we are making and the rules it must follow.
+- §3 measures the game as it is today.
+- §4 describes the finished game on one page.
+- §5 is the build list, in phases. Every item has an *Accept:* test.
+- §6–§11 cover targets, positioning, realism, risks, verification and release.
 
-## 0. Purpose
-
-v2.0 is a complete, working grid-dispatch simulator with a strong physics model and an
-atmospheric isometric map. It is also hard to approach: a new player is blacked out
-roughly four and a half real minutes into a twelve-minute shift, and the events that
-kill them resolve faster than they can read the interface.
-
-This document reviews the current build against measured evidence, states a design
-thesis, and specifies the work to make GRIDWATCH both better looking and genuinely
-playable by someone who has never dispatched a power system.
-
-Requirements are numbered and have acceptance criteria so they can be picked up
-one at a time.
+Each jargon word is explained the first time it appears, and again in Appendix B.
 
 ---
 
-## 1. Constraints that must not break
+## 0. North star
+
+> **GRIDWATCH: run one Australian city's power for one day, in five minutes, from a control desk you can feel. Plan the day, watch real physics catch the fall when a power station trips, then share how your day went.**
+
+Every requirement serves at least one of these pillars.
+
+| # | Pillar | What it means in play |
+|---|---|---|
+| 1 | **The desk as instrument** | Every machine is on the desk at once: throttle levers, a hydro gate wheel, key switches, breakers, a frequency dial, and a mains hum you can hear. No forms, no menus, no one-asset-at-a-time panel. |
+| 2 | **The plan comes together** | Reliability is bought hours ahead. You shape the afternoon on the Live Stack. At 17:00 six levers glide up together, the hum holds steady and the alarm panel stays dark. |
+| 3 | **Honest physics you can watch** | When a power station trips, the first 30 seconds replay in slow motion from a real swing-equation model: stored spin, then the battery, then the governors, then the relays. Numbers come from the NEM rulebook, and every simplification is labelled. |
+| 4 | **The Australian duck** | Rooftop solar hollows out midday demand (the "belly") and sharpens the evening climb. Noon becomes a second crisis, with its own tools in the suburbs. |
+| 5 | **A fair daily you share** | One seeded day, the same for everyone. It is always solvable by a good plan and graded against par, and it ends in a spoiler-free share card. |
+
+**What GRIDWATCH is not:**
+- A planning spreadsheet with a RUN button. That is *Grid Operator*'s loop (see §7).
+- A reflex test.
+- A tycoon game.
+
+---
+
+## 1. Owner decisions
+
+These come from the owner interview (2026-09-29/30) and the owner's follow-up message (2026-09-30). They are requirements, and this spec does not re-open them.
+
+| # | Decision | Choice | Consequence for the design |
+|---|---|---|---|
+| OD-1 | Audience | Curious public, reached by a shared link. Success = strangers finish a session and share it. | Zero install. First real action within 60 s (O-2). No tutorial wall (O-1). A share card (Y-4). |
+| OD-2 | Platform | Desktop only. | v3 mobile work (v3 R-1) dropped. Layout budget at 1280×720 (K-17). |
+| OD-3 | Purpose and tone | Mostly fun; learning is a side effect. A serious control room with dry wit. | Short, optional concept cards (O-4). Supervisor "Marg" (O-6). Suburbs with one-line personalities (U-1). |
+| OD-4 | Who has played | Only the owner. They found v2 too stressful and confusing. They will run 3–5 think-aloud playtests with friends and family. | Two playtest gates (after Phase 2 and Phase 4). AGC on by default, free pause, one new control at a time (O-3). |
+| OD-5 | Fantasy and length | "The plan comes together." A session of about 5 minutes. | Live Stack (L-), motorised levers (K-1), variable clock with a 245-s grid day (D-2). |
+| OD-6 | Realism | Sacred. Physics and market behaviour must be defensible against the real NEM (Australia's National Electricity Market). Ease the interface, not the laws, and label deliberate abstractions honestly. | Constraint C-5, the §8 realism ledger, the H- requirements and the in-game "?" labels (H-14). |
+| OD-7 | Regulation | AGC (automatic generation control) is on by default. Flying by hand is a harder mode. | K-2, D-7. |
+| OD-8 | The trip moment | "Watch, then respond." The first ~30 s after a contingency (a sudden failure) play automatically in slow motion, showing inertia, then governors, then battery response, then the load-shedding relays catching it. Then the player restores. No reflex tests. | K-15 (watch) and K-16 (respond). No dispatch input during the watch. |
+| OD-9 | Scoring | An operator scorecard: LIGHTS ON (unserved MWh), CUSTOMER COST and CO₂. No generator profit. | S-1–S-3. Defect X-7 is retired. |
+| OD-10 | Fairness | Every daily is solvable by a good plan. It is graded against PAR: a fixed reference policy, run on the same seed, using only information a player has. | S-4, D-9, F-8. |
+| OD-11 | Shape | A DAILY first: one seeded ~5-minute day, the same for everyone, with a Wordle-style spoiler-free share card and local history and streak. Later, an optional WEEK mode: 5–7 linked days, carry-over of water and maintenance, one build/retire choice. | Phase 4 (daily) and Phase 5 (week). |
+| OD-12 | Rooftop PV | Core. Behind-the-meter rooftop solar creates the midday minimum-demand belly: minimum generation binds, prices go negative, there is a curtail-or-cycle-coal dilemma and battery arbitrage pays. It also creates the steep evening ramp. | Phase 3 (P-1–P-4, P-9, P-10, P-12, U-). |
+| OD-13 | Layout | Half and half: a living SimCity-style map on top, a control-room desk on the bottom. | K-17, G-1–G-5. |
+| OD-14 | Core interaction | "Desk as instrument": throttle levers per unit, hydro gate wheel, key switches (e.g. arm diesel), big buttons (call demand response), alarm acknowledge. SYNC and RESTORE are procedures played as mini-skills. Blended in: (a) a LIVE STACK forecast you drag; (b) CITY FLEXIBILITY on the map; (c) tactile moments with sound. **Not chosen:** a "poke the grid" sandbox opening. | K-, L-, U-. The first session opens on today's daily, not a sandbox (O-1). |
+| OD-15 | Technology | The single-file rule is dropped: "use whatever design you want, I just want to be able to host it simply." Keep one canonical host (GitHub Pages; pushing `main` deploys). Restart stays an in-page reset. `<meta charset="utf-8">` comes first in every HTML file. | C-1–C-4. |
+| OD-16 | Positioning | "Move further away from the *Grid Operator* competition; be more fun and interactive." | §7, the W-5 guard rail. No planning phase, no pause-cards, no money, perks or seasons. |
+
+---
+
+## 2. Constraints
+
+These replace v3's C-1..C-5.
 
 | # | Constraint | Why |
 |---|---|---|
-| C-1 | **Single self-contained HTML file, `index.html`.** No build step, no external requests. | The game file *is* the GitHub Pages entry point — there is no copy or build step, and there must not be one, because that is what let the repo drift 296 lines behind the local file. |
-| C-2 | `<meta charset="utf-8">` stays first. | Plain static servers garble the UTF-8 glyphs without it. |
-| C-3 | Restart is an in-page state reset (`freshState()` / `restart()`). Never `location.reload()`. | Unreliable inside the dev preview pane, and a reload would throw away the settings and saved shift that S-5 introduces. |
-| C-4 | **<https://databerryau.github.io/gridwatch/> is the one canonical host.** Shipping means pushing `main`. Do not publish the game to a Claude artifact link or anywhere else. | One host, one URL to share, nothing to keep in sync and nothing to silently rot. |
-| C-5 | Physics stays defensible. | The appeal is that it behaves like a real control room. Ease the *interface*, not the laws. |
+| C-1 | **A plain static site served as-is from `main`.** HTML, CSS, ES modules (JavaScript files that `import` each other natively in the browser) and data kept as JS modules. No build, bundle or copy step. No runtime npm dependency. No request to another origin. *(Replaces "single file".)* | OD-15, "host it simply". v2 drifted because of a manual copy step, and serving the repo as-is removes it. |
+| C-2 | `<meta charset="utf-8">` is the first element of every HTML file. | Plain static servers garble Hz, ·, ★ and the block characters without it. |
+| C-3 | Restart, retry and next-day are in-page resets (`createState`). Never `location.reload()`. | A reload is unreliable in the dev preview and throws away resume state. |
+| C-4 | **<https://databerryau.github.io/gridwatch/> is the one canonical host.** Pushing `main` deploys. Playtest builds are pages on that host (e.g. `next.html`). | One URL to share, nothing to keep in sync. |
+| C-5 | Physics and market behaviour must be defensible against the real NEM. Each deliberate abstraction is labelled in-game next to the real value (§8). | OD-6. |
+| C-6 | **Determinism.** Sim output depends only on `SIM_VERSION`, the seed, the scenario and the input log. External events never depend on play. | A daily is only fair if everyone gets the same day. Par, replay and resume all depend on it. |
+| C-7 | **Honest time.** There is one grid clock, and physics is always integrated in grid seconds. Only the playback rate varies, and it is always shown. | The game can slow down and speed up without bending physics or opening an exploit (critique #13). |
+| C-8 | Storage and audio are optional. The game plays fully without either. | Private windows, blocked storage, muted laptops. |
+| C-9 | Desktop only: at least 1280×720, mouse and keyboard. | OD-2. |
+| C-10 | Performance budget as in F-11. | 60 fps with room for the map. |
 
-Soft budget: the file may grow to ~200 KB. Past that, revisit C-1.
+**Accepted consequence of C-1.** ES modules do not run from `file://`, so an emailed or offline copy of the game stops working. v3 valued that. See §9, risk 8.
 
 ---
 
-## 2. Current state — measured review
+## 3. Current state — measured
 
-Everything in this section was measured against the running build, not inferred.
+### 3.1 How this was measured
 
-### 2.1 What works and should be preserved
+**Durable evidence** (lives in the repo):
+- `tools/harness.js` loads today's `index.html` headless.
+- `tools/policies.js` holds the scripted players: `doNothing`: never touches anything; `reactiveOnly`: chases frequency, never commits plant; `competent`: the balance lens's best preset, reading only what the screen shows; `competentClassic`: the review's reference policy.
+- `tools/baseline.js` prints the tables below. The command is `node tools/baseline.js`.
 
-- The simulation core: swing-equation frequency, inertia from committed synchronous
-  plant, governor droop, battery FCAS with a ±0.10 Hz deadband, ramp rates, start
-  times, minimum generation, water budgeting, scarcity pricing under a $300 cap
-  contract. It is legible and it behaves correctly.
-- The night scene is the best-looking thing in the game — lit city windows, moon,
-  stars, warm glow pool over the city.
-- The 10-chapter tutorial with gated tasks, element highlighting and time-skips.
-- The event log as a narrative device. Warnings arrive before events.
-- Painter-ordered isometric rendering with a crisp screen-space overlay for bars and
-  labels — the right architecture.
-- **Performance is not a problem.** Measured per frame: map 0.90 ms, freq trace
-  0.36 ms, `ui()` 0.19 ms, demand chart 0.16 ms, gauge 0.09 ms — **1.7 ms against a
-  100 ms budget**. There is roughly 50× headroom for richer visuals.
+**Supporting evidence** (outside the repo):
+- The six-lens review of 2026-09-29: fun, edu, balance, pacing, spec and comparables, plus a synthesis and a critique.
+- The v4 design labs of 2026-09-30.
+- These live in the review session's local scratchpad folder (not in the repo), under `reports/`, `v4-foundations/`, `v4-desk/`, `v4-rules/`, `v4-day/`, `v4-livestack/` and `v4-facts/`.
+- They are working files, not durable. Numbers quoted from them name the lens.
+- Where the critique corrected the synthesis, this spec follows the critique.
 
-### 2.2 Graphics findings
+**Build measured:** `index.html`, git blob c45dda6ef5, 88,590 bytes. Seeds 1–100, Node v24.18.0.
 
-| # | Finding |
+### 3.2 Baseline (`node tools/baseline.js`, verbatim numbers)
+
+The weather class is fixed by the seed: heat 53, storm 24, calm 23. "In band" means 49.85–50.15 Hz.
+
+| Policy | Grades, all | Heat | Storm | Calm | Median in-band % | Mean unserved MWh | Blackouts | Black time p10 / p50 / p90 | Final grade = grade at 21:00 |
+|---|---|---|---|---|---|---|---|---|---|
+| doNothing | F100 | F53 | F24 | F23 | 32.0 | 6,563 | 100 | 10:33 / 13:21 / 15:50 | 100/100 |
+| reactiveOnly | F100 | F53 | F24 | F23 | 79.5 | 2,736 | 100 | 13:10 / 15:08 / 17:00 | 100/100 |
+| competent | S30 A7 B1 C7 D48 F7 | S2 A1 C5 D39 F6 | S12 A4 B1 C2 D5 | S16 A2 D4 F1 | 95.1 | 1,061 | 7 | 18:39 / 19:25 / 19:51 | 95/100 |
+| competentClassic | S29 A3 B1 C6 D55 F6 | C1 D47 F5 | S11 A3 B1 C5 D4 | S18 D4 F1 | 94.4 | 1,179 | 6 | 18:39 / 19:32 / 20:02 | 97/100 |
+
+**What the optimistic supply bound means.** At every whole sim-minute, all day, the bound adds up:
+- every unit not in protection lockout, at heat-derated capacity, with no start, ramp, minimum-generation or water limits;
+- interconnector 800 MW (0 while faulted);
+- battery 500 MW;
+- diesel 300 MW;
+- demand response 350 MW;
+- wind and solar available that minute.
+
+It is measured along the competentClassic run, with scheduled outages. "Short" means the bound is below demand at one or more minutes. On a short day no player could have avoided shedding load.
+
+| Weather | Days | Short at some minute | Short on 15-min mean | Short even with no outages | Worst 1-min margin, MW, p10 / p50 / p90 |
+|---|---|---|---|---|---|
+| heat | 53 | 49 (92%) | 46 | 42 | −1,143 / −377 / −53 |
+| storm | 24 | 17 (71%) | 16 | 0 | −363 / −169 / 506 |
+| calm | 23 | 6 (26%) | 5 | 0 | −713 / 168 / 721 |
+| all | 100 | 72 (72%) | 67 | 42 | −934 / −185 / 447 |
+
+The balance lens used a different bound: 15-minute mean, 16:30–21:30 only. On that bound, 75% of heat days are short. Numbers from different bounds are not comparable. Neither are seed-numbered results from builds that use random numbers differently.
+
+**Reference contingency.** One Mt Hazel machine trips at 04:00 from a balanced grid. No player action follows.
+
+| Measure | p10 / median / p90 |
 |---|---|
-| G-a | **The whole game renders at 10 fps.** `setInterval(…, 100)` drives `tick()`, which calls `draw()`. Blade spin, smoke, power packets, cloud drift and the needle all visibly step. This is the single largest cheap visual win, and per 2.1 it costs nothing. |
-| G-b | **Non-integer map scale.** A 560×330 offscreen buffer is blitted `image-rendering: pixelated` at 1.37–1.62× depending on window size. Pixel doubling is uneven, which fights the pixel-art look it is going for. |
-| G-c | **Sky appears below the ground plane.** The sky gradient fills all 560×330; the terrain diamond does not reach the bottom corners, so blue sky shows *beneath* the land. Breaks the illusion and wastes ~20% of the canvas. |
-| G-d | **The coal station hangs off the map.** Its cooling tower and stacks overhang the NW edge of the terrain slab. |
-| G-e | **Assets do not read apart.** Peaker halls, battery containers, the solar inverter hut and the transformers are all small grey/white cuboids. Without the text labels you cannot tell what you are looking at. |
-| G-f | **Ten permanent text labels.** `drawOverlay()` draws a nameplate for every entry in `BLD` at all times. The map is captioned rather than legible. |
-| G-g | **Dusk is out of phase with the duck curve.** At 18:45 — the crisis moment the whole design points at — `sunAmt()` is still 0.94, so the scene looks like midday while solar has already fallen to ~215 MW. |
-| G-h | **Storms look wrong.** Clouds are flat dark ellipses that read as floating discs; rain is nearly invisible at its current alpha; the ground does not darken; trees do not move. |
-| G-i | **Load shedding is easy to miss.** UFLS stage 2 darkens 3 of 12 city blocks plus a brief red tint. The most consequential event in the game is nearly invisible. |
-| G-j | **Unit trips have no lasting visual.** A 6-frame white flash and a small blinking square on the building. |
-| G-k | **The demand chart hides its own story.** Supply (green) is drawn over demand (amber) and they overlap almost exactly, so the *gap* — the thing that matters — is not visible. Noise makes both hard to read. |
-| G-l | **Frequency gauge is clipped.** `#cvG` is 138 px tall; the "Hz" caption baseline computes to 139.2 px. It is cut off at every window size. |
-| G-m | **Map occupies 61% of a 1280×720 viewport** while the dispatch controls get a 174 px strip. The visual weight is inverted relative to where the player must act. |
+| Output lost (MW) | 500 / 500 / 500 |
+| Inertia readout before → after | 3,946 → 3,946 (unchanged on every seed) |
+| Trip → leaves 49.85–50.15 Hz, real s | 1.8 / 2.1 / 3.2 |
+| First-swing nadir (lowest frequency), Hz | 49.810 / 49.829 / 49.847 |
+| Tripped station's own ramp "regains" in 5 real s (MW) | 120 / 120 / 120 (real value ≈ 1 MW) |
+| Back inside the band, real s | 4.1 / 7.9 / 11.5 (94/100 seeds) |
 
-### 2.3 Gameplay findings
+Other baseline facts:
+- Re-runs are byte-identical per seed and policy.
+- `tick()` costs 2.7 µs per tick.
+- A whole shift runs in 83 ms.
 
-| # | Finding |
-|---|---|
-| P-a | **The clock is fixed at 120×** (24 h in 12 min; `DTS = 0.2` sim-min per 100 ms tick). Pause is the only speed control, and it freezes everything including learning. |
-| P-b | **Events resolve faster than a beginner can read.** Measured reference contingency — from balance at 04:00, trip one coal machine (−650 MW): frequency leaves the 49.85–50.15 Hz band in **2.3 real seconds**, bottoms at 49.71 Hz, and governor + battery FCAS recover it to ~49.95 Hz within ~22 s **with no player action at all**. A new player misses the entire event while moving the mouse. |
-| P-c | **You can only touch one asset at a time.** `renderDock()` renders `#selP` for the single selected asset. Coordinating hydro and the battery during a 20-second contingency means clicking between them. |
-| P-d | **The game asks you to hand-fly two jobs at once** — second-by-second regulation *and* hour-ahead commitment — at 120× speed. Real control rooms automate the first (AGC) precisely so humans can do the second. |
-| P-e | **Death is instant and untelegraphed.** `blackT += 99` below 48.5 Hz, black at `blackT > 100` — **two ticks, 0.2 real seconds**, and the run is over with grade F. |
-| P-f | **Measured difficulty.** Do-nothing player: system black at 12:56 sim-time (~4.5 real minutes in), −$92 M, 5,916 MWh unserved. A purely reactive policy that chases frequency with hydro, coal, CCGT and the battery but never commits new plant reaches 88.8% band compliance and still blacks out at 13:44. The failure mode is always the same: a big trip lands on thin reserve. |
-| P-g | **No in-the-moment guidance.** Twelve annunciator tiles of equal weight, plus a log. Nothing says *what to do next*. Advice arrives only in the post-mortem. |
-| P-h | **One scenario, one length.** Fail at real-minute 9 and the only option is to restart from minute 0. No drills, no difficulty tiers, no seeded repeats. |
-| P-i | **No persistence.** No best score, no resume, no record that you ever played. A 12-minute session with no save is a big ask. |
-| P-j | **The tutorial ends by dropping you into the full unforgiving shift.** It is the only bridge, and it stops halfway across. |
-| P-k | **Coarse input.** `step=10` sliders over 0–2,600 MW, no numeric entry, no keyboard nudge, no "match the forecast" helper. |
-| P-l | **`Math.random()` throughout.** Runs are not reproducible, so scenarios cannot be authored, results cannot be compared, and there is no regression harness. |
+### 3.3 Key findings
 
-### 2.4 Reach findings
+1. **It is a reflex test.**
+   - Grade S needs a whole-fleet redispatch every 3 s or faster (balance §3). At 5 s intervals, S drops to 0.
+   - A human needs about 5.5 s per action with today's one-asset dock. That is a keystroke estimate (pacing §0), not yet checked with a person.
+   - After a trip, frequency leaves the normal band in about 1.2 s (median across times of day, pacing §2) and UFLS starts about 14 s later.
+   - About 2,400 setpoint changes a shift are chores, against about 11 real decisions (fun §1).
+2. **The dice decide the grade.**
+   - Heatwaves fall on 51–53% of days (`w<.5`, L338).
+   - On 75% of heat days the evening peak is short even with every resource at full (balance §3). On the 1-minute all-day bound, 92% are short (§3.2).
+   - Among good players, the seed explains **84%** of grade variance (balance §3).
+3. **The score contradicts the role.**
+   - Revenue is `min(price,300) × served` (L527), and price comes from the reserve margin. So holding reserve lowers P&L: committing everything loses $4.9M of revenue at equal fuel, and a lean reserve earns 18% more (balance §4; spec E3).
+   - Interconnector flow is left out of the margin (L523), so importing *raises* the price: $117 → $308 on seed 12 (edu M2).
+   - The evening price sits at $7,796, the curve's **ceiling** (L434; critique #4).
+   - Penalties explain R² = 0.976 of P&L, so P&L is really a shedding score.
+   - The CO₂ tip (L596) fires on every run and gives false advice.
+4. **Realism bugs undercut the one thing no competitor does.**
+   - Governors have no lag, so inertia never changes the nadir: 49.775–49.783 Hz across a 48× range of inertia (desk E1).
+   - UFLS starts at 49.2 Hz; the real first stage is 49.0 Hz.
+   - The grid goes black at 48.5 Hz within 0.2 s.
+   - STOP deletes a unit's output instantly.
+   - An overheating unit's trip lands on a random unit.
+   - A tripped machine keeps its inertia.
+   - There are two reserve definitions.
+   - There is a battery standing-charge trap.
+   - The price cap is stale.
+   - There is no rooftop PV.
+   - The restore rule is hidden.
 
-| # | Finding |
-|---|---|
-| R-a | **No `<meta name="viewport">`.** On a phone the page lays out at the 980 px fallback width and is scaled to fit — about 38%. Body text renders at ~5 physical px; fleet tiles measure 34×8 physical px. The existing 1080 px / 660 px media queries never fire on a real handset. Effectively unplayable on mobile. |
-| R-b | **Zero accessibility affordances.** No `role`, no `aria-label`, no `aria-live` anywhere in the DOM. The event log is not announced. Frequency, reserve and inertia exist only as canvas pixels. |
-| R-c | **Status is colour-only.** Lamps, annunciator tiles and chart series carry meaning in red/amber/green alone. |
-| R-d | **`prefers-reduced-motion` covers only `.ann.crit` and `.tut-hi`.** The always-on CRT scanline overlay, map flashes, lightning and packet animation ignore it. There is no settings panel and no CRT toggle. |
-| R-e | **One keyboard shortcut** (Space). No keyboard path to select an asset or change a setpoint. |
+   See §3.5.
+5. **The pacing is inverted.**
+   - The first ~3 real minutes are busywork with no events.
+   - The climax (18:00–20:00) is when the player has least to do: 6.5 decisions/min and 49% busy, while frequency is out of band 66% of the time.
+   - The last 4 minutes (33% of the session) are dead air. The grade is settled by 21:00 in 95/100 runs.
+   - On 74/100 seeds two contingencies land less than 30 s apart (pacing §1–2).
+6. **Seeded replay is impossible.** One `Math.random` stream feeds weather, player-dependent draws and rendering. Two policies on the same seed diverge on 49 of 50 seeds, median 11:26 (foundations lab). As written, v3 F-2 fails its own test.
+7. **What works and must be kept.**
+   - The winning plan is what a real dispatcher does: commit ahead, and save hydro and battery for the net-load peak.
+   - There are no cheap exploits.
+   - Frequency is learned by playing.
+   - The night scene and the isometric map look good.
+   - The headless harness already exists and becomes the par engine.
 
-### 2.5 Confirmed defects
+### 3.4 What the owner experienced
 
-| ID | Defect | Evidence |
+v2 was "too stressful and confusing". Findings 1, 2 and 5 are the measured causes:
+- actions faster than a human can make them;
+- losses the player could not have prevented;
+- a climax with nothing to do.
+
+### 3.5 Defects in today's build
+
+Line numbers refer to today's `index.html`. IDs are stable and never reused.
+
+| ID | Defect | Where | Evidence | Fixed by |
+|---|---|---|---|---|
+| X-1 | STOP deletes a unit's output instantly | L1257, L460 | Seed 3, STOP coal at 04:10 → 48.48 Hz, black at 04:15 (balance §5) | H-1, K-3 |
+| X-2 | An overheating unit's trip hits a random unit | L469, L372–375 | 69% hit the wrong unit, n=177 (edu M8) | H-2 |
+| X-3 | A tripped machine keeps its inertia | L470 | Readout 3,946 before and after (§3.2) | H-3 |
+| X-4 | Two reserve definitions | L1311–1312 vs L521–523, L545 | Disagree on 29.6% of ticks (edu M6) | H-4 |
+| X-5 | Import flow left out of the margin, so imports raise the price | L523 | Seed 12, 13:00: import 0→800 MW moves the price $117→$308 | H-5, P-5 |
+| X-6 | Evening price pinned at the curve ceiling of $7,796; the ">$1,000 siren" is always on | L434, L1310 | Non-heat evenings, 17–21 h median $7,796 (balance §4) | P-5–P-8, P-11 |
+| X-7 | The score pays like a generator | L527 | Lean reserve +18%; commit-all −$4.9M revenue; R²=0.976 (balance §4, spec E3) | S-1–S-3 |
+| X-8 | CO₂ tip fires on every run and is false | L596 | 30/30 and 100/100 runs (edu M4, balance §4) | H-13 |
+| X-9 | UFLS at 49.2 Hz in three shallow stages | L501–503, L511; text L255, L1383, L1466 | Real first stage is 49.0 Hz | H-6 |
+| X-10 | Black at ≤48.5 Hz within 0.2 s | L562–563 | Real extreme limit is 47 Hz; Queensland survived 48.53 Hz in 2021 | H-7 |
+| X-11 | No governor or battery lag, so inertia never changes the nadir | L491–496, L516–518 | 49.775–49.783 Hz across 48× inertia (desk E1) | H-8 |
+| X-12 | Inertia number has no real unit | L516, L175, L546 | `syncM/6+250`, labelled "MW·s/Hz"; LOW INERTIA never fired in 216k ticks | H-8, K-11 |
+| X-13 | Battery standing-charge trap | L483; advice at L342 | Traps 65% of trips; clearing it moves median time to shedding 14 s → 30 s (pacing §2) | H-10, K-5 |
+| X-14 | Battery deadband ±0.10 Hz and 0.56% droop | L495–496 | Real ±0.015 Hz and about 1.7% (AEMO 2025) | H-8 |
+| X-15 | Governor droop 5.7% with zero delay | L491 | Real ≤5%, with seconds of lag | H-8 |
+| X-16 | Price cap stale; one number serves as both price cap and outage cost | L287, L433, L535; text L224, L256 | $16,600 was FY2023-24; the cap is $23,200 from 1 Jul 2026 | H-12 |
+| X-17 | Price floor +$35, so no negative prices | L434 | Real floor −$1,000; negative prices in 31% of NEM intervals in Q4 2025 | P-8, P-9 |
+| X-18 | No rooftop PV and no belly; minimum generation never binds | L283–285, L429–431, L369 | Trough 3,800 MW vs 1,300 MW of minimums; curtailment 2 MWh/shift | P-1–P-4 |
+| X-19 | Hidden UFLS restore rule | L505–508; manual L255 omits it | 23% of unserved energy lands while f ≥ 49.95 Hz (fun §2) | H-6, K-13, H-16 |
+| X-20 | Penalised every tick outside the band, yet sitting at 49.3 Hz is cheap | L537, L219 | 7.0 sim-min per shift below 49.5 Hz; longest spell 50 min (balance §5) | H-11 |
+| X-21 | Trip log reports capacity, not output lost | L378–379 | Logs "650 MW" when 500 MW is removed | H-9 |
+| X-22 | Heatwaves on half of all days | L338 | 53/100 seeds; seed explains 84% of variance | S-10, D-8 |
+| X-23 | Weather follows a fixed script | L339–346, L368 | Heat always 13:30, storm 16:40, duck reminder 17:15, which is after the last moment it can be acted on | D-8 |
+| X-24 | Contingencies pile up and warnings are uneven | L331–369 | 74/100 seeds have two <30 s apart; cloud-front warning 10 s | D-8 |
+| X-25 | One shared `Math.random` stream | L375, L378, L469; rendering L707, L971, L985, L999, L1117, L1187–1189 | Diverges on 49/50 seeds | F-3 |
+| X-26 | Sim and render share a 10 fps timer | L568, L1520 | Whole game renders at 10 fps (v3 G-a) | F-5 |
+| X-27 | The largest trip can take out the whole 950 MW hydro station | L294, L372 | Real largest credible contingency is 700–800 MW | F-13 |
+| X-28 | Smelter trip of 600 MW, with a real company name | L360 | Real Boyne Island potline 2 tripped at 256 MW (2021) | F-13, H-15 |
+| X-29 | Real brand names | MERIDIAN ISO L170, L213, L599; MERIDIAN CITY L730, L1289; SNOWY L294, L465–467, L725; BOM L340 | Collide with Meridian Energy, Snowy Hydro and the Bureau of Meteorology | H-15 |
+| X-30 | Alarm noise | L397, L557 | 60 beeps and 51 tile edges per shift; flapping supplies 42.5 of the edges (desk E8) | H-16, K-8 |
+| X-31 | Peaker minimum output 12% | L292–293 | Reference open-cycle gas turbine minimum is 50% (Aurecon 2021) | F-13 |
+| X-32 | Emergency tools are cheap | L476 (diesel $2,600), L534 (DR $1,400) | Real emergency reserve activation cost $16,000/MWh (NSW, Nov 2024) | F-13, §9 Q-2 |
+| X-33 | Binary grade ladder | L576–584 | A/B unreachable with any shed; smallest shed 130 MWh; S15 A3 B0 C2 D36 F4 (fun §2) | S-5 |
+| X-34 | Dead air after the grade is settled | whole shift | Grade at 21:00 = final grade in 95/100; the last 4 real min are 33% of the session | D-2, D-11 |
+| X-35 | "Hz" caption clipped (v3 D-1) | `#cvG` | Canvas 138 px, caption baseline 139.2 px | K-11 (gauge replaced) |
+| X-36 | Frequency trace labelled "3 H" shows 6 h (v3 D-2) | trace panel | 1,800 samples × 0.2 sim-min | K-11, D-23 |
+| X-37 | Map blitted at a non-integer scale (v3 D-5) | map canvas | Scale 1.373 at 769×523 | G-1 |
+| X-38 | Coal station overhangs the terrain (v3 D-4) | `BLD` geometry | Visible off the slab | G-1 |
+
+---
+
+## 4. The game on one page
+
+### 4.1 A stranger's first daily, minute by minute
+
+Times are real time on a first shift with coaching on. The arithmetic is from the D-2 clock; it is not yet measured. Frequency and MW figures are illustrative, taken from the desk prototype's evening (nadir 49.60 Hz) and morning traces. A returning player's day is about a minute shorter, because the introductions don't play and the watch is compact.
+
+| Real time | Grid time | What happens |
 |---|---|---|
-| D-1 | "Hz" caption clipped on the frequency gauge | canvas height 138 px, caption baseline 139.2 px |
-| D-2 | Frequency trace panel labelled "3 H" but shows 6 h | 1,800 samples × 0.2 sim-min = 360 sim-min |
-| D-3 | No viewport meta | see R-a |
-| D-4 | Coal station geometry overhangs the terrain slab | see G-d |
-| D-5 | Non-integer map blit scale | 1.373 measured at 769×523 |
+| 0:00 | 04:30 | The shared link opens on the live map at night. City windows are lit and a quiet 100 Hz hum sits steady. The first click anywhere starts the audio. |
+| 0:05 | — | **Briefing card** (≤60 words). A 24-h forecast skyline shows demand, the bite rooftop solar takes out of midday, and the evening climb. "Watch for: tie-line limited to 500 MW until 11:00." Marg: *"Fifty hertz is the whole job. The rest is paperwork."* The one button is **TAKE THE DESK**. |
+| 0:20 | 04:30 (paused) | Marg points out the frequency dial, the hum and the AGC lamp. The clock is paused for 8 s. |
+| 0:28 | 04:30→06:00 | Pre-dawn cruises at 540×. Coal and one gas unit hum along; AGC trims them. |
+| 0:38 | 06:00 | **First real action: SYNC.** The second Riverton gas unit reaches full speed and its synchroscope appears. Time drops to 1×. The needle sweeps; you trim the speed with `]` and pull the breaker just before 12 o'clock. *Clack.* The lever picks up load. |
+| 0:46 | 06:00→09:00 | Morning ramp at 270×. Levers glide by themselves along the plan. At 07:30 the Live Stack shows red columns ahead. Marg introduces it. GT·A's layer glows because it can arrive in time; you drag its edge to 300 MW by 08:30. |
+| 1:34 | 09:00→14:30 | **The belly** (300–480×). Rooftop solar floods in and operational demand sinks toward 2,400 MW. Blue columns mean the must-run plant alone exceeds demand, and the price goes negative. You click Solstice Rise and schedule a **hot-water soak**. You set the battery to CHARGE at −$20. You ease coal to minimum. A weather-bureau card warns of a cloud front at 12:10, 30 grid-minutes ahead. When it crosses, the suburbs' panels dim and demand "appears from nowhere". |
+| 2:47 | 14:30→16:30 | **The neck** (240×). The Live Stack now reaches 18:30 and shows the evening climb. You pre-cool Redgum Flats, drag GT·B to arrive by 17:00 and GT·C by 17:30, and set the hydro gate wheel so the water lasts until 20:40. |
+| 3:33 | 16:30→20:00 | **The peak** (150×). At 17:00 your plan comes together: the levers rise together, the stack columns turn solid, and the annunciator stays dark. |
+| 4:25 | 18:40:00 | **Trip.** A Mt Hazel coal machine drops 650 MW. The desk locks, a vignette falls, and the clock becomes a stopwatch: `T+0.00 s ×0.15`. |
+| 4:25–4:54 | 18:40:00–18:40:30 | **The watch** (full version, first time only). (1) Inertia takes the hit, the needle drops and the hum sags. (2) The battery swings to discharge within a fraction of a second. (3) The governors creep up, and the nadir pin lands at **49.60 Hz, 0.60 Hz above UFLS**. (4) No relays operate. (5) Frequency settles below 50 Hz. Marg: *"Governors stop the fall. Restoring fifty is AGC's job, and yours."* |
+| 4:54 | 18:40:30 (held) | **Respond card.** "Contained within 49.5–50.5 ✓. Caught by: inertia → battery 498 MW → governors 346 MW. N-1: INSECURE." Buttons: [START GT·A] [RE-ARM BATTERY]. You press START GT·A; the desk unlocks with a chime. |
+| 5:09 | 18:40→20:00 | Back in band within the 5-minute standard. The N-1 gauge returns to SECURE before the 30-minute security countdown ends. The peak passes. A "clean ramp" chime plays. |
+| 5:39 | 20:00→04:00 | Release, then the night roll (12 s). City windows go dark one by one while the scorecard counts up. |
+| 6:03 | — | **Verdict and debrief** (≤45 s). Marks against par, "the moment" (the 18:40 trip), one "what if", a "this really happened" card, then SHARE. |
+
+### 4.2 Layout at 1280×720
+
+Half and half: the map on top, the desk on the bottom (K-17). The map absorbs any height lost to browser chrome, down to 260 px.
+
+```
++------------------------------------------------------------------------------------------+
+| GRIDWATCH  18:42 >150x | LIGHTS ON 100% | COST 8.4 c/kWh | CO2 0.61 t/MWh | PAUSE  ?     |  32
++------------------------------------------------------------------------------------------+
+|                                                                                          |
+|   MAP 1280x328: plants, six suburbs, rooftop glint, cloud shadows and weather.           | 328
+|   Dark districts after a shed. Labels only on hover, focus or alarm.                     |
+|                                                                                          |
++-------------+--------------------------------+---------------------+---------------------+
+| FREQ DIAL   | COAL CCGT GT-A GT-B GT-C       | LIVE STACK          | ANNUNCIATOR 4x3     |
+| 232x164     |  ||   ||   ||   ||   ||        | now-30 min..+4 h    | 256x104             |
+| 49.962 Hz   |  ||   ||   ||   ||   ||        | 336x196, 5-min cols | [ACK] [SILENCE]     |
+| RoCoF, GW.s | HYD (o)  BAT (o)  TIE (o)      |                     +---------------------+
++-------------+ lamps + MW readouts, guarded   +---------------------+ MESSAGE TRAY        |
+| IMBALANCE   | START/STOP, AGC/HAND key,      | PROCEDURE BAY       | 256x124             |
+| N-1 GAUGE   | rejoin-plan lamps              | 336x128: SYNC scope +---------------------+
+| [T] PREVIEW |                                | or RESTORE breakers | DR (o)(o)(.) DIESEL |
++-------------+--------------------------------+---------------------+---------------------+ 360
+      232                   424                          336                  256   (+4x8 gutters)
+```
+
+At 1920×1080:
+- The header is 40 px and the map 1920×500.
+- The 540 px desk adds a 3-minute frequency trace under the dial.
+- Levers are 72 px wide with 300 px of travel.
+- The Live Stack is 560×300 and the procedure bay 560×190.
+
+### 4.3 The desk controls
+
+| Control | What it does | Keys | Req |
+|---|---|---|---|
+| Unit levers (COAL, CCGT, GT·A, GT·B, GT·C) | Motorised faders. The handle is the planned MW. Behind it: the output needle, the AGC band and a 10-minute ramp cone. A spring gate at 96% shows that unit's trip risk. Multi-machine stations show one lamp per machine. | 1–5, ↑↓, PgUp/PgDn | K-1 |
+| START / STOP guards | Lift the guard, then press. STOP unloads the unit at its ramp rate before the breaker opens. | S S / X X | K-3, H-1 |
+| AGC/HAND key | AGC trims every unit inside its band. HAND (chosen at the briefing) turns AGC off. | — | K-2, D-7 |
+| Hydro gate wheel | Sets hydro MW. The rim shows the reservoir and "water lasts until HH:MM". | 6, ←/→ | K-4 |
+| Battery dial | CHARGE / IDLE / DISCHARGE plus magnitude. An FFR ARMED lamp shows the fast-response MW held back. | 7 | K-5 |
+| Tie knob | DC interconnector flow, −800 to +800 MW. | 8 | K-6 |
+| Diesel key, DR button | Emergency reserve and industrial demand response. Both need a hold, never a tap. | E (hold), D (hold) | K-7 |
+| Annunciator | Alarm tiles with ACK and SILENCE. Click a tile to jump to its control. | A, Shift+A | K-8 |
+| Message tray | At most 3 cards, each with one action button. | M | K-9 |
+| N-1 gauge + TRIP PREVIEW | 5-minute reserve against the largest risk. A ghost needle shows where frequency would bottom out. | T | K-10 |
+| Frequency dial + imbalance bar | Hz, RoCoF (rate of change of frequency), inertia in GW·s. The bar shows what is "borrowed" from automatic response. | — | K-11 |
+| Procedure bay | Synchroscope (SYNC) or feeder breakers (RESTORE). | [ ] C U, R | K-12, K-13 |
+
+### 4.4 The Live Stack
+
+A desk screen. It shows the next 4 hours as a skyline of forecast demand, with each generator a coloured layer you can drag.
+
+```
+  MW   LIVE STACK   now 15:30 ......................................... +4 h (19:30)
+ 8000 |                                      .....P90.....
+      |                               ______/ RR  RR    \____    <- skyline: forecast demand (P50)
+ 6000 |                       _______/                      \     R = red: plan short of P50
+      |              ________/ GT-C ghost (earliest sync 15:38)   amber = short of P90
+ 4000 |   GT-B ramp: drag edge -> 800 MW by 17:30 ===========     blue (midday) = must-run
+      |   HYDRO ============================ water lasts 20:40         exceeds demand
+ 2000 |   CCGT ===================================================
+      |   COAL (4 machines) =======================================
+    0 +---------|-----------|-----------|-----------|-----------
+        15:30 (now)   16:30       17:30       18:30       19:30
+```
+
+- The levers on the desk are the layers' "now" edges.
+- A drag makes an "arrive-by" keyframe, drawn as a ramp no steeper than the unit can move.
+- A unit that is off appears as a ghost that cannot begin before now + its start time.
+- A trip tears its layer out live, and a red gap opens.
+
+There is no planning phase and no RUN button (§7).
+
+### 4.5 The city
+
+Six suburbs on the map, each with a personality and a patience meter (U-1):
+
+| Suburb | Personality |
+|---|---|
+| Solstice Rise | Solar-obsessed outer estate |
+| Old Hazelton | On off-peak hot water since 1962 |
+| Redgum Flats | Air-con as a human right |
+| Harbourside | CBD towers |
+| Tallowood Heights | Pools and Powerwalls |
+| Saltbush Bay | Retirees who ring talkback |
+
+Clicking a suburb opens a card. Its levers:
+- **Hot-water soak** (noon) and **hold** (evening).
+- **EV delay.**
+- **Air-con cycling**, with pre-cooling.
+- **VPP** (virtual power plant): home batteries dispatched together.
+- The **rooftop-solar emergency backstop**, locked until a minimum-demand emergency.
+
+Each lever shows its MW, its energy, its cost to customers and its *rebound*: the load that comes back later. Flex aimed at the wrong hour is worthless, because its rebound lands on the real peak (livestack Table B). At most 3 lever types are offered on any day.
+
+### 4.6 The trip moment
+
+What the physics prototype produced (desk E6: morning fleet, battery on, −650 MW trip). These are real traces from `v4-desk/phys.js`, not illustrations.
+
+| Physical time | Frequency | What is catching it | Replay speed | Beat |
+|---|---|---|---|---|
+| T+0.3 s | 49.75 Hz | inertia 577 MW, battery 38 MW | 0.15× | 1 — Inertia: needle drops, RoCoF lights, rotors on the map slow |
+| T+1.0 s | 49.55 Hz | battery 498 MW | 0.15× | 2 — Battery: dial swings to DISCHARGE |
+| T+1.5 s | **49.53 Hz (nadir)** | battery + first governor response | 0.15× | 3 — Governors: needles creep up; nadir pin shows "0.53 Hz above UFLS" |
+| T+10 s | 49.75 Hz | governors 346 MW, battery 270 MW | 1× | (4 — UFLS: only below 49.0 Hz; districts go dark with a clack) |
+| T+30 s | 49.76 Hz | droop holds frequency below 50 | 10× | 5 — Settle: "Restoring fifty is AGC's job, and yours." |
+
+The same engine drives:
+- the live grid;
+- the TRIP PREVIEW ghost needle (K-10);
+- restore previews (K-13);
+- par (S-4).
+
+In the same state, the preview therefore matches the watch within ±0.02 Hz.
+
+### 4.7 Debrief and share card
+
+The verdict screen shows, in order (D-25):
+1. The letter grade and three marks against par (D-20).
+2. "The moment" (D-21).
+3. One counterfactual, such as "Sync GT·B at 16:40 → no shedding (−380 MWh)" (D-22).
+4. A "this really happened" card (D-24).
+5. SHARE.
+
+The text share card (Y-4) contains no event names and no clock times. A mark shows how far each result is from par; ★ means at par or better.
+
+```
+GRIDWATCH #214 · Wed 30 Sep · A
+████▇██▄████  low 49.60 Hz
+Lights ★ PAR     0 MWh dark
+Cost   ★  -4%  8.1 c/kWh
+CO2       +2%  0.62 t/MWh
+"Nobody noticed. That's the job."
+databerryau.github.io/gridwatch
+```
+
+The sparkline has 12 blocks of 2 hours each, starting at 04:00. Each block is the worst deviation from 50 Hz in its window (full block = within ±0.05 Hz; ▁ = below the UFLS line). In the example, the ▄ block is the 18:00–20:00 window.
 
 ---
 
-## 3. Design thesis
+## 5. Requirements by phase
 
-> **The simulation is strong and the presentation is atmospheric. What GRIDWATCH lacks
-> is *time to think* and *legibility at a glance*.**
+Every phase ships something playable, and the live game works after every step.
 
-Every change below must do one of three things:
+**IDs are stable.** When a draft ID was merged, it stays as a pointer and is never reused.
 
-1. **Give the player more time** — slow the clock, telegraph failure, automate the
-   parts a real dispatcher automates.
-2. **Make the state readable faster** — so a glance at the map answers "what is wrong
-   and where", without reading a label or a log line.
-3. **Lower the cost of failing** — shorter scenarios, difficulty tiers, saves,
-   replays.
+Prefixes:
 
-Explicit non-goals: no framework rewrite, no build step, no dumbing down of the
-physics, no removal of the full 24-hour shift.
+| Prefix | Area |
+|---|---|
+| F | Foundations |
+| H | Honesty |
+| P | Prices (P-5–P-11) and rooftop PV (P-1–P-4, P-12) |
+| S | Scoring and par |
+| K | Desk |
+| L | Live Stack |
+| G | Map |
+| D | Day and debrief |
+| O | Onboarding |
+| U | City flexibility |
+| Y | Daily |
+| W | Week |
 
----
+C- (constraints) and X- (defects) are used only in §2 and §3.
 
-## 4. Requirements
+| Phase | Ships as | Migration step | Gate |
+|---|---|---|---|
+| 0.1 | The live `index.html`, split into static files, with honesty fixes to the legacy sim | M1–M3 | Baseline re-recorded |
+| 0.2 | The v4 sim core under `sim/`, headless, plus a bare `next.html` bench page | M4 begins | Par works headless |
+| 1 | `next.html`: a full day with the desk, the Live Stack, the watch and the map at a flat 120× | M4 | — |
+| 2 | `next.html`: the 5-minute day on gate-passed seeds, with onboarding and debrief | M4 | **Playtest gate 1** |
+| 3 | `next.html`: rooftop PV, the belly and the city | M4 | Re-tune par |
+| 4 | `index.html` switches to the v4 daily; `classic.html` keeps v2 for one release | M5 | **Playtest gate 2** |
+| 5 | Week mode | M6 | — |
 
-Ordered in five phases. Each phase is shippable on its own.
+The M steps are the tech lab's migration steps (F.5): M1 hygiene inside `index.html`, M2 extract without changing behaviour, M3 new loop, M4 v4 core on `next.html`, M5 switch, M6 week.
 
-### Phase 0 — Foundations & defects (`F-*`)
-
-Small, high-leverage, mostly prerequisites for later phases.
-
-**F-1 — Decouple rendering from the simulation.**
-Replace the single `setInterval(…, 100)` with a `requestAnimationFrame` render loop
-plus a fixed-step accumulator driving `tick()`.
-*Accept:* render runs at display refresh (60 fps typical); the sim still advances in
-exact fixed steps; a 24 h shift still takes 12 real minutes at 1× speed; measured
-frame cost ≤ 8 ms; the map still animates while paused.
-
-**F-2 — Seeded RNG.**
-Replace `Math.random()` with a small seeded PRNG (e.g. mulberry32) threaded through
-`schedule()`, `gauss()`, `tripUnit()` and weather. Surface the seed in the debrief.
-*Accept:* the same seed produces an identical event schedule, weather trace and trip
-selection. Prerequisite for S-1, S-5 and the regression harness (§7).
-
-**F-3 — Fix the clipped gauge caption (D-1).**
-*Accept:* dial, numeric readout and "Hz" unit all fully visible for rail widths
-300–420 px and panel heights ≥ 150 px.
-
-**F-4 — Fix the frequency trace window (D-2).**
-Make it a true 3 h window (900 samples) and relabel; the 24 h view already exists in
-the demand chart.
-*Accept:* label matches the plotted window.
-
-**F-5 — Integer map scale (D-5).**
-Choose the offscreen resolution from the container so the blit factor is a whole
-number, and letterbox the remainder.
-*Accept:* `mapScale` is an integer ≥ 1 at all supported window sizes; no uneven
-pixel doubling.
-
-**F-6 — Coal station back on the slab (D-4).**
-*Accept:* no part of any building in `BLD` renders outside the terrain diamond.
+Recommended but not a gate: before Phase 0.1, hold one think-aloud session on today's build (critique #3). It costs an afternoon and gives a "before" for the stress and confusion ratings in the gates.
 
 ---
 
-### Phase 1 — Time to think (`T-*`)
+### Phase 0 — Foundations & honesty
 
-This phase is the core of "more approachable". If only one phase ships, ship this one.
+#### 0.1 — The live game, made honest
 
-**T-1 — Clock speed control.**
-0.25× / 0.5× / 1× / 2× / 4×, as header buttons and `[` / `]` keys, with the current
-rate always displayed. Choice persists.
-*Accept:* speed can be changed mid-shift without disturbing the sim; scoring and
-economics are unaffected by the chosen rate (rate scales wall-clock only).
+Each item is measured by `tools/baseline.js` against the legacy sim.
 
-**T-2 — Auto-slow on contingency.**
-On any unit trip, interconnector fault, or UFLS arm, ramp the clock to 0.25× for 20
-real seconds and show a `CONTINGENCY — TIME SLOWED` badge. Toggleable; on by default
-below Control Engineer difficulty.
-*Accept:* after the reference contingency (§2.3 P-b), the player has ≥ 8 real seconds
-before frequency leaves the normal band at Trainee.
+**F-1 — Static multi-file site.**
+The repo root holds:
+- `index.html` and `next.html`;
+- `app/` (boot, loop, director, input, persist, share);
+- `sim/` (pure: rng, params, fleet, weather, events, grid, physics, step, autopilot);
+- `render/`, `desk/`, `audio/`;
+- `content/` (scenarios, dailies, text, as JS modules);
+- `tests/`, `tools/`;
+- `package.json` (`{"type":"module","private":true}`, no dependencies);
+- `.nojekyll`, so Pages serves files untouched.
 
-**T-3 — AGC / automatic regulation per unit.**
-A per-unit toggle plus participation percentage. Units on AGC move their own setpoint
-to close the measured imbalance, respecting ramp rate, minimum generation and
-available capacity. Cost of using it: a small heat-rate penalty and consumed headroom
-(AGC-reserved MW are deducted from displayed reserve).
-*Accept:* with every unit on AGC and no player input, band compliance ≥ 90% on a
-normal day — and the player still loses on commitment mistakes, water budgeting and
-the evening ramp. Availability is gated by difficulty (S-3).
+All paths are relative.
 
-> This is the most consequential design change in the document. See §6, decision 1.
+*Accept:* a fresh clone served by `py -m http.server 8642` plays a full day; the browser makes zero requests to other origins; no `npm install` is needed to play or test; `tests/charset.test.js` checks that every `*.html` begins with the charset meta.
 
-**T-4 — Dispatch board.**
-A compact all-units control surface: one row per unit with lamp, name, MW/capacity
-bar, setpoint slider, AGC toggle and start/stop. Becomes the primary control surface;
-the detailed single-asset panel (`#selP`) stays for commitment decisions and
-asset-specific tools.
-*Accept:* at least 5 units can be adjusted without any navigation; a two-unit
-correction during a contingency needs no clicking between panels.
+**F-3 — Three random streams, external world pre-rolled.**
+- `ext` (weather regime, demand noise, wind, cloud, PV, contingency schedule) is pre-rolled at state creation. It uses a counter-based integer hash `hash(seed, stream, index)`, and values are quantised.
+- `play` (player-dependent outcomes, such as an overheat or an out-of-phase close) uses `hash(seed,'play',tick,unitId)`.
+- `fx` (cosmetic) is `Math.random`, allowed only in `render/` and `audio/`.
+- Trip targets are rules, not dice: "largest online coal machine", or "the unit that ran hot".
+- In the legacy build the split needs about 8 one-line edits. Seed numbers then map to different days (foundations lab: 38 heat / 35 storm / 27 calm), so the baseline is re-recorded.
 
-**T-5 — Graded collapse instead of instant death.**
-Retire the `blackT += 99` rule. Below 48.8 Hz start a visible `SYSTEM COLLAPSE IN n s`
-countdown; when it expires, trip one generator (deepening the deficit) rather than
-ending the run. Declare system black only when no synchronous generation remains, or
-frequency is below 47.0 Hz for 3 s.
-*Accept:* a player who reacts within 5 real seconds of the first warning can save the
-grid at Trainee difficulty; blackout remains reachable and still grades F.
+*Accept:* on seeds 1–100, `doNothing`, `competent` and a random-input fuzzer see identical demand, wind, PV and event timelines all day (today they diverge on 49/50 seeds); a lint test finds `Math.random` only under `render/` and `audio/`.
 
-**T-6 — Imbalance instrument.**
-A prominent MW-imbalance readout and bar (supply − served demand), with the
-governor/FCAS contribution shown separately so the player can see how much of the
-correction is borrowed. Alongside it: `MW REQUIRED +30 MIN` and `+60 MIN`.
-*Accept:* visible at all times without selecting an asset; sign and magnitude
-readable at a glance.
+**F-5 — Loop and director.**
+- Each `requestAnimationFrame` (the browser's per-frame callback) adds `min(frameDt, 0.1 s) × rate` to an accumulator, then runs whole ticks up to a per-frame cap.
+- Render interpolates between ticks.
+- A hidden tab pauses.
+- `draw()` and `ui()` leave `tick()` (X-26).
+- `app/director.js` chooses the rate; the sim never does. In 0.1 the rate is a flat 120×. The v4 modes are:
 
-**T-7 — Setpoint input quality.**
-Numeric entry beside every slider; ↑/↓ nudges ±10 MW and Shift+↑/↓ ±100 MW when a
-control has focus; a per-unit "take my share of net load" button.
-*Accept:* a specific MW target can be set exactly, by keyboard, in under 3 seconds.
-
----
-
-### Phase 2 — Legibility (`L-*`)
-
-The graphics phase. Budget is generous (§2.1) — spend it.
-
-**L-1 — Fill the frame (G-c).**
-Extend the terrain to the canvas edges and add a horizon treatment: distant ranges, a
-haze band, sea or plain behind the plateau.
-*Accept:* at every supported aspect ratio, no sky is visible below the ground plane.
-
-**L-2 — Distinct asset silhouettes (G-e).**
-Enlarge each plant roughly 25–40%; give each technology its own colour identity and a
-recognisable yard motif (switchyard, gravel pad, cooling water, fuel store) so a
-peaker, a battery, an inverter hut and a transformer are distinguishable unlabelled.
-*Accept:* in a labels-off screenshot, a first-time viewer can name every asset type.
-
-**L-3 — Label discipline (G-f).**
-Nameplates only for hovered, selected or alarming assets. A small persistent
-technology glyph otherwise.
-*Accept:* at rest, no more than 3 text labels on the map.
-
-**L-4 — Retime dusk to the duck curve (G-g).**
-Align the visible sunset with the solar collapse and the evening ramp (17:00–20:00).
-*Accept:* at 18:45 the sky is unmistakably in sunset and the solar field is visibly
-dark, matching the ~215 MW the model reports.
-
-**L-5 — Weather that reads (G-h).**
-- *Storm:* darken the ground, layered clouds with volume, visible rain sheets, trees
-  bending, lightning that momentarily lights the whole scene.
-- *Heatwave:* bleached palette, haze, heat shimmer over the thermal plants.
-- *Cloud front:* a moving shadow band that visibly crosses the solar precinct.
-*Accept:* each weather state is identifiable from a single frame with no text.
-
-**L-6 — Load shedding you cannot miss (G-i).**
-Shed contiguous *districts* rather than scattered buildings, with a sweep animation, a
-persistent red hatch over dark districts, and an on-map `UFLS STAGE n — x% SHED`
-banner.
-*Accept:* a stage-1 shed is unmistakable within 1 second of occurring.
-
-**L-7 — Trip drama (G-j).**
-At the tripping plant: white flash, smoke burst, visible spin-down, and a persistent
-red strobe until repaired, with a callout line drawn to the annunciator tile.
-*Accept:* the tripped asset is identifiable from the map alone, at any time during
-its lockout.
-
-**L-8 — Power-flow legibility.**
-Line thickness proportional to MW; colour by loading (green → amber → red near
-limit); packet speed proportional to flow; unloaded lines dimmed; the selected
-asset's route highlighted.
-*Accept:* the two most heavily loaded corridors are identifiable at a glance.
-
-**L-9 — Demand chart shows the gap (G-k).**
-Fill the area between supply and served demand as a signed band (deficit red, surplus
-blue), overlay a reserve-margin strip, and mark events as ticks on the time axis with
-hover text.
-*Accept:* the moment the player falls behind demand is visible in the demand chart
-without consulting the frequency trace.
-
-**L-10 — 60 fps polish pass.**
-With F-1 landed: eased needle motion, smooth blade spin, continuous smoke and packet
-travel, drifting clouds.
-*Accept:* no visible stepping in any animated element at 1× speed.
-
-**L-11 — Selection emphasis.**
-Slightly dim unselected map content; brighten the selected asset and its corridor.
-*Accept:* the selected asset is obvious without reading the ring.
-
----
-
-### Phase 3 — Structure & progression (`S-*`)
-
-**S-1 — Scenario system.**
-Data-defined scenarios: `{ id, name, seed, lengthMin, startHour, weather, events[],
-difficulty, brief }`. The 24 h shift becomes scenario `full-shift`.
-*Accept:* a scenario is fully described by data; replaying a seed reproduces it
-exactly (depends on F-2).
-
-**S-2 — Short drills.**
-Five 3–5 real-minute scenarios, each teaching one thing: *Morning Ramp*, *Unit Trip*,
-*Duck Curve*, *Storm Front*, *Low-Inertia Midday*. Each has a one-line objective and
-its own grade.
-*Accept:* a player can complete a meaningful, graded session in under 5 minutes.
-
-**S-3 — Difficulty tiers.**
-*Trainee / Operator / Control Engineer*, scaling: default clock speed, auto-slow
-(T-2), AGC availability (T-3), event density, demand-noise σ (currently `gauss()*5.5`),
-collapse tolerance (T-5) and coaching (S-4).
-*Accept:* the measured targets in §5 are met at each tier.
-
-**S-4 — Supervisor hints.**
-One prioritised line naming the next action, derived from alarm state — e.g.
-*"Reserve 120 MW. Start GT·B now — 8 min to sync."* On at Trainee, optional at
-Operator, off at Control Engineer.
-*Accept:* during any failure path, the hint names an action that would actually help.
-
-**S-5 — Persistence (localStorage).**
-Best grade and P&L per scenario and difficulty; last-used settings; tutorial-completed
-flag; and a mid-shift save/resume.
-*Accept:* closing and reopening the page restores settings and offers to resume an
-interrupted shift.
-
-**S-6 — Debrief replay.**
-Scrub the completed shift using data already captured (`aDem`, `aSup`, `aRen`,
-`aShed`, `histF`) with event markers, a P&L-over-time line, and an auto-annotated
-"where you lost it" moment.
-*Accept:* the debrief identifies the single largest P&L and frequency excursion and
-lets the player scrub to it.
-
-**S-7 — Live score transparency.**
-Show the grade band currently being tracked, not just raw P&L.
-*Accept:* the player can see at any moment whether they are on an A or a C.
-
-**S-8 — Tutorial hand-off.**
-After the final chapter, offer the *Morning Ramp* drill (S-2) as the recommended next
-step, with the full shift as an explicit second choice.
-*Accept:* the tutorial no longer terminates into the hardest available content.
-
----
-
-### Phase 4 — Reach (`R-*`)
-
-**R-1 — Mobile layout.**
-Add `<meta name="viewport" content="width=device-width,initial-scale=1">` **together
-with** a real small-screen layout: map at ~45vh on top; a bottom tab bar
-(FLEET / DISPATCH / ALARMS / LOG); a bottom sheet for the selected asset; ≥ 44 px
-touch targets; tap-to-select on the map, tap-and-hold for the tooltip.
-*Accept:* playable at 390×844 with no horizontal scroll and no text below 12 px.
-
-> Sequencing: the viewport meta must not ship before the layout. Alone it replaces a
-> zoomed-out-but-complete view with a cramped broken one.
-
-**R-2 — Accessibility.**
-`aria-live="polite"` on the event log (`assertive` for critical entries); visually
-hidden text mirrors for the canvas readouts (frequency, imbalance, reserve, inertia);
-roles and labels on every control; visible focus rings; a complete keyboard path to
-select an asset and change its setpoint.
-*Accept:* the game is navigable and its critical state is announced using keyboard
-and screen reader alone.
-
-**R-3 — Colour independence.**
-Alarm tiles and lamps carry a glyph or letter in addition to colour; add a
-colourblind-safe palette option.
-*Accept:* every status distinction survives a greyscale screenshot.
-
-**R-4 — Motion and effects settings.**
-Honour `prefers-reduced-motion` for the CRT scanline overlay, map flashes, lightning
-and blink animations (currently only `.ann.crit` and `.tut-hi`). Add a settings panel:
-CRT on/off, motion, colourblind palette, sound volume.
-*Accept:* with reduced motion requested, nothing flashes, strobes or scans.
-
----
-
-## 5. Target metrics
-
-| Metric | Today (measured) | Target |
+| Mode | Rate (grid seconds per real second) | When |
 |---|---|---|
-| Render frame rate | 10 fps | 60 fps |
-| Frame cost | 1.7 ms | ≤ 8 ms |
-| Reference contingency → band exit *(−650 MW at 04:00)* | 2.3 s | ≥ 8 s Trainee · ≥ 4 s Operator · 2.3 s Control Engineer |
-| Do-nothing player | black at 12:56 sim (~4.5 real min) | survives to ≥ 18:00 sim at Trainee, grade D not F |
-| Reactive-only policy *(chases frequency, never commits plant)* | black at 13:44, 88.8% compliance | completes the shift at Trainee, grade C |
-| Units adjustable without navigating | 1 | ≥ 5 |
-| Always-on map text labels | 10 | ≤ 3 |
-| Shortest graded session | 12 min | ≤ 5 min |
-| Mobile at 390×844 | unplayable (≈38% scale) | fully playable |
-| Run reproducibility | none | exact, by seed |
+| CRUISE | the D-2 profile, 150×–2,100× (a flat 120× before Phase 2) | normal play |
+| FAST | 3 × profile, while F is held | released by any warning or alarm; off during WATCH and RESPOND |
+| WATCH | 0.15× → 1× → 10× schedule (K-15) | the first 30 grid-seconds after a contingency; desk locked |
+| RESPOND | held on the respond card, then 30× for up to 5 grid-minutes, then profile | after the watch (K-16, D-5) |
+| FOCUS | 1× | hand on a synchroscope, or closing a restore breaker |
+| PAUSE | 0 | Space; coaching introductions; hidden tab |
 
-The two policy rows are the headline approachability tests: today, *engaging with the
-game correctly but incompletely still ends in a blackout*. That is what has to change.
+*Accept:* 60 fps at 1920×1080 on the owner's laptop; a 60 Hz display and a 144 Hz display reach the same state at the same grid time; a lagging frame slows play and never drops or doubles a tick; the rate is always visible; `tools/baseline.js` output is identical before and after the loop change (M3 gate).
+
+**F-10 — Tests.** `node --test` (Node ≥20) runs `tests/*.test.js`.
+
+*Accept:* the suites cover F-2, F-3, F-4, F-6, F-7 and F-8, plus physics sanity: UFLS stage 1 at 49.0 Hz, and the reference contingency's nadir and RoCoF inside the H-8 bands; the whole run takes <60 s; a GitHub Action runs it on push and only reports (deployment is unchanged).
+
+**F-12 — Honest measurement.** `tools/baseline.js` has a committed golden output, `tools/baseline.golden.md`.
+
+*Accept:* after every pure-refactor commit, the diff against the golden output is empty, excluding the timing lines; an intentional behaviour change re-records the golden file in the same commit, with a one-line reason.
+
+**H-1 — STOP ramps a unit down.**
+- STOP sets `stopping`: output falls at the unit's ramp rate to its minimum, then the breaker opens and the unit spins down.
+- The stop can be aborted while unloading.
+- Minimum up/down times apply from S-11 onwards.
+
+*Accept:* on seed 3, STOP on coal at 04:10 no longer blacks out the grid (today: black at 04:15); coal output falls by ≤12 MW per sim-minute.
+
+**H-2 — A hot unit trips itself, and the risk is visible.**
+- L469 passes the hot unit instead of calling `tripUnit(false)`.
+- A multi-machine station loses one machine, not the whole station.
+- Above 96% loading the unit shows "trip risk ≈7% per real minute" (0.00012 per tick today).
+
+*Accept:* 100% of overheat trips hit the hot unit (n ≥ 100), and the log names it.
+
+**H-3 — A tripped machine stops counting toward inertia.** Inertia uses `cap × availF × H` (L470).
+
+*Accept:* after a coal machine trips, inertia falls by 25% of coal's contribution within one tick.
+
+**H-5 — Imports count as supply.**
+- Legacy: count the tie flow in `availCap` (L523).
+- v4: P-5 subtracts scheduled tie flow from market demand.
+
+*Accept:* on seed 12 at 13:00, stepping import 0 → 400 → 800 MW never raises the price (critique #4 measured the legacy effect: the median evening price falls from $7,796 to $792, with grades unchanged).
+
+**H-9 — The trip log reports the true MW lost** (`out × frac`, not `cap × frac`, L379).
+
+*Accept:* the logged MW equals the output removed, ±1 MW.
+
+**H-10 — No battery standing-charge trap.**
+- Under-frequency outside the normal band suspends scheduled charging.
+- A charge order on a full battery shows "CHARGE ORDER — paused (full)" and never silently re-engages.
+- Remove the heatwave advice to "bank solar into the battery" (L342).
+
+*Accept:* the nadir with a standing charge order equals the nadir with an idle battery (rules lab: 49.03 Hz with the trap, 49.66 Hz fixed).
+
+**H-13 — Retire the false CO₂ tip** (L596). From Phase 2, debrief tips come only from the day's own events (D-21, D-22).
+
+*Accept:* the string is gone; no debrief text asserts a saving that the sim did not compute.
+
+**H-15 — Fictional names.** Rename:
+- MERIDIAN ISO and MERIDIAN CITY (X-29) → the region is "REGION S1".
+- SNOWY GORGE HYDRO → a fictional gorge name.
+- ALCOA → "the smelter".
+- BOM → "the weather bureau".
+
+Plant and suburb names must not collide with each other either (the CCGT keeps "Riverton", so the suburb becomes "Redgum Flats").
+
+*Accept:* `grep -i` over served files finds none of MERIDIAN, ALCOA, SNOWY, BOM; each new name has been checked against ABN Lookup and a place-name gazetteer (manual check, logged in the PR).
+
+**H-16 — Say what the legacy build does.**
+- The manual states the hidden restore rule (≥49.95 Hz and >400 MW spare for 15 sim-min, L505–508).
+- Each annunciator tile beeps at most once per 30 s.
+
+*Accept:* the manual contains the rule; the desk-lab bot acting every 5 s triggers ≤20 audible alarms per 12-minute shift (today 60; desk E8).
+
+**S-10 — Heatwaves on 15% of days** (today `w<.5`, L338). Severity stays at +6.5% demand and −7% thermal capacity. Critique #8: halving the severity would teach that heatwaves are mild.
+
+*Accept:* over seeds 1–2,000, the heat share is 15 ± 2%.
+
+#### 0.2 — The v4 core (headless `sim/`, bench page `next.html`)
+
+`next.html` is a bench, not the game: a strip chart plus one plain slider per unit. It lets the owner feel the new physics.
+
+**F-2 — Pure, deterministic sim.**
+- `createState(seed, scenario)` returns a plain, JSON-serialisable object. It already holds the pre-rolled external timeline.
+- `step(state, inputs)` advances one physics tick (20 ms of grid time). Every 50th tick it also runs the 1 s grid update: AGC, ramps, starts, water, prices, city flexibility and scorecard.
+- `step` returns event records (log lines, sounds, "contingency started"). The sim never calls render or audio.
+- `observe(state)` is the player's view. Render, desk and autopilot read only this.
+- `hashState(state)` returns a 32-bit fingerprint.
+
+*Accept:* a lint test finds none of `document`, `window`, `Math.random`, `Date`, `performance`, `localStorage` or `setTimeout` under `sim/`; `node --test` imports `sim/step.js` without a DOM shim; the same seed and input log give an identical `hashState` every sim-hour, on 100 seeds.
+
+**F-4 — One clock, two integrators.** Physics integrates every 20 ms of grid time; the grid update runs every 1 s of grid time.
+- There is no quasi-steady shortcut. At the measured 156 ns per tick, even 2,100× costs about 0.3 ms per frame.
+- CRUISE hides the seconds-scale wobble on screen (the needle shows a 1-s average above 10×), but the sim still computes it.
+
+*Accept:* **Rate invariance:** one input log played at 0.25×, 1×, 60× and 240× gives an identical `hashState`; after a trip, no unit's output rises faster than its ramp rate per grid second (today: 120 MW in the first 5 real s); halving inertia doubles the initial RoCoF within 1%.
+
+**F-6 — Input log and headless replay.**
+- Every action is recorded as `{tick, type, args}`.
+- Seed + `SIM_VERSION` + input log reproduce a session exactly.
+- This one mechanism powers resume (F-7), counterfactuals (D-22) and bug reports.
+
+*Accept:* a browser session's log replayed headless in Node reproduces its scorecard exactly.
+
+**F-13 — Fleet and scenario as data.**
+- `sim/params.js` and `content/scenarios.js` hold every constant. Each carries a source (§8) or the label "simplified".
+- Machines are committed individually.
+- These are starting values, tuned against par (S-12):
+
+| Plant (fictional) | Machines × MW | Min stable per machine | Ramp | Hot start | Offer $/MWh | No-load $/h | Min up / down | CO₂ t/MWh | Inertia H (s) |
+|---|---|---|---|---|---|---|---|---|---|
+| Mt Hazel coal | 4 × 650 | 240 (37%) | 3 MW/min per machine (12 per station, today's) | 120 min | 26 | 3,000 per machine | 8 h / 8 h | 0.95 | 5 |
+| Riverton CCGT (combined-cycle gas) | 2 × 650 | 175 | 17.5 MW/min per unit | 45 min | 74 | 3,000 per unit | 4 h / 3 h | 0.42 | 4.5 |
+| GT·A (open-cycle gas) | 1 × 500 | 250 (50%) | 160 MW/min | 8 min | 148 | 4,000 | 1 h / 30 min | 0.63 | 3.5 |
+| GT·B | 1 × 800 | 400 | 160 MW/min | 8 min | 152 | 4,000 | 1 h / 30 min | 0.63 | 3.5 |
+| GT·C (new) | 1 × 300 | 150 | 160 MW/min | 5 min | 156 | 2,400 | 1 h / 30 min | 0.63 | 3.5 |
+| Gorge hydro | 3 × 317 | 0 | 130 MW/min station | 3 min | water value, 130 | — | — | 0 | 3.5 |
+| Battery (grid-following) | 500 MW / 1,000 MWh | — | full swing in <1 s | — | arbitrage | wear | — | 0 | 0 |
+| DC tie | import ≤800; export ≤800 (≤300 during 09:00–16:00, when the neighbour has the same sun) | — | 100 MW/min | — | neighbour price shape (P-6) | — | — | — | 0 |
+| Wind / utility solar | 1,200 / 1,400 | — | weather | — | −20 | — | — | 0 | 0 |
+| Rooftop PV (Phase 3) | 5,000 behind the meter (P-2) | — | sun, cloud | — | not in market | — | — | 0 | 0 |
+| Reserve diesel (RERT) | 300 | — | — | 20 min lead | out of market; cost per §9 Q-2 | — | — | 0.8 | 0 |
+| Industrial DR | 350 MW, 3 calls | — | — | — | 1,400 | — | — | — | — |
+| Smelter (load) | 256 MW potline (trip risk) | — | — | — | — | — | — | — | — |
+
+The heatwave derate stays at −7% of thermal capacity.
+
+*Accept:* `tests/params.test.js` finds no numeric literal in `sim/` outside `params.js` or `scenarios.js` (allow-list for 0, 1, 2, 50, 60); every param has a `src` or `simplified` field; the largest credible contingency is ≤800 MW on every seed.
+
+**H-4 — One reserve definition, including N-1.**
+- **R5** is headroom deliverable within 5 minutes: Σ over online units of min(capacity − output, ramp × 5); plus the battery's min(p − output, SoC × 2), i.e. what it can sustain for 30 minutes; plus the tie's min(limit − flow, ramp × 5).
+- **L** is the largest credible contingency: one coal machine's output, one CCGT unit's output, a GT's output, a hydro machine's output, or the tie import.
+- Security states follow AEMO's lack-of-reserve (LOR) levels, simplified (§8):
+
+| State | Condition |
+|---|---|
+| SECURE | R5 ≥ 1.25 L |
+| LOR1-like | L ≤ R5 < 1.25 L |
+| LOR2-like | R5 < L |
+| LOR3 | load being shed |
+
+*Accept:* one function feeds the gauge, the alarm, the price (P-7), the restore permissive (K-13), par and the debrief; gauge and alarm disagree on 0% of ticks (today 29.6%).
+
+**H-6 — UFLS starts at 49.0 Hz, in stages.** UFLS is under-frequency load shedding: automatic relays that disconnect blocks of customers when frequency falls.
+- Eight stages at 49.000, 48.875, 48.750 … 48.125 Hz, each shedding about 6% of load. Each block is two city districts (U-1, K-13), and blocks carry net load in Phase 3 (P-12).
+- About 0.3 s from crossing to load off: the relay measures for ~0.1 s, waits ~0.1 s, then the breaker opens.
+- Relays are never player-operated.
+- Restoring load becomes the K-13 procedure, with a visible rule that replaces the hidden one (X-19).
+- Fix the text at L255, L1383 and L1466.
+
+*Accept:* no shedding above 49.0 Hz; in a trace, the crossing-to-shed delay is 0.30 ± 0.02 s; there is no automatic restore.
+
+**H-7 — Graded collapse, both directions.**
+
+| Condition | Result |
+|---|---|
+| ≤47.0 Hz or ≥52.0 Hz | Black immediately (the standard's extreme limits) |
+| 47.0–47.5 Hz for 2 s | Black |
+| 47.5–48.0 Hz for 20 s | Black. The 20-s window is compressed and labelled. |
+
+- Over-frequency: governors respond symmetrically (down to minimum), and an over-frequency generation shedding scheme (OFGS) trips wind in stages between 51.0 and 52.0 Hz.
+- The frequency clamp extends to 46.5 Hz.
+
+*Accept:* nothing goes black above 47.5 Hz within 20 s; the desk-lab midday case (6.6 GW·s, no battery, which today over-sheds past 52 Hz) is re-run and its outcome recorded in §8; no single credible contingency from a SECURE state blacks out the grid (see H-8).
+
+**H-8 — Honest contingency physics: one engine, in physical seconds.** `sim/physics.js` is used by live play, TRIP PREVIEW (K-10), the watch (K-15), restore previews (K-13), par and tests. It merges the desk draft's K-14.
+- **Swing equation:** df/dt = f₀ · ΔP / (2 · Ek). Ek is Σ H·S (inertia constant × machine rating) over online synchronous machines, shown in GW·s. It replaces `syncM/6+250` (X-12).
+- **Load relief:** 1.1% of load per 1% change in frequency.
+- **Governors:** droop 5% and deadband ±0.015 Hz (the NEM's mandatory primary frequency response); limited by headroom up (rating − output) and down (output − minimum); capped at ±12% of rating; dead time + first-order lag: coal 0.5 s + 5 s; CCGT 0.3 s + 3 s; OCGT 0.2 s + 1.5 s; hydro 0.5 s + 4 s.
+- **Battery fast frequency response (FFR):** deadband ±0.015 Hz; 0.1 s dead time + 0.1 s lag; full swing from charging to discharging; response curve per §9 Q-1.
+- **UFLS and collapse** per H-6 and H-7.
+
+*Accept:* initial RoCoF is within 5% of ΔP · f₀ / (2 · Ek); for a −650 MW trip, raising Ek from 8 to 25 GW·s raises the nadir by ≥0.2 Hz (desk lab: 49.33 → 49.58 Hz); **containment** (the frequency operating standard, FOS, for a credible trip): from any state the gauge calls SECURE, losing the largest credible contingency keeps the nadir ≥49.5 Hz in 1,000 of 1,000 sampled states, with every parameter inside its §8 range; a 10-s engine run costs ≤5 ms (desk E9: 1.4 ms).
+
+**H-11 — The frequency operating standard is a visible rule.**
+- Normal band 49.85–50.15 Hz.
+- After a credible contingency, frequency must stay within 49.5–50.5 Hz and return to the normal band within 5 minutes.
+- The desk shows a 5-minute countdown whenever frequency is outside the normal band.
+- **Directed shedding** begins if either timer runs out: frequency still below 49.85 Hz when the 5-minute countdown ends, or frequency below 49.5 Hz for more than 1 grid-minute.
+- Directed shedding takes one district at a time, in the rotation order on the city panel, each grid-minute until frequency recovers. It counts on LIGHTS ON.
+- Time outside the band is no longer penalised tick by tick (X-20).
+
+*Accept:* grid-minutes below 49.5 Hz beyond 1 minute per excursion without shedding = 0 (today: 7.0 per shift); the countdown is visible; the debrief prints "containment met" and the time to restore.
+
+**H-12 — Separate the price cap from the cost of unserved energy.**
+- Market price cap $23,200/MWh (FY2026-27) and floor −$1,000/MWh, both in `params.js` with sources.
+- Unserved energy is scored in MWh (S-1).
+- The debrief may show a "community cost" at the AER Value of Customer Reliability (VCR), $30,000/MWh NEM-wide. It never enters CUSTOMER COST.
+
+*Accept:* no code path multiplies unserved MWh by a price in the scorecard.
+
+**H-14 — Honest-abstractions panel.**
+- `content/text.js` holds one entry per §8 abstraction row: the real value, our value, and why.
+- The desk shows it behind "?" next to the element concerned (speed badge, synchroscope, AGC band, tie, collapse timer…).
+- The same text is in the manual drawer.
+
+*Accept:* a test checks that every §8 abstraction has a text entry and a UI anchor ID.
+
+**P-5 — Merit-order price.** Merit order is the order in which plant is used, cheapest first.
+- Market demand = operational demand − scheduled tie flow − battery output.
+- The price is the offer of the block where the running total of the stack first covers market demand.
+- The stack holds committed units, offline units able to start within 10 min, available wind and solar, and in-market industrial DR.
+
+*Accept:* the Live Stack and the price use the same function.
+
+**P-6 — Offers are cost-based, and labelled so.**
+
+| Offer | Value |
+|---|---|
+| Thermal minimum-load blocks | −$1,000 (would rather pay than shut down) |
+| Coal above minimum | $26 |
+| CCGT above minimum | $74 |
+| GTs above minimum | $148–156 |
+| Hydro | water value, $130, rising as storage falls |
+| Utility wind and solar | −$20. Real Q4 2025: average negative price −$19.4, 86% of negative prices between −$30 and $0. |
+| Industrial DR | $1,400 |
+| Tie | Price-taking at the neighbour's price. The neighbour follows a daily shape: cheap at midday (same sun), dear in the evening. Stored in `content/scenarios.js`. |
+
+*Accept:* par's tie flow is not pinned at one limit all day on ≥50% of seeds, so importing is a decision.
+
+**P-7 — Scarcity adder.** Let x = R5 / L.
+
+| x | Adder |
+|---|---|
+| ≥ 1.25 | $0 |
+| 1 to 1.25 | Rises linearly to $300 |
+| < 1 | $300 + $4,700 · (1 − x)² |
+
+It is labelled "generators re-bidding when supply is tight (abstraction)".
+
+*Accept:* the adder is a pure function of R5/L (unit test at x = 0.5, 1, 1.1, 1.25, 2).
+
+**P-8 — Limits and intervention pricing.**
+- The price is clamped to −$1,000…$23,200.
+- It equals the cap when the stack is exhausted or load is being shed. When AEMO orders load shedding, the spot price is set to the cap.
+- Reserve diesel (RERT) sits outside the market: the price is computed as if RERT were absent (to verify, §8).
+
+*Accept:* unit tests cover each limit.
+
+**P-11 — Price colours follow security state, not dollars.** Green = SECURE, amber = LOR1, red = LOR2, flashing at the cap. This replaces "red above $1,000" (L1310).
+
+*Accept:* the colour is a function of the H-4 state only.
+
+**S-1 — LIGHTS ON (the primary axis).** Unserved MWh from UFLS plus directed shedding. Paid DR and city flexibility are not unserved.
+
+*Accept:* `observe().score.unservedMWh` equals the integral of shed MW.
+
+**S-2 — CUSTOMER COST (the cost to serve).**
+- Included: fuel, no-load, starts, imports minus exports, battery wear, DR and city-flexibility payments (U-6), and RERT.
+- Excluded: any value placed on unserved energy, and scarcity rents.
+- Shown in ¢/kWh served.
+- The market bill (price × energy) is shown as information only. It moves with shedding, and would reward over-commitment by −12 to −20% against par (rules lab).
+
+*Accept:* corr(Δunserved, Δcost) against par is within ±0.15 across the S-4 player proxies (rules lab: −0.03), so the axes are independent.
+
+**S-3 — CARBON.** Graded as intensity (t/MWh served), with the total shown. Total emissions fall when load is shed (r = −0.40); intensity does not (r = −0.06).
+
+*Accept:* shedding 100 MWh with no other change moves intensity by <0.5%.
+
+**S-4 — PAR: one fixed reference dispatcher.**
+- `sim/autopilot.js` is run headless on the same seed and build.
+- **Information:** it reads only `observe()`. That means the forecast (including announced heat), the wind and solar forecast drifting from current values toward the announced regime, unit states, water, battery state of charge, R5 and L. It never reads the event list.
+- **Pace:** AGC on, plus at most one discrete action per 3 real seconds of the reference playback schedule (the D-2 profile plus the watch/respond timings). It never acts during WATCH.
+- **Rules, in order:**
+  1. After any trip: start the next peaker and set the tie to maximum import.
+  2. If R5 < 1.05 L: move the tie toward import and start the next peaker.
+  3. Commit a unit when forecast net demand over (its start time + 20 min), plus 700 MW, exceeds committed capacity plus half the battery.
+  4. Decommit only after 90 min on, when the unit isn't needed for 150 min and N-1 still holds.
+  5. Hold water until 15:30, then release it linearly to 21:00.
+  6. Charge the battery to 97% during 09:30–15:30; discharge by merit order during 16:30–22:00.
+  7. Keep units at or below 95.5% loading unless that would shed load.
+  8. Pre-arm diesel when the projected 25-min shortfall is within 100 MW of firm capacity. Call DR on a present shortfall.
+- Phase 3 adds the belly rules (S-14).
+- The same code runs in Node (par, tests, calendar) and in the browser (the debrief ghost).
+
+*Accept:* **Information barrier:** scrambling hidden state (future events, the weather regime) leaves par's input log unchanged; par never makes more than one discrete action per 3 real seconds; par is deterministic per seed.
+
+**S-11 — Commitment costs.** No-load costs and minimum up/down times as in the F-13 table.
+
+*Accept:* "commit everything at 04:00" costs more than par on ≥70% of seeds.
+
+**S-12 — Capacity sized so a good plan holds the day.**
+- +600 MW of peak capacity: GT·B 500 → 800 MW, plus the new 300 MW GT·C.
+- Re-measured at the end of Phase 0.2, Phase 1 (governor lag) and Phase 3 (rooftop PV; see §9 Q-3).
+- Rules lab result: par with zero unserved on 182/200 seeds (91%), 83/100 forced-heat and 92/100 calm.
+
+*Accept:* par sheds zero on ≥85% of 200 raw seeds and ≥75% of 100 forced-heatwave seeds.
+
+**Exit Phase 0:**
+- `tools/par.js` prints par for any seed.
+- `tools/baseline.js --v4` prints the §6 rows for the v4 core.
+- `next.html` plays a whole day through the bench.
 
 ---
 
-## 6. Open decisions for the owner
+### Phase 1 — The desk
 
-1. **AGC (T-3) — does automating regulation remove the fun?**
-   *Recommendation: implement it, gated by difficulty.* The interesting decisions in
-   GRIDWATCH are commitment, reserve margin, water budgeting and the evening ramp —
-   not hand-trimming a setpoint against noise. AGC is also what real control rooms do,
-   so it strengthens the authenticity claim rather than weakening it. Control Engineer
-   difficulty keeps hand-flying available for players who want it.
+**Ships:** `next.html` plays a full day at a flat 120× with the desk, the Live Stack, the watch and the map. `index.html` stays on the legacy build.
 
-2. **Is mobile in scope at all?**
-   If the game is mostly shared as a link, R-1 is the largest single reach lever in
-   this document. It is also the most work. *Recommendation: keep it in Phase 4,
-   after the desktop game is right.*
+#### Controls
 
-3. **Should 1× stay at 120× real time?**
-   T-1 makes this less pressing. *Recommendation: keep 120× as 1× so the flagship
-   shift stays 12 minutes, and default Trainee to 0.5×.*
+**K-1 — Motorised unit levers.** One lever per station: COAL, CCGT, GT·A, GT·B and GT·C. Hydro, battery and tie are rotary controls, for 8 slots in all (9 fit at 1280 px).
+- The handle is the *base point*: the MW scheduled for that unit.
+- Behind the handle: the actual-output needle, the AGC band bracket, and a ramp cone showing how far output can move in 10 grid-minutes.
+- Detents at MIN (minimum stable generation), 25%, 50% and 75%.
+- A spring-loaded overload gate at 96%. Past it the slot turns red and shows *that unit's* trip risk (H-2).
+- Multi-machine stations show one lamp per machine. Each lamp has its own START/STOP guard.
 
-4. **How far to push the art?**
-   Phase 2 as written is a polish pass on the existing style. A larger offscreen
-   buffer with more detail per asset is affordable given the measured headroom.
-   *Recommendation: decide after F-5, when the scale question is settled.*
+*Accept:* the output needle never moves faster than the unit's ramp (±2%); crossing the gate needs an extra 12 px of drag or Shift+↑; an overheat trip hits only the unit in the red zone.
+
+**K-2 — AGC and hand-flying.** AGC is on by default. AGC (automatic generation control) is software that nudges each unit every few seconds to hold 50 Hz.
+- Output = base point + AGC trim, within a band: coal ±5% of capacity, CCGT ±10%, GT ±20%, hydro ±25%, battery its full range minus its FFR reserve.
+- If the trim needed exceeds all bands for >5 real s, the AGC LIMIT tile lights and the imbalance bar shows the unmet MW.
+- AGC never starts or stops units.
+- Levers follow the Live Stack plan. Grabbing a lever puts that unit in MAN (amber lamp). P, or a double-click on the lamp, rejoins the plan.
+- The AGC/HAND key reflects the mode chosen at the briefing (D-7) and is locked for the day. In HAND, levers set output directly, and ghost pointers show where the plan wants them.
+
+*Accept:* with AGC on, adequate bands and no inputs, a bot holds 49.85–50.15 Hz on ≥97% of ticks on event-free days; "HAND" is shown on the dial face when active.
+
+**K-3 — Guarded start and stop.**
+- START: lift the guard and press. That is two clicks, or S then S within 2 s.
+- STOP: the same guard, with H-1 behaviour. The breaker opens only at MIN + 5 MW or below, and the stop can be aborted while unloading.
+
+*Accept:* no start or stop commits on a single click; the seed-3 test of H-1 passes through the desk.
+
+**K-4 — Hydro gate wheel.**
+- Adjust it by dragging in a circle, with the scroll wheel, or with ←/→ (1% steps; Shift for 10%).
+- The rim shows the reservoir level and "at this gate, water lasts until HH:MM".
+- A red arc marks gate settings that would empty the dam before the forecast peak ends.
+
+*Accept:* the "lasts until" time is within ±1 grid-minute of a harness run at constant gate.
+
+**K-5 — Battery dial.**
+- A CHARGE / IDLE / DISCHARGE dial plus a 0–500 MW magnitude lever.
+- An FFR ARMED lamp shows the fast-response MW held back. FFR always overrides the charge/discharge order.
+- A full battery shows FULL–HOLD (H-10).
+
+*Accept:* in a −650 MW trip, a full battery set to CHARGE responds within ±5% of an idle battery.
+
+**K-6 — Interconnector knob.**
+- Flow from −800 to +800 MW, with detents at 0, ±250, ±500 and ±800, and a link breaker lamp.
+- The midday export cap (F-13) shows as a red arc.
+- A link trip is a contingency the size of the import.
+
+*Accept:* L (H-4) is the largest of the biggest unit's output and the import.
+
+**K-7 — Emergency controls.**
+- **Reserve diesel** (RERT, AEMO's Reliability and Emergency Reserve Trader): a key switch. Turn and hold for 0.6 s, or hold E.
+- **Industrial DR:** a big button with lamps for the calls remaining. Hold D for 0.6 s.
+- **DIRECT SHED:** a guarded key that sheds one district in rotation order. It appears only when LOR2 is forecast. Operators shed ahead of a forecast shortfall; relays handle the seconds (critique #1).
+- Each control shows its cost and lead time before it commits.
+
+*Accept:* no emergency action commits on a single tap; DIRECT SHED sheds exactly one district.
+
+**K-8 — Annunciator with ACK and SILENCE.** Tiles follow the ISA-18.1 annunciator sequence:
+- A new alarm flashes fast and sounds according to its priority.
+- SILENCE stops the sound only.
+- ACK (acknowledge) turns the flash steady.
+- A cleared alarm goes dark, or flashes slowly if it cleared before being acknowledged.
+
+Details:
+- Analogue alarms have separate set and clear thresholds. For example, UNDER FREQ sets below 49.85 Hz and clears above 49.90 Hz.
+- No tile sounds again within 30 s.
+- Tiles: UNDER/OVER FREQ, N-1 INSECURE, HIGH RoCoF, UNIT TRIP, LINK TRIP, UFLS OPERATED, AGC LIMIT, STORAGE LOW, MIN GEN, MSL (Phase 3), WEATHER, PEAK.
+- Clicking a tile, or pressing Enter on it, focuses the relevant control.
+
+*Accept:* the competent proxy triggers ≤8 audible alarms per daily, and no tile sounds twice within 30 s.
+
+**K-9 — Message tray.** It replaces the scrolling log as the main channel.
+- Each card has a sender (weather bureau, market notice, station, city desk), a time, ≤25 words and one action button.
+- At most 3 cards are visible; the rest go to a LOG drawer.
+- Decision cards ring twice and never repeat.
+- Cards never pause play (§7).
+
+*Accept:* every warning card offers a one-click jump to the relevant control.
+
+**K-10 — N-1 gauge and trip preview.**
+- Two bars: **R5** (5-minute reserve) against **L** (largest risk, with the unit named), with the H-4 state.
+- **TRIP PREVIEW** (T, or hover) runs the H-8 engine for the largest contingency and shows a ghost needle at the predicted nadir, with the MW each source would catch.
+- Colours: green ≥49.5 Hz; amber 49.0–49.5 Hz; red <49.0 Hz (UFLS would operate).
+- Changed from the draft: there is no separate "can catch" number. Seconds-scale adequacy is the preview, and minutes-scale adequacy is R5 (§9 J-8).
+
+*Accept:* the preview matches the actual nadir within ±0.02 Hz when a trip occurs in the same state; the preview runs in ≤5 ms.
+
+**K-11 — Frequency dial and imbalance bar.**
+- **Dial:** 49–51 Hz, with the normal band green, the band out to 49.5 and 50.5 Hz amber, and UFLS marked at 49.0 Hz. A 3-decimal readout, RoCoF in Hz/s and inertia in GW·s. It replaces the clipped gauge (X-35) and the "MW·s/Hz" chip.
+- **Imbalance bar:** scheduled supply minus demand, with a hatched BORROWED stack showing what automatic response is covering (inertia, battery FFR, governors, load relief) and a red SHED segment.
+
+*Accept:* each step, the bar's segments sum to the swing-equation imbalance within 1 MW.
+
+#### Procedures
+
+**K-12 — Synchronise (SYNC).** When a starting unit reaches full speed, its synchroscope lamp lights in the procedure bay.
+- **Opening the scope** switches to FOCUS (1×). Only one unit is on the scope at a time.
+- **Needle speed** is the *slip*: the speed difference between the machine and the grid. It is seeded at 0.15–0.40 Hz in either direction, so one turn takes 2.5–6.7 s.
+- **Speed trim:** `[` and `]` change machine speed by 0.05 Hz per press, with a 0.5 s response.
+- **Close:** press C or pull the breaker handle. The breaker takes 80 ms to close, so, as in real practice, you close just before 12.
+
+Outcomes are deterministic:
+
+| Closing condition | Result |
+|---|---|
+| Within ±10°, needle clockwise | **Clean.** The unit picks up minimum load; chime. |
+| 10–20° | **Rough.** The lever shakes, a MW spike, a growl; shaft stress is logged. No trip. |
+| Needle anticlockwise (machine slow) | **Reverse-power trip** after 2 s. The unit returns to the queue with no lockout. |
+| Beyond 20°, or slip >0.5 Hz | **Blocked** by the sync-check relay ("device 25"): buzz. In HAND mode, a bypass key allows the close, but the unit then trips and is locked out for 20 grid-minutes. |
+| AUTO (U), or no close within 8 real s | Trims slip to +0.10 Hz and closes cleanly on the next pass. |
+
+Session budget (§9 J-5): unless the player opens the scope, an auto-synchroniser closes the unit in the background after 1 grid-minute at CRUISE. Only the first shift's first start asks for a manual SYNC (O-2).
+
+On-screen label: "Real operators aim for 15–30 s per turn and close within ±10°. Ours turns faster. Most plants synchronise automatically, at the station, not in the control room."
+
+*Accept:* the outcome depends only on angle, direction and slip; AUTO is always clean; in playtests, ≥70% of manual closes are clean once slip is ≤0.15 Hz.
+
+**K-13 — Restore district by district.** UFLS stays automatic; restoring customers becomes a player action. This replaces the hidden rule (X-19).
+- Each shed district appears as a feeder breaker in the procedure bay and as a dark area on the map.
+- **Cold-load pickup.** The MW shown includes the surge when a district comes back: 1.5× for districts dark more than 10 grid-minutes, decaying over 10 grid-minutes.
+- **RESTORE PERMISSIVE lamp.** It lights when frequency ≥49.9 Hz **and** R5 ≥ 1.2 × the district's cold-load MW, with at least 5 grid-minutes since the last restore. This mirrors AEMO's permission and the networks restoring small groups every few minutes.
+- **Preview.** Selecting a district shows its predicted nadir (K-10 colours).
+- **Closing.** Closing is in FOCUS 1×, and the load returns through real-time physics. If frequency then sits below 49.0 Hz for 0.3 s, UFLS trips again.
+- **Size.** A district is ~3% of demand (150–250 MW), so one UFLS stage is two districts. Phase 3 adds the rooftop reconnect delay (P-12).
+
+*Accept:* there is no automatic restore; in lab trials, a green prediction gives an actual nadir ≥49.5 Hz 100% of the time; a 250 MW district at 19 GW·s with ≥200 MW of FFR shows green (desk E7: measured 49.73 Hz).
+
+#### The trip moment
+
+**K-14 — (merged into H-8).** The one physics engine is specified as H-8, because Phase 0 needs it.
+
+**K-15 — The watch.** On any contingency, the watch plays. A contingency is a unit, link or load trip >50 MW, which is the FOS event threshold.
+- The desk locks. Only ACK, SILENCE, volume, pause and skip work.
+- A vignette appears, and a stopwatch reading "T+0.00 s ×0.15" replaces the clock.
+- The first 30 physical seconds replay at variable speed:
+
+| Version | Schedule | Real time |
+|---|---|---|
+| Full | 0–3 s at 0.15× (20 real s); 3–10 s at 1× (7 real s); 10–30 s at 10× (2 real s) | ~29 s |
+| Compact | 0.5× / 2× / 20× | ~11 s |
+
+- The grid clock advances exactly the true 30 seconds, e.g. 18:40:00 → 18:40:30.
+
+Five beats, with captions of ≤15 words in the full version:
+1. **Inertia** (0–0.3 s). Orange "INERTIA" fills the hole. Rotor icons slow; the hum sags.
+2. **Battery** (0.3–1.5 s). The dial swings to DISCHARGE; a violet segment grows.
+3. **Governors** (1–10 s). Needles creep up; a green segment grows. The nadir pin shows its margin above UFLS.
+4. **UFLS** (only below 49.0 Hz). Districts go dark one by one, each with a clack panned to its map position. In Phase 3, rooftop panels in those suburbs switch off too.
+5. **Settle** (10–30 s). Frequency parks below 50 Hz because governor droop holds it there.
+
+When each version plays:
+- The full version plays the first time ever, and on anything new (first UFLS, first HIGH RoCoF).
+- Otherwise the compact version plays.
+- Esc skips once the full version has been seen.
+- Viewing or skipping never changes the outcome (C-7).
+
+*Accept:* the same seed and state give an identical trace; no input changes physics during the watch; the watch can be re-watched from the debrief; in playtests, ≥3/5 players recall the order of the beats.
+
+**K-16 — Respond.** An end card of ≤4 lines shows:
+- the nadir against the standard (contained within 49.5–50.5 Hz; back to 49.85–50.15 Hz within 5 minutes);
+- the MW each source caught;
+- the N-1 state;
+- 1–3 suggested actions as buttons (e.g. start GT·A, re-arm the battery, open the restore bay).
+
+The card **holds the clock** until the player presses an action or Enter. There is no timer on reading it. The desk then unlocks with a chime, and RESPOND runs per D-5.
+
+*Accept:* every number on the card equals the corresponding trace value; the clock does not advance while the card is open.
+
+#### Layout
+
+**K-17 — Half and half.** The budget for 1280×720 is in §4.2:
+- The desk is fixed at 360 px and the header at 32 px.
+- The map absorbs any height lost to browser chrome, down to 260 px.
+- Breakpoints: compact below 1600 px, wide at 1600 px and above.
+- The header always shows the clock, the speed badge (F-5), the three live scorecard chips and pause.
+
+*Accept:* no horizontal scroll at 1280 px; every control is at least 24×24 px (WCAG 2.5.8); the desk is fully visible at 1280×640.
+
+**K-18 — Removed or moved.**
+
+| Today | Becomes |
+|---|---|
+| One-asset dock `#selP`, fleet strip `#strip` | Lever bank |
+| 10 permanent map labels | Hover, focus or alarm only (G-2) |
+| P&L and spot-price chips | Scorecard chips; price moves to the Live Stack |
+| RESERVE chip | N-1 gauge |
+| INERTIA chip | Frequency dial |
+| Demand chart | Live Stack |
+| Market panel | Live Stack tooltip |
+| Event log | Tray + LOG drawer |
+| Square-wave `beep()` | K-21 alarm hierarchy |
+| CRT scanline overlay | Optional (K-22) |
+
+*Accept:* none of the removed elements' IDs remain in `next.html`.
+
+#### Sound
+
+All sound is synthesised with WebAudio; there are no samples.
+
+**K-19 — Mains hum.**
+- Transformers hum at twice grid frequency, so the hum has partials at k × 2f, for k = 1…4.
+- A quiet reference tone sits at k × 100 Hz. Each partial beats against it at the true rate, 2k·|Δf|. At 49.75 Hz, the 400 Hz partial wobbles twice a second.
+- Default level −30 dBFS.
+
+*Accept:* beat rates are within 2% of 2k·|Δf|.
+
+**K-20 — Foley.**
+- Levers: an 80 Hz detent thump, a drag ratchet of ≤20 ticks/s.
+- Controls: gate thunk, key turn, button.
+- Breaker close: a bandpassed noise transient plus inharmonic partials near 0.9, 1.4 and 2.2 kHz, decaying over 120 ms, plus a thud.
+- Out-of-phase growl: 60–90 Hz, lasting 1.5 s.
+- Turbine spool up/down: ≤3 s.
+- UFLS clacks, panned by district.
+
+*Accept:* ≤32 simultaneous audio nodes.
+
+**K-21 — Alarm hierarchy.**
+
+| Priority | Alarms | Sound |
+|---|---|---|
+| P1 | UFLS, unit trip, frequency outside 49.5–50.5 Hz, N-1 insecure at the peak | Two-tone horn every 4 s until SILENCE |
+| P2 | Warnings | One chime; repeated only if still unacknowledged after 60 s |
+| P3 | Information cards | A soft tick |
+
+During the watch, horns are held; any still unacknowledged sound once afterwards.
+
+*Accept:* a unit test maps every tile to one priority.
+
+**K-22 — Settings and accessibility.**
+- Volume sliders: master, hum, effects, alarms. Shift+M mutes.
+- Reduced motion (defaults from `prefers-reduced-motion`): no shake, no flashing faster than 3 Hz (WCAG 2.3.1), no camera zoom in the watch.
+- Reduced effects: no CRT overlay, no hum.
+- Status is never colour-only: every lamp and tile carries a glyph or letter.
+- Audio starts on the first gesture.
+- Settings persist under `gridwatch:v4:settings` (try/catch).
+
+*Accept:* with reduced motion on, nothing flashes faster than 3 Hz; a greyscale screenshot preserves every status distinction.
+
+**K-23 — Keyboard and mouse parity.**
+- Controls are DOM elements with ARIA roles (slider, switch, button). Canvas is used only for the dial, the synchroscope and the map.
+- Key readouts are mirrored in an aria-live region.
+- Nothing is drag-only or hover-only.
+
+| Key | Action |
+|---|---|
+| 1–8 | Focus COAL / CCGT / GT·A / GT·B / GT·C / hydro / battery / tie |
+| ↑ ↓ (Shift = fine; PgUp/PgDn = next detent) | Move the focused control |
+| S S / X X | Start / stop (guarded) |
+| P | Rejoin plan |
+| [ ] · C · U | Slip lower/raise · close breaker · auto-sync |
+| R, ←/→, Enter | Restore bay, choose district, close |
+| A · Shift+A | Acknowledge · silence |
+| D · E (hold) | Industrial DR · diesel key |
+| T · M · L · Tab | Trip preview · tray · Live Stack · map |
+| Space · Esc · F (hold) | Pause · skip the watch (after the first full one) · fast |
+
+*Accept:* a keyboard-only playtester completes a daily.
+
+#### Live Stack
+
+**L-1 — Window.**
+- Covers now −30 min to now +4 h, in 5-minute columns (48 in the future).
+- Fixed 0–9,000 MW axis.
+- Refreshes every 5 grid-minutes.
+- Four hours is the slowest lever's lead time: a coal machine's 2 h start plus its climb.
+
+*Accept:* 48 future columns; the y-scale never rescales; render ≤4 ms at 1280 px.
+
+**L-2 — Skyline and uncertainty.**
+- The P50 (median) forecast of operational demand is drawn as the skyline, with a P10–P90 band.
+- The band comes from the seeded weather "truth" plus an error that shrinks as lead time falls to 0.
+- Starting σ values: demand 0.6% at 5 min rising to 2.5% at 4 h; rooftop PV (Phase 3) 5% at 1 h rising to 15% at 4 h, ×2.5 while a front is forecast.
+- From Phase 3, a faint underlying-demand silhouette sits above the skyline, and the gap is hatched sun-yellow as "rooftop solar".
+
+*Accept:* over 100 seeds, realised demand falls inside P10–P90 in 80 ± 5% of 15-min intervals at both 1 h and 4 h leads; the band width is 0 at lead 0.
+
+**L-3 — Layers.**
+- Order comes from the P-6 cost table.
+- Hydro sits at its water value.
+- Wind and utility solar are at the bottom, with curtailment hatched.
+- Exports and battery charging are drawn *above* the skyline, as extra load.
+- Colours match the map and the levers.
+
+*Accept:* a layer moves position only when its cost rank changes; every layer's tooltip shows MW, ramp, start time and cost.
+
+**L-4 — Drag to schedule ("arrive-by" keyframes).**
+- Dragging a future edge creates a keyframe (time, MW). The ramp ends at that time and runs at the unit's maximum ramp rate. Dragging the start handle makes it gentler.
+- For an offline unit, the ghost starts at a vertical "earliest start" line (now + start time). Scheduling it books START at (sync time − start time).
+- Dragging a layer to 0 schedules a ramp down to minimum, then a stop.
+- Water and battery energy limits turn the layer striped.
+
+*Accept:* every planned segment satisfies |ΔMW|/Δt ≤ ramp; no layer begins before its earliest-start line; an infeasible drop shows an earliest-arrival ghost instead of being accepted silently; there is a keyboard route (a number selects a layer, arrows move 5 min or 10 MW).
+
+**L-5 — Gaps.**
+- Red where scheduled supply < P50.
+- Amber where scheduled supply < P90.
+- Blue where the inflexible floor exceeds P10. The floor is committed minimum generation + uncurtailed wind and solar + scheduled imports. This is the belly (Phase 3).
+- An optional dashed line shows the H-4 requirement.
+
+*Accept:* recomputed every column; after a trip, red appears in the first rendered frame; Phase 3: on the reference mild-weekend seed with no player action, blue covers 11:00–14:00.
+
+**L-6 — Levers and stack agree.**
+- A lever's position equals its layer's now-edge.
+- A scheduled move drives the lever with a servo sound.
+- Grabbing a lever suspends that unit's plan up to its next keyframe (hatched "MANUAL"). Releasing it offers RESUME PLAN or KEEP (re-anchor).
+
+*Accept:* lever and edge agree within 1 px; a manual input never silently deletes a keyframe.
+
+**L-7 — Live, never modal.**
+- Everything works at speed and while paused. There is no planning screen and no "run" button.
+- During the watch, the tripped layer tears away and the stack is read-only.
+
+*Accept:* a UI audit finds no phase switch; a trip replay shows the tear.
+
+**L-8 — AGC relation.**
+- The plan provides base points. AGC moves units only inside a halo drawn on their layers.
+- When forecast error exceeds the AGC band, frequency drifts, which the red and amber columns predicted.
+
+*Accept:* with AGC on and the plan covering P50, frequency stays within 49.85–50.15 Hz whenever |realised − P50| < total AGC band.
+
+**L-9 — Hints, never autopilot.** Hovering a red gap makes the units that could arrive in time glow and greys the rest.
+
+*Accept:* the glow set is exactly the units whose earliest arrival is at or before the gap's start; no control fills gaps automatically.
+
+#### Map
+
+These absorb the useful parts of v3's L- series.
+
+**G-1 — Map frame.**
+- The map fills the top half at an integer pixel scale.
+- Terrain reaches the frame edges, with no sky below the ground.
+- No building sits outside the terrain (X-37, X-38).
+- 60 fps with eased animation.
+- The map reads `observe()` only and uses the `fx` stream.
+
+*Accept:* the scale is an integer at 1280×720 and 1920×1080; a bounding-box test finds no building outside the terrain; a lint test finds that `render/` never imports sim internals.
+
+**G-2 — Readable silhouettes, quiet labels.**
+- Each technology is recognisable without a label.
+- There are at most 3 labels at rest; labels appear on hover, focus or alarm.
+- Hovering a plant lights its lever, and the reverse.
+
+*Accept:* count ≤3 labels at rest; in a labels-off screenshot, a first-time viewer names every asset type (playtest).
+
+**G-3 — Sun, sky and the duck.**
+- Sky brightness and rooftop glint follow the P-2 rooftop curve (the utility-solar curve before Phase 3).
+- Dusk aligns with the evening neck.
+
+*Accept:* at 18:48 the sky is in sunset and rooftop output is ≤500 MW.
+
+**G-4 — Weather that reads.**
+- Heat shows as haze and a bleached palette.
+- A storm shows as layered cloud, rain sheets and a darker ground.
+- A cloud front shows as shadows crossing suburbs at the forecast front speed.
+
+*Accept:* in a playtest, each weather state is identifiable from one frame with no text.
+
+**G-5 — Consequences on the map.**
+- Shed districts go dark block by block, with the relay clack.
+- A tripped plant shows smoke, spin-down and a red strobe until it is repaired.
+- Restored districts relight.
+- Rotors slow during the watch.
+
+*Accept:* a stage-1 shed is identifiable within 1 s; a tripped plant is identifiable for its whole lockout.
+
+**F-11 — Performance.** A `?perf` overlay reports frame costs.
+
+*Accept:* p95 frame time ≤8 ms, of which the sim is ≤1 ms at 150× and ≤3 ms at 2,100×; the first visit transfers ≤400 KB compressed and is interactive within 1.5 s; for comparison, v2 costs 1.7 ms per frame at 10 fps.
 
 ---
 
-## 7. Verification method
+### Phase 2 — The 5-minute day
 
-**Local run.** `.claude/launch.json` already defines a `gridwatch` config
-(`py -m http.server 8642`), which serves `index.html` at `http://localhost:8642/`.
-Use the preview tooling, not `file://`.
+**Ships:** `next.html` plays the 5-minute day on a fixed list of gate-passed seeds, with coaching and debrief. This is the playtest link.
 
-**Autopilot regression harness.** The measurements in §2 came from scripted dispatcher
-policies run headless by stubbing `draw()` and `ui()` and driving `tick()` in a loop.
-Once F-2 lands, formalise this as an in-page mode (`?autopilot=<policy>&seed=<n>`) that
-runs the policy set and prints the §5 metric table. Policies to keep:
+**D-1 — Four acts, no planning form.**
 
-- `doNothing` — no input at all
-- `reactiveOnly` — chase frequency with hydro/coal/CCGT/battery, never commit plant
-- `competent` — feedforward on forecast net load, commitment schedule, water budget
+| Act | Grid time |
+|---|---|
+| I, Morning ramp | 04:30–09:00 |
+| II, The belly | 09:00–14:30 |
+| III, Neck and peak | 14:30–21:00 |
+| Night roll and verdict | 21:00–04:00 |
 
-**Visual QA.** Browser-pane screenshots do not composite in this environment. Working
-method: run a local receiver, then `POST off.toDataURL()` to it from page JS and read
-the resulting PNG. The receiver script used for this review is worth keeping in
-`tools/`.
+All input happens on the desk or the map, while the clock runs or is paused.
+
+*Accept:* no screen between the briefing and the verdict accepts dispatch input except the desk and the map.
+
+**D-2 — Variable clock profile.** Speeds are in grid-minutes per real second; today's build runs at 2 (120×).
+
+| Segment | Grid time | Speed (×) | Real s | CCGT start (45 min), real s | Coal hot start (120 min), real s |
+|---|---|---|---|---|---|
+| Pre-dawn | 04:30–06:00 | 9 (540×) | 10 | 5 | 13 |
+| Morning ramp | 06:00–09:00 | 4.5 (270×) | 40 | 10 | 27 |
+| Belly onset | 09:00–11:00 | 8 (480×) | 15 | 6 | 15 |
+| Belly | 11:00–14:30 | 5 (300×) | 42 | 9 | 24 |
+| Neck | 14:30–16:30 | 4 (240×) | 30 | 11 | 30 |
+| Peak | 16:30–20:00 | 2.5 (150×) | 84 | 18 | 48 |
+| Release | 20:00–21:00 | 5 (300×) | 12 | 9 | 24 |
+| Night roll | 21:00–04:00 | 35 (2,100×) | 12 | – | – |
+
+- The grid clock totals 245 s. Speed changes ease in over 2 s.
+- The Live Stack's 4-h window is ~96 real s of warning at the peak.
+- Estimated session (arithmetic): 245 s + 15 s of briefing + ~21 s per contingency (compact watch plus respond) + optional SYNC ≈ **5:00** for a returning player, and ≈ **6:00** on a first shift (full watch plus introductions).
+
+*Accept:* the profile integrates to 245 ± 3 s; a no-input AGC run with one trip goes from briefing to verdict in 300 ± 30 s of wall time, with returning-player settings.
+
+**D-3 — Briefing card.**
+- ≤20 s and ≤60 words.
+- A 24-h forecast skyline: operational demand, the rooftop-PV bite from Phase 3, and forecast wind.
+- One "watch for" line naming only warned hazards.
+- One supervisor line.
+- The HAND-mode option (D-7).
+- One button, TAKE THE DESK.
+
+*Accept:* exactly one required click; an unwarned contingency is never named or hinted at.
+
+**D-4 — Two time domains, one clock.** This restates C-7 for play.
+- The watch, SYNC and restores run in physical seconds while grid time advances at the same rate, so a 30-s watch is 0.5 grid-minutes.
+- Ramps and starts continue at their true rates. Nothing freezes, so nothing can be exploited.
+- Pause is free, so slowing down confers no advantage.
+
+*Accept:* a trip watch advances the grid clock by 0.50 ± 0.01 min; the outcome is identical whether the watch is viewed or skipped.
+
+**D-5 — Contingency pacing: watch, then respond.**
+1. The watch plays (K-15).
+2. The respond card holds the clock (K-16).
+3. The RESPOND window opens: 30 grid-minutes from the trip. At its start the clock runs at 30× until frequency is back in the normal band, or for at most 5 grid-minutes (≤10 real s).
+4. Play then returns to the profile speed for the rest of the window.
+
+The N-1 gauge shows two countdowns: "normal band 5:00" (FOS) and "secure 30:00" (the NEM rule to return to a secure state within 30 minutes). No other unwarned contingency may land inside the 30-minute window (D-8).
+
+*Accept:* the RESPOND window is exactly 30 grid-minutes; both countdowns are visible; no second unwarned event lands inside it on 2,000 dates.
+
+**D-6 — Speed control.**
+- Space pauses; pausing is unlimited and free.
+- Holding F runs at 3× the profile speed. It releases on any new warning or alarm, and is disabled during WATCH and RESPOND.
+
+*Accept:* one input log replayed at 1×, at 3× and with 50 random pauses gives an identical end-state hash.
+
+**D-7 — Hand-flying mode.**
+- Chosen on the briefing card and locked for the day.
+- AGC is off, and every profile speed is halved (a 490-s grid clock).
+- The share card is tagged "hand-flown". It is never the default.
+
+*Accept:* the HAND tag appears on the card and in history, and AGC never acts in HAND mode (test).
+
+**D-8 — Event director.** It merges the rules draft's S-13. Events are data (`{t, type, params}`) pre-rolled per date from the `ext` stream.
+
+(a) **Temperature class.** HEATWAVE 15%, HOT 30%, MILD 55%.
+- Weekend demand comes from the calendar (×0.92 on Sat and Sun; P-3).
+- Weather overlays: storm 25%, wind drought 20%.
+
+(b) **One designed crisis per act.**
+- Act I: a warned constraint (a tie derate, a delayed start or late fog).
+- Act II: a belly crisis (deeper-than-forecast minimum, a warned cloud front, or an unwarned smelter or unit trip).
+- Act III: the heatwave or storm if the regime has one; otherwise an unwarned trip of the largest online unit between 17:00 and 19:30.
+
+(c) **Unwarned contingencies.**
+- ≤2 per day, none before 09:00.
+- ≥90 real s and ≥60 grid-minutes apart.
+- None within 30 real s of a warned onset, and none inside a RESPOND window.
+
+(d) **Warning leads.** The lead is at least 25 real s at profile speed, **and** at least the start time of the resource that answers it + 2 grid-minutes:
+- cloud 30 grid-minutes;
+- storm 60;
+- drought 60.
+
+Heatwaves and tie derates are announced at the briefing.
+
+(e) **Timing varies by date.**
+- Heat onset 12:30–14:30.
+- Storm 15:30–19:00.
+- Cloud 10:00–14:30.
+- Drought 15:00–18:00.
+
+*Accept:* over 2,000 dates, class and overlay shares are within ±2 points, with zero violations of (c) or (d).
+
+The day lab measured, on the v4 clock, pairs <60 s apart going from 69.8% of days to 0%, and a minimum gap p10 of 92 s.
+
+**D-9 — Solvability gate.** This merges the rules draft's S-8 and replaces the day draft's in-browser gate (§9 J-12). `tools/daily-gen.js` accepts a seed only if:
+- (1) the optimistic bound (§3.2 definition, plus city flexibility at rated MW from Phase 3) covers operational demand at every minute; and
+- (2) par sheds zero.
+
+A rejected seed is replaced by the next candidate of the **same temperature class**. Heat severity is never stepped down. Seeds that par cannot solve can be published only as labelled "Hard day" specials, scored against par (S-7).
+
+*Accept:* 100% of generated dates pass; the heat share of a generated year is 15 ± 3%, or the tool reports the shortfall; 365 dates generate in ≤10 min in Node.
+
+**D-10 — Decisions per act.** Targets for decision opportunities: Act I 3–5, Act II 5–8, Act III 8–12. Today: 0.2 / 3.2 / 3.2.
+
+*Accept:* on ≥90% of dates, the par log plus director events and warnings has no gap longer than 40 real s between 05:30 and 21:00 (today's median gap on the v4 clock: 66 s).
+
+**D-11 — Night roll.**
+- 21:00–04:00 in 12 s.
+- AGC runs, units stand down automatically, and there are no director events.
+- The scorecard counts up while city windows go dark.
+
+*Accept:* the night roll never exceeds 15 real s, and no input is required.
+
+**L-10 — The plan comes together.**
+- Past columns solidify.
+- When the operational peak passes with no red column for 60 grid-minutes, a "clean ramp" chime plays.
+- The debrief and the PNG card (not the text card; §9 J-11) show an hourly result strip: green = no gap, red = short, blue = spill.
+
+*Accept:* the strip derives only from gap state.
+
+**S-5 — Letter grade.** ΔU = player unserved − par unserved.
+
+| Grade | Condition |
+|---|---|
+| A | ΔU ≤ 10 MWh and cost ≤ par +5% (otherwise B) |
+| B | ΔU ≤ 150 MWh |
+| C | ΔU ≤ 600 MWh |
+| D | ΔU > 600 MWh |
+| F | System black |
+
+*Accept:* the rules-lab proxies reproduce a spread: competent ≥70% A (measured 73/100); "lean" (ignores N-1) ≤40% A; commit-everything loses A to the cost gate on ≥30% of seeds.
+
+**S-6 — Stars and marks.**
+- Each axis gets a mark against par: **PAR** (lights within 1 MWh; cost and CO₂ within ±1%), or the signed % difference.
+- A ★ for each axis at par or better.
+- A PERFECT badge for zero unserved.
+
+*Accept:* the debrief, the history and the share card show identical marks.
+
+**S-7 — Grim days.** On a "Hard day" special where par itself sheds, the card says "PAR: X MWh — no plan kept every light on today". Matching par within 10 MWh earns an A, and beating par earns the ★.
+
+*Accept:* the text appears only when par unserved > 0.
+
+**S-8 — (merged into D-9).** Only solvable seeds become dailies.
+
+**S-9 — Carbon is a star, not part of the letter.** In the daily, CO₂ carries a star only, because the player's carbon levers move it by about 6% at 13% extra cost. It joins the letter in WEEK mode (W-4).
+
+*Accept:* changing only CO₂ never changes the letter.
+
+**S-13 — (merged into D-8).** Event spacing and warning leads.
+
+**D-20 — Scorecard against par.** Three rows:
+- LIGHTS ON (MWh dark);
+- CUSTOMER COST (¢/kWh);
+- CO₂ (t/MWh; the total in kt beside it).
+
+Each row shows the value, par and the S-6 mark. The letter heads the card. The community cost at VCR is shown as a footnote only (H-12).
+
+*Accept:* the marks are identical to the share card.
+
+**D-21 — The moment.** Chosen automatically: the first shed if there was one; otherwise the largest frequency deviation; otherwise the lowest N-1 margin. It shows:
+- the time, a map zoom and a ±3-minute trace;
+- a "what caught it" MW breakdown at the nadir;
+- the player's headroom, inertia and battery charge against par's at the same minute.
+
+*Accept:* every run yields one moment with ≥3 live numbers.
+
+**D-22 — One counterfactual.**
+- The player's own input log is re-simulated from hourly snapshots, injecting one change 20–180 grid-minutes before the moment. Possible changes: start or keep a unit, arm diesel, call DR or the VPP, pre-cool a suburb, hold the battery.
+- It reports the best single change on the axis where the player lost most to par, with its measured effect.
+- If no single change recovers ≥50% of the gap, it says so and lists up to 3 of par's decisions the player didn't make. The day lab found single fixes recover all shedding in only 50% of near-par cases.
+- It runs in a Worker during the night roll.
+
+*Accept:* ≤30 re-simulations; ready by the verdict on ≥95% of runs; every number comes from a re-simulation.
+
+**D-23 — Replay scrub.** A timeline of frequency, the stack by fuel, price and events, with par's line as a ghost. Watches replay from stored physics traces.
+
+*Accept:* scrubbing never re-simulates.
+
+**D-24 — "This really happened" card.** At most one per debrief, chosen by trigger. Each card carries its source and one line on what GRIDWATCH simplifies.
+
+| Trigger | Card | Source |
+|---|---|---|
+| Battery helps in a trip | Loy Yang A3, 14 Dec 2017: ~560 MW lost; Hornsdale responded within milliseconds with ~7 MW; most of the rescue came from coal governors | [WattClarity](https://wattclarity.com/articles/2018/03/fcas-in-action-what-happens-when-a-generator-trips/) |
+| UFLS operates | Callide C, 25 May 2021: ~2,300 MW tripped, 48.53 Hz, UFLS shed 1,308 MW | [AEMO report](https://www.aemo.com.au/-/media/files/electricity/nem/market_notices_and_events/power_system_incident_reports/2021/trip-of-multiple-generators-and-lines-in-qld-and-associated-under-frequency-load-shedding.pdf) |
+| Backstop or minimum-demand crisis | SA's first use of the rooftop-solar backstop, 14 Mar 2021 | [SAPN](https://www.sapowernetworks.com.au/your-power/quality-reliability/solar-curtailment-for-minimum-system-demand-events/) |
+| Negative prices | SA negative in 48.4% of intervals, Q4 2025 | [AEMO QED Q4 2025](https://www.aemo.com.au/-/media/files/major-publications/qed/2025/qed-q4-2025.pdf) |
+| System black (storm) | SA black system, 28 Sep 2016: RoCoF ~6 Hz/s outran UFLS | [AEMO](https://www.aemo.com.au/-/media/files/electricity/nem/market_notices_and_events/power_system_incident_reports/2017/integrated-final-report-sa-black-system-28-september-2016.pdf) |
+
+*Accept:* every card has a source URL and a "what we simplify" line, and each is fact-checked before shipping (checklist).
+
+**D-25 — Debrief pacing.** Readable in ≤45 s, in this order: verdict, marks, moment, counterfactual, card, SHARE.
+
+*Accept:* a timed read-through by the owner takes ≤45 s.
+
+**O-1 — The first shift is today's daily.**
+- A visitor with no history plays today's daily with coaching.
+- The result is official and shareable, tagged "first shift".
+- An always-visible "I've done this before" switches coaching off.
+
+*Accept:* no separate tutorial stands between a shared link and the daily.
+
+**O-2 — ≤60 s to the first real action.**
+
+| Real time | What happens |
+|---|---|
+| 0–5 s | Title over the live map; the first click starts the audio |
+| 5–20 s | Briefing |
+| 20–28 s | Marg points out the needle, the hum and the AGC lamp (paused) |
+| 28–38 s | Pre-dawn |
+| ~38 s | Manual SYNC of the second CCGT unit |
+
+*Accept:* the SYNC prompt is live within 60 s of the first click, in a scripted test and for ≥4/5 playtesters.
+
+**O-3 — One control at a time, in context.** Each control is introduced when the situation first calls for it:
+
+| Control | Introduced |
+|---|---|
+| SYNC | Morning ramp |
+| Live Stack | First forecast gap |
+| Suburb flexibility | Belly |
+| Coal to minimum | Minimum generation binds |
+| Battery charge | Belly |
+| Pre-cool | 14:30 |
+| Hydro wheel | Neck |
+| Diesel key and DR button | First projected shortfall |
+| ACK | First alarm |
+| Restore | First UFLS |
+
+- At most one introduction per 20 real s.
+- Each pauses the clock for ≤8 s, with one line of ≤20 words.
+- Marg never states the optimal plan.
+
+*Accept:* no introduction repeats, and none plays during a watch.
+
+**O-4 — Concept cards.** Each appears the first time its event happens: ≤60 words, with one number from the player's own run. It is shown at the start of RESPOND or on pause, and can be re-read in the manual drawer.
+
+| Card | Trigger |
+|---|---|
+| "What just caught the fall?" | First trip |
+| "Why the needle?" | First SYNC |
+| "Where did 2 GW of demand go?" | Belly |
+| "Why pay to generate?" | First negative price |
+| "Why can't coal just switch off?" | Coal at minimum |
+| "Who switched off the suburbs?" | First UFLS |
+| "A power station made of houses" | First VPP call |
+
+*Accept:* each card has a live-number slot filled from the run.
+
+**O-5 — "Why?" on every message.** Each tray card and alarm has a "why?" naming up to 3 contributors, with MW taken from the sim at that tick. For example: "49.91 Hz: supply 120 MW short. Demand +340 MW in 10 min (sun down, people home); CCGT still ramping (+35 MW/min); headroom 610 MW."
+
+*Accept:* 100% of message types have a template with ≥1 live number.
+
+**O-6 — Supervisor voice.** Marg, 31 years on the desk. Dry, never blames, ≤20 words per line.
+- ≤25 lines on a first shift; ≤6 on later days.
+- Sample lines: "Fifty hertz is the whole job. The rest is paperwork." "Twelve o'clock. Not eleven."
+
+*Accept:* a line-count test enforces both limits.
+
+**O-7 — (moved to Playtest gate 1).**
+
+#### PLAYTEST GATE 1 — after Phase 2
+
+**Build:** `next.html` on a gate-passed seed, first-shift coaching on.
+
+**Protocol:**
+- **Testers:** 3–5 friends or family who have never played, with at most one energy professional.
+- **Setup:** their own desktop or laptop, sound on. The owner sends only the link and says: "This is a game I'm making. Play today's day and say out loud what you're thinking."
+- **Observing:** the owner watches silently, over the shoulder or by screen share. The only prompt is "keep talking". Record with consent.
+- **Help rule:** the owner helps only after 60 s stuck, and logs it.
+- **Five-minute interview afterwards:**
+  1. What was your job?
+  2. When the power station tripped, what caught the fall?
+  3. Why did you get your grade?
+  4. Stress 1–5, and confusion 1–5.
+  5. Would you play tomorrow?
+- **Owner check:** the owner also plays and rates stress and confusion, against their own v2 rating.
+
+**Pass (all of):**
+- ≥4/5 finish to the verdict (all testers, if only 3).
+- ≥3/5 name two of inertia, battery and governors.
+- No tester is stuck for more than 30 s without knowing what to do, from the think-aloud log.
+- ≥3/5 explain their grade in their own words.
+- Median stress ≤3 and median confusion ≤2.
+- The owner's stress and confusion are lower than for v2.
+
+**Fail:** fix the top three issues, then re-run with at least two new testers.
 
 ---
 
-## 8. Release checklist
+### Phase 3 — The Australian duck
 
-- [ ] `index.html` updated and self-contained (C-1)
-- [ ] `<meta charset="utf-8">` still first (C-2)
-- [ ] Restart still an in-page state reset, no `location.reload()` (C-3)
-- [ ] Autopilot harness passes the §5 metric table
-- [ ] Manual pass: tutorial start → finish → drill → full shift
-- [ ] Manual pass at 1280×720, 1920×1080 and 390×844
-- [ ] Reduced-motion and colourblind settings verified
-- [ ] Pushed to `main`, Pages build green, live site verified (C-4):
-      `curl -sI https://databerryau.github.io/gridwatch/`
+**Ships:** `next.html` with rooftop PV, the belly and the city. Par and capacity are re-tuned (S-12, S-14).
+
+**P-1 — Operational = underlying − rooftop.**
+- op = U(h) × heat + flex(h) − R(h, cloud) + noise.
+- Every forecast, reserve calculation, price, alarm and the Live Stack uses operational demand.
+- The debrief plots both curves.
+
+*Accept:* the identity holds every tick, and the harness exposes U, R and op.
+
+**P-2 — Rooftop model.**
+- Capacity 5,000 MW, 0.65 × the 7.7 GW underlying peak. That is between Victoria (~0.55) and SA (~0.9).
+- Clear-sky output factor 0.70.
+- Shape sin^1.5 between sunrise and sunset.
+- ×0.92 in a heatwave (hot panels lose output).
+- Per-suburb cloud: rooftop factor = 1 − 0.7 · (1 − cloud).
+
+*Accept:* clear-noon output 3,500 ± 50 MW; ≤500 MW at 18:48; a front over every suburb (cloud 0.32) leaves 52% of clear-sky output.
+
+**P-3 — Day types.** Underlying demand:
+
+| Day type | Underlying demand |
+|---|---|
+| HOT | today's `DEM` curve |
+| HEATWAVE | `DEM` × heat uplift (6.5%) |
+| MILD | `DEM` − cooling, where cooling = 1,400 · clamp((T − 22)/14): about 100 MW/°C above 22 °C (unverified) |
+
+- Weekend dates multiply any type by 0.92.
+- Class shares are set in D-8.
+
+*Accept* (100 seeds, par): median minimum operational demand within ±10% of: HOT 3,400 MW; HEATWAVE 3,450 MW; MILD weekday 2,350 MW; MILD weekend 1,800 MW.
+
+**P-4 — Minimum System Load (MSL) notices.** AEMO issues these when demand is forecast too low to keep the grid secure.
+- MSL1, MSL2 and MSL3 fire when forecast operational demand falls below 1,800, 1,300 and 800 MW respectively (Victoria's published thresholds, rounded). MSL2 equals this fleet's coal + CCGT minimums.
+- Each notice fires ≥2 grid-hours ahead where the forecast allows.
+- The backstop (U-7) unlocks only at MSL3.
+
+*Accept:* on mild weekends, MSL1 fires on 30–60% of days and MSL2 on ≤10%; MSL3 fires only with a noon contingency (tie or smelter trip).
+
+**P-9 — The midday belly can go negative.**
+- When must-run minimum load exceeds market demand, the price reaches the floor.
+- When curtailed wind or solar is marginal, the price is their offer (−$20).
+- CUSTOMER COST makes curtailment an opportunity cost: free energy wasted now is fuel burned later. That makes curtail vs export vs soak vs charge vs decommit a real trade-off.
+
+*Accept:* on mild days, negative prices last 2–6 h (the livestack proxy measured curtailment of 3.1–4.3 h/day); on hot days, ≤1 h.
+
+**P-10 — Battery arbitrage is visible.** Battery market P&L = Σ price × output. It is a side statistic on the desk and in the debrief, not a score axis.
+
+*Accept:* the median P&L under par is positive (rules lab: $4.4M/day at a charge price of ~$90); the average charge price is ≤$100/MWh (today $394–519).
+
+**P-12 — UFLS and restore see net load.**
+- Each UFLS block and district carries its suburb's net load (underlying − rooftop).
+- At sunny noon, a block can shed little or even remove generation. In Victoria on 28 Nov 2021, net load available to UFLS fell to 26% of underlying.
+- During the watch, the panels in shed suburbs switch off with the relay clack.
+- A restored district's rooftop inverters reconnect only after a delay (the value is to be verified against AS/NZS 4777.2), so its full underlying load arrives first.
+
+*Accept:* at 12:30 on a clear mild day, MW shed by stage 1 = Σ net load of its two districts ±1 MW; the restore preview includes the undelayed load; a test shows stage-1 net MW at noon < at 19:00 on the same seed.
+
+**U-1 — Six suburbs.** Region totals are sized for 2026 (livestack §3).
+
+| Suburb (dry wit) | Households | Rooftop MW (backstop-capable) | Hot-water soak MW | EV delay MW | Air-con relief MW | VPP MW/MWh | Start patience |
+|---|---|---|---|---|---|---|---|
+| **Solstice Rise**: outer estate. "Checks its solar app more often than its children." | 280k | 1,250 (45%) | 60 | 35 | 25 | 35/85 | 70 |
+| **Old Hazelton**: terraces under Mt Hazel's stack. "On off-peak hot water since 1962; has never asked why." | 300k | 450 (5%) | 140 | 10 | 15 | 5/12 | 90 |
+| **Redgum Flats**: brick veneer. "Runs the air-con like it's a human right. Because it is." | 420k | 1,000 (20%) | 110 | 10 | 45 | 10/25 | 60 |
+| **Harbourside**: CBD towers. "Nobody knows where the thermostat is, including Facilities." | 250k | 250 (10%) | 20 | 25 | 40 | 5/13 | 50 |
+| **Tallowood Heights**: pools and Powerwalls. "Would like to speak to the manager of the electricity." | 290k | 1,150 (25%) | 90 | 20 | 15 | 30/75 | 40 |
+| **Saltbush Bay**: retirees by the beach. "Remembers 2009. Will ring talkback." | 360k | 900 (15%) | 60 | 0 | 10 | 5/15 | 80 |
+| **Region** | 1.9M | 5,000 (~25%) | 480 | 100 | 150 | 90/225 | |
+
+Each suburb holds districts of ~3% of demand. They are the UFLS blocks (H-6), restore feeders (K-13) and rotation order (H-11).
+
+*Accept:* columns sum to the region row; names are checked against real Australian suburbs and against plant names (H-15).
+
+**U-2 — Levers.** Clicking a suburb opens its card. Each lever shows MW, MWh left, window, a rebound preview and cost. A daily offers at most 3 lever types, chosen by day type.
+
+| Lever | Effect | Limits and rebound |
+|---|---|---|
+| HOT WATER SOAK | Adds load 10:00–15:00 | Region cap 1.9 GWh/day. That night's heating falls by the same energy. |
+| HOT WATER HOLD | Cuts evening load | 80 MW region, ≤2 h. Reheat ≈100% of the held energy over 1.5 h. |
+| EV DELAY | Cuts evening charging | ≤3.5 h. The energy returns at 100%; release is staggered by suburb. |
+| AIR-CON CYCLE (+ pre-cool) | Relieves load | ≤1.5 h. Pre-cool adds +50% of the relieved energy beforehand. Snapback returns 60% over 1.5 h. |
+| VPP | Charge (soaks rooftop at noon) or discharge | Energy-limited. Homes re-import 25% of the discharged energy over 2 h. |
+| BACKSTOP | U-7 | U-7 |
+
+*Accept:* ≤3 lever types exposed per daily.
+
+**U-3 — Flex on the Live Stack.**
+- Scheduled flex dents the skyline in the suburb's colour; pre-cool and rebounds show as ghost bumps.
+- Blocks drag in time.
+
+*Accept:* dents and bumps integrate to the U-2 energy within 1%.
+
+**U-4 — Patience (0–100).**
+
+| Action | Patience cost |
+|---|---|
+| Soak | 0 (−15 if the cap is exceeded: "lukewarm showers") |
+| EV delay | 5 per hour past 21:30 |
+| Air-con cycle | 10, plus 5 per extra 30 min |
+| VPP discharge | 5, plus 10 below 20% charge |
+| Backstop | 30 |
+
+- Recovery is +5 per idle grid-hour.
+- Below 50, response scales by (0.5 + patience/100): opt-outs.
+- Below 25, the lever locks for the day.
+- At 0, a "petition" headline.
+
+The mechanism is real (programs allow opt-outs, and fatigue grows them); the magnitudes are game tuning.
+
+*Accept:* every patience change logs a cause; each suburb has ≥3 ticker lines.
+
+**U-5 — Heat-health guard.** Cycling Saltbush Bay's air-con in a heatwave costs ×3 patience and makes a health headline. The card warns before the player confirms.
+
+*Accept:* the warning precedes confirmation (UI test).
+
+**U-6 — Customer-cost inputs** (these feed S-2).
+
+| Lever | Cost to customers |
+|---|---|
+| Soak | A credit |
+| EV delay | $30/MWh shifted |
+| Air-con | $400/MWh relieved |
+| VPP | $1,000/MWh discharged (unverified) |
+| Backstop | $300/MWh curtailed |
+| Industrial DR (for comparison) | $1,400/MWh |
+
+*Accept:* each value lives in `params.js` with a `src` or `simplified` field.
+
+**U-7 — Rooftop backstop (a real mechanism).**
+- Locked behind a key until MSL3.
+- It curtails only the suburb's backstop-capable systems to zero for ≤2 h. In SA, these are inverters installed after 28 Sep 2020.
+- Operational demand rises by the curtailed output.
+
+*Accept:* unavailable before MSL3; MW removed = capable share × current rooftop output; it makes a headline.
+
+**U-8 — Map feel.**
+- Panels glint, and cloud shadows cross suburbs.
+- Tanks vent steam during a soak; EV chargers pulse; rooftop air-con fans slow when cycled.
+- Complaint bubbles appear and a news ticker runs.
+- The backstop has a relay clack.
+
+*Accept:* every active lever is visible on its suburb.
+
+**S-14 — Par learns the belly.** Belly rules added to S-4, using only `observe()`:
+1. On an MSL1 forecast, schedule a hot-water soak on the suburb with the most soak MW.
+2. Charge the battery whenever the price is ≤$0.
+3. Curtail utility solar before exporting at a negative price.
+4. Decommit a coal machine only if MSL2 is forecast for ≥3 h **and** its restart plus climb completes before 16:30.
+5. Aim evening flex at the forecast operational peak, never at the pre-PV peak.
+
+*Accept:* par sheds zero on ≥85% of raw seeds with P-1–P-4 in place; par never triggers MSL3 except after a noon contingency; the §6 difficulty rows are re-measured.
+
+---
+
+### Phase 4 — The daily
+
+**Ships:** `index.html` switches to v4. `classic.html` keeps v2 for one release.
+
+**Y-1 — Date and seed.**
+- The daily follows the player's **local** calendar date (the Wordle convention). UTC would roll over at 10:00 AEST and split an Australian day across two puzzles.
+- Puzzle #N counts days since launch, computed with `Date.UTC(y,m,d)` differences so daylight saving can't skip or repeat a day.
+- Candidate seed = hash of `GRIDWATCH|daily|<SIM_VERSION>|YYYY-MM-DD|<attempt>`. `tools/daily-gen.js` stores the first attempt that passes D-9.
+
+*Accept:* daylight-saving transition dates each produce exactly one puzzle number.
+
+**Y-2 — One official attempt.**
+- The first run that passes 09:00 grid time is official.
+- Closing the tab resumes the run (F-7).
+- "Abandon" records a DNF (did not finish).
+- After the official run, "Replay today" is unlimited and marked PRACTICE.
+- Practice before the official run uses past dates or random seeds.
+
+*Accept:* practice never changes the share card or the streak.
+
+**Y-3 — History and streak.** `gridwatch:v4:history` holds one entry per date: {n, date, SIM_VERSION, marks, values, par, lowHz, mode, firstShift, dnf}, capped at 400 entries.
+- STREAK counts consecutive dates played.
+- BEST counts consecutive dates at par or better on LIGHTS.
+
+*Accept:* with storage blocked, the game plays normally and shows "history off".
+
+**Y-4 — Share card (text).**
+- No emoji: only Unicode block characters, ★, the middle dot · and plain ASCII.
+- ≤7 lines and ≤280 characters (the §4.7 example is about 200).
+- The sparkline has 12 two-hour blocks from 04:00. Each block is the worst deviation from 50 Hz in its window:
+
+| Worst deviation (Hz) | ≤0.05 | ≤0.10 | ≤0.15 (normal band) | ≤0.3 | ≤0.5 (containment) | ≤0.8 | ≤1.0 | >1.0 (UFLS) |
+|---|---|---|---|---|---|---|---|---|
+| Block | █ | ▇ | ▆ | ▅ | ▄ | ▃ | ▂ | ▁ |
+
+- Tags: "first shift", "hand-flown", "DNF".
+- Never included: event names or clock times.
+
+*Accept:* a lint rejects cards containing event words or `HH:MM` times.
+
+**Y-5 — Copy.** `navigator.clipboard.writeText`, with a textarea and `execCommand` fallback, and a visible "Copied".
+
+*Accept:* works in desktop Chrome, Edge and Firefox (manual check).
+
+**Y-6 — Optional PNG.** A 1200×630 canvas with the 24-h frequency trace, the L-10 hourly strip and the marks, with no event labels. Saved via `toBlob`; no server.
+
+*Accept:* the PNG contains no text matching the Y-4 lint.
+
+**Y-7 — Closing lines.** ≥40 dry lines, keyed by outcome bucket (lights vs par × cost vs par × band of lowest Hz). The pick is seeded by (date, bucket), so friends with the same result get the same line.
+
+*Accept:* each bucket has ≥2 lines, and the pick is deterministic.
+
+**F-7 — Persistence and resume.**
+- localStorage keys: `gridwatch:v4:settings`, `:history`, `:streak` and `:resume` (seed, `SIM_VERSION`, input log, one snapshot).
+- Every access is wrapped in try/catch.
+
+*Accept:* with a stub that throws on every call, a daily plays to the end; storage stays <200 KB after 400 dailies; keys carry a schema version; reopening the tab mid-day resumes at the same tick within 2 s; a `SIM_VERSION` change cancels resume with a message but keeps history and streak.
+
+**F-8 — Calendar and stored par.** `content/dailies.js` maps date → {seed, scenario, `SIM_VERSION`, par scorecard}, written by `tools/daily-gen.js`. The stored par is authoritative for grading (§9 risk 5). The browser re-runs the autopilot only to draw the debrief ghost.
+
+*Accept:* every entry reproduces its stored par with zero unserved; this is re-tested whenever `SIM_VERSION` changes; the information-barrier test (S-4) passes; at release the calendar covers ≥90 days ahead; a date with no entry shows "No daily today — practice" instead of failing.
+
+**F-9 — Version coherence.**
+- Pages caches each file for 10 minutes (`Cache-Control: max-age=600`, measured 2026-09-30), so a player can briefly load mixed module versions after a deploy.
+- Every module exports `BUILD`, and boot compares them.
+
+*Accept:* a forced mismatch shows "GRIDWATCH was updated — refresh to continue", and never crashes or auto-reloads.
+
+**F-14 — Switch-over.**
+- `index.html` points at the v4 app (a one-line change).
+- `classic.html` serves v2 with a "classic" banner for one release, then is removed.
+
+*Accept:* both pages load on the live host; `curl -sI` returns 200 for both.
+
+#### PLAYTEST GATE 2 — after Phase 4
+
+**Build:** the live URL.
+
+**Protocol:**
+- **Testers:** 3–5, at least 2 new. Returning gate-1 testers are allowed.
+- **Invitation:** each gets the link the way strangers will, as a message carrying the owner's own share card.
+- **Observing:** as in gate 1, but no prompt to share.
+- **Next day:** ask, without leading, whether they played again.
+
+**Pass (all of):**
+- ≥4/5 finish.
+- ≥3/5 press SHARE or copy the card unprompted, as observed.
+- ≥2/5 play the next day's daily unprompted, self-reported.
+- The card renders correctly in each tester's messaging app (manual check).
+- ≥3/5 can retell "the moment" of their day.
+- Zero spoiler complaints.
+
+---
+
+### Phase 5 — Week mode
+
+**W-1 — The Week.**
+- Five linked days, Monday to Friday, seeded by ISO week and the same for everyone.
+- Each day is played in its own sitting, with progress saved.
+- One official run per week, separate from the daily streak.
+
+*Accept:* the same ISO week produces the same five seeds on any machine.
+
+**W-2 — Carry-over.**
+- **Water:** a weekly hydro budget of ~33,000 MWh (88% of 5 × 7,500).
+- **Battery:** its charge at 04:00, via a night-roll toggle "recharge overnight".
+- **Wear:** hours above 96% raise the next day's forced-outage risk, and the risk is shown.
+- **Patience:** each suburb recovers 50% per day.
+- **Temperature:** units carry their warm or cold state.
+
+*Accept:* each carried quantity round-trips through a save and resume unchanged.
+
+**W-3 — Weather arc.**
+- Monday's briefing shows a 5-day outlook with confidence bands.
+- One big day, a heatwave or a storm, lands on Thursday or Friday. Its forecast firms up during the week.
+
+*Accept:* the band narrows monotonically toward the big day.
+
+**W-4 — One transition choice.**
+- Monday announces that a Mt Hazel coal machine retires on Wednesday night.
+- The player picks one replacement: a grid-forming battery, a fast peaker, or a VPP program.
+- The choice is labelled honestly: "approved years ago; you choose which lands".
+- CO₂ joins the week's letter grade (S-9).
+- The week debrief re-runs par for Thursday and Friday with each option.
+
+*Accept:* all three counterfactual pars are shown, with their inertia and CO₂.
+
+**W-5 — Guard rail.** The week result is 5 rows plus the choice. There is no money, no shop, no perks and no seasons (§7).
+
+*Accept:* a UI audit finds no currency or upgrade screen.
+
+---
+
+## 6. Target metrics
+
+"Proxy" means a scripted policy in `tools/policies.js`, or the v4 equivalents. All targets are re-measured after Phase 0.2, 1 and 3, because every today-number comes from v2 physics.
+
+| Metric | Today (measured) | Target | How measured |
+|---|---|---|---|
+| Heatwave share of days | 53/100 seeds | 15 ± 2% of 2,000 dates | `tests/director.test.js` (D-8, S-10) |
+| Published days short on the optimistic bound (1-min, all day) | 72/100 (heat 49/53) | 0 | `tools/daily-gen.js` (D-9) |
+| Par with zero unserved, raw seeds | 24% (day lab, today's rules) | ≥85% of 200; ≥75% forced heat | `tools/par.js` (S-12, S-14) |
+| Seed share of grade variance among good players | 84% | competent proxy ≥70% A on dailies; lean proxy ≤40% A | `tools/par.js` proxies (S-5) |
+| Player inputs needed in the first 30 s after a trip | ~1, within 9.5 s, or shedding follows | 0 (desk locked) | K-15 test |
+| Nadir response to inertia | 49.775–49.783 Hz over 48× inertia | halving Ek doubles RoCoF ±1%; 8→25 GW·s raises the nadir ≥0.2 Hz | `tests/physics.test.js` (H-8, F-4) |
+| Inertia after a coal machine trips | unchanged (3,946 → 3,946) | falls by that machine's H·S | H-3 test |
+| Credible trip from a SECURE state | UFLS ~14 s later with no action | nadir ≥49.5 Hz in 1,000/1,000 states | H-8 |
+| UFLS first stage / black rule | 49.2 Hz / ≤48.5 Hz for 0.2 s | 49.0 Hz / never above 47.5 Hz within 20 s | H-6, H-7 |
+| Overheat trips hitting the hot unit | 31% | 100% | H-2 |
+| STOP coal, seed 3, 04:10 | black at 04:15 | no blackout; ≤12 MW/min | H-1 |
+| Reserve gauge vs alarm disagreement | 29.6% of ticks | 0% | H-4 |
+| Import 0→800 MW, seed 12, 13:00 | price $117 → $308 | never rises | H-5 |
+| Median 19:00 price, non-heat days | $7,796 (ceiling) all evening | ≤$2,000, not at the cap (rules lab: calm $787, mixed $1,605) | `tools/par.js --prices` |
+| Battery average charge price | $394–519 (loses money) | ≤$100; median P&L >0 | P-10 |
+| Audible alarms, competent proxy | 60 per 12-min shift | ≤8 per daily | K-8 |
+| Days with unwarned contingencies <60 real s apart | 69.8% (v4 clock) | 0% | D-8 |
+| Cloud-front warning lead | 3–10 real s | ≥25 real s and ≥30 grid-min | D-8 |
+| Session length, returning player | 12 min | 5:00 ± 0:30 | D-2 scripted run |
+| Session after the grade is settled | ~33% (last 4 min) | ≤12 s night roll + ≤45 s debrief | D-11, D-25 |
+| Longest gap without a decision opportunity, 05:30–21:00 | 66 real s median (v4 clock); 176 s opening today | ≤40 s on ≥90% of dates | D-10 |
+| First click → first real action | ~8-min tutorial | ≤60 s | O-2 |
+| Same seed, different play: same weather | diverges on 49/50 seeds | 0/100 | F-3 |
+| Rate invariance | n/a | identical hash at 0.25×/1×/60×/240× | F-4 |
+| Frame rate / frame cost | 10 fps / 1.7 ms | 60 fps / p95 ≤8 ms | F-11 `?perf` |
+| First-visit transfer | 88.6 KB (32 KB compressed) | ≤400 KB compressed | F-11 |
+| False CO₂ tip | 100% of runs | 0 | H-13 |
+| Minimum operational demand, mild weekend | ~4,290 MW (no rooftop) | 1,800 ± 10% | P-3 |
+| Negative-price hours, mild / hot days | 0 (floor +$35) | 2–6 h / ≤1 h | P-9 |
+| Playtest: finish / name 2 defences / stuck >30 s | owner only: "too stressful and confusing" | ≥4/5 / ≥3/5 / 0 | Gate 1 |
+| Playtest: share unprompted / return next day | n/a | ≥3/5 / ≥2/5 | Gate 2 |
+
+---
+
+## 7. Differentiation
+
+Checked on itch.io, 2026-09-29.
+
+| | *Grid Operator* (itch.io, 29 Aug 2026) | *Blackstart* (itch.io, ~Sep 2026) | GRIDWATCH v4 |
+|---|---|---|---|
+| Loop | Plan an 8-block day → press RUN DAY → AGC runs it in ~70 s → decision cards pause play | Utility tycoon + holding 50 Hz second by second | Live desk: plan on a rolling 4-h stack while the day runs; no RUN button; cards never pause |
+| Trip moment | Automation handles it | You hold 50 Hz yourself | Watch the true first 30 s in slow motion (inertia → battery → governors → relays), then respond |
+| Progression | Money buys stations, 30-day seasons, perks | Fuel, build, contracts | None in the daily. Week mode (5 days) has one transition choice, no currency |
+| Scoring | Money | Money and survival | LIGHTS / COST / CO₂ against par, on a solvable seeded day |
+| Setting | Generic | 13 regions; Iberia 2025, Italy 2003, Texas 2021 | The NEM: rooftop-solar belly, negative prices, MSL, backstop, Australian incident cards |
+| Sharing | Save codes | — | Daily, spoiler-free share card |
+
+**What we do that they don't:**
+- The explained first 30 seconds.
+- A physical desk that shows every machine at once, with procedures you can hear.
+- Par-graded fairness with a counterfactual debrief.
+- The Australian duck.
+- A daily.
+
+**What we deliberately avoid:**
+- The plan → run → cards → economy/perks/seasons loop (W-5).
+- A modal planning timeline (L-7).
+- Pause-cards (K-9).
+- Money as a resource.
+- Reflex-based frequency holding as the default (K-2).
+
+**Honest caveat (critique #10).** Swing-equation physics is no longer unique: *Follow the Load* has it, and *Blackstart* uses UFLS at 49.0 Hz. What is ours alone is the combination of the explained watch, par, the belly and the desk. GRIDWATCH's physics isn't honest yet, so this is something to build, not something to protect.
+
+---
+
+## 8. Realism ledger
+
+### 8.1 Real-world facts used
+
+Confidence levels:
+- **H**: read in the primary document.
+- **M**: from a reputable secondary source.
+- **UNVERIFIED**: could not be confirmed; not to be quoted as fact.
+
+Text copies of downloaded sources were kept in the review session's local working files (`v4-facts/`, not in the repo); the URLs below are the durable references.
+
+| Fact | Used in | Value | Source | Conf. |
+|---|---|---|---|---|
+| Normal operating band | H-11, K-11 | 49.85–50.15 Hz; ≤5 min outside | [AEMC FOS (2023)](https://www.aemc.gov.au/sites/default/files/2023-04/FOS%20-%20CLEAN.pdf) Tables A.2–A.3 | H |
+| Credible trip containment | H-8, H-11, K-16 | 49.5–50.5 Hz; back to normal band within 5 min | FOS Table A.3 | H |
+| Extreme limits | H-7 | 47–52 Hz | FOS Table A.3 | H |
+| RoCoF limits | K-8 HIGH RoCoF | 1 Hz/s credible; 3 Hz/s non-credible | FOS Table A.2 | H |
+| Event threshold | K-15 trigger | >50 MW | FOS Table A.8 | H |
+| UFLS first stage and timing | H-6 | 49.0 Hz; ~0.3 s crossing to load off | [AEMO UFLS arming paper (2023)](https://www.aemo.com.au/-/media/files/initiatives/der/2023/dynamic-arming-options-for-ufls.pdf) App. A1.2 | H |
+| Real staging example | §8.2 | QLD 2021: 8 blocks, 49.00–48.60 Hz, 0.15 s delay; 1,308 MW shed | [AEMO QLD 2021 report](https://www.aemo.com.au/-/media/files/electricity/nem/market_notices_and_events/power_system_incident_reports/2021/trip-of-multiple-generators-and-lines-in-qld-and-associated-under-frequency-load-shedding.pdf) Table 9 | H |
+| UFLS depth | §8.2 | Settings from 49 to 47.5 Hz; sized for events affecting up to 60% of load | AEMO UFLS paper s3.1 | H |
+| Rooftop PV weakens UFLS | P-12 | VIC net load available to UFLS 26% of underlying (28 Nov 2021) | AEMO UFLS paper s1 | H |
+| Over-frequency generation shedding | H-7 | Wind trips in stages 51–52 Hz; SA peaked at 51.11 Hz (31 Jan 2020) | [AEMO 2025 frequency review](https://www.aemo.com.au/-/media/files/initiatives/engineering-framework/2025/technical-review-of-the-nem-frequency-control-landscape.pdf) Table 1 | M (stages), H (51.11) |
+| What sets the nadir | H-8, K-15 | Inertia slows the fall, primary response arrests it, AGC restores | AEMO 2025 review pp.18–22; [FFR working paper 2017](https://www.aemo.com.au/-/media/files/electricity/nem/security_and_reliability/reports/2017/ffr-working-paper.pdf) | H |
+| NEM inertia | K-11 scale | Mainland average ~84,000 MW·s | AEMO 2025 review p.18 | H |
+| Largest credible contingency | F-13 | ~700–800 MW | AEMO 2025 review | H |
+| Mandatory primary frequency response | H-8 | Deadband ±0.015 Hz; droop ≤5%; 5% output change within 10 s | [AEMO interim PFRR (2020)](https://www.aemo.com.au/-/media/files/initiatives/primary-frequency-response/2020/interim-pfrr.pdf) s3.3–3.4 | H |
+| Governor lag | H-8 | Seconds; many slower than 2 s | FFR working paper s2.3.1 | H |
+| Battery response | H-8, Q-1 | Hundreds of ms; most batteries reach full output 0.85 Hz beyond deadband (~1.7% droop) | AEMO 2025 review pp.31, 70 | H |
+| FCAS timeframes | K-15 labels | Very Fast 1 s (from 9 Oct 2023), Fast 6 s, Slow 60 s, Delayed 5 min | [Hornsdale report 2018](https://www.aemo.com.au/-/media/Files/Media_Centre/2018/Initial-operation-of-the-Hornsdale-Power-Reserve.pdf); [WattClarity](https://wattclarity.com.au/articles/2023/10/very-fast-raise-service-to-be-expanded/) | H / M |
+| Recovery after large credible trips | K-15 settle | Back in the normal band in 10–20 s | AEMO 2025 review p.23 | H |
+| AGC and dispatch | K-2 label | AGC setpoints up to every 4 s; 5-minute dispatch and settlement (since 1 Oct 2021) | Hornsdale report s2.1; [AEMO 5MS](https://aemo.com.au/en/initiatives/major-programs/nem-five-minute-settlement--program-and-global-settlement) | H / M |
+| Secure again within 30 min | D-5 | 30 minutes | [NER chapter 4](https://www.aemc.gov.au/sites/default/files/2021-03/NER%20-%20v161%20-%20Chapter%204_0.pdf) cl. 4.2.6 | M |
+| Synchronising limits | K-12 | ±10°, 0 to +5% voltage, ±0.067 Hz slip; close slightly early; sync-check relay "device 25" | [IEEE PSRC WG J20 (2024)](https://www.pes-psrc.org/kb/report/119.pdf) | H |
+| Restoring load | K-13 | AEMO permission 4–26 min after the Callide trips; small groups restored every few minutes | Callide report s6.1 | H |
+| Market price cap and floor | P-8, H-12 | $23,200/MWh (FY2026-27); −$1,000/MWh | [AEMC reliability settings 2026-27](https://www.aemc.gov.au/sites/default/files/2026-02/Schedule%20of%20reliability%20settings%20-%202026-27%20financial%20year.pdf); [AEMC MSL paper](https://www.aemc.gov.au/sites/default/files/2026-07/msl_rule_changes_consultation_paper_erc0417_erc0439.pdf) | H |
+| Price during AEMO-ordered load shedding | P-8 | Set to the cap | AEMC MSL paper s4.2.1 | H |
+| Value of Customer Reliability | H-12, D-20 | NEM $30,000/MWh (2024 dollars) | [AER VCR 2024](https://www.aer.gov.au/system/files/2024-12/2024-12-18%20AER%20-%20Final%20report%20-%202024%20VCR%20review_0.pdf) | H |
+| Emergency reserve cost | Q-2 | NSW, 27 Nov 2024: activation $16,000/MWh; all-in $56,359/MWh | [AEMO RERT Q4 2024](https://www.aemo.com.au/-/media/files/electricity/nem/emergency_management/rert/2025/rert-quarterly-report-q4-2024-ver-1.pdf) | H |
+| LOR levels | H-4 | LOR1 below two largest risks; LOR2 below the largest; LOR3 = shedding | RERT Q4 2024 glossary | H |
+| Rooftop PV fleet | P-2 scaling | NEM 26.4 GW on 3.9M systems (Jun 2026) | [AEMO QED Q2 2026](https://www.aemo.com.au/-/media/files/major-publications/qed/2026/qed-q2-2026.pdf) | H |
+| Depth of the belly | P-3 | VIC minimum 1,287 MW, ~12% of its 10,736 MW peak | QED Q4 2025; [QED Q1 2026](https://www.aemo.com.au/-/media/files/major-publications/qed/2026/qed-q1-2026.pdf) | H |
+| MSL framework | P-4 | MSL1/2/3 tiers; backstop as last resort; VIC thresholds ~1,790/1,290/790 MW | AEMC MSL paper Table 2.1; AEMO MSL fact sheet (via search snippet) | H / M |
+| Negative prices | P-6, P-9 | Q4 2025: 31.0% of NEM intervals (SA 48.4%); 86% between −$30 and $0; average −$19.4 | [AEMO QED Q4 2025](https://www.aemo.com.au/-/media/files/major-publications/qed/2025/qed-q4-2025.pdf) s2.2 | H |
+| Curtailment | P-9 | Q4 2025: grid solar 18% of available, wind 15% | QED Q4 2025 s2.3 | H |
+| Backstop dates | U-7 | SA from 28 Sep 2020 (first used 14 Mar 2021); QLD 6 Feb 2023; VIC 1 Oct 2024; NSW mid-2026 | [Vic](https://www.energy.vic.gov.au/households/victorias-emergency-backstop-mechanism-for-solar), [Qld](https://www.treasury.qld.gov.au/policies-and-programs/energy/emergency-backstop-mechanism/), [NSW](https://www.energy.nsw.gov.au/emergency-backstop-mechanism) | M |
+| Home batteries fill the belly | U-2 VPP | Q2 2026: midday demand rose as home batteries charged | QED Q2 2026 s2.1 | H |
+| Controlled hot water | U-2 | Energex held 777 MW of hot-water and pool load, 17:30–20:00 | Callide report s6.1.5 | H |
+| Air-con programs | U-2 | PeakSmart: 155,738 air-cons, 107 MW at a 50% cap | [ABC 2025](https://www.abc.net.au/news/science/2025-02-26/peaksmart-flexible-loading-energy-demand-reduction/104949388) | M |
+| Thermal plant reference | F-13 | Coal minimum 30%, ramp 3%/min; OCGT minimum 50%; starts in 5–30 min | [Aurecon 2021 cost & technical review](https://www.aemo.com.au/-/media/files/major-publications/isp/2022/iasr/aurecon-2021-cost-and-technical-parameters-review-report.pdf) | H (new-build reference) |
+| Largest real load trip | F-13 smelter | Boyne Island potline 2, 256 MW (2021) | Callide report s6.1 | H |
+| Alarm rates | K-8 | ≤1 alarm per 10 min steady; >10 per 10 min is a flood | EEMUA 191 / ISA-18.2 via [summary](https://seqent.com/blog/alarm-rationalization-explained/) | M |
+
+### 8.2 Deliberate abstractions
+
+Each row is labelled in-game (H-14).
+
+| Abstraction | Real world | Why we do it |
+|---|---|---|
+| **Two time domains.** The day is compressed 150×–2,100×; physics runs at true speed and is replayed slowly after a trip. | One clock | A 5-minute day with honest physics (C-7) |
+| **Event-dense day.** 1–2 unwarned trips and a crisis per act. | Credible trips are rare | Drama, in 5 minutes |
+| **Compressed synchroscope.** Slip 0.15–0.40 Hz, one turn every 2.5–6.7 s. | ≤0.067 Hz, 15–30 s per turn; mostly automatic, at the power station, not in the control room | A playable skill moment |
+| **The player commits units and sets output.** | Generators self-commit and bid; AEMO dispatches every 5 min and issues directions | The player stands for the whole system |
+| **AGC band around each lever.** | AGC every 4 s; NEMDE (the dispatch engine) every 5 min | Readable |
+| **DC tie.** The region is its own frequency island (like Tasmania via Basslink), and the player sets the flow. | Most NEM links are AC and share frequency; flows are set by NEMDE | Isolates the region's physics |
+| **One-node network.** | Lines have limits | Scope |
+| **Cost-based offers; scarcity adder.** | Generators bid and re-bid | A readable merit order |
+| **LOR states via 1.25 × L.** | LOR1 = below the two largest risks | One gauge |
+| **UFLS: 8 × 6% blocks from 49.0 Hz in 0.125 Hz steps.** | Schemes differ by region (QLD: 8 blocks, 49.00–48.60 Hz); overall down to 47.5 Hz, ≤60% of load | Districts = blocks |
+| **Collapse after 20 s at 47.5–48.0 Hz.** | Collapse depends on protection settings | Graded failure instead of a cliff |
+| **Automatic directed shedding when the FOS timers run out.** | AEMO directs the networks | No reflex test |
+| **Restore permissive** (f ≥49.9 Hz and R5 ≥1.2 × block, one per 5 min). | AEMO judgement plus network switching | A visible, learnable rule |
+| **Cold-load pickup ×1.5.** | Varies by feeder and weather | Teaches "restore no more than you can catch" |
+| **City levers' MW, costs and patience.** | Programs differ; opt-outs are real | Playable |
+| **Region scale.** 7.7 GW peak, 1.9M households, 5 GW rooftop; fictional names. | Scaled between VIC and SA | A single-region story |
+| **Hum reference tone** at exactly k × 100 Hz. | None | Sonification, like a tuning fork |
+| **Daily hydro allocation** of 7,500 MWh. | Storages are seasonal | A day-sized budget |
+
+### 8.3 Still unverified
+
+Do not state these as fact in-game until they are checked:
+- swing-equation constants (textbook only);
+- rooftop penetration by state and the 0.70 clear-sky factor;
+- total NEM VPP MW (say "hundreds of MW, not GW");
+- EV smart-charging share;
+- the size of pre-cooling;
+- ramp and start times of *existing* NEM coal units (today's 12 MW/min per station is labelled "brown-coal-like, unverified");
+- the ISA-18.2 acknowledge semantics;
+- the CPT rolling window;
+- intervention pricing under RERT (P-8);
+- the rooftop inverter reconnect delay (AS/NZS 4777.2; P-12);
+- forecast σ by horizon (L-2);
+- 1.9M households;
+- ~100 MW/°C of cooling load;
+- VPP event pay.
+
+---
+
+## 9. Open decisions & risks
+
+### 9.1 Decisions for the owner
+
+| # | Question | Recommendation |
+|---|---|---|
+| Q-1 | **Battery response curve.** The desk engine used a full-swing battery. AEMO caps most batteries at full output 0.85 Hz beyond the deadband (~1.7% droop), which is much weaker at the nadir. The battery decides most trips (desk E3, E4). | Use the AEMO curve. If H-8 containment then fails, fix it with fleet headroom or inertia (defensible), not with a stiffer battery. Re-measure E3 and E4 first. |
+| Q-2 | **Emergency reserve (RERT diesel).** Par arms it on 73% of days (rules lab), and its real activation cost is $16,000/MWh against today's $2,600. | Keep it out of market at its real cost, and size the fleet so par uses RERT on ≤25% of dailies. Real RERT is an emergency, not a nightly tool. |
+| Q-3 | **Evening difficulty after rooftop PV.** PV moves the peak ~1 h later and narrows it; heat days with zero unserved went 0 → 26/53 (livestack Table A). | Re-tune the fleet (drop or shrink GT·C) rather than inflate underlying demand (×1.035), so the demand shape stays recognisable. |
+| Q-4 | **Manual SYNC after the first shift.** | Optional. An auto-synchroniser closes in 1 grid-minute unless the player takes the scope. A clean manual close saves that minute. See J-5. |
+
+### 9.2 Risks
+
+1. **Two clocks may confuse.** Frequency plays at true speed while the day runs at 150×–2,100×. *Mitigation:* the speed badge is always visible, and a "?" explains it. Gate 1 checks this.
+2. **The watch eats the session.** A 29-s full / 11-s compact watch sits inside a ~5-min day. *Mitigation:* the full version plays once, the compact one is skippable; D-2 budgets it.
+3. **Cognitive load.** Map + stack + levers + suburbs, with ~11 control introductions on a first shift. *Mitigation:* O-3 pacing, the U-2 three-lever limit and L-9 hints. Gate 1 decides.
+4. **Heat days may be rarely solvable.** The day lab found 11% at full severity on today's physics. Rejection sampling (D-9) keeps severity, but may not keep 15% heat days. *Mitigation:* the city tools and S-12; daily-gen reports the achieved share.
+5. **Cross-engine floating point.** `Math.exp`/`sin`/`pow` can differ between browsers. *Mitigation:*
+   - no transcendental functions in per-tick code;
+   - quantised pre-rolled series;
+   - a `?selftest` golden-hash page, checked in each browser before release;
+   - the stored par is authoritative (F-8).
+6. **Every balance number is from v2 physics.** Governor lag, UFLS at 49.0 Hz and rooftop PV all move them. *Mitigation:* re-measure at each phase exit (§6).
+7. **The share sparkline leaks timing.** Everyone's trip dips the same block. Accepted; the sparkline shows the result, not the event.
+8. **`file://` no longer works.** ES modules need http, so offline and emailed copies break. Accepted with OD-15.
+9. **Safari may clear script-written storage** after 7 days without a visit ([WebKit](https://webkit.org/blog/10218/full-third-party-cookie-blocking-and-more/)). Streaks can reset. Say so in the history panel.
+10. **Low-inertia over-shedding.** At noon with little spinning plant, UFLS can over-shed into over-frequency (desk E4). This needs H-7 over-frequency handling and P-12 net-load blocks before Phase 3 ships.
+
+### 9.3 Judgement calls made while composing this spec
+
+| # | Conflict | Resolution |
+|---|---|---|
+| J-1 | Physics between events: quasi-steady (day, rules drafts) vs always integrated (tech) | Always integrated at 20 ms (F-4). It costs ≤0.3 ms per frame even at 2,100×. |
+| J-2 | Inputs during the watch: queued to its end (tech) vs locked (desk, day) | Locked. Queued orders could not change the nadir anyway (critique #13). |
+| J-3 | Watch timing: 0.25×/1×/5× over 20 s (day) vs 0.15×/1×/10× over 29 s (desk) | Desk schedule. The nadir arrives at 0.5–3.6 s, so the slowest speed must cover 0–3 s. A compact 11-s version plays after the first. |
+| J-4 | After the watch: 30× "procedure pace" for 20 s (desk) vs a 30-min window at 90× (day) | The respond card holds the clock (no reflex). Then 30× for the 5-minute FOS window, then profile speed with the 30-min "secure" countdown. |
+| J-5 | SYNC speed: 30× (desk), 2× display (day), 1× FOCUS (tech) | 1× with a labelled 3×-fast slip. Only the first shift's first start needs a manual SYNC; later starts auto-sync in 1 grid-minute unless the player takes the scope. This keeps the 5-min budget. |
+| J-6 | UFLS stages: 6 × 0.2 Hz (rules) vs 8 × 0.125 Hz (desk); relay 0.2 s (desk) vs ~0.3 s (facts) | 8 stages × 6% (two districts per stage); 0.3 s (primary source). |
+| J-7 | Governor droop 5.7% and battery trigger ±0.15 Hz (rules) vs 5% and ±0.015 Hz (desk, facts) | 5% and ±0.015 Hz (NEM mandatory PFR). |
+| J-8 | Two gauges: "can catch" (desk) vs one reserve R5 (rules) | One reserve number, R5 vs L. Seconds-scale adequacy is the TRIP PREVIEW. |
+| J-9 | ID changes | The desk's K-14 engine becomes H-8 (Phase 0). The rules draft's S-8 merges into D-9 and S-13 into D-8. O-7 becomes Playtest gate 1. Pointers are left in place, and IDs are never reused. |
+| J-10 | Scoring display: golf marks (day) vs letter + stars (rules); CO₂ tonnes (day) vs intensity (rules); $/MWh vs ¢/kWh | Letter + per-axis marks + ★ at par or better. CO₂ graded as t/MWh with the total shown. Cost in ¢/kWh, because bills are in ¢/kWh. |
+| J-11 | Share card: frequency sparkline (day) vs green/red/blue hourly squares (livestack) | The text card uses the sparkline (no emoji, Y-4). The hourly strip goes on the debrief and the PNG card. |
+| J-12 | Solvability: in-browser Worker gate that steps heat down (day) vs offline generator (tech) | Offline `tools/daily-gen.js`; heat severity is never reduced (critique #8). Rejected seeds are replaced within the same temperature class. The stored par is authoritative. |
+| J-13 | Weather mix: storm 30% (rules) vs 25% + drought 20% (day); day types unassigned (livestack) | Heat 15 / hot 30 / mild 55; weekends from the real calendar (×0.92); storm 25%, drought 20%. HOT/MILD is a starting value. |
+| J-14 | Tie: flat $58/$40 (rules) vs a 300 MW midday export cap (livestack) | Both. Export capped at 300 MW 09:00–16:00, and the neighbour's price follows a daily shape. |
+| J-15 | Storage keys `gw.v1.*` (day) vs `gridwatch:v4:*` (tech) | `gridwatch:v4:*`. |
+| J-16 | Desk DR button vs city demand response | The desk button is *industrial* DR (350 MW, 3 calls); households live on the map (U-). |
+| J-17 | Live Stack horizon: 3 h (desk wireframe) vs 4 h (livestack) | 4 h: the coal start plus climb needs it. |
+| J-18 | Rooftop size: 2,000 MW (rules test) vs 4 GW (day placeholder) vs 5,000 MW (livestack) | 5,000 MW. Negative prices need ≥3,000 MW at noon. |
+| J-19 | Restore permissive: f ≥49.85 Hz (desk) vs ≥49.9 Hz and R5 ≥1.2 × block (rules) | Rules version, applied per district, one per 5 grid-minutes. |
+| J-20 | HAND mode: a mid-day key switch (desk) vs a mode (day) | Chosen at the briefing and locked for the day; the key shows it. |
+| J-21 | Wind/solar offer −$40 (rules) vs real shallow negatives (facts) | −$20. The real Q4 2025 average negative price was −$19.4. |
+| J-22 | Peaker minimum 12% (today) | 50% (Aurecon reference). Re-tuned with S-12. |
+| J-23 | "Rotational shedding replaces UFLS" (synthesis) | Rejected (critique #1). UFLS stays automatic. Directed shedding is the FOS fallback (H-11), plus a DIRECT SHED key when LOR2 is forecast (K-7). |
+| J-24 | Suburb "Riverton Flats" collides with the Riverton CCGT | Renamed Redgum Flats, subject to the H-15 check. |
+
+---
+
+## 10. Verification method
+
+**Local run.**
+- `.claude/launch.json` defines `gridwatch` (`py -m http.server 8642`) at `http://localhost:8642/`.
+- ES modules need http. Never use `file://`.
+- Use `next.html` for v4 work until F-14.
+
+**Headless tools** (Node ≥20, no dependencies):
+
+| Tool | What it does |
+|---|---|
+| `tools/harness.js`, `tools/policies.js`, `tools/baseline.js` | Today's build (CommonJS, pinned by `tools/package.json`). `node tools/baseline.js [N]`; `GRIDWATCH_HTML=copy.html` measures a patched copy. Golden output: F-12. |
+| `tools/par.js` (Phase 0.2) | Runs `sim/autopilot.js` and the player proxies on any seed; prints the scorecard, par, prices and the §6 rows. |
+| `tools/daily-gen.js` (Phase 2) | Writes `content/dailies.js` (D-9, F-8). |
+
+**Tests.**
+- `node --test` runs `tests/*.test.js` (F-10): determinism, streams, rate invariance, physics sanity, the information barrier, persistence stubs, the share-card lint, the charset check and the sim lint.
+- A GitHub Action runs it on push.
+
+**Browser checks.**
+- `?perf` shows frame costs (F-11).
+- `?selftest` replays golden input logs and compares `hashState` (risk 5).
+- Before release, check Chrome, Edge and Firefox on desktop.
+
+**Visual QA.**
+- Browser-pane screenshots do not composite in this environment, so they come back blank.
+- Instead, run a local receiver (`tools/shot-receiver.js`, a small Node http server that saves POSTed PNGs; add it in Phase 1).
+- From page JS, `POST canvas.toDataURL()` for the map, dial and synchroscope canvases, then read the saved PNGs.
+- DOM parts of the desk are checked by reading the accessibility tree.
+
+**Playtests.** Gates 1 and 2 (§5), with the protocol and pass criteria as written. The owner keeps a one-page log per tester.
+
+---
+
+## 11. Release checklist
+
+**Every phase:**
+- [ ] `<meta charset="utf-8">` is first in every HTML file (C-2; test)
+- [ ] Restart, retry and next-day are in-page resets; no `location.reload()` (C-3; grep)
+- [ ] No request to another origin; no build step (C-1)
+- [ ] `node --test` is green; `tools/baseline.js` golden diff is empty or intentionally re-recorded (F-12)
+- [ ] §6 rows for this phase re-measured and pasted into the PR
+- [ ] Pushed to `main`, the Pages build is green, and the live site is verified with `curl -sI https://databerryau.github.io/gridwatch/` and a manual play (C-4)
+
+**Phase 0.1:**
+- [ ] H-1, H-2, H-3, H-5, H-9, H-10, H-13, H-15, H-16 and S-10 are visible in the live legacy game
+- [ ] `.nojekyll` and `package.json` are present
+- [ ] The baseline is re-recorded after the stream split
+
+**Phase 0.2:**
+- [ ] `tools/par.js` works
+- [ ] The H-8 containment test passes
+- [ ] S-12 par ≥85% raw seeds
+- [ ] `next.html` bench plays a day
+
+**Phase 1:**
+- [ ] Manual pass at 1280×720, 1280×640 and 1920×1080
+- [ ] A keyboard-only day (K-23)
+- [ ] Reduced motion and greyscale checks (K-22)
+- [ ] Visual QA PNGs of the map, dial and synchroscope
+- [ ] `?perf` within budget
+
+**Phase 2:**
+- [ ] D-2 timing run
+- [ ] D-8 director test on 2,000 dates
+- [ ] D-24 cards fact-checked
+- [ ] **Playtest gate 1 passed**
+
+**Phase 3:**
+- [ ] P-1–P-4 targets met
+- [ ] S-14 par re-tuned
+- [ ] U-1 names checked
+- [ ] §9 Q-3 decided
+
+**Phase 4:**
+- [ ] `dailies.js` covers ≥90 days
+- [ ] `?selftest` passes in Chrome, Edge and Firefox
+- [ ] Share card pasted into at least two messaging apps
+- [ ] `classic.html` live
+- [ ] **Playtest gate 2 passed**
+
+**Phase 5:**
+- [ ] Week seeds identical across machines
+- [ ] W-5 audit
+
+---
+
+## Appendix A. v3.0 → v4 mapping
+
+Each v3.0 ID is **absorbed** (the finding is kept as a defect, X-), **changed** (the intent survives in a new form) or **dropped**.
+
+| v3 ID | v3 item | v4 fate | Why |
+|---|---|---|---|
+| C-1 | Single self-contained file | **Changed** → C-1 static multi-file site | Owner dropped the single-file rule (OD-15) |
+| C-2 | Charset meta first | **Kept** as C-2, for every HTML file | — |
+| C-3 | In-page restart | **Kept** as C-3 | — |
+| C-4 | One canonical host | **Kept** as C-4; playtest pages on the same host | — |
+| C-5 | Physics defensible | **Strengthened** → C-5 + §8 ledger | OD-6 |
+| Soft budget | ~200 KB file | **Changed** → F-11 (≤400 KB first visit) | Multi-file |
+| F-1 | rAF loop | **Changed** → F-5 loop + director; absorbed as X-26 | Needs a director and rate invariance |
+| F-2 | Seeded RNG | **Changed** → F-3 three streams; absorbed as X-25 | One stream fails its own test |
+| F-3 | Gauge caption | **Absorbed** as X-35 → K-11 | Gauge replaced by the dial |
+| F-4 | Trace window | **Absorbed** as X-36 → K-11, D-23 | Replaced by the 3-min trace and scrub |
+| F-5 | Integer map scale | **Absorbed** as X-37 → G-1 | — |
+| F-6 | Coal on the slab | **Absorbed** as X-38 → G-1 | — |
+| T-1 | Speed tiers 0.25×–4× | **Changed** → D-2 profile + D-6 pause/fast | Speed follows the tension |
+| T-2 | Auto-slow on contingency | **Changed** → K-15 watch | True physics replay, no input |
+| T-3 | AGC per unit | **Changed** → K-2, on by default, plus S-11 costs | OD-7; the "≥90% in band" criterion was wrong |
+| T-4 | Dispatch board | **Changed** → K-1 lever bank | Desk as instrument |
+| T-5 | Graded collapse | **Changed** → H-7 at real FOS limits | Realism |
+| T-6 | Imbalance instrument | **Changed** → K-11 bar + K-10 gauge; the "+30/+60 min" readouts → L-5 | — |
+| T-7 | Setpoint input | **Changed** → K-23 keys + L-4 keyframes | — |
+| L-1 | Fill the frame | **Changed** → G-1 | — |
+| L-2 | Asset silhouettes | **Changed** → G-2 | — |
+| L-3 | Label discipline | **Changed** → G-2, K-18 | — |
+| L-4 | Retime dusk | **Changed** → G-3, keyed to rooftop PV | The peak moves to ~19:35 |
+| L-5 | Weather reads | **Changed** → G-4, U-8 | — |
+| L-6 | Visible load shedding | **Changed** → G-5, K-15 beat 4 | Districts = suburbs |
+| L-7 | Trip drama | **Changed** → G-5, K-15 | — |
+| L-8 | Power-flow colours | **Dropped** | One-node network; "colour near limit" would teach a false model |
+| L-9 | Demand-chart gap | **Changed** → L-5 red/amber/blue columns | The Live Stack replaces the chart |
+| L-10 | 60 fps polish | **Changed** → F-5, F-11, G-1 | — |
+| L-11 | Selection emphasis | **Dropped** | No single selection; hover links map and lever (G-2) |
+| S-1 | Scenario system | **Changed** → F-13 + D-8 events as data | — |
+| S-2 | Short drills | **Dropped** | The daily is the 5-min unit; "Hard day" specials (S-7) cover labelled scenarios |
+| S-3 | Difficulty tiers | **Changed** → one daily + HAND mode (D-7) + coaching switch (O-1) | Fairness comes from par, not tiers |
+| S-4 | Supervisor hints | **Changed** → O-5, O-6, L-9 | Hints explain why and never state the plan |
+| S-5 | Persistence | **Changed** → F-7, Y-3 | — |
+| S-6 | Debrief replay | **Changed** → D-21–D-23 | Adds the counterfactual |
+| S-7 | Live score | **Changed** → K-17 header chips | — |
+| S-8 | Tutorial hand-off | **Changed** → O-1 first shift is the daily | No separate tutorial |
+| R-1 | Mobile layout | **Dropped** | Desktop only (OD-2) |
+| R-2 | Accessibility | **Changed** → K-23 | — |
+| R-3 | Colour independence | **Changed** → K-22 | — |
+| R-4 | Motion settings | **Changed** → K-22 | — |
+| D-1 | Clipped caption | **Absorbed** as X-35 | — |
+| D-2 | Trace label | **Absorbed** as X-36 | — |
+| D-3 | No viewport meta | **Dropped** | Desktop only |
+| D-4 | Coal overhang | **Absorbed** as X-38 | — |
+| D-5 | Non-integer scale | **Absorbed** as X-37 | — |
+| G-a..G-m, P-a..P-l, R-a..R-e | v3 §2 findings | **Superseded** by §3 | Those still true are X-1..X-38; P-b's 2.3 s became §3.2's 2.1 s (re-measured) |
+| §6 decision 1 | AGC? | **Decided** — on by default | OD-7 |
+| §6 decision 2 | Mobile? | **Decided** — no | OD-2 |
+| §6 decision 3 | 120× as 1×? | **Replaced** by the D-2 profile | — |
+| §6 decision 4 | Art scope | **Changed** → G-1–G-5, modest; revisit for week mode | — |
+
+---
+
+## Appendix B. Glossary
+
+| Term | Meaning |
+|---|---|
+| **AEMO** | Australian Energy Market Operator. Runs the NEM and its control rooms. |
+| **AGC** | Automatic generation control. Software that nudges generators every few seconds to hold 50 Hz. |
+| **Base point** | The MW a unit is scheduled to produce; the lever handle. |
+| **Belly** | The midday dip in operational demand caused by rooftop solar. |
+| **Cold-load pickup** | The extra load when a district that has been off comes back (fridges and air-cons all start at once). |
+| **Contingency** | A sudden failure: a generator, line or big load tripping. **Credible**: one the rules expect you to survive. |
+| **CCGT / OCGT (GT)** | Combined-cycle gas turbine (efficient, slower) / open-cycle gas turbine or "peaker" (fast, costly). |
+| **Curtailment** | Turning wind or solar down even though the energy is available. |
+| **Deadband** | The small frequency range where automatic response does nothing (±0.015 Hz). |
+| **DR** | Demand response: customers paid to use less. |
+| **Droop** | How strongly a governor responds. 5% droop means full output change for a 5% (2.5 Hz) frequency change. |
+| **Duck curve** | The shape of demand after solar: a hollow middle (belly) and a steep evening neck. |
+| **FCAS / FFR** | Frequency Control Ancillary Services, the markets that pay for frequency response / Fast frequency response, usually from batteries, in under a second. |
+| **FOS** | Frequency Operating Standard. The rulebook for how far and how long frequency may stray. |
+| **Governor** | A generator's automatic speed controller. It opens the throttle when frequency falls. |
+| **GW·s** | Gigawatt-seconds: the unit of stored spinning energy (inertia). |
+| **Inertia** | Energy stored in the spinning mass of big synchronous machines. It slows how fast frequency falls. |
+| **Interconnector / tie** | The link to the neighbouring region. |
+| **L** | The largest credible contingency: the biggest single thing that could trip right now. |
+| **LOR1/2/3** | Lack of Reserve levels: 1 and 2 are warnings; 3 means load is being shed. |
+| **Merit order** | Using plant cheapest-first; the last unit needed sets the price. |
+| **MPC / floor** | Market price cap ($23,200/MWh) / market floor price (−$1,000/MWh). |
+| **MSL1/2/3** | Minimum System Load notices: demand forecast too low to keep the grid secure. |
+| **Minimum stable generation (MIN)** | The lowest output a thermal unit can hold without shutting down. |
+| **N-1** | Being able to lose the single largest item and still cope. |
+| **Nadir** | The lowest point frequency reaches after a trip. |
+| **NEM** | National Electricity Market (eastern and southern Australia). |
+| **Normal band** | 49.85–50.15 Hz. |
+| **OFGS** | Over-frequency generation shedding: automatically tripping generators when frequency is too high. |
+| **Operational / underlying demand** | What the grid must supply / what homes and businesses actually use, before rooftop solar. |
+| **P10 / P50 / P90** | Forecast range: 10% chance below, median, 10% chance above. |
+| **Par** | The result of GRIDWATCH's fixed reference dispatcher on the same day, using only what a player can see. |
+| **PFR** | Primary frequency response: governors and inverters reacting to local frequency. |
+| **R5** | Reserve deliverable within 5 minutes. |
+| **Rebound / snapback** | Load that returns after a demand-response action ends. |
+| **RERT** | Reliability and Emergency Reserve Trader: AEMO's emergency reserves (our diesel). |
+| **RoCoF** | Rate of change of frequency, in Hz per second. |
+| **Rooftop PV / backstop** | Behind-the-meter solar / the emergency power to switch newer rooftop systems off. |
+| **Seed** | The number that fixes all the randomness of a day. |
+| **`SIM_VERSION`** | The rules version. Results are only comparable within one version. |
+| **Slip** | The speed difference between a machine and the grid; how fast the synchroscope needle turns. |
+| **Swing equation** | df/dt = f₀·ΔP / (2·Ek): how fast frequency changes for a given imbalance and inertia. |
+| **Synchroscope / SYNC** | The dial used to close a generator's breaker when it is in step with the grid. |
+| **UFLS** | Under-frequency load shedding: relays that automatically cut blocks of customers below 49.0 Hz. |
+| **VCR** | Value of Customer Reliability: what an outage costs customers ($30,000/MWh NEM-wide). |
+| **VPP** | Virtual power plant: many home batteries dispatched together. |
+| **Watch / respond** | GRIDWATCH's trip sequence: a slow-motion replay of the first 30 s, then the player's turn. |
