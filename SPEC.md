@@ -497,8 +497,9 @@ These are the critique's one-line honesty fixes (critique #2), made in place ins
 - STOP sets `stopping`: output falls at the unit's ramp rate to its minimum, then follows a time-limited shutdown ramp to ≤5% of rating before the breaker opens and the unit spins down. (In the NEM's fast-start inflexibility profile this last stage is T4, minimum to zero.) Opening the breaker at minimum would drop 950 MW at once from the legacy coal station.
 - The stop can be aborted while unloading.
 - Minimum up/down times apply from S-11 onwards.
+- A stopping unit counts only its present output toward capacity and offers no headroom (reserve, price, restore permissive), so the stop shows in the numbers as it happens rather than all at once at the breaker.
 
-*Accept:* on seed 3, STOP on coal at 04:10 causes no UFLS and no blackout through 08:00 (today: black at 04:15; stopping at minimum instead would still lose about 950 MW around 05:38); coal output falls by ≤12 MW per sim-minute.
+*Accept:* on seed 3 with STOP on coal at 04:10: (a) no single tick removes more than 5% of the unit's rating plus one tick of ramp, which also rules out opening the breaker at minimum (about 950 MW at once); (b) with the `competent` proxy responding, no UFLS and no blackout through 08:00; (c) with nobody responding, the first UFLS stage comes ≥60 sim-min after the STOP. Today, with nobody responding: UFLS at 04:12 and black at 04:15; after 0.1: first UFLS at 05:40.
 
 **H-2 — A hot unit trips itself, and the risk is visible.**
 - L469 passes the hot unit instead of calling `tripUnit(false)`.
@@ -544,7 +545,7 @@ Plant and suburb names must not collide with each other either (the CCGT keeps "
 
 **H-16 — Say what the legacy build does.**
 - The manual states the hidden restore rule (≥49.95 Hz and >400 MW spare for 15 sim-min, L505–508).
-- Each annunciator tile beeps at most once per 30 s.
+- Each annunciator tile beeps at most once per 30 s. As built: tiles sound by priority, with only red (critical) tiles audible and amber tiles lighting silently, as K-8 intends for v4. A red tile sounds once per episode, after a 2-s on-delay (the standard cure for chattering alarms: UNDER FREQ used to light 25 times a shift for a median of 0.1 s). If it is inside its tile's 30-s window, it sounds when the window ends. Warnings still sound through the event log.
 
 *Accept:* the manual contains the rule; the desk-lab bot acting every 5 s triggers ≤20 audible alarms per 12-minute shift (today 60; desk E8).
 
@@ -1899,7 +1900,7 @@ Phase 3 extends these rules to the VPP, the hold, EV delay and the backstop.
 | Credible trip from a SECURE state (both H-4 conditions) | No SECURE state exists today (two reserve definitions, X-4). Two separate measurements: the 04:00 reference trip (§3.2) bottoms at 49.83 Hz and reaches UFLS within 60 s on 0/100 seeds; trips during play reach UFLS a median 14 s later with no action (pacing §2; 65% had the charge trap) | nadir ≥49.5 Hz in 1,000/1,000 states | H-8 |
 | UFLS first stage / black rule | 49.2 Hz / ≤48.5 Hz for 0.2 s | 49.0 Hz / never above 47.5 Hz within 20 s | H-6, H-7 |
 | Overheat trips hitting the hot unit | 31% | 100% | H-2 |
-| STOP coal, seed 3, 04:10 | black at 04:15 | no blackout; ≤12 MW/min | H-1 |
+| STOP coal, seed 3, 04:10 | nobody responds: UFLS 04:12, black 04:15 | no tick removes >5% + one ramp step; competent: no UFLS through 08:00; nobody: first UFLS ≥60 min later (0.1: 05:40) | H-1 |
 | Reserve gauge vs alarm disagreement | 29.6% of ticks | 0% | H-4 |
 | Import 0→800 MW, seed 12, 13:00 | price $117 → $308 | never rises | H-5 |
 | Median 19:00 price, non-heat days | $7,796 (ceiling) all evening | ≤$2,000, not at the cap (rules lab: calm $787, mixed $1,605) | `tools/par.js --prices` |

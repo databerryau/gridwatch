@@ -85,16 +85,17 @@ function refContingency(seed){
   const M0=S.M;const before=U.coal.out;
   U.coal.availF=.75;U.coal.subFault=120;U.coal.out*=.75;
   const after=U.coal.out,lost=before-after;
-  let exit=null,ufls=null,nadir=50,nadirAt=0,back=null,rampBack5=null;
+  let exit=null,ufls=null,nadir=50,nadirAt=0,back=null,rampBack5=null,M1=null;
   for(let k=1;k<=600&&!S.over;k++){
     G.tick();
+    if(k===1)M1=S.M; // read while the machine is still out (it is repaired on tick 600)
     if(k<=150&&S.freq<nadir){nadir=S.freq;nadirAt=k;}
     if(k===50)rampBack5=U.coal.out-after;
     if(exit===null&&Math.abs(S.dev)>0.15)exit=k;
     if(exit!==null&&back===null&&Math.abs(S.dev)<=0.15)back=k;
     if(ufls===null&&S.ufls>0)ufls=k;
   }
-  return {seed,lost,M0,M1:S.M,exit:exit===null?null:exit/10,nadir,nadirAt:nadirAt/10,
+  return {seed,lost,M0,M1,exit:exit===null?null:exit/10,nadir,nadirAt:nadirAt/10,
     ufls:ufls===null?null:ufls/10,back:back===null?null:back/10,rampBack5};
 }
 

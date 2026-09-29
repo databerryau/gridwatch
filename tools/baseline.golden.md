@@ -1,6 +1,6 @@
 # GRIDWATCH baseline
 
-Build: `index.html` (git blob f466c5f537, 91456 bytes). Seeds 1-100. Command: `node tools/baseline.js`.
+Build: `index.html` (git blob e99feb0a7d, 92011 bytes). Seeds 1-100. Command: `node tools/baseline.js`.
 
 ## 1. Policy outcomes (current build)
 
@@ -10,7 +10,7 @@ Weather class is fixed by the seed (heat 13, storm 38, calm 49). "In band" = 49.
 |---|---|---|---|---|---|---|---|---|---|
 | doNothing | F100 | F13 | F38 | F49 | 32.7 | 6,834 | 100 | 10:36 (3.3) / 13:30 (4.8) / 15:55 (6.0) | 100/100 (none alive at 21:00) |
 | reactiveOnly | F100 | F13 | F38 | F49 | 80.1 | 3,019 | 100 | 13:31 (4.8) / 16:17 (6.1) / 17:05 (6.5) | 100/100 (none alive at 21:00) |
-| competent | S48 A13 C4 D31 F4 | D12 F1 | S18 A5 C1 D12 F2 | S30 A8 C3 D7 F1 | 98.2 | 566 | 4 | 18:33 (7.3) / 18:36 (7.3) / 19:41 (7.8) | 86/100 (82/96 of runs alive at 21:00) |
+| competent | S48 A13 C4 D31 F4 | D12 F1 | S18 A5 C1 D12 F2 | S30 A8 C3 D7 F1 | 98.2 | 568 | 4 | 18:33 (7.3) / 18:36 (7.3) / 19:41 (7.8) | 86/100 (82/96 of runs alive at 21:00) |
 | competentClassic | S54 A3 C10 D32 F1 | C1 D11 F1 | S18 A1 C5 D14 | S36 A2 C4 D7 | 97.8 | 592 | 1 | 18:36 (7.3) / 18:36 (7.3) / 18:36 (7.3) | 90/100 (89/99 of runs alive at 21:00) |
 
 ## 2. Optimistic supply bound (along the competentClassic run)
@@ -29,7 +29,7 @@ Bound = every unit not in protection lockout at heat-derated capacity (no start,
 | Measure | p10 / median / p90 over seeds |
 |---|---|
 | Output lost at the trip (MW) | 500 / 500 / 500 |
-| Inertia readout S.M before -> after trip | 3946 / 3946 / 3946 -> 3946 / 3946 / 3946 |
+| Inertia readout S.M before -> after trip | 3946 / 3946 / 3946 -> 3404 / 3404 / 3404 |
 | Time from trip to leaving the 49.85-50.15 Hz band, real s | 1.6 / 1.8 / 2.3 (100/100 seeds exit) |
 | First-swing nadir (min over first 15 real s), Hz | 49.810 / 49.828 / 49.848 |
 | Time to that nadir, real s | 2.6 / 3.5 / 5.1 |
@@ -43,6 +43,6 @@ Bound = every unit not in protection lockout at heat-derated capacity (no start,
 
 ## 5. Sim cost on this machine (machine-dependent)
 
-- `tick()` alone (render stubbed), median of 20 seeds: 1.3 us per tick (p90 1.3).
-- Whole 24 h shift (7,200 ticks) with the competent policy: median 49 ms.
+- `tick()` alone (render stubbed), median of 20 seeds: 1.4 us per tick (p90 1.7).
+- Whole 24 h shift (7,200 ticks) with the competent policy: median 48 ms.
 - Node v24.18.0.

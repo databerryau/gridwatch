@@ -304,7 +304,7 @@ function freshState(){S={
   money:0, rev:0, fuel:0, pen:0, co2:0, unserved:0,
   ticks:0, okTicks:0, worstDev:0, maxPrice:0, outT:0,
   noise:0, wind:.52, windMu:.55, cloud:.92, cloudMu:.92,
-  batt:{p:500,e:1000,soc:680,set:0,out:0,wear:6,chgPaused:false,lastSet:0},
+  batt:{p:500,e:1000,soc:680,set:0,out:0,wear:6,chgPaused:false,lastSet:0,ufSusp:false},
   hydRes:7500,
   ic:{lim:800,set:250,flow:250,ramp:100,fault:0},
   wCurt:100,sCurt:100,
@@ -316,7 +316,7 @@ function freshState(){S={
   loadTrip:0, windDrought:false,
   blackT:0, price:60, demand:0, served:0, supply:0, ren:0, M:3000, fcas:0,
   aDem:[],aSup:[],aRen:[],aShed:[], histF:[], lastMin:-1,
-  ev:[], alarms:{}, prevAl:{}, lastBeep:{}, alSince:{},
+  ev:[], alarms:{}, prevAl:{}, lastBeep:{}, alSince:{}, alDone:{},
 };
 F.forEach(u=>{Object.assign(u,{on:false,stopping:false,starting:0,out:0,set:u.min,fault:0,hot:0,derate:1,availF:1,subFault:0});});
 // initial commitment (04:00, ~3,800 MW)
@@ -340,7 +340,7 @@ function schedule(){
     S.heat.t0=570;S.heat.t1=960;
     at(390,()=>{S.heat.ann=true;log('warn','WEATHER BUREAU SEVERE WEATHER WARNING: extreme heat this afternoon. Demand forecast +8%, thermal plant derated from 13:30.');beep(700);});
     at(570,()=>{S.heat.active=true;S.cloudMu=Math.max(S.cloudMu,.98);
-      log('crit','HEATWAVE CONDITIONS. Demand rising, coal & gas capacity −7%. The evening peak will be the hardest part of the day.');beep(950,2);});
+      log('crit','HEATWAVE CONDITIONS. Demand rising, coal & gas capacity −7%. Skies clear. The evening peak will be the hardest part of the day.');beep(950,2);});
     at(960,()=>{S.heat.active=false;log('good','Heat easing. Derates removed.');});
   }else if(w<STORM){ // evening storm
     at(700,()=>{S.storm.warn=true;log('warn','STORM FRONT approaching from the west. Wind output will surge, then risk of turbine cut-out and interconnector faults. ETA ~1 h.');beep(700);});
@@ -462,7 +462,7 @@ function tick(){
     u.derate=(S.heat.active&&(u.cls.includes('GAS')||u.cls.includes('COAL')))?.93:1;
     if(u.fault>0){u.fault-=DTS;if(u.fault<=0){u.fault=0;log('good',u.nm+' released from lockout — available to start.');}}
     if(u.subFault>0){u.subFault-=DTS;
-      if(u.subFault<=0){u.subFault=0;u.availF=1;log('good',u.nm+': tripped machine repaired — full station capacity restored.');}}
+      if(u.subFault<=0){u.subFault=0;u.availF=1;log('good',u.nm+': tripped machine(s) repaired — full station capacity restored.');}}
     if(u.starting>0){u.starting-=DTS;
       if(u.starting<=0){u.starting=0;u.on=true;u.out=minE(u);log('good',u.nm+' synchronised to grid at minimum load.');}}
     if(u.on){
@@ -476,7 +476,7 @@ function tick(){
       if(u.id==='hyd'){const r0=S.hydRes;S.hydRes-=u.out*dtH;
         if(r0>2250&&S.hydRes<=2250)log('warn','GREYFELL GORGE HYDRO: 30% of daily water allocation remaining. Budget it.');
         if(r0>750&&S.hydRes<=750){log('crit','GREYFELL GORGE HYDRO: water critical (10%). At full output the unit is minutes from a forced outage.');beep(950,2);}
-        if(S.hydRes<=0){S.hydRes=0;u.on=false;u.out=0;log('crit','GREYFELL GORGE HYDRO: daily water allocation exhausted. Unit unavailable.');beep(950,2);}}
+        if(S.hydRes<=0){S.hydRes=0;u.on=false;u.stopping=false;u.out=0;log('crit','GREYFELL GORGE HYDRO: daily water allocation exhausted. Unit unavailable.');beep(950,2);}}
       u.hot=(u.out>capE(u)*.96)?u.hot+DTS:0;
       if(!S.tut&&u.hot>5&&Math.random()<.00012){tripUnit(false,u,'ran above 96% too long');u.hot=0;}
       // Only machines still spinning count toward inertia.
@@ -498,7 +498,8 @@ function tick(){
   let bset=clamp(B.set,-B.p,B.p);
   if(B.soc<=1&&bset>0)bset=0;
   if(bset<0&&B.soc>=B.e-1)B.chgPaused=true;
-  if(bset<0&&(B.chgPaused||S.dev<-.15))bset=0;
+  if(S.dev<-.15)B.ufSusp=true;else if(S.dev>-.10)B.ufSusp=false;
+  if(bset<0&&(B.chgPaused||B.ufSusp))bset=0;
   B.out=bset;
   if(S.dr.left>0)S.dr.left-=DTS;
   const drMW=S.dr.left>0?350:0;
@@ -520,7 +521,7 @@ function tick(){
   if(f<49.0&&S.ufls<2){S.ufls=2;log('crit','UFLS STAGE 2: total 12% of load shed (49.0 Hz).');beep(950,3);}
   if(f<48.8&&S.ufls<3){S.ufls=3;log('crit','UFLS STAGE 3: total 21% of load shed (48.8 Hz). System in extremis.');beep(950,4);}
   if(S.ufls>0){
-    const spare=F.reduce((a,u)=>a+(u.on?capE(u)-u.out:0),0);
+    const spare=F.reduce((a,u)=>a+(u.on&&!u.stopping?capE(u)-u.out:0),0);
     if(f>=49.95&&spare>400){S.uflsHold+=DTS;
       if(S.uflsHold>15){S.uflsHold=0;S.ufls--;
         log('warn','UFLS: restoring one load block — expect a demand step of several hundred MW.');beep(700);}}
@@ -536,7 +537,7 @@ function tick(){
   S.freq=clamp(S.freq+imb/S.M*0.1+gauss()*(S.tut?.0005:.0012),47.5,52.5);
   S.dev=S.freq-50;
   // ---- economics ----
-  const availCap=F.reduce((a,u)=>a+(u.on?capE(u):0),0)
+  const availCap=F.reduce((a,u)=>a+(u.on?(u.stopping?u.out:capE(u)):0),0) // a stopping unit only has what it still carries
       +windAvail+solAvail+(B.soc>50?B.p:B.p*B.soc/50)
       +(S.ic.fault>0?0:S.ic.lim)+S.rert.out; // the tie's full import capability, whatever it is carrying now
   const margin=(availCap-dem)/dem;
@@ -574,12 +575,12 @@ function tick(){
   A.pk=dem>7000?1:0;
   // A tile lights at once. Only critical (red) tiles sound, by priority as real annunciators
   // do, and only once red has held for 2 s (an on-delay, the usual cure for chattering
-  // alarms), at most once per 30 s per tile (20 / 300 ticks at 1x). Amber tiles are silent;
+  // alarms), once per red episode and at most once per 30 s per tile (20 / 300 ticks at 1x). Amber tiles are silent;
   // warnings still sound through the event log.
   for(const k in A){
-    if(A[k]<2)S.alSince[k]=null;
+    if(A[k]<2){S.alSince[k]=null;S.alDone[k]=false;}
     else{if(S.alSince[k]==null)S.alSince[k]=S.ticks;
-      if(S.ticks-S.alSince[k]===20&&!(S.ticks-(S.lastBeep[k]??-1e9)<300)){beep(950,2);S.lastBeep[k]=S.ticks;}}
+      if(!S.alDone[k]&&S.ticks-S.alSince[k]>=20&&S.ticks-(S.lastBeep[k]??-1e9)>=300){beep(950,2);S.lastBeep[k]=S.ticks;S.alDone[k]=true;}}
     S.prevAl[k]=A[k];}
   const mi=Math.floor(t);
   if(mi>S.lastMin){S.lastMin=mi;
@@ -1349,7 +1350,7 @@ function ui(){
   $('hClock').textContent=clock(S.t);
   const pc=$('hPrice');pc.textContent='$'+fmt(S.price);
   pc.className=S.price>1000?'crit':S.price>300?'warn':'good';
-  const res=Math.round(F.reduce((a,u)=>a+(u.on?capE(u)-u.out:0),0)
+  const res=Math.round(F.reduce((a,u)=>a+(u.on&&!u.stopping?capE(u)-u.out:0),0)
     +(S.ic.fault?0:S.ic.lim-S.ic.flow)+(S.batt.soc>50?S.batt.p-S.batt.out:0));
   const rc=$('hRes');rc.textContent=fmt(res);rc.className=res<150?'crit':res<450?'warn':'good';
   const ic2=$('hIn');ic2.textContent=fmt(S.M);ic2.className=S.M<1000?'crit':S.M<1600?'warn':'good';
@@ -1386,12 +1387,14 @@ function ui(){
     $('dOut').textContent=fmt(u.out);$('dCap').textContent=fmt(capE(u));
     $('dLamp').className='lamp'+(u.fault>0||u.subFault>0?' fl':u.on?' on':u.starting>0?' st':'');
     const tgt=u.on?clamp(u.set,minE(u),capE(u)):0;
+    const risk=u.on&&!u.stopping&&u.out>capE(u)*.96?'<span class="fl">ABOVE 96% — TRIP RISK ≈3.5% PER GRID-HOUR</span>':'';
+    const down=Math.round((1-u.availF)/(u.id==='coal'?.25:.5));
     $('dStat').innerHTML=u.fault>0?'<span class="fl">FAULT — LOCKOUT '+Math.ceil(u.fault)+' MIN</span>'
-      :u.subFault>0?'<span class="fl">ONE MACHINE DOWN — REPAIR '+Math.ceil(u.subFault)+' MIN</span>'
+      :u.subFault>0?'<span class="fl">'+(down===1?'ONE MACHINE':down+' MACHINES')+' DOWN — REPAIR '+Math.ceil(u.subFault)+' MIN</span>'+(risk?' · '+risk:'')
       :u.starting>0?'<span class="dn">STARTING — SYNC IN '+Math.ceil(u.starting)+' MIN</span>'
       :!u.on?'OFF-LINE — press START UNIT to commit'
       :u.stopping?'<span class="dn">▼ SHUTTING DOWN — breaker opens at '+fmt(u.cap*.05)+' MW</span>'
-      :u.out>capE(u)*.96?'<span class="fl">ABOVE 96% — TRIP RISK ≈3.5% PER GRID-HOUR</span>'
+      :risk?risk
       :Math.abs(tgt-u.out)>u.ramp*DTS?'<span class="'+(tgt>u.out?'up':'dn')+'">'+(tgt>u.out?'▲ RAMPING UP':'▼ RAMPING DOWN')+' → '+fmt(tgt)+' MW</span>'
       :(u.derate<1?'<span class="dn">DERATED (HEAT)</span>':'ON TARGET');
     const bt=$('dBtn');
@@ -1402,8 +1405,8 @@ function ui(){
     const B=S.batt;
     $('dOut').textContent=fmt(Math.abs(B.out));
     $('dMode').textContent=B.out>5?'DISCHARGE':B.out<-5?'CHARGE'
-      :B.set<0&&B.chgPaused?'CHARGE ORDER — PAUSED (FULL)'
-      :B.set<0&&S.dev<-.15?'CHARGE SUSPENDED (UNDER-FREQUENCY)':'IDLE';
+      :B.set<0&&B.chgPaused?(B.soc>=B.e-1?'CHARGE ORDER — PAUSED (FULL)':'CHARGE ORDER PAUSED — MOVE THE SLIDER TO RESUME')
+      :B.set<0&&B.ufSusp?'CHARGE SUSPENDED (UNDER-FREQUENCY)':'IDLE';
     const sp=100*B.soc/B.e;
     $('dSoc').textContent=Math.round(sp)+'%';$('dSocM').textContent=fmt(B.soc);
     $('dSocBar').style.width=sp+'%';
@@ -1515,7 +1518,7 @@ const TUT=[
 ];
 let tutStep=0,tutOk=0,tutDone=false;
 function tutJump(toMin,arrange){
-  S.t=toMin;S.noise=0;
+  S.t=toMin;S.noise=0;F.forEach(u=>{u.stopping=false;});
   arrange(demBase(hourNow()));
   renderDock();
   const m=Math.floor(S.t);

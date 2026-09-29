@@ -22,9 +22,10 @@ function comparable(report) {
   return out.join('\n').trim();
 }
 
-test('baseline report matches tools/baseline.golden.md', {timeout: 120_000}, () => {
+test('baseline report matches tools/baseline.golden.md', () => {
   const golden = readFileSync(new URL('../tools/baseline.golden.md', import.meta.url), 'utf8');
-  const now = execFileSync(process.execPath, ['tools/baseline.js'], {cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 24});
+  // The child has its own time limit: a synchronous call blocks node:test's timeout (F-10: <60 s).
+  const now = execFileSync(process.execPath, ['tools/baseline.js'], {cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 24, timeout: 55_000});
   assert.equal(comparable(now), comparable(golden),
     'baseline changed: if intended, run `npm run golden` and give the reason in the commit message');
 });

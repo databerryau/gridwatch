@@ -8,7 +8,7 @@ import {readFileSync} from 'node:fs';
 const require = createRequire(import.meta.url);
 const H = require('../tools/harness.js');
 const P = require('../tools/policies.js');
-const HTML = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const HTML = readFileSync(H.GAME, 'utf8'); // the same build the harness loads (GRIDWATCH_HTML or index.html)
 
 // Put the grid in balance at 04:00 with no demand noise, as tools/baseline.js does.
 function balanced(seed) {
@@ -19,30 +19,44 @@ function balanced(seed) {
   return G;
 }
 
-test('H-1: STOP unloads a unit at its ramp rate instead of deleting its output', () => {
+// Seed 3, STOP on coal at 04:10, played to 08:00 under `policy` (null = nobody responds).
+// Returns the largest single-tick fall in coal output (breaker tick included) and when the
+// first UFLS stage operated.
+function stopCoal(policy) {
   const G = H.load({seed: 3});
-  const pol = P.competent();
   const coal = G.FU.coal;
   G.start();
-  let stopped = false, lastMin = -1, lastOut = null, maxDrop = 0;
-  while (!G.S.over && G.S.t < 240) { // through 08:00
-    pol(G);
+  let stopped = false, prev = coal.out, maxStep = 0, ufls = null;
+  while (!G.S.over && G.S.t < 240) {
+    if (policy) policy(G);
     if (!stopped && G.S.t >= 10) { assert.ok(G.stopUnit('coal')); stopped = true; }
     G.tick();
-    const m = Math.floor(G.S.t + 1e-9);
-    if (m > lastMin) {
-      if (lastOut !== null && coal.on) maxDrop = Math.max(maxDrop, lastOut - coal.out);
-      lastOut = coal.on ? coal.out : null; lastMin = m;
-    }
-    assert.equal(G.S.ufls, 0, 'UFLS operated at ' + G.clock(G.S.t));
+    maxStep = Math.max(maxStep, prev - coal.out); prev = coal.out;
+    if (ufls === null && G.S.ufls > 0) ufls = G.S.t;
   }
-  assert.equal(G.S.over, false, 'grid went black');
-  assert.ok(maxDrop <= 12 + 1e-6, 'coal fell ' + maxDrop + ' MW in one sim-minute');
-  assert.equal(coal.on, false, 'coal should have reached its breaker by 08:00');
-  assert.ok(G.logs.some(l => /MT HAZEL COAL: breaker open/.test(l.msg)));
+  return {G, coal, maxStep, ufls};
+}
+
+test('H-1: STOP unloads a unit through its minimum; no tick removes a big block', () => {
+  // The only step allowed is at the breaker: ≤5% of rating, plus that tick's own ramp.
+  const limit = c => c.cap * 0.05 + c.ramp * 0.2 + 1e-9;
+  // With a responding player (the competent proxy): no UFLS, no blackout through 08:00.
+  const played = stopCoal(P.competent());
+  assert.equal(played.ufls, null, 'UFLS operated at ' + (played.ufls !== null && played.G.clock(played.ufls)));
+  assert.equal(played.G.S.over, false, 'grid went black');
+  assert.ok(played.maxStep <= limit(played.coal), 'coal dropped ' + played.maxStep + ' MW in one tick');
+  assert.equal(played.coal.on, false, 'coal should have reached its breaker by 08:00');
+  assert.ok(played.G.logs.some(l => /MT HAZEL COAL: breaker open/.test(l.msg)));
+  // With nobody responding (the misclick case): the same small steps, and ≥60 sim-min
+  // before the first UFLS stage (v2.0: 2 min, black at 04:15).
+  const alone = stopCoal(null);
+  assert.ok(alone.maxStep <= limit(alone.coal), 'coal dropped ' + alone.maxStep + ' MW in one tick');
+  assert.ok(alone.ufls === null || alone.ufls - 10 >= 60, 'first UFLS ' + (alone.ufls - 10) + ' sim-min after STOP');
 });
 
 test('H-2: an overheat trip hits the unit that ran hot, and the log names it', () => {
+  // Coal is held above 96% and every other unit is kept below 90%, so exactly one unit can
+  // be hot and each trip has exactly one right answer.
   let trips = 0, seed = 0;
   while (trips < 100 && seed < 400) {
     seed++;
@@ -51,15 +65,16 @@ test('H-2: an overheat trip hits the unit that ran hot, and the log names it', (
     const pol = P.competent();
     G.start();
     for (let k = 0; k < 7200 && !G.S.over; k++) {
-      pol(G); G.FU.coal.set = 2600; // hold coal above 96%
-      const hot = new Set(G.F.filter(u => u.hot > 5).map(u => u.nm));
+      pol(G);
+      for (const u of G.F) u.set = u.id === 'coal' ? u.cap : Math.min(u.set, G.capE(u) * 0.9);
+      const hot = G.F.filter(u => u.hot > 5);
+      assert.ok(hot.every(u => u.id === 'coal'), 'another unit ran hot: ' + hot.map(u => u.id));
       const n = G.logs.length;
       G.tick();
       for (const l of G.logs.slice(n)) {
         if (!/UNIT TRIP/.test(l.msg)) continue;
         trips++;
-        const u = G.F.find(q => l.msg.includes(q.nm));
-        assert.ok(u && hot.has(u.nm), 'seed ' + seed + ': trip hit a unit that was not hot: ' + l.msg);
+        assert.ok(l.msg.includes(G.FU.coal.nm), 'seed ' + seed + ': trip hit a unit that was not hot: ' + l.msg);
         assert.match(l.msg, /ran above 96%/);
       }
     }
@@ -84,7 +99,8 @@ test('H-5: importing more never raises the price', () => {
     const G = H.load({seed: 12});
     const pol = P.competent();
     G.start();
-    while (G.S.t < 540) { pol(G); G.tick(); } // 13:00
+    while (!G.S.over && G.S.t < 540) { pol(G); G.tick(); } // 13:00
+    assert.equal(G.S.over, false, 'grid went black before 13:00');
     assert.equal(G.S.ic.fault, 0);
     G.S.ic.set = G.S.ic.flow = flow;
     G.tick();
