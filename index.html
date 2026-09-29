@@ -167,7 +167,7 @@ kbd{border:1px solid var(--edge2);padding:0 5px;font-size:10px}
 <div id="pauseTag">■ PAUSED</div>
 <div id="app">
 <header>
-  <div class="brand">⏻ GRIDWATCH<small>MERIDIAN ISO · REGION S1 · 50 Hz</small></div>
+  <div class="brand">⏻ GRIDWATCH<small>REGION S1 SYSTEM OPERATOR · 50 Hz</small></div>
   <div class="hchips">
     <div class="chip"><label>SHIFT TIME</label><b id="hClock">04:00</b></div>
     <div class="chip"><label>SPOT $/MWh</label><b id="hPrice">—</b></div>
@@ -210,7 +210,7 @@ kbd{border:1px solid var(--edge2);padding:0 5px;font-size:10px}
 
 <!-- START -->
 <div class="ov" id="ovStart"><div class="obox">
-  <h1>GRIDWATCH<small>REAL-TIME GRID DISPATCH · MERIDIAN ISO REGION S1</small></h1>
+  <h1>GRIDWATCH<small>REAL-TIME GRID DISPATCH · REGION S1</small></h1>
   <h2>SHIFT BRIEFING — 04:00 → 04:00</h2>
   <p>You are the control-room dispatcher for a 7.7 GW regional power system. Your one physical law:
   <b style="color:var(--grn)">generation must equal demand at every instant</b>, or system frequency drifts off 50.000 Hz.
@@ -252,7 +252,7 @@ kbd{border:1px solid var(--edge2);padding:0 5px;font-size:10px}
   <h3>BATTERY</h3><p>500 MW / 1,000 MWh. Negative setpoint charges (you buy energy at spot), positive discharges. Two hours at full power and it's empty — save charge for the peak and for trip response.</p>
   <h3>HYDRO</h3><p>Fast and cheap but energy-limited: today's water allocation is 7,500 MWh (~8 h at full output) — the reservoir behind the dam drains visibly. Ration it for peaks and emergencies.</p>
   <h3>INTERCONNECTOR</h3><p>Imports up to 800 MW at a flat $58/MWh contract (export pays $40). Cheap firm supply — until a storm trips the line.</p>
-  <h3>UFLS — LOAD SHEDDING</h3><p>If frequency falls to 49.2 / 49.0 / 48.8 Hz, under-frequency relays automatically disconnect blocks of customers to save the system — you'll see districts go dark. Unserved energy is valued at $16,600/MWh. Load restores in stages once frequency holds ≥49.95.</p>
+  <h3>UFLS — LOAD SHEDDING</h3><p>If frequency falls to 49.2 / 49.0 / 48.8 Hz, under-frequency relays automatically disconnect blocks of customers to save the system — you'll see districts go dark. Unserved energy is valued at $16,600/MWh. Shed load comes back one block at a time, and only once frequency has held ≥49.95 Hz <b>and</b> the plant you have on-line has more than 400 MW spare, for 15 sim-minutes per block. At the evening peak that spare rarely exists, so shed customers can stay dark for hours: commit plant early rather than hoping to restore.</p>
   <h3>SCARCITY PRICING</h3><p>Spot price rises steeply as reserve margin thins, up to the $16,600 cap during shedding. Your load is hedged with $300-strike cap contracts, so you're paid at most $300/MWh for energy served — price spikes never print money. They set what you pay for battery charging, and they're the grid screaming that you're one trip from disaster.</p>
   <h3>CURTAILMENT</h3><p>Wind/solar LIMIT sliders cap renewable output. Use them if over-frequency threatens (e.g. sudden loss of load) or to keep thermal units above their minimums.</p>
   <h3>EMERGENCY TOOLS</h3><p>Click the CITY for load-side tools. DEMAND RESPONSE: 3 calls, each drops 350 MW for 1 h at $1,400/MWh. RESERVE DIESEL: 300 MW, 20 min start, $2,600/MWh. Expensive — losing the grid is more expensive.</p>
@@ -291,7 +291,7 @@ const F=[ // dispatchable fleet
  {id:'ccgt',nm:'RIVERTON CCGT',cls:'GAS·CC',cap:1300,min:350,ramp:35,st:45,cost:74,co2:.42,H:4.5,startCost:3e4},
  {id:'gta',nm:'PEAKER GT·A',cls:'GAS·OCGT',cap:500,min:60,ramp:160,st:8,cost:148,co2:.63,H:3.5,startCost:8e3},
  {id:'gtb',nm:'PEAKER GT·B',cls:'GAS·OCGT',cap:500,min:60,ramp:160,st:8,cost:152,co2:.63,H:3.5,startCost:8e3},
- {id:'hyd',nm:'SNOWY GORGE HYDRO',cls:'HYDRO',cap:950,min:0,ramp:130,st:3,cost:9,co2:0,H:3.5,startCost:2e3},
+ {id:'hyd',nm:'GREYFELL GORGE HYDRO',cls:'HYDRO',cap:950,min:0,ramp:130,st:3,cost:9,co2:0,H:3.5,startCost:2e3},
 ];
 const ANN=[['UNDER FREQ','uf'],['OVER FREQ','of'],['LOW RESERVE','lr'],['LOW INERTIA','li'],
  ['UNIT TRIP','ut'],['I/C OUTAGE','ic'],['UFLS ACTIVE','ufls'],['STORAGE LOW','sl'],
@@ -304,7 +304,7 @@ function freshState(){S={
   money:0, rev:0, fuel:0, pen:0, co2:0, unserved:0,
   ticks:0, okTicks:0, worstDev:0, maxPrice:0, outT:0,
   noise:0, wind:.52, windMu:.55, cloud:.92, cloudMu:.92,
-  batt:{p:500,e:1000,soc:680,set:0,out:0,wear:6},
+  batt:{p:500,e:1000,soc:680,set:0,out:0,wear:6,chgPaused:false,lastSet:0},
   hydRes:7500,
   ic:{lim:800,set:250,flow:250,ramp:100,fault:0},
   wCurt:100,sCurt:100,
@@ -316,9 +316,9 @@ function freshState(){S={
   loadTrip:0, windDrought:false,
   blackT:0, price:60, demand:0, served:0, supply:0, ren:0, M:3000, fcas:0,
   aDem:[],aSup:[],aRen:[],aShed:[], histF:[], lastMin:-1,
-  ev:[], alarms:{}, prevAl:{},
+  ev:[], alarms:{}, prevAl:{}, lastBeep:{}, alSince:{},
 };
-F.forEach(u=>{Object.assign(u,{on:false,starting:0,out:0,set:u.min,fault:0,hot:0,derate:1,availF:1,subFault:0});});
+F.forEach(u=>{Object.assign(u,{on:false,stopping:false,starting:0,out:0,set:u.min,fault:0,hot:0,derate:1,availF:1,subFault:0});});
 // initial commitment (04:00, ~3,800 MW)
 F[0].on=true;F[0].out=F[0].set=2000;
 F[1].on=true;F[1].out=F[1].set=520;
@@ -331,17 +331,18 @@ const capE=u=>u.cap*u.derate*u.availF, minE=u=>u.min*u.availF;
 function schedule(){
   const ev=S.ev, R=Math.random;
   const at=(t,fn,msg)=>ev.push({t,fn,msg,done:false});
-  const w=R(); // weather major decided first
+  const w=R(); // weather major decided first: heatwave 15% of days, storm 30%, calm 55%
+  const HEAT=.15, STORM=.45;
   // guaranteed big-unit trip — kept clear of a severe-weather evening peak
-  at(w<.8?(240+R()*330):(420+R()*540),()=>tripUnit(true));
+  at(w<STORM?(240+R()*330):(420+R()*540),()=>tripUnit(true));
   if(R()<.55) at(120+R()*1200,()=>tripUnit(false));
-  if(w<.5){ // heatwave: announce 10:30, active 13:30–20:00
+  if(w<HEAT){ // heatwave: announce 10:30, active 13:30–20:00
     S.heat.t0=570;S.heat.t1=960;
-    at(390,()=>{S.heat.ann=true;log('warn','BOM SEVERE WEATHER: extreme heat this afternoon. Demand forecast +8%, thermal plant derated from 13:30.');beep(700);});
+    at(390,()=>{S.heat.ann=true;log('warn','WEATHER BUREAU SEVERE WEATHER WARNING: extreme heat this afternoon. Demand forecast +8%, thermal plant derated from 13:30.');beep(700);});
     at(570,()=>{S.heat.active=true;S.cloudMu=Math.max(S.cloudMu,.98);
-      log('crit','HEATWAVE CONDITIONS. Demand rising, coal & gas capacity −7%. Skies clear — bank solar into the battery while you can.');beep(950,2);});
+      log('crit','HEATWAVE CONDITIONS. Demand rising, coal & gas capacity −7%. The evening peak will be the hardest part of the day.');beep(950,2);});
     at(960,()=>{S.heat.active=false;log('good','Heat easing. Derates removed.');});
-  }else if(w<.8){ // evening storm
+  }else if(w<STORM){ // evening storm
     at(700,()=>{S.storm.warn=true;log('warn','STORM FRONT approaching from the west. Wind output will surge, then risk of turbine cut-out and interconnector faults. ETA ~1 h.');beep(700);});
     at(760,()=>{S.storm.active=true;S.windMu=.95;log('crit','STORM ARRIVAL. Wind farms at storm output.');beep(950,2);});
     at(790+R()*60,()=>{if(!S.storm.active)return;S.windMu=.18;
@@ -357,7 +358,7 @@ function schedule(){
   }
   if(R()<.45){ // industrial load trip → over-frequency test
     const t0=360+R()*360;
-    at(t0,()=>{S.loadTrip=45;log('crit','ALCOA SMELTER POTLINE TRIP: 600 MW of load lost instantly. Over-frequency risk — reduce dispatch or curtail.');beep(950,2);});
+    at(t0,()=>{S.loadTrip=45;log('crit','SMELTER POTLINE TRIP: 600 MW of load lost instantly. Over-frequency risk — reduce dispatch or curtail.');beep(950,2);});
   }
   if(R()<.35){ // wind drought in evening
     at(840+R()*120,()=>{S.windMu=.12;S.windDrought=true;
@@ -368,19 +369,26 @@ function schedule(){
   at(795,()=>log('warn','17:15 — DUCK CURVE: solar fading into the evening peak. Check NET LOAD RAMP and commit plant now.'));
   at(1230,()=>log('info','00:30 — demand falling toward overnight trough. Mind thermal minimum-generation limits.'));
 }
-function tripUnit(big){
-  const cands=F.filter(u=>u.on&&!u.starting&&u.availF===1&&(!big||u.cap>=900));
-  const list=cands.length?cands:F.filter(u=>u.on&&!u.starting&&u.availF===1);
-  if(!list.length)return;
-  const u=list[Math.floor(Math.random()*list.length)];
-  if(u.id==='coal'||u.id==='ccgt'){ // multi-unit station: lose one machine
-    const frac=u.id==='coal'?.25:.5;
-    u.availF=1-frac;u.subFault=90+Math.random()*60;u.out*=(1-frac);
-    log('crit','UNIT TRIP: '+u.nm+' — one generating unit off ('+fmt(u.cap*frac)+
+// target: trip this unit (e.g. the one that ran hot) instead of drawing one at random.
+function tripUnit(big,target,why){
+  let u=target;
+  if(!u){
+    const cands=F.filter(u=>u.on&&!u.starting&&u.availF===1&&(!big||u.cap>=900));
+    const list=cands.length?cands:F.filter(u=>u.on&&!u.starting&&u.availF===1);
+    if(!list.length)return;
+    u=list[Math.floor(Math.random()*list.length)];
+  }
+  const cause=why?' ('+why+')':'';
+  const frac=u.id==='coal'?.25:u.id==='ccgt'?.5:1; // share of the station one machine is
+  if(frac<1&&u.availF-frac>1e-9){ // multi-unit station: lose one of the machines still running
+    const lost=u.out*frac/u.availF;
+    u.availF-=frac;u.out-=lost;u.subFault=Math.max(u.subFault,90+Math.random()*60);
+    log('crit','UNIT TRIP: '+u.nm+cause+' — one generating unit off ('+fmt(lost)+
         ' MW lost instantly). Station derated ~'+Math.round(u.subFault)+' min.');
-  }else{
-    u.on=false;u.out=0;u.starting=0;u.fault=90+Math.random()*60;
-    log('crit','UNIT TRIP: '+u.nm+' off-line ('+fmt(u.cap)+' MW unit). Protection lockout ~'+Math.round(u.fault)+' min.');
+  }else{ // single-machine unit, or the station's last running machine
+    const lost=u.out;
+    u.on=false;u.stopping=false;u.out=0;u.starting=0;u.fault=90+Math.random()*60;u.availF=1;u.subFault=0;
+    log('crit','UNIT TRIP: '+u.nm+cause+' off-line ('+fmt(lost)+' MW lost instantly). Protection lockout ~'+Math.round(u.fault)+' min.');
   }
   flash=6;beep(950,3);
 }
@@ -458,16 +466,21 @@ function tick(){
     if(u.starting>0){u.starting-=DTS;
       if(u.starting<=0){u.starting=0;u.on=true;u.out=minE(u);log('good',u.nm+' synchronised to grid at minimum load.');}}
     if(u.on){
-      const cE=capE(u), tgt=clamp(u.set,minE(u),cE), d=tgt-u.out, r=u.ramp*DTS;
+      // A stopping unit unloads at its ramp rate, through its minimum, to 5% of rating;
+      // only then does the breaker open, so a stop never removes a big block at once.
+      const cE=capE(u), tgt=u.stopping?0:clamp(u.set,minE(u),cE), d=tgt-u.out, r=u.ramp*DTS;
       u.out+=clamp(d,-r,r);
       u.out=clamp(u.out,0,cE);
+      if(u.stopping&&u.out<=u.cap*.05){u.on=false;u.stopping=false;u.out=0;
+        log('info',u.nm+': breaker open — unit off-line.');continue;}
       if(u.id==='hyd'){const r0=S.hydRes;S.hydRes-=u.out*dtH;
-        if(r0>2250&&S.hydRes<=2250)log('warn','SNOWY GORGE HYDRO: 30% of daily water allocation remaining. Budget it.');
-        if(r0>750&&S.hydRes<=750){log('crit','SNOWY GORGE HYDRO: water critical (10%). At full output the unit is minutes from a forced outage.');beep(950,2);}
-        if(S.hydRes<=0){S.hydRes=0;u.on=false;u.out=0;log('crit','SNOWY GORGE HYDRO: daily water allocation exhausted. Unit unavailable.');beep(950,2);}}
+        if(r0>2250&&S.hydRes<=2250)log('warn','GREYFELL GORGE HYDRO: 30% of daily water allocation remaining. Budget it.');
+        if(r0>750&&S.hydRes<=750){log('crit','GREYFELL GORGE HYDRO: water critical (10%). At full output the unit is minutes from a forced outage.');beep(950,2);}
+        if(S.hydRes<=0){S.hydRes=0;u.on=false;u.out=0;log('crit','GREYFELL GORGE HYDRO: daily water allocation exhausted. Unit unavailable.');beep(950,2);}}
       u.hot=(u.out>capE(u)*.96)?u.hot+DTS:0;
-      if(!S.tut&&u.hot>5&&Math.random()<.00012){tripUnit(false);u.hot=0;}
-      disp+=u.out;syncM+=u.cap*u.H;fuelCost+=u.out*u.cost*dtH;co2+=u.out*u.co2*dtH;
+      if(!S.tut&&u.hot>5&&Math.random()<.00012){tripUnit(false,u,'ran above 96% too long');u.hot=0;}
+      // Only machines still spinning count toward inertia.
+      disp+=u.out;if(u.on)syncM+=u.cap*u.availF*u.H;fuelCost+=u.out*u.cost*dtH;co2+=u.out*u.co2*dtH;
     }
   }
   if(S.rert.on&&S.rert.timer>0){S.rert.timer-=DTS;
@@ -478,9 +491,14 @@ function tick(){
     if(S.ic.fault<=0){S.ic.fault=0;log('good','Interconnector back in service.');}}
   else{const d=clamp(S.ic.set,-S.ic.lim,S.ic.lim)-S.ic.flow,r=S.ic.ramp*DTS;S.ic.flow+=clamp(d,-r,r);}
   const B=S.batt;
+  // A charge order that fills the battery stays paused until the player gives a new order,
+  // so it can't silently re-engage (and fight FCAS) once a trip draws the battery down.
+  // Under-frequency outside the normal band suspends charging too.
+  if(B.set!==B.lastSet){B.chgPaused=false;B.lastSet=B.set;}
   let bset=clamp(B.set,-B.p,B.p);
   if(B.soc<=1&&bset>0)bset=0;
-  if(B.soc>=B.e-1&&bset<0)bset=0;
+  if(bset<0&&B.soc>=B.e-1)B.chgPaused=true;
+  if(bset<0&&(B.chgPaused||S.dev<-.15))bset=0;
   B.out=bset;
   if(S.dr.left>0)S.dr.left-=DTS;
   const drMW=S.dr.left>0?350:0;
@@ -520,7 +538,7 @@ function tick(){
   // ---- economics ----
   const availCap=F.reduce((a,u)=>a+(u.on?capE(u):0),0)
       +windAvail+solAvail+(B.soc>50?B.p:B.p*B.soc/50)
-      +(S.ic.fault>0?0:Math.max(S.ic.lim-S.ic.flow,0))+S.rert.out;
+      +(S.ic.fault>0?0:S.ic.lim)+S.rert.out; // the tie's full import capability, whatever it is carrying now
   const margin=(availCap-dem)/dem;
   S.price=priceOf(margin,shedMW);
   S.maxPrice=Math.max(S.maxPrice,S.price);
@@ -554,7 +572,15 @@ function tick(){
   A.hw=S.heat.active?2:(S.heat.ann&&t<S.heat.t0?1:0);
   A.stm=S.storm.active?2:(S.storm.warn?1:0);
   A.pk=dem>7000?1:0;
-  for(const k in A){if(A[k]&&!S.prevAl[k])beep(A[k]>1?950:700,A[k]);S.prevAl[k]=A[k];}
+  // A tile lights at once. Only critical (red) tiles sound, by priority as real annunciators
+  // do, and only once red has held for 2 s (an on-delay, the usual cure for chattering
+  // alarms), at most once per 30 s per tile (20 / 300 ticks at 1x). Amber tiles are silent;
+  // warnings still sound through the event log.
+  for(const k in A){
+    if(A[k]<2)S.alSince[k]=null;
+    else{if(S.alSince[k]==null)S.alSince[k]=S.ticks;
+      if(S.ticks-S.alSince[k]===20&&!(S.ticks-(S.lastBeep[k]??-1e9)<300)){beep(950,2);S.lastBeep[k]=S.ticks;}}
+    S.prevAl[k]=A[k];}
   const mi=Math.floor(t);
   if(mi>S.lastMin){S.lastMin=mi;
     S.aDem.push(dem);S.aSup.push(supply);S.aRen.push(S.ren);S.aShed.push(shedMW+drMW);}
@@ -593,10 +619,9 @@ function endShift(black){
   if(black)tips.push('Frequency left the survivable band. Keep battery charge and fast reserves in hand for the big contingency.');
   if(S.unserved>0&&!black)tips.push('Load was shed — usually a sign the evening peak or a trip caught you under-committed. Start plant earlier.');
   if(cmp<90)tips.push('Frequency spent long spells outside the band: chase balance with the battery and hydro first, then walk the slow units in behind them.');
-  if(S.co2>40000)tips.push('Heavy CO₂ day. Leaning harder on renewables + storage (and importing) can cut emissions without losing money.');
   if(!tips.length)tips.push('Textbook dispatch: anticipate the net-load ramp, hold reserves, let the machines do the small stuff.');
   $('endBox').innerHTML='<h1 style="font-size:18px">'+(black?'SYSTEM BLACK':'SHIFT COMPLETE')+
-    '<small>MERIDIAN ISO · SHIFT DEBRIEF</small></h1>'+
+    '<small>REGION S1 · SHIFT DEBRIEF</small></h1>'+
     '<div id="grade" style="color:'+gc+'">'+g+'</div><p style="color:'+gc+'">'+gt+'</p>'+
     '<table>'+rows+'</table><h2>DEBRIEF</h2><ul>'+tips.map(t=>'<li>'+t+'</li>').join('')+'</ul>'+
     '<button class="go" id="bAgain">⟳ NEXT SHIFT</button>';
@@ -722,12 +747,12 @@ const BLD={
  ccgt:{x:92,y:176, box:[50,136,86,54], label:'RIVERTON CCGT'},
  gta:{x:152,y:228,box:[124,202,56,40], label:'PEAKER GT·A'},
  gtb:{x:210,y:252,box:[182,228,56,38], label:'PEAKER GT·B'},
- hyd:{x:430,y:140, box:[396,92,92,84], bar:[414,88], label:'SNOWY GORGE HYDRO'},
+ hyd:{x:430,y:140, box:[396,92,92,84], bar:[414,88], label:'GREYFELL GORGE HYDRO'},
  wind:{x:512,y:80, box:[470,34,86,84], bar:[496,30], label:'GALE RIDGE WIND'},
  sol:{x:408,y:246,box:[356,220,110,54],label:'SUNPLAIN SOLAR'},
  batt:{x:262,y:262,box:[226,240,76,38], label:'BIG BATTERY'},
  ic:{x:330,y:52, box:[304,16,56,62],  label:'INTERCONNECTOR N1'},
- city:{x:275,y:168,box:[206,134,140,76],label:'MERIDIAN CITY'},
+ city:{x:275,y:168,box:[206,134,140,76],label:'THE CITY'},
 };
 const LBL={coal:'COAL',ccgt:'CCGT',gta:'GT·A',gtb:'GT·B',hyd:'HYDRO',wind:'WIND',
  sol:'SOLAR',batt:'BATTERY',ic:'TIE-LINE',city:'CITY'};
@@ -1240,6 +1265,24 @@ function buildUI(){
   STRIP.forEach(s=>$('st-'+s[0]).addEventListener('click',()=>select(s[0])));
 }
 function select(id){sel=id;renderDock();ui();}
+// Unit commitment orders, shared by the dock and the headless tools.
+function startUnit(u){
+  if(u.fault>0||u.on||u.starting>0||(u.id==='hyd'&&S.hydRes<=0))return false;
+  u.starting=u.st;S.money-=u.startCost;S.fuel+=u.startCost;
+  log('info',u.nm+' start sequence initiated — on-line in '+u.st+' min (start cost '+fm$(u.startCost)+').');
+  return true;
+}
+function stopUnit(u){
+  if(!u.on||u.stopping)return false;
+  u.stopping=true;
+  log('info',u.nm+' shutdown ordered — unloading at '+u.ramp+' MW/min; the breaker opens at '+fmt(u.cap*.05)+' MW.');
+  return true;
+}
+function abortStop(u){
+  if(!u.stopping)return false;
+  u.stopping=false;log('info',u.nm+' shutdown aborted — returning to setpoint.');
+  return true;
+}
 function renderDock(){
   const u=F.find(q=>q.id===sel);const P=$('selP');
   if(u){
@@ -1254,11 +1297,9 @@ function renderDock(){
     $('dSl').addEventListener('input',e=>{u.set=+e.target.value;$('dSet').textContent=fmt(u.set);});
     $('dBtn').addEventListener('click',()=>{
       if(u.fault>0)return;
-      if(u.on){u.on=false;u.starting=0;log('info',u.nm+' decommitted — output running down.');}
+      if(u.on){if(u.stopping)abortStop(u);else stopUnit(u);}
       else if(u.starting>0){u.starting=0;log('info',u.nm+' start-up aborted.');}
-      else{if(u.id==='hyd'&&S.hydRes<=0)return;
-        u.starting=u.st;S.money-=u.startCost;S.fuel+=u.startCost;
-        log('info',u.nm+' start sequence initiated — on-line in '+u.st+' min (start cost '+fm$(u.startCost)+').');}
+      else startUnit(u);
       ui();
     });
   }else if(sel==='batt'){
@@ -1286,7 +1327,7 @@ function renderDock(){
     $('dSl').addEventListener('input',e=>{if(w)S.wCurt=+e.target.value;else S.sCurt=+e.target.value;
       $('dSet').textContent=e.target.value;});
   }else{ // city
-    P.innerHTML=`<div class="dhead"><span class="lamp on" id="dLamp"></span>MERIDIAN CITY<span class="dtype">LOAD CENTRE · 1.4M PEOPLE</span></div>
+    P.innerHTML=`<div class="dhead"><span class="lamp on" id="dLamp"></span>THE CITY<span class="dtype">LOAD CENTRE · 1.4M PEOPLE</span></div>
       <div class="dout"><span id="dOut">0</span><small> MW DEMAND · <span id="dServe"></span></small></div>
       <div class="dstat" id="dStat"></div>
       <div class="dfoot" style="gap:6px">
@@ -1349,16 +1390,20 @@ function ui(){
       :u.subFault>0?'<span class="fl">ONE MACHINE DOWN — REPAIR '+Math.ceil(u.subFault)+' MIN</span>'
       :u.starting>0?'<span class="dn">STARTING — SYNC IN '+Math.ceil(u.starting)+' MIN</span>'
       :!u.on?'OFF-LINE — press START UNIT to commit'
+      :u.stopping?'<span class="dn">▼ SHUTTING DOWN — breaker opens at '+fmt(u.cap*.05)+' MW</span>'
+      :u.out>capE(u)*.96?'<span class="fl">ABOVE 96% — TRIP RISK ≈3.5% PER GRID-HOUR</span>'
       :Math.abs(tgt-u.out)>u.ramp*DTS?'<span class="'+(tgt>u.out?'up':'dn')+'">'+(tgt>u.out?'▲ RAMPING UP':'▼ RAMPING DOWN')+' → '+fmt(tgt)+' MW</span>'
       :(u.derate<1?'<span class="dn">DERATED (HEAT)</span>':'ON TARGET');
     const bt=$('dBtn');
-    bt.textContent=u.fault>0?'FAULT':u.starting>0?'ABORT START':u.on?'SHUT DOWN':'START UNIT';
+    bt.textContent=u.fault>0?'FAULT':u.starting>0?'ABORT START':u.stopping?'ABORT SHUTDOWN':u.on?'SHUT DOWN':'START UNIT';
     bt.disabled=u.fault>0;bt.classList.toggle('stop',u.on);
     if(sel==='hyd'&&$('dWater'))$('dWater').style.width=(S.hydRes/7500*100)+'%';
   }else if(sel==='batt'&&$('dOut')){
     const B=S.batt;
     $('dOut').textContent=fmt(Math.abs(B.out));
-    $('dMode').textContent=B.out>5?'DISCHARGE':B.out<-5?'CHARGE':'IDLE';
+    $('dMode').textContent=B.out>5?'DISCHARGE':B.out<-5?'CHARGE'
+      :B.set<0&&B.chgPaused?'CHARGE ORDER — PAUSED (FULL)'
+      :B.set<0&&S.dev<-.15?'CHARGE SUSPENDED (UNDER-FREQUENCY)':'IDLE';
     const sp=100*B.soc/B.e;
     $('dSoc').textContent=Math.round(sp)+'%';$('dSocM').textContent=fmt(B.soc);
     $('dSocBar').style.width=sp+'%';
