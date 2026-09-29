@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "description": "GRIDWATCH. A static site: nothing here is needed to play. `node --test` runs tests/*.test.js with no dependencies.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "baseline": "node tools/baseline.js",
+    "golden": "node tools/baseline.js > tools/baseline.golden.md"
+  }
+}
