@@ -25,10 +25,17 @@ export function secondOfHour(scn, h) {
   return (h - scn.clock.startH) * S_PER_H;
 }
 
+// The table row i (0 <= i <= length - 2) that starts the segment holding x: the largest i
+// with t[i][0] <= x (the callers have already clamped x inside the table). Binary search
+// (integration: the linear scan was ~0.1 s of a day in sampleSecond and forecast); the
+// result is the same row the scan found, for any sorted table.
 function segment(t, x) {
-  let i = 0;
-  while (i < t.length - 2 && t[i + 1][0] <= x) i++;
-  return i;
+  let lo = 0, hi = t.length - 2;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (t[mid][0] <= x) lo = mid; else hi = mid - 1;
+  }
+  return lo;
 }
 
 /** Linear interpolation in a [[x, y], ...] table sorted by x; clamps at both ends. */
@@ -189,47 +196,132 @@ function announced(state, kind) {
   return null;
 }
 
+// A forecast "plan" is a time-sorted list of changes to a mean-reverting series' target
+// mean, built from announcements and the scenario's public event climatology only; it
+// mirrors how prerollSeries applies the (hidden) events. Record {atS, op, mu, endS, k}:
+//   op 'set'     the mean is mu from atS on;
+//   op 'atLeast' the mean is max(mean, mu) from atS on (heat: clear skies);
+//   op 'blend'   an event known only to fall somewhere in [atS, endS) (the storm's cut-out,
+//                the cloud front's clearing): the EXPECTED mean moves linearly from the mean
+//                in force to mu across the window.
+function sortPlan(plan) {
+  plan.forEach((c, k) => { c.k = k; });
+  return plan.sort((a, b) => a.atS - b.atS || a.k - b.k); // total order (README §2 rule 9)
+}
+
+function muAt(base, plan, t) {
+  let mu = base;
+  for (let i = 0; i < plan.length; i++) {
+    const c = plan[i];
+    if (c.atS > t) break;
+    if (c.op === 'set') mu = c.mu;
+    else if (c.op === 'atLeast') mu = Math.max(mu, c.mu);
+    else mu += (c.mu - mu) * Math.min(1, (t - c.atS) / Math.max(1, c.endS - c.atS));
+  }
+  return mu;
+}
+
+// Wind: an announced storm surges at its arrival, cuts out somewhere in the scenario's
+// cut-out window (times taken relative to the announced arrival) and settles when it
+// passes; an announced drought holds the drought mean from its onset.
+function windPlan(state) {
+  const ev = state.scn.events || {}, plan = [];
+  const storm = announced(state, 'storm'), drought = announced(state, 'drought');
+  if (storm && ev.storm) {
+    const x = ev.storm, at = h => storm.fromS + Math.round((h - x.arriveH) * S_PER_H);
+    plan.push({atS: storm.fromS, op: 'set', mu: x.arriveMu, endS: 0});
+    plan.push({atS: at(x.cutoutWindowH[0]), op: 'blend', mu: x.cutoutMu, endS: at(x.cutoutWindowH[1])});
+    plan.push({atS: at(x.passH), op: 'set', mu: x.passMu, endS: 0});
+  }
+  if (drought && ev.drought) plan.push({atS: drought.fromS, op: 'set', mu: ev.drought.mu, endS: 0});
+  return sortPlan(plan);
+}
+
+// Utility-solar clearness: an announced heatwave clears the skies from its onset; an
+// announced cloud front darkens them from its onset and clears somewhere in the scenario's
+// clear-after window.
+function clearPlan(state, heatNews) {
+  const ev = state.scn.events || {}, plan = [];
+  if (heatNews && ev.heat) plan.push({atS: heatNews.fromS, op: 'atLeast', mu: ev.heat.clearMu, endS: 0});
+  const cloud = announced(state, 'cloud');
+  if (cloud && ev.cloud) {
+    const x = ev.cloud;
+    plan.push({atS: cloud.fromS, op: 'set', mu: x.frontMu, endS: 0});
+    plan.push({atS: cloud.fromS + x.clearAfterMin[0] * S_PER_MIN, op: 'blend', mu: x.clearMu,
+      endS: cloud.fromS + x.clearAfterMin[1] * S_PER_MIN});
+  }
+  return sortPlan(plan);
+}
+
+// The smelter's expected load at second t: out until its announced return (smelter.returnS,
+// set by events at the trip: what the potline's owner tells the operator), then back at
+// SMELTER_RETURN_MW_MIN (the same arithmetic as events.applyDue). Persistence otherwise.
+function smelterLoadAt(sm, pending, t) {
+  if (!sm.returning && !(pending && t >= sm.returnS)) return sm.loadMW;
+  return Math.min(V.SMELTER_MW, Math.max(sm.loadMW, V.SMELTER_RETURN_MW_MIN / S_PER_MIN * (t - sm.returnS + 1)));
+}
+
 /**
  * Forecast for the player and par (S-4, L-1, L-2). Uses ONLY public information: the
- * scenario's climatology (demand shape, clear-sky sun, mean wind and clearness), the
- * present state (state.env) and announcements already made (state.news). Never reads
- * state.ext.
+ * scenario's climatology (demand shape and noise process, clear-sky sun, mean wind and
+ * clearness, the event menu's public timings), the present state (state.env, and the
+ * smelter's present load and announced return) and announcements already made
+ * (state.news). Never reads state.ext.
  *
  * Returns {fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[],
  * neighbourPrice[], exportLimitMW[]}, column k (0-based) at grid second fromS + (k + 1) *
  * stepS. The last two are the public daily shapes (P-6, F-13), exact, for the tie's merit
  * order in the L-0 plan. horizonS may run to the end of the sim day (observe's dayAhead).
  *
- * STAGE A MINIMAL VERSION (safe stub). Stage B "market + events" refines it: wind and solar drift
- * toward the ANNOUNCED regime (storm surge then cut-out, drought, cloud-front window),
- * and the L-2 acceptance (80 +- 5% of realised demand inside P10-P90) is met.
+ * Integrated minute by minute (so the result does not depend on stepS):
+ *   demand P50 = DEM(h) x announced heat multiplier + the present deviation decaying at
+ *     the scenario's noise revert rate - the smelter's expected missing load;
+ *   P10 / P90 = P50 -+ Z_P90 x sd(lead), where sd is the forecast error of the scenario's
+ *     own demand-noise process (an OU series: var grows as sigma^2 (1 - a^2L) / (1 - a^2)
+ *     with a = 1 - revertPerMin) plus the per-second wobble (FINE_NOISE_MW, at the target
+ *     and carried from the origin). sd is 0 at lead 0 and grows with lead (L-2). This
+ *     replaces the stage A band P50 x (1 -+ Z sigma(lead)) with FC_SIGMA_NEAR..FAR, which
+ *     is not calibrated to the sim's truth (see the stage B report, CONTRACT NOTES);
+ *   wind and clearness drift from the present toward the climatological mean, or toward
+ *     the announced regime (storm surge then cut-out risk; drought; cloud front inside its
+ *     warned window; heat's clear skies), with time constant FC_DRIFT_TAU_S.
+ * Unannounced events (a heatwave before its 10:30 warning, trips, the smelter's trip) are
+ * not in it: that is the forecast's honest error.
  */
 export function forecast(state, horizonS, stepS) {
-  const scn = state.scn, env = state.env;
-  const n = Math.floor(horizonS / stepS);
+  const scn = state.scn, env = state.env, s0 = env.s;
+  const n = Math.max(0, Math.floor(horizonS / stepS));
   const heatNews = announced(state, 'heat');
   const heat = heatNews ? {onsetS: heatNews.fromS, endS: heatNews.toS} : null;
-  const dev0 = env.demandMW - demandBaseMW(scn, env.h) * heatMultAt(heat, env.s);
-  // Per-column decay factors (no Math.pow: repeated multiplication).
-  let dDecay = 1;
-  for (let m = 0; m < stepS / S_PER_MIN; m++) dDecay *= 1 - scn.demand.noise.revertPerMin;
-  const drift = Math.max(0, 1 - stepS / V.FC_DRIFT_TAU_S);
-  const windTarget = V.WIND_MW * scn.wind.mu, clearTarget = scn.cloud.mu;
-  const out = {fromS: env.s, stepS, n, demandP50: [], demandP10: [], demandP90: [], windMW: [], solarMW: [],
+  const wPlan = windPlan(state), cPlan = clearPlan(state, heatNews);
+  const noise = scn.demand.noise, windMu = scn.wind.mu, clearMu = scn.cloud.mu;
+  const sig2 = noise.sigmaMW * noise.sigmaMW, fine2 = V.FINE_NOISE_MW * V.FINE_NOISE_MW;
+  const sm = state.smelter;
+  const smPending = !sm.returning && sm.returnS > s0 && sm.loadMW < V.SMELTER_MW - V.MW_EPS;
+  const out = {fromS: s0, stepS, n, demandP50: [], demandP10: [], demandP90: [], windMW: [], solarMW: [],
     neighbourPrice: [], exportLimitMW: []};
-  let dev = dev0, wind = env.windAvailMW, clear = env.clearness;
+  let dev = env.underlyingMW - demandBaseMW(scn, env.h) * heatMultAt(heat, s0);
+  let wind = env.windFrac, clear = env.clearness, varOU = 0, decay = 1, t = s0;
   for (let k = 0; k < n; k++) {
-    const s = env.s + (k + 1) * stepS, h = hourOfDay(scn, s), lead = (k + 1) * stepS;
-    dev *= dDecay;
-    wind = windTarget + (wind - windTarget) * drift;
-    clear = clearTarget + (clear - clearTarget) * drift;
-    const p50 = demandBaseMW(scn, h) * heatMultAt(heat, s) + dev;
-    const w = Math.min(1, Math.max(0, (lead - V.FC_STEP_S) / (V.FC_SIGMA_FAR_S - V.FC_STEP_S)));
-    const sigma = V.FC_SIGMA_NEAR + (V.FC_SIGMA_FAR - V.FC_SIGMA_NEAR) * w;
+    const s = s0 + (k + 1) * stepS;
+    while (t < s) {
+      const dt = Math.min(S_PER_MIN, s - t);
+      t += dt;
+      const a = 1 - noise.revertPerMin * dt / S_PER_MIN;
+      dev *= a;
+      decay *= a;
+      varOU = varOU * a * a + sig2 * dt / S_PER_MIN;
+      const g = dt / V.FC_DRIFT_TAU_S;
+      wind += (muAt(windMu, wPlan, t) - wind) * g;
+      clear += (muAt(clearMu, cPlan, t) - clear) * g;
+    }
+    const h = hourOfDay(scn, s);
+    const p50 = demandBaseMW(scn, h) * heatMultAt(heat, s) + dev - (V.SMELTER_MW - smelterLoadAt(sm, smPending, s));
+    const band = V.Z_P90 * Math.sqrt(varOU + fine2 * (1 + decay * decay));
     out.demandP50.push(p50);
-    out.demandP10.push(p50 * (1 - V.Z_P90 * sigma));
-    out.demandP90.push(p50 * (1 + V.Z_P90 * sigma));
-    out.windMW.push(wind);
+    out.demandP10.push(p50 - band);
+    out.demandP90.push(p50 + band);
+    out.windMW.push(V.WIND_MW * wind);
     out.solarMW.push(clearSkySolarMW(scn, h) * clear);
     out.neighbourPrice.push(neighbourPrice(scn, h));
     out.exportLimitMW.push(exportLimitMW(h));

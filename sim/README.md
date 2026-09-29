@@ -275,26 +275,26 @@ to 435).
 | `mode` | `charge`/`idle`/`discharge` | grid (input) | the dial |
 | `orderMW` | MW >= 0 | grid (input) | magnitude |
 | `guardMW` | MW | grid (input) | GUARD ring, 0..500 in 50-MW steps; held back as contingency FFR |
-| `schedMW` | MW (+ discharge) | grid | moves toward clamp(signed order + agcTrim, -(BATT_MW - guardMW), BATT_MW - guardMW) at `BATT_DISPATCH_RAMP_MW_S`; charge part 0 while `fullHold` |
+| `schedMW` | MW (+ discharge) | grid | moves toward clamp(signed order + agcTrim, -(BATT_MW - guardMW), BATT_MW - guardMW) at `BATT_DISPATCH_RAMP_MW_S`; charge part 0 while `fullHold`; near empty / full also held to the schedule taper (§11 grid) |
 | `agcTrimMW` | MW | grid | within +-(BATT_MW - guardMW) |
-| `pfrMW` | MW | physics | mandatory PFR layer (deadband 0.015, full at 0.85 Hz beyond, 0.1 s + 0.1 s) |
-| `ffrMW` | MW | physics | GUARD layer delivered now |
+| `pfrMW` | MW | physics | mandatory PFR layer (deadband 0.015, full at 0.85 Hz beyond, 0.1 s + 0.1 s); stored after the inverter / SoC trim (anti-windup) |
+| `ffrMW` | MW | physics | GUARD layer delivered now: follows its target at guardMW per `GUARD_DELIVERY_S` up and BATT_MW per `GUARD_WITHDRAW_S` down (turning the ring down mid-sustain never steps it) |
 | `ffrFiredTick` | tick or -1 | physics | when the guard fired; -1 = armed |
 | `outMW` | MW | physics | effSched + pfr + ffr exactly (§11 physics step 4) |
 | `socMWh` | MWh | physics | integrated per tick, clamped to [0, BATT_MWH]; charge x `BATT_CHARGE_EFF` |
 | `fullHold` | bool | grid | "CHARGE ORDER - paused (full)" (H-10); cleared only by a new battery input |
-| `ufSuspend` | bool | physics | charging suspended below 49.85 Hz until above 49.90 (H-10), at physics speed |
+| `ufSuspend` | bool | physics | charging suspended below 49.85 Hz until above 49.90 (H-10), at physics speed; with `UF_RESUME_LINEAR` (default) scheduled charging re-engages in proportion between 49.85 and 49.90 instead of as one step at 49.90 |
 
 ### tie, ren, hydro, rert, dr, smelter
 
 | Object | Fields (writer) |
 |---|---|
 | `tie` | `setMW` (grid, input), `flowMW` (grid; + import; ramps at `TIE_RAMP_MW_MIN`; clamp [-exportLimit, 800]), `tripped`, `lockoutS` (fleet.tripTie, grid) |
-| `ren` | `windLimitPct`, `solarLimitPct` (grid, input: output LIMIT %, 100 = no curtailment, as the legacy LIMIT slider), `windMW`, `solarMW` (grid: available x limit; physics and market apply OFGS to wind) |
+| `ren` | `windLimitPct`, `solarLimitPct` (grid, input: output LIMIT %, 100 = no curtailment, as the legacy LIMIT slider), `windCurtMW`, `solarCurtMW` (grid, integration: the curtailed MW, moving toward available x (100 - limit)% at `CURTAIL_RAMP_FRAC_MIN`, so a LIMIT change is never a step; the weather passes straight through), `windMW`, `solarMW` (grid: available - curtailed; physics and market apply OFGS to wind) |
 | `hydro` | `storageMWh` (physics, per tick), `warned[]` (grid: 30%, 10% warnings) |
 | `rert` | `armed`, `leadS`, `outMW`, `standingDown`, `armedEver` (grid) |
-| `dr` | `callsLeft`, `activeS`, `mw` (grid) |
-| `smelter` | `loadMW` (fleet.tripSmelter, events: return ramp), `offS`, `returning` (events) |
+| `dr` | `callsLeft`, `activeS`, `mw` (grid; `mw` moves toward DR_MW while `activeS > 0`, else toward 0, at `DR_RAMP_MW_MIN`, integration) |
+| `smelter` | `loadMW` (fleet.tripSmelter, events: return ramp), `offS`, `returning` (events), `returnS` (events, stage B: second the return ramp starts; set at the trip as trip + offS, so the ramp is a function of time and weather.forecast knows the announced return) |
 
 ### city, ufls, ofgs, collapse
 
@@ -311,8 +311,11 @@ to 435).
 * `ufls.timerS[8]`, `ufls.operated[8]`: physics (timers; `fleet.operateUfls` darkens both
   districts and marks the stage); grid re-arms with `fleet.rearmUfls` once both are lit.
   `ofgs.timerS[4]`, `ofgs.tripped[4]`, `ofgs.trippedFrac`: physics trips and grid reconnects
-  (after `OFGS_RECONNECT_S` back in band, counting `ofgs.okS`) only via `fleet.setOfgsStage`,
-  which keeps `trippedFrac = count x OFGS_STAGE_FRAC`. `collapse.bandS[2]` (physics).
+  (after `OFGS_RECONNECT_S` back in band, counting `ofgs.okS`; then one stage per
+  `OFGS_RECONNECT_GAP_S`, the last to trip first) only via `fleet.setOfgsStage`, which keeps
+  `trippedFrac = count x OFGS_STAGE_FRAC`. `collapse.bandS[2]` (physics): time BELOW each
+  band's upper edge (47.5 Hz for 2 s, 48.0 Hz for 20 s), so a dip into the lower band keeps the
+  20-s timer running. Relay and collapse timers count whole ticks (0.30 s is exactly 15).
 
 ### phys (physics; every tick)
 
@@ -329,16 +332,19 @@ battery.ffrMW + loadReliefMW = 0` within 1 MW. At createState the readouts are 0
 
 ### acc (per-second accumulators) and last
 
-`acc`: `unitMWs[13]`, `battOutMWs`, `battChargeMWs`, `battAbsMWs`, `shedMWs`, `servedMWs`
-(of `loadMW`), `loadReliefMWs`, `fMinHz`, `fMaxHz`, `fSumHz`, `ticks` (physics adds each tick;
-when `acc.ticks === 0` it first sets `fMinHz = fMaxHz = f`), `startCost` ($, grid adds at
-START). Built by `fleet.newAcc()`; `market.settleSecond` folds it and calls
+`acc`: `unitMWs[13]`, `battOutMWs` (signed net output, + discharge), `battChargeMWs` (charge
+drawn, >= 0), `battAbsMWs` (throughput |out|), `shedMWs`, `servedMWs` (of `loadMW`),
+`loadReliefMWs`, `fMinHz`, `fMaxHz`, `fSumHz` (on each tick's START frequency), `ticks`
+(physics adds each tick; when `acc.ticks === 0` it first sets `fMinHz = fMaxHz = f`),
+`startCost` ($, grid adds at START). Built by `fleet.newAcc()`; `market.settleSecond` folds it and calls
 `fleet.resetAcc(acc)`, and writes `last = {fMeanHz, fMinHz, fMaxHz, servedMW, shedMW}` (means
 over the completed second). AGC, FOS and the restore permissive read `last.fMeanHz`.
 
 ### agc, fos, sec, price (grid / market)
 
-* `agc = {nextCycleS, requestMW, unmetMW, atLimitS, aceMW}`.
+* `agc = {nextCycleS, requestMW, unmetMW, atLimitS, aceMW}`: `unmetMW` is the ACE while the
+  request is clipped with ACE pushing further out (else 0); `atLimitS` counts consecutive grid
+  seconds at the limit; in HAND every trim and the request are 0 and ACE is still shown.
 * `fos = {outsideS, belowContainS, countdownS, directed, nextShedS}`.
 * `sec = {r5MW, lMW, lKind: 'unit'|'link'|'none', lId, ratio, previewNadirHz, previewAtS,
   previewLId, previewLMW, dirty, level: 'SECURE'|'TIGHT'|'SHORT'|'SHEDDING'}`.
@@ -395,18 +401,18 @@ An input is `{type, ...args}`. `applyInput(state, input, out)` (step.js) runs:
 | `basePoint` | `station`, `mw` >= 0 | always | equal shares over the `'on'` machines (§5 stations); `mw` rewritten to the applied lever (0 if none is on) |
 | `start` | `unit` | `fleet.startBlock` is '' (off; min down met; water for hydro) | `starting`, `timerS = t1S`, `acc.startCost += startCost`, `starts++` |
 | `stop` | `unit` | `fleet.stopBlock` is '' (min up met; starting/ready just cancel) | on/loading -> `unloading`, base point 0 (the lever loses exactly its share); starting/ready -> `off` |
-| `abortStop` | `unit` | mode `unloading` or `shutdown` | unloading -> `on` with base point = schedMW; shutdown -> `loading` (T2 slope from its output up to MIN) |
+| `abortStop` | `unit` | mode `unloading` or `shutdown` (hydro: not out of water) | unloading -> `on` with base point = schedMW; shutdown -> `loading` (T2 slope from its output up to MIN) |
 | `syncClose` | `unit` | mode `ready` | **K-12 stub**: breaker closes now, clean (angle/slip come in Phase 1a) |
-| `battery` | `mode` in charge/idle/discharge, `mw` >= 0 | always | order set; `fullHold = false` |
+| `battery` | `mode` in charge/idle/discharge, `mw` >= 0 | always | order set (`mw` rewritten to min(mw, BATT_MW)); `fullHold = false` |
 | `guard` | `mw` in 0..500, multiple of 50 | always | `guardMW` |
-| `tie` | `mw` in -800..800 | always (while tripped it sets the post-repair setpoint) | `setMW`; the flow is clamped to the export cap at use |
-| `curtail` | `kind` wind/solar, `limitPct` 0..100 | always | the output LIMIT % (100 = no curtailment) |
-| `callDR` | - | calls left and not active | `activeS = DR_DURATION_S`, `callsLeft--` |
+| `tie` | `mw` in -800..800 | always (while tripped it sets the post-repair setpoint) | `setMW`; the flow is clamped to the export cap at use (a lower cap is reached at the tie ramp, never as a step) |
+| `curtail` | `kind` wind/solar, `limitPct` 0..100 | always | the output LIMIT % (100 = no curtailment), reached at `CURTAIL_RAMP_FRAC_MIN` (both ways) |
+| `callDR` | - | calls left and not active | `activeS = DR_DURATION_S`, `callsLeft--`; `dr.mw` ramps in and out at `DR_RAMP_MW_MIN` |
 | `armRERT` | - | not armed | armed, `leadS = RERT_LEAD_S`, `armedEver = true` ("glass broken") |
-| `standDownRERT` | - | armed | ramps out at `RERT_RAMP_MW_MIN`, then disarmed |
+| `standDownRERT` | - | armed and not already standing down | ramps out at `RERT_RAMP_MW_MIN`, then disarmed; before it arrives it simply cancels |
 | `mode` | `agc` bool | before 04:30 and `!control.modeLocked` | `control.mode` = AGC / HAND (D-7) |
 | `restore` | `district` | dark and `grid.restorePermissive` is '' | **K-13 stub**: relit; `surgeMW` = cold load - its share of demand; `lastRestoreS`; UFLS stage re-armed if both its districts are lit |
-| `directShed` | - | a lit district in rotation remains (K-7; Phase 1a adds the LOR2-forecast gate) | darkens the lit rotation district with the lowest `rot` (`shedBy 'directed'`) |
+| `directShed` | - | a lit district in rotation remains (K-7; Phase 1a adds the LOR2-forecast gate) | darkens the lit rotation district restored longest ago (never shed first; ties by the lowest `rot`: on a fresh day, the lowest `rot`), `shedBy 'directed'` (true rotation: a district just restored is not the next one shed) |
 
 `ack`, `silence`, pause, rate, FAST and skip are **not** sim inputs (presentation only).
 Live Stack keyframes (L-4/L-6, Phase 1a) will add a `plan` input type and a `plan` state field.
@@ -479,7 +485,11 @@ any plain value.
 
 * **A day** (4.32 M physics ticks + 86,400 grid seconds + par's decisions) runs in **<= 1.6 s**
   single-threaded on a laptop: D-9 generates 365 days in <= 10 min. So `physics.tick` <=
-  ~0.3 us (a representative tick with this state layout measured ~250 ns).
+  ~0.3 us (a representative tick with this state layout measured ~250 ns). Integration
+  measured (Node 24, the owner's laptop, first pass): a whole scripted-plan day through
+  `step()` 1.15-1.35 s including ~0.1 s of decisions (1,440 `observe()` calls); 250-290 ns per
+  tick all-in (grid seconds amortised), of which `physics.tick` is ~160-200 ns (more with
+  more machines on the bars); a doNothing day ~230-270 ns per tick.
 * Per-machine constants are precomputed in `V.MACHINES` (`govDeadTicks`, `govAlpha = DT/lag`,
   `govGainMWperHz`, `govCapMW`, `ekMWs`, `rampMWs`, bands). Hoist `V.*` into module-level consts.
 * Units are small fixed-shape objects created once (never add or delete fields); loop with
@@ -490,10 +500,16 @@ any plain value.
   RERT and DR are constant within the second.
 * `step()` returns a shared frozen empty array when nothing happened.
 * **TRIP PREVIEW**: the only repeated full-engine run. It never clones state (a JSON clone of
-  state alone costs ~0.26 ms): it loads ONE module-level scratch object, built once, from the
-  physics-read fields (§11) and runs <= 10 s = 500 ticks, stopping after the nadir. Target
-  ~0.1-0.3 ms; limit 5 ms (H-8). `securitySecond` re-runs it only when dirty, L moved (§11
-  grid) or `PREVIEW_REFRESH_S` passed.
+  state alone costs ~0.26 ms): it saves every field the engine (and the preview's target and
+  guard override) can write into ONE module-level backup built once, runs the engine on
+  state itself for <= 10 s = 500 ticks, stopping after the nadir, and restores every saved
+  field exactly (in a `finally`), so state is unchanged on return (tested by hash and by
+  interleaving). Integration changed this from a separate scratch object: running the tick
+  engine on two object shapes made every field access polymorphic, ~90 ns per LIVE tick
+  (130 vs 220 ns measured). Target ~0.1-0.3 ms; limit 5 ms (H-8). `securitySecond` re-runs it
+  only when dirty, L moved (§11 grid) or `PREVIEW_REFRESH_S` passed.
+* Hot-path details that matter: `step()` skips the `buf.length = 0` store (a runtime call) on
+  empty ticks; weather tables are searched by bisection.
 * `observe()` allocates (tens of us, more with `dayAhead`); par calls it at decision points
   only (every `PAR_DECIDE_EVERY_S`), never per tick. `hashState` once per grid-hour.
 * **Test budget** (F-10 < 60 s with ~23 s of legacy baseline): the default run steps at most
@@ -510,8 +526,8 @@ Reads and writes per stage B module (a write through a `fleet.js` action counts 
 | physics | `tick`, `phys`, `units[].{mode, sync, schedMW, availMW, govMW, k}`, `battery.{schedMW, guardMW, socMWh, ffrFiredTick, pfrMW, ufSuspend}`, `tie.flowMW`, `ren.{windMW, solarMW}`, `rert.outMW`, `dr.mw`, `env.demandMW`, `city.{shedFrac, coldLoadMW}`, `ufls`, `ofgs`, `collapse`, `conts[contIdx]`, `hydro.storageMWh` | `phys.*`, `units[].{govMW, outMW}`, `battery.{pfrMW, ffrMW, ffrFiredTick, outMW, socMWh, ufSuspend}`, `hydro.storageMWh`, `ufls.timerS`, `ofgs.timerS`, `collapse.bandS`, `black`, trace fields of `conts[contIdx]`, `acc.*` (adds); stages via `fleet.operateUfls` / `fleet.setOfgsStage` |
 | grid | everything above plus `env`, `last`, `control`, `sec`, `seed` (play stream) | `units[].{mode, timerS, agcTrimMW, schedMW, availMW, hotS, starts}`, base points via `fleet.setBasePoint`, `battery.{mode, orderMW, guardMW, schedMW, agcTrimMW, fullHold}`, `tie.{setMW, flowMW, tripped, lockoutS}`, `ren.*`, `hydro.warned`, `rert.*`, `dr.*`, `city.{coldLoadMW, lastRestoreS}`, `districts[].surgeMW`, `ofgs.okS`, `agc.*`, `fos.*`, `sec.*`, `acc.startCost`, `conts[contIdx].backInBandTick`; breakers via `fleet.setSync`, trips via `fleet.tripUnit`, districts via `fleet.setDistrictDark`, re-arm / reconnect via `fleet.rearmUfls` / `fleet.setOfgsStage` |
 | market | `env`, `units`, `battery`, `tie`, `ren`, `ofgs.trippedFrac`, `rert`, `dr`, `city`, `sec`, `acc`, `hydro.storageMWh` | `price.*`, `score.*`, `last.*`, `acc` (via `fleet.resetAcc`) |
-| events (`applyDue`) | `ext.events`, `evNext`, `units`, `tie`, `smelter` | `evNext`, `news`, `smelter.{returning, loadMW}`; trips via `fleet.tripUnit`, `tripTie`, `tripSmelter` |
-| events (`forecast`) | `scn`, `env`, `news` | nothing |
+| events (`applyDue`) | `ext.events`, `evNext`, `units`, `tie`, `smelter`, `scn` (the storm and cloud text timings) | `evNext`, `news`, `smelter.{returning, loadMW, returnS}`; trips via `fleet.tripUnit`, `tripTie`, `tripSmelter` |
+| weather (`forecast`) | `scn` (incl. the public `scn.events` timings), `env`, `news`, `smelter.{loadMW, returning, returnS}` (the announced return) | nothing |
 | autopilot | `observe()` output only | its own memo |
 | step | everything (orchestration) | `tick`, `over`, `log`, `control`, `sec.dirty` |
 
@@ -546,14 +562,19 @@ Stage A (done): `hourOfDay(scn, s)`, `secondOfHour(scn, h)`, `tableLinear(t, x)`
 `exportLimitMW(h)`, `heatMultAt(heat, s)`, `prerollRegime(seed, scn)`,
 `prerollSeries(seed, scn, regime, events)`, `fineNoiseMW(seed, s)`, `sampleSecond(state)`.
 
-**B "market + events"**: `forecast(state, horizonS, stepS)` (shape in §8). Reads `scn`, `env`,
-`news` only. S-4: wind and solar drift from the present toward the climatological value, or
-toward the **announced** regime (storm: surge then cut-out risk; drought; cloud front inside
-its warned window) with `FC_DRIFT_TAU_S`; demand P50 = DEM x announced heat + the present
-deviation decaying at the noise revert rate; P10/P90 = P50 x (1 -+ `Z_P90` sigma(lead)), sigma
-linear from `FC_SIGMA_NEAR` at 5 min to `FC_SIGMA_FAR` at 4 h, flat beyond (L-2 accept: 80 +-
-5% coverage at 1 h and 4 h). `neighbourPrice[]` and `exportLimitMW[]` are the exact public
-shapes. The stage A version is a safe minimal implementation; keep its output shape.
+**B "market + events"**: `forecast(state, horizonS, stepS)` (shape in §8). Reads `scn`
+(including the public timings in `scn.events`), `env`, `news` and the smelter's present load
+and announced return (`smelter.{loadMW, returning, returnS}`); never `ext` (S-4 scramble test).
+S-4: wind and solar drift from the present toward the climatological value, or toward the
+**announced** regime (storm: surge then cut-out risk; drought; cloud front inside its warned
+window; heat's clear skies) with `FC_DRIFT_TAU_S`; demand P50 = DEM x announced heat + the
+present deviation decaying at the noise revert rate - the smelter's expected missing load;
+P10/P90 = P50 -+ `Z_P90` x sd(lead), where sd is the forecast error of the scenario's own
+demand-noise process (`scn.demand.noise`, an OU series) plus `FINE_NOISE_MW`: 0 at lead 0,
+growing with lead (L-2 accept: 80 +- 5% coverage at 1 h and 4 h; measured 78.0% / 77.3%).
+The stage A relative band (`FC_SIGMA_NEAR`..`FC_SIGMA_FAR`) covered 96% at 4 h and failed L-2;
+those params are kept only for the §8.3 register. `neighbourPrice[]` and `exportLimitMW[]`
+are the exact public shapes.
 
 ### events.js
 
@@ -566,29 +587,39 @@ event; heat onset/end, storm and cloud events -> log only (demand, derate and se
 carry them); `unitTrip` -> `fleet.tripUnit` on the rule's target (rule `largest`: the sync
 unit with the largest output, lower index on a tie; rule `station`: that station's sync
 machine with the largest output; none -> nothing); `linkTrip` -> `fleet.tripTie` (no-op if
-already tripped); `smelterTrip` -> `fleet.tripSmelter`; `smelterReturn` -> `smelter.returning =
-true`. Every second while returning, raise `smelter.loadMW` by `SMELTER_RETURN_MW_MIN / 60` up
-to `SMELTER_MW`. Invariant: each event applies exactly once; nothing in ext is modified.
+already tripped); `smelterTrip` -> `fleet.tripSmelter` and `smelter.returnS = trip second +
+offS`; `smelterReturn` -> `smelter.returning = true`. While returning, `smelter.loadMW` =
+min(SMELTER_MW, max(loadMW, `SMELTER_RETURN_MW_MIN / 60` x (s - returnS + 1))): a function of
+time, so it is the same called every second or after a jump. Invariant: each event applies
+exactly once; nothing in ext is modified.
 
 ### physics.js (B "physics")
 
 `tick(state, out)` and `previewTrip(state, target, opts) -> {nadirHz, nadirS, lostMW,
 uflsStages, black, caught}` (JSDoc in the file). Order inside `tick`:
 
-1. `fHist[tick % 32] = fHz`; `rocofHzS` over 25 ticks.
+1. `fHist[tick % 32] = fHz` (`FHIST_LEN` is a power of two, indexed with a mask; checked at
+   load); `rocofHzS` over 25 ticks.
 2. `ufSuspend` hysteresis (49.85 / 49.90).
 3. Governors, units with mode `'on'`: `fd = fHist[(tick - govDeadTicks) mod 32]`; `e` =
    `fd - F0` outside the +-0.015 deadband (0 inside, reduced by the deadband outside);
    `target = -e x govGainMWperHz`, clamped to +-`govCapMW`, then to headroom
-   [-(schedMW - minMW), availMW - schedMW]; `govMW += (target - govMW) x govAlpha`. Other sync
+   [-max(schedMW - minMW, 0), max(availMW - schedMW, 0)]; `govMW += (target - govMW) x govAlpha`. Other sync
    units decay `govMW` to 0 at the same alpha. Governors are symmetric (H-7 over-frequency).
-4. Battery: `effSched = schedMW`, but 0 when (`ufSuspend` and `schedMW < 0`), when discharging
+4. Battery: `effSched = schedMW`, but 0 when (`ufSuspend` and `schedMW < 0`; with
+   `UF_RESUME_LINEAR` it re-engages in proportion between 49.85 and 49.90), when discharging
    at `socMWh <= 0`, or when charging at `socMWh >= BATT_MWH`. PFR target =
    -clamp(e_db / 0.85, -1, 1) x BATT_MW on f delayed 5 ticks, lag 0.1 s; guard: fires when
    `guardMW > 0` and f < `GUARD_TRIGGER_HZ` (no dead time), ramps to `guardMW` over 1 s,
    holds `GUARD_SUSTAIN_S`, ramps off over `GUARD_RAMP_OFF_S`, re-arms when f >= 49.85 after
-   that; total capped at +-BATT_MW and by SoC (no discharge at 0, no charge when full), trimming
-   PFR first, then the guard, so `outMW === effSched + pfrMW + ffrMW`. Integrate `socMWh` and
+   that; total capped at +-BATT_MW and by SoC, trimming PFR first, then the guard, then the
+   schedule itself, so `outMW === effSched + pfrMW + ffrMW`. **SoC power taper**
+   (integration): within a few MWh of empty (full) the total discharge (charge) is limited to
+   sqrt(2 x `BATT_DISPATCH_RAMP_MW_S` x E), E the MW s left to empty (to fill, grid side), so
+   the output reaches 0 at the dispatch ramp instead of stepping off (a BMS derating power near
+   its SoC limits); 0 at exactly empty (full). Without it PFR, which the grid's schedule taper
+   cannot see, filled a battery charging ~250 MW and the charge stepped off at 100%, a
+   self-made over-frequency event that blacked out doNothing nights. Integrate `socMWh` and
    clamp it to [0, BATT_MWH].
 5. `outMW = schedMW + govMW` for sync units; integrate `hydro.storageMWh` (>= 0).
 6. UFLS (8 stages from 49.0 by 0.125, 0.3 s delay each, the stage timer resets if f recovers
@@ -603,14 +634,26 @@ uflsStages, black, caught}` (JSDoc in the file). Order inside `tick`:
     extreme, `caught` = readouts at the extreme minus `pre`, `uflsStages`, `contained`),
     accumulators (when `acc.ticks === 0`, `fMinHz = fMaxHz = f` first).
 
-`previewTrip` runs the same step function on the module scratch with schedules, demand and
-renewables frozen (no grid seconds), for <= `PREVIEW_HORIZON_S`, stopping once f has risen for
-`ROCOF_WINDOW_S` after the nadir. It never writes state (tested by hash, and by interleaving
-calls between two runs). `opts.guardMW` overrides the guard and clamps the battery schedule to
-+-(BATT_MW - guardMW), adding the clamped MW to the scratch's other scheduled supply so the
-preview starts balanced. `caught` as in §5 conts, relative to the state's readouts. K-10: it
-matches the real nadir within 0.02 Hz in the same state, also through `step()` with AGC and
-ramps running (the real run's schedules move only by ramps in the first seconds).
+`previewTrip` runs the same step function on state itself between a save and an exact
+restore (§10) with schedules, demand and renewables frozen (no grid seconds), for <=
+`PREVIEW_HORIZON_S`, stopping once f has risen for `ROCOF_WINDOW_S` after the nadir (and only
+when the battery cannot run dry inside the horizon and no charge step is pending). State is
+unchanged on return (tested by hash, and by interleaving calls between two runs). Targets:
+`unit`, `link`, `load` (mw > 0: the extreme is the PEAK), `district` (a restore preview: its
+cold-load MW; `pre.uflsMW` leaves the relit district out) and `none` (removes nothing); an
+unknown kind, unit or district, or `guardMW` outside 0..BATT_MW throws before state is
+touched. `opts.guardMW` overrides the guard and clamps the battery schedule to
++-(BATT_MW - guardMW); the clamped MW (effective, after the SoC and H-10 rules) are carried as
+a net-demand offset (env.demandMW - moved) so the preview starts balanced (the K-5 test
+specifies "the same fleet, battery idle, 400 MW less demand"), and come off `pre.batteryMW`.
+`caught` as in §5 conts, relative to the state's readouts. K-10: it matches the real nadir
+within 0.02 Hz in the same state, also through `step()` with AGC and ramps running (the real
+run's schedules move only by ramps in the first seconds).
+
+Contingency records: the extreme is judged on each traced tick's START frequency;
+`extremeTick` is that tick and `caught` that tick's readouts minus `pre` (so a UFLS stage
+that turns the fall is counted); the last frequency is judged too at black and at the end of
+a preview.
 
 Spec IDs: H-8 (RoCoF 1%, inertia raises nadir >= 0.2 Hz, containment, 10-s run <= 5 ms), H-6
 (no shedding above 49.0; 0.30 +- 0.02 s; no automatic restore), H-7, H-10, K-5, K-10, K-11, F-4.
@@ -625,15 +668,31 @@ lId, ratio, previewNadirHz, level}` (THE reserve function, H-4; pure), `restoreP
 * Unit state machine per §5; auto-sync after `AUTO_SYNC_S` in AGC mode only (HAND:
   manual `syncClose`); breaker close picks up `syncBlockMW`, then T2 linear to MIN; unloading at
   ramp to MIN, then T4 linear to `breakerOpenMW`, then the breaker opens (the only step, <= 5%).
-  Reaching `'on'` sets the base point to `minMW` via `fleet.setBasePoint`.
+  The sync block and the breaker-open level are capped at MIN (hydro, MIN 0, closes at 0 MW and
+  is 'on' at once). The transitions follow `schedMW` reaching MIN or the breaker-open level;
+  `timerS` is a display countdown (and what the market reads for starting / ready units: T1
+  left, then the auto-sync wait, 0 in HAND). Reaching `'on'` sets the base point to `minMW` via
+  `fleet.setBasePoint`. A heat derate lowers output at the unit's ramp, not as a step. Hydro at
+  `HYDRO_STOP_MWH` is forced to unload and cannot restart or abort the stop.
 * Hot trip (H-2): `hotS > HOT_ARM_S` and `uniform(seed, STREAM.PLAY, tick, k) <
   HOT_TRIP_PER_H / 3600` once per grid second -> `fleet.tripUnit(..., 'ran above 96% too long',
   HOT_TRIP_LOCKOUT_S, out)`.
 * AGC (K-2): integral on ACE from `last.fMeanHz`, participation by band, never starts/stops
   units or moves base points, 0 in HAND; `agc.atLimitS` counts grid seconds the request
-  exceeded all bands.
+  exceeded all bands. A unit's raise band stops at `HOT_LOADING_FRAC` x availMW (the
+  overload gate is its high regulating limit), so AGC never makes a unit run hot (H-2); only
+  a lever moved past the gate does.
 * Battery: `schedMW` toward clamp(signed order + trim, +-(BATT_MW - guardMW)) at the dispatch
-  ramp (K-5: guard MW are never available to orders).
+  ramp (K-5: guard MW are never available to orders). Near empty / full the schedule (and
+  the AGC band "within SoC") is held to P <= sqrt((r/2)^2 + 2 r E) - r/2, the most the
+  dispatch ramp r can still bring to 0 in whole seconds with the energy E left (an energy
+  management limit; physics applies the continuous form to the total output, §11 physics).
+* Tie: the export cap limits the target; a lower cap is reached at the tie ramp.
+* Renewables (integration): the curtailed MW move at `CURTAIL_RAMP_FRAC_MIN` (§5 `ren`); DR at
+  `DR_RAMP_MW_MIN` (§5 `dr`). Tripped wind reconnects one OFGS stage per
+  `OFGS_RECONNECT_GAP_S`, the last to trip first.
+* Directed shedding (FOS and DIRECT SHED): the lit rotation district restored longest ago
+  (never shed first), ties by rot (§6).
 * R5 (H-4): only mode 'on' units count (loading and stopping units offer no headroom, H-1);
   battery `min(BATT_MW - outMW, socMWh / 0.5 h)`; tie `min(800 - flow, 100 x 5)` if not tripped.
   SECURE needs R5 >= 1.25 L **and** preview nadir for losing L >= 49.5 Hz.
@@ -644,7 +703,8 @@ lId, ratio, previewNadirHz, level}` (THE reserve function, H-4; pure), `restoreP
 * FOS (H-11) on `last.fMeanHz`: countdown 300 s while outside 49.85-50.15; directed shedding
   (one rotation district per 60 s) when the countdown ends below 49.85 or after > 60 s below
   49.5; it stops when frequency **recovers**: `last.fMeanHz >= NORMAL_LO_HZ`. No automatic
-  restore.
+  restore. A contingency's `backInBandTick` is the first tick of the first completed
+  post-trip second whose min and max frequency both lie in the normal band.
 * K-13 in 0.2: permissive (`last.fMeanHz >= 49.9`, R5 >= 1.2 x `fleet.districtColdLoadMW` with
   R5 from `security(state, {previewNadirHz: sec.previewNadirHz})`, 300 s since the last
   restore) and the cold-load surge (`surgeMW` decaying linearly over 10 min into
@@ -662,6 +722,14 @@ units only if `startBlock` is '' and T1 + T2 <= 10 min, auto-sync not counted); 
 OFGS in the stack and in settlement; RERT is never in the stack and its MW are not subtracted
 from market demand (P-8 "as if absent"); the tie is price-taking and enters only through
 market demand (P-5); CUSTOMER COST never includes the market bill or anything x unserved.
+Stage B choices: an ACTIVE DR call stays in the stack at its delivered `dr.mw` and DR_PRICE (a
+dispatched block is priced like a generator; otherwise the price would sit at the cap exactly
+while DR holds the system); hydro at or below `HYDRO_STOP_MWH` offers only its present
+output; `marginalId` is '' when the price is administered (the cap while shedding or when the
+stack is exhausted) and at the floor with an empty stack; unserved energy is split by the dark
+districts' `shedBy` at the end of each second (booked as UFLS if nothing is dark then);
+`outsideNormalS` counts seconds whose MEAN frequency is outside the normal band; no-load uses
+`sync` at settle time; `marketBill` = price x served MWh (information only).
 
 ### autopilot.js (B "autopilot")
 
@@ -754,3 +822,38 @@ params}`, `ours` built from params values; `tests/text.test.js`) and `tools/base
   needs a params override and belongs to the tuning tools, not to `node --test`.
 * F-2 (100 days), S-12 (200 days) and H-8 (1,000 states) run only in the slow suite; the
   default run keeps F-10's < 60 s.
+
+### Integration, wave 2 first pass (what changed after the three wave-1 reports)
+
+* **SoC power taper in physics** (§11 physics step 4): the battery's total output near empty /
+  full is limited to what the dispatch ramp can still bring to 0 with the energy left, so an
+  empty or full battery never steps off. Found on doNothing days: AGC parked the battery
+  charging ~400 MW overnight, PFR (outside the grid's schedule taper) filled it early, and the
+  ~250-MW charge stepped off at 100%, driving frequency to 52 Hz (black 'over'). It reuses
+  `BATT_DISPATCH_RAMP_MW_S`, so the grid's whole-second schedule taper never binds tighter.
+* **The preview runs on state between a save and an exact restore** (§10): performance only;
+  results are bit-identical (the same day hashes before and after the change).
+* **Curtailment and DR ramp** (`CURTAIL_RAMP_FRAC_MIN`, `DR_RAMP_MW_MIN`, new params in the
+  integration block; the grid report's realism flag): a curtailment LIMIT change used to move
+  up to 1.4 GW of solar in one grid second and a DR call was a 350-MW load step on and off,
+  both larger than the credible contingencies and not recorded as one. Two grid tests were
+  adjusted (K-7 DR, curtail).
+* README brought in line with what the wave-1 owners built (their CONTRACT NOTES): the guard
+  override's net-demand offset, H-10 linear re-engagement, the GUARD withdraw rate, collapse
+  bands on time below, AGC's overload gate, the battery schedule taper, the output-driven
+  profiles, true-rotation directed shedding, one-stage-at-a-time OFGS reconnect, the forecast
+  band from the demand-noise process (and its extra reads), DR in the stack while active,
+  hydro out of water, `smelter.returnS`.
+* `tests/integration.test.js`: everything that does not need par runs now. F-3's accept names
+  par's proxies, so a core version (doNothing, a scripted operator reading `observe()` only,
+  and the fuzzer; 100 whole days in the slow suite) runs until `runPar` exists; the par
+  version, H-1 (b), K-2 / L-8 and H-8 containment stay todo for the autopilot pass. A
+  whole-sim K-15 test feeds every input type inside a watch.
+* Open for the autopilot / tuning pass (not changed here, see the integration report):
+  SECURE is rarely reached (the level sits at TIGHT or SHORT most of a scripted day); the K-13
+  permissive (R5 >= 1.2 x cold load) can pass a restore whose surge then trips UFLS, since R5 is
+  5-minute headroom, not primary response (a restore preview, `previewTrip` kind 'district',
+  would catch it); the SECURITY log line has no hysteresis (~60-90 lines a day, mostly
+  TIGHT/SHORT flapping: K-8 set/clear thresholds belong to Phase 1a); at high import the tie
+  becomes L and the P-7 adder can raise the price (H-5); a started GT leaves the stack for its
+  first ~2 min (T1 + auto-sync + T2 > 10 min).

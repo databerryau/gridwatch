@@ -57,8 +57,10 @@ function freshScore() {
 // as the legacy baseline did (tools/baseline.js); AGC takes over from the first second.
 function balanceOpening(state) {
   const env = state.env, ren = state.ren;
-  ren.windMW = env.windAvailMW * ren.windLimitPct / V.PCT;
-  ren.solarMW = env.solarAvailMW * ren.solarLimitPct / V.PCT;
+  ren.windCurtMW = env.windAvailMW * (V.PCT - ren.windLimitPct) / V.PCT + 0;
+  ren.solarCurtMW = env.solarAvailMW * (V.PCT - ren.solarLimitPct) / V.PCT + 0;
+  ren.windMW = env.windAvailMW - ren.windCurtMW + 0;
+  ren.solarMW = env.solarAvailMW - ren.solarCurtMW + 0;
   let other = state.tie.flowMW + ren.windMW + ren.solarMW + state.battery.outMW;
   const hyd = [];
   for (const u of state.units) {
@@ -102,11 +104,12 @@ export function createState(seed, scenario) {
     battery: {mode: c.battery.mode, orderMW: c.battery.mw, guardMW: c.battery.guardMW, schedMW: 0, agcTrimMW: 0,
       pfrMW: 0, ffrMW: 0, ffrFiredTick: -1, outMW: 0, socMWh: c.battery.socMWh, fullHold: false, ufSuspend: false},
     tie: {setMW: c.tieMW, flowMW: c.tieMW, tripped: false, lockoutS: 0},
-    ren: {windLimitPct: c.windLimitPct, solarLimitPct: c.solarLimitPct, windMW: 0, solarMW: 0},
+    ren: {windLimitPct: c.windLimitPct, solarLimitPct: c.solarLimitPct, windMW: 0, solarMW: 0,
+      windCurtMW: 0, solarCurtMW: 0}, // curtailed MW (grid: they move at CURTAIL_RAMP_FRAC_MIN)
     hydro: {storageMWh: V.HYDRO_ALLOCATION_MWH, warned: falses(V.HYDRO_WARN_FRACS.length)},
     rert: {armed: false, leadS: 0, outMW: 0, standingDown: false, armedEver: false},
     dr: {callsLeft: V.DR_CALLS, activeS: 0, mw: 0},
-    smelter: {loadMW: V.SMELTER_MW, offS: 0, returning: false},
+    smelter: {loadMW: V.SMELTER_MW, offS: 0, returning: false, returnS: 0}, // returnS: events (return ramp start)
     city: fleet.buildCity(scn),
     ufls: {timerS: zeros(V.UFLS_STAGES), operated: falses(V.UFLS_STAGES)},
     ofgs: {timerS: zeros(V.OFGS_STAGES_HZ.length), tripped: falses(V.OFGS_STAGES_HZ.length), trippedFrac: 0, okS: 0},
@@ -160,7 +163,7 @@ function finish(state, out) {
  */
 export function step(state, inputs = EMPTY) {
   if (state.over) return EMPTY;
-  buf.length = 0;
+  if (buf.length !== 0) buf.length = 0; // (the length store is a runtime call: skip it on the common empty tick)
   for (let i = 0; i < inputs.length; i++) applyInput(state, inputs[i], buf);
   if (state.tick % TPS === 0) gridSecond(state, buf);
   physics.tick(state, buf);

@@ -1,5 +1,5 @@
 // Stage B owner "market": sim/market.js acceptance (P-5..P-8, H-5, H-12, S-1..S-3).
-// Todo until market.js is implemented (scoreSummary is stage A and tested for real).
+// Implemented in stage B (scoreSummary is stage A).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as market from '../sim/market.js';
@@ -7,11 +7,12 @@ import {sampleSecond} from '../sim/weather.js';
 import {createState} from '../sim/step.js';
 import {V} from '../sim/params.js';
 import {CLASSIC} from '../content/scenarios.js';
+import * as fleet from '../sim/fleet.js';
 import {opening, ticksAt, clone} from './lib/sim-helpers.js';
 
-const TODO = {todo: 'stage B: market'};
+const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 1e-9 * Math.max(1, Math.abs(b)), (msg || '') + ' ' + a + ' vs ' + b);
 
-test('P-7: the scarcity adder is a pure function of R5/L (x = 0.5, 1, 1.1, 1.25, 2)', TODO, () => {
+test('P-7: the scarcity adder is a pure function of R5/L (x = 0.5, 1, 1.1, 1.25, 2)', () => {
   assert.equal(market.scarcityAdder(2), 0);
   assert.equal(market.scarcityAdder(1.25), 0);
   assert.ok(Math.abs(market.scarcityAdder(1.1) - 180) < 1e-9);
@@ -20,7 +21,7 @@ test('P-7: the scarcity adder is a pure function of R5/L (x = 0.5, 1, 1.1, 1.25,
   assert.ok(market.scarcityAdder(0) > market.scarcityAdder(0.5));
 });
 
-test('P-8: limits: clamp to -1,000..23,200; the cap when the stack is exhausted or load is shed', TODO, () => {
+test('P-8: limits: clamp to -1,000..23,200; the cap when the stack is exhausted or load is shed', () => {
   assert.equal(market.clampPrice(-5000), V.PRICE_FLOOR);
   assert.equal(market.clampPrice(1e9), V.PRICE_CAP);
   assert.equal(market.clampPrice(100), 100);
@@ -36,7 +37,7 @@ test('P-8: limits: clamp to -1,000..23,200; the cap when the stack is exhausted 
   assert.equal(p.mwh, V.PRICE_CAP);
 });
 
-test('P-5 / P-6: merit order at 04:00: min-load blocks at the floor, wind at -20, then coal sets $26', TODO, () => {
+test('P-5 / P-6: merit order at 04:00: min-load blocks at the floor, wind at -20, then coal sets $26', () => {
   const s = opening(1);
   s.sec.r5MW = 5000; s.sec.lMW = 500; // no scarcity adder
   const stack = market.buildStack(s);
@@ -49,7 +50,7 @@ test('P-5 / P-6: merit order at 04:00: min-load blocks at the floor, wind at -20
   assert.ok(stack.some(b => b.id === p.marginalId), 'P-5: the price and the stack use the same blocks');
 });
 
-test('H-5: imports count as supply: stepping import 0 -> 400 -> 800 MW never raises the price (seed 12, 13:00)', TODO, () => {
+test('H-5: imports count as supply: stepping import 0 -> 400 -> 800 MW never raises the price (seed 12, 13:00)', () => {
   const s = createState(12, CLASSIC);
   s.tick = ticksAt(13);
   sampleSecond(s);
@@ -63,12 +64,12 @@ test('H-5: imports count as supply: stepping import 0 -> 400 -> 800 MW never rai
   }
 });
 
-test('P-6: hydro water value is $130 at full storage and rises as storage falls', TODO, () => {
+test('P-6: hydro water value is $130 at full storage and rises as storage falls', () => {
   assert.equal(market.waterValue(1), 130);
   assert.ok(market.waterValue(0.5) > 130 && market.waterValue(0.1) > market.waterValue(0.5));
 });
 
-test('S-1 / H-12: unserved MWh is exactly the integral of shed MW, and never priced in the scorecard', TODO, () => {
+test('S-1 / H-12: unserved MWh is exactly the integral of shed MW, and never priced in the scorecard', () => {
   const a = opening(2), b = clone(a);
   for (const s of [a, b]) { s.tick = V.TICKS_PER_S; s.acc.ticks = V.TICKS_PER_S; s.acc.fSumHz = 50 * V.TICKS_PER_S; }
   b.acc.shedMWs = 360 * 1; // 360 MW for one second
@@ -80,7 +81,7 @@ test('S-1 / H-12: unserved MWh is exactly the integral of shed MW, and never pri
   assert.equal(b.last.fMeanHz, 50);
 });
 
-test('S-2: customer cost = fuel + no-load + starts + tie + wear + DR + RERT (per second, from acc)', TODO, () => {
+test('S-2: customer cost = fuel + no-load + starts + tie + wear + DR + RERT (per second, from acc)', () => {
   const s = opening(3);
   s.tick = V.TICKS_PER_S; s.acc.ticks = V.TICKS_PER_S; s.acc.fSumHz = 50 * V.TICKS_PER_S;
   s.units.forEach((u, i) => { s.acc.unitMWs[i] = u.outMW * 1; });
@@ -96,7 +97,7 @@ test('S-2: customer cost = fuel + no-load + starts + tie + wear + DR + RERT (per
   assert.ok(Math.abs(s.score.cost.tie - s.tie.flowMW / 3600 * s.env.neighbourPrice) < 1e-6, 'import at the neighbour price');
 });
 
-test('P-5 / H-1: stack membership: stopping and loading units offer only present output; offline units only if <= 10 min to MIN', TODO, () => {
+test('P-5 / H-1: stack membership: stopping and loading units offer only present output; offline units only if <= 10 min to MIN', () => {
   const s = opening(1);
   s.sec.r5MW = 5000; s.sec.lMW = 500;
   const u = id => s.units.find(x => x.id === id);
@@ -119,7 +120,7 @@ test('P-5 / H-1: stack membership: stopping and loading units offer only present
   assert.ok(Math.abs(mw('wind') - s.ren.windMW * 0.5) < 1e-9, 'wind net of OFGS');
 });
 
-test('P-5: the stack is in a total order (offer, then id): equal offers never depend on sort stability', TODO, () => {
+test('P-5: the stack is in a total order (offer, then id): equal offers never depend on sort stability', () => {
   const s = opening(1);
   for (const id of ['gtb1', 'gtb2']) { const u = s.units.find(x => x.id === id); u.mode = 'on'; u.sync = true; u.schedMW = 300; u.outMW = 300; }
   const stack = market.buildStack(s);
@@ -129,7 +130,7 @@ test('P-5: the stack is in a total order (offer, then id): equal offers never de
   }
 });
 
-test('S-3: shedding 100 MWh with no other change moves CO2 intensity by < 0.5%', TODO, () => {
+test('S-3: shedding 100 MWh with no other change moves CO2 intensity by < 0.5%', () => {
   // Two ~1-h runs of the same fleet; the second sheds 100 MWh of load and every generator
   // produces proportionally less. Intensity is per MWh served, so it barely moves.
   const run = shedMW => {
@@ -159,4 +160,105 @@ test('scoreSummary (stage A): cents per kWh served and t CO2 per MWh served', ()
   assert.equal(x.co2tPerMWh, 0.6);
   assert.equal(x.lightsMWh, 5);
   assert.equal(market.scoreSummary({servedMWh: 0, unservedMWh: 0, co2t: 0, cost: score.cost}).centsPerKWh, 0);
+});
+
+// ------------------------------------------------------------------ stage B extensions (market + events)
+
+test('P-8: while shedding the price is administered at the cap (no marginal block); market demand <= 0 clears at the floor', () => {
+  const s = opening(1);
+  s.sec.r5MW = 5000; s.sec.lMW = 500;
+  s.city.shedFrac = 0.03;
+  const p = market.clearPrice(s);
+  assert.equal(p.mwh, V.PRICE_CAP);
+  assert.equal(p.marginalId, '');
+  assert.equal(p.exhausted, false);
+  s.city.shedFrac = 0;
+  s.env.demandMW = 0; // the tie import alone exceeds demand: the minimum-load blocks set the price
+  assert.equal(market.clearPrice(s).mwh, V.PRICE_FLOOR);
+});
+
+test('P-8: RERT sits outside the market: its MW are never a block and never lower the price', () => {
+  const s = opening(4);
+  s.sec.r5MW = 5000; s.sec.lMW = 500;
+  s.env.demandMW += 900; // past coal and CCGT: hydro or a GT is marginal
+  const a = market.clearPrice(s);
+  s.rert.armed = true; s.rert.outMW = V.RERT_MW;
+  assert.deepEqual(market.clearPrice(s), a);
+  assert.ok(!market.buildStack(s).some(b => b.kind === 'rert' || b.id === 'rert'));
+});
+
+test('P-5: in-market DR is offered at its price while calls remain; an active call stays in the stack at its delivered MW', () => {
+  const s = opening(1);
+  const dr = () => market.buildStack(s).filter(b => b.id === 'dr');
+  assert.deepEqual(dr(), [{id: 'dr', kind: 'dr', offer: V.DR_PRICE, mw: V.DR_MW}]);
+  s.dr.activeS = 100; s.dr.mw = 200; s.dr.callsLeft = 0;
+  assert.deepEqual(dr(), [{id: 'dr', kind: 'dr', offer: V.DR_PRICE, mw: 200}]);
+  s.dr.activeS = 0; s.dr.mw = 0;
+  assert.deepEqual(dr(), [], 'no calls left, none active');
+});
+
+test('P-6: hydro offers at its water value; at the stop level it offers only its present output', () => {
+  const s = opening(1);
+  const hydro = () => market.buildStack(s).filter(b => b.kind === 'hydro');
+  const full = hydro();
+  assert.ok(full.every(b => b.offer === market.waterValue(1)));
+  assert.equal(full.reduce((a, b) => a + b.mw, 0), V.STATIONS.hydro.totalMW, 'two online machines plus the idle one (3-min start)');
+  s.hydro.storageMWh = V.HYDRO_STOP_MWH;
+  const dry = hydro();
+  const present = s.units.filter(u => u.station === 'hydro' && u.mode === 'on').map(u => u.schedMW);
+  assert.deepEqual(dry.map(b => b.mw), present, 'the idle machine has no water to start; the others only what they produce');
+  assert.ok(dry[0].offer > market.waterValue(0.1));
+});
+
+test('priceSecond writes clearPrice into state.price in place; the adder follows R5 / L', () => {
+  const s = opening(1);
+  s.sec.r5MW = 700; s.sec.lMW = 650;
+  const ref = s.price;
+  market.priceSecond(s, []);
+  assert.equal(s.price, ref, 'same object');
+  assert.deepEqual(s.price, market.clearPrice(s));
+  near(s.price.x, 700 / 650);
+  near(s.price.adder, market.scarcityAdder(700 / 650));
+  assert.ok(s.price.adder > 0);
+});
+
+test('S-2: exports credited, RERT and DR paid per MWh delivered, wear on throughput; a partial last second uses acc.ticks; the market bill stays out of CUSTOMER COST', () => {
+  const s = opening(3);
+  const ticks = 10, secs = ticks / V.TICKS_PER_S, h = secs / 3600;
+  s.tick = 5 * V.TICKS_PER_S + ticks; // the day ended 10 ticks into a second
+  Object.assign(s.acc, {ticks, fSumHz: 50 * ticks, fMinHz: 50, fMaxHz: 50, battAbsMWs: 100 * secs, servedMWs: 5000 * secs});
+  s.tie.flowMW = -300; s.rert.outMW = 300; s.dr.mw = 350; s.price.mwh = 100;
+  market.settleSecond(s, []);
+  const sc = s.score, c = sc.cost;
+  near(c.tie, -300 * h * s.env.neighbourPrice, 'export credited');
+  near(c.rert, 300 * h * V.RERT_COST);
+  near(c.dr, 350 * h * V.DR_PRICE);
+  near(c.battWear, 100 * h * V.BATT_WEAR_PER_MWH);
+  near(c.noLoad, s.units.reduce((a, u) => a + (u.sync ? V.MACHINES[u.k].noLoadPerS * secs : 0), 0));
+  near(sc.co2t, 300 * h * V.RERT_CO2, 'unit outputs are 0 in acc here, so only the diesel emits');
+  near(sc.marketBill, 100 * 5000 * h);
+  near(sc.servedMWh, 5000 * h);
+  near(s.last.servedMW, 5000);
+  near(market.scoreSummary(sc).costDollars, c.fuel + c.noLoad + c.starts + c.tie + c.battWear + c.dr + c.rert + c.flex);
+  assert.equal(s.acc.ticks, 0);
+});
+
+test('S-1 / Y-4: unserved splits by why districts are dark; the frequency record keeps extremes, time outside the band and the 2-h sparkline', () => {
+  const s = opening(2);
+  const d = s.city.districts;
+  const iU = d.findIndex(x => x.uflsStage === 1), iD = d.findIndex(x => x.rot === 0);
+  fleet.setDistrictDark(s, iU, true, 'ufls');
+  fleet.setDistrictDark(s, iD, true, 'directed');
+  s.tick = (3 * V.SPARK_BLOCK_S + 10) * V.TICKS_PER_S; // settling a second in block 3
+  Object.assign(s.acc, {ticks: 50, fSumHz: 49.8 * 50, fMinHz: 49.7, fMaxHz: 49.9, shedMWs: 360});
+  market.settleSecond(s, []);
+  const sc = s.score;
+  near(sc.unservedMWh, 0.1);
+  near(sc.uflsMWh + sc.directedMWh + sc.taskMWh, sc.unservedMWh);
+  near(sc.uflsMWh / sc.directedMWh, d[iU].share / d[iD].share);
+  near(sc.spark[3], 0.3);
+  assert.equal(sc.spark.filter(x => x > 0).length, 1);
+  assert.equal(sc.outsideNormalS, 1);
+  near(sc.minHz, 49.7);
+  near(s.last.fMeanHz, 49.8);
 });

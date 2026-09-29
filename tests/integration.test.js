@@ -16,9 +16,11 @@ import {CLASSIC} from '../content/scenarios.js';
 import {tokenize, jsFiles} from './lib/js-tokens.js';
 import {ticksAt, SLOW, slowOnly, calmScenario, withoutContingencies, injectTrip, clone} from './lib/sim-helpers.js';
 
-const TODO = {todo: 'stage B: integration (needs every sim module)'};
+// Tests that run par's proxies (runPar) wait for the autopilot pass; everything else runs now.
+const TODO = {todo: 'stage B: autopilot (needs runPar)'};
 const TPS = V.TICKS_PER_S;
 const SEEDS = n => Array.from({length: n}, (_, i) => i + 1);
+const EMPTY_INPUTS = [];
 
 // ------------------------------------------------------------------ inputs: real now
 
@@ -160,7 +162,7 @@ const TRIP_S = V.PLAYER_START_S + 60; // 04:31: an injected trip early in the da
 
 // ------------------------------------------------------------------ whole sim: todo
 
-test('F-2: the same seed and input log give an identical hashState every sim-hour (100 whole days with GRIDWATCH_SLOW=1)', TODO, () => {
+test('F-2: the same seed and input log give an identical hashState every sim-hour (100 whole days with GRIDWATCH_SLOW=1)', () => {
   const until = SLOW ? V.DAY_TICKS : ticksAt(6);
   for (const seed of SLOW ? SEEDS(100) : [1, 2]) {
     const log = fuzzLog(seed, 40, until, [TRIP_S]);
@@ -171,7 +173,7 @@ test('F-2: the same seed and input log give an identical hashState every sim-hou
   }
 });
 
-test('F-2 / F-7: a JSON round trip mid-day (inside a watch) resumes bit-identically: no hidden state outside state', TODO, () => {
+test('F-2 / F-7: a JSON round trip mid-day (inside a watch) resumes bit-identically: no hidden state outside state', () => {
   const until = ticksAt(5);
   const log = fuzzLog(5, 30, until, [TRIP_S]);
   const a = injectTrip(createState(5, CLASSIC), TRIP_S);
@@ -183,7 +185,7 @@ test('F-2 / F-7: a JSON round trip mid-day (inside a watch) resumes bit-identica
   assert.equal(hashState(b), hashState(a));
 });
 
-test('F-2: no hidden module state: two seeds stepped interleaved, with observe/security/previewTrip calls, equal their solo runs', TODO, () => {
+test('F-2: no hidden module state: two seeds stepped interleaved, with observe/security/previewTrip calls, equal their solo runs', () => {
   const until = 120 * TPS;
   const mk = seed => injectTrip(createState(seed, CLASSIC), 60);
   const solo = seed => { const s = mk(seed); while (!s.over && s.tick < until) step(s); return JSON.stringify(s); };
@@ -199,7 +201,7 @@ test('F-2: no hidden module state: two seeds stepped interleaved, with observe/s
   assert.equal(JSON.stringify(b), solo(2));
 });
 
-test('F-6: replay(seed, scenario, log) reproduces the scorecard and the final hash exactly; it throws on a foreign log', TODO, () => {
+test('F-6: replay(seed, scenario, log) reproduces the scorecard and the final hash exactly; it throws on a foreign log', () => {
   const until = SLOW ? V.DAY_TICKS : ticksAt(6);
   for (const seed of SLOW ? [1, 2, 3] : [1]) {
     const a = play(seed, fuzzLog(seed, 60, until), {untilTick: until}).s;
@@ -213,7 +215,7 @@ test('F-6: replay(seed, scenario, log) reproduces the scorecard and the final ha
   assert.throws(() => replay(1, CLASSIC, [{tick: 100, type: 'restore', args: {district: 'SOL3'}}], {untilTick: 200}), /refused/);
 });
 
-test('F-6: applyInput logs the canonical, applied args: -0 folded to 0, a basePoint clamped to the station range', TODO, () => {
+test('F-6: applyInput logs the canonical, applied args: -0 folded to 0, a basePoint clamped to the station range', () => {
   const s = createState(1, CLASSIC);
   assert.equal(applyInput(s, {type: 'tie', mw: -0}).ok, true);
   assert.ok(Object.is(s.log[0].args.mw, 0));
@@ -222,7 +224,7 @@ test('F-6: applyInput logs the canonical, applied args: -0 folded to 0, a basePo
   assert.equal(s.stations.find(st => st.id === 'coal').basePointMW, 4 * 650, 'logged lever = delivered lever');
 });
 
-test('F-4 / D-6: rate invariance: one log played at 0.25x, 1x, 60x and 240x, and at 60x with pauses, gives an identical hash', TODO, () => {
+test('F-4 / D-6: rate invariance: one log played at 0.25x, 1x, 60x and 240x, and at 60x with pauses, gives an identical hash', () => {
   // Stand-in for app/loop.js (F-5): each 60-Hz frame adds min(dt, 0.1) x rate grid-s to an
   // accumulator and runs whole ticks; inputs land on their logged ticks. Replace with the
   // real loop once app/loop.js exists.
@@ -265,7 +267,95 @@ test('F-3: doNothing, competent, par and a fuzzer see identical demand, wind, so
   }
 });
 
-test('F-4: after a trip, no unit\'s scheduled output rises faster than its ramp per grid second', TODO, () => {
+/**
+ * A simple scripted operator (a stand-in until par exists; it reads observe() only): the tie
+ * to full import, the cheapest free machine started when the next hour's forecast net
+ * demand exceeds 95% of what is committed, base points in merit order, and any dark
+ * district the permissive allows restored. It need not be good: F-3 needs play that differs.
+ */
+function scriptedOperator(obs) {
+  if (obs.inWatch || obs.tick < V.PLAYER_START_TICK) return [];
+  const fc = obs.forecast, inputs = [], imp = V.TIE_MAX_MW;
+  const dark = obs.districts.find(d => d.dark && d.restoreBlock === '');
+  if (dark) inputs.push({type: 'restore', district: dark.id});
+  if (!obs.tie.tripped && obs.tie.setMW !== imp) inputs.push({type: 'tie', mw: imp});
+  const net = k => fc.demandP50[k] - fc.windMW[k] - fc.solarMW[k] - imp;
+  const cap = obs.units.filter(u => u.mode !== 'off' && u.mode !== 'tripped').reduce((a, u) => a + 0.95 * u.availMW, 0);
+  let peak = 0;
+  for (let k = 0; k < 12; k++) peak = Math.max(peak, net(k));
+  const free = obs.units.filter(u => u.mode === 'off' && u.startBlock === '').sort((a, b) => a.offer - b.offer || (a.id < b.id ? -1 : 1));
+  if (free.length && peak > cap) inputs.push({type: 'start', unit: free[0].id});
+  let rest = net(0);
+  for (const st of obs.stations) rest -= st.minMW;
+  for (const id of ['coal', 'ccgt', 'hydro', 'gta', 'gtb', 'gtc']) {
+    const st = obs.stations.find(x => x.id === id);
+    if (!st.onCount) continue;
+    const add = Math.max(0, Math.min(0.95 * st.maxMW - st.minMW, rest));
+    rest -= add;
+    inputs.push({type: 'basePoint', station: id, mw: Math.round(st.minMW + add)});
+  }
+  return inputs;
+}
+
+/** A fresh day under a policy (obs -> inputs), asked every 5 grid-min (observe allocates). */
+function runPolicy(seed, policy, untilTick, onStep) {
+  const s = createState(seed, CLASSIC);
+  let pending = [];
+  while (!s.over && s.tick < untilTick) {
+    step(s, pending);
+    pending = s.tick % (300 * TPS) === 0 && !s.over ? policy(observe(s)) : [];
+    if (onStep) onStep(s);
+  }
+  return s;
+}
+
+test('F-3 (core, until par exists): doNothing, a scripted operator and a fuzzer see identical demand, wind, solar and event timelines', () => {
+  const until = SLOW ? V.DAY_TICKS : ticksAt(6, 30);
+  for (const seed of SLOW ? SEEDS(100) : [1, 2]) {
+    const rows = [], ends = [];
+    const row = st => [st.env.underlyingMW, st.env.demandMW, st.env.windAvailMW, st.env.solarAvailMW, st.env.heatActive, st.evNext,
+      st.news.length, st.smelter.returnS].join();
+    const trace = run => {
+      const out = [];
+      const s = run(st => { if (st.tick % (60 * TPS) === 0) out.push(row(st)); });
+      rows.push(out);
+      ends.push(hashState(s));
+    };
+    trace(onStep => play(seed, [], {untilTick: until, onStep}).s);                          // doNothing
+    trace(onStep => runPolicy(seed, scriptedOperator, until, onStep));                      // a scripted operator
+    trace(onStep => play(seed, fuzzLog(seed, 50, until), {untilTick: until, onStep}).s);    // a fuzzer
+    assert.equal(new Set(ends).size, ends.length, 'seed ' + seed + ': the three policies must play differently');
+    const longest = rows.reduce((a, b) => (b.length > a.length ? b : a));
+    assert.equal(longest.length, Math.floor(until / (60 * TPS)), 'seed ' + seed + ': every run ended early');
+    for (const r of rows) assert.deepEqual(r, longest.slice(0, r.length), 'seed ' + seed);
+  }
+});
+
+test('K-15 through step(): inputs of every type during a watch are refused, never logged and change nothing; the lock lifts at watchEndTick', () => {
+  const mk = () => injectTrip(withoutContingencies(createState(2, CLASSIC)), TRIP_S);
+  const a = mk(), b = mk();
+  while (a.tick <= TRIP_S * TPS) { step(a); step(b); }
+  assert.equal(a.contIdx, 0, 'the injected trip opened a contingency');
+  const endTick = a.conts[0].watchEndTick;
+  assert.equal(endTick, TRIP_S * TPS + V.WATCH_S * TPS);
+  const tries = [{type: 'basePoint', station: 'coal', mw: 1000}, {type: 'start', unit: 'gta1'}, {type: 'stop', unit: 'coal2'},
+    {type: 'abortStop', unit: 'coal2'}, {type: 'syncClose', unit: 'gtc1'}, {type: 'battery', mode: 'discharge', mw: 300},
+    {type: 'guard', mw: 300}, {type: 'tie', mw: 800}, {type: 'curtail', kind: 'solar', limitPct: 50}, {type: 'callDR'},
+    {type: 'armRERT'}, {type: 'standDownRERT'}, {type: 'mode', agc: false}, {type: 'restore', district: 'SOL3'}, {type: 'directShed'}];
+  assert.deepEqual(tries.map(x => x.type).sort(), [...INPUT_TYPES].sort(), 'every input type is tried');
+  let refused = 0;
+  while (a.tick < endTick) {
+    const ev = step(a, a.tick % 97 === 0 ? tries : EMPTY_INPUTS);
+    step(b);
+    for (const e of ev) if (e.kind === 'input') { assert.match(e.reason, /watch/); refused++; }
+  }
+  assert.ok(refused >= tries.length * 10, 'refused ' + refused);
+  assert.equal(a.log.length, 0);
+  assert.equal(hashState(a), hashState(b), 'refused inputs changed nothing');
+  assert.equal(applyInput(a, {type: 'guard', mw: 300}).ok, true, 'the desk unlocks at watchEndTick');
+});
+
+test('F-4: after a trip, no unit\'s scheduled output rises faster than its ramp per grid second', () => {
   const s = injectTrip(createState(3, CLASSIC), TRIP_S);
   const prev = s.units.map(u => u.schedMW);
   let tripped = false;
@@ -280,7 +370,7 @@ test('F-4: after a trip, no unit\'s scheduled output rises faster than its ramp 
   assert.ok(tripped, 'the injected trip happened');
 });
 
-test('H-1 (a, c): STOP one coal machine at 04:10 with nobody responding: small steps, first UFLS >= 60 min later', TODO, () => {
+test('H-1 (a, c): STOP one coal machine at 04:10 with nobody responding: small steps, first UFLS >= 60 min later', () => {
   const s = createState(3, CLASSIC);
   const stopAt = ticksAt(4, 10);
   let prev = s.units[0].outMW, maxStep = 0, uflsAt = -1;
@@ -324,7 +414,7 @@ test('K-2 / L-8: AGC on, the L-0 plan, no other input: >= 97% of ticks in 49.85-
   }
 });
 
-test('K-10 through step(): a preview taken at a second boundary matches the real nadir within 0.02 Hz (AGC and ramps running)', TODO, () => {
+test('K-10 through step(): a preview taken at a second boundary matches the real nadir within 0.02 Hz (AGC and ramps running)', () => {
   for (const seed of [4, 5]) {
     const s = withoutContingencies(createState(seed, CLASSIC));
     while (!s.over && s.tick < TRIP_S * TPS) step(s);
@@ -366,7 +456,7 @@ test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing
   assert.deepEqual(failures, []);
 });
 
-test('S-1: observe().score.unservedMWh equals the integral of shed MW over settled seconds', TODO, () => {
+test('S-1: observe().score.unservedMWh equals the integral of shed MW over settled seconds', () => {
   const s = createState(2, CLASSIC);
   const inputs = new Map([[ticksAt(4, 30), [{type: 'directShed'}]], [ticksAt(4, 31), [{type: 'directShed'}]],
     [ticksAt(4, 50), [{type: 'restore', district: 'SOL3'}]]]);

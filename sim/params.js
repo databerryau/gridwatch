@@ -330,9 +330,9 @@ export const P = {
   // ---------------------------------------------------------------- forecasts (S-4, L-1, L-2)
   FC_HORIZON_S: src(16200, 's', 'L-1: the Live Stack looks 4.5 h ahead (coal start plus climb, 4 h 17 min)'),
   FC_STEP_S: src(300, 's', 'L-1: 5-minute columns'),
-  FC_SIGMA_NEAR: simp(0.006, 'pu of demand', 'L-2: demand forecast sigma 0.6% at 5-min lead (unverified, §8.3).', UNVERIFIED),
-  FC_SIGMA_FAR: simp(0.025, 'pu of demand', 'L-2: demand forecast sigma 2.5% at 4-h lead (unverified, §8.3).', UNVERIFIED),
-  FC_SIGMA_FAR_S: simp(14400, 's', 'L-2: lead at which FC_SIGMA_FAR applies; sigma is linear in lead between 5 min and 4 h.'),
+  FC_SIGMA_NEAR: simp(0.006, 'pu of demand', 'L-2: demand forecast sigma 0.6% at 5-min lead (unverified, §8.3). NOT USED since stage B: weather.forecast derives its band from the demand-noise process of the scenario (this relative band failed L-2 at 4 h); kept for the §8.3 register.', UNVERIFIED),
+  FC_SIGMA_FAR: simp(0.025, 'pu of demand', 'L-2: demand forecast sigma 2.5% at 4-h lead (unverified, §8.3). NOT USED since stage B (see FC_SIGMA_NEAR).', UNVERIFIED),
+  FC_SIGMA_FAR_S: simp(14400, 's', 'L-2: lead at which FC_SIGMA_FAR applies; sigma is linear in lead between 5 min and 4 h. NOT USED since stage B (see FC_SIGMA_NEAR).'),
   FC_DRIFT_TAU_S: simp(3600, 's', 'S-4: wind and solar forecasts drift from the present value toward the climatological or announced value with this time constant.'),
 
   // ---------------------------------------------------------------- par and the reference playback (S-4, D-2, D-5)
@@ -366,13 +366,38 @@ export const P = {
   // ================================================================ stage B additions
   // Each stage B agent adds records ONLY between its own two marker lines (merge-safe).
   // ---- stage B "physics" block: begin
+  GUARD_WITHDRAW_S: simp(60, 's per BATT_MW', 'K-5: when the GUARD ring is turned down while the guard is delivering, the FFR layer withdraws at BATT_MW per this time (8.3 MW/s, the same slope as GUARD_RAMP_OFF_S) instead of stepping, so a ring detent is never a self-made contingency. Game abstraction: real FCAS enablement changes only at dispatch intervals.'),
+  UF_RESUME_LINEAR: simp(true, 'flag', 'H-10: once suspended below UF_SUSPEND_HZ, scheduled charging re-engages in proportion as frequency rises from UF_SUSPEND_HZ to UF_RESUME_HZ (all of it above UF_RESUME_HZ, where the suspension clears), instead of as one step at UF_RESUME_HZ that would knock frequency back below 49.85 Hz and chatter. Game abstraction of an inverter ramping back to its charge setpoint; false gives the plain step.'),
   // ---- stage B "physics" block: end
   // ---- stage B "grid" block: begin
+  OFGS_RECONNECT_GAP_S: simp(60, 's', 'After OFGS_RECONNECT_S back in the normal band, tripped wind reconnects one OFGS stage at a time, this far apart (the last stage to trip returns first), so returning wind is never more than one stage (a quarter of the wind output) in one step; reconnecting all four at once could be a 1-GW self-made over-frequency event. Real wind farms return at limited ramp rates set in their performance standards.'),
+  SEC_RATIO_MAX: simp(99, 'x L', 'sec.ratio (R5 / L) is capped here so it stays a finite number (state is plain JSON) when L is tiny or zero; every value above SECURE_RATIO reads the same.'),
   // ---- stage B "grid" block: end
   // ---- stage B "market + events" block: begin
   // ---- stage B "market + events" block: end
   // ---- stage B "autopilot" block: begin
+  PLAN_MAX_LOADING: simp(0.955, 'pu of available', 'L-0: the pre-dispatch loads units to this, just under the H-2 hot gate (HOT_LOADING_FRAC 0.96), so a plan at full output does not itself run units hot; the same value as par rule 7 (PAR_MAX_LOADING). Real pre-dispatch schedules units to their offered MaxAvail; the overload zone is a game mechanic.'),
+  PLAN_KEYFRAME_MIN_MW: simp(5, 'MW', 'L-0 plan and par: a station base point or tie setpoint keyframe is written only when it moves at least this far from the last one written (fewer inputs; the ramp check still holds between keyframes). Presentation of the plan, not physics.'),
+  PAR_REBASE_MW: simp(150, 'MW', 'Par rule 7 (extension, README autopilot): par re-dispatches its plan when AGC carries more than this (|agc.requestMW|) or the plan misses the forecast for the coming column by more than this: about one GT AGC band. Tuning (S-12).'),
+  PAR_NADIR_MIN_HZ: simp(49.2, 'Hz', 'Par rule 2 (v4 form): the N-1 check in seconds (H-4). When the TRIP PREVIEW for losing L is below this, par raises the GUARD (contingency FFR), then starts a peaker (inertia and headroom); its plan keeps the tie import at or below the largest unit. 0.2 Hz above the first UFLS stage as margin for the preview error and for L moving between previews. Real: AEMO enables contingency raise FCAS for the largest credible contingency and constrains interconnector flows. Tuning (S-12).'),
+  PAR_NADIR_RELAX_HZ: simp(49.55, 'Hz', 'Par rule 2: the GUARD steps down again only when the TRIP PREVIEW is above this (hysteresis), returning battery MW to AGC and orders.'),
+  PAR_GUARD_STEP_MW: simp(100, 'MW', 'Par rule 2: one GUARD change is this many MW (two K-5 detents).'),
+  PAR_GUARD_MAX_MW: simp(400, 'MW', 'Par rule 2: the most GUARD par holds back, leaving at least 100 MW of the battery for AGC and orders.'),
+  PAR_BATT_CHARGE_MAX_MW: simp(350, 'MW', 'Par rule 6: the charge order never exceeds this (rules lab controller ctl(), battery plan "peak": 350 MW).'),
+  PAR_BATT_ORDER_TOL_MW: simp(50, 'MW', 'Par rule 6: par changes a battery order only when the order it wants differs from the present one by more than this.'),
+  PAR_BATT_RESERVE_FRAC: simp(0.2, 'pu SoC', 'Par rule 6: discharge by merit order stops at this state of charge, keeping energy for primary frequency response (H-8) after the peak.'),
+  PAR_WATER_KEEP_MWH: simp(5200, 'MWh', 'Par rule 5, how "hold water" is read (rules lab controller ctl(): waterKeep 5200): until PAR_WATER_HOLD_UNTIL_H par keeps at least this much water in storage (hydro runs at its water value above it, and below it only to avoid a shortfall); the kept water is then released on a line falling linearly to the reserve at PAR_WATER_EMPTY_BY_H.'),
+  PAR_WATER_RESERVE_MWH: simp(300, 'MWh', 'Par rule 5: the linear release leaves this much water above HYDRO_STOP_MWH at PAR_WATER_EMPTY_BY_H, for the night.'),
+  PAR_DECOMMIT_EXTRA_MW: simp(250, 'MW', 'Par rule 4: extra margin on top of PAR_COMMIT_MARGIN_MW before a unit is decommitted (rules lab controller ctl(): +250 MW).'),
+  PAR_DR_MARGIN_MW: simp(60, 'MW', 'Par rule 8: DR is called when present net demand plus this exceeds firm capacity (rules lab controller ctl(): +60 MW).'),
+  PAR_RERT_STANDDOWN_MIN: simp(45, 'min', 'Par rule 8: reserve diesel stays armed at least this long before par stands it down (rules lab controller ctl(): 45 min).'),
+  PAR_FUZZ_SALT: simp(0x7a667a31, 'u32', 'The fuzz proxy hashes the seed with this private salt (hash(seed ^ salt, minute, draw)), so its inputs never come from the sim streams (F-3).'),
+  PAR_FUZZ_P: simp(0.05, 'probability per decision', 'Fuzz proxy: chance of one random input at each decision (every PAR_DECIDE_EVERY_S), about 70 a day.'),
   // ---- stage B "autopilot" block: end
+  // ---- stage B "integration" block: begin
+  CURTAIL_RAMP_FRAC_MIN: simp(0.2, 'pu of nameplate per min', 'A curtailment LIMIT change moves wind or solar output at this rate (20% of nameplate a minute: a full-range change over about one 5-min dispatch interval, as semi-scheduled plant ramps to its dispatch target over the interval) instead of in one grid second, so curtailing solar at noon is never a >1-GW self-made step. Weather changes pass straight through; only the curtailed part is ramp-limited. Plant ramp limits vary (unverified).', UNVERIFIED),
+  DR_RAMP_MW_MIN: simp(100, 'MW/min', 'Industrial DR sheds and returns at this rate (3.5 min for 350 MW, the same slope as RERT_RAMP_MW_MIN) instead of as one 350-MW load step on and off, which would be a self-made event larger than the 256-MW smelter trip and not recorded as a contingency. Real DR response times vary (unverified).', UNVERIFIED),
+  // ---- stage B "integration" block: end
 };
 
 // ------------------------------------------------------------------ plain values
