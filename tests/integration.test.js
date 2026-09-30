@@ -479,9 +479,23 @@ test('K-10 through step(): a preview taken at a second boundary matches the real
     assert.equal(s.conts[s.contIdx].id, big.id);
     assert.ok(Math.abs(minHz - p.nadirHz) <= 0.02, 'seed ' + seed + ': real ' + minHz.toFixed(4) + ' preview ' + p.nadirHz.toFixed(4));
   }
+  // A-2 (Phase 1a): the other credible contingency, the tie import, previews its real nadir too
+  // (N-1 over both; the sim's sec.previewLinkHz is this preview).
+  for (const seed of [4, 5]) {
+    const s = withoutContingencies(createState(seed, CLASSIC));
+    s.tie.setMW = 700; // test poke: a large import, reached at the tie ramp before the trip
+    while (!s.over && s.tick < TRIP_S * TPS) step(s);
+    assert.ok(s.tie.flowMW > 300, 'importing ' + s.tie.flowMW);
+    const p = previewTrip(s, {kind: 'link', id: 'tie'});
+    injectTrip(s, TRIP_S, 'link');
+    let minHz = Infinity;
+    while (!s.over && s.tick < (TRIP_S + V.PREVIEW_HORIZON_S) * TPS) { step(s); minHz = Math.min(minHz, s.phys.fHz); }
+    assert.equal(s.conts[s.contIdx].cause, 'link');
+    assert.ok(Math.abs(minHz - p.nadirHz) <= 0.02, 'seed ' + seed + ' link: real ' + minHz.toFixed(4) + ' preview ' + p.nadirHz.toFixed(4));
+  }
 });
 
-test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing L keeps the nadir >= 49.5 Hz', slowOnly(), () => {
+test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing L (A-2: either credible contingency) keeps the nadir >= 49.5 Hz', slowOnly(), () => {
   // Sample par days at most once per 5 grid-minutes, at a second boundary (before that
   // second's grid update). SECURE is judged with a FRESH preview taken at the sampled tick
   // (security(state) re-runs previewTrip for L), so the preview is not the cached one that can
@@ -516,8 +530,13 @@ test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing
       if (isFresh) fresh++;
       if (isLive) live++;
       const judged = [];
-      if (isFresh) judged.push(['fresh', fr.lKind]);
-      if (isLive) judged.push(['live', st.sec.lKind]);
+      if (V.N1_PREVIEW_ALL) { // A-2: SECURE previews both credible contingencies, so both must hold
+        judged.push(['both', 'unit']);
+        if (!st.tie.tripped && st.tie.flowMW > V.EVENT_THRESHOLD_MW) judged.push(['both', 'link']);
+      } else {
+        if (isFresh) judged.push(['fresh', fr.lKind]);
+        if (isLive) judged.push(['live', st.sec.lKind]);
+      }
       for (const [how, kind] of judged) {
         const minHz = probe(st, sec, kind);
         if (minHz < V.CONTAIN_LO_HZ) failures.push('seed ' + seed + ' s ' + sec + ' ' + how + ' L=' + kind + ': ' + minHz.toFixed(3));
