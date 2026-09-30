@@ -367,7 +367,7 @@ test('K-9 via the shell: a tray button only focuses (the sim never changes)', ()
 test('H-14 via the shell: a "?" beside each game anchor on the page opens its text; the drawer lists all', () => {
   const {$, doc, frames} = boot('?seed=7');
   frames(1);
-  const qs = $('q-layer').querySelectorAll('button');
+  const qs = doc.querySelectorAll('button.q');
   const anchors = new Set(qs.map(q => q.dataset.anchor));
   for (const id of ['rate-badge', 'clock', 'chip-cost', 'chip-co2', 'btn-mute', 'lever-coal', 'bay-sync', 'btn-redispatch']) {
     assert.ok(anchors.has(id), 'a "?" beside #' + id);

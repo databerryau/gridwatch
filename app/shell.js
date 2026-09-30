@@ -148,9 +148,20 @@ export function bootGame(doc, deps) {
         q.title = entries.map(e => e.row).join(' · ');
         q.setAttribute('aria-label', 'About: ' + entries.map(e => e.row).join('; '));
         q.addEventListener('click', ev => { if (ev.stopPropagation) ev.stopPropagation(); showPopover(q, entries); });
-        layer.appendChild(q);
         qButtons.set(id, q);
+        // The header is the shell's own: its "?" sits inline right after the element. Desk,
+        // stack and map elements get a floating badge on their top-right corner (their DOM is
+        // their modules' own, so the shell never inserts into it).
+        const hdr = $('hdr');
+        if (hdr && hdr.contains(el) && el.parentElement) {
+          q.className = 'q inline';
+          const p = el.parentElement, next = p.children[Array.prototype.indexOf.call(p.children, el) + 1] || null;
+          p.insertBefore(q, next);
+          continue;
+        }
+        layer.appendChild(q);
       }
+      if (q.classList.contains('inline')) continue;
       const r = el.getBoundingClientRect();
       q.hidden = !(r.width > 0 && r.height > 0);
       q.style.left = Math.round(r.right - 26) + 'px';
