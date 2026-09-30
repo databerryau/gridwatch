@@ -840,7 +840,10 @@ export function fosSecond(state, out) {
 // measured in the Phase 1a sim pass: deeper in 0 of 3,578 par-day states), so with
 // N1_PREVIEW_ALL the link is previewed only while it imports more than the largest unit
 // outputs, and previewLinkHz otherwise carries the unit's nadir as its bound.
-const CR = {unitId: '', unitMW: 0, linkMW: 0, pvLinkMW: 0};
+// headMW: the primary response the fleet holds now (Σ over 'on' units of governor headroom up to
+// the governor cap, plus the battery charge an under-frequency would suspend, H-10): a cached
+// preview is re-run when it moved more than PREVIEW_L_TOL_MW (Phase 1a; see securitySecond).
+const CR = {unitId: '', unitMW: 0, linkMW: 0, pvLinkMW: 0, headMW: 0};
 function credible(state) {
   let id = '', mw = 0;
   const units = state.units;
@@ -848,6 +851,13 @@ function credible(state) {
   const t = state.tie;
   CR.unitId = id; CR.unitMW = mw; CR.linkMW = !t.tripped && t.flowMW > 0 ? t.flowMW : 0;
   CR.pvLinkMW = CR.linkMW > 0 && (id === '' || CR.linkMW > mw) ? CR.linkMW : 0;
+  let head = 0;
+  for (let i = 0; i < N; i++) {
+    const u = units[i];
+    if (u.mode === 'on') head += Math.min(M[i].govCapMW, Math.max(0, u.availMW - u.schedMW));
+  }
+  const b = state.battery.schedMW;
+  CR.headMW = head + (b < 0 ? -b : 0);
 }
 
 const previewUnit = (state, id) => previewTrip(state, {kind: 'unit', id}).nadirHz;
@@ -874,12 +884,12 @@ export function securitySecond(state, out) {
   const moved = N1_ALL
     ? CR.unitId !== sec.pvUnitId || Math.abs(CR.unitMW - sec.pvUnitMW) > PREVIEW_L_TOL || Math.abs(CR.pvLinkMW - sec.pvLinkMW) > PREVIEW_L_TOL
     : L.id !== sec.previewLId || Math.abs(L.mw - sec.previewLMW) > PREVIEW_L_TOL;
-  if (sec.dirty || sec.previewAtS < 0 || moved || Math.abs(f - sec.previewFHz) > PREVIEW_F_TOL || s - sec.previewAtS >= PREVIEW_REFRESH_S) {
+  if (sec.dirty || sec.previewAtS < 0 || moved || Math.abs(CR.headMW - sec.pvHeadMW) > PREVIEW_L_TOL || Math.abs(f - sec.previewFHz) > PREVIEW_F_TOL || s - sec.previewAtS >= PREVIEW_REFRESH_S) {
     const unitId = CR.unitId, unitMW = CR.unitMW, linkMW = CR.linkMW, pvLink = CR.pvLinkMW;
     sec.previewUnitHz = unitId !== '' && (N1_ALL || L.kind === 'unit') ? previewUnit(state, unitId) : F0;
     sec.previewLinkHz = N1_ALL ? (pvLink > 0 ? previewLink(state) : linkMW > 0 ? sec.previewUnitHz : F0)
       : linkMW > 0 && L.kind === 'link' ? previewLink(state) : F0;
-    sec.pvUnitId = unitId; sec.pvUnitMW = unitMW; sec.pvLinkMW = pvLink;
+    sec.pvUnitId = unitId; sec.pvUnitMW = unitMW; sec.pvLinkMW = pvLink; sec.pvHeadMW = CR.headMW;
     sec.previewAtS = s;
     sec.previewFHz = f;
     sec.dirty = false;

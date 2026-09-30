@@ -121,7 +121,7 @@ export function createState(seed, scenario) {
     sec: {r5MW: 0, lMW: 0, lKind: 'none', lId: '', ratio: 0, previewNadirHz: F0, previewAtS: -1, previewLId: '',
       previewLMW: 0, previewFHz: F0, dirty: true, level: 'SECURE',
       // A-2 (Phase 1a): the cached previews of both credible contingencies; pv*: what they previewed (private)
-      previewUnitHz: F0, previewLinkHz: F0, pvUnitId: '', pvUnitMW: 0, pvLinkMW: 0},
+      previewUnitHz: F0, previewLinkHz: F0, pvUnitId: '', pvUnitMW: 0, pvLinkMW: 0, pvHeadMW: 0},
     price: {mwh: 0, marginalId: '', adder: 0, exhausted: false, x: 0},
     acc: fleet.newAcc(),
     last: {fMeanHz: F0, fMinHz: F0, fMaxHz: F0, servedMW: 0, shedMW: 0},
