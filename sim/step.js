@@ -119,12 +119,16 @@ export function createState(seed, scenario) {
     agc: {nextCycleS: 0, requestMW: 0, unmetMW: 0, atLimitS: 0, aceMW: 0},
     fos: {outsideS: 0, belowContainS: 0, countdownS: V.FOS_RECOVER_S, directed: false, nextShedS: 0},
     sec: {r5MW: 0, lMW: 0, lKind: 'none', lId: '', ratio: 0, previewNadirHz: F0, previewAtS: -1, previewLId: '',
-      previewLMW: 0, previewFHz: F0, dirty: true, level: 'SECURE'},
+      previewLMW: 0, previewFHz: F0, dirty: true, level: 'SECURE',
+      // A-2 (Phase 1a): the cached previews of both credible contingencies; pv*: what they previewed (private)
+      previewUnitHz: F0, previewLinkHz: F0, pvUnitId: '', pvUnitMW: 0, pvLinkMW: 0},
     price: {mwh: 0, marginalId: '', adder: 0, exhausted: false, x: 0},
     acc: fleet.newAcc(),
     last: {fMeanHz: F0, fMinHz: F0, fMaxHz: F0, servedMW: 0, shedMW: 0},
     score: freshScore(),
     conts: [], contIdx: -1, news: [], log: [],
+    plan: grid.newPlan(),                // L-0, L-4, L-6 (Phase 1a): keyframes and bookings; grid.planSecond executes them
+    scope: {unit: '', nextAutoTick: -1}, // K-12: the unit on the synchroscope ('' none); the next syncAuto close tick
   };
   state.phys.ekMWs = fleet.ekMWs(state);
   weather.sampleSecond(state);
@@ -138,6 +142,7 @@ export function createState(seed, scenario) {
 function gridSecond(state, out) {
   if (state.tick > 0) market.settleSecond(state, out); // the second that just ended
   events.applyDue(state, out);                          // ext events due now (trips, weather, news)
+  grid.planSecond(state, out);                          // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)
   weather.sampleSecond(state);                          // env for this second
   grid.unitsSecond(state, out);                         // state machines, timers, hot trips
   grid.agcSecond(state, out);                           // AGC trims (every AGC_CYCLE_S)
@@ -166,6 +171,7 @@ export function step(state, inputs = EMPTY) {
   if (buf.length !== 0) buf.length = 0; // (the length store is a runtime call: skip it on the common empty tick)
   for (let i = 0; i < inputs.length; i++) applyInput(state, inputs[i], buf);
   if (state.tick % TPS === 0) gridSecond(state, buf);
+  if (state.tick === state.scope.nextAutoTick) grid.syncTick(state, buf); // K-12 AUTO: the breaker closes on its tick
   physics.tick(state, buf);
   state.tick += 1;
   if (state.black || state.tick >= DAY_TICKS) finish(state, buf);
@@ -181,7 +187,7 @@ const SHAPES = {
   start: {unit: 'unit'},
   stop: {unit: 'unit'},
   abortStop: {unit: 'unit'},
-  syncClose: {unit: 'unit'},
+  syncClose: {unit: 'unit', bypass: 'bool'},
   battery: {mode: ['charge', 'idle', 'discharge'], mw: 'mw'},
   guard: {mw: 'guard'},
   tie: {mw: 'tie'},
@@ -192,16 +198,46 @@ const SHAPES = {
   mode: {agc: 'bool'},
   restore: {district: 'district'},
   directShed: {},
+  // Phase 1a (desk/README.md §3.2): the plan in state, the synchroscope.
+  planKey: {station: 'station', atS: 'second', mw: 'mw'},
+  planDel: {station: 'station', atS: 'second'},
+  planStart: {unit: 'unit', atS: 'second'},
+  planStop: {unit: 'unit', atS: 'second'},
+  planUnbook: {unit: 'unit'},
+  planRejoin: {station: 'station', keep: 'bool'},
+  planLoad: {fromS: 'second', stations: 'planStations', tie: 'planTie', starts: 'planBook', stops: 'planBook'},
+  scope: {unit: 'unitOrNone'},
+  syncTrim: {unit: 'unit', dHz: 'trim'},
+  syncAuto: {unit: 'unit'},
 };
 export const INPUT_TYPES = Object.freeze(Object.keys(SHAPES));
+// Arguments a caller may leave out; the canonical copy (and so the log) always carries them.
+const DEFAULTS = {syncClose: {bypass: false}};
 
 const finite = v => typeof v === 'number' && Number.isFinite(v);
+const isSecond = v => Number.isInteger(v) && v >= 0 && v <= DAY_S;
+const MAX_KEYS = V.PLAN_MAX_KEYS;
+
+/** '' if v is an array of at most PLAN_MAX_KEYS [atS, mw] pairs, atS strictly increasing, mw valid. */
+function keyListProblem(v, mwOk, mwWhat) {
+  if (!Array.isArray(v)) return 'must be an array of [atS, mw] pairs';
+  if (v.length > MAX_KEYS) return 'more than ' + MAX_KEYS + ' entries';
+  for (let k = 0; k < v.length; k++) {
+    const e = v[k];
+    if (!Array.isArray(e) || e.length !== 2) return 'entry ' + k + ' must be [atS, mw]';
+    if (!isSecond(e[0])) return 'entry ' + k + ': atS must be a whole grid second 0..' + DAY_S;
+    if (!mwOk(e[1])) return 'entry ' + k + ': mw ' + mwWhat;
+    if (k > 0 && e[0] <= v[k - 1][0]) return 'entries must be sorted by atS, one per second';
+  }
+  return '';
+}
 
 function argProblem(state, kind, v) {
   if (Array.isArray(kind)) return kind.includes(v) ? '' : 'must be one of ' + kind.join('|');
   switch (kind) {
     case 'station': return V.STATION_IDS.includes(v) ? '' : 'unknown station';
     case 'unit': return V.MACHINE_IDS.includes(v) ? '' : 'unknown unit';
+    case 'unitOrNone': return v === '' || V.MACHINE_IDS.includes(v) ? '' : 'unknown unit (\'\' closes the scope)';
     case 'district': return state.city.districts.some(d => d.id === v) ? '' : 'unknown district';
     case 'mw': return finite(v) && v >= 0 ? '' : 'must be a finite MW >= 0';
     case 'guard': return finite(v) && v >= 0 && v <= V.BATT_MW && v % V.GUARD_STEP_MW === 0 ? ''
@@ -209,9 +245,53 @@ function argProblem(state, kind, v) {
     case 'tie': return finite(v) && Math.abs(v) <= V.TIE_MAX_MW ? '' : 'must be within +-' + V.TIE_MAX_MW + ' MW';
     case 'pct': return finite(v) && v >= 0 && v <= V.PCT ? '' : 'must be 0..100';
     case 'bool': return typeof v === 'boolean' ? '' : 'must be true or false';
+    case 'second': return isSecond(v) ? '' : 'must be a whole grid second 0..' + DAY_S;
+    case 'trim': return v === V.SYNC_TRIM_HZ || v === -V.SYNC_TRIM_HZ ? '' : 'must be +-' + V.SYNC_TRIM_HZ + ' Hz';
+    case 'planStations': {
+      if (v === null || typeof v !== 'object' || Array.isArray(v)) return 'must be an object {station: [[atS, mw], ...]}';
+      for (const k of Object.keys(v)) {
+        if (!V.STATION_IDS.includes(k)) return 'unknown station ' + k;
+        const p = keyListProblem(v[k], x => finite(x) && x >= 0, 'must be a finite MW >= 0');
+        if (p) return k + ': ' + p;
+      }
+      return '';
+    }
+    case 'planTie': return keyListProblem(v, x => finite(x) && Math.abs(x) <= V.TIE_MAX_MW, 'must be within +-' + V.TIE_MAX_MW + ' MW');
+    case 'planBook': {
+      if (!Array.isArray(v)) return 'must be an array of [unit, atS] pairs';
+      if (v.length > MAX_KEYS) return 'more than ' + MAX_KEYS + ' entries';
+      const seen = new Set();
+      for (let k = 0; k < v.length; k++) {
+        const e = v[k];
+        if (!Array.isArray(e) || e.length !== 2) return 'entry ' + k + ' must be [unit, atS]';
+        if (!V.MACHINE_IDS.includes(e[0])) return 'entry ' + k + ': unknown unit';
+        if (!isSecond(e[1])) return 'entry ' + k + ': atS must be a whole grid second 0..' + DAY_S;
+        if (seen.has(e[0])) return 'entry ' + k + ': one booking per unit';
+        seen.add(e[0]);
+        if (k > 0 && (e[1] < v[k - 1][1] || (e[1] === v[k - 1][1] && e[0] < v[k - 1][0]))) return 'entries must be sorted by atS, then unit';
+      }
+      return '';
+    }
     default: return 'bad argument kind';
   }
 }
+
+/** The canonical copy of one validated argument: numbers with -0 folded, plan lists rebuilt (never the caller's arrays). */
+function canonArg(kind, v) {
+  switch (kind) {
+    case 'planStations': {
+      const o = {};
+      for (const id of V.STATION_IDS) o[id] = Object.hasOwn(v, id) ? v[id].map(e => [e[0] + 0, e[1] + 0]) : [];
+      return o;
+    }
+    case 'planTie': return v.map(e => [e[0] + 0, e[1] + 0]);
+    case 'planBook': return v.map(e => [e[0], e[1] + 0]);
+    default: return typeof v === 'number' ? v + 0 : v;
+  }
+}
+
+/** A plain copy of an applied argument for the log record (the log never shares arrays with cmd or state). */
+const logArg = v => (typeof v === 'number' ? v + 0 : v !== null && typeof v === 'object' ? clone(v) : v);
 
 /** True during the watch (K-15): the first WATCH_S after the latest contingency. */
 export function inWatch(state) {
@@ -233,21 +313,25 @@ export function inWatch(state) {
 export function applyInput(state, input, out = []) {
   const type = input !== null && typeof input === 'object' && typeof input.type === 'string' ? input.type : null;
   const reject = reason => {
-    out.push({tick: state.tick, kind: 'input', ok: false, type, reason});
+    const rec = {tick: state.tick, kind: 'input', ok: false, type, reason};
+    const cue = grid.REFUSAL_CUES[reason];
+    if (cue) rec.cue = cue; // K-12: the sync-check relay's buzz
+    out.push(rec);
     return {ok: false, reason};
   };
   if (input === null || typeof input !== 'object') return reject('input must be an object');
   if (type === null || !Object.hasOwn(SHAPES, type)) return reject('unknown input type');
-  const shape = SHAPES[type];
+  const shape = SHAPES[type], defs = Object.hasOwn(DEFAULTS, type) ? DEFAULTS[type] : null;
   for (const k of Object.keys(input)) if (k !== 'type' && !Object.hasOwn(shape, k)) return reject('unexpected argument ' + k);
+  const argOf = k => (input[k] === undefined && defs !== null && Object.hasOwn(defs, k) ? defs[k] : input[k]);
   for (const k of Object.keys(shape)) {
-    const p = argProblem(state, shape[k], input[k]);
+    const p = argProblem(state, shape[k], argOf(k));
     if (p) return reject(k + ' ' + p);
   }
   if (state.over) return reject('the day is over');
   if (inWatch(state)) return reject('desk locked during the watch (K-15)');
   const cmd = {type};
-  for (const k of Object.keys(shape)) cmd[k] = typeof input[k] === 'number' ? input[k] + 0 : input[k];
+  for (const k of Object.keys(shape)) cmd[k] = canonArg(shape[k], argOf(k));
   if (type === 'mode') {
     if (state.tick >= V.PLAYER_START_TICK) return reject('AGC/HAND is chosen at the briefing, before 04:30 (D-7)');
     if (state.control.modeLocked) return reject('AGC/HAND is locked for the day (D-7)');
@@ -259,7 +343,7 @@ export function applyInput(state, input, out = []) {
   }
   state.sec.dirty = true;
   const args = {};
-  for (const k of Object.keys(shape)) args[k] = typeof cmd[k] === 'number' ? cmd[k] + 0 : cmd[k];
+  for (const k of Object.keys(shape)) args[k] = logArg(cmd[k]);
   state.log.push({tick: state.tick, type, args});
   return {ok: true, reason: ''};
 }
@@ -270,7 +354,19 @@ const pad2 = n => String(n).padStart(2, '0');
 
 // observe() copies these keys explicitly, so a private field a module adds to its state
 // object never leaks into the player's view and never changes the frozen shape.
-const SEC_KEYS = ['r5MW', 'lMW', 'lKind', 'lId', 'ratio', 'previewNadirHz', 'previewAtS', 'previewLId', 'previewLMW', 'dirty', 'level'];
+const SEC_KEYS = ['r5MW', 'lMW', 'lKind', 'lId', 'ratio', 'previewNadirHz', 'previewAtS', 'previewLId', 'previewLMW', 'dirty', 'level',
+  'previewUnitHz', 'previewLinkHz'];
+const PLAN_STATION_KEYS = ['id', 'man', 'doneS', 'clampedMW'];
+
+/** observe().plan: the plan in state by explicit keys (the executor's private fields stay out). */
+function planView(P) {
+  const keys = ks => ks.map(k => ({atS: k.atS, mw: k.mw}));
+  const books = bs => bs.map(b => ({unit: b.unit, atS: b.atS}));
+  return {madeAtS: P.madeAtS, rev: P.rev,
+    stations: P.stations.map(ps => Object.assign(pick(ps, PLAN_STATION_KEYS), {keys: keys(ps.keys)})),
+    tie: {doneS: P.tie.doneS, keys: keys(P.tie.keys)},
+    starts: books(P.starts), stops: books(P.stops)};
+}
 const FOS_KEYS = ['outsideS', 'belowContainS', 'countdownS', 'directed', 'nextShedS'];
 const AGC_KEYS = ['nextCycleS', 'requestMW', 'unmetMW', 'atLimitS', 'aceMW'];
 const PRICE_KEYS = ['mwh', 'marginalId', 'adder', 'exhausted', 'x'];
@@ -337,12 +433,15 @@ export function observe(state, opts) {
     demand: {nowMW: env.demandMW, servedMW: ph.servedMW, shedMW: ph.shedMW, heatActive: env.heatActive, tempC: env.tempC},
     units: state.units.map(u => {
       const m = V.MACHINES[u.k];
-      return {id: u.id, station: u.station, name: m.name, cls: m.cls, mode: u.mode, sync: u.sync, timerS: u.timerS,
+      const r = {id: u.id, station: u.station, name: m.name, cls: m.cls, mode: u.mode, sync: u.sync, timerS: u.timerS,
         outMW: u.outMW, schedMW: u.schedMW, basePointMW: u.basePointMW, agcTrimMW: u.agcTrimMW, govMW: u.govMW,
         availMW: u.availMW, minMW: m.minMW, ratingMW: m.ratingMW, rampMWMin: m.rampMWs * S_PER_MIN, offer: m.offer,
         startToMinS: m.t1S + V.AUTO_SYNC_S + m.t2S, hotS: u.hotS, starts: u.starts,
         upForS: s - u.upSinceS, downForS: s - u.downSinceS,
-        startBlock: fleet.startBlock(state, u.k), stopBlock: fleet.stopBlock(state, u.k)};
+        startBlock: fleet.startBlock(state, u.k), stopBlock: fleet.stopBlock(state, u.k),
+        slipHz: 0, phaseDeg: 0};
+      if (u.mode === 'ready') { const a = grid.syncAt(u, state.tick); r.slipHz = a.slipHz; r.phaseDeg = a.phaseDeg; }
+      return r;
     }),
     stations: state.stations.map(st => {
       const r = fleet.stationRange(state, st.id);
@@ -375,6 +474,8 @@ export function observe(state, opts) {
       backInBandS: c.backInBandTick < 0 ? -1 : Math.floor(c.backInBandTick / TPS)})),
     forecast: weather.forecast(state, V.FC_HORIZON_S, V.FC_STEP_S),
     dayAhead: opts && opts.dayAhead ? weather.forecast(state, DAY_S - s, V.FC_STEP_S) : null,
+    plan: planView(state.plan),
+    scope: {unit: state.scope.unit, open: state.scope.unit !== ''},
   };
 }
 

@@ -29,6 +29,19 @@ function seconds(s, n, fHz = V.F0_HZ) {
   return out;
 }
 const unit = (s, id) => s.units[unitIndex(id)];
+/** DIRECT SHED from a SHORT gauge (A-3: the key works only while SHORT or SHEDDING; test poke of the level). */
+function directShed(s, out) {
+  if (s.sec.level !== 'SHEDDING') s.sec.level = 'SHORT';
+  return grid.applyCommand(s, {type: 'directShed'}, out);
+}
+/** Put a 'ready' unit's needle so that a close now is judged (80 ms later) at angleDeg with slip slipHz (test poke). */
+function needle(s, id, slipHz, angleDeg) {
+  const u = unit(s, id);
+  u.slipHz = u.slipToHz = slipHz;
+  u.slipAtTick = s.tick;
+  u.phaseAtDeg = angleDeg - V.DEG_PER_TURN * slipHz * V.SYNC_BREAKER_TICKS * V.PHYS_DT;
+  return u;
+}
 
 test('H-1 / K-3: STOP unloads at the ramp to MIN, then T4 to <=5%, then the breaker opens; no step > ramp', () => {
   const s = opening(3);
@@ -104,8 +117,23 @@ test('K-12: HAND mode has no auto-synchroniser; syncClose closes a ready unit', 
   grid.applyCommand(s, {type: 'start', unit: 'gtc1'}, []);
   seconds(s, V.MACHINES[unitIndex('gtc1')].t1S + V.AUTO_SYNC_S + 60);
   assert.equal(unit(s, 'gtc1').mode, 'ready');
-  assert.equal(grid.applyCommand(s, {type: 'syncClose', unit: 'gtc1'}, []), '');
+  needle(s, 'gtc1', 0.2, 3);
+  assert.equal(grid.applyCommand(s, {type: 'syncClose', unit: 'gtc1', bypass: false}, []), '');
   assert.equal(unit(s, 'gtc1').sync, true);
+});
+
+test('K-7 / A-3: DIRECT SHED is refused unless the gauge reads SHORT or SHEDDING', () => {
+  const s = opening(9);
+  for (const lv of ['SECURE', 'TIGHT']) {
+    s.sec.level = lv;
+    assert.match(grid.applyCommand(s, {type: 'directShed'}, []), /shortfall/);
+  }
+  assert.equal(s.city.shedFrac, 0);
+  s.sec.level = 'SHORT';
+  assert.equal(grid.applyCommand(s, {type: 'directShed'}, []), '');
+  s.sec.level = 'SHEDDING';
+  assert.equal(grid.applyCommand(s, {type: 'directShed'}, []), '');
+  assert.equal(s.city.districts.filter(d => d.dark).length, 2);
 });
 
 test('H-4: one reserve function: R5, L and the level from the H-4 definitions', () => {
@@ -216,7 +244,7 @@ test('K-13: restore permissive: f >= 49.9 and 5 min since the last restore; the 
   // Dark for ~71 s (< 10 min): no cold-load pickup, so no surge.
   assert.equal(s.city.districts[d].surgeMW, 0);
   // A second district, then the interval rule.
-  grid.applyCommand(s, {type: 'directShed'}, []);
+  directShed(s, []);
   const d2 = s.city.districts.findIndex(x => x.dark);
   assert.match(grid.restorePermissive(s, d2), /wait/, '5 min since the last restore');
   seconds(s, V.RESTORE_INTERVAL_S, 50);
@@ -228,7 +256,7 @@ test('K-13: the restore input refuses a district whose RESTORE PREVIEW dips belo
   // non-synchronous share, no battery energy, a district dark for > 10 min (cold load x1.5).
   // The lamp's conditions hold, but the preview of picking it up is too deep.
   const s = commit(opening(10), {coal1: 600, hydro1: 150}, {tieMW: 800, windMW: 2000, battery: {socMWh: 0, guardMW: 0, mode: 'idle', orderMW: 0}});
-  grid.applyCommand(s, {type: 'directShed'}, []);
+  directShed(s, []);
   const d = s.city.districts.findIndex(x => x.dark);
   s.tick += (V.COLD_LOAD_AFTER_S + 60) * TPS; // dark long enough for cold-load pickup
   s.last.fMeanHz = V.F0_HZ;
@@ -242,7 +270,7 @@ test('K-13: the restore input refuses a district whose RESTORE PREVIEW dips belo
 
 test('K-13: a district dark > 10 min comes back with a 1.5x cold-load surge that decays over 10 min', () => {
   const s = opening(10);
-  grid.applyCommand(s, {type: 'directShed'}, []);
+  directShed(s, []);
   const d = s.city.districts.findIndex(x => x.dark);
   seconds(s, V.COLD_LOAD_AFTER_S + 60, 50);
   const base = s.env.demandMW * s.city.districts[d].share;
@@ -374,11 +402,11 @@ test('curtail: limitPct is an output LIMIT (100 = no curtailment) reached at the
 test('K-7: DIRECT SHED sheds exactly one district, the next lit one in rotation order', () => {
   const s = opening(9);
   const out = [];
-  assert.equal(grid.applyCommand(s, {type: 'directShed'}, out), '');
+  assert.equal(directShed(s, out), '');
   const dark = s.city.districts.filter(d => d.dark);
   assert.deepEqual(dark.map(d => [d.rot, d.shedBy]), [[0, 'directed']]);
   assert.equal(out.filter(e => e.kind === 'shed').length, 1);
-  assert.equal(grid.applyCommand(s, {type: 'directShed'}, []), '');
+  assert.equal(directShed(s, []), '');
   assert.deepEqual(s.city.districts.filter(d => d.dark).map(d => d.rot).sort(), [0, 1]);
 });
 
@@ -590,11 +618,11 @@ test('K-15 / H-11: backInBandTick is the first tick of the first completed secon
 
 test('H-11 rotation: a restored district goes to the back of the rotation; restores relight and re-arm a UFLS stage', () => {
   const s = opening(10);
-  grid.applyCommand(s, {type: 'directShed'}, []);
+  directShed(s, []);
   const first = s.city.districts.find(d => d.dark);
   seconds(s, 2, 50);
   assert.equal(grid.applyCommand(s, {type: 'restore', district: first.id}, []), '');
-  grid.applyCommand(s, {type: 'directShed'}, []);
+  directShed(s, []);
   assert.equal(s.city.districts.find(d => d.dark).rot, 1, 'not the district just restored');
   // UFLS stage 1 operated (physics does this through fleet.operateUfls; poked here).
   const st1 = s.city.districts.filter(d => d.uflsStage === 1);

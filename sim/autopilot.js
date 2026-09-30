@@ -276,22 +276,25 @@ function paceConts(obs) {
 
 // ------------------------------------------------------------------ the plan (L-0)
 
-/** An empty plan on the 5-min grid from madeAtS: column k arrives at t0 + k x STEP_S, the last at 04:00. */
+/**
+ * An empty plan on the 5-min grid from madeAtS: column k is for time t0 + k x STEP_S, the last at
+ * 04:00. This is the dispatcher's working copy (its diagnostic columns: the day-ahead forecast,
+ * the planned levers, tie, marginal offer and gap per column); what the grid executes is the plan
+ * in state, sent as planLoad inputs (Phase 1a).
+ */
 function newPlan(madeAtS) {
   const n = Math.max(0, Math.floor((DAY_S - madeAtS) / STEP_S));
   const z = () => new Array(n).fill(0);
   return {madeAtS, t0: madeAtS + STEP_S, stepS: STEP_S, n,
     fc: {p50: z(), wind: z(), solar: z(), price: z(), expLim: z()},
-    lever: SIDS.map(() => z()), tie: z(), marg: z(), gap: z(),
-    starts: [], stops: [], basePoints: [], ties: [], queue: [], amended: 0};
+    lever: SIDS.map(() => z()), tie: z(), marg: z(), gap: z(), amended: 0};
 }
 
 const colTime = (P, k) => P.t0 + k * STEP_S;
 
-/** A copy of plan P that an amendment may rewrite (fc and the L-0 lists are read-only there, so they are shared until adopted). */
+/** A copy of plan P that an amendment may rewrite (fc is read-only there, so it is shared until adopted). */
 function copyPlan(P) {
-  return Object.assign({}, P, {lever: P.lever.map(a => a.slice()), tie: P.tie.slice(), marg: P.marg.slice(), gap: P.gap.slice(),
-    queue: P.queue.slice(), fc: P.fc, starts: P.starts, stops: P.stops, basePoints: P.basePoints, ties: P.ties});
+  return Object.assign({}, P, {lever: P.lever.map(a => a.slice()), tie: P.tie.slice(), marg: P.marg.slice(), gap: P.gap.slice(), fc: P.fc});
 }
 /** First plan column arriving after grid second s. */
 const colAfter = (P, s) => Math.max(0, Math.floor((s - P.madeAtS) / STEP_S));
@@ -311,7 +314,7 @@ function fcAt(arr, present, fcn, lead) {
  * the stations and the tie must cover, prices and limits. par = par's rules apply
  * (battery, RERT, DR, the no-export and tie caps, rule 5, PAR_MAX_LOADING).
  */
-function context(obs, P, k0, par, memo, reflow) {
+function context(obs, P, k0, par, memo, keepStops) {
   const n = P.n, now = obs.s, auto = obs.mode === 'AGC';
   const heat = latestNews(obs, 'heat');
   const cx = {par, k0, n, now, heat,
@@ -327,21 +330,21 @@ function context(obs, P, k0, par, memo, reflow) {
     cx.off[i] = cx.on[i] < 0 ? -1 : NEVER;
     if (u.mode === 'on') { cx.x0[ST_OF[i]] += u.schedMW; cx.c0[ST_OF[i]]++; }
   }
-  // Starts the plan still has pending (par keeps them: they are the L-0 commitment), and for a
-  // re-flow of the L-0 plan (reflowLit) its stops too.
-  if (reflow) {
-    for (const e of P.stops) {
-      const i = V.MACHINE_IDS.indexOf(e.unit);
-      if (e.atS >= now && cx.on[i] >= 0) cx.off[i] = Math.min(cx.off[i], e.atS);
+  // The commitment booked in the plan in state (obs.plan): pending STARTs (the L-0 commitment,
+  // or the player's) always count, and pending STOPs when the plan keeps its stops (the L-0 plan,
+  // a re-flow of it, the player's RE-DISPATCH; par decommits by rule 4 only). They are carried
+  // into the planLoad the re-dispatch sends, which replaces every entry from now on.
+  for (const e of obs.plan.starts) {
+    const i = V.MACHINE_IDS.indexOf(e.unit);
+    if (e.atS >= now && cx.on[i] < 0 && (obs.units[i].mode === 'off' || obs.units[i].mode === 'tripped')) {
+      cx.on[i] = e.atS + obs.units[i].startToMinS; cx.off[i] = NEVER;
+      cx.starts.push({unit: e.unit, atS: e.atS});
     }
   }
-  if (par || reflow) {
-    for (const e of P.starts) {
+  if (keepStops) {
+    for (const e of obs.plan.stops) {
       const i = V.MACHINE_IDS.indexOf(e.unit);
-      if (e.atS > now && cx.on[i] < 0 && obs.units[i].mode === 'off') {
-        cx.on[i] = e.atS + obs.units[i].startToMinS; cx.off[i] = NEVER;
-        cx.starts.push({unit: e.unit, atS: e.atS});
-      }
+      if (e.atS >= now && cx.on[i] >= 0) { cx.off[i] = Math.min(cx.off[i], e.atS); cx.stops.push({unit: e.unit, atS: e.atS}); }
     }
   }
   let shed = 0;
@@ -663,49 +666,49 @@ function tieHi(cx, k, t, tieCap, big) {
   return Math.min(tieCap, Math.max(big, 0));
 }
 
-/** Keyframe inputs for columns [k0, n) of P, written into the public lists and the queue. */
-function writeKeyframes(P, cx, obs, keepStops, publicLists) {
-  const now = obs.s, k0 = cx.k0, q = [];
-  const bps = [], ties = [];
+/**
+ * The planLoad input for columns [k0, n) of P (Phase 1a: the plan lives in state). Keys are
+ * ARRIVE-BY: atS is the column's time, the lever is to be at mw by then (the grid's executor starts
+ * the move as late as the station's ramp allows). A station gets a key where it has machines on
+ * and its lever moves at least PLAN_KEYFRAME_MIN_MW, or its machine count changes (the first
+ * column too for the L-0 plan: `first`); MW are whole MW (the ramp check allows 1 MW). Bookings:
+ * the pending and new STARTs, and the STOPs when keepStops. Every list is sorted.
+ */
+function buildLoad(P, cx, obs, keepStops, first) {
+  const now = obs.s, k0 = cx.k0;
+  const stations = {};
   for (let j = 0; j < NS; j++) {
-    let last = obs.stations[j].basePointMW, lastCnt = obs.stations[j].onCount, first = publicLists;
+    const keys = [];
+    let last = obs.stations[j].basePointMW, lastCnt = obs.stations[j].onCount, need = first;
     for (let k = k0; k < P.n; k++) {
       const t = colTime(P, k);
       let c = 0;
       for (let i = STA[j].first; i < STA[j].first + STA[j].count; i++) if (isOn(cx, i, t)) c++;
       if (c === 0) { lastCnt = 0; continue; }
       const mw = P.lever[j][k];
-      if (first || c !== lastCnt || Math.abs(mw - last) >= KEYFRAME_MIN) {
-        bps.push({station: SIDS[j], atS: Math.max(now, t - STEP_S), mw});
-        last = mw; lastCnt = c; first = false;
+      if (need || c !== lastCnt || Math.abs(mw - last) >= KEYFRAME_MIN) {
+        keys.push([t, Math.round(mw) + 0]);
+        last = mw; lastCnt = c; need = false;
       }
     }
+    stations[SIDS[j]] = keys;
   }
-  let lastTie = obs.tie.setMW, firstTie = publicLists;
+  const tie = [];
+  let lastTie = obs.tie.setMW, needTie = first;
   for (let k = k0; k < P.n; k++) {
     const mw = clamp(P.tie[k], -TIE_MAX, TIE_MAX);
-    if (firstTie || Math.abs(mw - lastTie) >= KEYFRAME_MIN) {
-      ties.push({atS: Math.max(now, colTime(P, k) - STEP_S), mw: mw + 0});
-      lastTie = mw; firstTie = false;
+    if (needTie || Math.abs(mw - lastTie) >= KEYFRAME_MIN) {
+      tie.push([colTime(P, k), Math.round(mw) + 0]);
+      lastTie = mw; needTie = false;
     }
   }
-  if (publicLists) {
-    P.starts = cx.starts.slice().sort(byAtThenUnit);
-    P.stops = cx.stops.filter(e => e.atS < DAY_S).sort(byAtThenUnit);
-    P.basePoints = bps.slice().sort((a, b) => a.atS - b.atS || SIDS.indexOf(a.station) - SIDS.indexOf(b.station));
-    P.ties = ties.slice();
-  }
-  for (const e of P.starts) if (e.atS >= now) q.push({atS: e.atS, o: KIND_ORDER.start, id: e.unit, input: {type: 'start', unit: e.unit}});
-  if (keepStops) for (const e of P.stops) if (e.atS >= now) q.push({atS: e.atS, o: KIND_ORDER.stop, id: e.unit, input: {type: 'stop', unit: e.unit}});
-  for (const e of bps) q.push({atS: e.atS, o: KIND_ORDER.basePoint, id: e.station, input: {type: 'basePoint', station: e.station, mw: e.mw}});
-  for (const e of ties) q.push({atS: e.atS, o: KIND_ORDER.tie, id: '', input: {type: 'tie', mw: e.mw}});
-  q.sort((a, b) => a.atS - b.atS || a.o - b.o || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  P.queue = q;
+  const books = list => {
+    const seen = new Set();
+    return list.filter(e => e.atS >= now && e.atS < DAY_S).sort(byAtThenUnit)
+      .filter(e => (seen.has(e.unit) ? false : (seen.add(e.unit), true))).map(e => [e.unit, e.atS]);
+  };
+  return {type: 'planLoad', fromS: now, stations, tie, starts: books(cx.starts), stops: keepStops ? books(cx.stops) : []};
 }
-
-// Queue order within one second: stops, starts, base points, the tie (a stopping machine
-// leaves its station lever before the new base point is split over the machines still on).
-const KIND_ORDER = Object.fromEntries(['stop', 'start', 'basePoint', 'tie'].map((k, j) => [k, j]));
 
 function byAtThenUnit(a, b) {
   return a.atS - b.atS || (a.unit < b.unit ? -1 : a.unit > b.unit ? 1 : 0);
@@ -726,12 +729,12 @@ function byAtThenUnit(a, b) {
  * deliberately ignores N-1, warned hazards, drift after 04:30 and the noon minimum-
  * generation problem. The battery is left to rule 6 (the plan schedules it idle).
  * @param {object} obs observe(state, {dayAhead: true}) at (or after) PLAYER_START_H
- * @returns {{madeAtS:number, starts:Array<{unit:string, atS:number}>, stops:Array<{unit:string, atS:number}>,
- *   basePoints:Array<{station:string, atS:number, mw:number}>, ties:Array<{atS:number, mw:number}>}}
- *   every list sorted by atS, then by id; at most one basePoint per station and one tie
- *   setpoint per FC_STEP_S column; every step ramp-feasible from the previous one. The
- *   plan also carries its grid (t0, n), the day-ahead columns (fc), the planned levers,
- *   tie, marginal offer and gap per column, and the queue of inputs still to issue.
+ * @returns {object} the dispatcher's plan P: its grid (madeAtS, t0, stepS, n), the day-ahead
+ *   columns (fc), the planned levers, tie, marginal offer and gap per column, and `load`: the
+ *   plan as a planLoad input {type:'planLoad', fromS, stations: {id: [[atS, mw], ...]}, tie:
+ *   [[atS, mw], ...], starts: [[unit, atS], ...], stops: [[unit, atS], ...]} (Phase 1a), every
+ *   list sorted by atS (bookings then by unit); keys arrive-by at the column times, at most one per
+ *   station and column, every step ramp-feasible from the previous one (within 1 MW: whole MW).
  */
 export function preDispatch(obs) {
   const fc = obs.dayAhead || obs.forecast;
@@ -744,137 +747,127 @@ export function preDispatch(obs) {
   }
   // The day-ahead columns fall exactly on the plan grid: use them as the forecast here.
   const dayObs = Object.assign({}, obs, {forecast: fc});
-  const cx = context(dayObs, P, 0, false, null);
+  const cx = context(dayObs, P, 0, false, null, true);
   commitPlan(obs, P, cx);
   dispatchPlan(P, cx);
-  writeKeyframes(P, cx, obs, true, true);
+  P.load = buildLoad(P, cx, obs, true, true);
   return P;
 }
 
 /**
- * Par's amendment (a RE-PLAN): re-dispatch plan P from now to 04:00 over par's present
- * commitment and pending plan starts, with the latest forecast. Rewrites the queue (par drops
- * the L-0 stops: it decommits by rule 4 only). Every entry of the rewritten queue is par's own
- * schedule from then on, tagged `re` so runPar logs it with origin 'replan', not 'plan' (the
- * L-0 plan). Returns P.
+ * Par's amendment (a RE-PLAN): re-dispatch plan P from now to 04:00 over the present commitment
+ * and the plan's pending bookings, with the latest forecast. Returns the planLoad input that puts
+ * it in state (from now on; par drops pending STOPs: it decommits by rule 4 only, keepStops false).
  */
-function amend(obs, memo, P) {
+function amend(obs, memo, P, keepStops) {
   const k0 = colAfter(P, obs.s);
-  const cx = context(obs, P, k0, true, memo);
+  const ks = keepStops === undefined ? PROXIES[memo.proxy].stops : keepStops;
+  const cx = context(obs, P, k0, true, memo, ks);
   dispatchPlan(P, cx);
-  writeKeyframes(P, cx, obs, PROXIES[memo.proxy].stops, false);
-  for (const e of P.queue) e.re = true;
   P.amended += 1;
-  return P;
+  return buildLoad(P, cx, obs, ks, false);
 }
 
 /**
- * RE-PLAN for the bench player (app/assist.js, ASSIST PLAN): the re-dispatch par makes after
- * each of its actions (amend), on the player's plan, from now to 04:00 over the commitment
- * the player now has. It gives the player the same tool par uses without spending an action
- * (SPEC S-4, §8.2 "Par re-plans after every action"). Returns false when there is no plan yet.
+ * RE-PLAN / RE-DISPATCH for the player (app/assist.js ASSIST PLAN on the bench, app/system.js's
+ * RE-DISPATCH key in the game, decision A-1): the re-dispatch par makes after each of its actions
+ * (amend), from now to 04:00 over the commitment the player has now (units on and coming, and the
+ * STARTs and STOPs booked in the plan, which it keeps). Returns the planLoad input, or null when
+ * there is no plan yet (before 04:30) or the day is over. Not an action (SPEC S-4, §8.2).
  * @param {object} obs observe(state) (the forecast is enough; dayAhead is not needed)
- * @param {object} memo the assist's autopilot memo
- * @returns {boolean}
+ * @param {object} memo the assist's or the system's autopilot memo
+ * @returns {object|null}
  */
 export function replan(obs, memo) {
-  if (!memo.plan || obs.over || obs.s < START_S) return false;
-  amend(obs, memo, memo.plan);
-  memo.planNext = 0;
-  return true;
+  if (!memo.plan || obs.over || obs.s < START_S) return null;
+  return amend(obs, memo, memo.plan, true);
 }
 
-// ------------------------------------------------------------------ memo and plan inputs
+// ------------------------------------------------------------------ memo and plan updates
 
 /**
  * Fresh par memory (plain JSON, so a resumed day resumes par too: a JSON copy of a state and
  * of this memo, passed back to runPar as opts.state and opts.memo, plays the same day as the
- * run they were taken from): the proxy, the plan (null until PLAYER_START_H), the plan cursor,
- * the last action's tick, and the harness's decision cadence (nextS, the next decision's grid
- * second; afterWatch, decide at the first second after a watch), which runPar and the bench's
- * assist keep here rather than in their own locals.
+ * run they were taken from): the proxy, the dispatcher's plan (null until PLAYER_START_H), the
+ * planLoad inputs waiting to be sent (outbox: {input, tag}, empty between decisions), the last
+ * action's tick, and the harness's decision cadence (nextS, the next decision's grid second;
+ * afterWatch, decide at the first second after a watch), which runPar, the bench's assist and
+ * app/system.js keep here rather than in their own locals.
  * @param {{proxy?:'par'|'planOnly'|'doNothing'|'lean'|'competent'|'commitAll'|'fuzz'}} [opts]
  * @returns {object} memo
  */
 export function createAutopilot(opts) {
   const proxy = opts && opts.proxy ? opts.proxy : 'par';
   if (!Object.hasOwn(PROXIES, proxy)) throw new Error('createAutopilot: unknown proxy ' + proxy);
-  return {proxy, plan: null, planNext: 0, planTieMW: null, planTieTag: 'plan', lastActTick: -1, lastOrigin: '', actions: 0,
+  return {proxy, plan: null, outbox: [], lastActTick: -1, lastOrigin: '', actions: 0,
     amendDue: false, seenConts: 0, trip: null, tieHoldS: -1, tieHoldMW: 0, secureTieMW: 0, guardHoldS: -1, rebaseQuietS: -1,
     water: 'hold', rertSinceS: -1, planShed: 0, reflowS: -1, nextS: -1, afterWatch: false};
 }
 
-/** Make the day's plan from a day-ahead observation (runPar does this at PLAYER_START_H). */
+/** Make the day's plan from a day-ahead observation; its planLoad (origin 'plan') waits in the outbox. */
 function makePlan(obs, memo) {
-  memo.plan = preDispatch(obs);
-  memo.planNext = 0;
-  if (!PROXIES[memo.proxy].stops) memo.plan.queue = memo.plan.queue.filter(e => e.input.type !== 'stop');
+  const P = preDispatch(obs);
+  const load = P.load;
+  delete P.load;
+  if (!PROXIES[memo.proxy].stops) load.stops = []; // par starts from the plan without its stops (S-4)
+  memo.plan = P;
+  memo.outbox.push({input: load, tag: 'plan'});
 }
 
 /**
- * The plan's inputs that are due: every plan entry with atS <= obs.s not yet issued
- * (memo.planNext cursor), as inputs ({type:'start'|'stop'|'basePoint'|'tie', ...}), in plan
- * order. Returns [] during a watch (obs.inWatch) or before PLAYER_START_H; entries that fell
- * due meanwhile are issued at the first call after. An entry the sim refuses is dropped
- * (the next keyframe corrects it). Not paced (see the file header). While rule 1 or 2
- * holds the tie, the plan's tie entries wait; when the hold ends, the plan's current tie
- * setpoint is issued again.
+ * The plan inputs due at this decision (Phase 1a: planLoad inputs, which put the plan in state;
+ * the grid's executor then moves the levers, the tie and the bookings, K-2 / L-6): at the first
+ * decision from PLAYER_START_H the L-0 plan (made here if decide() has not made it: from
+ * obs.dayAhead, so pass observe(state, {dayAhead: true}) until memo.plan exists); par's
+ * re-plans after its actions (queued by decide()); and, for planOnly (and app/system.js), the
+ * re-flow for the lit load while districts are dark (reflowLit). Not paced (not discrete
+ * actions). Returns [] during a watch (obs.inWatch) or before PLAYER_START_H.
  * @param {object} obs observe(state)
- * @param {object} memo from createAutopilot (holds the plan once made)
- * @param {string[]} [tags] if given, receives one origin per returned input: 'plan' for the
- *   L-0 plan (and planOnly's reflow of it), 'replan' for par's own re-dispatched schedule
- * @returns {Array<{type:string}>}
+ * @param {object} memo from createAutopilot
+ * @param {string[]} [tags] receives one origin per returned input: 'plan' for the L-0 plan and
+ *   its re-flow, 'replan' for a re-dispatch after an action
+ * @param {{periodic?:boolean}} [opts] periodic: false skips the PLAN_REFLOW_S re-flow (a re-flow
+ *   when the dark share moves still runs); app/system.js passes it while the player owns the plan
+ * @returns {Array<object>}
  */
-export function planInputs(obs, memo, tags) {
-  if (!memo.plan || obs.over || obs.inWatch || obs.s < START_S) return [];
-  if (PROXIES[memo.proxy].reflow) reflowLit(obs, memo);
-  const q = memo.plan.queue, out = [];
-  const held = memo.tieHoldS > obs.s;
-  while (memo.planNext < q.length && q[memo.planNext].atS <= obs.s) {
-    const e = q[memo.planNext++];
-    const tag = e.re ? 'replan' : 'plan';
-    if (e.input.type === 'tie') {
-      memo.planTieMW = e.input.mw;
-      memo.planTieTag = tag;
-      if (held) continue;
-    }
-    out.push(Object.assign({}, e.input));
-    if (tags) tags.push(tag);
-  }
-  if (memo.tieHoldS >= 0 && !held) {
-    memo.tieHoldS = -1;
-    if (memo.planTieMW !== null && !obs.tie.tripped) {
-      out.push({type: 'tie', mw: memo.planTieMW});
-      if (tags) tags.push(memo.planTieTag);
-    }
+export function planUpdates(obs, memo, tags, opts) {
+  if (obs.over || obs.inWatch || obs.s < START_S) return [];
+  const proxy = PROXIES[memo.proxy];
+  if (!memo.plan && proxy.plan && obs.dayAhead) makePlan(obs, memo);
+  const out = [];
+  for (const x of memo.outbox) { out.push(x.input); if (tags) tags.push(x.tag); }
+  memo.outbox = [];
+  if (proxy.reflow && memo.plan) {
+    const load = reflowLit(obs, memo, !(opts && opts.periodic === false));
+    if (load) { out.push(load); if (tags) tags.push('plan'); }
   }
   return out;
 }
 
 /**
- * L-0 execution for a proxy that never amends its plan (planOnly): when the dark share of the
- * city moves by half a district or more since the plan last saw it, the plan's levers and tie
- * are re-dispatched from now to 04:00 for the LIT load (the L-0 rules: merit order, the plan's
- * own starts and stops, no N-1). This is the NEM's 5-minute dispatch, which targets metered
- * demand, standing under the once-a-day pre-dispatch: shed load is not dispatched for. While
- * any district is dark it re-flows every PLAN_REFLOW_S too (AEMO's pre-dispatch cadence), with
- * the latest forecast: a half-dark night otherwise ran on the 04:30 day-ahead wind. Without
- * it a plan written for the whole city kept serving a half-dark one overnight: the battery
- * filled and frequency rose to 52 Hz (black 'over') on 19/100 raw seeds (tuning pass).
+ * L-0 execution for a proxy that never amends its plan (planOnly, and the game's system operator,
+ * app/system.js): when the dark share of the city moves by half a district or more since the plan
+ * last saw it, the plan's levers and tie are re-dispatched from now to 04:00 for the LIT load (the
+ * L-0 rules: merit order, the plan's booked starts and stops, no N-1), as a planLoad. This is the
+ * NEM's 5-minute dispatch, which targets metered demand, standing under the once-a-day
+ * pre-dispatch: shed load is not dispatched for. While any district is dark it re-flows every
+ * PLAN_REFLOW_S too (AEMO's pre-dispatch cadence; `periodic`), with the latest forecast: a
+ * half-dark night otherwise ran on the 04:30 day-ahead wind. Without it a plan written for the
+ * whole city kept serving a half-dark one overnight: the battery filled and frequency rose to
+ * 52 Hz (black 'over') on 19/100 raw seeds (tuning pass). Returns the planLoad or null.
  */
-function reflowLit(obs, memo) {
+function reflowLit(obs, memo, periodic) {
   let shed = 0;
   for (const d of obs.districts) if (d.dark) shed += d.share;
   const moved = Math.abs(shed - memo.planShed) >= V.DISTRICT_SHARE / 2;
-  if (!moved && !(shed > 0 && obs.s - memo.reflowS >= REFLOW_S)) return;
+  if (!moved && !(periodic && shed > 0 && obs.s - memo.reflowS >= REFLOW_S)) return null;
   memo.planShed = shed;
   memo.reflowS = obs.s;
   const P = memo.plan, k0 = colAfter(P, obs.s);
   const cx = context(obs, P, k0, false, null, true);
   dispatchPlan(P, cx);
-  writeKeyframes(P, cx, obs, true, false);
   P.amended += 1;
-  memo.planNext = 0;
+  return buildLoad(P, cx, obs, true, false);
 }
 
 // ------------------------------------------------------------------ decide (S-4 rules)
@@ -1321,24 +1314,23 @@ const RULE_ORDER = Object.fromEntries(Object.entries(PROXIES).map(([k, p]) => [k
 const originOf = r => (r === 'rule6end' ? 'rule6' : r);
 
 /**
- * Rule 7, whose action IS an amendment: re-dispatch a copy of the plan now and return its
- * largest first-column lever move, taken out of the amended queue; the copy becomes the
- * plan only if there is such a move (else null).
+ * Rule 7, whose action IS an amendment: re-dispatch a copy of the plan now; worth an action
+ * only if it moves some lever at least PLAN_KEYFRAME_MIN_MW in the first column (from where the
+ * lever is now) and the plan by at least PAR_REBASE_MW over the next hour. Then the copy becomes
+ * the plan and its planLoad is the action (Phase 1a: the executor moves the levers); else null.
  */
-function amendNow(obs, memo, want) {
+function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
   if (obs.s < memo.rebaseQuietS) return null;
-  const P = amend(obs, memo, copyPlan(memo.plan));
-  let pick = -1, best = KEYFRAME_MIN;
-  for (let e = 0; e < P.queue.length; e++) {
-    const x = P.queue[e];
-    if (x.atS > obs.s) break;
-    if (x.input.type !== 'basePoint') continue;
-    const d = Math.abs(x.input.mw - obs.stations[SIDS.indexOf(x.input.station)].basePointMW);
-    if (d >= best) { best = d; pick = e; }
-  }
-  if (pick < 0) { memo.rebaseQuietS = obs.s + STEP_S; return null; }
-  // Worth an action only if the amendment really moves the plan over the next hour.
+  const P = copyPlan(memo.plan);
+  const load = amend(obs, memo, P);
   const k0 = colAfter(P, obs.s);
+  let lever = false;
+  for (let j = 0; j < NS && k0 < P.n; j++) {
+    const keys = load.stations[SIDS[j]];
+    if (keys.length && keys[0][0] === colTime(P, k0) && Math.abs(keys[0][1] - obs.stations[j].basePointMW) >= KEYFRAME_MIN) lever = true;
+  }
+  if (!lever) { memo.rebaseQuietS = obs.s + STEP_S; return null; }
+  // Worth an action only if the amendment really moves the plan over the next hour.
   let moved = 0;
   for (let k = k0; k < Math.min(P.n, k0 + REBASE_COLS); k++) {
     let d = Math.abs(P.tie[k] - memo.plan.tie[k]);
@@ -1346,11 +1338,8 @@ function amendNow(obs, memo, want) {
     if (d > moved) moved = d;
   }
   if (moved < REBASE) { memo.rebaseQuietS = obs.s + STEP_S; return null; }
-  const input = P.queue[pick].input;
-  P.queue.splice(pick, 1);
   memo.plan = P;
-  memo.planNext = 0;
-  return input;
+  return load;
 }
 
 /**
@@ -1397,8 +1386,9 @@ export function decide(obs, memo) {
     if (c.lostMW > 0) memo.trip = {n: c.n, start: true, tie: true, untilS: c.startS + SECURE_AGAIN_S};
   }
   // The plan re-flows at the first decision after an action, once obs shows its effect
-  // (the unit starting, the new order, the relit district...). Not an action itself.
-  if (memo.amendDue && memo.plan) { amend(obs, memo, memo.plan); memo.planNext = 0; }
+  // (the unit starting, the new order, the relit district...). Not an action itself: its
+  // planLoad waits in the outbox (planUpdates sends it, origin 'replan').
+  if (memo.amendDue && memo.plan) memo.outbox.push({input: amend(obs, memo, memo.plan), tag: 'replan'});
   memo.amendDue = false;
   if (memo.lastActTick >= 0 && refRealSeconds(memo.lastActTick / TPS, obs.tick / TPS, paceConts(obs)) < proxy.gapS) return [];
   let C = null;
@@ -1410,6 +1400,10 @@ export function decide(obs, memo) {
     if (want.amendThen) {
       input = memo.plan ? amendNow(obs, memo, want) : null;
       if (!input) continue;
+    } else if (want.type === 'tie' && memo.plan) {
+      // Rules 1 and 2 hold the tie (memo.tieHoldS): the hold goes into the plan's tie keys at once,
+      // or the plan's next tie key would pull the setpoint back before the next decision.
+      memo.outbox.push({input: amend(obs, memo, memo.plan), tag: 'replan'});
     } else {
       memo.amendDue = true;
     }
@@ -1436,7 +1430,7 @@ function fmix(h) {
 const fuzzU = (seed, a, b) => fmix(fmix(fmix((seed ^ V.PAR_FUZZ_SALT) >>> 0) ^ a) ^ b) / V.RNG_U32;
 
 const FUZZ_TYPES = ['basePoint', 'start', 'stop', 'abortStop', 'syncClose', 'battery', 'guard', 'tie', 'curtail', 'callDR',
-  'armRERT', 'standDownRERT', 'restore', 'directShed'];
+  'armRERT', 'standDownRERT', 'restore', 'directShed', 'planKey', 'planStart', 'planStop', 'planUnbook', 'scope', 'syncTrim', 'syncAuto'];
 const BATT_MODES = ['charge', 'idle', 'discharge'], CURTAIL_KINDS = ['wind', 'solar'];
 const FUZZ_DRAWS = ['go', 'type', 'a', 'b'];
 
@@ -1455,6 +1449,10 @@ function fuzzInput(seed, obs) {
     case 'tie': return [{type, mw: Math.floor((a * 2 - 1) * TIE_MAX)}];
     case 'curtail': return [{type, kind: pick(CURTAIL_KINDS, a), limitPct: Math.floor(b * V.PCT)}];
     case 'restore': return [{type, district: pick(obs.districts, a).id}];
+    case 'planKey': { const st = pick(SIDS, a); return [{type, station: st, atS: obs.s + Math.floor(b * S_PER_H), mw: Math.floor(b * V.STATIONS[st].totalMW)}]; }
+    case 'planStart': case 'planStop': return [{type, unit: pick(V.MACHINE_IDS, a), atS: obs.s + Math.floor(b * S_PER_H)}];
+    case 'planUnbook': case 'scope': case 'syncAuto': return [{type, unit: pick(V.MACHINE_IDS, a)}];
+    case 'syncTrim': return [{type, unit: pick(V.MACHINE_IDS, a), dHz: b < 1 / 2 ? -V.SYNC_TRIM_HZ : V.SYNC_TRIM_HZ}];
     default: return [{type}];
   }
 }
@@ -1468,7 +1466,7 @@ const DAY_AHEAD = Object.freeze({dayAhead: true});
  * or from opts.state (any tick; tests use it for the information barrier and for injected
  * inputs). From PLAYER_START_H (or at once if already past it), and then every
  * PAR_DECIDE_EVERY_S grid seconds and at the first second after each watch, it applies
- * decide(obs, memo) (origin = its rule) and planInputs(obs, memo) (origin 'plan').
+ * decide(obs, memo) (origin = its rule) and planUpdates(obs, memo) (origin 'plan' or 'replan').
  * observe() is called only at those seconds (it allocates). Decisions fall on the first
  * tick of a grid second after its update has run (tick % 50 === 1): par then sees that
  * second's fresh security and price, and an input can never land in the second a
@@ -1547,7 +1545,7 @@ export function runPar(seed, scenario, opts) {
           }
           if (usesPlan) {
             tags.length = 0;
-            feed(planInputs(obs, memo, tags), 'plan', tags);
+            feed(planUpdates(obs, memo, tags), 'plan', tags);
           }
         }
       }

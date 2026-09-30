@@ -42,6 +42,13 @@ export function buildUnits(scn) {
       basePointMW: on ? mw : 0, agcTrimMW: 0, schedMW: on ? mw : 0,
       govMW: 0, outMW: on ? mw : 0,
       availMW: m.ratingMW, hotS: 0, starts: 0,
+      // K-12 synchroscope (grid; Phase 1a): the slip is piecewise linear from slipHz at
+      // slipAtTick toward slipToHz over SYNC_TRIM_S, the phase angle phaseAtDeg at slipAtTick;
+      // grid.syncAt() gives both at any tick (analytic, no per-tick integration). autoTick: the
+      // tick the auto-synchroniser (syncAuto) closes the breaker, -1 none; revTripS: grid seconds
+      // to a reverse-power trip after a slow close (0 none); kickMW until kickEndTick: a rough
+      // close's one-second MW swing.
+      slipHz: 0, slipToHz: 0, slipAtTick: 0, phaseAtDeg: 0, autoTick: -1, revTripS: 0, kickMW: 0, kickEndTick: 0,
     };
   });
 }
