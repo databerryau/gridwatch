@@ -8,6 +8,11 @@ wins. Change it only on purpose, and say so in the PR.
 
 The legacy game (`index.html`, v2.0 + Phase 0.1) is frozen and untouched. v4 is new files only.
 
+**Phase 1a** (`v4-core-1a.0`, desk/README.md §3) added the plan in state and its executor, the
+plan, scope and sync inputs, the K-12 synchroscope, DIRECT SHED's gate and N-1 over both credible
+contingencies; the sections below say so where they changed, and §12 "Phase 1a" lists what was
+built, the deviations from desk/README.md §3 and the measurements.
+
 ---
 
 ## 1. Module map, ownership and the parallel plan
@@ -125,6 +130,7 @@ step(state, inputs = []):
   if state.tick % 50 === 0:                                  (grid second s = tick / 50)
       if state.tick > 0: market.settleSecond(state, out)     fold acc -> score, write state.last, reset acc
       events.applyDue(state, out)                            ext events with atS <= s (trips, weather, news)
+      grid.planSecond(state, out)                            Phase 1a: the plan's booked stops, starts, keys, tie keys
       weather.sampleSecond(state)                            state.env for second s
       grid.unitsSecond(state, out)                           state machines, timers, derate, hot trips, lockouts
       grid.agcSecond(state, out)                             AGC trims (every AGC_CYCLE_S)
@@ -132,6 +138,8 @@ step(state, inputs = []):
       grid.fosSecond(state, out)                             FOS timers, directed shedding, cold load, backInBand
       grid.securitySecond(state, out)                        R5, L, level; cached TRIP PREVIEW
       market.priceSecond(state, out)                         merit-order price
+  if state.tick === state.scope.nextAutoTick:                Phase 1a: a syncAuto close due on this tick (K-12)
+      grid.syncTick(state, out)
   physics.tick(state, out)                                   20 ms: frequency, governors, battery, relays, acc
   state.tick += 1
   if state.black or state.tick >= DAY_TICKS:
@@ -160,7 +168,7 @@ first physics tick after them sees the new state. A loop that steps must stop on
 | `EXT_CLOUD` | a = minute sample | utility-solar clearness series | createState |
 | `EXT_FINE` | a = grid second | +-6 MW per-second demand wobble | on the fly in `sampleSecond` (a pure function of seed and second, so it is "pre-rolled" in effect) |
 | `EXT_ROOFTOP` | a = sample, b = suburb | **reserved** for Phase 2 rooftop PV (P-1, P-2) | - |
-| `PLAY` | a = tick, b = unit index, c = draw | player-dependent outcomes: overheat trip (H-2: `uniform(seed, PLAY, tick, k)` at the grid second's tick); later sync slip (K-12) | when the outcome is decided |
+| `PLAY` | a = tick, b = unit index, c = draw | player-dependent outcomes: overheat trip (H-2: `uniform(seed, PLAY, tick, k)` at the grid second's tick, c = 0); K-12 sync slip (Phase 1a: at the tick the unit reaches 'ready' or is sent back there, c = 1 magnitude, 2 sign, 3 phase angle) | when the outcome is decided |
 
 Ext draws never depend on play (C-6): the same seed gives the same weather, demand, events and
 lockout times whatever anyone does. **Trip targets are rules, not dice**: "the largest online
@@ -206,6 +214,27 @@ modules named. "A" = set by createState only, never changed after. "-" = nobody 
 | `contIdx` | int | fleet | index of the latest contingency in `conts`, or -1 |
 | `news` | array | events | announcements made so far (public) |
 | `log` | array | step | accepted inputs `{tick, type, args}` (F-6) |
+| `plan` | object | grid (inputs and `planSecond`) | Phase 1a: the plan in state (below) |
+| `scope` | `{unit, nextAutoTick}` | grid | Phase 1a, K-12: the unit on the synchroscope ('' none); the tick of the next `syncAuto` close (-1 none; step() compares it every tick) |
+
+### plan (Phase 1a; L-0, L-4, L-6, K-2; desk/README.md §3.1)
+
+```
+plan = {madeAtS,   // grid second of the last planLoad (-1: none yet)
+        rev,       // +1 on every change (inputs, executed keys and bookings, pruning): a UI cache key
+        stations: [{id, man, doneS, clampedMW, keys: [{atS, mw}], clampOn, lastMW}],  // V.STATION_IDS order
+        tie: {doneS, keys: [{atS, mw}]},
+        starts: [{unit, atS}], stops: [{unit, atS}]}       // sorted by atS, then unit; one per unit
+```
+
+A key is **arrive-by**: the station's lever (Σ base points of its 'on' machines) should be at
+`mw` by `atS`. `doneS` is the atS of the last key applied (each applies once); `man` (HAND only)
+suspends the station's plan; `clampedMW` > 0 means the last key was clamped by that many MW (not
+enough machines on) and is re-applied once when the on-line count rises past `clampOn` (private,
+with `lastMW`, the key's MW). A key of 0 MW is the lever at its floor (Σ MIN; hydro gates shut);
+the STOP that ends a layer dragged to 0 is an explicit booking in `stops` (§12 Phase 1a,
+deviation 1). Keys older than `PLAN_HISTORY_S` (30 min) are dropped. `observe()` copies it by
+explicit keys without `clampOn` and `lastMW`.
 
 ### ext (hidden, pre-rolled, never written after createState)
 
@@ -269,6 +298,10 @@ to 435).
 | `availMW` | MW | grid | rating x (1 - `HEAT_THERMAL_DERATE` if heat active and thermal) |
 | `hotS` | s | grid | seconds above `HOT_LOADING_FRAC` of avail (H-2) |
 | `starts` | count | grid | starts today |
+| `slipHz`, `slipToHz`, `slipAtTick`, `phaseAtDeg` | Hz, Hz, tick, deg | grid | Phase 1a, K-12: the slip (machine - grid) is `slipHz` at `slipAtTick`, moving linearly to `slipToHz` over `SYNC_TRIM_S`; the phase angle is `phaseAtDeg` at `slipAtTick`. `grid.syncAt(u, tick)` integrates it exactly (observe shows the values now) |
+| `autoTick` | tick | grid | the tick a `syncAuto` close is due (-1 none) |
+| `revTripS` | s | grid | grid seconds to a reverse-power trip after a slow close (0 none) |
+| `kickMW`, `kickEndTick` | MW, tick | grid | a rough close's one-second swing in `schedMW`, removed at the first grid second from `kickEndTick` |
 
 ### battery - K-5, H-8 two layers, H-10
 
@@ -349,9 +382,14 @@ over the completed second). AGC, FOS and the restore permissive read `last.fMean
   seconds at the limit; in HAND every trim and the request are 0 and ACE is still shown.
 * `fos = {outsideS, belowContainS, countdownS, directed, nextShedS}`.
 * `sec = {r5MW, lMW, lKind: 'unit'|'link'|'none', lId, ratio, previewNadirHz, previewAtS,
-  previewLId, previewLMW, previewFHz, dirty, level: 'SECURE'|'TIGHT'|'SHORT'|'SHEDDING'}`.
-  `previewFHz` (the frequency the cached preview started from; finishing pass) is private:
-  `observe()` copies `sec` by its key list without it.
+  previewLId, previewLMW, previewFHz, dirty, level: 'SECURE'|'TIGHT'|'SHORT'|'SHEDDING',
+  previewUnitHz, previewLinkHz, pvUnitId, pvUnitMW, pvLinkMW}`.
+  `previewFHz` (the frequency the cached preview started from; finishing pass) and the `pv*`
+  fields (what the cached previews were for) are private: `observe()` copies `sec` by its key
+  list without them. Phase 1a (A-2, `N1_PREVIEW_ALL`): `lMW` stays the larger MW (the R5 test,
+  `ratio`, the P-7 x); `previewUnitHz` / `previewLinkHz` are the TRIP PREVIEWs of losing the
+  largest unit and the tie import; `lKind`, `lId`, `previewNadirHz`, `previewLId` and
+  `previewLMW` name the worse of the two (ties to the unit): the gauge's BIGGEST RISK.
 * `price = {mwh, marginalId, adder, exhausted, x}` (x = R5 / L).
 
 ### score (market; S-1..S-3)
@@ -403,24 +441,34 @@ An input is `{type, ...args}`. `applyInput(state, input, out)` (step.js) runs:
 
 | type | args | Accepted when (grid) | Effect |
 |---|---|---|---|
-| `basePoint` | `station`, `mw` >= 0 | always | equal shares over the `'on'` machines (§5 stations); `mw` rewritten to the applied lever (0 if none is on) |
+| `basePoint` | `station`, `mw` >= 0 | always | equal shares over the `'on'` machines (§5 stations); `mw` rewritten to the applied lever (0 if none is on). Phase 1a, AGC: writes the plan (L-6): keys from now to the arrival and the move in flight (keys up to `doneS`) are dropped, `{arrival, mw}` inserted, arrival = s + ⌈\|Δ\| / station ramp⌉, `doneS` = arrival (exactly one keyframe at the earliest ramp-feasible time; later keys stay; nothing when no machine is on). HAND: `man = true` (the station's plan waits; no key is touched) |
 | `start` | `unit` | `fleet.startBlock` is '' (off; min down met after a planned stop, none after a trip (D1); water for hydro) | `starting`, `timerS = t1S`, `acc.startCost += startCost`, `starts++` |
 | `stop` | `unit` | `fleet.stopBlock` is '' (min up met; starting/ready just cancel) | on/loading -> `unloading`, base point 0 (the lever loses exactly its share); starting/ready -> `off` |
 | `abortStop` | `unit` | mode `unloading` or `shutdown` (hydro: not out of water) | unloading -> `on` with base point = schedMW; shutdown -> `loading` (T2 slope from its output up to MIN) |
-| `syncClose` | `unit` | mode `ready` | **K-12 stub**: breaker closes now, clean (angle/slip come in Phase 1a) |
+| `syncClose` | `unit`, `bypass` (bool, optional, default false) | mode `ready`; not blocked by the sync-check relay (\|slip\| > `SYNC_BLOCK_SLIP_HZ` or \|angle\| > `SYNC_ROUGH_DEG`, judged `SYNC_BREAKER_TICKS` after the input) unless HAND and `bypass` | K-12 outcome table (§11 grid, "Synchroscope"): clean, rough, reverse or (HAND bypass) close-then-trip; a `sync` record. Refused: `'blocked by sync-check relay'`, the input record carrying `cue: 'buzz'` |
 | `battery` | `mode` in charge/idle/discharge, `mw` >= 0 | always | order set (`mw` rewritten to min(mw, BATT_MW)); `fullHold = false` |
 | `guard` | `mw` in 0..500, multiple of 50 | always | `guardMW` |
-| `tie` | `mw` in -800..800 | always (while tripped it sets the post-repair setpoint) | `setMW`; the flow is clamped to the export cap at use (a lower cap is reached at the tie ramp, never as a step) |
+| `tie` | `mw` in -800..800 | always (while tripped it sets the post-repair setpoint) | `setMW`; the flow is clamped to the export cap at use (a lower cap is reached at the tie ramp, never as a step). Phase 1a: writes the tie's plan like a lever in AGC (arrival at `TIE_RAMP_MW_MIN`), in HAND too (§12 Phase 1a, deviation 5) |
 | `curtail` | `kind` wind/solar, `limitPct` 0..100 | always | the output LIMIT % (100 = no curtailment), reached at `CURTAIL_RAMP_FRAC_MIN` (both ways) |
 | `callDR` | - | calls left and not active | `activeS = DR_DURATION_S`, `callsLeft--`; `dr.mw` ramps in and out at `DR_RAMP_MW_MIN` |
 | `armRERT` | - | not armed | armed, `leadS = RERT_LEAD_S`, `armedEver = true` ("glass broken") |
 | `standDownRERT` | - | armed and not already standing down | ramps out at `RERT_RAMP_MW_MIN`, then disarmed; before it arrives it simply cancels |
 | `mode` | `agc` bool | before 04:30 and `!control.modeLocked` | `control.mode` = AGC / HAND (D-7) |
 | `restore` | `district` | dark and `grid.restorePermissive(state, d, {preview: true})` is '' (the lamp's conditions plus the RESTORE PREVIEW, run on the input only) | **K-13 stub**: relit; `surgeMW` = cold load - its share of demand; `lastRestoreS`; UFLS stage re-armed if both its districts are lit |
-| `directShed` | - | a lit district in rotation remains (K-7; Phase 1a adds the LOR2-forecast gate) | darkens the lit rotation district restored longest ago (never shed first; ties by the lowest `rot`: on a fresh day, the lowest `rot`), `shedBy 'directed'` (true rotation: a district just restored is not the next one shed) |
+| `directShed` | - | `sec.level` is SHORT or SHEDDING (Phase 1a, A-3: R5 < L now, the LOR2-like state) and a lit district in rotation remains (K-7) | darkens the lit rotation district restored longest ago (never shed first; ties by the lowest `rot`: on a fresh day, the lowest `rot`), `shedBy 'directed'` (true rotation: a district just restored is not the next one shed) |
+| `planKey` | `station`, `atS` (whole s), `mw` >= 0 | `atS >= s`; something of the station on, booked, or free to start by then; before 04:00 | insert or replace the key at atS, **rewritten** (logged as applied): atS up to the earliest time the station's ramp reaches mw from the previous key after now (or the lever now), counting machines joining at MIN; mw into [Σmin, Σrating] of the machines on or booked on by then. None on or booked and mw > 0: books the START of the first machine free to start so it reaches MIN and climbs to mw by atS (a later booking of it moves earlier; atS moves later if the start would be past). mw 0: to MIN by atS, and a STOP of every machine on by then booked at atS. The rewrite is a fixed point: the logged key rewrites to itself on replay |
+| `planDel` | `station`, `atS` | a key at exactly atS, not in the past | removes it, and the STOPs of the station booked at that second |
+| `planStart` | `unit`, `atS` | `atS >= s`; unit off (or tripped) and free to start by atS (minimum down time, lockout, water) | books START at atS (replacing the unit's booking) |
+| `planStop` | `unit`, `atS` | `atS >= s`; unit committed, or booked to start before atS | books STOP at atS (replacing the unit's booking) |
+| `planUnbook` | `unit` | a booking of the unit | removes its booked START and STOP |
+| `planRejoin` | `station`, `keep` (bool) | HAND and `man` | `man = false`; `keep`: the missed keys up to now give way to a key {now, present lever} (`doneS` = now; L-6 KEEP); else the executor applies the plan's present value at the next second (RESUME) |
+| `planLoad` | `fromS` (whole s), `stations` {id: [[atS, mw], ...]}, `tie` [[atS, mw], ...], `starts` [[unit, atS], ...], `stops` [[unit, atS], ...] | `fromS >= s`; every atS >= fromS; shape checked in step.js: known station ids, <= `PLAN_MAX_KEYS` entries per list, keys strictly increasing in atS, bookings sorted by (atS, unit), one per unit per list, MW finite (station >= 0, tie within +-800) | replaces every plan entry with atS >= fromS; MAN flags clear; a key the executor had applied at or after fromS is superseded (`doneS` moves back); `madeAtS` = s. Logged canonically: `stations` carries every station id in `V.STATION_IDS` order (missing = []), fresh arrays |
+| `scope` | `unit` ('' closes) | unit `ready`, or '' | `scope.unit`; that unit's auto-synchroniser waits while it is on the scope (A-4). The scope closes when the unit leaves 'ready' |
+| `syncTrim` | `unit`, `dHz` = +-`SYNC_TRIM_HZ` | the unit is `ready` and on the scope | speed target += dHz (within +-`SYNC_SLIP_LIMIT_HZ`); the slip moves linearly to it over `SYNC_TRIM_S`; cancels a pending `syncAuto` |
+| `syncAuto` | `unit` | unit `ready`; AGC (HAND has no auto-synchroniser) | K-12 AUTO: trims the slip to +`SYNC_AUTO_SLIP_HZ` and closes cleanly on the next pass through 0 degrees (the close command at the tick 80 ms before it; `scope.nextAutoTick`) |
 
-`ack`, `silence`, pause, rate, FAST and skip are **not** sim inputs (presentation only).
-Live Stack keyframes (L-4/L-6, Phase 1a) will add a `plan` input type and a `plan` state field.
+`ack`, `silence`, pause, rate, FAST, skip, focus, expand and scope *offers* are **not** sim inputs
+(presentation only).
 
 **Input log record**: `{tick, type, args}`. `replay(seed, scenario, log, {untilTick})` feeds
 each record back as `{type, ...args}` at its tick (F-6) and **throws** if a record is refused
@@ -443,8 +491,12 @@ Every record has `tick` and `kind`; `cue` (optional) names a sound for `audio/`.
 | `restore` | `district`, `mw` (its cold-load MW) | grid |
 | `announce` | `news` (the news record), `cue: 'warn'` | events |
 | `black` | `fHz`, `why: 'under'\|'over'\|'inertia'` | physics |
-| `input` | `ok: false`, `type` (string or null), `reason` | step.applyInput |
+| `input` | `ok: false`, `type` (string or null), `reason`; `cue: 'buzz'` when the sync-check relay blocked a `syncClose` | step.applyInput |
+| `sync` | `unit`, `result: 'clean'\|'rough'\|'reverse'\|'bypass'\|'auto'`, `angleDeg`, `slipHz` (judged 80 ms after the command), `cue`: 'breaker' (clean), 'growl' (rough, reverse, bypass), none (auto) | grid (Phase 1a, K-12); the close's own `breaker` record comes first |
 | `dayEnd` | `black` | step |
+
+Phase 1a log codes (kind `log`): `PLAN` (a booked START or STOP refused when due, dropped),
+`SYNC_ROUGH`, `SYNC_REVERSE`, `SYNC_REVERSE_TRIP`.
 
 Message text lives in these records for the bench; Phase 1a moves wording to `content/text.js`.
 
@@ -463,7 +515,11 @@ units[], stations[] {id, name, basePointMW, onCount, minMW, maxMW, outMW}, batte
 smelter, sec, fos, agc, price, score (+ scoreSummary), districts[] {id, suburb, share,
 uflsStage, rot, dark, shedBy, darkSinceS, restoredAtS, coldLoadMW, restoreBlock}, news[] {atS,
 kind, fromS, toS, text}, contingency (latest record incl. pre and caught, or null),
-contingencies[] {n, startS, cause, id, lostMW, watchEndS, backInBandS}, forecast, dayAhead`.
+contingencies[] {n, startS, cause, id, lostMW, watchEndS, backInBandS}, forecast, dayAhead,
+plan, scope`. Phase 1a added: `units[]` gains `slipHz`, `phaseDeg` (now, from `grid.syncAt`; 0
+unless 'ready'); `sec` gains `previewUnitHz`, `previewLinkHz`; `plan` = {madeAtS, rev, stations[]
+{id, man, doneS, clampedMW, keys[] {atS, mw}}, tie {doneS, keys[]}, starts[] {unit, atS}, stops[]
+{unit, atS}}; `scope` = {unit, open}.
 `restoreBlock` is `grid.restorePermissive(state, d)` for a dark district (the lamp: frequency and
 interval; the restore preview runs only on the restore input, never per district here) and
 `fleet.DISTRICT_LIT` for a lit one. The bench asks the preview itself for lit lamps
@@ -690,8 +746,30 @@ Spec IDs: H-8 (RoCoF 1%, inertia raises nadir >= 0.2 Hz, containment, 10-s run <
 
 `applyCommand(state, cmd, out) -> ''|reason`, `unitsSecond`, `agcSecond`, `dispatchSecond`,
 `fosSecond`, `securitySecond` (all `(state, out)`), `security(state, opts) -> {r5MW, lMW, lKind,
-lId, ratio, previewNadirHz, level}` (THE reserve function, H-4; pure), `restorePermissive
-(state, d) -> ''|reason` (pure). Details in the JSDoc and in §5-6. Key rules:
+lId, riskMW, ratio, previewNadirHz, previewUnitHz, previewLinkHz, level}` (THE reserve function,
+H-4; pure), `restorePermissive(state, d) -> ''|reason` (pure). Phase 1a: `newPlan()`,
+`planSecond(state, out)` (the plan's executor), `syncAt(u, tick) -> {slipHz, phaseDeg}` (pure),
+`syncTick(state, out)`, `SYNC_BLOCKED`, `REFUSAL_CUES`. Details in the JSDoc and in §5-6. Key
+rules:
+
+* **The plan's executor** (Phase 1a, `planSecond`, right after `events.applyDue`): booked STOPs,
+  then STARTs, due now go through the input path (`applyCommand`; a refusal drops the booking
+  with a `log` record, code `PLAN`); keys older than `PLAN_HISTORY_S` are dropped; for each
+  station not MAN: a clamped key is re-applied once when the on-line count rose; the next key
+  (the first after `doneS`) applies through the basePoint path when `atS <= s` (only the latest
+  past key) or `s + |mw' - lever| / ramp >= atS` (mw' clamped to the station's range, ramp = Σ
+  rampMWs of its 'on' machines; with none on, at atS), then `doneS = atS`, `clampedMW = mw -
+  applied`; the tie's keys set `tie.setMW` the same way at `TIE_RAMP_MW_MIN`. Anything applied
+  sets `sec.dirty` (as the plan's inputs did in 0.2) and `plan.rev += 1`. It runs during the
+  watch too: the watch locks the desk, not dispatch.
+* **Synchroscope** (Phase 1a, K-12): see §5 units and §6; `syncClose` judges `syncAt(u, tick +
+  SYNC_BREAKER_TICKS)` (the breaker closes at the command's tick; the outcome is judged 80 ms on,
+  where the player aims): blocked (|slip| > `SYNC_BLOCK_SLIP_HZ` or |angle| > `SYNC_ROUGH_DEG`),
+  reverse (slip < 0: closes with no block, trips after `SYNC_REVERSE_TRIP_S` back to 'ready' with
+  a new slip, no lockout), rough (slip >= 0, `SYNC_CLEAN_DEG` < |angle| <= `SYNC_ROUGH_DEG`: the
+  block plus `SYNC_ROUGH_MW` for one second), clean; HAND + bypass on a blocked close: closes,
+  then `fleet.tripUnit` with `SYNC_BYPASS_LOCKOUT_S`. The background auto-synchroniser (AGC,
+  `AUTO_SYNC_S` after 'ready') waits while the unit is on the scope and is always clean ('auto').
 
 * Unit state machine per §5; auto-sync after `AUTO_SYNC_S` in AGC mode only (HAND:
   manual `syncClose`); breaker close picks up `syncBlockMW`, then T2 linear to MIN; unloading at
@@ -721,6 +799,14 @@ lId, ratio, previewNadirHz, level}` (THE reserve function, H-4; pure), `restoreP
   `OFGS_RECONNECT_GAP_S`, the last to trip first.
 * Directed shedding (FOS and DIRECT SHED): the lit rotation district restored longest ago
   (never shed first), ties by rot (§6).
+* **N-1 over both credible contingencies** (Phase 1a, A-2, `N1_PREVIEW_ALL`): the TRIP PREVIEW
+  runs for the largest unit and for the tie import; SECURE needs R5 >= 1.25 L and **both**
+  previews >= 49.5 Hz + margins; `lKind` / `lId` / `previewNadirHz` name the worse one (ties to
+  the unit), `lMW` stays the larger MW. The link is previewed only while the import exceeds the
+  largest unit's output: a link trip of no more MW keeps every machine's inertia and governor, so
+  it is never deeper (0 of 3,578 par-day states in the Phase 1a check), and `previewLinkHz` then
+  carries the unit's nadir as its bound. With the flag false, only L (the larger MW) is previewed,
+  as in Phase 0.2.
 * R5 (H-4): only mode 'on' units count (loading and stopping units offer no headroom, H-1);
   battery `min(BATT_MW - outMW, socMWh / 0.5 h)`; tie `min(800 - flow, 100 x 5)` if not tripped.
   SECURE needs R5 >= 1.25 L **and** preview nadir for losing L >= 49.5 Hz + `PREVIEW_MARGIN_HZ`
@@ -780,29 +866,33 @@ region's generation (units, wind after OFGS, solar, RERT), S-3's denominator.
 
 ### autopilot.js (B "autopilot")
 
-`preDispatch(obs) -> plan`, `planInputs(obs, memo, tags?) -> Input[]`, `createAutopilot(opts) ->
-memo`, `decide(obs, memo) -> Input[]` (<= 1), `replan(obs, memo) -> bool` (the bench's RE-PLAN),
-`refRealSeconds(fromS, toS, conts)`, `runPar(seed, scenario, opts) -> {score, summary, log, origins,
-hashes, black, plan, state, memo}`.
-JSDoc has the details. The contract:
+`preDispatch(obs) -> plan` (with `plan.load`, its planLoad input), `planUpdates(obs, memo, tags?,
+opts?) -> Input[]`, `createAutopilot(opts) -> memo`, `decide(obs, memo) -> Input[]` (<= 1),
+`replan(obs, memo) -> planLoad|null` (the player's RE-PLAN / RE-DISPATCH), `refRealSeconds(fromS,
+toS, conts)`, `runPar(seed, scenario, opts) -> {score, summary, log, origins, hashes, black, plan,
+state, memo}`. JSDoc has the details. The contract:
 
-* **L-0 plan (0.2 form).** Computed once at 04:30 from `observe(state, {dayAhead: true})`: a
-  merit-order schedule for the P50 forecast net of wind and solar (P-6 offers; the tie as a
-  price-taking block at the neighbour's price: import when it is below the marginal offer,
-  export when above), obeying start times, ramps and min up/down times, ignoring N-1, hazards,
-  drift and the noon minimum. Lists `starts`, `stops`, `basePoints` (per station, <= one per
-  5-min column), `ties`, sorted. Deterministic per seed and version.
-* **Executing the plan.** The plan's inputs are issued when due (`planInputs`, origin
-  `'plan'`). They stand in for K-2/L-6 "levers follow the plan" and are **not** discrete
-  actions: the S-4 pace does not count them. **Re-plan** (SPEC S-4, §8.2): after each discrete
-  action par re-dispatches every lever and the tie from then to 04:00 (`amend`); the rewritten
-  queue's entries carry `re` and are logged with origin `'replan'`. The re-plan is part of the
-  action, not a paced action of its own, and the bench player has the same RE-PLAN under ASSIST
-  PLAN (`replan`, `app/assist.replanNow`). Par starts from the plan without its stops. Whether
-  the Phase 1a Live Stack keeps RE-PLAN or par paces its re-plan is an owner decision. Phase 1a moves the plan into state. A proxy that
-  never amends its plan (planOnly) re-dispatches it for the lit load while districts are dark
-  (`reflowLit`: at once when the dark share moves, then every `PLAN_REFLOW_S`), as NEM
-  dispatch targets metered demand (L-0: never black with no input).
+* **L-0 plan.** Computed once at 04:30 from `observe(state, {dayAhead: true})`: a merit-order
+  schedule for the P50 forecast net of wind and solar (P-6 offers; the tie as a price-taking block
+  at the neighbour's price: import when it is below the marginal offer, export when above),
+  obeying start times, ramps and min up/down times, ignoring N-1, hazards, drift and the noon
+  minimum. Phase 1a: the result is a `planLoad` input (`plan.load`): arrive-by keys at the 5-min
+  column times (atS = the column the value is for; at most one per station and column; whole MW),
+  the tie's keys, and the booked STARTs and STOPs, sorted. Deterministic per seed and version.
+* **Executing the plan** (Phase 1a). The plan lives in state (§5 plan); the grid's executor moves
+  the levers, the tie and the bookings (K-2, L-6). Par sends `planLoad` inputs only: the 04:30
+  plan without its stops (S-4; origin `'plan'`), and after each discrete action the **re-plan**
+  (SPEC S-4, §8.2; `amend`: every lever and the tie from then to 04:00 over the present
+  commitment and the plan's pending STARTs; origin `'replan'`, not paced), queued in
+  `memo.outbox` by `decide()` and sent by `planUpdates()`. After a start, an order or a restore
+  the re-plan waits for the next decision (obs shows the effect); after rule 1 or 2 moves the tie
+  it is sent at once, with the tie's hold written into its tie keys (no separate hold). Rule 7's
+  action is itself a re-plan (a `planLoad`, origin `'rule7'`, paced). A proxy that never amends
+  its plan (planOnly, and `app/system.js`) re-flows it for the lit load while districts are dark
+  (`reflowLit`, a `planLoad`: at once when the dark share moves, then every `PLAN_REFLOW_S`), as
+  NEM dispatch targets metered demand (L-0: never black with no input). The player's RE-PLAN
+  (bench) and RE-DISPATCH (game, A-1) are `replan()`: par's amend over the player's commitment,
+  keeping the booked STOPs.
 * **Discrete actions** (`decide`, origin `'rule1'..'rule9'`): S-4 rules 1-8 in order, plus
   rule 9 (restore, §12), at most one per `PAR_ACTION_GAP_REAL_S` of `refRealSeconds` (D-2
   profile, unwrapped hours, plus each contingency's watch, respond card and RESPOND segment),
@@ -825,7 +915,9 @@ JSDoc has the details. The contract:
   run's memory (a JSON copy of `state` and `memo` resumes the same day: the decision cadence,
   `nextS` and `afterWatch`, lives in the memo, also for `app/assist.js`; review fix);
   `opts.onStep(state)` is called after every step (tests sample through it; it must not modify
-  state); `origins[i]` names the source of `log[i]`.
+  state); `origins[i]` names the source of `log[i]`. At a decision: the day's plan once (from
+  the day-ahead observation), `decide()`'s action, then `planUpdates()` (the 04:30 plan, the
+  re-plans, the re-flow): the same order in `app/assist.js` and `app/system.js`.
 * `tools/par.js` (Exit Phase 0) prints par for any seed. `tools/` is CommonJS
   (`tools/package.json`), so it loads the ES modules with `await import('../sim/step.js')`
   (Node >= 20), never `require`. It exports `grade()` (S-5) for `tools/baseline-v4.js`, and

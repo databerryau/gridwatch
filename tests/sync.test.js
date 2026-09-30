@@ -184,3 +184,37 @@ test('F-2 / F-7: a JSON round trip with the scope open and a syncAuto pending re
   assert.equal(JSON.stringify(b), JSON.stringify(s));
   assert.equal(s.units[idx('gtc1')].sync, true);
 });
+
+test('F-6: a log with every synchroscope input (scope, syncTrim, syncAuto, syncClose) replays to the same hash', () => {
+  const s = withoutContingencies(createState(10, CLASSIC));
+  while (s.tick < 60 * TPS + 1) step(s);
+  for (const id of ['gtc1', 'gtc2']) assert.equal(applyInput(s, {type: 'start', unit: id}).ok, true);
+  const t1 = s.tick + (V.MACHINES[idx('gtc1')].t1S + 2) * TPS;
+  while (s.tick < t1) step(s);
+  for (const x of [{type: 'scope', unit: 'gtc1'}, {type: 'syncTrim', unit: 'gtc1', dHz: V.SYNC_TRIM_HZ}, {type: 'syncAuto', unit: 'gtc2'}]) {
+    assert.equal(applyInput(s, x).ok, true, x.type);
+  }
+  const u1 = s.units[idx('gtc1')];
+  while (s.tick < t1 + 3 * TPS) step(s);
+  // Close gtc1 by hand when its needle is inside the clean window, whatever the seed drew.
+  let closed = false;
+  for (let k = 0; k < 20 * TPS && !closed; k++) {
+    if (Math.abs(syncAt(u1, s.tick + V.SYNC_BREAKER_TICKS).phaseDeg) <= V.SYNC_CLEAN_DEG) closed = applyInput(s, {type: 'syncClose', unit: 'gtc1'}).ok;
+    step(s);
+  }
+  assert.ok(closed, 'gtc1 closed by hand');
+  while (s.tick < t1 + 60 * TPS) step(s);
+  assert.equal(s.units[idx('gtc2')].sync, true, 'gtc2 closed by AUTO');
+  const types = new Set(s.log.map(r => r.type));
+  for (const t of ['scope', 'syncTrim', 'syncAuto', 'syncClose']) assert.ok(types.has(t), t);
+  assert.deepEqual(s.log.find(r => r.type === 'syncClose').args, {unit: 'gtc1', bypass: false}, 'the optional bypass is logged');
+  const b = withoutContingencies(createState(10, CLASSIC));
+  let j = 0;
+  while (b.tick < s.tick) {
+    const batch = [];
+    while (j < s.log.length && s.log[j].tick === b.tick) { batch.push(Object.assign({type: s.log[j].type}, s.log[j].args)); j++; }
+    step(b, batch);
+  }
+  assert.equal(hashState(b), hashState(s));
+  assert.deepEqual(b.log, s.log);
+});

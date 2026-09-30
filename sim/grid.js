@@ -1,10 +1,14 @@
 // sim/grid.js: the 1-second grid update and every player command's semantics
 // (spec F-2, F-13, H-1, H-2, H-4, H-10, H-11, K-1, K-2, K-3, K-5..K-7, K-12/K-13 stubs, S-11).
 //
-// STAGE B owner: "grid". Contract: sim/README.md, section "grid.js".
+// STAGE B owner: "grid". Contract: sim/README.md, section "grid.js". Phase 1a (sim agent) added
+// the plan's executor and edits (L-0, L-4, L-6, K-2 HAND/MAN), the K-12 synchroscope, DIRECT
+// SHED's gate (A-3) and N-1 over both credible contingencies (A-2): see the sections below.
 // step() calls, at every grid-second boundary and in this order:
-//   unitsSecond -> agcSecond -> dispatchSecond -> fosSecond -> securitySecond
-// (after market.settleSecond, events.applyDue and weather.sampleSecond; before market.priceSecond).
+//   planSecond (right after events.applyDue) -> unitsSecond -> agcSecond -> dispatchSecond ->
+//   fosSecond -> securitySecond
+// (after market.settleSecond, events.applyDue and weather.sampleSecond; before market.priceSecond),
+// and syncTick on the tick a syncAuto close is due (state.scope.nextAutoTick).
 // Trips, breakers, districts, relays and base points go through sim/fleet.js, which keeps
 // the invariants listed at the top of that file.
 //
@@ -298,7 +302,9 @@ function shedNextRotation(state, out) {
  * changed). applyCommand MAY rewrite cmd's numeric args to the value actually applied
  * (step logs cmd after this returns), and must not touch its other fields. Command types:
  * basePoint, start, stop, abortStop, syncClose, battery, guard, tie, curtail, callDR,
- * armRERT, standDownRERT, restore, directShed ('mode' is step's). See README §6. Key rules:
+ * armRERT, standDownRERT, restore, directShed, and (Phase 1a) planKey, planDel, planStart,
+ * planStop, planUnbook, planRejoin, planLoad, scope, syncTrim, syncAuto ('mode' is step's).
+ * See README §6 (it has the Phase 1a rules; the plan section below has the details). Key rules:
  *   basePoint {station, mw}: accepted always. Every 'on' machine of the station gets an
  *     equal share, fleet.setBasePoint(state, i, mw / onCount) (machines of one station have
  *     identical [minMW, availMW], so the clamp is exact), and cmd.mw is rewritten to the
@@ -310,10 +316,10 @@ function shedNextRotation(state, out) {
  *   abortStop: 'unloading' -> 'on' with basePointMW = schedMW (nothing jumps); 'shutdown'
  *     (or unloading still below MIN) -> 'loading' (T2 slope from its present output up to
  *     MIN). Refused for hydro with no water.
- *   syncClose: mode 'ready' -> breaker closes now (K-12 stub: always clean).
+ *   syncClose: mode 'ready' -> the K-12 outcome table (syncClose() below).
  *   battery {mode, mw}: orderMW = mw (cmd.mw rewritten to min(mw, BATT_MW)), mode set,
  *     fullHold = false. guard {mw}: guardMW.
- *   tie {mw}: setMW (clamped to the export cap only at use). curtail {kind, limitPct}:
+ *   tie {mw}: setMW (clamped to the export cap only at use) and the tie's plan key (Phase 1a). curtail {kind, limitPct}:
  *     ren.windLimitPct / solarLimitPct (output LIMIT, 100 = no curtailment).
  *   callDR: calls left and none active. armRERT: not armed. standDownRERT: armed and not
  *     already standing down (before it arrives it simply cancels).
@@ -321,7 +327,8 @@ function shedNextRotation(state, out) {
  *     restore preview runs here, on the input only); fleet.setDistrictDark(..., false);
  *     district.surgeMW = coldLoad - its present share of demand (>= 0); city.lastRestoreS =
  *     s; fleet.rearmUfls for its stage; emit {kind:'restore', district, mw: coldLoad}.
- *   directShed: darken the next lit rotation district ('directed'), emit 'shed'.
+ *   directShed: only while sec.level is SHORT or SHEDDING (A-3); darken the next lit rotation
+ *     district ('directed'), emit 'shed'.
  * @param {object} state
  * @param {{type:string}} cmd
  * @param {Array<object>} out

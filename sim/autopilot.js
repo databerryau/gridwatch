@@ -10,25 +10,26 @@
 // inputs through step.applyInput so it knows which were accepted (origins[]).
 //
 // Inputs par makes come in three kinds, told apart by runPar's `origins`:
-//   'plan'   the L-0 plan being executed (base points, starts, stops, tie setpoints at
-//            their planned times). This stands in for "levers follow the plan" (K-2, L-6):
-//            it is the system's schedule, not a discrete action, so it is NOT paced.
-//   'replan' par's own schedule after it re-planned (below): the same kind of keyframes,
-//            re-dispatched from the moment of an action. NOT paced either: the re-plan is
-//            part of the action it follows (SPEC S-4, §8.2 "Par re-plans after every
-//            action"), and the bench player has the same RE-PLAN (replan(), app/assist.js).
+//   'plan'   the L-0 plan: ONE planLoad input at 04:30 (Phase 1a: the plan lives in state and
+//            the grid's executor moves the levers, the tie and the booked starts and stops,
+//            K-2, L-6), and planOnly's re-flows of it. The system's schedule, not a discrete
+//            action, so it is NOT paced.
+//   'replan' par's own re-dispatch after an action (below), also a planLoad from that moment.
+//            NOT paced either: the re-plan is part of the action it follows (SPEC S-4, §8.2
+//            "Par re-plans after every action"), and the player has the same RE-DISPATCH
+//            (replan(): app/system.js in the game, decision A-1; app/assist.js on the bench).
 //   'ruleN'  a discrete action from S-4 rule N (1..9), paced: at most one per
-//            PAR_ACTION_GAP_REAL_S of the reference playback (refRealSeconds).
-// Phase 1a moves the plan into state (a `plan` input and field, L-4/L-6); then plan inputs
-// disappear from the log. Whether the Live Stack keeps a RE-PLAN control or par's re-plan
-// becomes paced Live Stack edits is an owner decision for Phase 1a (SPEC S-4).
+//            PAR_ACTION_GAP_REAL_S of the reference playback (refRealSeconds). Rule 7's action
+//            is itself a planLoad (its re-dispatch).
+// planLoads wait in memo.outbox until planUpdates() returns them (runPar and the assist send
+// them right after decide()'s action).
 //
-// How par edits its plan (0.2 form; SPEC S-4 and §8.2):
+// How par edits its plan (SPEC S-4 and §8.2):
 //   * Every discrete action AMENDS the plan (a RE-PLAN): after it, par re-dispatches its
 //     keyframes for every lever and the tie from now to 04:00 over the commitment it now
 //     has (present modes, pending plan starts, its own starts), with the latest forecast
-//     (obs.forecast, 4.5 h) and the day-ahead forecast beyond it. The amended keyframes are
-//     issued as 'replan' inputs as they fall due. It is not an extra discrete action; the
+//     (obs.forecast, 4.5 h) and the day-ahead forecast beyond it, and sends it as a planLoad
+//     (origin 'replan'). It is not an extra discrete action; the
 //     review measured what it is worth (without any re-plan par's clean days fell from 89
 //     to 42 of 100), which is why the player gets the same RE-PLAN.
 //   * Par starts from the L-0 plan without its stops (makePlan): it decommits by rule 4 only.
@@ -36,7 +37,8 @@
 //     load" is applied by that re-dispatch; rule 7 itself fires when a unit's base point
 //     is above the limit, when AGC carries more than PAR_REBASE_MW, or when the plan misses
 //     the forecast for the coming column by more than PAR_REBASE_MW (a red or blue gap on
-//     the Live Stack, L-5). Its input is the largest lever move of the amended plan.
+//     the Live Stack, L-5). Its input is the amended plan (a planLoad), when it moves a lever
+//     in the first column and the plan over the next hour by enough.
 //   * Rule 2 (v4 form): H-4 checks N-1 twice, in minutes (R5 >= L) and in seconds (TRIP
 //     PREVIEW nadir). S-4's rule 2 names only the minutes half; v4 physics trips UFLS on
 //     an uncovered 650-800 MW loss (the integration report measured 48.7-49.2 Hz), so par
