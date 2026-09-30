@@ -57,6 +57,41 @@ export function dollars(x) {
   return sign + '$' + mw(a);
 }
 
+// ------------------------------------------------------------------ the game's header (Phase 1a)
+
+/**
+ * LIGHTS ON as a share of the energy the city asked for so far: '100%' while nothing has been
+ * dark, else one decimal (never rounded up to 100%: '99.96%' shows as '99.9%').
+ */
+export function lightsText(score) {
+  const served = score.servedMWh, dark = score.lightsMWh === undefined ? score.unservedMWh : score.lightsMWh;
+  if (!(dark > 0) || !(served + dark > 0)) return '100%';
+  const pct = 100 * served / (served + dark);
+  return (Math.floor(pct * 10) / 10).toFixed(1) + '%';
+}
+
+/** CUSTOMER COST in cents per kWh served ('8.4'), '-' before anything is served. */
+export const centsText = score => (score.servedMWh > 0 && Number.isFinite(score.centsPerKWh) ? score.centsPerKWh.toFixed(1) : '-');
+
+/** CO₂ intensity in t/MWh generated ('0.61'), '-' before anything is generated. */
+export const co2Text = score => (score.co2tPerMWh > 0 && Number.isFinite(score.co2tPerMWh) ? score.co2tPerMWh.toFixed(2) : '-');
+
+const MODE_LABEL = {OVER: 'DAY OVER', HIDDEN: 'PAUSE', PAUSE: 'PAUSE', WATCH: 'WATCH', 'RESPOND-CARD': 'HELD', FOCUS: 'FOCUS',
+  RESPOND: 'RESPOND', FAST: 'FAST', CRUISE: 'CRUISE', DEBUG: 'DEBUG'};
+
+/**
+ * The rate badge (F-5: the mode and the rate are always visible): 'CRUISE 120×', 'FAST 360×',
+ * 'WATCH T+1.23 s ×0.15', 'HELD 0× · Enter', 'PAUSE 0×', 'DAY OVER'.
+ * @param {{mode:string, rate:number, watchS:number}} m director.modeOf()
+ */
+export function badgeText(m) {
+  const label = MODE_LABEL[m.mode] || m.mode;
+  if (m.mode === 'OVER') return label;
+  if (m.mode === 'WATCH') return 'WATCH T+' + Math.max(0, m.watchS).toFixed(2) + ' s ×' + rateText(m.rate).replace('×', '');
+  if (m.mode === 'RESPOND-CARD') return 'HELD 0× · Enter';
+  return label + ' ' + rateText(m.rate);
+}
+
 /**
  * One event-log line for a step() record, or null for records the log leaves out (a
  * 'restore' or 'announce' record is followed by the sim's own log line saying the same).

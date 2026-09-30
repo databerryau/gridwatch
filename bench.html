@@ -1,0 +1,245 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GRIDWATCH bench (v4 core)</title>
+<link rel="icon" href="data:,">
+<!--
+  bench.html: the Phase 0.2 bench, moved here from next.html in Phase 1a (desk/README.md A-5:
+  next.html is now the greybox game). SPEC 0.2: "a strip chart plus one plain slider per unit;
+  it lets the owner feel the new physics". Static: no build, no requests to other origins.
+  Serve the repo root (py -m http.server 8642) and open http://localhost:8642/bench.html.
+  Query: ?seed=N&assist=off|plan|par&speed=R&play=1. Layout at 1280x720; everything is drawn
+  by app/bench-boot.js and render/bench.js.
+-->
+<style>
+  :root {
+    --bg: #0d1117; --panel: #151b23; --panel2: #1b222c; --line: #2a323d; --text: #c9d1d9; --dim: #8b949e;
+    --faint: #6e7781; --bright: #f0f6fc; --green: #3fb950; --amber: #d29922; --red: #f85149; --blue: #58a6ff;
+    --violet: #a371f7; --orange: #f0883e; --cyan: #39c5cf;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; min-width: 1280px; min-height: 720px; }
+  button { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
+    padding: 2px 7px; cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled) { border-color: var(--dim); color: var(--bright); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.on { background: #1f6feb33; border-color: var(--blue); color: var(--bright); }
+  button.armed { background: #da363333; border-color: var(--red); color: var(--bright); }
+  button.debug { border-style: dashed; border-color: var(--amber); color: var(--amber); }
+  input[type=range] { width: 100%; accent-color: var(--blue); margin: 0; height: 16px; }
+  input[type=number] { width: 86px; font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 4px; padding: 2px 4px; }
+  .mono, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .dim { color: var(--dim); } .faint { color: var(--faint); }
+  .good { color: var(--green); } .warn { color: var(--amber); } .crit { color: var(--red); } .info { color: var(--text); }
+
+  header { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-bottom: 1px solid var(--line);
+    background: var(--panel); flex-wrap: wrap; }
+  .brand { font-weight: 700; letter-spacing: 0.08em; color: var(--bright); }
+  .brand span { font-weight: 400; letter-spacing: 0; color: var(--dim); }
+  #clock { font: 700 18px var(--mono); color: var(--bright); min-width: 92px; }
+  #rate-badge { font: 700 12px var(--mono); padding: 3px 8px; border-radius: 4px; background: #1f6feb22; border: 1px solid var(--blue);
+    color: var(--bright); min-width: 150px; text-align: center; }
+  #rate-badge.WATCH { background: #d2992233; border-color: var(--amber); }
+  #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER { background: #6e768133; border-color: var(--faint); }
+  #rate-badge.DEBUG { background: #a371f722; border-color: var(--violet); }
+  .seg { display: inline-flex; align-items: center; gap: 2px; }
+  .seg > span.lbl { color: var(--dim); margin-right: 3px; }
+  .sep { width: 1px; height: 20px; background: var(--line); }
+
+  main { flex: 1; display: grid; grid-template-columns: 520px 400px 1fr; gap: 6px; padding: 6px; min-height: 0; }
+  section { min-height: 0; display: flex; flex-direction: column; gap: 6px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; position: relative; }
+  .panel h3 { margin: 0 0 3px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--dim); display: flex; gap: 6px;
+    align-items: center; }
+  .chart { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; position: relative; flex: 1; min-height: 0; }
+  .chart canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #freq-live-wrap { flex: 1.35; } #freq-day-wrap { flex: 0.8; } #demand-chart { flex: 1.25; } #price-chart { flex: 0.8; }
+  .chart > .q { position: absolute; top: 1px; left: 4px; }
+  #region-scale { position: absolute; left: 4px; top: 19px; }
+
+  #controls { overflow-y: auto; }
+  .st { display: grid; grid-template-columns: 62px 1fr; gap: 1px 6px; padding: 2px 0; border-top: 1px solid var(--line); }
+  .st:first-of-type { border-top: 0; }
+  .st .name { font-weight: 600; color: var(--bright); }
+  .st .lever { display: flex; align-items: center; gap: 6px; }
+  .st .lever input { flex: 1; min-width: 80px; }
+  .st .readout { font-family: var(--mono); font-size: 10px; color: var(--dim); display: flex; flex-direction: column; align-items: flex-end;
+    line-height: 1.15; min-width: 118px; }
+  .st .machines { grid-column: 1 / 3; display: flex; flex-wrap: wrap; gap: 3px; }
+  .mach { display: inline-flex; align-items: center; gap: 3px; border: 1px solid var(--line); border-radius: 4px; padding: 1px 2px 1px 5px;
+    font: 11px var(--mono); background: var(--bg); }
+  .mach .lamp { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+  .mach.on .lamp { background: var(--green); } .mach.loading .lamp, .mach.starting .lamp, .mach.ready .lamp { background: var(--amber); }
+  .mach.unloading .lamp, .mach.shutdown .lamp { background: var(--blue); } .mach.tripped .lamp { background: var(--red); }
+  .mach.hot { border-color: var(--red); }
+  .mach button { padding: 0 5px; font-size: 10px; }
+  .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .row > .grow { flex: 1; min-width: 120px; }
+  .kv { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+  .kv b { color: var(--text); font-weight: 600; }
+  .bar { height: 6px; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+  .bar > i { display: block; height: 100%; background: var(--violet); }
+  #restore-list { display: flex; flex-direction: column; gap: 2px; max-height: 96px; overflow-y: auto; }
+
+  #status { overflow-y: auto; }
+  #freq-readout .big { font: 700 30px var(--mono); color: var(--bright); line-height: 1.1; }
+  #freq-readout .big.warn { color: var(--amber); } #freq-readout .big.crit { color: var(--red); } #freq-readout .big.good { color: var(--green); }
+  .lamps { display: flex; gap: 2px; align-items: center; flex-wrap: wrap; }
+  .lamps i { font: 9px var(--mono); font-style: normal; padding: 0 3px; border-radius: 3px; border: 1px solid var(--line); color: var(--faint); }
+  .lamps i.lit { background: var(--red); color: var(--bright); border-color: var(--red); }
+  .level { font: 700 13px var(--mono); padding: 1px 8px; border-radius: 4px; border: 1px solid var(--line); }
+  .level.SECURE { color: var(--green); border-color: var(--green); } .level.TIGHT { color: var(--amber); border-color: var(--amber); }
+  .level.SHORT, .level.SHEDDING { color: var(--red); border-color: var(--red); }
+  .level.SHEDDING { animation: flash 0.8s steps(2) infinite; }
+  @keyframes flash { 50% { background: #f8514944; } }
+  #event-log { flex: 1; min-height: 80px; display: flex; flex-direction: column; }
+  #log-list { flex: 1; overflow-y: auto; font-size: 11px; }
+  #log-list div { padding: 1px 0; border-bottom: 1px solid #1c232c; }
+  #log-list .t { font-family: var(--mono); color: var(--faint); margin-right: 5px; }
+  #log-list .dim { color: var(--faint); }
+  #news-list div { font-size: 11px; color: var(--amber); }
+  #cont-card { font-size: 11px; }
+
+  /* The watch (K-15): vignette, desk locked. */
+  body.watch main::after { content: ''; position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 140px 36px #000d; z-index: 5; }
+  body.watch #controls { opacity: 0.45; pointer-events: none; }
+  #lock-banner { display: none; }
+  body.watch #lock-banner { display: inline-block; font: 700 11px var(--mono); color: var(--amber); }
+  #btn-skip { display: none; } body.watch #btn-skip { display: inline-block; }
+
+  .q { width: 16px; height: 16px; padding: 0; border-radius: 50%; font: 700 10px/14px system-ui, sans-serif; color: var(--dim);
+    background: transparent; border: 1px solid var(--line); flex: none; }
+  #popover { position: fixed; z-index: 20; max-width: 420px; background: var(--panel2); border: 1px solid var(--dim); border-radius: 6px;
+    padding: 8px 10px; box-shadow: 0 8px 24px #000a; font-size: 12px; }
+  #popover h4 { margin: 0 0 4px; color: var(--bright); font-size: 12px; }
+  #popover p { margin: 3px 0; } #popover p b { color: var(--dim); font-weight: 600; }
+  #drawer { position: fixed; z-index: 15; top: 0; right: 0; bottom: 0; width: 460px; overflow-y: auto; background: var(--panel);
+    border-left: 1px solid var(--dim); padding: 10px 12px; box-shadow: -8px 0 24px #000a; }
+  #drawer h2 { margin: 0 0 6px; font-size: 14px; color: var(--bright); }
+  #drawer article { border-top: 1px solid var(--line); padding: 6px 0; }
+  #drawer article h4 { margin: 0 0 3px; color: var(--bright); font-size: 12px; }
+  #drawer article p { margin: 2px 0; font-size: 12px; } #drawer article p b { color: var(--dim); }
+  #end-card { position: fixed; z-index: 12; left: 50%; top: 18%; transform: translateX(-50%); width: 480px; background: var(--panel2);
+    border: 1px solid var(--dim); border-radius: 8px; padding: 12px 14px; box-shadow: 0 12px 40px #000c; }
+  #end-card h2 { margin: 0 0 6px; color: var(--bright); font-size: 15px; }
+  [hidden] { display: none !important; }
+  noscript { padding: 20px; }
+</style>
+<body>
+<header id="top">
+  <div class="brand">GRIDWATCH <span>bench · v4 core</span></div>
+  <div id="clock" title="Grid clock (the day runs 04:00 to 04:00)"><span id="clock-text">04:00:00</span></div>
+  <div id="rate-badge" title="Playback rate: grid seconds per real second (F-5)"><span id="rate-text">PAUSE</span></div>
+  <button id="btn-play" title="Space">▶ PLAY</button>
+  <span id="lock-banner">DESK LOCKED: WATCH</span>
+  <button id="btn-skip" title="Esc: play the rest of this watch at the chosen speed">SKIP WATCH</button>
+  <div class="sep"></div>
+  <div id="speed" class="seg" title="Debug speeds (keys 1-6). 120× is the Phase 0.2 cruise rate."><span class="lbl">SPEED</span></div>
+  <div class="sep"></div>
+  <div id="agc-mode" class="seg" title="AGC or HAND, chosen at the briefing (before 04:30 and before any other input), then locked (D-7)">
+    <span class="lbl">CONTROL</span><button data-agc="1">AGC</button><button data-agc="0">HAND</button></div>
+  <div id="assist-select" class="seg" title="Let par's code drive: PLAN = the 04:30 pre-dispatch plan; PAR = plan + par's rules; RE-PLAN = re-dispatch the plan now, as par does after each action">
+    <span class="lbl">ASSIST</span><button data-assist="off">OFF</button><button data-assist="plan">PLAN</button><button data-assist="par">PAR</button><button id="btn-replan" title="ASSIST PLAN: re-dispatch the plan from now to 04:00 over the units you have now, as par does after each of its actions">RE-PLAN</button></div>
+  <button id="btn-desk" title="Run the 04:00-04:30 briefing headless, as the game will">SKIP TO 04:30</button>
+  <div class="sep"></div>
+  <label class="dim">seed <input id="seed" type="number" min="0" step="1"></label>
+  <button id="btn-new" title="Start a new day with this seed">NEW DAY</button>
+  <button id="btn-save" title="Download seed + SIM_VERSION + input log (F-6); replay() reproduces the day">SAVE LOG</button>
+  <button id="btn-trip" class="debug" title="DEBUG, not a game control: trips the largest online machine at the next grid second (two clicks). The log no longer replays.">DEBUG: TRIP LARGEST UNIT</button>
+  <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (H-14)">? ABSTRACTIONS</button>
+</header>
+<noscript>The bench needs JavaScript (ES modules).</noscript>
+<main>
+  <section id="charts">
+    <div class="chart" id="freq-live-wrap"><canvas id="c-live"></canvas></div>
+    <div class="chart" id="freq-day-wrap"><canvas id="c-fday"></canvas></div>
+    <div class="chart" id="demand-chart"><canvas id="c-demand"></canvas><div id="region-scale" title="Region scale"></div></div>
+    <div class="chart" id="price-chart"><canvas id="c-price"></canvas></div>
+  </section>
+
+  <section id="controls">
+    <div class="panel" id="stations-panel">
+      <h3>STATIONS <span class="faint">lever = base point per station · lamps = machines</span>
+        <span id="sync-scope" class="faint">SYNC</span><span id="auto-sync" class="faint">auto-sync</span></h3>
+      <div class="st" id="station-coal" data-station="coal"></div>
+      <div class="st" id="station-ccgt" data-station="ccgt"></div>
+      <div class="st" id="station-gta" data-station="gta"></div>
+      <div class="st" id="station-gtb" data-station="gtb"></div>
+      <div class="st" id="station-gtc" data-station="gtc"></div>
+      <div class="st" id="station-hydro" data-station="hydro"></div>
+      <div id="hydro-storage" class="kv">water <span id="hydro-text">-</span></div>
+    </div>
+    <div class="panel" id="battery-panel">
+      <h3>BATTERY <span class="faint" id="batt-rating"></span></h3>
+      <div class="row"><div class="seg" id="batt-mode"><button data-mode="charge">CHARGE</button><button data-mode="idle">IDLE</button><button data-mode="discharge">DISCHARGE</button></div>
+        <span class="kv grow" id="batt-order-text"></span></div>
+      <div class="row"><span class="kv">order</span><input class="grow" type="range" id="batt-order" min="0" step="10"></div>
+      <div class="row"><span class="kv">GUARD</span><input class="grow" type="range" id="batt-guard" min="0" step="50"><span class="kv" id="batt-guard-text"></span></div>
+      <div class="row"><div class="bar grow"><i id="batt-soc-bar"></i></div><span class="kv" id="batt-soc-text"></span></div>
+      <div class="kv" id="batt-state"></div>
+    </div>
+    <div class="panel" id="tie-panel">
+      <h3>DC TIE <span class="faint">+ import / − export</span></h3>
+      <div class="row"><input class="grow" type="range" id="tie-set" step="10"><span class="kv" id="tie-set-text"></span></div>
+      <div class="kv" id="tie-state"></div>
+    </div>
+    <div class="panel" id="curtail-panel">
+      <h3>WIND AND SOLAR <span class="faint">output LIMIT %</span></h3>
+      <div class="row"><span class="kv" style="width:38px">wind</span><input class="grow" type="range" id="lim-wind" min="0" max="100" step="5"><span class="kv" id="wind-text"></span></div>
+      <div class="row"><span class="kv" style="width:38px">solar</span><input class="grow" type="range" id="lim-solar" min="0" max="100" step="5"><span class="kv" id="solar-text"></span></div>
+    </div>
+    <div class="panel" id="emergency-panel">
+      <h3>EMERGENCY <span class="faint">two clicks each</span></h3>
+      <div class="row" id="dr-panel"><button id="btn-dr">CALL DR</button><span class="kv grow" id="dr-text"></span></div>
+      <div class="row" id="rert-panel"><button id="btn-rert">BREAK GLASS: ARM RERT</button><span class="kv grow" id="rert-text"></span></div>
+      <div class="row" id="shed-panel"><button id="btn-shed">DIRECT SHED</button><span class="kv grow" id="shed-text"></span></div>
+    </div>
+    <div class="panel" id="restore-panel">
+      <h3>RESTORE <span id="restore-permissive" class="faint">permissive</span><span id="cold-load" class="faint">cold load</span></h3>
+      <div id="restore-list"></div>
+    </div>
+  </section>
+
+  <section id="status">
+    <div class="panel" id="freq-readout">
+      <div class="row q-slot"><span class="big" id="f-big">50.000</span><span class="dim">Hz</span></div>
+      <div class="kv" id="f-sub"></div>
+      <div class="kv" id="f-balance"></div>
+    </div>
+    <div class="panel">
+      <div class="row" id="ufls-strip"><span class="kv">UFLS</span><span class="lamps" id="ufls-lamps"></span></div>
+      <div class="row"><span class="kv">OFGS</span><span class="lamps" id="ofgs-lamps"></span></div>
+    </div>
+    <div class="panel" id="security-panel">
+      <h3>SECURITY <span class="level" id="sec-level">-</span></h3>
+      <div class="kv" id="sec-r5"></div>
+      <div class="kv" id="sec-l"></div>
+      <div class="kv" id="sec-preview"></div>
+    </div>
+    <div class="panel" id="fos-panel">
+      <div class="kv" id="fos-countdown"><span id="fos-text"></span></div>
+      <div class="kv" id="agc-text"></div>
+      <div class="kv" id="price-text"></div>
+    </div>
+    <div class="panel" id="scorecard">
+      <h3>SCORECARD</h3>
+      <div class="kv" id="score-lights"></div>
+      <div class="kv" id="score-cost"></div>
+      <div class="kv" id="score-carbon"></div>
+      <div class="kv" id="score-freq"></div>
+    </div>
+    <div class="panel" id="cont-panel"><h3>LAST CONTINGENCY</h3><div id="cont-card" class="kv">none yet</div></div>
+    <div class="panel" id="news-panel"><h3>NEWS</h3><div id="news-list" class="dim">none</div></div>
+    <div class="panel" id="event-log"><h3>EVENT LOG</h3><div id="log-list"></div></div>
+  </section>
+</main>
+
+<div id="popover" hidden></div>
+<div id="drawer" hidden></div>
+<div id="end-card" hidden></div>
+<script type="module" src="app/bench-boot.js"></script>
+</body>
