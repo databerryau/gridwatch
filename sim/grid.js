@@ -1206,8 +1206,7 @@ function planKey(state, cmd, s, out) { // eslint-disable-line no-unused-vars
     if (pj.n === 0) {
       if (!(cmd.mw > 0)) return 'no ' + stationName(id) + ' machine is on or booked by then';
       let pick = -1, free = 0;
-      for (let i = row.first; i < row.first + row.count; i++) {
-        if (bookingOf(state.plan.starts, M[i].id) !== null) continue;
+      for (let i = row.first; i < row.first + row.count; i++) { // (a later booked START is moved earlier)
         const f = startFreeAt(state, i, s);
         if (f >= 0) { pick = i; free = f; break; }
       }
