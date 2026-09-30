@@ -1,9 +1,11 @@
-// F-1 / F-5 / Exit Phase 0: the bench page (next.html + app/ + render/) without a browser.
+// F-1 / F-5 / Exit Phase 0: the bench page (bench.html + app/bench-boot.js + render/bench.js; it was
+// next.html until Phase 1a, desk/README.md A-5) without a browser.
 //  - static: charset first, one ES-module entry, zero requests to other origins, relative
 //    imports only, no Math.random outside render/ and audio/ (F-3);
-//  - live: next.html's body is loaded into a small stand-in DOM (below; enough for the bench,
-//    not a browser) and app/boot.js runs against it, driven by fake animation frames. The
-//    whole-day run is in the slow suite.
+//  - live: bench.html's body is loaded into a small stand-in DOM (below; enough for the bench,
+//    not a browser) and app/bench-boot.js runs against it, driven by fake animation frames. The
+//    whole-day run is in the slow suite. The static rules cover every page module (app/, render/,
+//    content/, desk/, audio/).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync, readdirSync, statSync} from 'node:fs';
@@ -14,7 +16,7 @@ import {slowOnly} from './lib/sim-helpers.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const rel = f => relative(ROOT, f).replace(/\\/g, '/');
-const HTML = readFileSync(join(ROOT, 'next.html'), 'utf8');
+const HTML = readFileSync(join(ROOT, 'bench.html'), 'utf8');
 
 function jsUnder(dir) {
   const d = join(ROOT, dir), out = [];
@@ -27,19 +29,19 @@ function jsUnder(dir) {
   }
   return out;
 }
-const PAGE_JS = [...jsUnder('app'), ...jsUnder('render'), ...jsUnder('content')];
+const PAGE_JS = [...jsUnder('app'), ...jsUnder('render'), ...jsUnder('content'), ...jsUnder('desk'), ...jsUnder('audio')];
 
 // ------------------------------------------------------------------ static
 
-test('F-1: next.html starts with the charset meta and loads app/boot.js as its one ES module', () => {
+test('F-1: bench.html starts with the charset meta and loads app/bench-boot.js as its one ES module', () => {
   assert.match(HTML, /^<!doctype html>\s*<meta charset="utf-8">/i);
   const scripts = [...HTML.matchAll(/<script\b([^>]*)>/g)].map(m => m[1]);
-  assert.deepEqual(scripts.map(s => s.trim()), ['type="module" src="app/boot.js"']);
+  assert.deepEqual(scripts.map(s => s.trim()), ['type="module" src="app/bench-boot.js"']);
 });
 
-test('F-1: zero requests to other origins: no absolute URLs in next.html, relative .js imports only', () => {
+test('F-1: zero requests to other origins: no absolute URLs in bench.html, relative .js imports only', () => {
   for (const m of HTML.matchAll(/\b(?:src|href)="([^"]*)"/g)) {
-    assert.ok(!/^(?:[a-z]+:)?\/\//i.test(m[1]) && !/^https?:/i.test(m[1]), 'next.html loads ' + m[1]);
+    assert.ok(!/^(?:[a-z]+:)?\/\//i.test(m[1]) && !/^https?:/i.test(m[1]), 'bench.html loads ' + m[1]);
   }
   assert.ok(!/@import|url\(\s*['"]?https?:/i.test(HTML), 'no remote CSS');
   assert.ok(PAGE_JS.length >= 8, PAGE_JS.map(rel).join());
@@ -51,8 +53,8 @@ test('F-1: zero requests to other origins: no absolute URLs in next.html, relati
   }
 });
 
-test('F-3: Math.random appears only under render/ and audio/ (fx); app/ and content/ are deterministic', () => {
-  for (const f of [...jsUnder('app'), ...jsUnder('content')]) {
+test('F-3: Math.random appears only under render/ and audio/ (fx); app/, desk/ and content/ are deterministic', () => {
+  for (const f of [...jsUnder('app'), ...jsUnder('content'), ...jsUnder('desk')]) {
     const toks = tokenize(readFileSync(f, 'utf8'));
     toks.forEach((t, k) => {
       if (t.type === 'ident' && t.text === 'Math' && toks[k + 2] && toks[k + 2].text === 'random') assert.fail(rel(f) + ':' + t.line + ' Math.random');
@@ -179,7 +181,7 @@ class Elem {
   querySelectorAll(sel) { return [...this.walk()].filter(e => e.matches(sel)); }
 }
 
-/** A document holding next.html's <body>, parsed by a strict little tag reader. */
+/** A document holding bench.html's <body>, parsed by a strict little tag reader. */
 function makeDocument(html) {
   const doc = {listeners: {}, visibilityState: 'visible', canvasStats: {calls: 0, bad: []}};
   doc.createElement = t => new Elem(doc, t);
@@ -199,7 +201,7 @@ function makeDocument(html) {
     const tag = m[1].toLowerCase();
     if (m[0].startsWith('</')) {
       const open = stack.pop();
-      if (open.tagName.toLowerCase() !== tag) throw new Error('next.html: </' + tag + '> closes <' + open.tagName.toLowerCase() + '>');
+      if (open.tagName.toLowerCase() !== tag) throw new Error('bench.html: </' + tag + '> closes <' + open.tagName.toLowerCase() + '>');
       continue;
     }
     const e = new Elem(doc, tag);
@@ -213,11 +215,11 @@ function makeDocument(html) {
     top.appendChild(e);
     if (!VOID.has(tag)) stack.push(e);
   }
-  if (stack.length !== 1) throw new Error('next.html: unclosed ' + stack.slice(1).map(e => e.tagName).join(', '));
+  if (stack.length !== 1) throw new Error('bench.html: unclosed ' + stack.slice(1).map(e => e.tagName).join(', '));
   return doc;
 }
 
-/** Boot the bench against the stand-in DOM; returns helpers. One boot per process (boot.js is a module). */
+/** Boot the bench against the stand-in DOM; returns helpers. One boot per process (bench-boot.js is a module). */
 let booted = null;
 async function bootBench(query) {
   if (booted) return booted;
@@ -228,8 +230,8 @@ async function bootBench(query) {
   for (const k of Object.keys(globals)) { saved[k] = Object.getOwnPropertyDescriptor(globalThis, k); globalThis[k] = globals[k]; }
   URL.createObjectURL = () => 'blob:bench';
   URL.revokeObjectURL = () => {};
-  await import(pathToFileURL(join(ROOT, 'app/boot.js')).href);
-  // boot.js captured the document and requestAnimationFrame at start; put the globals back.
+  await import(pathToFileURL(join(ROOT, 'app/bench-boot.js')).href);
+  // bench-boot.js captured the document and requestAnimationFrame at start; put the globals back.
   for (const k of Object.keys(globals)) {
     if (saved[k]) Object.defineProperty(globalThis, k, saved[k]); else delete globalThis[k];
   }
@@ -239,7 +241,7 @@ async function bootBench(query) {
   return booted;
 }
 
-test('the bench boots on next.html, draws, answers "?" and takes desk input through the sim', async () => {
+test('the bench boots on bench.html, draws, answers "?" and takes desk input through the sim', async () => {
   const {doc, $, frames, all} = await bootBench('?seed=7&speed=240');
   frames(2);
   assert.equal($('clock-text').textContent, '04:00:00', 'the briefing starts paused at 04:00');
@@ -310,7 +312,7 @@ test('the bench plays the debug trip as a watch: locked desk, trace chart, conti
   assert.deepEqual(doc.canvasStats.bad, []);
 });
 
-test('Exit Phase 0: next.html plays a whole day through the bench (ASSIST PAR, 2,100×)', slowOnly(), async () => {
+test('Exit Phase 0: bench.html plays a whole day through the bench (ASSIST PAR, 2,100×)', slowOnly(), async () => {
   const {doc, $, frames} = await bootBench('?seed=7&speed=240');
   $('assist-select').querySelectorAll('button').find(b => b.dataset.assist === 'par').click();
   $('speed').querySelectorAll('button').find(b => b.textContent === '2,100×').click();
