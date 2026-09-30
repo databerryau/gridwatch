@@ -127,6 +127,14 @@ test('H-4: one reserve function: R5, L and the level from the H-4 definitions', 
   const want = r5 < L.mw ? 'SHORT' : r5 < V.SECURE_RATIO * L.mw ? 'TIGHT' : 'SECURE';
   assert.equal(sec.level, want);
   assert.equal(grid.security(s, {previewNadirHz: 49.4}).level, want === 'SECURE' ? 'TIGHT' : want, 'H-4: SECURE also needs the preview');
+  // H-8: the preview must clear 49.5 Hz by PREVIEW_MARGIN_HZ (what the frozen-schedule preview cannot see).
+  const edge = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ;
+  assert.equal(grid.security(s, {previewNadirHz: edge - 0.001}).level, want === 'SECURE' ? 'TIGHT' : want);
+  assert.equal(grid.security(s, {previewNadirHz: edge}).level, want);
+  // A cached preview is trusted less as it ages (PREVIEW_AGE_MARGIN_HZ_S per grid second).
+  const aged = edge + 30 * V.PREVIEW_AGE_MARGIN_HZ_S;
+  assert.equal(grid.security(s, {previewNadirHz: aged - 0.001, previewAgeS: 30}).level, want === 'SECURE' ? 'TIGHT' : want);
+  assert.equal(grid.security(s, {previewNadirHz: aged, previewAgeS: 30}).level, want);
 });
 
 test('K-2: AGC trims inside the bands, in proportion to them; HAND mode trims nothing; AGC never starts or stops units', () => {
@@ -191,14 +199,15 @@ test('H-11: directed shedding when still below 49.85 Hz when the 5-min countdown
   assert.ok(s.city.shedFrac > 0);
 });
 
-test('K-13: restore permissive needs f >= 49.9, R5 >= 1.2 x cold-load MW and 5 min since the last restore', () => {
+test('K-13: restore permissive: f >= 49.9 and 5 min since the last restore; the restore input also needs the RESTORE PREVIEW', () => {
   const s = opening(10);
   seconds(s, V.DIRECTED_BELOW_CONTAIN_S + 1, 49.4);
   const d = s.city.districts.findIndex(x => x.dark);
-  assert.match(grid.restorePermissive(s, d), /\S/, 'no permissive at 49.4 Hz');
+  assert.match(grid.restorePermissive(s, d), /frequency below/, 'no permissive at 49.4 Hz');
   assert.equal(grid.restorePermissive(s, s.city.districts.findIndex(x => !x.dark)), 'district is lit');
   seconds(s, 10, 50);
   assert.equal(grid.restorePermissive(s, d), '');
+  assert.equal(grid.restorePermissive(s, d, {preview: true}), '', 'a ~200-MW district on the opening fleet previews above 49.55 Hz');
   const out = [];
   assert.equal(grid.applyCommand(s, {type: 'restore', district: s.city.districts[d].id}, out), '');
   assert.equal(s.city.districts[d].dark, false);
@@ -209,9 +218,26 @@ test('K-13: restore permissive needs f >= 49.9, R5 >= 1.2 x cold-load MW and 5 m
   // A second district, then the interval rule.
   grid.applyCommand(s, {type: 'directShed'}, []);
   const d2 = s.city.districts.findIndex(x => x.dark);
-  assert.match(grid.restorePermissive(s, d2), /\S/, '5 min since the last restore');
+  assert.match(grid.restorePermissive(s, d2), /wait/, '5 min since the last restore');
   seconds(s, V.RESTORE_INTERVAL_S, 50);
   assert.equal(grid.restorePermissive(s, d2), '');
+});
+
+test('K-13: the restore input refuses a district whose RESTORE PREVIEW dips below 49.5 Hz + margin (no restore -> UFLS loop)', () => {
+  // A weak island (test poke): one coal and one hydro machine (4.4 GW.s), the tie and a large
+  // non-synchronous share, no battery energy, a district dark for > 10 min (cold load x1.5).
+  // The lamp's conditions hold, but the preview of picking it up is too deep.
+  const s = commit(opening(10), {coal1: 600, hydro1: 150}, {tieMW: 800, windMW: 2000, battery: {socMWh: 0, guardMW: 0, mode: 'idle', orderMW: 0}});
+  grid.applyCommand(s, {type: 'directShed'}, []);
+  const d = s.city.districts.findIndex(x => x.dark);
+  s.tick += (V.COLD_LOAD_AFTER_S + 60) * TPS; // dark long enough for cold-load pickup
+  s.last.fMeanHz = V.F0_HZ;
+  assert.equal(grid.restorePermissive(s, d), '', 'the lamp (frequency, interval) is lit');
+  const why = grid.restorePermissive(s, d, {preview: true});
+  assert.match(why, /restore preview/);
+  const before = JSON.stringify(s);
+  assert.match(grid.applyCommand(s, {type: 'restore', district: s.city.districts[d].id}, []), /restore preview/);
+  assert.equal(JSON.stringify(s), before, 'a refused restore (and its preview) changes nothing');
 });
 
 test('K-13: a district dark > 10 min comes back with a 1.5x cold-load surge that decays over 10 min', () => {
@@ -437,7 +463,29 @@ test('lockouts: a tripped machine is released to off after its lockout; the tie 
   assert.ok(s.tie.flowMW > 0 && s.tie.flowMW <= 2 * V.TIE_RAMP_MW_MIN / V.S_PER_MIN + 1e-9, 'ramps from 0');
   seconds(s, 30);
   assert.equal(unit(s, 'ccgt2').mode, 'off');
-  assert.match(grid.applyCommand(s, {type: 'start', unit: 'ccgt2'}, []), /minimum down/, 'minimum down time applies after a trip');
+  // Owner decision D1: S-11 minimum down time follows a planned stop only; after a protection
+  // trip the lockout is the only hold, then the unit may hot-start at once.
+  assert.equal(grid.applyCommand(s, {type: 'start', unit: 'ccgt2'}, []), '', 'no minimum down time after a trip (D1)');
+});
+
+test('S-11 / D1: minimum down time after a planned stop, not after a protection trip; a tripped unit waits its lockout', () => {
+  const s = opening(4);
+  const i = unitIndex('coal1');
+  tripUnit(s, i, 'test', 120, []);
+  assert.match(grid.applyCommand(s, {type: 'start', unit: 'coal1'}, []), /tripped/, 'locked out');
+  seconds(s, 121);
+  assert.equal(unit(s, 'coal1').mode, 'off');
+  assert.equal(unit(s, 'coal1').downWhy, 'trip');
+  assert.equal(grid.applyCommand(s, {type: 'start', unit: 'coal1'}, []), '', 'hot start right after the lockout');
+  // A planned stop of another machine still holds it off for its minimum down time.
+  const j = unitIndex('coal2');
+  unit(s, 'coal2').upSinceS = -V.DAY_S; // test poke: minimum up time met
+  assert.equal(grid.applyCommand(s, {type: 'stop', unit: 'coal2'}, []), '');
+  seconds(s, 3 * 3600); // unload 500 -> 240 at 3 MW/min, then T4 (70 min)
+  assert.equal(unit(s, 'coal2').mode, 'off');
+  assert.equal(unit(s, 'coal2').downWhy, 'stop');
+  assert.match(grid.applyCommand(s, {type: 'start', unit: 'coal2'}, []), /minimum down/);
+  assert.ok(s.units[j].downSinceS > s.units[i].downSinceS);
 });
 
 test('hydro water: warnings once each; at HYDRO_STOP_MWH the station unloads, and no machine starts or aborts the stop', () => {
@@ -579,7 +627,7 @@ test('F-4 / K-2: under AGC and base point moves, no on-line unit schedule moves 
   assert.equal(JSON.stringify(clone(s)), JSON.stringify(s));
 });
 
-test('H-4 / K-10: securitySecond re-runs the preview only when dirty, when L changes or moves > tolerance, or after PREVIEW_REFRESH_S', () => {
+test('H-4 / K-10: securitySecond re-runs the preview only when dirty, when L changes or moves > tolerance, when f moves > tolerance, or after PREVIEW_REFRESH_S', () => {
   const s = opening(3);
   const sec = s.sec, tick = () => { seconds(s, 1); grid.securitySecond(s, []); };
   tick();
@@ -603,4 +651,16 @@ test('H-4 / K-10: securitySecond re-runs the preview only when dirty, when L cha
   const lv = grid.security(s, {previewNadirHz: sec.previewNadirHz});
   assert.equal(sec.level, lv.level);
   assert.equal(sec.r5MW, lv.r5MW);
+  // The frequency moving more than PREVIEW_F_TOL_HZ from the preview's starting frequency (an
+  // excursion, or its end) re-runs it too: the preview starts from the present frequency.
+  tick(); // L back at its value: re-run at 50 Hz
+  const at2 = sec.previewAtS, fTol = V.PREVIEW_F_TOL_HZ;
+  assert.equal(sec.previewFHz, V.F0_HZ);
+  seconds(s, 1, V.F0_HZ + fTol / 2);
+  grid.securitySecond(s, []);
+  assert.equal(sec.previewAtS, at2, 'frequency inside the tolerance: cached');
+  seconds(s, 1, V.F0_HZ - 2 * fTol);
+  grid.securitySecond(s, []);
+  assert.equal(sec.previewAtS, at2 + 2, 'frequency moved beyond the tolerance');
+  assert.equal(sec.previewFHz, V.F0_HZ - 2 * fTol);
 });

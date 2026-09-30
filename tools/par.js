@@ -77,10 +77,10 @@ function runOne(S, scenario, seed, proxy, withActions) {
     unservedMWh: sc.unservedMWh, uflsMWh: sc.uflsMWh, directedMWh: sc.directedMWh, firstShed: firstShed < 0 ? '' : hhmm(V, firstShed),
     rert: count('armRERT') > 0, drCalls: count('callDR'), costDollars: r.summary.costDollars, centsPerKWh: r.summary.centsPerKWh,
     co2tPerMWh: r.summary.co2tPerMWh, trips: st.conts.length, starts: sc.starts, actions: r.memo.actions,
-    planInputs: r.origins.filter(o => o === 'plan').length, secs,
+    planInputs: r.origins.filter(o => o === 'plan').length, replanInputs: r.origins.filter(o => o === 'replan').length, secs,
   };
   if (withActions) {
-    row.actionsList = r.log.map((x, i) => [x, r.origins[i]]).filter(([, o]) => o !== 'plan')
+    row.actionsList = r.log.map((x, i) => [x, r.origins[i]]).filter(([, o]) => o !== 'plan' && o !== 'replan')
       .map(([x, o]) => hhmm(V, x.tick) + ' ' + o + ' ' + x.type + (Object.keys(x.args).length ? ' ' + JSON.stringify(x.args) : ''));
     row.contingencies = st.conts.map(c => hhmm(V, c.startTick) + ' ' + c.cause + ' ' + c.id + ' ' + Math.round(c.lostMW) + ' MW, extreme ' +
       c.extremeHz.toFixed(3) + ' Hz' + (c.uflsStages ? ', UFLS ' + c.uflsStages : ''));
@@ -205,7 +205,8 @@ async function main() {
     table(main, cols);
     if (main.length === 1 && main[0].actionsList) {
       console.log('\ncontingencies:\n  ' + (main[0].contingencies.join('\n  ') || '(none)'));
-      console.log('\ndiscrete actions (' + main[0].actionsList.length + '; the plan\'s ' + main[0].planInputs + ' keyframe inputs are not listed):\n  ' + main[0].actionsList.join('\n  '));
+      console.log('\ndiscrete actions (' + main[0].actionsList.length + '; the plan\'s ' + main[0].planInputs + ' keyframe inputs and the ' +
+        main[0].replanInputs + ' of par\'s re-plans are not listed):\n  ' + main[0].actionsList.join('\n  '));
     }
   }
   summary(`summary: ${o.proxy}, ${main.length} seeds` + (o.heat ? ' (forced heatwave)' : '') + `, wall ${((Date.now() - t0) / 1000).toFixed(0)} s`, main);
@@ -220,4 +221,6 @@ async function main() {
   }
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+// Run as a script (or as one of its own workers); tools/baseline-v4.js requires it for grade().
+if (require.main === module) main().catch(e => { console.error(e); process.exit(1); });
+module.exports = {grade};

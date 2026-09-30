@@ -1,5 +1,5 @@
 // Stage B owner "integration": whole-sim acceptance through step() (F-2, F-3, F-4, F-6, F-7,
-// D-6, D-7, H-1, H-8 containment, K-2, K-10, K-15, S-1). Input-vocabulary tests run now.
+// D-6, D-7, H-1, H-8 containment, K-2, K-10, K-15, S-1). Whole days over many seeds run with GRIDWATCH_SLOW=1.
 //
 // Budget (F-10, README §10): the default run of this file steps ~8 M ticks (~5 s at the
 // 1.6 s/day target). Whole days over many seeds run only with GRIDWATCH_SLOW=1.
@@ -13,11 +13,10 @@ import {previewTrip} from '../sim/physics.js';
 import {security} from '../sim/grid.js';
 import {V} from '../sim/params.js';
 import {CLASSIC} from '../content/scenarios.js';
+import {createPacer, runFrame} from '../app/loop.js';
 import {tokenize, jsFiles} from './lib/js-tokens.js';
 import {ticksAt, SLOW, slowOnly, calmScenario, withoutContingencies, injectTrip, clone} from './lib/sim-helpers.js';
 
-// Tests that run par's proxies (runPar) wait for the autopilot pass; everything else runs now.
-const TODO = {todo: 'stage B: autopilot (needs runPar)'};
 const TPS = V.TICKS_PER_S;
 const SEEDS = n => Array.from({length: n}, (_, i) => i + 1);
 const EMPTY_INPUTS = [];
@@ -160,7 +159,7 @@ function play(seed, log, {untilTick = V.DAY_TICKS, everyS = 3600, tripAtS = -1, 
 
 const TRIP_S = V.PLAYER_START_S + 60; // 04:31: an injected trip early in the day (budget)
 
-// ------------------------------------------------------------------ whole sim: todo
+// ------------------------------------------------------------------ whole sim
 
 test('F-2: the same seed and input log give an identical hashState every sim-hour (100 whole days with GRIDWATCH_SLOW=1)', () => {
   const until = SLOW ? V.DAY_TICKS : ticksAt(6);
@@ -225,24 +224,23 @@ test('F-6: applyInput logs the canonical, applied args: -0 folded to 0, a basePo
 });
 
 test('F-4 / D-6: rate invariance: one log played at 0.25x, 1x, 60x and 240x, and at 60x with pauses, gives an identical hash', () => {
-  // Stand-in for app/loop.js (F-5): each 60-Hz frame adds min(dt, 0.1) x rate grid-s to an
-  // accumulator and runs whole ticks; inputs land on their logged ticks. Replace with the
-  // real loop once app/loop.js exists.
+  // Through the real loop (app/loop.js, F-5): each 60-Hz frame adds min(dt, 0.1) x rate grid-s
+  // to the pacer's accumulator and runs whole ticks; inputs land on their logged ticks.
+  // tests/loop.test.js covers the loop's own rules and a whole bench session.
   const until = ticksAt(4, 20), tripS = 300;
   const log = fuzzLog(4, 20, until, [tripS]);
   const runAt = (rate, pauseEvery = 0) => {
-    const s = injectTrip(createState(4, CLASSIC), tripS);
-    let acc = 0, j = 0, frame = 0;
+    const s = injectTrip(createState(4, CLASSIC), tripS), p = createPacer();
+    let j = 0, frame = 0;
+    const tick = () => {
+      const batch = [];
+      while (j < log.length && log[j].tick === s.tick) { batch.push({type: log[j].type, ...log[j].args}); j++; }
+      step(s, batch);
+    };
     while (!s.over && s.tick < until) {
       frame++;
       const r = pauseEvery && frame % pauseEvery < pauseEvery / 2 ? 0 : rate; // paused half the time
-      acc += Math.min(1 / 60, 0.1) * r;
-      while (acc >= V.PHYS_DT && s.tick < until) {
-        acc -= V.PHYS_DT;
-        const batch = [];
-        while (j < log.length && log[j].tick === s.tick) { batch.push({type: log[j].type, ...log[j].args}); j++; }
-        step(s, batch);
-      }
+      runFrame(p, 1 / 60, {rate: () => (s.tick < until ? r : 0), tick, done: () => s.over || s.tick >= until});
     }
     return hashState(s);
   };
@@ -251,7 +249,7 @@ test('F-4 / D-6: rate invariance: one log played at 0.25x, 1x, 60x and 240x, and
   assert.equal(runAt(60, 97), h, '60x with pauses');
 });
 
-test('F-3: doNothing, competent, par and a fuzzer see identical demand, wind, solar and event timelines', TODO, () => {
+test('F-3: doNothing, competent, par and a fuzzer see identical demand, wind, solar and event timelines', () => {
   const until = SLOW ? V.DAY_TICKS : ticksAt(5, 30);
   for (const seed of SLOW ? SEEDS(100) : [1, 2]) {
     const rows = [];
@@ -268,7 +266,7 @@ test('F-3: doNothing, competent, par and a fuzzer see identical demand, wind, so
 });
 
 /**
- * A simple scripted operator (a stand-in until par exists; it reads observe() only): the tie
+ * A simple scripted operator (independent of sim/autopilot.js; it reads observe() only): the tie
  * to full import, the cheapest free machine started when the next hour's forecast net
  * demand exceeds 95% of what is committed, base points in merit order, and any dark
  * district the permissive allows restored. It need not be good: F-3 needs play that differs.
@@ -309,7 +307,7 @@ function runPolicy(seed, policy, untilTick, onStep) {
   return s;
 }
 
-test('F-3 (core, until par exists): doNothing, a scripted operator and a fuzzer see identical demand, wind, solar and event timelines', () => {
+test('F-3 (core, without the autopilot): doNothing, a scripted operator and a fuzzer see identical demand, wind, solar and event timelines', () => {
   const until = SLOW ? V.DAY_TICKS : ticksAt(6, 30);
   for (const seed of SLOW ? SEEDS(100) : [1, 2]) {
     const rows = [], ends = [];
@@ -386,7 +384,7 @@ test('H-1 (a, c): STOP one coal machine at 04:10 with nobody responding: small s
   assert.ok(uflsAt < 0 || uflsAt - stopAt >= 60 * 60 * TPS, 'first UFLS ' + (uflsAt - stopAt) / TPS + ' s after the STOP');
 });
 
-test('H-1 (b): STOP one coal machine at 04:10 with the competent proxy responding: no UFLS and no blackout through 08:00', TODO, () => {
+test('H-1 (b): STOP one coal machine at 04:10 with the competent proxy responding: no UFLS and no blackout through 08:00', () => {
   const s = createState(3, CLASSIC);
   while (!s.over && s.tick < ticksAt(4, 10)) step(s);
   step(s, [{type: 'stop', unit: 'coal1'}]);
@@ -398,7 +396,7 @@ test('H-1 (b): STOP one coal machine at 04:10 with the competent proxy respondin
   assert.equal(r.black, false);
 });
 
-test('K-2 / L-8: AGC on, the L-0 plan, no other input: >= 97% of ticks in 49.85-50.15 Hz on event-free days', TODO, () => {
+test('K-2 / L-8: AGC on, the L-0 plan, no other input: >= 97% of ticks in 49.85-50.15 Hz on event-free days', () => {
   // Event-free: no optional events and no contingencies, so the series have no event-driven
   // shifts; the plan (planOnly) moves the base points and AGC trims around them.
   const scn = calmScenario();
@@ -430,29 +428,51 @@ test('K-10 through step(): a preview taken at a second boundary matches the real
   }
 });
 
-test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing L keeps the nadir >= 49.5 Hz', {...TODO, ...slowOnly()}, () => {
-  // Sample par days: at most one state per 20 grid-minutes, only where the preview was
-  // refreshed that very second (sec.previewAtS === s) and the level is SECURE. Each probe is
-  // a JSON copy with its future contingencies removed and L tripped at the next second.
+test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing L keeps the nadir >= 49.5 Hz', slowOnly(), () => {
+  // Sample par days at most once per 5 grid-minutes, at a second boundary (before that
+  // second's grid update). SECURE is judged with a FRESH preview taken at the sampled tick
+  // (security(state) re-runs previewTrip for L), so the preview is not the cached one that can
+  // be up to PREVIEW_REFRESH_S old. Each probe is a JSON copy with its future contingencies
+  // removed and L tripped at this very second. States the desk shows as SECURE (the cached
+  // level) are probed too: the preview margin (PREVIEW_MARGIN_HZ) must cover the cache.
+  // Each judgement is checked against the L it previewed: the fresh L for a fresh preview, the
+  // cached L (sec.lKind, from the start of the second) for the level the desk showed. The two
+  // differ only when L changed kind within the second, i.e. a unit and the tie import within a
+  // few MW of each other (seed 11, 21:16: tie 620.75 MW, coal units ~620.7 MW). Losing the other
+  // one is not what H-4 previews; tools/baseline-v4.js measures that gap separately.
   const want = 1000, failures = [];
-  let checked = 0;
-  for (let seed = 1; checked < want && seed <= 80; seed++) {
+  let fresh = 0, live = 0;
+  const probe = (st, sec, kind) => {
+    const p = clone(st);
+    p.ext.events = p.ext.events.filter((e, i) => i < p.evNext || !e.contingency);
+    injectTrip(p, sec, kind === 'link' ? 'link' : 'unit');
+    let minHz = Infinity;
+    while (!p.over && p.tick < (sec + V.WATCH_S) * TPS) { step(p); minHz = Math.min(minHz, p.phys.fHz); }
+    return minHz;
+  };
+  for (let seed = 1; fresh < want && seed <= 160; seed++) {
     let nextS = V.PLAYER_START_S;
     runPar(seed, CLASSIC, {onStep: st => {
-      if (checked >= want || st.tick % TPS !== 1) return;
-      const sec = Math.floor(st.tick / TPS);
-      if (sec < nextS || st.over || st.sec.level !== 'SECURE' || st.sec.previewAtS !== sec) return;
-      nextS = sec + 1200;
-      const probe = clone(st);
-      probe.ext.events = probe.ext.events.filter((e, i) => i < probe.evNext || !e.contingency);
-      injectTrip(probe, sec + 1, probe.sec.lKind === 'link' ? 'link' : 'unit');
-      let minHz = Infinity;
-      while (!probe.over && probe.tick < (sec + 1 + V.WATCH_S) * TPS) { step(probe); minHz = Math.min(minHz, probe.phys.fHz); }
-      if (minHz < V.CONTAIN_LO_HZ) failures.push('seed ' + seed + ' s ' + sec + ': ' + minHz.toFixed(3));
-      checked++;
+      if (fresh >= want || st.tick % TPS !== 0 || st.over) return;
+      const sec = st.tick / TPS;
+      if (sec < nextS || st.sec.lKind === 'none') return;
+      const fr = security(st);
+      const isFresh = fr.level === 'SECURE', isLive = st.sec.level === 'SECURE';
+      if (!isFresh && !isLive) return;
+      nextS = sec + 300;
+      if (isFresh) fresh++;
+      if (isLive) live++;
+      const judged = [];
+      if (isFresh) judged.push(['fresh', fr.lKind]);
+      if (isLive) judged.push(['live', st.sec.lKind]);
+      for (const [how, kind] of judged) {
+        const minHz = probe(st, sec, kind);
+        if (minHz < V.CONTAIN_LO_HZ) failures.push('seed ' + seed + ' s ' + sec + ' ' + how + ' L=' + kind + ': ' + minHz.toFixed(3));
+      }
     }});
   }
-  assert.equal(checked, want, 'only ' + checked + ' SECURE states sampled');
+  assert.equal(fresh, want, 'only ' + fresh + ' SECURE states (fresh preview) sampled');
+  assert.ok(live >= want / 4, 'only ' + live + ' states the desk showed as SECURE');
   assert.deepEqual(failures, []);
 });
 

@@ -38,7 +38,7 @@ export function buildUnits(scn) {
     return {
       id: m.id, station: m.station, k: m.k,
       mode: on ? 'on' : 'off', sync: on, timerS: 0,
-      upSinceS: c.sinceS, downSinceS: c.sinceS,
+      upSinceS: c.sinceS, downSinceS: c.sinceS, downWhy: 'stop',
       basePointMW: on ? mw : 0, agcTrimMW: 0, schedMW: on ? mw : 0,
       govMW: 0, outMW: on ? mw : 0,
       availMW: m.ratingMW, hotS: 0, starts: 0,
@@ -142,12 +142,17 @@ export function ekMWs(state) {
   return e;
 }
 
-/** Close or open unit i's breaker, keeping phys.ekMWs and sec.dirty consistent. */
-export function setSync(state, i, closed) {
+/**
+ * Close or open unit i's breaker, keeping phys.ekMWs and sec.dirty consistent. `why` on an
+ * open: 'trip' for a protection trip (tripUnit), anything else is a planned stop. S-11's
+ * minimum down time runs only after a planned stop (owner decision D1; see startBlock).
+ */
+export function setSync(state, i, closed, why) {
   const u = state.units[i];
   if (u.sync === closed) return;
   u.sync = closed;
-  if (closed) u.upSinceS = gridSecond(state); else u.downSinceS = gridSecond(state);
+  if (closed) u.upSinceS = gridSecond(state);
+  else { u.downSinceS = gridSecond(state); u.downWhy = why === 'trip' ? 'trip' : 'stop'; }
   state.phys.ekMWs = ekMWs(state);
   state.sec.dirty = true;
 }
@@ -167,12 +172,17 @@ export function largestContingency(state) {
 
 // ------------------------------------------------------------------ command rules (S-11, H-1)
 
-/** '' if unit i may START now, else the reason (shown on the desk and used by grid.applyCommand). */
+/**
+ * '' if unit i may START now, else the reason (shown on the desk and used by grid.applyCommand).
+ * S-11 minimum down time applies to planned decommitment only (owner decision D1, 2026-09-30):
+ * after a protection trip the unit is held for its lockout (mode 'tripped'), then may start
+ * at once (a hot start, T1 + T2).
+ */
 export function startBlock(state, i) {
   const u = state.units[i], m = M[i];
   if (u.mode !== 'off') return 'unit is ' + u.mode;
   const down = gridSecond(state) - u.downSinceS;
-  if (down < m.minDownS) return 'minimum down time: ' + Math.ceil((m.minDownS - down) / V.S_PER_MIN) + ' min left';
+  if (u.downWhy !== 'trip' && down < m.minDownS) return 'minimum down time: ' + Math.ceil((m.minDownS - down) / V.S_PER_MIN) + ' min left';
   if (m.station === 'hydro' && state.hydro.storageMWh <= V.HYDRO_STOP_MWH) return 'no water';
   return '';
 }
@@ -235,7 +245,7 @@ export function tripUnit(state, i, cause, lockoutS, out) {
   u.mode = 'tripped'; u.timerS = lockoutS;
   u.basePointMW = 0; u.agcTrimMW = 0; u.schedMW = 0; u.govMW = 0; u.outMW = 0; u.hotS = 0;
   refreshLever(state, u.station);
-  setSync(state, i, false);
+  setSync(state, i, false, 'trip');
   const tick = state.tick;
   out.push({tick, kind: 'breaker', unit: u.id, closed: false, why: 'trip', cue: 'breaker'});
   out.push({tick, kind: 'log', sev: 'crit', code: 'UNIT_TRIP', cue: 'horn',

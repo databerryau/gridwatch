@@ -94,11 +94,11 @@ export const CLASSIC = {
   events: {
     src: LEG + ' L331-370 (schedule()), times converted from minutes after 04:00 to hours of day',
     bigTrip: {
-      src: LEG + ' L337: always; 08:00-13:30 on heat or storm days, else 11:00-20:00. Target rule (F-3): the largest online machine by output. Lockout L390: 90-150 min',
+      src: LEG + ' L337: always; 08:00-13:30 on heat or storm days, else 11:00-20:00. Target rule (F-3): the largest online machine by output. Lockout L390: 90-150 min (simplified: real returns after a protection trip range from hours to weeks; after the lockout the unit may hot-start, S-11 minimum down time applies to planned stops only, owner decision D1)',
       severeWindowH: [8, 13.5], calmWindowH: [11, 20], lockoutMin: [90, 150],
     },
     extraTrip: {
-      src: LEG + ' L338: 55% of days, 06:00-02:00. Legacy picked a random online unit; v4 pre-rolls a station (ext) and trips its largest online machine, or nothing if none is online (F-3). Lockout 90-150 min',
+      src: LEG + ' L338: 55% of days, 06:00-02:00. Legacy picked a random online unit; v4 pre-rolls a station (ext) and trips its largest online machine, or nothing if none is online (F-3). Lockout 90-150 min (simplified, as bigTrip: then a hot start, D1)',
       p: 0.55, windowH: [6, 26], lockoutMin: [90, 150],
       stations: ['coal', 'ccgt', 'gta', 'gtb', 'gtc', 'hydro'],
     },

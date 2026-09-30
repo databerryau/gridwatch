@@ -13,7 +13,12 @@
 // branches merge without conflicts. Changing a value is tuning. Only the integration owner
 // bumps SIM_VERSION (once per merged change set, not per agent).
 
-export const SIM_VERSION = 'v4-core-0.2.0';
+// 0.2.0: stages A and B (3876c98). 0.2.1: the tuning pass (owner decisions D1-D3: GT·C 2 x 300 MW,
+// minimum down time after planned stops only, par's RERT walk, the preview margins, the restore
+// preview, the planOnly reflow); the end of Phase 0.2 (golden: tools/baseline-v4.golden.md).
+// 0.2.2: the review fixes (hashState's word mixing, the price on the lit demand with the cap only
+// for directed shedding, available wind and solar in the stack, CARBON on regional generation).
+export const SIM_VERSION = 'v4-core-0.2.2';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);
@@ -98,7 +103,7 @@ export const P = {
   BLACK_HI_HZ: src(52, 'Hz', FOS + ' Table A.3 extreme limit'),
   COLLAPSE_BANDS: simp([{loHz: 47, hiHz: 47.5, holdS: 2}, {loHz: 47.5, hiHz: 48, holdS: 20}], 'Hz, s', '§8.2 / H-7: black after 2 s in 47.0-47.5 Hz or 20 s in 47.5-48.0 Hz; the 20-s window is compressed and labelled. Real collapse depends on protection settings.'),
   OFGS_STAGES_HZ: src([51, 51.25, 51.5, 51.75], 'Hz', 'AEMO 2025 frequency review Table 1: wind trips in stages between 51 and 52 Hz (stage spacing simplified)'),
-  OFGS_STAGE_FRAC: simp(0.25, 'pu of wind output', 'Each OFGS stage trips a quarter of the wind output (H-7).'),
+  OFGS_STAGE_FRAC: simp(0.25, 'pu of wind output', 'Each OFGS stage trips a quarter of the wind output (H-7). Apart from these trips wind and utility solar hold their output whatever the frequency: no droop response (§8.2 "Wind and utility solar give no primary frequency response."; real semi-scheduled plant has mandatory PFR).'),
   OFGS_DELAY_S: simp(0.3, 's', 'OFGS relay delay, taken equal to UFLS_DELAY_S.'),
   OFGS_RECONNECT_S: simp(600, 's', 'Tripped wind reconnects after 10 grid-minutes back in the normal band.'),
 
@@ -123,7 +128,6 @@ export const P = {
   PREVIEW_REFRESH_S: simp(60, 's', 'Security refreshes the cached preview at most every 60 grid-s, or at once when marked dirty (any accepted input, a breaker change, a trip, or L moving; see PREVIEW_L_TOL_MW). Performance budget, not physics.'),
   PREVIEW_L_TOL_MW: simp(20, 'MW', 'The cached TRIP PREVIEW is re-run as soon as L changes unit or moves by more than this since the preview ran (20 MW moves a 650-MW nadir by ~0.01 Hz). Performance budget, not physics.'),
   RESTORE_MIN_HZ: simp(49.9, 'Hz', 'K-13 / J-19: restore permissive needs f >= 49.9 Hz.'),
-  RESTORE_R5_RATIO: simp(1.2, 'x district MW', 'K-13: restore permissive needs R5 >= 1.2 x the district cold-load MW.'),
   RESTORE_INTERVAL_S: simp(300, 's', 'K-13: at least 5 grid-minutes between restores (Callide report s6.1: small groups every few minutes).'),
   COLD_LOAD_FACTOR: simp(1.5, 'x', 'K-13 / §8.2: cold-load pickup 1.5x for districts dark more than 10 grid-minutes.'),
   COLD_LOAD_AFTER_S: simp(600, 's', 'K-13: cold-load pickup applies after 10 grid-minutes dark.'),
@@ -144,7 +148,7 @@ export const P = {
   HOT_LOADING_FRAC: src(0.96, 'pu of available', 'H-2 / ' + LEGACY + ' L480: above 96% loading a unit runs hot'),
   HOT_ARM_S: simp(300, 's', LEGACY + ' L481: trip risk applies after 5 grid-minutes hot.'),
   HOT_TRIP_PER_H: simp(0.035, 'probability per grid-hour', 'H-2: trip risk ~3.5% per grid-hour while hot (legacy 0.00012 per 0.2-min tick). Drawn from the play stream.'),
-  HOT_TRIP_LOCKOUT_S: simp(7200, 's', 'Protection lockout after an overheat trip (legacy 90-150 min, L463).'),
+  HOT_TRIP_LOCKOUT_S: simp(7200, 's', 'Protection lockout after an overheat trip, inside the legacy 90-150 min (L463; the pre-rolled event trips draw theirs from the same range, content/scenarios.js). After it the unit may hot-start (T1 + T2): S-11 minimum down time applies to planned stops only (owner decision D1, 2026-09-30). Real returns after a protection trip range from hours to weeks (§8.2).'),
   HEAT_THERMAL_DERATE: src(0.07, 'pu', 'S-10 / ' + LEGACY + ' L462: heatwave derates coal and gas by 7%'),
   HEAT_DEMAND_UPLIFT: src(0.065, 'pu', 'S-10 / ' + LEGACY + ' L433: heatwave demand +6.5%'),
   HEAT_RAMP_S: src(3600, 's', LEGACY + ' L431-433: heat demand ramps in over the hour before onset and out over the hour after'),
@@ -166,7 +170,7 @@ export const P = {
       noLoadPerH: src(3000, '$/h per machine', F13),
       startCost: simp(80000, '$ per start', LEGACY + ' L290 station start cost, applied per machine.'),
       minUpH: src(8, 'h', F13 + '; S-11'),
-      minDownH: src(8, 'h', F13 + '; S-11'),
+      minDownH: src(8, 'h', F13 + '; S-11. After a planned stop only: a protection trip is followed by its lockout, then a hot start (owner decision D1, fleet.startBlock)'),
       co2: src(0.95, 't/MWh', F13),
       H: simp(5, 's', F13 + '; textbook inertia constant (§8.3: swing-equation constants unverified).'),
     }),
@@ -219,16 +223,16 @@ export const P = {
       H: simp(3.5, 's', F13 + '; textbook (§8.3).'),
     }),
     station('gtc', 'GT·C', 'ocgt', {
-      machines: src(1, 'count', F13 + ' (new; S-12 difficulty knob)'),
-      ratingMW: src(300, 'MW', F13),
-      minMW: src(150, 'MW', F13),
-      rampMWMin: src(160, 'MW/min', F13),
+      machines: src(2, 'count', F13 + ' (new; S-12 difficulty knob, §9 Q-3). Owner decision D2 (2026-09-30): 2 x 300 MW, so the largest single risk is unchanged; tunable within 1-2 machines x 150-300 MW, never by inflating demand'),
+      ratingMW: src(300, 'MW per machine', F13),
+      minMW: src(150, 'MW per machine', F13 + ' (50%)'),
+      rampMWMin: src(160, 'MW/min per machine', F13),
       t1Min: simp(4, 'min', FSIP + '. 5-min hot start = T1 4 + T2 1.', UNVERIFIED),
       t2Min: simp(1, 'min', FSIP, UNVERIFIED),
       t4Min: simp(1, 'min', FSIP, UNVERIFIED),
       offer: src(156, '$/MWh', F13 + '; P-6'),
-      noLoadPerH: src(2400, '$/h', F13),
-      startCost: simp(8000, '$ per start', 'Taken equal to the other GTs (legacy L292).'),
+      noLoadPerH: src(2400, '$/h per machine', F13),
+      startCost: simp(8000, '$ per start', 'Taken equal to the other GTs (legacy L292), per machine.'),
       minUpH: src(1, 'h', F13 + '; S-11'),
       minDownH: src(0.5, 'h', F13 + '; S-11'),
       co2: src(0.63, 't/MWh', F13),
@@ -243,7 +247,7 @@ export const P = {
       t2Min: simp(0, 'min', FSIP, UNVERIFIED),
       t4Min: simp(0, 'min', FSIP + '. MIN is 0: the machine unloads at its ramp, then the breaker opens.', UNVERIFIED),
       offer: simp(130, '$/MWh', 'P-6: water value $130 at full storage, rising as storage falls (HYDRO_WATER_VALUE).'),
-      noLoadPerH: simp(0, '$/h', 'F-13: none.'),
+      noLoadPerH: simp(0, '$/h', 'F-13: none. Simplified (§8.2 "Hydro spins free."): a machine on line at any output down to 0 MW draws water only for what it generates (no speed-no-load flow, which is a few % of rated flow in reality) and costs nothing, yet counts its full inertia, governor headroom and R5.'),
       startCost: simp(2000, '$ per start', LEGACY + ' L294.'),
       minUpH: simp(0, 'h', 'F-13: none.'),
       minDownH: simp(0, 'h', 'F-13: none.'),
@@ -360,8 +364,8 @@ export const P = {
   PAR_BATT_CHARGE_H: src([9.5, 15.5], 'h', 'S-4 rule 6: charge 09:30-15:30'),
   PAR_BATT_DISCHARGE_H: src([16.5, 22], 'h', 'S-4 rule 6: discharge 16:30-22:00 by merit order'),
   PAR_MAX_LOADING: src(0.955, 'pu of available', 'S-4 rule 7: keep units at or below 95.5% loading unless that would shed load'),
-  PAR_RERT_LOOKAHEAD_MIN: src(25, 'min', 'S-4 rule 8: projected 25-min shortfall'),
-  PAR_RERT_MARGIN_MW: src(100, 'MW', 'S-4 rule 8: pre-arm when the shortfall is within 100 MW of firm capacity'),
+  PAR_RERT_LOOKAHEAD_MIN: src(25, 'min', 'S-4 rule 8: projected 25-min shortfall (par arms on a short step between RERT_LEAD_S and this lead: the 20-min lead plus one decision; autopilot rule8)'),
+  PAR_RERT_MARGIN_MW: src(100, 'MW', 'S-4 rule 8: pre-arm when the shortfall is within 100 MW of firm capacity (a power margin in the par adequacy walk; the energy pool is charged without it)'),
 
   // ================================================================ stage B additions
   // Each stage B agent adds records ONLY between its own two marker lines (merge-safe).
@@ -372,11 +376,15 @@ export const P = {
   // ---- stage B "grid" block: begin
   OFGS_RECONNECT_GAP_S: simp(60, 's', 'After OFGS_RECONNECT_S back in the normal band, tripped wind reconnects one OFGS stage at a time, this far apart (the last stage to trip returns first), so returning wind is never more than one stage (a quarter of the wind output) in one step; reconnecting all four at once could be a 1-GW self-made over-frequency event. Real wind farms return at limited ramp rates set in their performance standards.'),
   SEC_RATIO_MAX: simp(99, 'x L', 'sec.ratio (R5 / L) is capped here so it stays a finite number (state is plain JSON) when L is tiny or zero; every value above SECURE_RATIO reads the same.'),
+  PREVIEW_MARGIN_HZ: simp(0.05, 'Hz', 'H-4 / H-8: SECURE needs the TRIP PREVIEW nadir at or above SECURE_NADIR_HZ + this. The preview freezes demand, renewables and schedules for its 10 s (K-10) and is cached up to PREVIEW_REFRESH_S; in live play the second-to-second demand wobble (FINE_NOISE_MW), AGC and ramps inside the nadir window move the real nadir. Measured (tuning pass, par days, seeds 1-88): real minus fresh preview p1% -0.05 Hz, p0.1% -0.09 Hz, worst -0.105 Hz over 4,448 states; with this margin 0 of ~1,200 SECURE states (fresh or cached preview) missed 49.5 Hz (0.04 Hz already gave 0; 0.02 Hz missed 14). A modelling allowance, not a grid value.'),
+  PREVIEW_AGE_MARGIN_HZ_S: simp(0.001, 'Hz per grid-s', 'H-4 / H-8: a cached TRIP PREVIEW is trusted less as it ages: SECURE needs the cached nadir at or above SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ + this x its age (up to PREVIEW_REFRESH_S, so +0.06 Hz at 60 s). Measured (tuning pass): with the fixed margin alone two states the desk showed SECURE on a 39-46 s old preview lost 0.064-0.073 Hz of nadir while the plan and AGC moved the battery charge and unit schedules (the charge suspended on a trip is contingency response, H-10), and missed 49.5 Hz by up to 0.02 Hz. Cheaper than refreshing the preview more often (each preview costs ~0.1-0.3 ms). A modelling allowance, not a grid value.'),
+  PREVIEW_F_TOL_HZ: simp(0.03, 'Hz', 'H-4 / H-8 / K-10: the cached TRIP PREVIEW is re-run as soon as the frequency has moved more than this since it ran. The preview starts from the present frequency and governor and battery state, so one cached during an excursion overstates the nadir once frequency has come back (and one cached at 50 Hz overstates it once governors have spent their response). Found by tools/baseline-v4.js (end of Phase 0.2): without it, 4 of 1,595 states the desk showed as SECURE missed 49.5 Hz when L tripped (worst 49.417 Hz), their cached preview 0.07-0.17 Hz above a fresh one 3-20 s after an excursion to 50.06-50.25 Hz or 49.95 Hz; with it 0 of 4,299 probes missed, for ~6,800 previews a day instead of ~4,000. A performance budget (smaller re-runs more often), not physics.'),
   // ---- stage B "grid" block: end
   // ---- stage B "market + events" block: begin
   // ---- stage B "market + events" block: end
   // ---- stage B "autopilot" block: begin
   PLAN_MAX_LOADING: simp(0.955, 'pu of available', 'L-0: the pre-dispatch loads units to this, just under the H-2 hot gate (HOT_LOADING_FRAC 0.96), so a plan at full output does not itself run units hot; the same value as par rule 7 (PAR_MAX_LOADING). Real pre-dispatch schedules units to their offered MaxAvail; the overload zone is a game mechanic.'),
+  PLAN_REFLOW_S: src(1800, 's', 'AEMO re-runs pre-dispatch every 30 minutes (§8.2 "Pre-dispatch is computed once"). L-0 execution (planOnly, autopilot reflowLit): while districts are dark the plan re-dispatches for the lit load at this cadence (and at once when the dark share moves), as NEM dispatch targets metered demand; the 04:30 plan the player sees is unchanged.'),
   PLAN_KEYFRAME_MIN_MW: simp(5, 'MW', 'L-0 plan and par: a station base point or tie setpoint keyframe is written only when it moves at least this far from the last one written (fewer inputs; the ramp check still holds between keyframes). Presentation of the plan, not physics.'),
   PAR_REBASE_MW: simp(150, 'MW', 'Par rule 7 (extension, README autopilot): par re-dispatches its plan when AGC carries more than this (|agc.requestMW|) or the plan misses the forecast for the coming column by more than this: about one GT AGC band. Tuning (S-12).'),
   PAR_NADIR_MIN_HZ: simp(49.2, 'Hz', 'Par rule 2 (v4 form): the N-1 check in seconds (H-4). When the TRIP PREVIEW for losing L is below this, par raises the GUARD (contingency FFR), then starts a peaker (inertia and headroom); its plan keeps the tie import at or below the largest unit. 0.2 Hz above the first UFLS stage as margin for the preview error and for L moving between previews. Real: AEMO enables contingency raise FCAS for the largest credible contingency and constrains interconnector flows. Tuning (S-12).'),
@@ -385,12 +393,12 @@ export const P = {
   PAR_GUARD_MAX_MW: simp(400, 'MW', 'Par rule 2: the most GUARD par holds back, leaving at least 100 MW of the battery for AGC and orders.'),
   PAR_BATT_CHARGE_MAX_MW: simp(350, 'MW', 'Par rule 6: the charge order never exceeds this (rules lab controller ctl(), battery plan "peak": 350 MW).'),
   PAR_BATT_ORDER_TOL_MW: simp(50, 'MW', 'Par rule 6: par changes a battery order only when the order it wants differs from the present one by more than this.'),
-  PAR_BATT_RESERVE_FRAC: simp(0.2, 'pu SoC', 'Par rule 6: discharge by merit order stops at this state of charge, keeping energy for primary frequency response (H-8) after the peak.'),
+  PAR_BATT_RESERVE_FRAC: simp(0.2, 'pu SoC', 'Par rule 6: discharge by merit order stops at this state of charge, keeping energy for primary frequency response (H-8) after the peak. The rule 8 adequacy walk counts only the battery energy above it.'),
   PAR_WATER_KEEP_MWH: simp(5200, 'MWh', 'Par rule 5, how "hold water" is read (rules lab controller ctl(): waterKeep 5200): until PAR_WATER_HOLD_UNTIL_H par keeps at least this much water in storage (hydro runs at its water value above it, and below it only to avoid a shortfall); the kept water is then released on a line falling linearly to the reserve at PAR_WATER_EMPTY_BY_H.'),
   PAR_WATER_RESERVE_MWH: simp(300, 'MWh', 'Par rule 5: the linear release leaves this much water above HYDRO_STOP_MWH at PAR_WATER_EMPTY_BY_H, for the night.'),
   PAR_DECOMMIT_EXTRA_MW: simp(250, 'MW', 'Par rule 4: extra margin on top of PAR_COMMIT_MARGIN_MW before a unit is decommitted (rules lab controller ctl(): +250 MW).'),
-  PAR_DR_MARGIN_MW: simp(60, 'MW', 'Par rule 8: DR is called when present net demand plus this exceeds firm capacity (rules lab controller ctl(): +60 MW).'),
-  PAR_RERT_STANDDOWN_MIN: simp(45, 'min', 'Par rule 8: reserve diesel stays armed at least this long before par stands it down (rules lab controller ctl(): 45 min).'),
+  PAR_DR_MARGIN_MW: simp(60, 'MW', 'Par rules 8 and 1: DR is called when present net demand plus this exceeds units, tie and diesel (rules lab controller ctl(): +60 MW), and (rule 8) hydro and the battery cannot carry it or a call can be spared from the peak.'),
+  PAR_RERT_STANDDOWN_MIN: simp(45, 'min', 'Par rules 4 and 8: reserve diesel stays armed at least this long before par stands it down, once the adequacy walk without it is clean (rules lab controller ctl(): 45 min; RERT minimum activation unverified, §8.3).'),
   PAR_FUZZ_SALT: simp(0x7a667a31, 'u32', 'The fuzz proxy hashes the seed with this private salt (hash(seed ^ salt, minute, draw)), so its inputs never come from the sim streams (F-3).'),
   PAR_FUZZ_P: simp(0.05, 'probability per decision', 'Fuzz proxy: chance of one random input at each decision (every PAR_DECIDE_EVERY_S), about 70 a day.'),
   // ---- stage B "autopilot" block: end

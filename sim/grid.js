@@ -66,10 +66,14 @@ const OFGS_RECONNECT_S = V.OFGS_RECONNECT_S, OFGS_GAP_S = V.OFGS_RECONNECT_GAP_S
 const NORMAL_LO = V.NORMAL_LO_HZ, NORMAL_HI = V.NORMAL_HI_HZ, CONTAIN_LO = V.CONTAIN_LO_HZ;
 const FOS_RECOVER_S = V.FOS_RECOVER_S, DIRECTED_BELOW_S = V.DIRECTED_BELOW_CONTAIN_S, DIRECTED_EVERY_S = V.DIRECTED_INTERVAL_S;
 
-const SECURE_RATIO = V.SECURE_RATIO, SECURE_NADIR = V.SECURE_NADIR_HZ, SEC_RATIO_MAX = V.SEC_RATIO_MAX;
-const PREVIEW_REFRESH_S = V.PREVIEW_REFRESH_S, PREVIEW_L_TOL = V.PREVIEW_L_TOL_MW;
+const SECURE_RATIO = V.SECURE_RATIO, SEC_RATIO_MAX = V.SEC_RATIO_MAX;
+// H-4 SECURE preview condition: 49.5 Hz plus the preview margin (params PREVIEW_MARGIN_HZ: the
+// preview freezes demand and schedules; the live nadir can sit up to ~0.1 Hz below it).
+const SECURE_NADIR = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ, AGE_MARGIN = V.PREVIEW_AGE_MARGIN_HZ_S;
+const PREVIEW_REFRESH_S = V.PREVIEW_REFRESH_S, PREVIEW_L_TOL = V.PREVIEW_L_TOL_MW, PREVIEW_F_TOL = V.PREVIEW_F_TOL_HZ;
 
-const RESTORE_MIN_HZ = V.RESTORE_MIN_HZ, RESTORE_R5_RATIO = V.RESTORE_R5_RATIO, RESTORE_INTERVAL_S = V.RESTORE_INTERVAL_S;
+const RESTORE_MIN_HZ = V.RESTORE_MIN_HZ, RESTORE_INTERVAL_S = V.RESTORE_INTERVAL_S;
+const RESTORE_NADIR = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ; // K-13 restore preview: the H-4 line plus the fresh-preview margin
 const COLD_DECAY_S = V.COLD_LOAD_DECAY_S;
 
 // Per-machine profile constants (F-13 start/stop profile, H-1, K-12, H-4).
@@ -306,7 +310,8 @@ function shedNextRotation(state, out) {
  *     ren.windLimitPct / solarLimitPct (output LIMIT, 100 = no curtailment).
  *   callDR: calls left and none active. armRERT: not armed. standDownRERT: armed and not
  *     already standing down (before it arrives it simply cancels).
- *   restore {district}: restorePermissive must be ''; fleet.setDistrictDark(..., false);
+ *   restore {district}: restorePermissive(state, d, {preview: true}) must be '' (the K-13
+ *     restore preview runs here, on the input only); fleet.setDistrictDark(..., false);
  *     district.surgeMW = coldLoad - its present share of demand (>= 0); city.lastRestoreS =
  *     s; fleet.rearmUfls for its stage; emit {kind:'restore', district, mw: coldLoad}.
  *   directShed: darken the next lit rotation district ('directed'), emit 'shed'.
@@ -437,7 +442,7 @@ export function applyCommand(state, cmd, out) {
     }
     case 'restore': {
       const d = districtIndex(state, cmd.district);
-      const why = restorePermissive(state, d);
+      const why = restorePermissive(state, d, RESTORE_WITH_PREVIEW);
       if (why) return why;
       const dist = state.city.districts[d];
       const coldMW = fleet.districtColdLoadMW(state, d);
@@ -781,23 +786,28 @@ function previewNadir(state, L) {
 /**
  * Refresh state.sec from security(state). The preview (physics.previewTrip for losing L)
  * is re-run when ANY of: sec.dirty (set by every accepted input, fleet.setSync, trips);
- * L's id differs from sec.previewLId; |L MW - sec.previewLMW| > PREVIEW_L_TOL_MW; or
- * PREVIEW_REFRESH_S have passed since sec.previewAtS. On a re-run it sets previewNadirHz,
- * previewAtS = s, previewLId, previewLMW and clears dirty; otherwise the cached nadir is
- * reused (security(state, {previewNadirHz})). Emits a log line when the level changes.
+ * L's id differs from sec.previewLId; |L MW - sec.previewLMW| > PREVIEW_L_TOL_MW; the
+ * frequency has moved more than PREVIEW_F_TOL_HZ from sec.previewFHz (the preview starts from
+ * the present frequency and governor state: one cached during an excursion overstates the
+ * nadir once frequency has come back); or PREVIEW_REFRESH_S have passed since sec.previewAtS.
+ * On a re-run it sets previewNadirHz, previewAtS = s, previewLId, previewLMW, previewFHz and
+ * clears dirty; otherwise the cached nadir is reused (security(state, {previewNadirHz})).
+ * Emits a log line when the level changes.
  */
 export function securitySecond(state, out) {
   const s = secondOf(state), sec = state.sec;
   const L = fleet.largestContingency(state);
+  const f = state.phys.fHz;
   if (sec.dirty || sec.previewAtS < 0 || L.id !== sec.previewLId || Math.abs(L.mw - sec.previewLMW) > PREVIEW_L_TOL ||
-      s - sec.previewAtS >= PREVIEW_REFRESH_S) {
+      Math.abs(f - sec.previewFHz) > PREVIEW_F_TOL || s - sec.previewAtS >= PREVIEW_REFRESH_S) {
     sec.previewNadirHz = previewNadir(state, L);
     sec.previewAtS = s;
     sec.previewLId = L.id;
     sec.previewLMW = L.mw;
+    sec.previewFHz = f;
     sec.dirty = false;
   }
-  const r = security(state, {previewNadirHz: sec.previewNadirHz});
+  const r = security(state, {previewNadirHz: sec.previewNadirHz, previewAgeS: s - sec.previewAtS});
   const before = sec.level;
   sec.r5MW = r.r5MW;
   sec.lMW = r.lMW;
@@ -822,9 +832,12 @@ export function securitySecond(state, out) {
  *   L  = fleet.largestContingency(state)
  *   ratio = R5 / L, capped at SEC_RATIO_MAX (finite when L is 0)
  *   level: 'SHEDDING' if city.shedFrac > 0; 'SHORT' if R5 < L; 'TIGHT' if R5 < SECURE_RATIO*L
- *          or previewNadirHz < SECURE_NADIR_HZ; else 'SECURE'.
+ *          or previewNadirHz < SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ; else 'SECURE' (the margin
+ *          covers what the frozen-schedule preview cannot see: H-8 containment, tuning pass),
+ *          plus PREVIEW_AGE_MARGIN_HZ_S x opts.previewAgeS for a cached preview.
  * @param {object} state
- * @param {{previewNadirHz?:number}} [opts] reuse a cached preview instead of running physics.previewTrip
+ * @param {{previewNadirHz?:number, previewAgeS?:number}} [opts] reuse a cached preview instead of running
+ *   physics.previewTrip; previewAgeS: its age in grid seconds (0 if omitted)
  * @returns {{r5MW:number, lMW:number, lKind:string, lId:string, ratio:number, previewNadirHz:number, level:string}}
  */
 export function security(state, opts) {
@@ -846,36 +859,48 @@ export function security(state, opts) {
   }
   r5 += 0;
   const L = fleet.largestContingency(state);
-  const nadir = opts && typeof opts.previewNadirHz === 'number' ? opts.previewNadirHz : previewNadir(state, L);
+  const cached = opts && typeof opts.previewNadirHz === 'number';
+  const nadir = cached ? opts.previewNadirHz : previewNadir(state, L);
+  const needHz = SECURE_NADIR + (cached && opts.previewAgeS > 0 ? AGE_MARGIN * opts.previewAgeS : 0);
   const ratio = L.mw > 0 ? Math.min(SEC_RATIO_MAX, r5 / L.mw) : SEC_RATIO_MAX;
   const level = state.city.shedFrac > 0 ? 'SHEDDING'
     : r5 < L.mw ? 'SHORT'
-      : r5 < SECURE_RATIO * L.mw || nadir < SECURE_NADIR ? 'TIGHT' : 'SECURE';
+      : r5 < SECURE_RATIO * L.mw || nadir < needHz ? 'TIGHT' : 'SECURE';
   return {r5MW: r5, lMW: L.mw, lKind: L.kind, lId: L.id, ratio, previewNadirHz: nadir, level};
 }
 
 // ------------------------------------------------------------------ restore permissive (K-13)
 
+const RESTORE_WITH_PREVIEW = Object.freeze({preview: true});
+
 /**
  * K-13 restore permissive for district index d. Returns fleet.DISTRICT_LIT if the district
- * is not dark; '' if last.fMeanHz >= RESTORE_MIN_HZ, R5 >= RESTORE_R5_RATIO x
- * fleet.districtColdLoadMW(state, d) (R5 from security(state, {previewNadirHz:
- * sec.previewNadirHz}), never a new preview) and RESTORE_INTERVAL_S have passed since
- * city.lastRestoreS; else the first failing reason. Pure (observe() calls it per dark
- * district). Phase 0.2: permissive + cold load only; the procedure bay, FOCUS playback and
- * the restore preview are Phase 1a.
+ * is not dark; '' if last.fMeanHz >= RESTORE_MIN_HZ and RESTORE_INTERVAL_S have passed since
+ * city.lastRestoreS and, with opts.preview, the RESTORE PREVIEW (physics.previewTrip kind
+ * 'district': the district's cold-load MW picked up now, on the same engine as the TRIP
+ * PREVIEW) keeps the nadir at or above SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ; else the first
+ * failing reason. The preview replaced the stage A rule R5 >= 1.2 x cold load (tuning pass):
+ * R5 is 5-minute headroom, not primary response, and passed restores whose surge set off UFLS
+ * again (restore -> UFLS -> restore). It runs on the restore input only (applyCommand), never
+ * per district in observe() (which calls this without opts, so restoreBlock is the lamp's
+ * frequency and interval conditions; the desk shows the preview on selection, K-13). Pure.
+ * @param {object} state
+ * @param {number} d district index
+ * @param {{preview?:boolean}} [opts]
+ * @returns {string}
  */
-export function restorePermissive(state, d) {
+export function restorePermissive(state, d, opts) {
   const dist = state.city.districts[d];
   if (!dist) return 'unknown district';
   if (!dist.dark) return fleet.DISTRICT_LIT;
   if (state.last.fMeanHz < RESTORE_MIN_HZ) return 'frequency below ' + RESTORE_MIN_HZ + ' Hz';
-  const need = RESTORE_R5_RATIO * fleet.districtColdLoadMW(state, d);
-  const r5 = security(state, {previewNadirHz: state.sec.previewNadirHz}).r5MW;
-  if (r5 < need) {
-    return 'spare in 5 min ' + Math.round(r5) + ' MW, below ' + RESTORE_R5_RATIO + ' x the district load (' + Math.round(need) + ' MW)';
-  }
   const since = secondOf(state) - state.city.lastRestoreS;
   if (since < RESTORE_INTERVAL_S) return 'wait ' + minutes(RESTORE_INTERVAL_S - since) + ' min after the last restore';
+  if (opts && opts.preview) {
+    const p = previewTrip(state, {kind: 'district', id: dist.id});
+    if (p.nadirHz < RESTORE_NADIR) {
+      return 'restore preview ' + p.nadirHz.toFixed(2) + ' Hz for ' + Math.round(p.lostMW) + ' MW, below ' + RESTORE_NADIR.toFixed(2) + ' Hz';
+    }
+  }
   return '';
 }

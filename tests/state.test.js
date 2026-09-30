@@ -2,7 +2,9 @@
 // timeline pre-rolled, deterministically per seed.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createState, observe, hashState, canonicalHash} from '../sim/step.js';
+import {getHeapSpaceStatistics} from 'node:v8';
+import {createState, step, observe, hashState, canonicalHash} from '../sim/step.js';
+import * as physics from '../sim/physics.js';
 import {prerollRegime, prerollSeries, sampleSecond} from '../sim/weather.js';
 import {prerollEvents, CONTINGENCY_TYPES} from '../sim/events.js';
 import {V} from '../sim/params.js';
@@ -157,7 +159,7 @@ test('S-4: observe() hides the seed, the regime, the event list and event ids', 
   for (const k of ['ext', 'seed', 'regime', 'events', 'evNext', 'series', 'scn', 'scnHash', 'eventId'])
     assert.ok(!keys.has(k), 'obs exposes ' + k);
   assert.equal(o.forecast.n, V.FC_HORIZON_S / V.FC_STEP_S);
-  assert.equal(o.units.length, 13);
+  assert.equal(o.units.length, 14); // F-13 fleet after owner decision D2 (GT·C 2 x 300 MW)
   o.units[0].outMW = -1; o.score.cost.fuel = -1; o.sec.level = 'x'; o.districts[0].dark = true;
   assert.notEqual(s.units[0].outMW, -1, 'obs is a copy');
   assert.notEqual(s.score.cost.fuel, -1, 'obs is a copy');
@@ -193,7 +195,7 @@ const OBS_SHAPE = {
   fos: ['outsideS', 'belowContainS', 'countdownS', 'directed', 'nextShedS'],
   agc: ['nextCycleS', 'requestMW', 'unmetMW', 'atLimitS', 'aceMW'],
   price: ['mwh', 'marginalId', 'adder', 'exhausted', 'x'],
-  score: ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'cost', 'co2t', 'marketBill', 'minHz', 'maxHz',
+  score: ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'cost', 'co2t', 'genMWh', 'marketBill', 'minHz', 'maxHz',
     'outsideNormalS', 'spark', 'starts', 'lightsMWh', 'costDollars', 'centsPerKWh', 'co2tPerMWh'],
   'score.cost': ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'],
   'districts[]': ['id', 'suburb', 'share', 'uflsStage', 'rot', 'dark', 'shedBy', 'darkSinceS', 'restoredAtS', 'coldLoadMW',
@@ -282,6 +284,52 @@ test('F-2: hashState covers every field of state except scn and ext; -0 hashes a
   assert.throws(() => hashState(s), /non-finite/);
   s.phys.fHz = undefined;
   assert.throws(() => hashState(s), /undefined/);
+});
+
+test('F-2: two changed leaves never cancel: sign flips and doublings of pairs of fields change the hash (review fix)', () => {
+  // FNV word mixing alone kept a bit-31 difference in bit 31, so negating any two nonzero
+  // numbers (a sign flip is bit 31 of a double's high word) gave the same hash: 43,071 of
+  // 43,071 pairs of createState(1)'s leaves collided. The per-word xor-shift spreads it.
+  const s = createState(1, CLASSIC), h0 = hashState(s);
+  const paths = leaves(s).filter(p => { const v = p.reduce((o, k) => o[k], s); return typeof v === 'number' && v !== 0; });
+  assert.ok(paths.length > 200, paths.length + ' nonzero numeric leaves');
+  const at = p => [p.slice(0, -1).reduce((o, k) => o[k], s), p[p.length - 1]];
+  let pairs = 0;
+  for (let i = 0; i < paths.length; i += 3) {
+    const j = (i * 37 + 11) % paths.length;
+    if (j === i) continue;
+    const [pa, ka] = at(paths[i]), [pb, kb] = at(paths[j]), a = pa[ka], b = pb[kb];
+    for (const f of [x => -x, x => 2 * x]) {
+      pa[ka] = f(a); pb[kb] = f(b);
+      assert.notEqual(hashState(s), h0, paths[i].join('.') + ' and ' + paths[j].join('.') + ' changed together');
+      pa[ka] = a; pb[kb] = b;
+    }
+    pairs++;
+  }
+  assert.equal(hashState(s), h0);
+  assert.ok(pairs > 60, pairs + ' pairs');
+});
+
+test('README §2 rule 6: physics.tick allocates nothing, also after hourly hashState (the harness F-2 hash; review fix)', () => {
+  // A JS walk that read the live state's numeric leaves once a grid-hour made every later
+  // physics.tick allocate ~130-180 B (0 without it): hashState now walks a JSON copy.
+  const s = createState(7, CLASSIC);
+  const hour = V.S_PER_H * V.TICKS_PER_S;
+  while (s.tick < 4 * hour + 1) { step(s); if (s.tick % hour === 0) hashState(s); } // the old walk showed it from the third hash
+  const out = [], CHUNK = 2000;
+  for (let k = 0; k < CHUNK; k++) physics.tick(s, out); // warm
+  const used = () => getHeapSpaceStatistics().find(x => x.space_name === 'new_space').space_used_size;
+  let valid = 0, worst = 0;
+  for (let c = 0; c < 40; c++) {
+    const a = used();
+    for (let k = 0; k < CHUNK; k++) physics.tick(s, out);
+    const d = used() - a;
+    if (d < 0) continue; // a scavenge ran inside the chunk: nothing to read
+    valid++;
+    if (d / CHUNK > worst) worst = d / CHUNK;
+  }
+  assert.ok(valid >= 20, valid + ' chunks without a scavenge');
+  assert.ok(worst < 8, 'physics.tick allocates ' + worst.toFixed(1) + ' B per tick');
 });
 
 test('F-2: a scenario variant hashes differently from the classic day (state.scnHash), and scnHash is canonical', () => {

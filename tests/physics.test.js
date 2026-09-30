@@ -9,6 +9,7 @@ import {hashState} from '../sim/step.js';
 import * as fleet from '../sim/fleet.js';
 import {V} from '../sim/params.js';
 import {opening, commit, runPhysics, trip, clone, balance} from './lib/sim-helpers.js';
+import {yardstickNs, budgetUnits} from './lib/speed.js';
 
 const F0 = V.F0_HZ, DT = V.PHYS_DT;
 
@@ -90,18 +91,27 @@ test('H-8: battery SoC limits: no discharge at 0 MWh and no charge when full; th
   }
 });
 
-test('H-8 / K-10: a 10-s engine run costs <= 5 ms; one physics tick <= ~0.5 us (a day in a few seconds)', () => {
+test('H-8 / K-10: a 10-s engine run costs <= 5 ms; one physics tick <= 0.3 us on the owner\'s laptop (README §10), timed against a CPU yardstick', () => {
   const s = opening(5);
   let t = performance.now();
   for (let i = 0; i < 20; i++) previewTrip(s, {kind: 'unit', id: 'coal1'});
   const perPreview = (performance.now() - t) / 20;
   assert.ok(perPreview <= 5, 'previewTrip ' + perPreview.toFixed(2) + ' ms');
-  const n = 500000;
-  t = performance.now();
-  runPhysics(s, n);
-  const us = (performance.now() - t) * 1000 / n;
-  // Budget 0.5 us; the assertion is loose so a slow CI box does not flake.
-  assert.ok(us <= 2, 'physics.tick ' + us.toFixed(3) + ' us');
+  // The tick budget (~0.3 us on the owner's laptop, README §10) in units of a yardstick that
+  // shares no code with the sim, measured in this process (tests/lib/speed.js): a slow box is
+  // not a failure, a slower tick is. The fastest of 5 runs of 100,000 ticks (review fix: the
+  // old absolute bound was 2 us, ~10x the measured cost, so a 3x slower physics passed; 400
+  // extra float operations per tick, ~3.7x the tick, now fail at ~6.5 units). Measured on the
+  // owner's laptop: ~2 units against 4.3.
+  const yard = yardstickNs();
+  let best = Infinity;
+  for (let k = 0; k < 5; k++) {
+    t = performance.now();
+    runPhysics(s, 100000);
+    best = Math.min(best, (performance.now() - t) * 1e6 / 100000);
+  }
+  const limit = budgetUnits(300);
+  assert.ok(best / yard <= limit, 'physics.tick ' + best.toFixed(0) + ' ns = ' + (best / yard).toFixed(2) + ' yardstick units, budget ' + limit.toFixed(2));
 });
 
 test('H-6: no shedding above 49.0 Hz; stage 1 sheds its two districts 0.30 +- 0.02 s after crossing', () => {

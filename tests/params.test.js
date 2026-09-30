@@ -49,7 +49,7 @@ test('V mirrors P: plain values, derived tables present, frozen', () => {
   assert.ok(Object.isFrozen(V) && Object.isFrozen(V.MACHINES) && Object.isFrozen(V.MACHINES[0]));
   assert.equal(V.TICKS_PER_S, 50);
   assert.equal(V.DAY_TICKS, 4320000);
-  assert.equal(V.MACHINES.length, 13);
+  assert.equal(V.MACHINES.length, 14); // F-13 after owner decision D2 (GT·C 2 x 300 MW)
   assert.equal(new Set(V.MACHINE_IDS).size, V.MACHINES.length);
 });
 
@@ -96,7 +96,7 @@ test('F-13: the fleet is the spec table (machines committed individually)', () =
     ccgt: {machines: 2, ratingMW: 650, minMW: 175, hot: 45, offer: 74, noLoadPerH: 3000, minUpH: 4, minDownH: 3, co2: 0.42, H: 4.5},
     gta: {machines: 1, ratingMW: 500, minMW: 250, hot: 8, offer: 148, noLoadPerH: 4000, minUpH: 1, minDownH: 0.5, co2: 0.63, H: 3.5},
     gtb: {machines: 2, ratingMW: 400, minMW: 200, hot: 8, offer: 152, noLoadPerH: 4000, minUpH: 1, minDownH: 0.5, co2: 0.63, H: 3.5},
-    gtc: {machines: 1, ratingMW: 300, minMW: 150, hot: 5, offer: 156, noLoadPerH: 2400, minUpH: 1, minDownH: 0.5, co2: 0.63, H: 3.5},
+    gtc: {machines: 2, ratingMW: 300, minMW: 150, hot: 5, offer: 156, noLoadPerH: 2400, minUpH: 1, minDownH: 0.5, co2: 0.63, H: 3.5},
     hydro: {machines: 3, ratingMW: 317, minMW: 0, hot: 3, offer: 130, noLoadPerH: 0, minUpH: 0, minDownH: 0, co2: 0, H: 3.5},
   };
   assert.deepEqual(V.STATION_IDS, Object.keys(want));

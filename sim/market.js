@@ -93,9 +93,14 @@ function fillStack(state) {
     // headroom), as price-takers.
     else if (mode === 'loading' || mode === 'unloading' || mode === 'shutdown') put(u.id, RANK[i], m.cls, MIN_LOAD_OFFER, u.schedMW);
   }
-  // Wind net of over-frequency generation shedding; solar as dispatched (after LIMIT).
-  put('wind', WIND_RANK, 'wind', RENEWABLE_OFFER, state.ren.windMW * (1 - state.ofgs.trippedFrac));
-  put('solar', SOLAR_RANK, 'solar', RENEWABLE_OFFER, state.ren.solarMW);
+  // P-5 "available wind and solar": what the weather gives (wind net of over-frequency
+  // generation shedding, which disconnects it), NOT the dispatched MW after the player's
+  // LIMIT. Semi-scheduled plant offers its availability; curtailment is economic (the price is
+  // at or below its offer, P-9) or an operator direction, priced "as if absent" like RERT (P-8),
+  // so a LIMIT never raises the price (review fix: curtailing noon solar used to remove 1.2 GW
+  // of -$20 blocks and move the price to the next thermal block, or to the cap).
+  put('wind', WIND_RANK, 'wind', RENEWABLE_OFFER, state.env.windAvailMW * (1 - state.ofgs.trippedFrac));
+  put('solar', SOLAR_RANK, 'solar', RENEWABLE_OFFER, state.env.solarAvailMW);
   const wet = hydro.storageMWh > HYDRO_STOP_MWH;
   const water = waterValue(hydro.storageMWh / ALLOCATION_MWH);
   for (let i = 0; i < NU; i++) {
@@ -140,7 +145,8 @@ function fillStack(state) {
  *     to MIN (rest of T1 + rest of the auto-sync wait + T2) <= STACK_START_WITHIN_S;
  *   units off with fleet.startBlock '' and t1S + t2S <= STACK_START_WITHIN_S (P-5 "able to
  *     start within 10 min"; the auto-sync wait is not counted): whole range at their offer;
- *   wind ren.windMW x (1 - ofgs.trippedFrac) and solar ren.solarMW at RENEWABLE_OFFER;
+ *   AVAILABLE wind env.windAvailMW x (1 - ofgs.trippedFrac) and solar env.solarAvailMW at
+ *     RENEWABLE_OFFER (P-5; a curtailment LIMIT does not take them out of the stack);
  *   industrial DR (DR_MW) at DR_PRICE while calls remain and none is active; an active
  *     call's delivered dr.mw at DR_PRICE.
  * Never RERT (P-8: priced as if absent). Used by the price and, from Phase 1a, the Live
@@ -159,12 +165,22 @@ export function buildStack(state) {
   return out;
 }
 
+/** True while AEMO-ordered load shedding is in force: a district dark by directed shedding (FOS or DIRECT SHED). */
+function directedShedding(city) {
+  const ds = city.districts;
+  for (let d = 0; d < ds.length; d++) if (ds[d].dark && ds[d].shedBy === 'directed') return true;
+  return false;
+}
+
 // Clear this second's price into `p` ({mwh, marginalId, adder, exhausted, x}).
 function clearInto(state, p) {
   const n = fillStack(state);
-  // P-5: market demand net of the SCHEDULED tie and battery flows (H-5: imports are
-  // supply). RERT MW are not subtracted (P-8: as if absent); DR is a stack block.
-  const demand = state.env.demandMW - state.tie.flowMW - state.battery.schedMW;
+  // P-5: market demand is the LIT (metered) demand, the cold-load surge of restored districts
+  // included, net of the SCHEDULED tie and battery flows (H-5: imports are supply). Load shed
+  // and still dark is not dispatched for (NEM dispatch targets metered demand; par's reflow
+  // does the same). RERT MW are not subtracted (P-8: as if absent); DR is a stack block.
+  const city = state.city;
+  const demand = state.env.demandMW * (1 - city.shedFrac) + city.coldLoadMW - state.tie.flowMW - state.battery.schedMW;
   const sec = state.sec;
   const x = sec.lMW > 0 ? sec.r5MW / sec.lMW : FREE_X;
   const adder = scarcityAdder(x);
@@ -180,10 +196,12 @@ function clearInto(state, p) {
     mwh = clampPrice(b.offer + adder);
     id = b.id;
   }
-  // P-8: the cap when the stack cannot cover demand, and while load is being shed (when
-  // AEMO orders load shedding the spot price is set to the cap). Administered: no block
-  // sets it, so marginalId is ''.
-  if (exhausted || state.city.shedFrac > 0) { mwh = PRICE_CAP; id = ''; }
+  // P-8: the cap when the stack cannot cover the lit demand, and while AEMO-ordered load
+  // shedding is in force (a directed district dark: the spot price is then set to the cap,
+  // §8.1). Districts shed by UFLS (automatic protection) and waiting to be restored do not
+  // set it: the stack clears on the lit demand (review fix: the cap used to hold for hours
+  // after UFLS on a healthy grid). Administered: no block sets it, so marginalId is ''.
+  if (exhausted || directedShedding(city)) { mwh = PRICE_CAP; id = ''; }
   p.mwh = mwh + 0;
   p.marginalId = id;
   p.adder = adder + 0;
@@ -193,11 +211,12 @@ function clearInto(state, p) {
 }
 
 /**
- * P-5..P-8 price for the current second. Market demand = env.demandMW - tie.flowMW -
- * battery.schedMW (the scheduled flows, P-5; RERT MW are NOT subtracted, P-8). Price =
- * offer of the block where the running total first covers market demand, plus
- * scarcityAdder(sec.r5MW / sec.lMW) (x = SCARCITY_FREE_X when lMW is 0), clamped by
- * clampPrice; the cap when the stack is exhausted or load is being shed (city.shedFrac > 0).
+ * P-5..P-8 price for the current second. Market demand = the lit demand env.demandMW x
+ * (1 - city.shedFrac) + city.coldLoadMW, minus tie.flowMW and battery.schedMW (the scheduled
+ * flows, P-5; RERT MW are NOT subtracted, P-8). Price = offer of the block where the running
+ * total first covers market demand, plus scarcityAdder(sec.r5MW / sec.lMW) (x =
+ * SCARCITY_FREE_X when lMW is 0), clamped by clampPrice; the cap when the stack is exhausted
+ * or while directed load shedding is in force (a district dark with shedBy 'directed').
  * marginalId is the price-setting block's id, or '' when the price is administered (the
  * cap) or no block exists (market demand <= 0 with an empty stack: the floor).
  * @returns {{mwh:number, marginalId:string, adder:number, exhausted:boolean, x:number}}
@@ -249,8 +268,10 @@ export function priceSecond(state, out) { // eslint-disable-line no-unused-vars
  * into uflsMWh / directedMWh / taskMWh by the dark districts' shedBy. S-2: fuel (offer x
  * MWh; hydro HYDRO_VAR_COST), no-load (sync units), starts (acc.startCost), tie (import x
  * neighbour price, export credited), battery wear, DR, RERT; never unserved x price (H-12).
- * S-3: CO2 t from generation (intensity = co2t / servedMWh, so shedding alone barely moves
- * it). Also minHz, maxHz, outsideNormalS, spark[] (worst |f - F0| per SPARK_BLOCK_S block),
+ * S-3: CO2 t from generation in the region, and genMWh, that generation (units, wind after
+ * OFGS, solar, RERT; intensity = co2t / genMWh, AEMO's CDEII convention: imports count in
+ * neither term, and shedding alone barely moves it). Also minHz, maxHz, outsideNormalS,
+ * spark[] (worst |f - F0| per SPARK_BLOCK_S block),
  * marketBill (info only). Tie, wind (x (1 - ofgs.trippedFrac)), solar, RERT and DR MW are
  * constant within a second, so they are integrated here as MW x acc.ticks x PHYS_DT.
  *
@@ -280,6 +301,13 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
       starts += units[i].starts;
     }
     const rertMWh = state.rert.outMW * h;
+    // S-3's denominator: generation in the region (units, wind after OFGS, solar, diesel), as
+    // AEMO's CDEII divides emissions by generation. Imports carry the neighbour's emissions and
+    // count in neither term; the battery stores energy counted when it was generated (review
+    // fix: per MWh SERVED, importing lowered the graded intensity with no change in the mix).
+    let gen = rertMWh + (state.ren.windMW * (1 - state.ofgs.trippedFrac) + state.ren.solarMW) * h;
+    for (let i = 0; i < NU; i++) gen += acc.unitMWs[i] / S_PER_H;
+    sc.genMWh += gen;
     cost.fuel += fuel;
     cost.noLoad += noLoad;
     cost.starts += acc.startCost;
@@ -338,7 +366,8 @@ function splitShed(state, sc, shedMWh) {
 }
 
 /**
- * Derived scorecard numbers (S-1..S-3) from state.score. Implemented in stage A.
+ * Derived scorecard numbers (S-1..S-3) from state.score. Implemented in stage A; S-3's
+ * intensity is per MWh GENERATED in the region (score.genMWh; review fix, was per MWh served).
  * @returns {{lightsMWh:number, costDollars:number, centsPerKWh:number, co2t:number, co2tPerMWh:number, servedMWh:number}}
  */
 export function scoreSummary(score) {
@@ -350,7 +379,7 @@ export function scoreSummary(score) {
     costDollars,
     centsPerKWh: servedKWh > 0 ? costDollars * V.CENTS_PER_DOLLAR / servedKWh : 0,
     co2t: score.co2t,
-    co2tPerMWh: score.servedMWh > 0 ? score.co2t / score.servedMWh : 0,
+    co2tPerMWh: score.genMWh > 0 ? score.co2t / score.genMWh : 0,
     servedMWh: score.servedMWh,
   };
 }

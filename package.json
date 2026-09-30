@@ -6,6 +6,9 @@
     "test": "node --test",
     "test:slow": "node --env-file=tests/slow.env --test",
     "baseline": "node tools/baseline.js",
-    "golden": "node tools/baseline.js > tools/baseline.golden.md"
+    "golden": "node tools/baseline.js > tools/baseline.golden.md",
+    "baseline:v4": "node tools/baseline-v4.js",
+    "golden:v4": "node tools/baseline-v4.js --out tools/baseline-v4.golden.md",
+    "par": "node tools/par.js"
   }
 }

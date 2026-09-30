@@ -50,7 +50,7 @@ function scenarioData(x) {
 function freshScore() {
   return {servedMWh: 0, unservedMWh: 0, uflsMWh: 0, directedMWh: 0, taskMWh: 0,
     cost: {fuel: 0, noLoad: 0, starts: 0, tie: 0, battWear: 0, dr: 0, rert: 0, flex: 0},
-    co2t: 0, marketBill: 0, minHz: F0, maxHz: F0, outsideNormalS: 0, spark: zeros(V.SPARK_BLOCKS), starts: 0};
+    co2t: 0, genMWh: 0, marketBill: 0, minHz: F0, maxHz: F0, outsideNormalS: 0, spark: zeros(V.SPARK_BLOCKS), starts: 0};
 }
 
 // The opening second is balanced with the online hydro machines (within their range),
@@ -119,7 +119,7 @@ export function createState(seed, scenario) {
     agc: {nextCycleS: 0, requestMW: 0, unmetMW: 0, atLimitS: 0, aceMW: 0},
     fos: {outsideS: 0, belowContainS: 0, countdownS: V.FOS_RECOVER_S, directed: false, nextShedS: 0},
     sec: {r5MW: 0, lMW: 0, lKind: 'none', lId: '', ratio: 0, previewNadirHz: F0, previewAtS: -1, previewLId: '',
-      previewLMW: 0, dirty: true, level: 'SECURE'},
+      previewLMW: 0, previewFHz: F0, dirty: true, level: 'SECURE'},
     price: {mwh: 0, marginalId: '', adder: 0, exhausted: false, x: 0},
     acc: fleet.newAcc(),
     last: {fMeanHz: F0, fMinHz: F0, fMaxHz: F0, servedMW: 0, shedMW: 0},
@@ -274,7 +274,7 @@ const SEC_KEYS = ['r5MW', 'lMW', 'lKind', 'lId', 'ratio', 'previewNadirHz', 'pre
 const FOS_KEYS = ['outsideS', 'belowContainS', 'countdownS', 'directed', 'nextShedS'];
 const AGC_KEYS = ['nextCycleS', 'requestMW', 'unmetMW', 'atLimitS', 'aceMW'];
 const PRICE_KEYS = ['mwh', 'marginalId', 'adder', 'exhausted', 'x'];
-const SCORE_KEYS = ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'cost', 'co2t', 'marketBill', 'minHz',
+const SCORE_KEYS = ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'cost', 'co2t', 'genMWh', 'marketBill', 'minHz',
   'maxHz', 'outsideNormalS', 'spark', 'starts'];
 const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'];
 const CAUGHT_KEYS = ['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW'];
@@ -382,8 +382,13 @@ export function observe(state, opts) {
 
 const W = Uint32Array.BYTES_PER_ELEMENT;
 const dv = new DataView(new ArrayBuffer(Float64Array.BYTES_PER_ELEMENT));
+const FNV_PRIME = V.RNG_FNV_PRIME, AVALANCHE_S = V.RNG_FMIX_S1;
 let hacc = 0;
-const mixWord = w => { hacc = Math.imul(hacc ^ (w >>> 0), V.RNG_FNV_PRIME) >>> 0; };
+// FNV-style word mixing plus an xor-shift per word (review fix): multiplying by an odd prime
+// only carries a difference upward, so without the shift a difference confined to the high
+// bits (a sign flip is bit 31 of a double's high word) never reached the low bits and any two
+// sign flips cancelled (100% of pairs of createState(1)'s nonzero leaves collided).
+const mixWord = w => { const h = Math.imul(hacc ^ (w >>> 0), FNV_PRIME); hacc = (h ^ (h >>> AVALANCHE_S)) >>> 0; };
 function fnv(str) {
   let h = V.RNG_FNV_OFFSET;
   for (let i = 0; i < str.length; i++) h = Math.imul(h ^ str.charCodeAt(i), V.RNG_FNV_PRIME) >>> 0;
@@ -436,17 +441,37 @@ export function canonicalHash(x) {
 
 const HASH_SKIP = new Set(['scn', 'ext']);
 
+// JSON.stringify replacer for hashState's copy: leaves scn and ext out of the copy and throws
+// on what JSON would silently change (NaN and Infinity become null, undefined disappears).
+function jsonOnly(key, value) {
+  if (this !== null && this.scnHash !== undefined && HASH_SKIP.has(key)) return undefined; // state's own scn / ext
+  switch (typeof value) {
+    case 'number':
+      if (!Number.isFinite(value)) throw new Error('hashState: non-finite number at ' + key + ' (state must be plain JSON)');
+      return value;
+    case 'string': case 'boolean': case 'object': return value;
+    default: throw new Error('hashState: ' + typeof value + ' at ' + key + ' (state must be plain JSON)');
+  }
+}
+
 /**
  * 32-bit fingerprint of EVERY field of state except scn and ext (README §9): a
  * type-tagged walk with sorted keys, array lengths and exact IEEE bits (-0 folded to 0).
  * scn and ext are functions of (seed, scenario, SIM_VERSION), all of which are hashed:
  * seed and v directly, the scenario via state.scnHash (tuning a scenario without bumping
  * SIM_VERSION still changes the hash). Throws on a non-JSON value (NaN, Infinity,
- * undefined, a function). Costs ~0.1-0.5 ms: call it per grid-hour, never per tick.
+ * undefined, a function). Costs ~0.3-0.5 ms: call it per grid-hour, never per tick.
+ *
+ * It walks a JSON copy, never the live objects (review fix, README §10): a JS walk that
+ * reads the live state's numeric leaves through generic keyed loads made every later
+ * physics.tick allocate ~130-180 B (0 B without it), about 25-40% of a par day. A JSON
+ * round trip is exact for plain-JSON state (README §2 rule 4), so walking the copy gives the
+ * hash walking the state itself would give.
  */
 export function hashState(state) {
+  const copy = JSON.parse(JSON.stringify(state, jsonOnly));
   hacc = V.RNG_FNV_OFFSET;
-  mixObject(state, HASH_SKIP);
+  mixObject(copy, HASH_SKIP);
   return hash32(hacc, 0, 0);
 }
 

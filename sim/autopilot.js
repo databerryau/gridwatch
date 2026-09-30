@@ -9,22 +9,29 @@
 // steps it, reads tick / over / log, asks step.inWatch(state) when to decide, and feeds
 // inputs through step.applyInput so it knows which were accepted (origins[]).
 //
-// Inputs par makes come in two kinds, told apart by runPar's `origins`:
+// Inputs par makes come in three kinds, told apart by runPar's `origins`:
 //   'plan'   the L-0 plan being executed (base points, starts, stops, tie setpoints at
 //            their planned times). This stands in for "levers follow the plan" (K-2, L-6):
 //            it is the system's schedule, not a discrete action, so it is NOT paced.
+//   'replan' par's own schedule after it re-planned (below): the same kind of keyframes,
+//            re-dispatched from the moment of an action. NOT paced either: the re-plan is
+//            part of the action it follows (SPEC S-4, §8.2 "Par re-plans after every
+//            action"), and the bench player has the same RE-PLAN (replan(), app/assist.js).
 //   'ruleN'  a discrete action from S-4 rule N (1..9), paced: at most one per
 //            PAR_ACTION_GAP_REAL_S of the reference playback (refRealSeconds).
 // Phase 1a moves the plan into state (a `plan` input and field, L-4/L-6); then plan inputs
-// disappear from the log.
+// disappear from the log. Whether the Live Stack keeps a RE-PLAN control or par's re-plan
+// becomes paced Live Stack edits is an owner decision for Phase 1a (SPEC S-4).
 //
-// How par edits its plan (0.2 form; README §12 "autopilot"):
-//   * Every discrete action AMENDS the plan: after it, par re-dispatches its keyframes
-//     from now to 04:00 over the commitment it now has (present modes, pending plan
-//     starts, its own starts), with the latest forecast (obs.forecast, 4.5 h) and the
-//     day-ahead forecast beyond it. The amended keyframes are issued as 'plan' inputs as
-//     they fall due, like L-4's "later keyframes stay" re-flow. This is how the Live
-//     Stack absorbs a new layer; it is not an extra discrete action.
+// How par edits its plan (0.2 form; SPEC S-4 and §8.2):
+//   * Every discrete action AMENDS the plan (a RE-PLAN): after it, par re-dispatches its
+//     keyframes for every lever and the tie from now to 04:00 over the commitment it now
+//     has (present modes, pending plan starts, its own starts), with the latest forecast
+//     (obs.forecast, 4.5 h) and the day-ahead forecast beyond it. The amended keyframes are
+//     issued as 'replan' inputs as they fall due. It is not an extra discrete action; the
+//     review measured what it is worth (without any re-plan par's clean days fell from 89
+//     to 42 of 100), which is why the player gets the same RE-PLAN.
+//   * Par starts from the L-0 plan without its stops (makePlan): it decommits by rule 4 only.
 //   * Rule 7 (extension): "keep units at or below PAR_MAX_LOADING unless that would shed
 //     load" is applied by that re-dispatch; rule 7 itself fires when a unit's base point
 //     is above the limit, when AGC carries more than PAR_REBASE_MW, or when the plan misses
@@ -52,12 +59,28 @@
 //   * Rule 6's discharge compares the ENERGY price (price minus the P-7 scarcity adder)
 //     with the plan's marginal offer; outside the discharge window par recharges a battery
 //     AGC has drawn below PAR_BATT_RESERVE_FRAC (extension: primary response overnight).
-//   * Rule 8's firm capacity leaves the battery out (it is the contingency reserve; an
-//     evening run on its energy leaves the next trip to UFLS) and counts the tie up to its
-//     secure maximum; DR counts while calls are left. See rule8().
+//     A discharge order past the window's end or at the reserve is ended right after rule 1
+//     (rule6End, review fix: battery orders never expire, and in rule order the end waited
+//     behind rules 2-5 while the night's pace allowed one action per ~105 grid-min).
+//   * Rule 2 raises the GUARD only as far as the battery's energy sustains it for
+//     GUARD_SUSTAIN_S (review fix); otherwise its action is the next peaker.
+//   * Rule 8 (tuning pass) makes reserve diesel an emergency: an adequacy walk over the
+//     forecast counts firm capacity honestly (units and the tie at their real limits, and an
+//     energy-limited pool of water, DR call-hours and battery energy above its reserve), arms
+//     only on a shortfall the diesel can still reach with its 20-min lead (or earlier when the
+//     shortfall is energy-driven and arming now saves the pool), calls DR on a present
+//     shortfall hydro and the battery cannot carry (saving calls for the peak), and stands the
+//     diesel down when the walk without it is clean. Rule 4 asks the stand-down first (the
+//     dearest resource). See rule8().
+//   * Rule 1, when no peaker is left to start after a supply trip and units, tie and diesel
+//     cannot carry present net demand, calls DR (the next fast block) at once: at the evening
+//     profile's pace the next action came ~7.5 grid-min later, after FOS directed shedding.
 //   * Rule 9 (extension, README §12) restores only a district whose cold load is at most
-//     L and whose estimated dip (the TRIP PREVIEW scaled by coldLoad / L) holds
-//     PAR_NADIR_MIN_HZ, on top of the K-13 permissive.
+//     L and whose estimated dip (the TRIP PREVIEW scaled by coldLoad / L) holds the K-13
+//     restore preview's line (SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ), so the restore input,
+//     which runs the real restore preview, is seldom refused.
+//   * planOnly re-dispatches the L-0 plan for the lit load while districts are dark
+//     (reflowLit), as NEM dispatch targets metered demand (L-0: never black with no input).
 // The S-4 pace applies to every discrete action; at the reference playback's night roll
 // (2,100x) that is one action per ~105 grid-minutes, so restores after a late shed are slow.
 
@@ -93,7 +116,7 @@ const R5_MIN = V.R5_WINDOW_MIN;
 
 const PLAN_LOADING = V.PLAN_MAX_LOADING; // L-0: just under the H-2 hot gate
 const PAR_LOADING = V.PAR_MAX_LOADING, HOT_GATE = V.HOT_LOADING_FRAC;
-const KEYFRAME_MIN = V.PLAN_KEYFRAME_MIN_MW;
+const KEYFRAME_MIN = V.PLAN_KEYFRAME_MIN_MW, REFLOW_S = V.PLAN_REFLOW_S;
 
 const GAP_REAL_S = V.PAR_ACTION_GAP_REAL_S, COMPETENT_GAP_REAL_S = V.PROXY_COMPETENT_GAP_REAL_S;
 const DECIDE_EVERY_S = V.PAR_DECIDE_EVERY_S;
@@ -115,10 +138,11 @@ const CHARGE_TO_MWH = V.PAR_BATT_CHARGE_TO * BATT_MWH, BATT_RESERVE_MWH = V.PAR_
 const CHARGE_MAX = V.PAR_BATT_CHARGE_MAX_MW, ORDER_TOL = V.PAR_BATT_ORDER_TOL_MW;
 const REBASE = V.PAR_REBASE_MW, REBASE_COLS = S_PER_H / STEP_S;
 const NADIR_MIN = V.PAR_NADIR_MIN_HZ, NADIR_RELAX = V.PAR_NADIR_RELAX_HZ;
-const GUARD_STEP = V.PAR_GUARD_STEP_MW, GUARD_MAX = V.PAR_GUARD_MAX_MW;
+const GUARD_STEP = V.PAR_GUARD_STEP_MW, GUARD_MAX = V.PAR_GUARD_MAX_MW, GUARD_SUSTAIN_H = V.GUARD_SUSTAIN_S / S_PER_H;
 const RERT_LOOK_S = V.PAR_RERT_LOOKAHEAD_MIN * S_PER_MIN, RERT_MARGIN = V.PAR_RERT_MARGIN_MW;
 const RERT_STANDDOWN_S = V.PAR_RERT_STANDDOWN_MIN * S_PER_MIN, DR_MARGIN = V.PAR_DR_MARGIN_MW;
 const NORMAL_LO = V.NORMAL_LO_HZ, RESTORE_MIN_HZ = V.RESTORE_MIN_HZ, SECURE_AGAIN_S = V.SECURE_AGAIN_S;
+const RESTORE_NADIR = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ; // the K-13 restore preview's line (grid.restorePermissive)
 
 // ------------------------------------------------------------------ proxies
 
@@ -126,7 +150,7 @@ const NORMAL_LO = V.NORMAL_LO_HZ, RESTORE_MIN_HZ = V.RESTORE_MIN_HZ, SECURE_AGAI
 const ALL_RULES = ['rule1', 'rule2', 'rule3', 'rule4', 'rule5', 'rule6', 'rule7', 'rule8', 'rule9'];
 const PROXIES = {
   par: {rules: ALL_RULES, gapS: GAP_REAL_S, plan: true, stops: false},
-  planOnly: {rules: [], gapS: GAP_REAL_S, plan: true, stops: true},
+  planOnly: {rules: [], gapS: GAP_REAL_S, plan: true, stops: true, reflow: true},
   doNothing: {rules: [], gapS: GAP_REAL_S, plan: false, stops: false},
   lean: {rules: ['rule1', 'rule2', 'rule7', 'rule8', 'rule9'], gapS: GAP_REAL_S, plan: true, stops: true},
   competent: {rules: ALL_RULES, gapS: COMPETENT_GAP_REAL_S, plan: true, stops: false},
@@ -287,7 +311,7 @@ function fcAt(arr, present, fcn, lead) {
  * the stations and the tie must cover, prices and limits. par = par's rules apply
  * (battery, RERT, DR, the no-export and tie caps, rule 5, PAR_MAX_LOADING).
  */
-function context(obs, P, k0, par, memo) {
+function context(obs, P, k0, par, memo, reflow) {
   const n = P.n, now = obs.s, auto = obs.mode === 'AGC';
   const heat = latestNews(obs, 'heat');
   const cx = {par, k0, n, now, heat,
@@ -303,8 +327,15 @@ function context(obs, P, k0, par, memo) {
     cx.off[i] = cx.on[i] < 0 ? -1 : NEVER;
     if (u.mode === 'on') { cx.x0[ST_OF[i]] += u.schedMW; cx.c0[ST_OF[i]]++; }
   }
-  // Starts the plan still has pending (par keeps them: they are the L-0 commitment).
-  if (par) {
+  // Starts the plan still has pending (par keeps them: they are the L-0 commitment), and for a
+  // re-flow of the L-0 plan (reflowLit) its stops too.
+  if (reflow) {
+    for (const e of P.stops) {
+      const i = V.MACHINE_IDS.indexOf(e.unit);
+      if (e.atS >= now && cx.on[i] >= 0) cx.off[i] = Math.min(cx.off[i], e.atS);
+    }
+  }
+  if (par || reflow) {
     for (const e of P.starts) {
       const i = V.MACHINE_IDS.indexOf(e.unit);
       if (e.atS > now && cx.on[i] < 0 && obs.units[i].mode === 'off') {
@@ -397,8 +428,9 @@ function commitPlan(obs, P, cx) {
       } else {
         if (u.mode !== 'off' && u.mode !== 'tripped') continue;
         if (m.station === 'hydro' && !hydroWet(obs)) continue;
-        const lock = u.mode === 'tripped' ? u.timerS : 0;
-        const wait = Math.max(0, m.minDownS - u.downForS, lock);
+        // D1: a tripped unit waits out its lockout only; minimum down time follows a planned
+        // stop, and startBlock says whether it still binds.
+        const wait = u.mode === 'tripped' ? u.timerS : u.startBlock === '' ? 0 : Math.max(0, m.minDownS - u.downForS);
         earliest = now + wait + u.startToMinS;
       }
       if (earliest <= t1) { best = i; bestOn = earliest; break; }
@@ -720,32 +752,56 @@ export function preDispatch(obs) {
 }
 
 /**
- * Par's amendment: re-dispatch plan P from now to 04:00 over par's present commitment and
- * pending plan starts, with the latest forecast. Rewrites the queue (par drops the L-0
- * stops: it decommits by rule 4 only). Returns P.
+ * Par's amendment (a RE-PLAN): re-dispatch plan P from now to 04:00 over par's present
+ * commitment and pending plan starts, with the latest forecast. Rewrites the queue (par drops
+ * the L-0 stops: it decommits by rule 4 only). Every entry of the rewritten queue is par's own
+ * schedule from then on, tagged `re` so runPar logs it with origin 'replan', not 'plan' (the
+ * L-0 plan). Returns P.
  */
 function amend(obs, memo, P) {
   const k0 = colAfter(P, obs.s);
   const cx = context(obs, P, k0, true, memo);
   dispatchPlan(P, cx);
   writeKeyframes(P, cx, obs, PROXIES[memo.proxy].stops, false);
+  for (const e of P.queue) e.re = true;
   P.amended += 1;
   return P;
+}
+
+/**
+ * RE-PLAN for the bench player (app/assist.js, ASSIST PLAN): the re-dispatch par makes after
+ * each of its actions (amend), on the player's plan, from now to 04:00 over the commitment
+ * the player now has. It gives the player the same tool par uses without spending an action
+ * (SPEC S-4, §8.2 "Par re-plans after every action"). Returns false when there is no plan yet.
+ * @param {object} obs observe(state) (the forecast is enough; dayAhead is not needed)
+ * @param {object} memo the assist's autopilot memo
+ * @returns {boolean}
+ */
+export function replan(obs, memo) {
+  if (!memo.plan || obs.over || obs.s < START_S) return false;
+  amend(obs, memo, memo.plan);
+  memo.planNext = 0;
+  return true;
 }
 
 // ------------------------------------------------------------------ memo and plan inputs
 
 /**
- * Fresh par memory (plain JSON, so a resumed day resumes par too): the proxy, the plan
- * (null until PLAYER_START_H), the plan cursor, and the last action's tick.
+ * Fresh par memory (plain JSON, so a resumed day resumes par too: a JSON copy of a state and
+ * of this memo, passed back to runPar as opts.state and opts.memo, plays the same day as the
+ * run they were taken from): the proxy, the plan (null until PLAYER_START_H), the plan cursor,
+ * the last action's tick, and the harness's decision cadence (nextS, the next decision's grid
+ * second; afterWatch, decide at the first second after a watch), which runPar and the bench's
+ * assist keep here rather than in their own locals.
  * @param {{proxy?:'par'|'planOnly'|'doNothing'|'lean'|'competent'|'commitAll'|'fuzz'}} [opts]
  * @returns {object} memo
  */
 export function createAutopilot(opts) {
   const proxy = opts && opts.proxy ? opts.proxy : 'par';
   if (!Object.hasOwn(PROXIES, proxy)) throw new Error('createAutopilot: unknown proxy ' + proxy);
-  return {proxy, plan: null, planNext: 0, planTieMW: null, lastActTick: -1, lastOrigin: '', actions: 0, amendDue: false,
-    seenConts: 0, trip: null, tieHoldS: -1, tieHoldMW: 0, secureTieMW: 0, guardHoldS: -1, rebaseQuietS: -1, water: 'hold', rertSinceS: -1};
+  return {proxy, plan: null, planNext: 0, planTieMW: null, planTieTag: 'plan', lastActTick: -1, lastOrigin: '', actions: 0,
+    amendDue: false, seenConts: 0, trip: null, tieHoldS: -1, tieHoldMW: 0, secureTieMW: 0, guardHoldS: -1, rebaseQuietS: -1,
+    water: 'hold', rertSinceS: -1, planShed: 0, reflowS: -1, nextS: -1, afterWatch: false};
 }
 
 /** Make the day's plan from a day-ahead observation (runPar does this at PLAYER_START_H). */
@@ -765,25 +821,60 @@ function makePlan(obs, memo) {
  * setpoint is issued again.
  * @param {object} obs observe(state)
  * @param {object} memo from createAutopilot (holds the plan once made)
+ * @param {string[]} [tags] if given, receives one origin per returned input: 'plan' for the
+ *   L-0 plan (and planOnly's reflow of it), 'replan' for par's own re-dispatched schedule
  * @returns {Array<{type:string}>}
  */
-export function planInputs(obs, memo) {
+export function planInputs(obs, memo, tags) {
   if (!memo.plan || obs.over || obs.inWatch || obs.s < START_S) return [];
+  if (PROXIES[memo.proxy].reflow) reflowLit(obs, memo);
   const q = memo.plan.queue, out = [];
   const held = memo.tieHoldS > obs.s;
   while (memo.planNext < q.length && q[memo.planNext].atS <= obs.s) {
     const e = q[memo.planNext++];
+    const tag = e.re ? 'replan' : 'plan';
     if (e.input.type === 'tie') {
       memo.planTieMW = e.input.mw;
+      memo.planTieTag = tag;
       if (held) continue;
     }
     out.push(Object.assign({}, e.input));
+    if (tags) tags.push(tag);
   }
   if (memo.tieHoldS >= 0 && !held) {
     memo.tieHoldS = -1;
-    if (memo.planTieMW !== null && !obs.tie.tripped) out.push({type: 'tie', mw: memo.planTieMW});
+    if (memo.planTieMW !== null && !obs.tie.tripped) {
+      out.push({type: 'tie', mw: memo.planTieMW});
+      if (tags) tags.push(memo.planTieTag);
+    }
   }
   return out;
+}
+
+/**
+ * L-0 execution for a proxy that never amends its plan (planOnly): when the dark share of the
+ * city moves by half a district or more since the plan last saw it, the plan's levers and tie
+ * are re-dispatched from now to 04:00 for the LIT load (the L-0 rules: merit order, the plan's
+ * own starts and stops, no N-1). This is the NEM's 5-minute dispatch, which targets metered
+ * demand, standing under the once-a-day pre-dispatch: shed load is not dispatched for. While
+ * any district is dark it re-flows every PLAN_REFLOW_S too (AEMO's pre-dispatch cadence), with
+ * the latest forecast: a half-dark night otherwise ran on the 04:30 day-ahead wind. Without
+ * it a plan written for the whole city kept serving a half-dark one overnight: the battery
+ * filled and frequency rose to 52 Hz (black 'over') on 19/100 raw seeds (tuning pass).
+ */
+function reflowLit(obs, memo) {
+  let shed = 0;
+  for (const d of obs.districts) if (d.dark) shed += d.share;
+  const moved = Math.abs(shed - memo.planShed) >= V.DISTRICT_SHARE / 2;
+  if (!moved && !(shed > 0 && obs.s - memo.reflowS >= REFLOW_S)) return;
+  memo.planShed = shed;
+  memo.reflowS = obs.s;
+  const P = memo.plan, k0 = colAfter(P, obs.s);
+  const cx = context(obs, P, k0, false, null, true);
+  dispatchPlan(P, cx);
+  writeKeyframes(P, cx, obs, true, false);
+  P.amended += 1;
+  memo.planNext = 0;
 }
 
 // ------------------------------------------------------------------ decide (S-4 rules)
@@ -853,7 +944,8 @@ const startInput = i => ({type: 'start', unit: M[i].id});
 // Rule 1: after any supply trip, start the next peaker and set the tie to maximum import,
 // held there until the trip's RESPOND window ends, then back to the plan. v4 form: the
 // maximum SECURE import, at most the largest unit's output (an 800-MW tie at 20 GW.s
-// previews near 48.4 Hz); par's plan still imports more if the P50 would be short.
+// previews near 48.4 Hz); par's plan still imports more if the P50 would be short. With no
+// peaker left to start, DR is the next fast block (tuning pass, see the file header).
 function rule1(obs, memo) {
   const tr = memo.trip;
   if (tr === null) return null;
@@ -862,6 +954,9 @@ function rule1(obs, memo) {
     tr.start = false;
     const i = nextStart(obs, true);
     if (i >= 0) return startInput(i);
+    // No peaker left to start: the next fast block is industrial DR (350 MW in 3.5 min), when
+    // units, tie and diesel cannot carry the present net demand (the FOS clock is running).
+    if (obs.dr.activeS <= 0 && obs.dr.callsLeft > 0 && presentGap(walk(adequacySetup(obs), RERT_AS_ARMED)) + DR_MARGIN > 0) return {type: 'callDR'};
   }
   if (tr.tie) {
     tr.tie = false;
@@ -890,7 +985,12 @@ function rule2(obs, memo) {
   const gapNow = P && P.n > 0 ? P.gap[Math.min(P.n - 1, colAfter(P, obs.s))] : 0;
   const calm = !shortNow && obs.s >= memo.guardHoldS && gapNow <= 0 && sec.r5MW >= sec.lMW;
   const lowNadir = sec.lKind !== 'none' && sec.previewNadirHz < NADIR_MIN;
-  if (lowNadir && calm && b.guardMW + GUARD_STEP <= GUARD_MAX) return {type: 'guard', mw: b.guardMW + GUARD_STEP};
+  // The GUARD delivers only what the battery can sustain for GUARD_SUSTAIN_S: on a nearly
+  // empty battery raising it buys nothing, and the action goes to a peaker instead (review
+  // fix: par stacked 300-400 MW of GUARD on a 0-MWh battery while the night's pace allowed
+  // one action per ~105 grid-min).
+  const sustains = mw => b.socMWh >= mw * GUARD_SUSTAIN_H;
+  if (lowNadir && calm && b.guardMW + GUARD_STEP <= GUARD_MAX && sustains(b.guardMW + GUARD_STEP)) return {type: 'guard', mw: b.guardMW + GUARD_STEP};
   const shortR5 = sec.lMW > 0 && sec.r5MW < TIGHT * sec.lMW;
   if (lowNadir || shortR5) {
     const i = nextStart(obs, true);
@@ -923,6 +1023,7 @@ function rule3(obs, memo, C) {
 // for PAR_DECOMMIT_CLEAR_MIN and N-1 still holds without it. Coal and hydro are not
 // cycled (coal's 8-h minimum times; hydro costs nothing to keep spinning).
 function rule4(obs, memo, C) {
+  if (rertStandDown(obs, memo)) return {type: 'standDownRERT'}; // the dearest resource first (rule 8's test)
   const mx = peakNet(C, DECOMMIT_CLEAR_S);
   for (const i of MERIT_DESC) {
     const u = obs.units[i], m = M[i];
@@ -996,6 +1097,19 @@ function rule6(obs, memo) {
   return {type: 'battery', mode, mw: Math.floor(mw)};
 }
 
+// Rule 6's own window (extension, review fix): a battery order never expires by itself, so a
+// discharge order still running after 22:00, or at or below PAR_BATT_RESERVE_FRAC, is ended
+// (rule 6's action: idle, or the night's recharge to the reserve) BEFORE rules 2-5 are asked.
+// In rule order it came after them, and at the night roll's pace (one action per ~105
+// grid-min) the 16:30 order ran all night on 71 of 80 seeds and emptied the battery on 46: no
+// primary response from it overnight (seed 30: UFLS on a 23:44 coal trip).
+function rule6End(obs, memo) {
+  const b = obs.battery, now = obs.s;
+  if (b.mode !== 'discharge' || b.orderMW <= EPS) return null;
+  if (now >= DIS_FROM_S && now < DIS_TO_S && b.socMWh > BATT_RESERVE_MWH) return null;
+  return rule6(obs, memo);
+}
+
 // Rule 7 (with its extension): keep units at or below PAR_MAX_LOADING unless that would
 // shed load, and keep the plan on the forecast (re-dispatch when AGC or the plan is off by
 // more than PAR_REBASE_MW). Returns a marker; decide() amends and picks the lever to move.
@@ -1018,54 +1132,171 @@ function rule7(obs, memo, C) {
   return trigger ? {amendThen: 'lever'} : null;
 }
 
-// Rule 8: pre-arm reserve diesel when the projected PAR_RERT_LOOKAHEAD_MIN shortfall is
-// within PAR_RERT_MARGIN_MW of firm capacity; call DR on a present shortfall; stand the
-// diesel down once it has not been needed for a while. Firm capacity: committed units up to
-// the hot gate (hydro while it has water), the tie's full import (0 while tripped), the
-// diesel once armed, DR while active or while a call is left (it can be called in minutes).
-// The battery is NOT counted: it is the contingency reserve (primary response, H-8); an
-// evening carried on the battery's energy leaves the next trip uncovered (the integration
-// pass and par's own runs saw UFLS at the peak on an emptied battery).
-function rule8(obs, memo) {
-  const rert = obs.rert, dr = obs.dr, now = obs.s;
-  let units = 0;
-  for (let i = 0; i < NU; i++) {
-    const u = obs.units[i];
-    if (committedMode(u.mode) && !(M[i].station === 'hydro' && !hydroWet(obs))) units += HOT_GATE * u.availMW;
-  }
-  const tieBack = obs.tie.tripped ? now + obs.tie.lockoutS : now;
-  const drCan = dr.activeS <= 0 && dr.callsLeft > 0;
-  const fc = obs.forecast;
+// Rule 8: reserve diesel is an emergency (§9 Q-2, tuning pass): armed on a projected shortfall
+// of firm capacity counted honestly, stood down when not needed; DR on a present shortfall.
+//
+// The ADEQUACY WALK (adequacySetup + walk) goes forward from now (the present, then each
+// 5-min forecast column) and finds the MW left uncovered in each step:
+//   * firm, with no energy limit: thermal units at the hot gate x their available MW (derated
+//     inside an announced heatwave): committed ones from when they reach MIN, off ones free to
+//     start from now + T1 + auto-sync + T2, tripped ones from the end of their lockout + the
+//     same (D1); the tie at its real import limit (0 while tripped, then climbing at its
+//     ramp); the diesel from its lead (as armed, as if armed now, or never);
+//   * the energy-limited pool, spent forward in time: hydro (its machines' MW while water is
+//     left above rule 5's floor), DR (DR_MW while call-hours are left) and the battery (its
+//     rating, for the energy above PAR_BATT_RESERVE_FRAC, which stays for primary response).
+//     The pool's power is the sum of the three while each has energy; water is spent first,
+//     then DR's hours, then the battery.
+// A step is short when net demand (P50 - wind - solar, lit districts only) + PAR_RERT_MARGIN_MW
+// exceeds the firm supply plus the pool's power, or the pool runs dry. The margin is on power
+// only (S-4: "within 100 MW of firm capacity"); the pool is charged the energy actually used.
+//
+// Decisions (in this order, one action per decision):
+//   DR     when units, tie and diesel cannot carry present net demand + PAR_DR_MARGIN_MW AND
+//          either hydro and the battery cannot carry it either (a power shortfall), or the walk
+//          runs dry later and a call can be spared from the hours the peak needs DR's power;
+//          also while frequency sags with AGC at its limit or UFLS left districts dark.
+//          (Saving DR for the top of the evening: calls spent in the afternoon left the peak
+//          without them.)
+//   arm    when a step at a lead the diesel can still reach (RERT_LEAD_S .. PAR_RERT_LOOKAHEAD_MIN)
+//          is short; or, energy-driven, when a later step is short, arming just in time would
+//          still leave energy uncovered, and arming now (the diesel replacing water, DR and
+//          battery energy from its lead) leaves less. A shortfall that ends before the lead
+//          (e.g. the tie coming back in 6 min) never arms it: the diesel could not help.
+//   stand down  after PAR_RERT_STANDDOWN_MIN armed, nothing sagging, and the walk WITHOUT the
+//          diesel finds no short step in the whole horizon (also asked first by rule 4).
+// The battery used to be left out of firm capacity (it is the contingency reserve), and the
+// tie counted only up to the largest unit: par then armed on 68% of raw days and every heat
+// day. Measured with this walk: 23.5% of 200 raw seeds, par zero-unserved 89.5% (tuning pass).
+
+/** Once per decision: when each machine can be on, the tie's return, the pool's energy. */
+function adequacySetup(obs) {
+  const now = obs.s, auto = obs.mode === 'AGC', b = obs.battery, dr = obs.dr;
   let shed = 0;
   for (const d of obs.districts) if (d.dark) shed += d.share;
-  // The tie counts up to its secure cap (the largest unit): importing more makes it the
-  // largest risk (an 800-MW loss previews near 48.4-48.9 Hz at the peak).
-  let big = 0;
-  for (let i = 0; i < NU; i++) if (committedMode(obs.units[i].mode)) big = Math.max(big, PAR_LOADING * obs.units[i].availMW);
-  const tieFirm = Math.min(TIE_MAX, big);
-  // DR counts while a call is running or can still be made (a new call follows the last).
-  const drFirm = lead => (dr.activeS > lead || dr.callsLeft > 0 ? DR_MW : 0);
-  const firmAt = (t, lead) => units + (t >= tieBack ? tieFirm : 0) + (rert.armed && !rert.standingDown ? RERT_MW : 0) + drFirm(lead);
-  const netNow = obs.demand.nowMW * (1 - shed) - obs.wind.outMW - obs.solar.outMW;
-  const shortNow = netNow - firmAt(now, 0);
-  let shortAhead = shortNow;
-  for (let k = 0; k < fc.n && (k + 1) * fc.stepS <= RERT_LOOK_S; k++) {
-    const lead = (k + 1) * fc.stepS;
-    shortAhead = Math.max(shortAhead, fc.demandP50[k] * (1 - shed) - fc.windMW[k] - fc.solarMW[k] - firmAt(now + lead, lead));
+  const wet = hydroWet(obs);
+  const onAt = new Array(NU).fill(-1);
+  for (let i = 0; i < NU; i++) {
+    const u = obs.units[i];
+    if (M[i].station === 'hydro' && !wet) continue;
+    if (committedMode(u.mode)) onAt[i] = onFromNow(u, i, now, auto);
+    else if (u.mode === 'off' && u.startBlock === '') onAt[i] = now + u.startToMinS;
+    else if (u.mode === 'tripped') onAt[i] = now + u.timerS + u.startToMinS;
   }
-  if (!rert.armed && shortAhead + RERT_MARGIN > 0) { memo.rertSinceS = now; return {type: 'armRERT'}; }
+  return {obs, now, shed, onAt, heat: latestNews(obs, 'heat'), tieBack: obs.tie.tripped ? now + obs.tie.lockoutS : now,
+    hydroE: Math.max(0, obs.hydro.storageMWh - WATER_FLOOR), drE: DR_MW * (dr.callsLeft + Math.max(0, dr.activeS) / S_PER_H),
+    battE: Math.max(0, b.socMWh - BATT_RESERVE_MWH), battP: b.ratedMW};
+}
+
+/** Thermal and hydro MW (at the hot gate) on at grid second t. */
+function unitsAt(A, t) {
+  let th = 0, hy = 0;
+  for (let i = 0; i < NU; i++) {
+    if (A.onAt[i] < 0 || A.onAt[i] > t) continue;
+    const m = M[i], hot = A.heat !== null && t >= A.heat.fromS && t < A.heat.toS;
+    const avail = t <= A.now + STEP_S ? A.obs.units[i].availMW : m.thermal && hot ? m.ratingMW * DERATE_KEEP : m.ratingMW;
+    if (m.station === 'hydro') hy += HOT_GATE * avail; else th += HOT_GATE * avail;
+  }
+  return {th, hy};
+}
+
+const RERT_AS_ARMED = -1, RERT_NEVER = -2;
+
+/**
+ * The walk: {un, need} per step [present, column 0, column 1, ...]; need = net demand + margin
+ * beyond the firm supply, un = what the pool leaves uncovered. rertLead >= 0: the diesel counts
+ * from that lead as if armed now; RERT_AS_ARMED: from its lead if armed; RERT_NEVER: never.
+ */
+function walk(A, rertLead) {
+  const obs = A.obs, fc = obs.forecast, rert = obs.rert, now = A.now;
+  const n = fc.n + 1, un = new Array(n).fill(0), need = new Array(n).fill(0);
+  let hydroE = A.hydroE, drE = A.drE, battE = A.battE;
+  for (let k = 0; k < n; k++) {
+    const lead = k * fc.stepS, t = now + lead, h = k === 0 ? 0 : fc.stepS / S_PER_H;
+    const net = k === 0 ? obs.demand.nowMW * (1 - A.shed) - obs.wind.outMW - obs.solar.outMW
+      : fc.demandP50[k - 1] * (1 - A.shed) - fc.windMW[k - 1] - fc.solarMW[k - 1];
+    const U = unitsAt(A, t);
+    let firm = U.th + (t < A.tieBack ? 0 : Math.min(TIE_MAX, TIE_COL / STEP_S * (t - A.tieBack) + (obs.tie.tripped ? 0 : TIE_MAX)));
+    if (rertLead === RERT_AS_ARMED && rert.armed && !rert.standingDown) firm += lead >= rert.leadS ? RERT_MW : rert.outMW;
+    else if (rertLead >= 0 && lead >= rertLead) firm += RERT_MW;
+    const d = net + RERT_MARGIN - firm;
+    need[k] = d;
+    if (d <= 0) continue;
+    const pH = hydroE > EPS ? U.hy : 0, pD = drE > EPS ? DR_MW : 0, pB = battE > EPS ? A.battP : 0;
+    un[k] = Math.max(0, d - (pH + pD + pB));
+    if (h > 0) { // spend the pool (without the margin): water first, then DR's hours, then the battery
+      let rest = Math.max(0, Math.min(d - RERT_MARGIN, pH + pD + pB)) * h;
+      const xh = Math.min(rest, hydroE, pH * h); hydroE -= xh; rest -= xh;
+      const xd = Math.min(rest, drE, pD * h); drE -= xd; rest -= xd;
+      const xb = Math.min(rest, battE); battE -= xb; rest -= xb;
+      if (rest > EPS) un[k] += rest / h;
+    }
+  }
+  return {un, need};
+}
+
+/** First short step in [fromK, toK], or -1. */
+function shortAt(W, fromK, toK) {
+  for (let k = fromK; k <= toK && k < W.un.length; k++) if (W.un[k] > EPS) return k;
+  return -1;
+}
+const uncoveredMWh = (W, h) => W.un.reduce((a, x, k) => a + (k === 0 ? 0 : x * h), 0);
+/** Present net demand beyond units, tie and diesel (MW; > 0: short without the pool). */
+const presentGap = W => W.need[0] - RERT_MARGIN;
+
+function rule8(obs, memo) {
+  const rert = obs.rert, dr = obs.dr, now = obs.s, fc = obs.forecast, h = fc.stepS / S_PER_H;
+  const A = adequacySetup(obs);
+  const W0 = walk(A, RERT_AS_ARMED);
+  const kLead = Math.ceil(V.RERT_LEAD_S / fc.stepS), kLook = Math.floor(RERT_LOOK_S / fc.stepS);
   const sagging = (obs.agc.unmetMW > 0 && obs.f.hz < NORMAL_LO) || obs.districts.some(d => d.dark && d.shedBy === 'ufls');
-  if (drCan && (shortNow + DR_MW + DR_MARGIN > 0 || sagging)) return {type: 'callDR'}; // short without DR's own MW
-  if (rert.armed && !rert.standingDown && memo.rertSinceS >= 0 && now - memo.rertSinceS >= RERT_STANDDOWN_S && !sagging &&
-      shortAhead + RERT_MARGIN + RERT_MW < 0) return {type: 'standDownRERT'};
+  if (dr.activeS <= 0 && dr.callsLeft > 0) {
+    let call = sagging;
+    const gap = presentGap(W0) + DR_MARGIN;
+    if (!call && gap > 0) {
+      const powerShort = gap > (A.hydroE > EPS ? unitsAt(A, now).hy : 0) + A.battP;
+      let hoursPower = 0; // hours ahead whose need exceeds hydro + battery power: DR must be on then
+      for (let k = 1; k < W0.need.length; k++) if (W0.need[k] > unitsAt(A, now + k * fc.stepS).hy + A.battP) hoursPower += h;
+      call = powerShort || (shortAt(W0, 1, W0.un.length - 1) >= 0 && dr.callsLeft - 1 >= Math.ceil(hoursPower - EPS));
+    }
+    if (call) return {type: 'callDR'};
+  }
+  if (!rert.armed) {
+    let arm = shortAt(W0, kLead, kLook) >= 0;
+    if (!arm) {
+      const k1 = shortAt(W0, kLook + 1, W0.un.length - 1);
+      if (k1 >= 0) {
+        const late = uncoveredMWh(walk(A, (k1 - kLook + kLead) * fc.stepS), h), early = uncoveredMWh(walk(A, kLead * fc.stepS), h);
+        arm = late > EPS && early < late - EPS;
+      }
+    }
+    if (arm) { memo.rertSinceS = now; return {type: 'armRERT'}; }
+  }
+  if (rertStandDown(obs, memo, A)) return {type: 'standDownRERT'};
   return null;
+}
+
+/**
+ * The diesel is stood down once it has run PAR_RERT_STANDDOWN_MIN, nothing is sagging, and
+ * the adequacy walk without it finds nothing uncovered in the whole horizon. Rule 4 asks this
+ * first (decommit the dearest resource first: $16,000/MWh against a GT's $4,000/h no-load;
+ * at the night roll's pace rule 4's unit stops otherwise kept a stood-by diesel running all
+ * night), rule 8 again.
+ */
+function rertStandDown(obs, memo, A0) {
+  const rert = obs.rert;
+  if (!rert.armed || rert.standingDown || memo.rertSinceS < 0 || obs.s - memo.rertSinceS < RERT_STANDDOWN_S) return false;
+  if ((obs.agc.unmetMW > 0 && obs.f.hz < NORMAL_LO) || obs.districts.some(d => d.dark && d.shedBy === 'ufls')) return false;
+  return shortAt(walk(A0 || adequacySetup(obs), RERT_NEVER), 0, obs.forecast.n) < 0;
 }
 
 // Rule 9 (extension, README §12): restore one dark district the K-13 permissive allows,
 // lowest UFLS stage first, then rotation order. Par also checks the seconds: a restore is a
 // load step no larger than L, so the TRIP PREVIEW for L, scaled by coldLoad / L, estimates
-// its dip; par restores only when that estimate holds PAR_NADIR_MIN_HZ (the integration
-// pass saw an unchecked 293-MW restore on an empty battery set off UFLS again).
+// its dip; par restores only when that estimate holds the K-13 restore preview's line
+// (SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ; the restore input runs the real restore preview and
+// refuses below it, so a looser estimate only spends par's pace on refused inputs: 32 refused
+// of 77 tried over 200 raw seeds at 49.2 Hz, 2 of 37 at this line).
 function rule9(obs) {
   const sec = obs.sec;
   if (obs.f.hz < RESTORE_MIN_HZ || sec.lMW <= 0) return null;
@@ -1073,7 +1304,7 @@ function rule9(obs) {
   let best = null;
   for (const d of obs.districts) {
     if (!d.dark || d.restoreBlock !== '' || d.coldLoadMW > sec.lMW) continue;
-    if (F0 - drop * d.coldLoadMW / sec.lMW < NADIR_MIN) continue;
+    if (F0 - drop * d.coldLoadMW / sec.lMW < RESTORE_NADIR) continue;
     if (best === null) { best = d; continue; }
     const sd = d.uflsStage > 0 ? d.uflsStage : NEVER, sb = best.uflsStage > 0 ? best.uflsStage : NEVER;
     if (sd < sb || (sd === sb && d.rot < best.rot) || (sd === sb && d.rot === best.rot && d.id < best.id)) best = d;
@@ -1081,8 +1312,13 @@ function rule9(obs) {
   return best ? {type: 'restore', district: best.id} : null;
 }
 
-const RULE_FNS = {rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8, rule9};
+const RULE_FNS = {rule1, rule2, rule3, rule4, rule5, rule6, rule7, rule8, rule9, rule6end: rule6End};
 const NEEDS_SITUATION = new Set(['rule3', 'rule4']);
+// The order decide() asks the rules in: S-4's, with rule 6's window end right after rule 1
+// for the proxies that run rule 6 (its origin is 'rule6').
+const RULE_ORDER = Object.fromEntries(Object.entries(PROXIES).map(([k, p]) => [k,
+  p.rules.includes('rule6') ? p.rules.flatMap(r => (r === 'rule1' ? ['rule1', 'rule6end'] : [r])) : p.rules]));
+const originOf = r => (r === 'rule6end' ? 'rule6' : r);
 
 /**
  * Rule 7, whose action IS an amendment: re-dispatch a copy of the plan now and return its
@@ -1140,6 +1376,8 @@ function amendNow(obs, memo, want) {
  *   9 (extension, README §12: S-4 has no restore rule and H-6 forbids automatic restore)
  *     restore one dark district whose obs.districts[].restoreBlock is '': the lowest UFLS
  *     stage first, then rotation order (rot). The K-13 permissive holds all the thresholds.
+ * Rule 6's window end (a discharge order past 22:00 or at the reserve) is asked right after
+ * rule 1 (rule6End, see the file header).
  * Every action amends memo.plan (a re-dispatch from now, see the file header). AGC stays
  * on; par never takes the synchroscope (its starts auto-sync, K-12). Proxies change this
  * function as listed in runPar.
@@ -1164,7 +1402,7 @@ export function decide(obs, memo) {
   memo.amendDue = false;
   if (memo.lastActTick >= 0 && refRealSeconds(memo.lastActTick / TPS, obs.tick / TPS, paceConts(obs)) < proxy.gapS) return [];
   let C = null;
-  for (const r of proxy.rules) {
+  for (const r of RULE_ORDER[memo.proxy]) {
     if (NEEDS_SITUATION.has(r) && C === null) C = situation(obs, memo);
     const want = RULE_FNS[r](obs, memo, C);
     if (!want) continue;
@@ -1176,7 +1414,7 @@ export function decide(obs, memo) {
       memo.amendDue = true;
     }
     memo.lastActTick = obs.tick;
-    memo.lastOrigin = r;
+    memo.lastOrigin = originOf(r);
     memo.actions += 1;
     return [input];
   }
@@ -1248,53 +1486,58 @@ const DAY_AHEAD = Object.freeze({dayAhead: true});
  * (they decommit by rule 4 only, or never).
  * @param {number} seed
  * @param {object} scenario content/scenarios.js object
- * @param {{proxy?:string, untilTick?:number, hashEveryS?:number, state?:object,
+ * @param {{proxy?:string, untilTick?:number, hashEveryS?:number, state?:object, memo?:object,
  *   onStep?:function(object):void}} [opts]
  *   hashEveryS: record hashState every that many grid seconds (default 3600, F-2).
+ *   memo: continue with this autopilot memory (a JSON copy of an earlier run's `memo`, with
+ *   its `state` as opts.state: the resumed day is the day the first run would have played;
+ *   the proxy is the memo's). Without it par starts a fresh memory (and plans at once if
+ *   past 04:30).
  *   onStep(state): called after EVERY step (tests sample frequency, SECURE states or UFLS
  *   through it; it must not modify state).
  * @returns {{score:object, summary:object, log:Array<object>, origins:string[], hashes:number[],
  *   black:boolean, plan:object|null, state:object, memo:object}}
- *   origins[i] is 'plan', 'rule1'..'rule9', or the proxy name for log[i] ('external' for
- *   records already in opts.state's log).
+ *   origins[i] is 'plan' (the L-0 plan), 'replan' (par's re-dispatched schedule after an
+ *   action, see the file header), 'rule1'..'rule9', or the proxy name for log[i] ('external'
+ *   for records already in opts.state's log).
  */
 export function runPar(seed, scenario, opts) {
   const o = opts || {};
-  const proxy = o.proxy || 'par';
+  if (o.memo && o.proxy && o.proxy !== o.memo.proxy) throw new Error('runPar: opts.proxy ' + o.proxy + ' but the memo is ' + o.memo.proxy);
+  const proxy = o.memo ? o.memo.proxy : o.proxy || 'par';
   if (!Object.hasOwn(PROXIES, proxy)) throw new Error('runPar: unknown proxy ' + proxy);
   const P = PROXIES[proxy];
   const state = o.state || createState(seed, scenario);
   const until = o.untilTick === undefined ? DAY_TICKS : o.untilTick;
   const hashEvery = (o.hashEveryS === undefined ? S_PER_H : o.hashEveryS) * TPS;
   const onStep = o.onStep || null;
-  const memo = createAutopilot({proxy});
+  const memo = o.memo || createAutopilot({proxy});
   const origins = new Array(state.log.length).fill('external');
   const hashes = [];
-  const sink = [];
-  const feed = (inputs, origin) => {
-    for (const x of inputs) {
+  const sink = [], tags = [];
+  const feed = (inputs, origin, byInput) => {
+    for (let j = 0; j < inputs.length; j++) {
       sink.length = 0;
-      if (applyInput(state, x, sink).ok) origins.push(origin);
+      if (applyInput(state, inputs[j], sink).ok) origins.push(byInput ? byInput[j] : origin);
     }
   };
-  if (proxy === 'commitAll' && !state.over) {
+  if (proxy === 'commitAll' && !state.over && !o.memo) {
     const starts = [];
     for (const u of state.units) if (u.mode === 'off') starts.push({type: 'start', unit: u.id});
     feed(starts, proxy);
   }
   const acts = P.rules.length > 0, usesPlan = P.plan, fuzz = proxy === 'fuzz';
   const active = acts || usesPlan || fuzz;
-  let nextS = -1, afterWatch = false;
   while (!state.over && state.tick < until) {
     const t = state.tick;
     if (active && t % TPS === 1 && t > V.PLAYER_START_TICK) {
       if (inWatch(state)) {
-        afterWatch = true;
+        memo.afterWatch = true;
       } else {
         const s = (t - 1) / TPS;
-        if (afterWatch || s >= nextS) {
-          afterWatch = false;
-          nextS = s + DECIDE_EVERY_S;
+        if (memo.afterWatch || s >= memo.nextS) {
+          memo.afterWatch = false;
+          memo.nextS = s + DECIDE_EVERY_S;
           const obs = observe(state, usesPlan && memo.plan === null ? DAY_AHEAD : undefined);
           if (usesPlan && memo.plan === null) makePlan(obs, memo);
           if (fuzz) feed(fuzzInput(seed, obs), proxy);
@@ -1302,7 +1545,10 @@ export function runPar(seed, scenario, opts) {
             const d = decide(obs, memo);
             if (d.length) feed(d, memo.lastOrigin);
           }
-          if (usesPlan) feed(planInputs(obs, memo), 'plan');
+          if (usesPlan) {
+            tags.length = 0;
+            feed(planInputs(obs, memo, tags), 'plan', tags);
+          }
         }
       }
     }

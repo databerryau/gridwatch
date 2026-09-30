@@ -21,13 +21,13 @@ test('P-7: the scarcity adder is a pure function of R5/L (x = 0.5, 1, 1.1, 1.25,
   assert.ok(market.scarcityAdder(0) > market.scarcityAdder(0.5));
 });
 
-test('P-8: limits: clamp to -1,000..23,200; the cap when the stack is exhausted or load is shed', () => {
+test('P-8: limits: clamp to -1,000..23,200; the cap when the stack is exhausted or directed shedding is in force', () => {
   assert.equal(market.clampPrice(-5000), V.PRICE_FLOOR);
   assert.equal(market.clampPrice(1e9), V.PRICE_CAP);
   assert.equal(market.clampPrice(100), 100);
   const s = opening(1);
   s.sec.r5MW = 5000; s.sec.lMW = 500;
-  s.city.shedFrac = 0.03;
+  fleet.setDistrictDark(s, s.city.districts.findIndex(x => x.rot === 0), true, 'directed');
   assert.equal(market.clearPrice(s).mwh, V.PRICE_CAP);
   const t = opening(1);
   t.sec.r5MW = 5000; t.sec.lMW = 500;
@@ -132,14 +132,15 @@ test('P-5: the stack is in a total order (offer, then id): equal offers never de
 
 test('S-3: shedding 100 MWh with no other change moves CO2 intensity by < 0.5%', () => {
   // Two ~1-h runs of the same fleet; the second sheds 100 MWh of load and every generator
-  // produces proportionally less. Intensity is per MWh served, so it barely moves.
+  // produces proportionally less. Intensity is per MWh generated, so it barely moves.
   const run = shedMW => {
-    const s = opening(5);
+    const s = opening(5), w0 = s.ren.windMW, so0 = s.ren.solarMW;
     for (let k = 0; k < 3600; k++) {
       s.tick = (k + 1) * V.TICKS_PER_S;
       s.acc.ticks = V.TICKS_PER_S; s.acc.fSumHz = 50 * V.TICKS_PER_S; s.acc.fMinHz = 50; s.acc.fMaxHz = 50;
       const served = s.env.demandMW - shedMW, f = served / s.env.demandMW;
       s.units.forEach((u, i) => { s.acc.unitMWs[i] = u.outMW * f; });
+      s.ren.windMW = w0 * f; s.ren.solarMW = so0 * f; // wind and solar are generators too
       s.acc.servedMWs = served; s.acc.shedMWs = shedMW;
       market.settleSecond(s, []);
     }
@@ -147,34 +148,100 @@ test('S-3: shedding 100 MWh with no other change moves CO2 intensity by < 0.5%',
   };
   const a = run(0), b = run(100);
   assert.ok(Math.abs(b.unservedMWh - 100) < 1e-6);
-  const ia = a.co2t / a.servedMWh, ib = b.co2t / b.servedMWh;
-  assert.ok(Math.abs(ib / ia - 1) < 0.005, 'intensity ' + ia + ' -> ' + ib);
+  const ia = market.scoreSummary(a).co2tPerMWh, ib = market.scoreSummary(b).co2tPerMWh;
+  assert.ok(ia > 0 && Math.abs(ib / ia - 1) < 0.005, 'intensity ' + ia + ' -> ' + ib);
 });
 
-test('scoreSummary (stage A): cents per kWh served and t CO2 per MWh served', () => {
-  const score = {servedMWh: 1000, unservedMWh: 5, co2t: 600,
+test('S-3: intensity is per MWh generated in the region: an import that displaces coal counts in neither term (review fix)', () => {
+  // Per MWh served, 800 MW of import replacing 800 MW of coal lowered the graded intensity
+  // just by enlarging the denominator. Per MWh generated (AEMO's CDEII), it moves only by the
+  // change in the region's own mix.
+  const run = importMW => {
+    const s = opening(5);
+    s.tie.flowMW = importMW;
+    const coal = s.units.map((u, i) => (V.MACHINES[i].cls === 'coal' ? u.outMW : 0)), coalMW = coal.reduce((x, y) => x + y, 0);
+    for (let k = 0; k < 600; k++) {
+      s.tick = (k + 1) * V.TICKS_PER_S;
+      s.acc.ticks = V.TICKS_PER_S; s.acc.fSumHz = 50 * V.TICKS_PER_S; s.acc.fMinHz = 50; s.acc.fMaxHz = 50;
+      s.units.forEach((u, i) => { s.acc.unitMWs[i] = coal[i] > 0 ? coal[i] * (1 - importMW / coalMW) : u.outMW; });
+      s.acc.servedMWs = s.env.demandMW;
+      market.settleSecond(s, []);
+    }
+    return s.score;
+  };
+  const a = run(0), b = run(800);
+  const sa = market.scoreSummary(a), sb = market.scoreSummary(b);
+  near(a.servedMWh, b.servedMWh, 'the same energy served');
+  near(a.genMWh - b.genMWh, 800 * 600 / 3600, 'the import is not regional generation');
+  assert.ok(b.co2t < a.co2t, 'less coal burnt');
+  near(sb.co2tPerMWh, b.co2t / b.genMWh);
+  assert.ok(sb.co2tPerMWh < sa.co2tPerMWh, 'less coal in the region\'s mix');
+  assert.ok(sb.co2tPerMWh > b.co2t / b.servedMWh, 'per MWh served would count the import as clean energy');
+});
+
+test('scoreSummary (stage A; S-3 per MWh generated since the review): cents per kWh served and t CO2 per MWh generated', () => {
+  const score = {servedMWh: 1000, unservedMWh: 5, co2t: 600, genMWh: 1000,
     cost: {fuel: 50000, noLoad: 10000, starts: 8000, tie: 2000, battWear: 0, dr: 0, rert: 0, flex: 0}};
   const x = market.scoreSummary(score);
   assert.equal(x.costDollars, 70000);
   assert.equal(x.centsPerKWh, 7);
   assert.equal(x.co2tPerMWh, 0.6);
   assert.equal(x.lightsMWh, 5);
-  assert.equal(market.scoreSummary({servedMWh: 0, unservedMWh: 0, co2t: 0, cost: score.cost}).centsPerKWh, 0);
+  assert.equal(market.scoreSummary({servedMWh: 0, unservedMWh: 0, co2t: 0, genMWh: 0, cost: score.cost}).centsPerKWh, 0);
+  assert.equal(market.scoreSummary(Object.assign({}, score, {genMWh: 800})).co2tPerMWh, 0.75, 'imported MWh are not generation');
 });
 
 // ------------------------------------------------------------------ stage B extensions (market + events)
 
-test('P-8: while shedding the price is administered at the cap (no marginal block); market demand <= 0 clears at the floor', () => {
+test('P-8: while directed shedding is in force the price is administered at the cap (no marginal block); market demand <= 0 clears at the floor', () => {
   const s = opening(1);
   s.sec.r5MW = 5000; s.sec.lMW = 500;
-  s.city.shedFrac = 0.03;
+  const d = s.city.districts.findIndex(x => x.rot === 0);
+  fleet.setDistrictDark(s, d, true, 'directed');
   const p = market.clearPrice(s);
   assert.equal(p.mwh, V.PRICE_CAP);
   assert.equal(p.marginalId, '');
   assert.equal(p.exhausted, false);
-  s.city.shedFrac = 0;
+  fleet.setDistrictDark(s, d, false, null);
   s.env.demandMW = 0; // the tie import alone exceeds demand: the minimum-load blocks set the price
   assert.equal(market.clearPrice(s).mwh, V.PRICE_FLOOR);
+});
+
+test('P-5 / P-8: districts shed by UFLS and waiting to be restored do not hold the cap; the stack clears on the lit demand (review fix)', () => {
+  // UFLS is automatic protection, not AEMO-ordered shedding (§8.1): the price is the stack's,
+  // on the metered (lit) demand plus the cold-load surge of restored districts.
+  const s = opening(1);
+  s.sec.r5MW = 5000; s.sec.lMW = 500;
+  s.env.demandMW += 1200; // past coal on the whole city
+  const whole = market.clearPrice(s);
+  for (let i = 0; i < s.city.districts.length; i++) {
+    const st = s.city.districts[i].uflsStage;
+    if (st === 1 || st === 2) fleet.setDistrictDark(s, i, true, 'ufls');
+  }
+  assert.ok(s.city.shedFrac > 0.1);
+  const p = market.clearPrice(s);
+  assert.notEqual(p.mwh, V.PRICE_CAP, 'UFLS districts alone do not set the cap');
+  assert.ok(p.marginalId !== '' && p.mwh <= whole.mwh, 'the lit demand clears lower in the stack: ' + p.marginalId + ' $' + p.mwh);
+  const lit = s.env.demandMW * (1 - s.city.shedFrac) - s.tie.flowMW - s.battery.schedMW;
+  let cum = 0;
+  for (const b of market.buildStack(s)) { cum += b.mw; if (cum >= lit - 1e-6) { assert.equal(b.id, p.marginalId); break; } }
+  s.city.coldLoadMW = 900; // a restore's surge is metered load
+  assert.ok(market.clearPrice(s).mwh >= p.mwh);
+});
+
+test('P-5: wind and solar are in the stack at their AVAILABLE MW: a curtailment LIMIT never raises the price (review fix)', () => {
+  const s = createState(20, CLASSIC);
+  s.tick = ticksAt(12);
+  sampleSecond(s);
+  s.sec.r5MW = 5000; s.sec.lMW = 500;
+  s.ren.windMW = s.env.windAvailMW; s.ren.solarMW = s.env.solarAvailMW;
+  const free = market.clearPrice(s);
+  for (const limit of [0.5, 0]) {
+    s.ren.solarMW = s.env.solarAvailMW * limit; s.ren.windMW = s.env.windAvailMW * limit; // curtailed output
+    assert.deepEqual(market.clearPrice(s), free, 'LIMIT ' + limit * 100 + '% moved the price');
+  }
+  const solar = market.buildStack(s).find(b => b.id === 'solar');
+  assert.ok(solar && Math.abs(solar.mw - s.env.solarAvailMW) < 1e-9, 'available solar is offered');
 });
 
 test('P-8: RERT sits outside the market: its MW are never a block and never lower the price', () => {

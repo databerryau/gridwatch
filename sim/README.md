@@ -32,7 +32,8 @@ bumps `SIM_VERSION` (only integration does); tunes values (S-12).
 **Frozen after stage A** (edit only through a README change): `sim/params.js` (except the
 four stage B blocks; values change only in integration's tuning), `sim/rng.js`, `sim/fleet.js`,
 the pre-roll half of `weather.js` and `events.js`, `content/scenarios.js` (values: tuning only),
-`tests/lib/*`, and stage A's tests (`sim-lint`, `params`,
+`tests/lib/*` (the review-fix pass added `tests/lib/speed.js`, the CPU yardstick for the D-9 and
+tick budgets, as a new file), and stage A's tests (`sim-lint`, `params`,
 `rng`, `state`, `fleet`), which must stay green.
 
 Test files hold stage B acceptance tests as `test(name, {todo}, body)` with real bodies; the
@@ -259,6 +260,7 @@ to 435).
 | `sync` | bool | fleet.setSync (called by grid, fleet) | breaker closed: counts in Ek, output, governors. True in loading/on/unloading/shutdown |
 | `timerS` | s | grid, fleet | seconds left in the timed phase (T1, auto-sync, T2, T4, lockout) |
 | `upSinceS`, `downSinceS` | s | fleet.setSync | last breaker close / open (S-11 min up / down) |
+| `downWhy` | `'stop'`/`'trip'` | fleet.setSync | why the breaker last opened: S-11 minimum down time runs only after a planned `'stop'` (owner decision D1; a `'trip'` is held by its lockout, then may hot-start) |
 | `basePointMW` | MW | fleet (setBasePoint, tripUnit), grid via fleet | this machine's base point (0 unless `'on'`) |
 | `agcTrimMW` | MW | grid | AGC trim, within +-`agcBandMW` (0 in HAND) |
 | `schedMW` | MW | grid | scheduled output: moves toward clamp(base + trim, MIN, avail) at `rampMWs` per second; profiles in loading/unloading/shutdown |
@@ -290,7 +292,7 @@ to 435).
 | Object | Fields (writer) |
 |---|---|
 | `tie` | `setMW` (grid, input), `flowMW` (grid; + import; ramps at `TIE_RAMP_MW_MIN`; clamp [-exportLimit, 800]), `tripped`, `lockoutS` (fleet.tripTie, grid) |
-| `ren` | `windLimitPct`, `solarLimitPct` (grid, input: output LIMIT %, 100 = no curtailment, as the legacy LIMIT slider), `windCurtMW`, `solarCurtMW` (grid, integration: the curtailed MW, moving toward available x (100 - limit)% at `CURTAIL_RAMP_FRAC_MIN`, so a LIMIT change is never a step; the weather passes straight through), `windMW`, `solarMW` (grid: available - curtailed; physics and market apply OFGS to wind) |
+| `ren` | `windLimitPct`, `solarLimitPct` (grid, input: output LIMIT %, 100 = no curtailment, as the legacy LIMIT slider), `windCurtMW`, `solarCurtMW` (grid, integration: the curtailed MW, moving toward available x (100 - limit)% at `CURTAIL_RAMP_FRAC_MIN`, so a LIMIT change is never a step; the weather passes straight through), `windMW`, `solarMW` (grid: available - curtailed; physics and settlement apply OFGS to wind; the market's stack offers the AVAILABLE MW, `env.windAvailMW` net of OFGS and `env.solarAvailMW`, P-5) |
 | `hydro` | `storageMWh` (physics, per tick), `warned[]` (grid: 30%, 10% warnings) |
 | `rert` | `armed`, `leadS`, `outMW`, `standingDown`, `armedEver` (grid) |
 | `dr` | `callsLeft`, `activeS`, `mw` (grid; `mw` moves toward DR_MW while `activeS > 0`, else toward 0, at `DR_RAMP_MW_MIN`, integration) |
@@ -332,7 +334,7 @@ battery.ffrMW + loadReliefMW = 0` within 1 MW. At createState the readouts are 0
 
 ### acc (per-second accumulators) and last
 
-`acc`: `unitMWs[13]`, `battOutMWs` (signed net output, + discharge), `battChargeMWs` (charge
+`acc`: `unitMWs[14]`, `battOutMWs` (signed net output, + discharge), `battChargeMWs` (charge
 drawn, >= 0), `battAbsMWs` (throughput |out|), `shedMWs`, `servedMWs` (of `loadMW`),
 `loadReliefMWs`, `fMinHz`, `fMaxHz`, `fSumHz` (on each tick's START frequency), `ticks`
 (physics adds each tick; when `acc.ticks === 0` it first sets `fMinHz = fMaxHz = f`),
@@ -347,16 +349,19 @@ over the completed second). AGC, FOS and the restore permissive read `last.fMean
   seconds at the limit; in HAND every trim and the request are 0 and ACE is still shown.
 * `fos = {outsideS, belowContainS, countdownS, directed, nextShedS}`.
 * `sec = {r5MW, lMW, lKind: 'unit'|'link'|'none', lId, ratio, previewNadirHz, previewAtS,
-  previewLId, previewLMW, dirty, level: 'SECURE'|'TIGHT'|'SHORT'|'SHEDDING'}`.
+  previewLId, previewLMW, previewFHz, dirty, level: 'SECURE'|'TIGHT'|'SHORT'|'SHEDDING'}`.
+  `previewFHz` (the frequency the cached preview started from; finishing pass) is private:
+  `observe()` copies `sec` by its key list without it.
 * `price = {mwh, marginalId, adder, exhausted, x}` (x = R5 / L).
 
 ### score (market; S-1..S-3)
 
 `servedMWh`, `unservedMWh` (= uflsMWh + directedMWh + taskMWh), `cost {fuel, noLoad, starts,
-tie, battWear, dr, rert, flex}` ($), `co2t`, `marketBill` (info only), `minHz`, `maxHz`,
-`outsideNormalS`, `spark[12]` (worst |f - 50| per 2-h block from 04:00, Y-4), `starts`.
+tie, battWear, dr, rert, flex}` ($), `co2t`, `genMWh` (generation in the region: units, wind after
+OFGS, solar, RERT; review fix), `marketBill` (info only), `minHz`, `maxHz`, `outsideNormalS`,
+`spark[12]` (worst |f - 50| per 2-h block from 04:00, Y-4), `starts`.
 `market.scoreSummary(score)` derives `{lightsMWh, costDollars, centsPerKWh, co2t, co2tPerMWh,
-servedMWh}`. **Never** unserved x a price (H-12; linted). VCR is for the debrief only.
+servedMWh}` (`co2tPerMWh` = co2t / genMWh, AEMO's CDEII convention: imports count in neither term). **Never** unserved x a price (H-12; linted). VCR is for the debrief only.
 
 ### conts[] (contingency records; K-15 watch, K-16 respond card, D-21 moment)
 
@@ -399,7 +404,7 @@ An input is `{type, ...args}`. `applyInput(state, input, out)` (step.js) runs:
 | type | args | Accepted when (grid) | Effect |
 |---|---|---|---|
 | `basePoint` | `station`, `mw` >= 0 | always | equal shares over the `'on'` machines (§5 stations); `mw` rewritten to the applied lever (0 if none is on) |
-| `start` | `unit` | `fleet.startBlock` is '' (off; min down met; water for hydro) | `starting`, `timerS = t1S`, `acc.startCost += startCost`, `starts++` |
+| `start` | `unit` | `fleet.startBlock` is '' (off; min down met after a planned stop, none after a trip (D1); water for hydro) | `starting`, `timerS = t1S`, `acc.startCost += startCost`, `starts++` |
 | `stop` | `unit` | `fleet.stopBlock` is '' (min up met; starting/ready just cancel) | on/loading -> `unloading`, base point 0 (the lever loses exactly its share); starting/ready -> `off` |
 | `abortStop` | `unit` | mode `unloading` or `shutdown` (hydro: not out of water) | unloading -> `on` with base point = schedMW; shutdown -> `loading` (T2 slope from its output up to MIN) |
 | `syncClose` | `unit` | mode `ready` | **K-12 stub**: breaker closes now, clean (angle/slip come in Phase 1a) |
@@ -411,7 +416,7 @@ An input is `{type, ...args}`. `applyInput(state, input, out)` (step.js) runs:
 | `armRERT` | - | not armed | armed, `leadS = RERT_LEAD_S`, `armedEver = true` ("glass broken") |
 | `standDownRERT` | - | armed and not already standing down | ramps out at `RERT_RAMP_MW_MIN`, then disarmed; before it arrives it simply cancels |
 | `mode` | `agc` bool | before 04:30 and `!control.modeLocked` | `control.mode` = AGC / HAND (D-7) |
-| `restore` | `district` | dark and `grid.restorePermissive` is '' | **K-13 stub**: relit; `surgeMW` = cold load - its share of demand; `lastRestoreS`; UFLS stage re-armed if both its districts are lit |
+| `restore` | `district` | dark and `grid.restorePermissive(state, d, {preview: true})` is '' (the lamp's conditions plus the RESTORE PREVIEW, run on the input only) | **K-13 stub**: relit; `surgeMW` = cold load - its share of demand; `lastRestoreS`; UFLS stage re-armed if both its districts are lit |
 | `directShed` | - | a lit district in rotation remains (K-7; Phase 1a adds the LOR2-forecast gate) | darkens the lit rotation district restored longest ago (never shed first; ties by the lowest `rot`: on a fresh day, the lowest `rot`), `shedBy 'directed'` (true rotation: a district just restored is not the next one shed) |
 
 `ack`, `silence`, pause, rate, FAST and skip are **not** sim inputs (presentation only).
@@ -459,8 +464,10 @@ smelter, sec, fos, agc, price, score (+ scoreSummary), districts[] {id, suburb, 
 uflsStage, rot, dark, shedBy, darkSinceS, restoredAtS, coldLoadMW, restoreBlock}, news[] {atS,
 kind, fromS, toS, text}, contingency (latest record incl. pre and caught, or null),
 contingencies[] {n, startS, cause, id, lostMW, watchEndS, backInBandS}, forecast, dayAhead`.
-`restoreBlock` is `grid.restorePermissive(state, d)` for a dark district and
-`fleet.DISTRICT_LIT` for a lit one.
+`restoreBlock` is `grid.restorePermissive(state, d)` for a dark district (the lamp: frequency and
+interval; the restore preview runs only on the restore input, never per district here) and
+`fleet.DISTRICT_LIT` for a lit one. The bench asks the preview itself for lit lamps
+(`app/session.restoreChecks`, once per grid second), so its RESTORE button matches the input.
 
 `forecast` = `weather.forecast(state, FC_HORIZON_S, FC_STEP_S)`: 54 five-minute columns
 `{fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[], neighbourPrice[],
@@ -471,15 +478,21 @@ scrambles ext, including the series and the heat window, and expects an identica
 
 ## 9. hashState(state)
 
-A type-tagged FNV-1a walk over **every field of state except `scn` and `ext`**: sorted keys,
-array lengths, exact IEEE bits (-0 folded to 0), finished with `hash32`. It throws on a
-non-JSON value (NaN, Infinity, undefined). `scn` and `ext` are functions of seed, scenario and
+A type-tagged FNV-style walk over **every field of state except `scn` and `ext`**: sorted keys,
+array lengths, exact IEEE bits (-0 folded to 0), each 32-bit word mixed by multiply then
+xor-shift (review fix: multiplication alone never carried a high-bit difference down, so any
+two sign flips cancelled), finished with `hash32`. It walks a JSON copy made with a replacer that
+leaves out `scn` and `ext` and throws on a non-JSON value (NaN, Infinity, undefined, a
+function), never the live objects: a JS walk reading the live numeric leaves once a grid-hour
+made every later `physics.tick` allocate ~130-180 B (V8; 0 B without it), about 25-40% of a
+par day (review fix; `tests/state.test.js` checks the tick allocates nothing after four hourly
+hashes). `scn` and `ext` are functions of seed, scenario and
 `SIM_VERSION`, which are all hashed (seed and `v` directly, the scenario through `scnHash`,
 so a tuned or variant scenario hashes differently without a version bump). Nobody edits
 hashState when state grows; `tests/state.test.js` perturbs every leaf and expects the hash to
-change. Two engines agree only if their physics is bit-identical (`?selftest`, risk 5). Cost
-~0.1-0.5 ms: once per grid-hour (F-2), never per tick. `canonicalHash(x)` is the same walk for
-any plain value.
+change, and pairs of sign flips and doublings not to cancel. Two engines agree only if their
+physics is bit-identical (`?selftest`, risk 5). Cost ~0.3-0.5 ms: once per grid-hour (F-2),
+never per tick. `canonicalHash(x)` is the same walk for any plain value (on the value itself).
 
 ## 10. Performance budget
 
@@ -514,8 +527,23 @@ any plain value.
   only (every `PAR_DECIDE_EVERY_S`), never per tick. `hashState` once per grid-hour.
 * **Test budget** (F-10 < 60 s with ~23 s of legacy baseline): the default run steps at most
   ~8 M ticks in `tests/integration.test.js` and ~8 M in `tests/autopilot.test.js` (short
-  windows, injected trips at 04:31 instead of waiting for pre-rolled ones); whole days over
-  many seeds only with `GRIDWATCH_SLOW=1`.
+  windows, injected trips at 04:31 instead of waiting for pre-rolled ones), and
+  `tests/baseline-v4.test.js` runs `tools/baseline-v4.js --quick` (~10 s in its own process:
+  the fixed probes and two par days); whole days over many seeds only with `GRIDWATCH_SLOW=1`.
+* **Measured at the end of Phase 0.2** (the owner's laptop, Node 24, other work running): a par
+  day took 2.0-2.3 s (`tools/par.js`; 2.2-2.5 s in `tools/baseline-v4.js`, which adds the H-8
+  probes and per-tick checks), over the 1.6-s budget. Commit 3876c98 timed the same way took
+  2.0-2.1 s, so the first-pass 1.15-1.35 s above was a quieter machine rather than lost speed;
+  the finishing pass's preview trigger adds ~0.15 s (§11 grid). **Review-fix pass:** most of the
+  overrun was the hourly `hashState` on the live state (§9); with the JSON-copy walk a par day
+  takes ~1.5-1.8 s standalone (`runPar`; see SPEC S-12 for the `tools/baseline-v4.js` median).
+* **Budget tests** (review fix): `tests/autopilot.test.js` times a par day on the main thread's
+  CPU clock and `tests/physics.test.js` times `physics.tick`, each divided by a CPU yardstick
+  measured in the same process (`tests/lib/speed.js`: float work on small objects that shares no
+  code with the sim). The budgets (D-9's 2 x 1.6 s a day, ~0.3 us a tick) are stated on the owner's
+  laptop and converted with the yardstick measured there, so a slow CI box passes and a slower
+  engine fails. The old day test fell back to "par <= 1.5 x planOnly", which shares the engine
+  and passed a 4x slower physics; the old tick bound was 2 us.
 
 ## 11. Module contracts
 
@@ -543,10 +571,10 @@ Nothing reads `ext` to anticipate the future.
 | `buildUnits(scn)`, `buildStations(units)`, `buildCity(scn)`, `newAcc()` | construction (createState) |
 | `resetAcc(acc)` | zero the accumulators in place (market, after each second) |
 | `ekMWs(state) -> MWs` | sum of H x rating over sync units |
-| `setSync(state, i, closed)` | breaker; keeps `phys.ekMWs`, `up/downSinceS`, `sec.dirty` |
+| `setSync(state, i, closed, why)` | breaker; keeps `phys.ekMWs`, `up/downSinceS`, `downWhy` (`why` 'trip' from tripUnit, else a planned stop), `sec.dirty` |
 | `refreshLever(state, stationId)`, `stationRange(state, stationId)`, `setBasePoint(state, i, mw)` | K-1 levers (§5 stations) |
 | `largestContingency(state) -> {kind, id, mw}` | H-4 L: largest sync machine output or tie import (ties to the lower index) |
-| `startBlock(state, i)`, `stopBlock(state, i) -> ''\|reason` | S-11 / H-1 command rules (desk and grid use the same) |
+| `startBlock(state, i)`, `stopBlock(state, i) -> ''\|reason` | S-11 / H-1 command rules (desk and grid use the same); minimum down time only after a planned stop (D1) |
 | `preTrip(state)`, `startContingency(state, cause, id, lostMW, ekBeforeMWs, out)` | opens `conts[]` with `pre`, emits `contingency` |
 | `tripUnit(state, i, cause, lockoutS, out) -> MW lost` | H-2/H-3/H-9: breaker open, lockout, base point to 0, contingency if > 50 MW |
 | `tripTie(state, cause, lockoutS, out) -> signed MW` | K-6 link trip |
@@ -695,47 +723,67 @@ lId, ratio, previewNadirHz, level}` (THE reserve function, H-4; pure), `restoreP
   (never shed first), ties by rot (§6).
 * R5 (H-4): only mode 'on' units count (loading and stopping units offer no headroom, H-1);
   battery `min(BATT_MW - outMW, socMWh / 0.5 h)`; tie `min(800 - flow, 100 x 5)` if not tripped.
-  SECURE needs R5 >= 1.25 L **and** preview nadir for losing L >= 49.5 Hz.
+  SECURE needs R5 >= 1.25 L **and** preview nadir for losing L >= 49.5 Hz + `PREVIEW_MARGIN_HZ`
+  (0.05) + `PREVIEW_AGE_MARGIN_HZ_S` (0.001) x the cached preview's age in grid seconds (tuning
+  pass: the frozen-schedule preview missed the live nadir by up to 0.105 Hz, and a 40-s old
+  one by 0.07 Hz; with the margin 0 of 1,000 SECURE states missed 49.5 Hz, H-8 slow test).
 * **Preview refresh** (`securitySecond`): re-run when `sec.dirty` (every accepted input,
   `fleet.setSync`, trips), when L's id differs from `sec.previewLId`, when |L - previewLMW| >
-  `PREVIEW_L_TOL_MW`, or `PREVIEW_REFRESH_S` after `previewAtS`; then set `previewAtS`,
-  `previewLId`, `previewLMW`, clear `dirty`.
+  `PREVIEW_L_TOL_MW`, when |f - `previewFHz`| > `PREVIEW_F_TOL_HZ` (0.03 Hz; finishing pass),
+  or `PREVIEW_REFRESH_S` after `previewAtS`; then set `previewAtS`, `previewLId`, `previewLMW`,
+  `previewFHz`, clear `dirty`. The frequency trigger exists because the preview starts from the
+  present frequency and governor state: `tools/baseline-v4.js` found 5 of 1,595 states the desk
+  showed as SECURE that missed 49.5 Hz when L tripped (worst 49.417 Hz). Four came 3-20 s after
+  an excursion to 50.06-50.25 Hz or 49.95 Hz (governors wound down, or already spent) had left the
+  cached preview 0.07-0.17 Hz above a fresh one; with the trigger, 0 of 4,299 probes missed (§12,
+  finishing pass). It raises previews from ~4,000 to ~6,800 a day (+0.15 s). The fifth was in the
+  grid second after par released the GUARD: the level is recomputed only at the grid second, so
+  for the rest of a second in which an input was accepted `sec.dirty` is true and the level is
+  the one computed before the input (a display latency of under one grid second, which the desk
+  can show from `observe().sec.dirty`; not changed).
 * FOS (H-11) on `last.fMeanHz`: countdown 300 s while outside 49.85-50.15; directed shedding
   (one rotation district per 60 s) when the countdown ends below 49.85 or after > 60 s below
   49.5; it stops when frequency **recovers**: `last.fMeanHz >= NORMAL_LO_HZ`. No automatic
   restore. A contingency's `backInBandTick` is the first tick of the first completed
   post-trip second whose min and max frequency both lie in the normal band.
-* K-13 in 0.2: permissive (`last.fMeanHz >= 49.9`, R5 >= 1.2 x `fleet.districtColdLoadMW` with
-  R5 from `security(state, {previewNadirHz: sec.previewNadirHz})`, 300 s since the last
-  restore) and the cold-load surge (`surgeMW` decaying linearly over 10 min into
-  `city.coldLoadMW`); no procedure bay yet.
+* K-13 in 0.2: permissive (`last.fMeanHz >= 49.9`, 300 s since the last restore; with
+  `{preview: true}`, on the restore input only, a RESTORE PREVIEW `previewTrip` kind 'district'
+  whose nadir must be >= 49.5 Hz + `PREVIEW_MARGIN_HZ`; tuning pass: it replaced R5 >= 1.2 x
+  cold load, which passed restores whose surge set off UFLS again; the unused
+  `RESTORE_R5_RATIO` was removed in the review-fix pass) and the cold-load surge (`surgeMW`
+  decaying linearly over 10 min into `city.coldLoadMW`); no procedure bay yet.
 
 ### market.js (B "market + events")
 
 `buildStack(state) -> [{id, kind, offer, mw}]` (total order), `clearPrice(state) -> {mwh,
 marginalId, adder, exhausted, x}`, `scarcityAdder(x)`, `clampPrice(p)`, `waterValue(frac)`,
 `priceSecond(state, out)`, `settleSecond(state, out)`, `scoreSummary(score)` (A). Details in
-the JSDoc. Decisions: market demand = demand - tie.flowMW - battery.schedMW (scheduled flows,
-P-5); stack membership per unit mode (H-1: loading / unloading / shutdown units offer only
+the JSDoc. Decisions: market demand = the LIT demand (env.demandMW x (1 - city.shedFrac) +
+city.coldLoadMW) - tie.flowMW - battery.schedMW (scheduled flows, P-5; review fix: load shed and
+still dark is not dispatched for); stack membership per unit mode (H-1: loading / unloading / shutdown units offer only
 their present output, at the floor; starting / ready units only if <= 10 min from MIN; off
-units only if `startBlock` is '' and T1 + T2 <= 10 min, auto-sync not counted); wind net of
-OFGS in the stack and in settlement; RERT is never in the stack and its MW are not subtracted
+units only if `startBlock` is '' and T1 + T2 <= 10 min, auto-sync not counted); wind and solar
+in the stack at their AVAILABLE MW (`env.windAvailMW` net of OFGS, `env.solarAvailMW`: a
+curtailment LIMIT never raises the price; review fix), in settlement as dispatched; RERT is never in the stack and its MW are not subtracted
 from market demand (P-8 "as if absent"); the tie is price-taking and enters only through
 market demand (P-5); CUSTOMER COST never includes the market bill or anything x unserved.
 Stage B choices: an ACTIVE DR call stays in the stack at its delivered `dr.mw` and DR_PRICE (a
 dispatched block is priced like a generator; otherwise the price would sit at the cap exactly
 while DR holds the system); hydro at or below `HYDRO_STOP_MWH` offers only its present
-output; `marginalId` is '' when the price is administered (the cap while shedding or when the
-stack is exhausted) and at the floor with an empty stack; unserved energy is split by the dark
+output; `marginalId` is '' when the price is administered (the cap while directed shedding is in force,
+i.e. a district dark with shedBy 'directed', or when the stack cannot cover the lit demand;
+review fix: UFLS districts waiting to be restored used to hold the cap for hours) and at the floor with an empty stack; unserved energy is split by the dark
 districts' `shedBy` at the end of each second (booked as UFLS if nothing is dark then);
 `outsideNormalS` counts seconds whose MEAN frequency is outside the normal band; no-load uses
-`sync` at settle time; `marketBill` = price x served MWh (information only).
+`sync` at settle time; `marketBill` = price x served MWh (information only); `genMWh` is the
+region's generation (units, wind after OFGS, solar, RERT), S-3's denominator.
 
 ### autopilot.js (B "autopilot")
 
-`preDispatch(obs) -> plan`, `planInputs(obs, memo) -> Input[]`, `createAutopilot(opts) ->
-memo`, `decide(obs, memo) -> Input[]` (<= 1), `refRealSeconds(fromS, toS, conts)`,
-`runPar(seed, scenario, opts) -> {score, summary, log, origins, hashes, black, plan, state}`.
+`preDispatch(obs) -> plan`, `planInputs(obs, memo, tags?) -> Input[]`, `createAutopilot(opts) ->
+memo`, `decide(obs, memo) -> Input[]` (<= 1), `replan(obs, memo) -> bool` (the bench's RE-PLAN),
+`refRealSeconds(fromS, toS, conts)`, `runPar(seed, scenario, opts) -> {score, summary, log, origins,
+hashes, black, plan, state, memo}`.
 JSDoc has the details. The contract:
 
 * **L-0 plan (0.2 form).** Computed once at 04:30 from `observe(state, {dayAhead: true})`: a
@@ -746,23 +794,42 @@ JSDoc has the details. The contract:
   5-min column), `ties`, sorted. Deterministic per seed and version.
 * **Executing the plan.** The plan's inputs are issued when due (`planInputs`, origin
   `'plan'`). They stand in for K-2/L-6 "levers follow the plan" and are **not** discrete
-  actions: the S-4 pace does not count them. Phase 1a moves the plan into state.
+  actions: the S-4 pace does not count them. **Re-plan** (SPEC S-4, §8.2): after each discrete
+  action par re-dispatches every lever and the tie from then to 04:00 (`amend`); the rewritten
+  queue's entries carry `re` and are logged with origin `'replan'`. The re-plan is part of the
+  action, not a paced action of its own, and the bench player has the same RE-PLAN under ASSIST
+  PLAN (`replan`, `app/assist.replanNow`). Par starts from the plan without its stops. Whether
+  the Phase 1a Live Stack keeps RE-PLAN or par paces its re-plan is an owner decision. Phase 1a moves the plan into state. A proxy that
+  never amends its plan (planOnly) re-dispatches it for the lit load while districts are dark
+  (`reflowLit`: at once when the dark share moves, then every `PLAN_REFLOW_S`), as NEM
+  dispatch targets metered demand (L-0: never black with no input).
 * **Discrete actions** (`decide`, origin `'rule1'..'rule9'`): S-4 rules 1-8 in order, plus
   rule 9 (restore, §12), at most one per `PAR_ACTION_GAP_REAL_S` of `refRealSeconds` (D-2
   profile, unwrapped hours, plus each contingency's watch, respond card and RESPOND segment),
-  never in a watch, never before 04:30.
+  never in a watch, never before 04:30. Tuning pass: rule 8 is an adequacy walk (firm units
+  and tie at their real limits plus an energy-limited pool of water, DR hours and battery
+  energy above its reserve; arm only on a shortfall the 20-min lead can reach, or earlier when
+  energy-driven; DR saved for the peak; stand down when the walk without the diesel is clean,
+  asked first by rule 4); rule 1 calls DR when no peaker is left to start; rule 9's estimate
+  uses the restore preview's line. Review-fix pass: rule 6's window end (a discharge order past
+  22:00 or at the 20% reserve) is asked right after rule 1 (origin 'rule6'); rule 2 raises the
+  GUARD only as far as the battery sustains it for `GUARD_SUSTAIN_S`. The file header lists
+  each extension.
 * **Proxies** (`opts.proxy`): `par`; `planOnly` (the plan, nothing else: the L-0 accept);
   `doNothing` (no input at all: F-3); `lean` (plan + rules 1, 2, 7, 8, 9); `competent` (plan +
   rules 1-9 at `PROXY_COMPETENT_GAP_REAL_S`: H-1(b), F-3, K-8); `commitAll` (S-11: START every
   offline machine at tick 0 in one batch, bypassing pace and the 04:30 start, then par without
   rule 4); `fuzz` (private hash of the seed, never the sim's streams).
 * **Harness.** `runPar` decides at 04:30, every `PAR_DECIDE_EVERY_S` and at the first second
-  after each watch; `opts.state` continues any state (tests); `opts.onStep(state)` is called
-  after every step (tests sample through it; it must not modify state); `origins[i]` names the
-  source of `log[i]`.
+  after each watch; `opts.state` continues any state (tests); `opts.memo` continues an earlier
+  run's memory (a JSON copy of `state` and `memo` resumes the same day: the decision cadence,
+  `nextS` and `afterWatch`, lives in the memo, also for `app/assist.js`; review fix);
+  `opts.onStep(state)` is called after every step (tests sample through it; it must not modify
+  state); `origins[i]` names the source of `log[i]`.
 * `tools/par.js` (Exit Phase 0) prints par for any seed. `tools/` is CommonJS
   (`tools/package.json`), so it loads the ES modules with `await import('../sim/step.js')`
-  (Node >= 20), never `require`.
+  (Node >= 20), never `require`. It exports `grade()` (S-5) for `tools/baseline-v4.js`, and
+  runs `main()` only when executed.
 
 ### step.js (A, kept by "integration")
 
@@ -774,7 +841,8 @@ samples second 0 and balances the opening second with the online hydro machines 
 `app/loop.js` (F-5: rAF, `min(frameDt, 0.1) x rate` accumulator, whole ticks, per-frame cap),
 `content/text.js` (H-14: one entry per §8.2 row, `{id, row, anchorId, real, ours, why,
 params}`, `ours` built from params values; `tests/text.test.js`) and `tools/baseline-v4.js`
-(the §6 rows for the v4 core; CommonJS with `await import()`).
+(the §6 rows for the v4 core; CommonJS with `await import()`). All of these exist now (§12,
+"Bench" and "Finishing pass").
 
 ## 12. Decisions stage A made (and where the spec is loose)
 
@@ -805,8 +873,9 @@ params}`, `ours` built from params values; `tests/text.test.js`) and `tools/base
   AGC bands (~920 MW at the opening commitment) never have to cover the ~3,900-MW daily swing.
   The same code gives the bench player the plan. Phase 1a moves it into state.
 * **Par rule 9 (restore) is an extension.** S-4 has no restore rule and H-6 forbids automatic
-  restore, so without it any shedding would leave districts dark, the level at SHEDDING and
-  the price at the cap all day. It needs no new constants: the K-13 permissive holds them.
+  restore, so without it any shedding would leave districts dark and the level at SHEDDING all
+  day (and, after directed shedding, the price at the cap). It needs no new constants: the K-13
+  permissive holds them.
 * **competent** = the plan + par's rules at half par's pace (a good human); **lean** = plan +
   reaction (S-5); **commitAll** starts everything at 04:00 in one batch (S-11 says "at 04:00").
 * Market demand subtracts `battery.schedMW` (the scheduled flow), not the per-tick `outMW`.
@@ -853,7 +922,132 @@ params}`, `ours` built from params values; `tests/text.test.js`) and `tools/base
   SECURE is rarely reached (the level sits at TIGHT or SHORT most of a scripted day); the K-13
   permissive (R5 >= 1.2 x cold load) can pass a restore whose surge then trips UFLS, since R5 is
   5-minute headroom, not primary response (a restore preview, `previewTrip` kind 'district',
-  would catch it); the SECURITY log line has no hysteresis (~60-90 lines a day, mostly
+  would catch it; done in the tuning pass); the SECURITY log line has no hysteresis (~60-90 lines a day, mostly
   TIGHT/SHORT flapping: K-8 set/clear thresholds belong to Phase 1a); at high import the tie
-  becomes L and the P-7 adder can raise the price (H-5); a started GT leaves the stack for its
+  becomes L and the P-7 adder can raise the price (H-5; labelled and measured in the review-fix
+  pass, SPEC H-5 and §8.2); a started GT leaves the stack for its
   first ~2 min (T1 + auto-sync + T2 > 10 min).
+
+### Tuning pass (owner decisions D1-D3, 2026-09-30)
+
+What changed, with the measured effect (`tools/par.js`; SPEC S-12 has the table):
+
+* **D1, S-11** (fleet.js): minimum down time only after a planned stop. Units carry `downWhy`
+  (setSync's new `why`; tripUnit passes 'trip'); `startBlock` skips the minimum down time
+  after a trip, so a unit is held only by its protection lockout (the legacy 90-150 min,
+  simplified), then may hot-start. The L-0 plan and par read it through `startBlock`.
+* **D2, F-13** (params.js): GT·C is 2 x 300 MW (14 machines; `unitMWs[14]`). With D1:
+  par clean 100 -> 178 of 200 raw seeds, heat 9 -> 78 of 100, RERT 198 -> 136.
+* **Rule 8** (autopilot.js): the adequacy walk (see the file header): RERT 136 -> 51 of 200 raw
+  seeds, clean 178 -> 175, heat 78 -> 75 (with the K-13 and H-4 changes below: RERT 48; with
+  rule 1's DR: RERT 47, clean 179, heat 76).
+* **H-4 / H-8** (grid.js, params `PREVIEW_MARGIN_HZ`, `PREVIEW_AGE_MARGIN_HZ_S`): SECURE needs the
+  preview to clear 49.5 Hz by 0.05 Hz plus 0.001 Hz per second of the cached preview's age.
+  Without it 1,748 of 4,448 fresh-preview SECURE states (and 602 of 3,834 the desk showed) missed
+  49.5 Hz, by up to 0.105 Hz; with it 0 of 1,000 (the H-8 slow test samples fresh previews at
+  the tick and probes the desk's cached SECURE states too).
+* **K-13** (grid.js): the restore input runs a RESTORE PREVIEW (kind 'district') and refuses a
+  nadir below 49.55 Hz; `restorePermissive(state, d)` without opts (observe, the lamp) runs
+  no preview. Par's restores that UFLS undid within 10 min: 1 -> 0 over 200 seeds; par restores
+  43 -> 35 and its unserved energy on failing days rises (districts wait for a safe pickup).
+* **L-0** (autopilot.js `reflowLit`, param `PLAN_REFLOW_S`): planOnly black 19 -> 0 of 100 raw
+  seeds (0 of 200). The black was a half-dark city at night: the plan kept dispatching for the
+  whole city (and the day-ahead wind), the battery filled, and frequency rose to 52 Hz.
+* **Rule 1**: with no peaker left to start after a supply trip, DR is called when units, tie
+  and diesel cannot carry present net demand: at the evening profile's pace (7.5 grid-min per
+  action) the old order reached DR after FOS directed shedding. Clean 175 -> 179 of 200.
+
+### Bench (wave 2: `next.html`, `app/`, `render/`, `content/text.js`)
+
+* `next.html` plays a whole day through the bench (Exit Phase 0): serve the repo root
+  (`py -m http.server 8642`) and open `http://localhost:8642/next.html`; options
+  `?seed=N&assist=off|plan|par&speed=0.25|1|60|120|240|2100&play=1`. Every module loads from
+  the same origin. The rate badge is always visible; a contingency plays the K-15 watch
+  (0.15x -> 1x -> 10x over 30 grid-s, ~29 real s) with the desk locked; SKIP plays the rest at
+  the chosen speed.
+* `app/loop.js` (F-5) is pure (`runFrame` takes callbacks and a pacer); only `startRaf` touches
+  the browser. A lagging frame slows play and never drops or repeats a tick; 60 Hz and 144 Hz
+  displays reach the same state within one tick through a watch (`tests/loop.test.js`).
+* `app/assist.js` (ASSIST PLAN / PAR) repeats `runPar`'s harness because `makePlan` is not
+  exported; `tests/loop.test.js` and section 1 of `tools/baseline-v4.js` fail if the two drift.
+* DEBUG TRIP calls `fleet.tripUnit` directly at the next grid second (lockout
+  `HOT_TRIP_LOCKOUT_S`), outside the input log: the session is marked `poked` and its saved log
+  says it no longer replays.
+* `content/text.js` holds one entry per §8.2 row, `ours` built from params; entries whose desk
+  element arrives in Phase 1 are drawer-only (`ui: 'drawer'`).
+* Not measured: F-5's 60 fps at 1920 x 1080 (no browser in the build loop).
+
+### Finishing pass (end of Phase 0.2, 2026-09-30)
+
+* `SIM_VERSION` `v4-core-0.2.0` -> `v4-core-0.2.1`: the tuning pass and this pass change every
+  day's outcome (a 0.2.0 log does not replay on 0.2.1).
+* `tools/baseline-v4.js` and its golden `tools/baseline-v4.golden.md` (Exit Phase 0; SPEC's
+  "`tools/baseline.js --v4`", §12 above): fixed probes, statistics over 200 raw and 100
+  forced-heat par days, proxies graded on seeds 1-100 and F-3 on seeds 1-10, and one row per
+  seed ending in its `hashState`. `tests/baseline-v4.test.js` checks section 1 and the rows of a
+  quick run in the default suite and the whole report in the slow suite; `npm run golden:v4`
+  re-records it.
+* **H-4 / H-8 preview refresh on frequency drift** (`PREVIEW_F_TOL_HZ`, `sec.previewFHz`; §11
+  grid): the baseline's wider containment sample (at most one SECURE state per 15 grid-min on
+  271 par days) found 5 of 1,595 desk-SECURE states that missed 49.5 Hz, which the slow H-8 test
+  (seeds from 1 until 1,000 fresh states) had not reached. With the trigger: 4,299 of 4,299
+  probes hold 49.5 Hz (worst 49.511 Hz). Par reads `sec.previewNadirHz`, so S-12 moved slightly:
+  raw clean 179/200 and RERT 47/200 unchanged, forced heat 76 -> 75 of 100 (the target exactly),
+  mean unserved on raw seeds 170 -> 145 MWh. The level-only latency after an input is unchanged
+  (§11 grid).
+* `content/text.js`: the event-dense-day (protection lockout, D1), pre-dispatch (reflow under
+  ASSIST PLAN), lor-states (margins and refresh) and restore-permissive (restore preview) entries
+  now say what the sim does.
+* `tests/integration.test.js`'s rate-invariance test drives `app/loop.js` instead of a stand-in.
+  No test is `todo`; every slow test runs with `GRIDWATCH_SLOW=1`.
+* **Left for the owner: N-1 over every credible contingency.** H-4 previews only L, the largest
+  contingency by MW. The baseline also trips the other credible contingency from each probed
+  SECURE state (the largest unit when L is the tie import, the tie when L is a unit): 28 of 3,512
+  miss 49.5 Hz (worst 49.470 Hz), because a unit trip of nearly the tie's MW also removes its
+  inertia and governor response. The H-8 slow test first failed on one of these (seed 11, 21:16,
+  tie 620.75 MW against coal units at ~620.7 MW): it tripped the cached L's kind after the fresh
+  check had previewed the tie. The test now trips the L each SECURE judgement previewed. Taking
+  the worst preview over both would close the gap; it changes the gauge's "biggest risk" and par
+  (rule 2 reads the preview), so it needs the owner and a new S-12 run.
+* Measured and left open (the numbers are in the golden): the battery's average charge price
+  over all charging is far above P-10's $100 because AGC regulation and primary response charge
+  at whatever the price is (P-10 is a Phase 3 item, on the cut list; the review-fix pass found
+  that about two-thirds of the finishing pass's $433 was the cap held after UFLS: $203 since);
+  the competent proxy earns A on 67 of 100 raw seeds (68 since the review-fix pass) against
+  S-5's 70% of *dailies* (gate-passed seeds, D-9); a few forced-heat days are short even on the
+  optimistic bound (D-9 rejects those); the classic scenario has unwarned contingencies < 60 real
+  s apart on 68 of 100 days (the D-8 director, Phase 2); a par day takes 2.2-2.5 s against D-9's
+  1.6 s (1.56 s median after the review-fix pass's hashState fix).
+
+### Review-fix pass (2026-09-30, `v4-core-0.2.2`)
+
+The confirmed findings of the adversarial review, applied (SPEC.md has the measured effects in
+S-12, §6 and §8):
+
+* **Price** (market.js, P-5/P-8): market demand is the lit demand; the cap only while directed
+  shedding is in force or the stack cannot cover the lit demand (UFLS districts waiting to be
+  restored used to hold the cap for hours on a healthy grid); wind and solar enter the stack at
+  their available MW, so a curtailment LIMIT never raises the price. The H-4 level still reads
+  SHEDDING while any district is dark (LOR3 includes load interrupted automatically).
+* **CARBON** (market.js, S-3): per MWh generated in the region (`score.genMWh`), not served.
+* **hashState** (step.js, §9): the xor-shift per word, and the walk on a JSON copy. Every hash
+  changed (`SIM_VERSION` 0.2.2; the golden was re-recorded).
+* **Par** (autopilot.js): rule 6's window end ranked after rule 1; rule 2's GUARD only as far as
+  the battery sustains it; re-plan inputs logged as `'replan'`; the cadence in the memo and
+  `runPar(opts.memo)`; `replan()` for the bench.
+* **Bench**: RE-PLAN under ASSIST PLAN; the RESTORE button asks the restore preview; the big
+  frequency readout shows the 1-s average above 10x (F-4).
+* **Labels** (SPEC §8.2, content/text.js): wind and utility solar give no primary frequency
+  response; hydro spins free; CARBON counts the region's own generation; par re-plans after every
+  action; the scarcity adder can rise with import at the evening peak; SECURE guards L only.
+* **Measured and recorded**: the H-7 desk-lab midday case (black with no battery), the H-5
+  evening probe, S-2's correlation (open: the Accept names no proxy set), S-11 from the golden.
+* **Tests**: the information barrier scrambles a real regime and heat window; the resume test
+  resumes a day; the D-9 and tick budgets use a CPU yardstick; the tick allocates nothing after
+  hourly hashes; pairs of sign flips change the hash.
+* **Measured** (`tools/baseline-v4.js`, golden re-recorded; the finishing pass in brackets): par
+  clean 181/200 raw (179), 75/100 forced heat (75), RERT 47/200 (47), commitAll dearer 86/100
+  (87), lean A 0/100, competent A 68/100 (67); 13 of the 271 par days shed less and none more;
+  SECURE containment 6,856 of 6,856 (more SECURE states: the battery no longer runs empty
+  overnight); the battery's charge price $203/MWh ($433); a par day 1.56 s median, 1.78 s max on
+  seeds 1-10 in one process (2.40 / 2.55 s).
