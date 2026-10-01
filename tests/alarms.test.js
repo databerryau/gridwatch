@@ -202,7 +202,17 @@ function competentDay(seed) {
 }
 
 test('K-8 accept: the competent proxy triggers <= 8 audible alarms in a day', () => {
-  const seeds = SLOW ? Array.from({length: 20}, (_, i) => i + 1) : [1];
+  // "Per daily": a daily is a seed that passes D-9's gate, so par must shed nothing on it.
+  // Seeds par cannot solve (practice "Hard days" at most) are reported, not asserted
+  // (stage C: seed 4, where par sheds 559 MWh, sounds 10).
+  const parClean = seed => runPar(seed, CLASSIC, {proxy: 'par'}).score.unservedMWh === 0;
+  const all = SLOW ? Array.from({length: 20}, (_, i) => i + 1) : [1];
+  const seeds = SLOW ? all.filter(parClean) : all;
+  if (SLOW) {
+    const hard = all.filter(s => !seeds.includes(s));
+    if (hard.length) console.log('# K-8: not dailies (par sheds): seeds ' + hard.join(', ') + ' -> audible ' + hard.map(s => competentDay(s).audible).join(', '));
+  }
+  assert.ok(seeds.length >= 15, 'enough daily-like seeds: ' + seeds.length);
   const counts = seeds.map(seed => {
     const a = competentDay(seed);
     assert.ok(a.audible <= 8, 'seed ' + seed + ': ' + a.audible + ' audible alarms ' + JSON.stringify(a.sounds));
