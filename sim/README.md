@@ -1143,3 +1143,108 @@ S-12, §6 and §8):
   SECURE containment 6,856 of 6,856 (more SECURE states: the battery no longer runs empty
   overnight); the battery's charge price $203/MWh ($433); a par day 1.56 s median, 1.78 s max on
   seeds 1-10 in one process (2.40 / 2.55 s).
+
+### Phase 1a (`v4-core-1a.0`, the sim agent; desk/README.md §3)
+
+What was built (the contract is in §3, §5-8 and §11 above):
+
+* **The plan in state** (`state.plan`, `grid.planSecond`, §5 plan, §11 grid): arrive-by keyframes
+  per station and for the tie, booked STARTs and STOPs; the executor runs right after
+  `events.applyDue`. Inputs `planKey`, `planDel`, `planStart`, `planStop`, `planUnbook`,
+  `planRejoin`, `planLoad`; `basePoint` and `tie` write the plan (AGC: L-6's one keyframe at the
+  earliest ramp-feasible time; HAND: `man`). `step.js` checks planLoad's list arguments and logs
+  them canonically (every station, fresh arrays); optional arguments (`syncClose.bypass`) are
+  filled in, so logs stay canonical.
+* **K-12 synchroscope** (§5 units, §6, §7 `sync`, §11 grid): seeded slip and angle on the PLAY
+  stream, the analytic angle (`grid.syncAt`), the outcome table, `scope` / `syncTrim` /
+  `syncAuto`, the background auto-synchroniser waiting while the scope is open, the tick-exact
+  AUTO close (`scope.nextAutoTick`, checked once per tick in step()).
+* **DIRECT SHED** only while the gauge reads SHORT or SHEDDING (A-3).
+* **N-1 over both credible contingencies** (A-2, `N1_PREVIEW_ALL`, §11 grid).
+* **Par and the L-0 plan act through `planLoad`** (§11 autopilot): the queue, `planInputs` and
+  the tie hold's re-issue are gone; `planUpdates()` sends the 04:30 plan, par's re-plans and the
+  re-flow; `replan()` returns the RE-PLAN / RE-DISPATCH planLoad.
+* **`app/system.js`**: the game's system operator (04:30 pre-dispatch, the lit-load re-flow,
+  `redispatch()` for A-1's RE-DISPATCH key), DOM-free, on the autopilot's planOnly memory and
+  runPar's cadence (a no-input game day is the planOnly day, hash for hash). **`app/assist.js`**
+  keeps ASSIST PLAN / PAR for the bench on the same calls; `replanNow` applies the planLoad.
+* `observe()`: `plan`, `scope`, `units[].slipHz` / `phaseDeg`, `sec.previewUnitHz` /
+  `previewLinkHz` (§8); `SIM_VERSION` `v4-core-1a.0`.
+
+**Deviations from desk/README.md §3** (each the most realistic and most fun option found; the
+owner may overrule):
+
+1. **A 0-MW key is "the lever at its floor", not "stop"**; the STOP is an explicit booking.
+   `planKey` with mw 0 still does exactly what §3.2 says (to MIN by the key, then a STOP of every
+   machine, booked at the key), but the executor gives 0 no special meaning. Otherwise a hydro
+   wheel turned to 0 (a lever move in AGC writes a 0-MW key) or an L-0 plan column with the gates
+   shut would stop the machines; hydro spins free and a stopped machine needs a 3-min start. The
+   Live Stack draws stops from `plan.stops`.
+2. **A lever move also drops the move in flight** (keys up to `doneS`), not only keys before the
+   arrival: otherwise a drag that sends several basePoints (the desk sends one every 250 ms) left
+   its earlier, later-arriving keys behind and the lever snapped back to them.
+3. **A booked START for an offline station is timed so the unit arrives by the key** (START at
+   atS - start-to-MIN - climb from MIN to mw), not at atS - startToMinS: "arrive-by" for the
+   whole layer, as L-4 draws it. A later START already booked for the station's machine is moved
+   earlier. The rewrite is a fixed point (every choice is made from the final atS), so the logged
+   key rewrites to itself on replay (F-6); an earlier draft's rewrite was not, and the fuzz replay
+   test caught it.
+4. **The breaker closes at the command's tick; the outcome is judged at the angle 80 ms later**
+   (`SYNC_BREAKER_TICKS`), which is what the player aims for. The AUTO close is issued on the
+   tick 80 ms before its pass through 0 degrees. A slow (reverse) close picks up no block (the
+   machine motors) until its trip. The auto-sync (background and AUTO) is 'auto' in the `sync`
+   record; a clean manual close carries `cue: 'breaker'` as §3.3's table says, so a clean close
+   has two breaker cues on the same tick (the close's `breaker` record and the `sync` record):
+   the shell should play one.
+5. **The tie writes its plan in HAND too.** HAND is about unit output and AGC (K-2); the tie is a
+   DC setpoint in either mode, and without it the plan's next tie key would pull a HAND player's
+   tie move back. The tie has no MAN flag.
+6. **A basePoint to a station with no machine on writes no key** (its applied lever is 0, which
+   would read as a floor key).
+7. **The periodic re-flow waits while the player owns the plan** (app/system.js): once the player
+   has moved a lever or the tie or edited the plan since the system's last planLoad, the
+   30-minute re-flow no longer overwrites their plan (a re-flow when the dark share moves still
+   runs, as dispatch must follow the metered load), until RE-DISPATCH hands it back. A no-input
+   day is unchanged (never black).
+8. **The link preview runs only while the import exceeds the largest unit's output** (A-2): a
+   link trip of no more MW keeps all inertia and governors and was never deeper (0 of 3,578
+   par-day states); `previewLinkHz` then carries the unit's nadir as its bound (the desk's TRIP
+   PREVIEW asks `physics.previewTrip` itself for an exact link preview).
+9. **`observe().units[].slipHz` is the slip now** (state's `slipHz` is the slip at `slipAtTick`,
+   the start of the present trim ramp), and `origins` keep the names 'plan' / 'replan' (both are
+   planLoads) rather than a new 'planLoad' origin.
+10. **The executor keeps running during the watch** (the watch locks the desk; dispatch
+    continues). In 0.2 the plan's inputs were held until the watch ended.
+11. Par's re-plan after a tie action (rules 1 and 2) is sent at once, with the hold written into
+    its tie keys; after other actions it waits for the next decision as before. Rule 7's action is
+    the re-plan's planLoad (it was the largest single lever move).
+
+12. **The cached TRIP PREVIEW also re-runs when the fleet's primary-response headroom moves**
+    more than `PREVIEW_L_TOL_MW` (Σ governor headroom of 'on' units up to their cap, plus the
+    battery charge an under-frequency would suspend; `sec.pvHeadMW`). Arrive-by keys make units
+    ramp just in time, and on seed 153 a 39-s-old SECURE preview (49.592 Hz) had become 49.487 Hz
+    while a unit climbed; with the trigger that state is TIGHT.
+
+**Measured** (`node tools/baseline-v4.js`, 200 raw + 100 forced-heat seeds, golden re-recorded;
+A-2 off = the same build with `N1_PREVIEW_ALL` false; end of Phase 0.2 = `v4-core-0.2.2`):
+
+| Measure (target) | 0.2.2 | 1a, A-2 off | **1a, A-2 on (shipped)** |
+|---|---|---|---|
+| Par clean, 200 raw (≥ 85%) | 181 (90.5%) | 184 (92.0%) | **186 (93.0%)** |
+| Par clean, 100 forced heat (≥ 75%) | 75 | 75 | **75** |
+| Par arms RERT, raw (≤ 25%) | 47 (23.5%) | 44 (22.0%) | **45 (22.5%)** |
+| commitAll dearer (≥ 70%) | 86/100 | 87/100 | **86/100** |
+| Lean A (≤ 40%) | 0/100 | 1/100 | **2/100** |
+| planOnly black (never) | 0/100 | 0/100 | **0/100** |
+| SECURE, losing the largest unit (≥ 49.5 Hz) | (L only) | 6,895 of 6,913 | **6,689 of 6,689** (worst 49.502) |
+| SECURE, losing the tie import (> 50 MW) | (L only) | 5,245 of 5,246 | **4,870 of 4,871** (worst 49.488) |
+| SECURE, the contingency not previewed | 4,876 of 4,904 | 5,200 of 5,218 | **none (both previewed)** |
+| Par day, CPU s, seeds 1-10, one process (median / max) | 1.70 / 2.52 * | 1.88 / 4.59 | **2.02 / 4.81** |
+
+\* 0.2.2 re-timed on the same machine in the same session (its golden said 1.56 / 1.78 s on a
+quieter run). The remaining SECURE miss (seed 224, 13:30, tie 800 MW, 49.488 Hz) is a
+fresh-preview error of 0.071 Hz (the frozen-schedule preview does not see AGC still lowering
+units in the first seconds), larger than `PREVIEW_MARGIN_HZ` (0.05); A-2 off has the same kind
+of miss (49.463 Hz). Raising the margin could cost S-12's heat target (75/100, exactly on it), so it is
+left for stage C and the owner. Seed 4's par day is slow in every build (4.8 s here, 2.5 s in
+0.2.2); on the median the plan executor and planLoad logs add ~0.18 s and A-2's second preview ~0.14 s.
