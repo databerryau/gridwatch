@@ -436,3 +436,264 @@ The four stage B branches merged without conflicts. What integration found and c
   browsers cache files for ~10 minutes, so a returning visitor during that window after a push
   could get the same failure. A fix (a version query on every import, or one versioned entry
   path) belongs with the Phase 4 switch of `index.html`, before strangers arrive.
+
+---
+
+# Phase 1b: desk polish (contract)
+
+SPEC.md §5 "1b — Polish": K-8 details (the ISA-18.1 flash sequence, the 30-s re-sound rule);
+K-20 full foley; K-21; K-22; K-23; G-2–G-4; the F-11 budget. Same method as 1a: this section is
+stage A; stage B is four agents in parallel, one file set each (§12); stage C integrates,
+measures and ships. Everything above this line still holds unless a row here changes it. No
+gate: 1b may land before or after the greybox check, so **nothing here may change what a
+control does**; it changes how the desk looks, sounds and is reached.
+
+The sim does not change (`SIM_VERSION` stays `v4-core-1a.1`, goldens untouched). Stage A added
+one read-only field to `observe()`: `sky: {clearness, windFrac}` (the present `env` values).
+
+## 11. Decisions taken in stage A (owner-delegated, OD-17)
+
+| # | Question | Decision | Why |
+|---|---|---|---|
+| B-1 | K-21 lists "frequency outside 49.5–50.5 Hz" as P1, but the UNDER/OVER FREQ tiles set at the normal band (49.85 / 50.15) and K-21's accept wants one priority per tile. | UNDER FREQ and OVER FREQ are **P2** tiles (a chime). While the frequency is outside 49.5–50.5 Hz the tile is **escalated**: it shows and sounds as P1 (`tile.prio` in the view is the effective one; `TILES[].prio` is the base, `TILES[].escalates: true`). | The owner found v2 "too stressful": a horn should mean real trouble (the containment band), not a 0.16 Hz wobble. Real control rooms escalate the same alarm by severity. |
+| B-2 | ISA-18.1 sequence and flash rates. | Sequence **R** (ring-back), visual only: alarm = fast flash, ACK = steady, clears before ACK = slow flash until ACK, clears after ACK = dark. Fast = 2.5 Hz, slow = 0.8 Hz for everyone (never above 3 Hz, WCAG 2.3.1). Reduced motion: fast = 1 Hz, slow = steady with the ◇ glyph. | One safe rate for strangers arriving by link; the glyphs carry the state without the flash. |
+| B-3 | K-21 P2 repeat and K-8's 30 s. | P2 repeats **once**, 60 real s after it sounded, if its tile is still unacknowledged. Horn repeats and the P2 repeat are *re-sounds* of the same alarm: they do not count in `audible`, and they are the only sounds allowed inside a tile's 30-s hold-off (they are the same sounding, not a new one). | K-8's accept counts alarms, not horn blasts. |
+| B-4 | K-18 "CRT scanline overlay: optional". | On by default, very subtle (a fixed 2-px scanline over the map only, opacity ≤ 0.06, no flicker, no animation). REDUCED EFFECTS turns it and the hum off. | The control-room feel is the point of the polish pass; it must never cost legibility. |
+| B-5 | K-22 "no camera zoom in the watch", but G-1 needs an integer pixel scale. | The watch's camera is a **spotlight**, not a zoom: the map dims except a soft circle on the tripped plant (or the tie), which eases in over 0.6 s. Reduced motion: the spotlight appears at once and nothing shakes. | Keeps G-1's crisp pixels and still points the eye at the cause. |
+| B-6 | Foley for desk gestures needs a channel that is not a sim input. | `actions.ui({do: 'cue', name, pan?, gain?})` (presentation). The game queues it into `vm.cues`. | Sound is presentation; the input log stays clean (F-6). |
+| B-7 | Settings location. | A SETTINGS popover from a header button (`#btn-settings`, also `,`): four sliders, three switches. Never pauses the game. | No menu wall; one click from play. |
+
+## 12. Ownership (stage B)
+
+Each agent edits only its row, in its own worktree, fast-forwarded to `phase-1b-polish` first.
+
+| Owner | Files | Tests | Items |
+|---|---|---|---|
+| **sound** | `audio/audio.js`, `audio/model.js` | `tests/audio.test.js` | K-20, K-21 (tones), K-22 (buses, reduced effects) |
+| **desk** | `desk/*.js`, `desk/desk.css` | `tests/desk.test.js` | K-8 view (B-2), K-20 (emits cues), K-22 (glyphs, reduced motion), K-23 (ARIA, keys, nothing drag- or hover-only) |
+| **map** | `render/map.js`, `render/mapdata.js`, `render/livestack.js` (K-22/K-23 fixes only: no behaviour change) | `tests/map.test.js`, `tests/livestack.test.js` | G-2, G-3, G-4, G-5 polish, B-5, K-23 for the map and the stack |
+| **shell** | `next.html`, `app/shell.js`, `app/game.js`, `app/alarms.js`, `app/keys.js`, `app/perf.js`, `app/tray.js`, `app/watch.js`, `app/director.js`, `content/text.js`, `render/format.js`, `tests/lib/dom.js` (additions only) | `tests/{alarms,next,director,text}.test.js`, new `tests/settings.test.js`, `tests/keys.test.js` | K-8 model (B-1–B-3), K-21, K-22 (settings, classes, B-4), K-23 (key routing, live region), F-11 budget in `?perf`, B-6, B-7 |
+| stage C | `tools/shot-receiver.js`, `tools/perf.js`, `tests/budget.test.js`, `tests/day.test.js` (the keyboard-only day), `SPEC.md`, seams | | F-11 measure, release checklist |
+
+Frozen: `sim/**`, `tools/**` (existing files), `index.html`, `bench.html`, `app/bench-boot.js`,
+`app/session.js`, `render/bench.js`, `app/planview.js`, `app/system.js`, `app/assist.js`,
+`SPEC.md`, every test file not in your row. If you need a change outside your row, write it in
+your report; do not make it. The §1 cross-module rules (1–5) still apply.
+
+## 13. Shared interfaces (the seams; read all of this whoever you are)
+
+### 13.1 Settings (shell builds; everyone reads `vm.settings`)
+
+```
+vm.settings = {
+  volume: 0..1 (master, default 0.8), hum: 0..1 (1), fx: 0..1 (1), alarms: 0..1 (1), muted: bool,
+  reducedMotion: bool,   // resolved: the stored choice, else matchMedia('(prefers-reduced-motion: reduce)')
+  reducedEffects: bool,  // no CRT overlay, no hum (K-22)
+  crt: bool,             // B-4; false whenever reducedEffects
+}
+```
+
+Stored under `gridwatch:v4:settings` (try/catch, C-8) as the user's choices only
+(`reducedMotion` stored as `true | false | null`, null = follow the system). UI commands:
+`actions.ui({do: 'set', key, value})`, `{do: 'settings', on?}` (open/close the popover),
+`{do: 'mute'}` (Shift+M). The shell also sets `body.rm` (reduced motion), `body.fxlow` (reduced
+effects) and `body.crt`, so CSS can follow without reading the vm. Modules given a `vm` read
+`vm.settings.reducedMotion`; `desk.css` may use `body.rm …` selectors **and** keeps its
+`@media (prefers-reduced-motion)` block.
+
+### 13.2 Cues (`vm.cues`)
+
+A cue is a string `name` or `{name, pan?: -1..1, gain?: 0..1, delayS?: number}`. Sources:
+
+* **Sim records** → `audio/model.js cuesOfRecord(record, ctx)` returns an array of cues
+  (`ctx.suburbOf(districtId)` → suburb code, for the pan). The game calls it for every record
+  (until merge it falls back to the 1a `cueOfRecord`: `import * as AM`, test `AM.cuesOfRecord`).
+* **Alarms** → `horn`, `chime` (app/alarms.js), tray → `ring2`, `tick` (app/tray.js).
+* **Desk gestures** → `actions.ui({do: 'cue', name, pan?})` (B-6), names below.
+
+Cue names (the sound agent implements every one; unknown names are ignored, never thrown):
+
+| Name | When | Bus | Sound (K-20) |
+|---|---|---|---|
+| `detent` | a lever, knob or ring passes a detent | fx | 80 Hz thump |
+| `ratchet` | a lever, wheel or ring is dragged | fx | a tick; audio limits it to ≤ 20 per real s (drops the rest) |
+| `gate` | the hydro wheel stops / the 96% overload gate is crossed | fx | thunk |
+| `key` | a key switch turns (RERT, DIRECT SHED, the AGC/HAND key) | fx | key turn |
+| `cover` | a guard or cover lifts or drops | fx | a light click |
+| `button` | a push button commits (DR, RE-DISPATCH, ACK, SILENCE, START/STOP press, tabs) | fx | button |
+| `servo` | a lever handle is moved by the plan, not the hand (L-6) | fx | a short motor whirr; ≤ 1 per 0.25 s |
+| `breaker` | breaker close / RESTORE feeder close (records) | fx | 1a clack |
+| `clack` | a UFLS stage or DIRECT SHED sheds a district (records) | fx | relay clack, **panned** by the district's suburb (`render/mapdata.js SUBURBS` box centre x → −1..1), one per district, 90 ms apart (the map's block rate) |
+| `growl` | rough / reverse / bypass sync (records) | fx | 60–90 Hz, 1.5 s |
+| `buzz` | sync-check relay refusal (records) | fx | buzz |
+| `spoolUp` / `spoolDown` | a machine starts / is stopped or trips (records: find the record kinds in sim/README §7; if none marks a start, key off the `input` record `start` and the plan's booked start log) | fx | ≤ 3 s sweep |
+| `horn` `chime` `ring2` `tick` | alarms and the tray | alarms | 1a tones (horn: two-tone) |
+
+Budget: ≤ 32 live nodes including the hum and the bus gains (K-20 accept); a cue that would
+pass it is dropped. Buses: master → {hum, fx, alarms} gains from `vm.settings`; `reducedEffects`
+or `hum === 0` silences the hum bus; `muted` silences master. The map's base width is 640 px
+(`BASE_W`): pan = (x / 640) × 2 − 1.
+
+### 13.3 Keys (K-23): who handles what
+
+The shell's document `keydown`/`keyup` listener runs, in order: (1) ignore text fields and
+`defaultPrevented`; (2) `mods.desk.key(ev)`: if it returns true, `preventDefault` and stop;
+(3) `mods.stack.key(ev)` and `mods.map.key(ev)` if they exist, same rule; (4) the
+`app/keys.js` fallback map. So a focused control handles its own keys natively (and calls
+`preventDefault`), `desk.key` handles desk-wide keys, and keys.js makes every K-23 key work from
+anywhere. The same key must never act twice. D and E holds belong to the desk when it is
+mounted (keys.js polls them only when there is no desk).
+
+K-23 accept, as a test stage C writes: a scripted player sending **only keyboard events** to
+the document completes a day (focus a station 1–8, move it, start and stop a machine, set the
+battery order and the GUARD ring, the tie, open the scope and close a breaker, restore a
+district, ACK, call DR, RE-DISPATCH, drop a Live Stack keyframe, dismiss the respond card). So
+every control needs a keyboard route and a way to reach it:
+
+| Control | Reach | Operate |
+|---|---|---|
+| levers | 1–5 | ↑↓ ±10 MW, Shift ±1, PgUp/PgDn detent, S S / X X, P |
+| hydro wheel | 6 | ←→ 1%, Shift 10%, S S / X X |
+| battery dial | 7 | ←→ mode (CHARGE/IDLE/DISCHARGE), ↑↓ magnitude 50 MW, Shift 10 |
+| GUARD ring | 7 then G (or Tab) | ←→ / ↑↓ one 50-MW detent |
+| tie knob | 8 | ←→ / ↑↓ 50 MW, Shift 10, PgUp/PgDn detent |
+| RERT key | E (hold 0.6 s; first press lifts the cover) | — |
+| DR | D (hold 0.6 s) | — |
+| DIRECT SHED | focusable; Enter lifts, Enter again within 2 s commits | — |
+| RE-DISPATCH | a free letter (desk agent picks one and documents it), or focus + Enter | — |
+| scope | `[` `]` C U; a `ready` unit's scope opens with O (the first ready unit) or Enter on its bay button | — |
+| restore bay | R, ←→, Enter | — |
+| annunciator | A / Shift+A; tiles are buttons (Enter focuses the target) | — |
+| tray | M; cards' buttons are buttons | — |
+| Live Stack | L (again: expand); number selects a layer, arrows move one snap step, Enter drops (L-4, already there) | — |
+| map | Tab from the stack, or focus; ←→ cycles plants and suburbs (sets the hover cross-highlight and shows the label), Esc leaves | — |
+| settings | `,` | native sliders and checkboxes |
+
+Free letters the desk agent may claim for new routes: G, O, B, K, V, N. Document every key in
+the file header and in `aria-keyshortcuts`. The shell forwards every key to `desk.key` first,
+so desk-claimed keys just work without the shell knowing them.
+
+Roles: levers, wheel, ring, knob, magnitude = `role="slider"` with `aria-valuemin/max/now` and
+`aria-valuetext` ("COAL base point 1,240 MW, output 1,236 MW"); AGC/HAND key, covers, guards =
+`role="switch"` or buttons with `aria-pressed`; tiles, cards, bay rows = buttons. Canvas only
+for the dial, the synchroscope, the stack and the map, each with a text alternative
+(`aria-label` updated at most once per real second). **Live region**: the shell's `#aria-live`
+(polite) mirrors, at most one message per 2 real s: mode changes, the frequency band changing
+(normal / outside normal / outside containment), the N-1 word changing, a new alarm's label, a
+tray warning's text. The desk's `.dk-live` keeps the per-control notes.
+
+### 13.4 Status is never colour-only (K-22)
+
+Every lamp, tile, level word, gap and map state carries a glyph, letter, word, pattern or
+shape as well as colour. Accept (each owner tests its own): each state has distinct
+**non-colour** content (text, glyph, or a class-driven shape or pattern), asserted on content,
+not on pixels. Known gaps to close: lever machine lamps (state shown by the colour of the
+letter), N-1 bars (green/orange/red fill), the Live Stack's red/amber gaps (add hatch
+direction or a glyph row), battery lamps on the map, the tripped strobe (add a ✕ mark), dark
+districts (already shape: unlit + darker roof; add a hatched outline in the overlay).
+
+### 13.5 Reduced motion (K-22)
+
+With `vm.settings.reducedMotion`: no lever shake (rough sync), no handle transition, no
+flashing faster than 3 Hz anywhere (tiles per B-2; glow rings pulse ≤ 1 Hz or sit steady; the
+tripped strobe ≤ 1 Hz; rain and cloud shadows drawn static; no spotlight easing). The shell
+test asserts `body.rm`; each owner's test asserts its own module honours the flag.
+
+## 14. The four jobs
+
+### 14.1 sound (`audio/`)
+
+Implement §13.2: every cue, the three buses, the ratchet and servo rate limits, pan
+(`StereoPannerNode` where available, else centre), the 32-node budget with honest accounting
+(`au.live`, `au.peak`, `au.dropped`), `cuesOfRecord`. Keep `cueOfRecord` exported (1a callers)
+until stage C removes it. `au.update(vm)` reads `vm.settings` and `vm.cues` (strings or
+objects). Hum (K-19) is unchanged apart from its bus. Everything stays pure-testable in
+`audio/model.js` (specs as data, `nodesFor(name)`, `busOf(name)`, `panOfSuburb(code)`, the rate
+limiter as a pure function of timestamps). Tests: every cue name in §13.2 has a spec, a bus
+and a node count; a storm of cues (8 UFLS stages = 16 clacks in 1.5 s, a horn, a breaker, ten
+ratchets) never exceeds 32 live nodes on the fake context; ratchet ≤ 20/s; pan mapping;
+volumes and mute reach the right gains; unknown cue ignored; no WebAudio → silent, no throw.
+
+### 14.2 desk (`desk/`)
+
+* **K-8 view** (B-2): flash classes at 2.5 Hz / 0.8 Hz; `body.rm` and the media query give
+  1 Hz / steady; tile glyphs come from `vm.alarms.tiles[].glyph`; an escalated tile (`prio`
+  P1 while its base is P2: the view gives `escalated: true`) is visibly different without
+  colour (a double border or "‼").
+* **K-20**: emit `actions.ui({do:'cue', …})` per the table (detent, ratchet, gate, key, cover,
+  button, servo). Emit on real state changes only (a detent crossed, not every pointermove).
+  `servo`: when a lever's handle moves because the plan moved it (not during or within 0.5 s
+  of a drag). Rough-sync lever shake (K-12) for 0.6 s unless reduced motion.
+* **K-22** (§13.4, §13.5) and **K-23** (§13.3): roles, value text, keyboard routes for every
+  control, nothing hover-only (TRIP PREVIEW already has T and the latch button; keep) and
+  nothing drag-only. `desk.key(ev)` returns true exactly when it acted.
+* Keep K-17: 1280×300 floor, every control ≥ 24×24 px, no horizontal scroll (existing tests).
+* Tests: each control reachable and operable by keys alone (the desk half of the keyboard
+  day); each emits its cues; states distinct without colour; reduced motion honoured; roles
+  and value text present.
+
+### 14.3 map (`render/`)
+
+* **G-2**: each technology recognisable with labels off: coal = hyperbolic cooling towers +
+  tall stacks + a coal pile; CCGT = two boxy HRSGs with stubby stacks; GTs = small sheds, one
+  stack each; hydro = a dam wall with a spillway and penstocks; battery = rows of white
+  containers; tie = lattice pylons marching off the west edge; wind, solar as now but cleaner.
+  ≤ 3 labels at rest (keep `mapLabels`). Hover a plant lights its lever and the reverse
+  (`vm.hover`, both ways already; verify and test). `map.key(ev)`: when the map is focused
+  (`tabindex=0` on its `el`), ←→ cycles plants then suburbs and sends the same hover; return
+  true when it acted.
+* **G-3**: sky and light follow the hour and the sun: night, dawn, day, a **sunset** palette
+  around 18:48 (accept: at 18:48 the sky state is `'sunset'`; expose `skyState(h)` pure:
+  'night' | 'dawn' | 'day' | 'sunset' | 'dusk'), a sun disc tracking across the sky, long warm
+  light at dusk. Solar-farm sheen follows `obs.solar.outMW` (rooftop glint is Phase 2).
+* **G-4**: weather readable from one frame, no text, from a pure `weatherOf(obs)` →
+  `{heat: bool, storm: 0..1, cloud: 0..1, windy: 0..1}` (heat = `obs.demand.heatActive`; storm
+  = a `news` kind `'storm'` with `fromS <= s`, scaled by `sky.windFrac`, fading once the wind
+  has fallen back; cloud = 1 − `sky.clearness` in daylight). Heat: haze band on the horizon +
+  a bleached, warmer palette. Storm: layered dark cloud, slanted rain sheets, darker ground,
+  turbines feathered at cut-out. Cloud front: soft shadows drifting across the suburbs.
+  Reduced motion: all three drawn static.
+* **G-5 polish + B-5**: tripped plant = smoke + strobe **and a ✕** for the whole lockout; a
+  stage-1 shed is identifiable within 1 s (blocks go dark at 90 ms each: keep); dark districts
+  get a hatched outline in the overlay; the watch spotlight (B-5); rotors slow in the watch.
+* **B-4**: nothing (the CRT overlay is the shell's CSS over `#map`).
+* `render/livestack.js`: red/amber gaps distinguishable without colour (§13.4); `stack.key(ev)`
+  on the handle only if its keyboard route needs the shell's forwarding (it already listens on
+  its own element); a canvas `aria-label` text alternative.
+* Keep G-1 (integer scale at 1280×600, 1280×720, 1920×1080; nothing off the terrain; `render/`
+  imports only `sim/params.js`). Map draw ≤ 2 ms p95 at 1280×600 in Chromium is the target
+  (stage C measures): keep per-frame work flat (cache the static layer per light/weather
+  bucket as now; the district loop does a `find` per block today, fix that).
+* Tests: `skyState`, `weatherOf`, each weather state changes what is drawn (count/kind of
+  draw calls on the stand-in context), silhouette parts exist per plant (data test), the
+  bounding-box test still passes, labels ≤ 3 at rest, keyboard cycle sets hover, reduced
+  motion statics, the ✕ and hatch present.
+
+### 14.4 shell (`app/`, `next.html`)
+
+* **Alarms** (B-1, B-2, B-3) in `app/alarms.js`: `TILES[].escalates`; effective `prio` and
+  `escalated` in `alarmsView`; `a.audible` counts new soundings only; `a.repeats` counts
+  re-sounds; the P2 60-s repeat; `alarmInput` gains what escalation needs. Tests: every tile
+  has exactly one base priority (K-21 accept); no tile starts a new sounding within 30 s of
+  its last (K-8 accept) across a scripted storm; the competent proxy still triggers ≤ 8
+  audible alarms a day (the existing test); held-during-watch still sounds once after.
+* **Settings** (§13.1, B-7): model in `app/game.js` (`ui` cases `set`, `settings`, `mute`,
+  `cue`), popover in `next.html` + `app/shell.js` (`#btn-settings`, `#settings`, four
+  `<input type=range>`, three checkboxes: REDUCED MOTION, REDUCED EFFECTS, CRT), body classes,
+  the CRT overlay CSS (B-4), `matchMedia` read through an injectable `deps.matchMedia`.
+* **Cues**: `ui({do:'cue'})` queues into `vm.cues`; records go through `cuesOfRecord` when the
+  audio model has it (§13.2).
+* **Keys** (§13.3): the forwarding order, `,` for settings, no double action; `tests/keys.test.js`.
+* **Live region** (§13.3) and the header's text alternatives.
+* **F-11**: `app/perf.js` gets `BUDGET = {frameP95Ms: 8, simP95Ms: 1 (at ≤150×; 3 at 2,100×)}`
+  and the overlay marks each line OK / OVER; `?debug` exposes the boot handle as
+  `globalThis.gridwatch` (stage C's shot and perf tools use it; nothing else may).
+* `content/text.js`: §8.2 entries where 1b adds an abstraction (the alarm escalation B-1; the
+  sonified hum is there already), "?" anchors for new elements.
+* Keep K-17 / K-18 (`tests/next.test.js`).
+
+## 15. Done means
+
+`node --test` green and still under 60 s; each agent reports: what it built, every deviation
+from this section and why, anything it needed outside its row, and its test count. Commit on
+your worktree branch (several commits are fine); do not push, do not merge.

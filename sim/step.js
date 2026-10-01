@@ -455,6 +455,7 @@ export function observe(state, opts) {
       exportLimitMW: env.exportLimitMW, neighbourPrice: env.neighbourPrice},
     wind: {availMW: env.windAvailMW, outMW: windOut, limitPct: state.ren.windLimitPct, ofgsTrippedFrac: state.ofgs.trippedFrac},
     solar: {availMW: env.solarAvailMW, outMW: state.ren.solarMW, limitPct: state.ren.solarLimitPct},
+    sky: {clearness: env.clearness, windFrac: env.windFrac},
     hydro: {storageMWh: state.hydro.storageMWh, allocationMWh: V.HYDRO_ALLOCATION_MWH,
       frac: state.hydro.storageMWh / V.HYDRO_ALLOCATION_MWH},
     dr: {callsLeft: state.dr.callsLeft, activeS: state.dr.activeS, mw: state.dr.mw},
