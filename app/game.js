@@ -20,7 +20,8 @@ import {createState, step, observe, applyInput, hashState, replay, SIM_VERSION} 
 import * as physics from '../sim/physics.js';
 import * as grid from '../sim/grid.js';
 import * as fleet from '../sim/fleet.js';
-import {CLASSIC} from '../content/scenarios.js';
+import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
+import {objective} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
 import {createRecorder, onTick, startTrace, traceOf, needleF, secondsWindow} from './record.js';
@@ -39,6 +40,8 @@ export const MAX_CUES = 64;
 export const HIST_FREQ_S = 180;
 /** vm.hist station / demand columns: 5-min columns over the last 30 grid-min (L-1's past). */
 export const HIST_COL_S = V.FC_STEP_S, HIST_COLS = 6;
+/** The standing objective is recomputed this often (grid seconds). */
+export const OBJECTIVE_EVERY_S = 30;
 /** K-12 offers: at most this many a day (K-12 accept). */
 export const MAX_OFFERS = 3;
 /** Storage keys (C-8: every access is wrapped; the game plays with storage blocked). */
@@ -138,6 +141,10 @@ export function createGame(o) {
   const settings = cleanSettings(readJson(storage, SETTINGS_KEY));
   const game = {
     seed: o.seed >>> 0, scenario, storage, sysMod: o.system || null, planview: o.planview || null,
+    // SPEC §9.1 Q-18: 'player' = the commitment is the player's (the real page); 'system' = the
+    // Phase 1a system operator, which commits units itself. startPaused: the desk opens at 04:30
+    // with the clock held, so the first decision is made before anything moves.
+    commit: o.commit === 'player' ? 'player' : 'system', startPaused: !!o.startPaused, objective: null, objectiveS: -1e9,
     beforeTick: o.beforeTick || null,
     state: null, director: null, pacer: createPacer({cap: o.cap, budgetMs: o.budgetMs}),
     sys: null, sysError: '',
@@ -163,6 +170,7 @@ export function resetDay(game, seed) {
   if (seed !== undefined) game.seed = seed >>> 0;
   game.state = createState(game.seed, game.scenario);
   game.suburbs = null;
+  game.objective = null; game.objectiveS = -1e9; game.objectiveMode = '';
   game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
   game.director = D.createDirector({game: true, paused: true, seen});
@@ -170,7 +178,7 @@ export function resetDay(game, seed) {
   game.sys = null;
   game.sysError = '';
   if (game.sysMod) {
-    try { game.sys = game.sysMod.createSystem(); } catch (e) { game.sysError = errText(e); }
+    try { game.sys = game.sysMod.createSystem({commit: game.commit}); } catch (e) { game.sysError = errText(e); }
   }
   game.rec = createRecorder();
   game.alarms = A.createAlarms();
@@ -355,7 +363,7 @@ export function takeDesk(game, o) {
   if (!agc) sendInput(game, {type: 'mode', agc: false});
   runTo(game, V.PLAYER_START_TICK);
   game.phase = 'play';
-  game.director.paused = false;
+  game.director.paused = game.startPaused;
   return true;
 }
 
@@ -372,6 +380,7 @@ export function sendInput(game, x) {
   const r = applyInput(state, x, out);
   if (out.length) handleRecords(game, out, '');
   if (r.ok) {
+    game.objectiveS = -1e9;
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
     if (x.type === 'restore') D.focusRestore(game.director, state);
@@ -579,6 +588,15 @@ export function buildVm(game, f) {
   const offers = game.phase === 'play' ? updateOffers(game, obs, mode.mode) : [];
   const glow = new Set(game.respondGlow);
   for (const g of game.ui.hoverGlow) glow.add(g);
+  // The standing objective (app/objective.js; Q-18): once per OBJECTIVE_EVERY_S grid seconds, and
+  // at once when the mode changes or an input lands (objectiveS is reset there).
+  if (game.phase === 'play' && game.commit === 'player' && game.planview) {
+    if (obs.s - game.objectiveS >= OBJECTIVE_EVERY_S || obs.s < game.objectiveS || game.objectiveMode !== mode.mode) {
+      game.objectiveS = obs.s; game.objectiveMode = mode.mode;
+      try { game.objective = objective(obs, {edited: !!(game.sys && game.sys.edited), planview: game.planview}); } catch { game.objective = null; }
+    }
+    if (game.objective && mode.mode !== 'WATCH') for (const g of game.objective.targets) glow.add(g);
+  } else game.objective = null;
   if (offers.length) glow.add('bay-sync');
 
   let watch = null;
@@ -613,7 +631,7 @@ export function buildVm(game, f) {
     // frame's sounds, each a name or {name, pan?, gain?, delayS?} (§13.2).
     phase: game.phase, watch, needleHz: needleF(game.rec, mode.rate, game.pacer.alpha), cues, refusal,
     trayOpen: game.ui.trayOpen, drawer: game.ui.drawer, settingsOpen: game.ui.settingsOpen, end: game.end, seed: game.seed,
-    sysError: game.sysError,
+    sysError: game.sysError, objective: game.objective, commit: game.commit,
   };
 }
 
@@ -627,7 +645,7 @@ export function gameLog(game) {
 
 /** Replay a game file headless to `untilTick` (default: where the game is); returns the state. */
 export function replayGame(file, scenario, untilTick) {
-  return replay(file.seed, scenario || CLASSIC, file.log, untilTick === undefined ? {} : {untilTick});
+  return replay(file.seed, scenario || SCENARIOS[file.scenarioId] || CLASSIC, file.log, untilTick === undefined ? {} : {untilTick});
 }
 
 /** The actions object every UI module receives (desk/README.md §4), bound to this game. */

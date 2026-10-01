@@ -1027,6 +1027,10 @@ export function createMap(doc, root, actions) {
   }
 
   cv.addEventListener('pointermove', ev => { const id = pick(baseAt(ev)); if (id || !byKey) { byKey = false; kbdIdx = KEY_ORDER.indexOf(id); setHover(id); } });
+  cv.addEventListener('click', ev => {
+    const p = PLANTS.find(q => q.id === pick(baseAt(ev)));
+    if (p && p.target) actions.ui({do: 'focus', target: p.target});
+  });
   cv.addEventListener('pointerleave', () => { if (!byKey) setHover(null); }); // a hover set by the keys stays until Esc or blur
 
   /**

@@ -5,7 +5,7 @@
 **Supersedes:** v3.0 (2026-07-30), which stays in git history
 **Applies to:** today's `index.html` (v2.0: 1,522 lines, 88,590 bytes, one file), which becomes a static multi-file site
 **Repo:** [databerryau/gridwatch](https://github.com/databerryau/gridwatch), branch `spec-v4`. `main` is the live GitHub Pages branch: <https://databerryau.github.io/gridwatch/>
-**Status:** Phase 0 shipped; Phase 1a (the greybox desk on `next.html`) built, awaiting the greybox check; Phase 1b (desk polish) built
+**Status:** Phase 0 shipped; Phase 1a (the greybox desk on `next.html`) built, awaiting the greybox check; Phase 1b (desk polish) built; the commitment is the player's on `next.html` (§9.1 Q-18)
 
 **How to read this.**
 - §0–§2 say what we are making and the rules it must follow.
@@ -2175,6 +2175,14 @@ The owner delegated these on 2026-09-30: *"make the most fun choice RE: those qu
 | Q-15 | K-22's "no camera zoom in the watch" against G-1's integer pixel scale. | The watch's camera is a spotlight on the tripped plant, easing in over 0.6 s (instant under reduced motion). | Crisp pixels, and the eye still goes to the cause. |
 | Q-16 | Foley for desk gestures. | A presentation cue (`actions.ui({do: 'cue'})`), never a sim input. | The replay log stays clean (F-6). |
 | Q-17 | Where settings live. | A popover from the header (`,`): four volume sliders, REDUCED MOTION, REDUCED EFFECTS, CRT. It never pauses the game. | No menu wall. |
+
+**Owner decision after the first play of the Phase 1b build (2026-10-01).** The owner played `next.html` and found it "SUPER unclear": the game wrote the plan and then played it, the best move was to touch nothing, a coal lever could be pulled to the floor with no warning, and the desk then repaired itself. Offered three ways forward, the owner chose "you write the plan, on the live desk".
+
+| # | Question | Decision | Why |
+|---|---|---|---|
+| Q-18 | L-0 pre-fills the whole day's plan, commitment included, so a day with no input passes and the player has nothing to do. | **The commitment is the player's.** On `next.html` the system operator never starts or stops a unit. It dispatches the units the player has committed, in merit order, at 04:30, whenever the commitment changes, and every 5 grid-minutes (`app/system.js`, `commit: 'player'`). The day is the `desk` scenario: the classic day with CCGT 2 off at 04:00, so the morning ramp is the first decision (about 50 minutes of lead). The desk opens at 04:30 with the clock held. A one-line **objective** above the desk (`app/objective.js`) says what is needed next from a capacity look-ahead: the cheapest unit that still arrives in time, the latest moment to start it and how long it takes; it lights that unit's START guard and never acts. A lever moved by hand holds the levers until RE-DISPATCH, and the objective says so when that leaves the plan short. Alarm tiles say what they mean when pressed; ACK says when there is nothing to acknowledge; a map click selects the plant's control. | "The plan comes together" has to be the player's plan (OD-5). Real too: generators and the operator decide commitment hours ahead; NEMDE dispatches what is committed every 5 minutes. No planning screen and no RUN button (OD-16 stands): the plan is made on the running desk, with a free pause. |
+
+Measured (`tests/objective.test.js`; `node tools/par.js --scenario desk`): with no input the `desk` day first sheds between 08:00 and 14:00 and leaves 35,000–50,000 MWh unserved on eleven seeds (black on some); a scripted player who does only what the objective line says ends with nothing unserved on 10 of the 11 and is never black; par on `desk` has zero unserved on 22 of 24 seeds and arms RERT on 4. **This replaces L-0's accept ("with no input, never F; median C or D") on `next.html`**: a no-input day is meant to fail. L-0's pre-dispatch still serves par, the bench and the forecast beyond 4.5 hours. Still to do: the hint-following player commits every unit by midday and never stops one, so the afternoon and the cost side of the plan are not yet a decision (Phase 2, with D-8 and S-12 re-tuned for `desk`); a warning *before* a lever move commits (today the objective reacts after it).
 
 **Delegated tuning decisions (2026-09-30, "most fun within realism").** Recorded here with their measured effect (S-12 has the table):
 
