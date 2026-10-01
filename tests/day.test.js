@@ -139,3 +139,115 @@ test('greybox whole days to 04:00 with a restoring player: never black, the end 
     assert.equal(hashState(r), hashState(g.st()), 'seed ' + seed + ' replays');
   }
 });
+
+// ---------------------------------------------------------------- Phase 1b: K-23, the keyboard-only day
+
+test('K-23: a player sending only keyboard events runs the desk, the stack, the bay and the cards; the log replays', () => {
+  const g = boot(7);
+  const doc = g.doc;
+  // Only these two reach the game: a keydown and a keyup on the document's focused element.
+  const down = (key, extra) => doc.dispatch('keydown', Object.assign({key}, extra));
+  const up = (key, extra) => doc.dispatch('keyup', Object.assign({key}, extra));
+  const tap = (key, extra) => { down(key, extra); up(key, extra); g.frame(1 / 60); };
+  const hold = (key, s) => { down(key); for (let t = 0; t < s; t += 0.05) g.frame(0.05); up(key); g.frame(1 / 60); };
+  const types = () => g.st().log.map(r => r.type);
+  const count = t => types().filter(x => x === t).length;
+  const runTo = h => { while (g.st().tick < tickAt(h) && !g.st().over) { g.frame(); if (g.h.vm().mode.mode === 'RESPOND-CARD') tap('Enter'); } };
+
+  g.$('btn-agc').click();           // the default; the briefing's own buttons are native <button>s
+  down('Enter'); up('Enter'); g.frame();
+  assert.equal(g.h.game.phase, 'play', 'Enter takes the desk');
+  runTo(5);
+
+  // 2: the CCGT lever, three steps up (K-1).
+  tap('2');
+  assert.equal(doc.activeElement.id, 'lever-ccgt');
+  let n = count('basePoint');
+  for (let i = 0; i < 3; i++) tap('ArrowUp');
+  assert.ok(count('basePoint') > n, 'the lever moved by arrows');
+  // 3: GT·A, S S starts its machine (K-3: never on one press).
+  tap('3');
+  tap('s');
+  assert.equal(count('start'), 0, 'one S does nothing');
+  tap('s');
+  assert.equal(count('start'), 1, 'S S starts GT·A');
+  // 7: the battery to DISCHARGE and up; G: the GUARD ring; 8: the tie.
+  tap('7'); tap('ArrowRight'); tap('ArrowUp');
+  assert.ok(count('battery') >= 1, 'battery order by keys');
+  tap('g');
+  assert.equal(doc.activeElement.id, 'ring-guard');
+  tap('ArrowRight'); tap('ArrowRight');
+  assert.ok(count('guard') >= 1, 'GUARD ring by keys');
+  tap('8'); tap('ArrowUp');
+  assert.ok(count('tie') >= 1, 'tie knob by keys');
+  // 6: the hydro wheel.
+  n = count('basePoint');
+  tap('6'); tap('ArrowRight');
+  assert.ok(count('basePoint') > n, 'hydro wheel by keys');
+  // N: RE-DISPATCH.
+  n = count('planLoad');
+  tap('n');
+  assert.equal(count('planLoad'), n + 1, 'RE-DISPATCH by key');
+  // L: the Live Stack; 2 selects the CCGT layer, arrows move one snap step, Enter drops (L-4).
+  tap('l');
+  n = count('planKey');
+  assert.equal(doc.activeElement.id, 'stack');
+  tap('2'); tap('ArrowRight'); tap('ArrowRight'); tap('ArrowUp'); tap('Enter'); tap('Enter');
+  assert.ok(count('planKey') > n, 'a Live Stack keyframe dropped by keys');
+  // D held 0.6 s: industrial DR (never on a tap).
+  tap('d');
+  assert.equal(count('callDR'), 0);
+  hold('d', 0.8);
+  assert.equal(count('callDR'), 1, 'DR by a held key');
+  // A, Shift+A, T, M, ?, comma, Space: presentation keys do not throw and do not log inputs.
+  n = g.st().log.length;
+  tap('a'); tap('A', {shiftKey: true}); tap('t'); tap('t'); tap('m'); tap(','); tap('Escape'); tap(' ');
+  assert.equal(g.h.vm().mode.mode, 'PAUSE');
+  tap(' ');
+  assert.equal(g.st().log.length, n, 'presentation keys are not sim inputs');
+
+  // GT·A reaches full speed: O opens its scope (FOCUS, 1x), U closes it cleanly (K-12).
+  let frames = 0;
+  while (!g.h.vm().obs.units.some(u => u.id === 'gta1' && u.mode === 'ready') && frames++ < 3000) g.frame();
+  assert.ok(frames < 3000, 'gta1 came to speed');
+  tap('o');
+  assert.equal(g.st().scope.unit, 'gta1', 'O opens the scope');
+  tap('u');
+  frames = 0;
+  while (g.h.vm().obs.units.find(u => u.id === 'gta1').mode === 'ready' && frames++ < 2000) g.frame(0.05);
+  assert.ok(g.h.vm().obs.units.find(u => u.id === 'gta1').sync, 'U synchronised it');
+
+  // F-6: every key above became a logged input or nothing (the injected trip below is not an input).
+  const r = replay(g.st().seed, CLASSIC, g.st().log, {untilTick: g.st().tick});
+  assert.equal(hashState(r), hashState(g.st()), 'the keyboard day replays (F-6)');
+
+  // A trip: the watch, then Enter dismisses the respond card (K-16); R reaches the restore bay.
+  while (g.st().tick % TPS !== 0) g.frame(0.001);
+  let big = -1;
+  for (let i = 0; i < g.st().units.length; i++) if (g.st().units[i].sync && (big < 0 || g.st().units[i].outMW > g.st().units[big].outMW)) big = i;
+  fleet.tripUnit(g.st(), big, 'test trip', V.HOT_TRIP_LOCKOUT_S, []);
+  g.frame(1 / 60);
+  frames = 0;
+  while (g.h.vm().mode.mode === 'WATCH' && frames++ < 3000) g.frame(1 / 30);
+  assert.equal(g.h.vm().mode.mode, 'RESPOND-CARD');
+  tap('Enter');
+  assert.notEqual(g.h.vm().mode.mode, 'RESPOND-CARD', 'Enter takes the desk back');
+  tap('r');
+  const dark = g.h.vm().obs.districts.filter(d => d.dark);
+  if (dark.length) {
+    // Restore one district by keys once its lamp and preview allow it.
+    frames = 0;
+    n = count('restore');
+    while (count('restore') === n && frames++ < 4000) {
+      g.frame();
+      if (g.h.vm().mode.mode === 'RESPOND-CARD') { tap('Enter'); continue; }
+      const d = g.h.vm().obs.districts.find(x => x.dark && x.restoreBlock === '' && g.h.actions.restorePreview(x.id) === '');
+      if (d) { tap('r'); tap('Enter'); }
+    }
+    assert.ok(count('restore') > n, 'a district restored by R and Enter');
+  }
+  runTo(Math.min(24, (g.st().tick / TPS / 3600) + V.DAY_START_H + 1));
+
+  assert.deepEqual(g.h.mods.errors, []);
+  assert.deepEqual(doc.canvasStats.bad, []);
+});
