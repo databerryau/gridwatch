@@ -10,7 +10,7 @@ import * as PV from '../app/planview.js';
 import {makeDocument} from './lib/dom.js';
 import {dayVm, baseVm} from './lib/vm-fixture.js';
 import {yardstickNs, OWNER_YARD_NS} from './lib/speed.js';
-import {createLiveStack, AXIS_MAX_MW, HIT_PX} from '../render/livestack.js';
+import {createLiveStack, AXIS_MAX_MW, HIT_PX, GAP_MARK, gapRuns, stackSummary} from '../render/livestack.js';
 
 const DAYS = {};
 async function vmOf(key, o, over) {
@@ -206,6 +206,76 @@ test('L-4: every handle has a 24x24 hit area at the 1280x600 floor, and L / the 
   assert.ok(stack.el.classList.contains('expanded'));
   assert.equal(btn.getAttribute('aria-pressed'), 'true');
   assert.ok(stack.debug.geom.big);
+});
+
+test('K-22: red and amber gaps differ by hatch direction and glyph, not only by colour', async () => {
+  // the marks are distinct in every non-colour respect
+  const kinds = Object.keys(GAP_MARK);
+  assert.deepEqual(kinds, ['red', 'amber', 'blue']);
+  for (const f of ['hatch', 'glyph', 'word']) assert.equal(new Set(kinds.map(k => GAP_MARK[k][f])).size, 3, f);
+  // runs (pure): one per stretch of one kind, with its worst shortfall
+  const proj = {n: 8, gap: ['', 'red', 'red', 'amber', '', 'amber', 'amber', 'red'], p50: [5, 5, 6, 5, 5, 5, 5, 9].map(v => v * 1000),
+    p90: [5.5, 5.5, 6.5, 5.5, 5.5, 5.5, 5.6, 9.5].map(v => v * 1000), supply: [6000, 4800, 5500, 5300, 6000, 5400, 5200, 8000]};
+  assert.deepEqual(gapRuns(proj), [{kind: 'red', k0: 1, k1: 2, mw: 500}, {kind: 'amber', k0: 3, k1: 3, mw: 200}, {kind: 'amber', k0: 5, k1: 6, mw: 400}, {kind: 'red', k0: 7, k1: 7, mw: 1000}]);
+  // drawn: a trip gives a red run; widening the likely range gives amber ones too
+  const {stack, doc} = mount();
+  const vm = await tripVm();
+  stack.update(vm);
+  assert.ok(stack.debug.stats.gapMarks.includes('red:back:!'), stack.debug.stats.gapMarks.join());
+  const calm = await morning();
+  stack.update(calm);
+  const quiet = doc.canvasStats.calls;
+  stack.update(calm);
+  const perFrame = doc.canvasStats.calls - quiet;
+  const wide = await morning();
+  wide.obs.forecast.demandP50 = wide.obs.forecast.demandP50.map(v => v * 0.5);
+  wide.obs.forecast.demandP90 = wide.obs.forecast.demandP90.map(v => v * 2);
+  wide.obs.plan.rev++;
+  stack.update(wide);
+  const marks = stack.debug.stats.gapMarks;
+  assert.ok(marks.includes('amber:forward:~'), marks.join());
+  assert.equal(marks.length, gapRuns(stack.debug.proj).length, 'one glyph per run');
+  const c0 = doc.canvasStats.calls;
+  stack.update(wide);
+  assert.ok(doc.canvasStats.calls - c0 > perFrame, 'the pattern and the glyphs are drawn');
+  assert.deepEqual(doc.canvasStats.bad, []);
+});
+
+test('K-23: the stack canvas has a text alternative (role img, aria-label), refreshed at most once per real second; keys stay on its own element', async () => {
+  const {stack, cv, sent} = mount();
+  const vm = await morning();
+  vm.frame.nowMs = 10000;
+  stack.update(vm);
+  assert.equal(cv.getAttribute('role'), 'img');
+  const a = cv.getAttribute('aria-label');
+  assert.match(a, /^Live Stack at \d\d:\d\d: the plan for the next 4\.5 hours\. Planned supply [\d,]+ MW against a forecast of [\d,]+ MW/);
+  assert.equal(a, stackSummary(stack.debug.proj, vm.obs, false));
+  // a trip changes the picture; the label follows within a second, not every frame
+  const trip = await tripVm({mode: {mode: 'WATCH', rate: 0.15, watchS: 0.5, locked: true, watchVersion: 'full'}});
+  trip.frame.nowMs = 10500;
+  stack.update(trip);
+  assert.equal(cv.getAttribute('aria-label'), a, 'not yet');
+  trip.frame.nowMs = 11000;
+  stack.update(trip);
+  const b = cv.getAttribute('aria-label');
+  assert.match(b, /SHORT \d\d:\d\d to \d\d:\d\d, up to [\d,]+ MW below the forecast\./);
+  assert.match(b, /Read-only during the watch\./);
+  let sets = 0;
+  const set = cv.setAttribute.bind(cv);
+  cv.setAttribute = (k, v) => { if (k === 'aria-label') sets++; set(k, v); };
+  for (let i = 0; i < 180; i++) { trip.frame.nowMs = 11016 + i * 16; trip.obs.s += 1; stack.update(trip); } // 3 real s, the clock moving
+  assert.ok(sets <= 3, sets + ' label writes in 3 s');
+  // the words name each kind, so the summary never leans on colour
+  assert.match(stackSummary({n: 2, gap: ['amber', ''], p50: [5000, 5000], p90: [5600, 5600], supply: [5200, 6000], times: [300, 600]}, {s: 0}, false), /TIGHT .* below the top of the likely range\./);
+  assert.match(stackSummary({n: 1, gap: [''], p50: [5000], p90: [5600], supply: [6000], times: [300]}, {s: 0}, false), /No gaps\./);
+  // §13.3: the stack handles its own keys on its element and stops them, so it exposes no key() for the shell to forward
+  assert.equal(stack.key, undefined);
+  const ok = await morning();
+  stack.update(ok);
+  stack.el.focus();
+  const ev = stack.el.dispatch('keydown', {key: '2'});
+  assert.ok(ev.defaultPrevented && ev.stopped, 'handled once, on the element');
+  assert.equal(sent.length, 0);
 });
 
 test('no NaN reaches the canvas, with history, odd forecasts and an empty plan', async () => {

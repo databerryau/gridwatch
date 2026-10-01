@@ -18,7 +18,13 @@
 // Drops snap to 15 min / 50 MW; an infeasible drop shows the earliest-arrival ghost instead
 // (click it or press Enter to take it). Keyboard (stack focused): 1-6 select COAL, CCGT, GT·A,
 // GT·B, GT·C, HYDRO (again: that station's off-unit ghost), arrows move one snap step, Enter
-// drops, Delete removes the selected key, Esc clears, L expands.
+// drops, Delete removes the selected key, Esc clears, L expands. The element listens for its
+// own keys and stops them, so the handle needs no key() for the shell to forward (§13.3).
+//
+// K-22 (status is never colour only): a red gap (short of P50) is hatched "\\\" and carries a
+// "!" over each run; an amber gap (inside the likely range) is hatched "///" and carries a "~"
+// (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture says
+// (stackSummary), refreshed at most once per real second.
 
 import {V} from '../sim/params.js';
 import * as PV from '../app/planview.js';
@@ -35,6 +41,42 @@ const FLOOR_FONT = '9px system-ui, -apple-system, "Segoe UI", sans-serif';
 const BIG_FONT = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
 const NAMES = {coal: 'COAL', ccgt: 'CCGT', gta: 'GT·A', gtb: 'GT·B', gtc: 'GT·C', hydro: 'HYDRO', wind: 'WIND', solar: 'SOLAR',
   tie: 'TIE', battery: 'BATTERY', rert: 'DIESEL', dr: 'DR'};
+
+/** K-22: how each gap kind is told apart without colour: hatch direction and a glyph over each run. */
+export const GAP_MARK = Object.freeze({
+  red: Object.freeze({hatch: 'back', glyph: '!', word: 'SHORT'}),
+  amber: Object.freeze({hatch: 'forward', glyph: '~', word: 'TIGHT'}),
+  blue: Object.freeze({hatch: 'bars', glyph: '+', word: 'SURPLUS'}), // for Phase 2, when the blue gap is drawn (L-5)
+});
+
+/** Runs of one gap kind ahead (pure): [{kind, k0, k1, mw}]; mw: the largest shortfall, against P50 (red) or P90 (amber). */
+export function gapRuns(proj) {
+  const out = [];
+  for (let k = 0; k < proj.n; k++) {
+    const kind = proj.gap[k];
+    if (!kind) continue;
+    const r = {kind, k0: k, k1: k, mw: 0};
+    for (; k < proj.n && proj.gap[k] === kind; k++) { r.k1 = k; r.mw = Math.max(r.mw, (kind === 'red' ? proj.p50[k] : proj.p90[k]) - proj.supply[k]); }
+    k--;
+    out.push(r);
+  }
+  return out;
+}
+
+/** K-23: the stack's text alternative (pure): the clock, supply against the forecast, each gap ahead in words. */
+export function stackSummary(proj, obs, locked) {
+  const runs = gapRuns(proj), far = proj.n - 1, say = [];
+  say.push('Live Stack at ' + clockText(obs.s, false) + ': the plan for the next 4.5 hours.');
+  say.push('Planned supply ' + fmtMW(Math.round(proj.supply[0])) + ' MW against a forecast of ' + fmtMW(Math.round(proj.p50[0])) + ' MW; ' +
+    fmtMW(Math.round(proj.supply[far])) + ' against ' + fmtMW(Math.round(proj.p50[far])) + ' MW by ' + clockText(proj.times[far], false) + '.');
+  for (const r of runs.slice(0, 4)) {
+    say.push(GAP_MARK[r.kind].word + ' ' + clockText(proj.times[r.k0] - STEP, false) + ' to ' + clockText(proj.times[r.k1], false) + ', up to ' +
+      fmtMW(Math.round(r.mw)) + ' MW ' + (r.kind === 'red' ? 'below the forecast.' : 'below the top of the likely range.'));
+  }
+  if (!runs.length) say.push('No gaps.');
+  if (locked) say.push('Read-only during the watch.');
+  return say.join(' ');
+}
 
 const layerOfControl = id => {
   if (!id) return null;
@@ -70,6 +112,8 @@ export function createLiveStack(doc, root, actions) {
   el.style.position = 'relative';
   const cv = doc.createElement('canvas');
   cv.className = 'livestack-canvas';
+  cv.setAttribute('role', 'img');
+  cv.setAttribute('aria-label', 'Live Stack');
   cv.style.display = 'block'; cv.style.width = '100%'; cv.style.height = '100%'; cv.style.touchAction = 'none';
   const btn = doc.createElement('button');
   btn.className = 'livestack-expand';
@@ -93,14 +137,14 @@ export function createLiveStack(doc, root, actions) {
 
   let vm = null, proj = null, sig = '', G = null, handles = [], ghosts = [];
   let drag = null, sel = null, pending = null, message = null, hoverLayer = null, hoverGap = null, sentHover = undefined, glowLocal = new Set();
-  let expanded = false, drawMs = 0, lastDrop = null, nowMs = 0, curB = null;
-  const stats = {draws: 0, recomputes: 0, tear: null};
+  let expanded = false, drawMs = 0, lastDrop = null, nowMs = 0, curB = null, runs = [], ariaAt = -1e9, ariaText = '';
+  const stats = {draws: 0, recomputes: 0, tear: null, gapMarks: []};
 
   const say = text => { message = text ? {text, until: nowMs + MSG_MS} : null; msg.textContent = text || ''; };
 
   function ensureProj() {
     const obs = vm.obs, k = signature(obs);
-    if (!proj || k !== sig) { proj = PV.project(obs, {hist: vm.hist}); sig = k; stats.recomputes++; }
+    if (!proj || k !== sig) { proj = PV.project(obs, {hist: vm.hist}); sig = k; stats.recomputes++; runs = gapRuns(proj); }
     else if (vm.hist) proj.past = PV.pastFromHist(vm.hist, proj.pastTimes);
     return proj;
   }
@@ -219,6 +263,18 @@ export function createLiveStack(doc, root, actions) {
     ctx.stroke();
   }
 
+  /** The other diagonal ("\\\"), so a red gap and an amber gap differ by pattern, not only by colour (K-22). */
+  function hatchBack(ctx, xa, xb, yt, yb, col) {
+    if (!(yb - yt > 1)) return;
+    ctx.strokeStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let x = xa - (yb - yt); x < xb; x += 4) {
+      const ax = Math.max(xa, x), ay = yt + (ax - x), bx = Math.min(xb, x + (yb - yt)), by = yt + (bx - x);
+      if (bx > ax) { ctx.moveTo(ax, ay); ctx.lineTo(bx, by); }
+    }
+    ctx.stroke();
+  }
+
   function draw() {
     const t0 = globalThis.performance ? performance.now() : Date.now();
     const obs = vm.obs;
@@ -295,6 +351,21 @@ export function createLiveStack(doc, root, actions) {
       ctx.fillStyle = g === 'red' ? (hoverGap && k >= hoverGap.k0 && k <= hoverGap.k1 ? 'rgba(248,81,73,0.95)' : 'rgba(248,81,73,0.75)') : 'rgba(210,153,34,0.55)';
       ctx.fillRect(xs[k], ya, Math.max(1, xs[k + 1] - xs[k]), Math.max(1, yb - ya));
     }
+    // K-22: the same gaps by pattern and glyph: red "\\\" with "!", amber "///" with "~"
+    stats.gapMarks.length = 0;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    for (const r of runs) {
+      const m = GAP_MARK[r.kind], red = r.kind === 'red';
+      let yTop = Infinity;
+      for (let k = r.k0; k <= r.k1; k++) {
+        const ya = G.y(red ? proj.p50[k] : proj.p90[k]), yb = G.y(proj.supply[k]);
+        (red ? hatchBack : hatch)(ctx, xs[k], xs[k + 1], ya, yb, red ? 'rgba(13,17,23,0.75)' : 'rgba(13,17,23,0.5)');
+        if (ya < yTop) yTop = ya;
+      }
+      ctx.fillStyle = red ? '#ffd1cc' : '#f0d58a';
+      ctx.fillText(m.glyph, (xs[r.k0] + xs[r.k1 + 1]) / 2, Math.max(G.y1 + 9, yTop - 1));
+      stats.gapMarks.push(r.kind + ':' + m.hatch + ':' + m.glyph);
+    }
     // skyline: P50 (L-2)
     ctx.strokeStyle = UI.skyline; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(xs[0], G.y(proj.p50[0]));
@@ -331,6 +402,11 @@ export function createLiveStack(doc, root, actions) {
     if (vm.mode && vm.mode.locked) { ctx.fillStyle = UI.red; ctx.textAlign = 'center'; ctx.fillText('READ-ONLY: WATCH', (G.x0 + G.x1) / 2, 1); }
     if (message && nowMs > message.until) say('');
     if (pending && nowMs > pending.until) pending = null;
+    if (nowMs - ariaAt >= 1000 || nowMs < ariaAt) { // the text alternative, at most once per real second (K-23)
+      ariaAt = nowMs;
+      const text = stackSummary(proj, obs, readOnly());
+      if (text !== ariaText) { ariaText = text; cv.setAttribute('aria-label', text); }
+    }
     stats.draws++;
     drawMs = (globalThis.performance ? performance.now() : Date.now()) - t0;
   }
