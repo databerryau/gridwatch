@@ -223,20 +223,23 @@ test('K-22: red and amber gaps differ by hatch direction and glyph, not only by 
   stack.update(vm);
   assert.ok(stack.debug.stats.gapMarks.includes('red:back:!'), stack.debug.stats.gapMarks.join());
   const calm = await morning();
-  stack.update(calm);
+  // An unchanged stack is not redrawn (F-11), so a draw is measured on the first frame of each state.
   const quiet = doc.canvasStats.calls;
   stack.update(calm);
   const perFrame = doc.canvasStats.calls - quiet;
+  const idle = doc.canvasStats.calls, skips = stack.debug.stats.skips;
+  stack.update(calm);
+  assert.equal(doc.canvasStats.calls, idle, 'the same frame again draws nothing');
+  assert.equal(stack.debug.stats.skips, skips + 1);
   const wide = await morning();
   wide.obs.forecast.demandP50 = wide.obs.forecast.demandP50.map(v => v * 0.5);
   wide.obs.forecast.demandP90 = wide.obs.forecast.demandP90.map(v => v * 2);
   wide.obs.plan.rev++;
+  const c0 = doc.canvasStats.calls;
   stack.update(wide);
   const marks = stack.debug.stats.gapMarks;
   assert.ok(marks.includes('amber:forward:~'), marks.join());
   assert.equal(marks.length, gapRuns(stack.debug.proj).length, 'one glyph per run');
-  const c0 = doc.canvasStats.calls;
-  stack.update(wide);
   assert.ok(doc.canvasStats.calls - c0 > perFrame, 'the pattern and the glyphs are drawn');
   assert.deepEqual(doc.canvasStats.bad, []);
 });

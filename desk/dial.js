@@ -97,7 +97,7 @@ export function createFreqDial(ctx, parent) {
     g.strokeStyle = '#f85149'; g.lineWidth = 2 * dpr;
     g.beginPath(); g.moveTo(cx + (r + lw) * Math.cos(au), cy + (r + lw) * Math.sin(au)); g.lineTo(cx + (r - 2 * lw) * Math.cos(au), cy + (r - 2 * lw) * Math.sin(au)); g.stroke();
     g.fillStyle = '#f85149'; g.textAlign = 'left';
-    g.fillText('UFLS', cx - r + 2 * dpr, cy - 16 * dpr);
+    g.fillText('UFLS', cx - r + lw + 4 * dpr, cy - 14 * dpr);
     const needle = (f, col, width, dash) => {
       const a = dialAngle(f);
       g.save();

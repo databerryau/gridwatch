@@ -692,6 +692,31 @@ volumes and mute reach the right gains; unknown cue ignored; no WebAudio → sil
   sonified hum is there already), "?" anchors for new elements.
 * Keep K-17 / K-18 (`tests/next.test.js`).
 
+## 16. Stage C record (integration, 2026-10-01)
+
+The four branches merged without conflicts; `node --test` 392 pass. What integration changed:
+
+* **Pan.** §13.2's map-wide formula put every suburb between -0.19 and +0.34. `panOfSuburb` now
+  spans the city's own width (west -0.8, east +0.8).
+* **spoolUp.** No sim record marks a machine starting, so the game reads it off each unit's mode
+  between frames (`cueOfModeChange`), which covers booked starts too.
+* **Live Stack redraw.** It drew its whole canvas every frame (p50 2.8 ms, p95 4.6 ms in
+  Chromium, over L-1's 4 ms). It now redraws only when the projection, the now line (15 grid-s
+  steps), its size or a highlight changes, or while something is live (a drag, a selection, a
+  ghost, a message, a hover, the watch).
+* **The dial's UFLS label** sat under the red arc; moved inside it.
+* **SPEC**: §9.1 Q-11–Q-17 (B-1–B-7), the §8.2 escalation row, K-21, the F-11 measurement, the
+  release checklist. New tools are `.mjs` because `tools/package.json` pins CommonJS.
+* **The keyboard-only day** (`tests/day.test.js`): key events only, through the real page; its
+  log replays to the same hash. Its restore leg runs only if the injected trip sheds load.
+* **Agents' deviations kept**: keyboard steps on the battery dial and tie knob are 50 / Shift 10
+  / Ctrl 1 MW (§13.3) where 1a had 10 / 1; `HORIZON_Y` 40 → 56 so the floor layout shows sky;
+  the breaker clack is a rendered buffer (2 nodes, not 9); an escalation inside a tile's
+  hold-off sounds at once; keyup always reaches the key chain; Ctrl/Meta/Alt combos skip it.
+* **Not done**: nobody has listened to the sound (fake audio context only); paint time is not
+  in the F-11 numbers; no greyscale screenshot; first use of a long voice (growl, spool) renders
+  for 20–50 ms once; §7 above still describes the 1a greybox map.
+
 ## 15. Done means
 
 `node --test` green and still under 60 s; each agent reports: what it built, every deviation

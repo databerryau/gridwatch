@@ -37,6 +37,8 @@ const SIDS = V.STATION_IDS;
 const STEP = PV.COL_S;
 const RECOMPUTE_S = 30;
 const GHOST_MS = 6000, MSG_MS = 4000;
+/** Grid seconds between redraws of an idle stack (the now line moves under 0.3 px in that at the floor; F-11). */
+const NOW_STEP_S = 15;
 const FLOOR_FONT = '9px system-ui, -apple-system, "Segoe UI", sans-serif';
 const BIG_FONT = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
 const NAMES = {coal: 'COAL', ccgt: 'CCGT', gta: 'GT·A', gtb: 'GT·B', gtc: 'GT·C', hydro: 'HYDRO', wind: 'WIND', solar: 'SOLAR',
@@ -138,7 +140,8 @@ export function createLiveStack(doc, root, actions) {
   let vm = null, proj = null, sig = '', G = null, handles = [], ghosts = [];
   let drag = null, sel = null, pending = null, message = null, hoverLayer = null, hoverGap = null, sentHover = undefined, glowLocal = new Set();
   let expanded = false, drawMs = 0, lastDrop = null, nowMs = 0, curB = null, runs = [], ariaAt = -1e9, ariaText = '';
-  const stats = {draws: 0, recomputes: 0, tear: null, gapMarks: []};
+  const stats = {draws: 0, skips: 0, recomputes: 0, tear: null, gapMarks: []};
+  let drawnKey = '';
 
   const say = text => { message = text ? {text, until: nowMs + MSG_MS} : null; msg.textContent = text || ''; };
 
@@ -821,7 +824,19 @@ export function createLiveStack(doc, root, actions) {
     setExpanded(!!v.stackExpanded);
     if (readOnly()) { drag = null; sel = null; pending = null; }
     if (sel) refreshSel();
-    draw();
+    // F-11: the canvas is redrawn only when something it shows has changed. At rest that is the
+    // projection (its signature), the now line (one step per NOW_STEP_S grid-s, under 0.3 px at
+    // the floor), the size and the cross-highlights; anything live (a drag, a selection, a
+    // ghost, a message, a hover, the watch's tear) draws every frame.
+    const live = drag || sel || pending || message || hoverLayer || hoverGap || readOnly();
+    let key = '';
+    if (!live) {
+      let glow = '';
+      if (v.glow && typeof v.glow.forEach === 'function') v.glow.forEach(id => { glow += id + ','; });
+      key = signature(v.obs) + '|' + Math.floor(v.obs.s / NOW_STEP_S) + '|' + (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' +
+        expanded + '|' + (v.hover || '') + '|' + glow + '|' + (globalThis.devicePixelRatio || 1);
+    }
+    if (live || key !== drawnKey) { drawnKey = key; draw(); } else stats.skips++;
   }
 
   return {
