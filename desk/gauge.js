@@ -2,10 +2,12 @@
 // "SPARE IN 5 MIN" (R5) against "BIGGEST RISK: <name>" (L), the H-4 word, and the TRIP PREVIEW
 // for both credible contingencies (the largest unit and the tie import). Plain words on the face;
 // R5, L and the LOR names sit behind "?". Colours by nadir: >= 49.5 green, 49.0-49.5 amber,
-// < 49.0 red, always with a glyph.
+// < 49.0 red, always with a glyph. The bars are told apart without colour too (K-22): SPARE is a
+// solid fill and carries the level's glyph on its number (✓ covers 1.25 × the risk, ! covers the
+// risk, ✕ short: cross-hatched), RISK is a hatched fill.
 
 import {V} from '../sim/params.js';
-import {el, setText, setAttr, setCls, setStyle, setHidden, mw, hz2, fin, clamp, unitLabel, nadirClass, CLASS_GLYPH} from './util.js';
+import {el, setText, setAttr, setCls, setStyle, setHidden, mw, hz2, fin, clamp, unitLabel, nadirClass, CLASS_GLYPH, PAN} from './util.js';
 
 const LEVEL_GLYPH = {SECURE: '✓', TIGHT: '!', SHORT: '✕', SHEDDING: '✕✕'};
 const HELP = 'SPARE IN 5 MIN is R5: headroom that can be delivered within 5 minutes. BIGGEST RISK is L: the largest ' +
@@ -32,7 +34,7 @@ export function createGauge(ctx, parent) {
   q.type = 'button'; q.id = 'q-gauge';
   q.title = HELP;
   q.setAttribute('aria-label', 'What these words mean');
-  q.addEventListener('click', () => ctx.note(box, HELP, 8000));
+  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, HELP, 8000); });
   head.append(word, q);
   const bar = (label) => {
     const row = el(doc, 'div', 'dk-gbar');
@@ -49,6 +51,8 @@ export function createGauge(ctx, parent) {
   const pbtn = el(doc, 'button', 'dk-btn dk-pbtn', 'T PREVIEW');
   pbtn.id = 'btn-preview'; pbtn.type = 'button';
   pbtn.setAttribute('aria-pressed', 'false');
+  pbtn.setAttribute('aria-keyshortcuts', 'T');
+  pbtn.setAttribute('aria-label', 'TRIP PREVIEW: show where frequency would bottom out if the biggest risk tripped now (T)');
   const ptext = el(doc, 'span', 'dk-ptext');
   prev.append(pbtn, ptext);
   const caught = el(doc, 'div', 'dk-caught');
@@ -56,7 +60,7 @@ export function createGauge(ctx, parent) {
   parent.appendChild(box);
   let vm = null, latched = false;
   // TRIP PREVIEW (K-10): T (shell), the button (latches) or hovering the gauge. Presentation only.
-  pbtn.addEventListener('click', () => { latched = !(vm && vm.previewOn && latched); ctx.ui({do: 'preview', on: latched}); });
+  pbtn.addEventListener('click', () => { latched = !(vm && vm.previewOn && latched); ctx.cue('button', PAN.gauge); ctx.ui({do: 'preview', on: latched}); });
   box.addEventListener('pointerenter', () => { if (!latched) ctx.ui({do: 'preview', on: true}); });
   box.addEventListener('pointerleave', () => { if (!latched) ctx.ui({do: 'preview', on: false}); });
 
@@ -72,7 +76,9 @@ export function createGauge(ctx, parent) {
       setStyle(r5.fill, 'width', (clamp(fin(s.r5MW) / scale, 0, 1) * 100).toFixed(1) + '%');
       setStyle(lb.fill, 'width', (clamp(fin(s.lMW) / scale, 0, 1) * 100).toFixed(1) + '%');
       setStyle(secLine, 'left', (clamp(fin(s.lMW) * V.SECURE_RATIO / scale, 0, 1) * 100).toFixed(1) + '%');
-      setText(r5.val, mw(s.r5MW));
+      const cover = fin(s.r5MW) < fin(s.lMW) ? 'crit' : fin(s.r5MW) < fin(s.lMW) * V.SECURE_RATIO ? 'warn' : 'good';
+      setText(r5.val, CLASS_GLYPH[cover] + mw(s.r5MW));
+      setAttr(r5.row, 'data-cover', cover);
       setText(lb.l, 'RISK: ' + (s.lKind === 'none' ? 'none' : unitLabel(s.lId)));
       setText(lb.val, mw(s.lMW));
       setCls(r5.row, 'short', fin(s.r5MW) < fin(s.lMW));
@@ -92,8 +98,11 @@ export function createGauge(ctx, parent) {
       if (live) setText(caught, caughtText(pv.caught) || '—');
       setAttr(pbtn, 'aria-pressed', v.previewOn ? 'true' : 'false');
       setCls(pbtn, 'on', !!v.previewOn);
+      setText(pbtn, v.previewOn ? 'T PREVIEW ●' : 'T PREVIEW');
       setAttr(box, 'aria-label', 'N-1 gauge: ' + s.level + '. Spare in 5 minutes ' + mw(s.r5MW) + ' MW, biggest risk ' +
-        (s.lKind === 'none' ? 'none' : unitLabel(s.lId) + ' ' + mw(s.lMW) + ' MW') + '. Trip preview ' + hz2(nadir) + ' Hz.');
+        (s.lKind === 'none' ? 'none' : unitLabel(s.lId) + ' ' + mw(s.lMW) + ' MW') + '. Trip preview ' + hz2(nadir) + ' Hz' +
+        (s.lKind === 'none' ? '' : cls === 'good' ? ', contained' : cls === 'warn' ? ', below 49.5' : ', UFLS would operate') +
+        (live && caughtText(pv.caught) ? '; caught by ' + caughtText(pv.caught) : '') + '.');
       setCls(box, 'glow', !!(v.glow && v.glow.has('gauge-n1')));
     },
   };

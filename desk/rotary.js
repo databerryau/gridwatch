@@ -1,25 +1,34 @@
 // desk/rotary.js: K-4 hydro gate wheel, K-5 battery dial + GUARD ring, K-6 tie knob
 // (desk/README.md §6). DOM controls with role="slider" (K-23): drag in a circle, keys, scroll.
 // Each sends its sim input on release / key-up and shows the vm's applied value otherwise.
+// Foley (K-20): a turn cues `detent` across a detent (every GUARD step, the tie's detents, the
+// battery's IDLE) or else `ratchet`; the hydro gate cues `gate` when a new setting is taken.
 
 import {V} from '../sim/params.js';
 import {waterLastsUntilS, redArcFromMW, knobValue, knobAngle, pointerAngle, guardFromAngle, tieSnap, TIE_DETENTS,
   nextDetent, wrapDeg, KNOB_SWEEP, GUARD_MAX_MW} from './calc.js';
 import {createMachine, stationKey} from './levers.js';
-import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, smw, clamp, fin, clockOf, mmss} from './util.js';
+import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, smw, clamp, fin, clockOf, mmss, PAN} from './util.js';
 
 export const WHEEL_MW_PER_TURN = 250;   // K-4: one full turn of the hand wheel
 export const SEND_IDLE_MS = 250;        // scroll / key auto-repeat: send after this long idle
 export const PREVIEW_LINGER_MS = 1500;  // K-5: the guard ghost stays this long after the last turn
+export const SHAKE_MS = 600;            // K-12: a rough close shakes the wheel this long
+export const TIE_STEP_MW = 50, BATT_STEP_MW = 50, FINE_MW = 10, FINEST_MW = 1;   // §13.3 key steps (Shift: 10, Ctrl: 1)
 const HYDRO = V.STATIONS.hydro;
+const keyStep = (ev, coarse) => (ev.ctrlKey ? FINEST_MW : ev.shiftKey ? FINE_MW : coarse);
 
 /**
  * Shared rotary behaviour. o: {id, cls, label, value(), bounds() -> [lo, hi], angleValue(deg) or
- * null (relative wheel), perTurn (relative), step(ev, v) -> v | null, snap(v) (always), dragSnap(v) (drags only), send(v), turning(v)}
+ * null (relative wheel), perTurn (relative), step(ev, v) -> v | null, snap(v) (always), dragSnap(v) (drags only), send(v), turning(v),
+ * detents() -> MW values that thump when passed (else a move ratchets), pan, shortcut (aria-keyshortcuts)}
  */
 function makeRotary(ctx, o) {
   const doc = ctx.doc;
   const knob = control(doc, 'div', 'dk-knob ' + o.cls, 'slider', o.id, o.label);
+  if (o.shortcut) knob.setAttribute('aria-keyshortcuts', o.shortcut);
+  const feelSt = {};
+  const feel = (a, b) => ctx.feel(feelSt, Math.round(a), Math.round(b), o.detents ? o.detents() : null, null, o.pan);
   const pointer = el(doc, 'i', 'dk-pointer');
   knob.appendChild(pointer);
   let drag = null, pending = null, shown = null;
@@ -38,7 +47,7 @@ function makeRotary(ctx, o) {
     const [cx, cy] = center();
     const a = pointerAngle(cx, cy, ev.clientX, ev.clientY);
     drag = {v: cur(), a, v0: cur()};
-    if (o.angleValue) drag.v = apply(o.angleValue(a), true);
+    if (o.angleValue) { drag.v = apply(o.angleValue(a), true); feel(drag.v0, drag.v); }
     if (o.turning) o.turning(drag.v);
     knob.focus && knob.focus();
     o.render();
@@ -51,6 +60,7 @@ function makeRotary(ctx, o) {
     if (o.angleValue) v = apply(o.angleValue(a), true);
     else { const da = wrapDeg(a - drag.a); drag.a = a; v = clamp(drag.v + da / 360 * o.perTurn, ...o.bounds()); }
     const changed = apply(v, true) !== apply(drag.v, true);
+    if (changed) feel(apply(drag.v, true), apply(v, true));
     drag.v = v;
     if (changed && o.turning) o.turning(apply(v, true));
     o.render();
@@ -71,6 +81,7 @@ function makeRotary(ctx, o) {
     if (t === null || t === undefined) return;
     ev.preventDefault();
     const v = apply(t);
+    feel(cur(), v);
     pending = {v, t: pending ? pending.t : ctx.now()};
     if (o.turning) o.turning(v);
     o.render();
@@ -80,6 +91,7 @@ function makeRotary(ctx, o) {
     if (!ctx.vm() || ctx.locked() || !o.wheelStep) return;
     ev.preventDefault && ev.preventDefault();
     const v = apply(cur() + (fin(ev.deltaY) < 0 ? 1 : -1) * o.wheelStep(ev));
+    feel(cur(), v);
     pending = {v, t: ctx.now()};
     if (o.turning) o.turning(v);
     o.render();
@@ -112,10 +124,10 @@ export function createHydroWheel(ctx, parent) {
   const face = el(doc, 'div', 'dk-rot-face');
   const rim = el(doc, 'div', 'dk-rim');
   const water = el(doc, 'div', 'dk-water');
-  let vm = null;
+  let vm = null, shakeUntil = -1;
   const so = () => vm.obs.stations.find(x => x.id === 'hydro') || {basePointMW: 0, outMW: 0, onCount: 0, minMW: 0, maxMW: 0};
   const r = makeRotary(ctx, {
-    id: 'wheel-hydro', cls: 'dk-wheel', label: 'Hydro gate wheel',
+    id: 'wheel-hydro', cls: 'dk-wheel', label: 'Hydro gate wheel', pan: PAN.hydro, shortcut: '6',
     value: () => fin(so().basePointMW),
     bounds: () => [fin(so().minMW), Math.max(fin(so().minMW), fin(so().maxMW))],
     angleValue: null, perTurn: WHEEL_MW_PER_TURN,
@@ -133,7 +145,7 @@ export function createHydroWheel(ctx, parent) {
     send(v) {
       if (!(so().onCount > 0)) { ctx.note(box, 'no hydro machine on: START one'); return 'no machine on'; }
       const res = ctx.send({type: 'basePoint', station: 'hydro', mw: Math.round(v)}, box);
-      if (!res) ctx.live('HYDRO gate ' + Math.round(v) + ' MW');
+      if (!res) { ctx.cue('gate', PAN.hydro); ctx.live('HYDRO gate ' + Math.round(v) + ' MW'); }
       return res;
     },
     render: () => render(),
@@ -145,7 +157,7 @@ export function createHydroWheel(ctx, parent) {
   const store = el(doc, 'div', 'dk-store');
   const machCol = el(doc, 'div', 'dk-machs');
   const machines = [];
-  for (let k = HYDRO.first; k < HYDRO.first + HYDRO.count; k++) { const m = createMachine(ctx, k); machines.push(m); machCol.appendChild(m.el); }
+  for (let k = HYDRO.first; k < HYDRO.first + HYDRO.count; k++) { const m = createMachine(ctx, k, PAN.hydro); machines.push(m); machCol.appendChild(m.el); }
   const left = el(doc, 'div', 'dk-rot-main');
   left.append(title, face, lasts, store);
   box.append(left, machCol);
@@ -174,6 +186,7 @@ export function createHydroWheel(ctx, parent) {
     setCls(box, 'hand', o.mode === 'HAND');
     setCls(box, 'moving', r.moving());
     setCls(box, 'glow', !!(vm.glow && vm.glow.has('wheel-hydro')));
+    setCls(box, 'shake', ctx.now() < shakeUntil && !ctx.rm());
     setAttr(r.knob, 'aria-valuemin', 0);
     setAttr(r.knob, 'aria-valuemax', T);
     setAttr(r.knob, 'aria-valuenow', Math.round(v));
@@ -186,6 +199,8 @@ export function createHydroWheel(ctx, parent) {
     el: box, knob: r.knob, machines,
     update(v) { vm = v; r.tick(v); for (const m of machines) m.update(v); render(); },
     key(target, k) { return target && box.contains(target) ? stationKey(machines, k) : false; },
+    /** K-12: a rough close on a hydro machine (no shake under reduced motion). */
+    shake() { shakeUntil = ctx.now() + SHAKE_MS; },
   };
 }
 
@@ -199,13 +214,15 @@ export function createBatteryDial(ctx, parent) {
   title.append(el(doc, 'span', '', 'BATT'), soc);
   const face = el(doc, 'div', 'dk-rot-face dk-batt-face');
   let vm = null, lastTurnT = -1, previewMW = null;
+  let mag = BATT_STEP_MW;   // the magnitude the mode keys (←/→) switch on: the last non-zero order, or what ↑/↓ set in IDLE
   const bt = () => vm.obs.battery;
   const avail = () => Math.max(0, fin(bt().ratedMW, V.BATT_MW) - fin(bt().guardMW));
   const signed = () => (bt().mode === 'charge' ? -1 : bt().mode === 'discharge' ? 1 : 0) * fin(bt().orderMW);
 
   // GUARD ring (outer): 0..500 MW in 50-MW detents; turning it re-runs TRIP PREVIEW live.
   const ring = makeRotary(ctx, {
-    id: 'ring-guard', cls: 'dk-ring', label: 'GUARD ring: battery MW held back to catch trips',
+    id: 'ring-guard', cls: 'dk-ring', label: 'GUARD ring: battery MW held back to catch trips', pan: PAN.battery, shortcut: 'G',
+    detents: () => { const d = []; for (let x = 0; x <= GUARD_MAX_MW; x += V.GUARD_STEP_MW) d.push(x); return d; },
     value: () => fin(bt().guardMW),
     bounds: () => [0, GUARD_MAX_MW],
     angleValue: a => guardFromAngle(a),
@@ -232,19 +249,26 @@ export function createBatteryDial(ctx, parent) {
   });
   // Dial (inner): CHARGE ← IDLE → DISCHARGE, magnitude up to the MW not on guard.
   const dial = makeRotary(ctx, {
-    id: 'dial-battery', cls: 'dk-bdial', label: 'Battery dial: charge, idle or discharge',
+    id: 'dial-battery', cls: 'dk-bdial', label: 'Battery dial: charge, idle or discharge', pan: PAN.battery, shortcut: '7',
+    detents: () => [0],
     value: () => clamp(signed(), -avail(), avail()),
     bounds: () => [-avail(), avail()],
     angleValue: a => knobValue(a, -avail(), avail()),
     dragSnap: v => (Math.abs(v) <= 15 ? 0 : Math.round(v)),
+    // Keys (§13.3): ←/→ step the mode CHARGE ← IDLE → DISCHARGE at the magnitude last set; ↑/↓ change
+    // the magnitude of the present mode (in IDLE: the magnitude the next mode step will order).
     step(ev, v) {
-      const k = ev.key, st = ev.shiftKey ? 1 : 10;
-      if (k === 'ArrowUp' || k === 'ArrowRight') return v + st;
-      if (k === 'ArrowDown' || k === 'ArrowLeft') return v - st;
-      if (k === 'PageUp') return v + 50;
-      if (k === 'PageDown') return v - 50;
-      if (k === 'Home') return -avail();
-      if (k === 'End') return avail();
+      const k = ev.key, a = avail(), m = Math.sign(v);
+      if (v !== 0) mag = Math.abs(v);
+      if (k === 'ArrowLeft' || k === 'ArrowRight') return clamp(m + (k === 'ArrowRight' ? 1 : -1), -1, 1) * Math.min(mag, a);
+      if (k === 'ArrowUp' || k === 'ArrowDown' || k === 'PageUp' || k === 'PageDown') {
+        const up = k === 'ArrowUp' || k === 'PageUp', st = k.startsWith('Page') ? BATT_STEP_MW : keyStep(ev, BATT_STEP_MW);
+        const nm = clamp((m ? Math.abs(v) : mag) + (up ? st : -st), 0, a);
+        if (m === 0) { mag = Math.max(nm, FINEST_MW); ctx.live('BATTERY IDLE: ←/→ orders ' + mw(mag) + ' MW'); return 0; }
+        return m * nm;
+      }
+      if (k === 'Home') return -a;
+      if (k === 'End') return a;
       return null;
     },
     wheelStep: ev => (ev.shiftKey ? 1 : 10),
@@ -289,7 +313,9 @@ export function createBatteryDial(ctx, parent) {
     setCls(full, 'lit', !!(b.fullHold || b.ufSuspend));
     setCls(box, 'glow', !!(vm.glow && (vm.glow.has('dial-battery') || vm.glow.has('ring-guard'))));
     for (const [k, lo, hi, now, text] of [[ring.knob, 0, GUARD_MAX_MW, g, 'GUARD ' + mw(g) + ' MW' + (b.guardFired ? ' (fired)' : '')],
-      [dial.knob, -a, a, v, (v > 0 ? 'discharge ' : v < 0 ? 'charge ' : 'idle ') + mw(Math.abs(v)) + ' MW of ' + mw(a) + ' beside the guard']]) {
+      [dial.knob, -a, a, v, (v > 0 ? 'discharge ' + mw(v) : v < 0 ? 'charge ' + mw(-v) : 'idle, mode keys order ' + mw(Math.min(mag, a))) +
+        ' MW of ' + mw(a) + ' beside the guard, output ' + smw(b.outMW) + ' MW, charge ' +
+        Math.round(fin(b.socMWh) / fin(b.capMWh, V.BATT_MWH) * 100) + '%' + (b.fullHold ? ', FULL–HOLD' : '')]]) {
       setAttr(k, 'aria-valuemin', Math.round(lo));
       setAttr(k, 'aria-valuemax', Math.round(hi));
       setAttr(k, 'aria-valuenow', Math.round(now));
@@ -302,6 +328,7 @@ export function createBatteryDial(ctx, parent) {
     update(v) {
       vm = v;
       ring.tick(v); dial.tick(v);
+      if (!dial.moving() && signed() !== 0) mag = Math.abs(signed());
       if (previewMW !== null && !ring.moving() && ctx.now() - lastTurnT >= PREVIEW_LINGER_MS) {
         previewMW = null;
         ctx.ui({do: 'previewGuard', mw: null});
@@ -324,13 +351,14 @@ export function createTieKnob(ctx, parent) {
   let vm = null;
   const t = () => vm.obs.tie;
   const k = makeRotary(ctx, {
-    id: 'knob-tie', cls: 'dk-tknob', label: 'Interconnector knob: + import, − export',
+    id: 'knob-tie', cls: 'dk-tknob', label: 'Interconnector knob: + import, − export', pan: PAN.tie, shortcut: '8',
+    detents: () => TIE_DETENTS,
     value: () => fin(t().setMW),
     bounds: () => [-V.TIE_MAX_MW, V.TIE_MAX_MW],
     angleValue: a => knobValue(a, -V.TIE_MAX_MW, V.TIE_MAX_MW),
     dragSnap: v => tieSnap(v),
     step(ev, v) {
-      const key = ev.key, st = ev.shiftKey ? 1 : 10;
+      const key = ev.key, st = keyStep(ev, TIE_STEP_MW);
       if (key === 'ArrowUp' || key === 'ArrowRight') return v + st;
       if (key === 'ArrowDown' || key === 'ArrowLeft') return v - st;
       if (key === 'PageUp') return nextDetent(v, TIE_DETENTS, 1);

@@ -33,6 +33,38 @@ export const setCls = (e, c, on) => { if (e.classList.contains(c) !== !!on) e.cl
 export const setStyle = (e, k, v) => { if (e.style[k] !== v) e.style[k] = v; };
 export const setHidden = (e, h) => { if (e.hidden !== !!h) e.hidden = !!h; };
 
+/**
+ * A setAttr that changes its attribute at most once per `ms` of the desk clock (K-23: a canvas's
+ * text alternative is read out, so it must not change every frame). The first value is set at once.
+ */
+export function slowAttr(now, ms = 1000) {
+  let t = 0, first = true;
+  return (e, k, v) => {
+    v = String(v);
+    if (e.getAttribute(k) === v) return;
+    const n = now();
+    if (!first && n >= t && n - t < ms) return;
+    first = false; t = n;
+    e.setAttribute(k, v);
+  };
+}
+
+/**
+ * Stereo pan (-1..1) of each desk area for its foley (desk/README.md §13.2): where the control
+ * sits across the 1280-px floor layout (x / 640 - 1).
+ */
+export const PAN = Object.freeze({gauge: -0.81, coal: -0.55, ccgt: -0.42, gta: -0.29, gtb: -0.15, gtc: -0.02, hydro: -0.53,
+  battery: -0.34, tie: -0.2, keys: -0.03, bay: 0.32, panel: 0.79});
+
+/** Foley of a hand-moved value (K-20): 'gate' across the gate, 'detent' across a detent, else 'ratchet'. */
+export function feelOf(a, b, detents, gateMW) {
+  if (a === b) return '';
+  if (gateMW !== undefined && gateMW !== null && (a <= gateMW) !== (b <= gateMW)) return 'gate';
+  for (const d of detents || []) if ((a < d && d <= b) || (b <= d && d < a)) return 'detent';
+  return 'ratchet';
+}
+export const RATCHET_MS = 50;   // at most one ratchet cue per 50 ms from one control (audio keeps <= 20/s overall)
+
 /** Integer MW text. */
 export const mw = x => String(Math.round(fin(x)));
 /** Signed integer MW text. */
@@ -63,9 +95,9 @@ export function unitLabel(id) {
   return V.STATIONS[m[1]].machines > 1 ? STATION_SHORT[m[1]] + ' ' + m[2] : STATION_SHORT[m[1]];
 }
 
-/** Machine state -> lamp glyph and letter (status is never colour-only, K-22). */
+/** Machine state -> lamp glyph and word: one glyph per state, so no state is told by colour alone (K-22). */
 export const MODE_GLYPH = Object.freeze({
-  off: '○', starting: '◔', ready: '◑', loading: '◕', on: '●', unloading: '◕', shutdown: '◔', tripped: '✕',
+  off: '○', starting: '◔', ready: '◑', loading: '▲', on: '●', unloading: '▼', shutdown: '◌', tripped: '✕',
 });
 export const MODE_WORD = Object.freeze({
   off: 'OFF', starting: 'STARTING', ready: 'READY', loading: 'LOADING', on: 'ON', unloading: 'UNLOADING',

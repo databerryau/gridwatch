@@ -1,8 +1,10 @@
 // desk/tray.js: the K-9 message tray view (desk/README.md §6). At most 3 cards from
 // vm.tray.cards (app/tray.js owns the model), each with one button that only focuses a control
 // (actions.ui({do:'focus'})): a tray button never dispatches (K-9). LOG shows the rest.
+// Keys (K-23): M (the shell) focuses the tray, which lands on the first card's button; ←→ / ↑↓
+// move between the cards' buttons and LOG; Enter presses.
 
-import {el, setText, setAttr, setCls, setHidden, clockOf} from './util.js';
+import {el, setText, setAttr, setCls, setHidden, clockOf, PAN} from './util.js';
 
 export const TRAY_CARDS = 3;
 const SEV_GLYPH = {info: 'i', good: '✓', warn: '!', crit: '✕'};
@@ -14,6 +16,7 @@ export function createTray(ctx, parent) {
   box.setAttribute('role', 'region');
   box.setAttribute('aria-label', 'Message tray');
   box.setAttribute('tabindex', '-1');
+  box.setAttribute('aria-keyshortcuts', 'M');
   const head = el(doc, 'div', 'dk-tray-head');
   const title = el(doc, 'span', 'dk-title', 'MESSAGES');
   const logBtn = el(doc, 'button', 'dk-btn dk-logbtn', 'LOG');
@@ -26,7 +29,17 @@ export function createTray(ctx, parent) {
   box.append(head, cards, log);
   parent.appendChild(box);
   let showLog = false, key = '', logKey = '', vm = null;
-  logBtn.addEventListener('click', () => { showLog = !showLog; render(); });
+  logBtn.addEventListener('click', () => { showLog = !showLog; ctx.cue('button', PAN.panel); render(); });
+  // Roving focus: the cards' buttons (while shown), then LOG.
+  const stops = () => [...(showLog ? [] : cards.querySelectorAll('button')), logBtn];
+  box.addEventListener('keydown', ev => {
+    const fwd = ev.key === 'ArrowRight' || ev.key === 'ArrowDown', back = ev.key === 'ArrowLeft' || ev.key === 'ArrowUp';
+    if (!fwd && !back) return;
+    ev.preventDefault();
+    const s = stops(), i = s.indexOf(doc.activeElement);
+    const next = s[i < 0 ? (fwd ? 0 : s.length - 1) : (i + (fwd ? 1 : -1) + s.length) % s.length];
+    if (next && next.focus) next.focus();
+  });
 
   function build(list) {
     cards.replaceChildren();
@@ -43,7 +56,8 @@ export function createTray(ctx, parent) {
         b.type = 'button';
         b.dataset.target = c.button.target;
         // Presentation only: the button focuses (and lights) a control; it never sends an input.
-        b.addEventListener('click', () => { if (!ctx.locked()) ctx.ui({do: 'focus', target: b.dataset.target}); });
+        b.addEventListener('click', () => { if (!ctx.locked()) { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); } });
+        b.setAttribute('aria-label', (c.button.label || 'SHOW') + ': go to the control for "' + (c.text || '') + '"');
         card.appendChild(b);
       }
       cards.appendChild(card);
@@ -60,6 +74,7 @@ export function createTray(ctx, parent) {
     setHidden(cards, showLog);
     setAttr(logBtn, 'aria-pressed', showLog ? 'true' : 'false');
     setCls(logBtn, 'on', showLog);
+    setText(logBtn, showLog ? 'LOG ▾' : 'LOG');
     if (showLog) {
       const entries = (vm.tray && vm.tray.log) || [];
       const lk = String(entries.length);
@@ -76,5 +91,10 @@ export function createTray(ctx, parent) {
       }
     }
   }
-  return {el: box, update(v) { vm = v; render(); }};
+  return {
+    el: box,
+    update(v) { vm = v; render(); },
+    /** Focus the first stop (a card's button, else LOG). True when something took the focus. */
+    focusFirst() { const s = stops()[0]; if (!s || !s.focus) return false; s.focus(); return true; },
+  };
 }

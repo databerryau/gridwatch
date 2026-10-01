@@ -6,10 +6,11 @@
 // on the face in HAND mode. Imbalance bar: the scheduled gap and the BORROWED stack that covers
 // it (inertia, battery, governors, load relief), plus SHED; segments sum to the swing-equation
 // imbalance (calc.imbalanceSegments).
+// The canvas is role="img"; its text alternative (K-23) changes at most once per real second.
 
 import {V} from '../sim/params.js';
 import {imbalanceSegments} from './calc.js';
-import {el, setText, setAttr, setCls, setStyle, setHidden, mw, smw, hz3, fin, clamp} from './util.js';
+import {el, setText, setAttr, setCls, setStyle, setHidden, slowAttr, mw, smw, hz3, fin, clamp, PAN} from './util.js';
 
 export const DIAL_LO = 49, DIAL_HI = 51;
 export const NEEDLE_AVG_ABOVE_X = 10;   // F-4: above 10× the needle shows the 1-s average
@@ -49,14 +50,17 @@ export function createFreqDial(ctx, parent) {
   box.setAttribute('role', 'group');
   box.setAttribute('tabindex', '0');
   const cv = el(doc, 'canvas', 'dk-dial-canvas');
-  cv.setAttribute('aria-hidden', 'true');
+  cv.id = 'dial-canvas';
+  cv.setAttribute('role', 'img');
+  const slow = slowAttr(ctx.now);
   const read = el(doc, 'div', 'dk-dial-read');
   const big = el(doc, 'span', 'dk-hz'), sub = el(doc, 'span', 'dk-dial-sub');
   const q = el(doc, 'button', 'dk-q', '?');
   q.type = 'button'; q.id = 'q-dial';
   q.title = 'CHANGE is the rate of change of frequency (RoCoF), measured over the last 500 ms; 1 Hz/s is the limit after a ' +
     'credible trip. SPIN is the energy stored in spinning machines (inertia), in GW·s: more spin, slower falls.';
-  q.addEventListener('click', () => ctx.note(box, q.title, 8000));
+  q.setAttribute('aria-label', 'What CHANGE and SPIN mean');
+  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, q.title, 8000); });
   read.append(big, sub, q);
   box.append(cv, read);
   parent.appendChild(box);
@@ -131,11 +135,17 @@ export function createFreqDial(ctx, parent) {
       setText(big, (cls === 'good' ? '' : cls === 'warn' ? '! ' : '✕ ') + hz3(fShow) + ' Hz');
       setAttr(big, 'class', 'dk-hz ' + cls);
       const rc = fin(o.f.rocofHzS);
-      setText(sub, 'CHANGE ' + (rc >= 0 ? '+' : '−') + Math.abs(rc).toFixed(3) + ' Hz/s · SPIN ' + fin(o.f.ekGWs).toFixed(1) + ' GW·s' +
+      const fast = Math.abs(rc) > V.ROCOF_LIMIT_HZ_S;
+      setText(sub, (fast ? '✕ ' : '') + 'CHANGE ' + (rc >= 0 ? '+' : '−') + Math.abs(rc).toFixed(3) + ' Hz/s · SPIN ' + fin(o.f.ekGWs).toFixed(1) + ' GW·s' +
         (vm.mode && vm.mode.rate > NEEDLE_AVG_ABOVE_X ? ' · 1-s avg' : ''));
-      setCls(sub, 'crit', Math.abs(rc) > V.ROCOF_LIMIT_HZ_S);
-      setAttr(box, 'aria-label', 'Frequency ' + hz3(fShow) + ' hertz, change ' + rc.toFixed(3) + ' hertz per second, spin ' +
-        fin(o.f.ekGWs).toFixed(1) + ' gigawatt seconds' + (o.mode === 'HAND' ? ', HAND mode' : ''));
+      setCls(sub, 'crit', fast);
+      // The text alternative of the canvas (and of the panel that holds it): at most one change per real second.
+      const alt = 'Frequency ' + hz3(fShow) + ' hertz, ' + (cls === 'good' ? 'in the normal band' : cls === 'warn' ? 'outside the normal band' :
+        'outside the containment band') + ', change ' + rc.toFixed(3) + ' hertz per second' + (fast ? ' (above the limit)' : '') + ', spin ' +
+        fin(o.f.ekGWs).toFixed(1) + ' gigawatt seconds' + (ghost !== null ? ', trip preview ' + ghost.toFixed(2) + ' hertz' : '') +
+        (pin !== null ? ', nadir ' + pin.toFixed(2) + ' hertz' : '') + (o.mode === 'HAND' ? ', HAND mode' : '');
+      slow(cv, 'aria-label', alt);
+      setAttr(box, 'aria-label', cv.getAttribute('aria-label'));
       setCls(box, 'glow', !!(vm.glow && vm.glow.has('dial-freq')));
     },
   };

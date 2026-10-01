@@ -8,10 +8,14 @@
 // RESTORE: each dark district is a feeder breaker with its cold-load MW; the RESTORE PERMISSIVE
 // lamp (restoreBlock === ''); a breaker closes (`restore`) only when the lamp and the district's
 // RESTORE PREVIEW (actions.restorePreview) both allow it. R, ←/→, Enter.
+// Keys (K-23): O opens the first READY unit's scope (an offered one first; again: closes it),
+// B is the bypass key (HAND). The scope canvas is role="img" with a text alternative that changes
+// at most once per real second. Foley (K-20): buttons and tabs cue `button`, the bypass key `key`;
+// the breaker's own sounds come from the sim's records.
 
 import {V} from '../sim/params.js';
 import {scopeAngle, scopeZone, turnS, coldLoad} from './calc.js';
-import {el, setText, setAttr, setCls, setHidden, mw, fin, mmss, unitLabel, CLASS_GLYPH} from './util.js';
+import {el, setText, setAttr, setCls, setHidden, slowAttr, mw, fin, mmss, unitLabel, CLASS_GLYPH, PAN} from './util.js';
 
 export const SCOPE_AUTO_REAL_MS = 8000;   // K-12: AUTO after 8 real s on the scope without a close
 export const SYNC_LABEL = 'Real operators aim for 15–30 s per turn and close within ±10°. Ours turns faster. ' +
@@ -25,8 +29,11 @@ export function createBay(ctx, parent) {
   tabs.setAttribute('role', 'tablist');
   const tSync = el(doc, 'button', 'dk-tab', 'SYNC');
   tSync.id = 'bay-sync'; tSync.type = 'button'; tSync.setAttribute('role', 'tab');
+  tSync.setAttribute('aria-keyshortcuts', 'O');
   const tRest = el(doc, 'button', 'dk-tab', 'RESTORE');
   tRest.id = 'bay-restore'; tRest.type = 'button'; tRest.setAttribute('role', 'tab');
+  tRest.setAttribute('aria-keyshortcuts', 'R');
+  const cue = name => ctx.cue(name || 'button', PAN.bay);
   const permit = el(doc, 'span', 'dk-lamp dk-permit');
   tabs.append(tSync, tRest, permit);
   const vSync = el(doc, 'div', 'dk-bay-view dk-sync');
@@ -36,8 +43,8 @@ export function createBay(ctx, parent) {
 
   let vm = null, view = 'sync', userView = false;
   function show(v, byUser) { view = v; if (byUser) userView = true; render(); }
-  tSync.addEventListener('click', () => show('sync', true));
-  tRest.addEventListener('click', () => show('restore', true));
+  tSync.addEventListener('click', () => { if (view !== 'sync') cue(); show('sync', true); });
+  tRest.addEventListener('click', () => { if (view !== 'restore') cue(); show('restore', true); });
   tSync.addEventListener('focus', () => show('sync', true));
   tRest.addEventListener('focus', () => show('restore', true));
 
@@ -46,19 +53,24 @@ export function createBay(ctx, parent) {
   const scopeBox = el(doc, 'div', 'dk-scope');
   const cv = el(doc, 'canvas', 'dk-scope-canvas');
   cv.id = 'scope-canvas';
-  cv.setAttribute('aria-hidden', 'true');
+  cv.setAttribute('role', 'img');
+  const slow = slowAttr(ctx.now);
   const slip = el(doc, 'div', 'dk-slip');
   scopeBox.append(cv, slip);
   const ctl = el(doc, 'div', 'dk-sync-ctl');
-  const btn = (id, text, label) => { const b = el(doc, 'button', 'dk-btn', text); b.id = id; b.type = 'button'; b.setAttribute('aria-label', label); return b; };
-  const bLow = btn('sync-lower', '[ −', 'Machine speed lower 0.05 Hz ([)');
-  const bHigh = btn('sync-raise', '+ ]', 'Machine speed higher 0.05 Hz (])');
-  const bClose = btn('sync-close', 'C CLOSE', 'Close the breaker (C)');
+  const btn = (id, text, label, keys) => {
+    const b = el(doc, 'button', 'dk-btn', text);
+    b.id = id; b.type = 'button'; b.setAttribute('aria-label', label); b.setAttribute('aria-keyshortcuts', keys);
+    return b;
+  };
+  const bLow = btn('sync-lower', '[ −', 'Machine speed lower 0.05 Hz ([)', '[');
+  const bHigh = btn('sync-raise', '+ ]', 'Machine speed higher 0.05 Hz (])', ']');
+  const bClose = btn('sync-close', 'C CLOSE', 'Close the breaker (C)', 'C');
   bClose.classList.add('dk-breaker');
-  const bAuto = btn('sync-auto', 'U AUTO', 'Auto-synchronise (U)');
-  const bBypass = btn('sync-bypass', 'BYPASS', 'HAND only: bypass the sync-check relay');
+  const bAuto = btn('sync-auto', 'U AUTO', 'Auto-synchronise (U)', 'U');
+  const bBypass = btn('sync-bypass', 'BYPASS', 'HAND only: bypass the sync-check relay (B)', 'B');
   bBypass.setAttribute('role', 'switch');
-  const bExit = btn('sync-exit', '✕', 'Close the synchroscope');
+  const bExit = btn('sync-exit', '✕', 'Close the synchroscope (O)', 'O');
   ctl.append(bLow, bHigh, bClose, bAuto, bBypass, bExit);
   const label = el(doc, 'div', 'dk-sync-label', SYNC_LABEL);
   vSync.append(list, scopeBox, ctl, label);
@@ -70,13 +82,24 @@ export function createBay(ctx, parent) {
   function openScope(id) {
     if (!vm || ctx.locked()) return;
     const r = ctx.send({type: 'scope', unit: id}, box);
+    if (!r) cue();
     if (!r && vm.offers && vm.offers.some(o => o.unit === id)) ctx.ui({do: 'offerTaken', unit: id});
     show('sync', true);
+  }
+  function exitScope() {
+    if (ctx.locked() || !scopeUnit()) return;
+    if (!ctx.send({type: 'scope', unit: ''}, box)) cue();
+  }
+  function toggleBypass() {
+    if (!vm || vm.obs.mode !== 'HAND') { ctx.note(box, 'the bypass key works only in HAND'); return; }
+    bypass = !bypass;
+    cue('key');
+    render();
   }
   function trim(dir) {
     const u = scopeUnit();
     if (!u) { ctx.note(box, 'open a scope first'); return; }
-    ctx.send({type: 'syncTrim', unit: u, dHz: dir * TRIM_HZ}, box);
+    if (!ctx.send({type: 'syncTrim', unit: u, dHz: dir * TRIM_HZ}, box)) cue();
   }
   function close() {
     const u = scopeUnit();
@@ -88,18 +111,15 @@ export function createBay(ctx, parent) {
   function auto() {
     const u = scopeUnit();
     if (!u) { ctx.note(box, 'open a scope first'); return; }
-    ctx.send({type: 'syncAuto', unit: u}, box);
+    if (!ctx.send({type: 'syncAuto', unit: u}, box)) cue();
     autoSent = true;
   }
   bLow.addEventListener('click', () => { if (!ctx.locked()) trim(-1); });
   bHigh.addEventListener('click', () => { if (!ctx.locked()) trim(1); });
   bClose.addEventListener('click', () => { if (!ctx.locked()) close(); });
   bAuto.addEventListener('click', () => { if (!ctx.locked()) auto(); });
-  bBypass.addEventListener('click', () => {
-    if (!vm || vm.obs.mode !== 'HAND') { ctx.note(box, 'the bypass key works only in HAND'); return; }
-    bypass = !bypass; render();
-  });
-  bExit.addEventListener('click', () => { if (!ctx.locked() && scopeUnit()) ctx.send({type: 'scope', unit: ''}, box); });
+  bBypass.addEventListener('click', toggleBypass);
+  bExit.addEventListener('click', exitScope);
 
   function buildReady(ready) {
     list.replaceChildren();
@@ -169,10 +189,20 @@ export function createBay(ctx, parent) {
       const s = fin(u.slipHz);
       setText(slip, unitLabel(su) + ' SLIP ' + (s >= 0 ? '+' : '−') + Math.abs(s).toFixed(2) + ' Hz · ' +
         (Number.isFinite(turnS(s)) ? turnS(s).toFixed(1) + ' s/turn' : 'still') + (s >= 0 ? ' · FAST ↻' : ' · SLOW ↺'));
-    } else setText(slip, su ? unitLabel(su) : 'Pick a unit');
+      // The needle turns too fast to read out: the alternative says how it turns and what a close would do.
+      slow(cv, 'aria-label', 'Synchroscope, ' + unitLabel(su) + ': slip ' + (s >= 0 ? 'plus ' : 'minus ') + Math.abs(s).toFixed(2) + ' hertz, needle turning ' +
+        (s >= 0 ? 'clockwise (machine fast)' : 'anticlockwise (machine slow: a close would trip on reverse power)') +
+        (Number.isFinite(turnS(s)) ? ', one turn every ' + turnS(s).toFixed(1) + ' seconds' : '') +
+        (Math.abs(s) > (V.SYNC_BLOCK_SLIP_HZ ?? 0.5) ? ', too fast: the sync-check relay blocks a close' : '') +
+        '. Close just before 12 o\'clock (C), trim with [ and ], or U for AUTO.');
+    } else {
+      setText(slip, su ? unitLabel(su) : 'Pick a unit');
+      setAttr(cv, 'aria-label', 'Synchroscope: no unit on the scope' + (ready.length ? '. O opens ' + unitLabel(ready[0].id) : ''));
+    }
     const hand = o.mode === 'HAND';
     setHidden(bBypass, !hand);
     setCls(bBypass, 'on', hand && bypass);
+    setText(bBypass, hand && bypass ? '● BYPASS' : 'BYPASS');
     setAttr(bBypass, 'aria-checked', hand && bypass ? 'true' : 'false');
     for (const b of [bLow, bHigh, bClose, bAuto, bExit]) setAttr(b, 'aria-disabled', !su || ctx.locked() ? 'true' : 'false');
   }
@@ -218,7 +248,7 @@ export function createBay(ctx, parent) {
     if (!d || !d.dark) return;
     const why = previewOf(d);
     if (why) { ctx.note(box, '✕ ' + why); return; }
-    ctx.send({type: 'restore', district: id}, box);
+    ctx.send({type: 'restore', district: id}, box);   // the breaker's clack is the record's cue
   }
   function buildRows(list) {
     feeders.replaceChildren();
@@ -242,6 +272,9 @@ export function createBay(ctx, parent) {
     if (!vm) return;
     const ids = dark().map(d => d.id);
     if (!ids.length) return;
+    // Enter on a row's own CLOSE button (reached by Tab) means that row, not the one chosen before.
+    const row = ev.target && ev.target !== feeders && ev.target.closest ? ev.target.closest('.dk-feeder') : null;
+    if (row && ids.includes(row.dataset.district)) sel = row.dataset.district;
     let i = Math.max(0, ids.indexOf(sel));
     if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') { i = (i + 1) % ids.length; sel = ids[i]; ev.preventDefault(); render(); }
     else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') { i = (i - 1 + ids.length) % ids.length; sel = ids[i]; ev.preventDefault(); render(); }
@@ -259,7 +292,7 @@ export function createBay(ctx, parent) {
       const cl = coldLoad(d, o.s, o.demand.nowMW);
       const why = previewOf(d);
       const ok = why === '';
-      setText(R.name, d.id + (d.shedBy ? ' · ' + d.shedBy.toUpperCase() : ''));
+      setText(R.name, (d.id === sel ? '▸ ' : '') + d.id + (d.shedBy ? ' · ' + d.shedBy.toUpperCase() : ''));
       setText(R.load, mw(d.coldLoadMW) + ' MW' + (cl.factor > 1 ? ' ×' + cl.factor : cl.coldInS > 0 ? ' ×1.5 in ' + mmss(cl.coldInS) : ''));
       const pvCls = ok ? 'good' : d.restoreBlock ? 'warn' : 'crit';
       setText(R.pv, CLASS_GLYPH[pvCls]);
@@ -271,7 +304,12 @@ export function createBay(ctx, parent) {
       setAttr(R.row, 'aria-selected', d.id === sel ? 'true' : 'false');
     }
     const lamp = list.length > 0 && list.some(d => d.restoreBlock === '');
-    setText(rhead, list.length ? (lamp ? 'P ✓ RESTORE PERMISSIVE' : 'P ✕ ' + (list[0].restoreBlock || 'not permissive')) : 'No dark districts.');
+    // The chosen district's refusal is on the face, not only in a tooltip (K-23: nothing hover-only).
+    const sd = list.find(d => d.id === sel), sWhy = sd ? previewOf(sd) : '';
+    setText(rhead, list.length ? (lamp ? 'P ✓ RESTORE PERMISSIVE' + (sWhy ? ' · ' + sd.id + ' ✕ ' + sWhy : '') :
+      'P ✕ ' + (sWhy || list[0].restoreBlock || 'not permissive')) : 'No dark districts.');
+    setAttr(feeders, 'aria-label', 'Dark districts: ←/→ choose, Enter closes the breaker' + (sd ? '. ' + sd.id + ', ' + mw(sd.coldLoadMW) +
+      ' MW cold load, ' + (sWhy ? 'blocked: ' + sWhy : 'preview clear') : ''));
     setCls(rhead, 'lit', lamp);
   }
 
@@ -310,9 +348,18 @@ export function createBay(ctx, parent) {
       if (vm.obs.scope && vm.obs.scope.unit) userView = false;
       render();
     },
-    /** K-23 bay keys: [ ] C U (scope), R (restore bay). True if handled. */
+    /** K-23 bay keys: [ ] C U O B (scope), R (restore bay). True if handled. */
     key(k) {
       if (!vm || ctx.locked()) return false;
+      if (k === 'o') {
+        if (scopeUnit()) { exitScope(); return true; }
+        const ready = vm.obs.units.filter(u => u.mode === 'ready');
+        const first = ready.find(u => vm.offers && vm.offers.some(x => x.unit === u.id)) || ready[0];
+        if (!first) { show('sync', true); ctx.note(box, 'no unit at full speed'); return true; }
+        openScope(first.id);
+        return true;
+      }
+      if (k === 'b') { if (vm.obs.mode !== 'HAND') return false; toggleBypass(); return true; }
       if (k === '[') { trim(-1); return true; }
       if (k === ']') { trim(1); return true; }
       if (k === 'c') { close(); return true; }
