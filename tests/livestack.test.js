@@ -309,8 +309,11 @@ test('L-1: render <= 4 ms at 1280 px (stand-in canvas: the JS cost), projection 
     for (let i = 0; i < 150; i++, f++) {
       vm.frame = {nowMs: 1000 + f * 16, dtS: 1 / 60, alpha: 0};
       if (i % 30 === 0) vm.obs.plan.rev++;
+      // The frame's cost is the update's: an unchanged stack is not redrawn (F-11), so drawMs
+      // alone would only ever hold the last full draw.
+      const t0 = performance.now();
       stack.update(vm);
-      if (i >= 30) ms.push(stack.debug.drawMs);
+      if (i >= 30) ms.push(performance.now() - t0);
     }
     ms.sort((a, b) => a - b);
     best = Math.min(best, ms[Math.floor(ms.length * 0.95)]);
