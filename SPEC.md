@@ -5,8 +5,7 @@
 **Supersedes:** v3.0 (2026-07-30), which stays in git history
 **Applies to:** today's `index.html` (v2.0: 1,522 lines, 88,590 bytes, one file), which becomes a static multi-file site
 **Repo:** [databerryau/gridwatch](https://github.com/databerryau/gridwatch), branch `spec-v4`. `main` is the live GitHub Pages branch: <https://databerryau.github.io/gridwatch/>
-**Status:** Phase 0 shipped; Phase 1a (the greybox desk on 
-ext.html) built, awaiting the greybox check
+**Status:** Phase 0 shipped; Phase 1a (the greybox desk on `next.html`) built, awaiting the greybox check; Phase 1b (desk polish) built
 
 **How to read this.**
 - §0–§2 say what we are making and the rules it must follow.
@@ -2246,7 +2245,7 @@ The owner delegated these on 2026-09-30: *"make the most fun choice RE: those qu
 
 **Visual QA.**
 - Browser-pane screenshots do not composite in this environment, so they come back blank.
-- Instead, run a local receiver (`tools/shot-receiver.js`, a small Node http server that saves POSTed PNGs; add it in Phase 1).
+- Instead, run a local receiver (`node tools/shot-receiver.mjs`, a small Node http server that saves POSTed PNGs into the git-ignored `shots/`).
 - From page JS, `POST canvas.toDataURL()` for the map, dial and synchroscope canvases, then read the saved PNGs.
 - DOM parts of the desk are checked by reading the accessibility tree.
 
