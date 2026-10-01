@@ -27,10 +27,14 @@ import {createRecorder, onTick, startTrace, traceOf, needleF, secondsWindow} fro
 import * as A from './alarms.js';
 import * as T from './tray.js';
 import * as W from './watch.js';
-import {cueOfRecord} from '../audio/model.js';
+// A namespace import: cuesOfRecord (Phase 1b, desk/README.md §13.2) is used when the audio
+// model has it; until then the 1a cueOfRecord.
+import * as AM from '../audio/model.js';
 
 const TPS = V.TICKS_PER_S;
 const EMPTY = Object.freeze([]);
+/** vm.cues: at most this many in one frame (a runaway emitter must not flood the audio). */
+export const MAX_CUES = 64;
 /** vm.hist.freq: this many grid seconds of per-second frequency (3 min). */
 export const HIST_FREQ_S = 180;
 /** vm.hist station / demand columns: 5-min columns over the last 30 grid-min (L-1's past). */
@@ -59,6 +63,50 @@ function writeJson(storage, key, value) {
   }
 }
 
+// ------------------------------------------------------------------ settings (K-22, desk/README.md §13.1)
+
+/**
+ * The user's choices, as stored under SETTINGS_KEY. reducedMotion: true | false | null (null:
+ * follow the system's prefers-reduced-motion). crt: the B-4 scanline overlay (on by default).
+ */
+export const SETTINGS_DEFAULT = Object.freeze({volume: 0.8, hum: 1, fx: 1, alarms: 1, muted: false, reducedMotion: null,
+  reducedEffects: false, crt: true});
+const LEVEL_KEYS = ['volume', 'hum', 'fx', 'alarms'], BOOL_KEYS = ['muted', 'reducedEffects', 'crt'];
+
+// A stored object, cleaned: unknown keys dropped, bad values replaced by the defaults.
+function cleanSettings(raw) {
+  const s = Object.assign({}, SETTINGS_DEFAULT), r = raw && typeof raw === 'object' ? raw : {};
+  for (const k of LEVEL_KEYS) if (typeof r[k] === 'number' && r[k] >= 0 && r[k] <= 1) s[k] = r[k];
+  for (const k of BOOL_KEYS) if (typeof r[k] === 'boolean') s[k] = r[k];
+  if (r.reducedMotion === true || r.reducedMotion === false) s.reducedMotion = r.reducedMotion;
+  return s;
+}
+
+/**
+ * vm.settings (§13.1): the choices, resolved. reducedMotion: the stored choice, else the
+ * system's; crt: false whenever reducedEffects.
+ */
+export function settingsView(game) {
+  const s = game.settings;
+  let sys = false;
+  try { sys = typeof game.systemReducedMotion === 'function' ? !!game.systemReducedMotion() : !!game.systemReducedMotion; } catch { sys = false; }
+  return {volume: s.volume, hum: s.hum, fx: s.fx, alarms: s.alarms, muted: s.muted,
+    reducedMotion: s.reducedMotion === null ? sys : s.reducedMotion, reducedEffects: s.reducedEffects, crt: s.crt && !s.reducedEffects};
+}
+
+// actions.ui({do: 'set', key, value}): one choice, validated, then stored (C-8: storage is optional).
+function setSetting(game, key, value) {
+  const s = game.settings;
+  if (LEVEL_KEYS.includes(key)) {
+    if (!(typeof value === 'number' && value >= 0 && value <= 1)) return 'bad value';
+    s[key] = value;
+  } else if (BOOL_KEYS.includes(key)) s[key] = !!value;
+  else if (key === 'reducedMotion') s.reducedMotion = value === null || value === undefined ? null : !!value;
+  else return 'unknown setting';
+  writeJson(game.storage, SETTINGS_KEY, s);
+  return '';
+}
+
 /** Today's seed: the date as YYYYMMDD (local time). */
 export function todaySeed(date) {
   const d = date || new Date();
@@ -76,16 +124,18 @@ export function seedFrom(search, date) {
 
 /**
  * @param {{seed:number, scenario?:object, system?:object, planview?:object, storage?:object|null,
- *   beforeTick?:function(object):void, cap?:number, budgetMs?:number}} o
+ *   beforeTick?:function(object):void, cap?:number, budgetMs?:number, reducedMotion?:boolean|function():boolean}} o
  *   system: the app/system.js module (or a test stand-in); planview: app/planview.js;
  *   storage: a localStorage-like object or null; beforeTick(game): called before every tick
- *   (scripted players and tests; it may call sendInput).
+ *   (scripted players and tests; it may call sendInput); reducedMotion: the system's
+ *   prefers-reduced-motion (the shell passes a function reading matchMedia), used while the
+ *   player has made no choice of their own.
  */
 export function createGame(o) {
   const scenario = o.scenario || CLASSIC;
   const storage = o.storage === undefined ? null : o.storage;
   const seen = readJson(storage, SEEN_KEY) || {};
-  const settings = Object.assign({volume: 0.8, muted: false}, readJson(storage, SETTINGS_KEY) || {});
+  const settings = cleanSettings(readJson(storage, SETTINGS_KEY));
   const game = {
     seed: o.seed >>> 0, scenario, storage, sysMod: o.system || null, planview: o.planview || null,
     beforeTick: o.beforeTick || null,
@@ -94,14 +144,16 @@ export function createGame(o) {
     rec: null, alarms: null, tray: null, watchMem: null,
     phase: 'briefing', agc: true,
     ui: {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null, trayOpen: false,
-      drawer: false},
-    settings,
+      drawer: false, settingsOpen: false},
+    settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
+    suburbs: null,
     seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof},
     cues: [], refusal: null, respond: null, respondGlow: [], offers: [], offered: {}, offersToday: 0,
     previewCache: new Map(), previewS: -1, restoreCache: new Map(), restoreS: -1,
     hist: null, histView: null, histViewS: -1,
     hashes: [], lastFrameMs: -1, end: null,
   };
+  game.cueCtx = {suburbOf: id => suburbOf(game, id)};
   resetDay(game, game.seed);
   return game;
 }
@@ -110,6 +162,8 @@ export function createGame(o) {
 export function resetDay(game, seed) {
   if (seed !== undefined) game.seed = seed >>> 0;
   game.state = createState(game.seed, game.scenario);
+  game.suburbs = null;
+  game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
   game.director = D.createDirector({game: true, paused: true, seen});
   game.pacer = createPacer({cap: game.pacer.cap, budgetMs: game.pacer.budgetMs});
@@ -203,17 +257,37 @@ export function histView(game) {
 
 // ------------------------------------------------------------------ ticks
 
+// One cue into the frame's queue (vm.cues): a name, or {name, pan?, gain?, delayS?} (§13.2).
+function pushCue(game, c) {
+  if (!c || game.cues.length >= MAX_CUES) return;
+  if (typeof c === 'string' || (typeof c === 'object' && typeof c.name === 'string' && c.name)) game.cues.push(c);
+}
+
+// §13.2 ctx.suburbOf(districtId) -> the suburb code (the sound pans a district's clack by it).
+function suburbOf(game, districtId) {
+  if (!game.suburbs) game.suburbs = new Map(game.state.city.districts.map(d => [d.id, d.suburb]));
+  return game.suburbs.get(districtId) || '';
+}
+
+// The cues a sim record asks for: the audio model's cuesOfRecord, else the 1a cueOfRecord.
+function recordCues(game, r) {
+  if (typeof AM.cuesOfRecord === 'function') return AM.cuesOfRecord(r, game.cueCtx) || EMPTY;
+  const c = typeof AM.cueOfRecord === 'function' ? AM.cueOfRecord(r) : '';
+  return c ? [c] : EMPTY;
+}
+
 function handleRecords(game, recs, by) {
   for (const r of recs) {
     if (r.kind === 'contingency') startTrace(game.rec, game.state);
-    const cue = cueOfRecord(r);
-    if (cue) game.cues.push(cue);
+    let cues = EMPTY;
+    try { cues = recordCues(game, r); } catch { cues = EMPTY; } // sound is optional (C-8): never stop the tick
+    for (const c of cues) pushCue(game, c);
     if (r.kind === 'input' && !r.ok) {
       if (by) r.by = by;
       else game.refusal = {type: r.type, reason: r.reason, tick: r.tick};
     }
   }
-  for (const c of T.trayRecords(game.tray, recs)) game.cues.push(c);
+  for (const c of T.trayRecords(game.tray, recs)) pushCue(game, c);
 }
 
 /** Run exactly one tick (the loop's tick callback). */
@@ -357,10 +431,20 @@ export function ui(game, cmd) {
     case 'skipWatch': return D.skipWatch(d, state) ? '' : 'nothing to skip';
     case 'drawer': u.drawer = cmd.on === undefined ? !u.drawer : !!cmd.on; return '';
     case 'tray': u.trayOpen = !u.trayOpen; u.focus = 'tray'; return '';
-    case 'mute': game.settings.muted = !game.settings.muted; writeJson(game.storage, SETTINGS_KEY, game.settings); return '';
-    case 'volume':
-      if (cmd.volume >= 0 && cmd.volume <= 1) { game.settings.volume = cmd.volume; writeJson(game.storage, SETTINGS_KEY, game.settings); }
+    // Settings (K-22, §13.1, B-7): the popover never pauses the game.
+    case 'mute': return setSetting(game, 'muted', !game.settings.muted);
+    case 'volume': return setSetting(game, 'volume', cmd.volume); // the 1a form of {do: 'set', key: 'volume'}
+    case 'set': return setSetting(game, cmd.key, cmd.value);
+    case 'settings': u.settingsOpen = cmd.on === undefined ? !u.settingsOpen : !!cmd.on; return '';
+    // Foley for a desk gesture (B-6): presentation only, so the input log stays clean (F-6).
+    case 'cue': {
+      if (typeof cmd.name !== 'string' || !cmd.name) return 'no cue name';
+      if (game.cues.length >= MAX_CUES) return 'too many cues';
+      const c = {name: cmd.name};
+      for (const k of ['pan', 'gain', 'delayS']) if (Number.isFinite(cmd[k])) c[k] = cmd[k];
+      pushCue(game, c.pan === undefined && c.gain === undefined && c.delayS === undefined ? cmd.name : c);
       return '';
+    }
     default: return 'unknown ui command';
   }
 }
@@ -466,7 +550,7 @@ export function buildVm(game, f) {
   // Annunciator (not during the briefing: the desk opens at 04:30).
   if (game.phase === 'play') {
     const r = A.updateAlarms(game.alarms, A.alarmInput(obs), {nowMs, realDtS, stationOf: stationOfUnit});
-    for (const c of r.cues) game.cues.push(c);
+    for (const c of r.cues) pushCue(game, c);
     if (r.newAlarm) D.endFast(d);
   }
   T.trayFrame(game.tray, obs.s);
@@ -505,6 +589,17 @@ export function buildVm(game, f) {
   if (state.over && !game.end) {
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: state.log.length, seed: game.seed, v: SIM_VERSION};
   }
+  // spoolUp: no sim record marks a machine starting (booked starts included), so it is read
+  // off the unit's mode between two frames (audio/model.js cueOfModeChange).
+  if (!game.unitModes) game.unitModes = {};
+  for (const u of obs.units) {
+    const was = game.unitModes[u.id];
+    if (was !== u.mode) {
+      game.unitModes[u.id] = u.mode;
+      const c = game.phase === 'play' && AM.cueOfModeChange ? AM.cueOfModeChange(was, u.mode) : '';
+      if (c) pushCue(game, c);
+    }
+  }
   const cues = game.cues;
   game.cues = [];
   const refusal = game.refusal;
@@ -513,10 +608,12 @@ export function buildVm(game, f) {
     alarms: A.alarmsView(game.alarms), tray: T.trayView(game.tray),
     focus: game.ui.focus, hover: game.ui.hover, stackExpanded: game.ui.stackExpanded, previewOn: game.ui.previewOn,
     previewGuardMW: game.ui.previewGuardMW, offers, respond: game.respond, glow, hist: histView(game),
-    settings: Object.assign({}, game.settings),
-    // Shell additions (desk/README.md §5 plus): what the overlays and audio read.
+    settings: settingsView(game),
+    // Shell additions (desk/README.md §5 plus): what the overlays and audio read. cues: this
+    // frame's sounds, each a name or {name, pan?, gain?, delayS?} (§13.2).
     phase: game.phase, watch, needleHz: needleF(game.rec, mode.rate, game.pacer.alpha), cues, refusal,
-    trayOpen: game.ui.trayOpen, drawer: game.ui.drawer, end: game.end, seed: game.seed, sysError: game.sysError,
+    trayOpen: game.ui.trayOpen, drawer: game.ui.drawer, settingsOpen: game.ui.settingsOpen, end: game.end, seed: game.seed,
+    sysError: game.sysError,
   };
 }
 

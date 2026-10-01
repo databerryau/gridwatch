@@ -519,7 +519,9 @@ contingencies[] {n, startS, cause, id, lostMW, watchEndS, backInBandS}, forecast
 plan, scope`. Phase 1a added: `units[]` gains `slipHz`, `phaseDeg` (now, from `grid.syncAt`; 0
 unless 'ready'); `sec` gains `previewUnitHz`, `previewLinkHz`; `plan` = {madeAtS, rev, stations[]
 {id, man, doneS, clampedMW, keys[] {atS, mw}}, tie {doneS, keys[]}, starts[] {unit, atS}, stops[]
-{unit, atS}}; `scope` = {unit, open}.
+{unit, atS}}; `scope` = {unit, open}. Phase 1b added `sky` = {clearness, windFrac}: the present
+`env` values (public, like `solar.availMW`), for the map's weather (G-3, G-4). It is not state:
+`hashState` and `SIM_VERSION` are unchanged.
 `restoreBlock` is `grid.restorePermissive(state, d)` for a dark district (the lamp: frequency and
 interval; the restore preview runs only on the restore input, never per district here) and
 `fleet.DISTRICT_LIT` for a lit one. The bench asks the preview itself for lit lamps

@@ -27,24 +27,153 @@ const snap = over => Object.assign({s: 10000, h: 10, fHz: 50, rocof: 0, level: '
   inWatch: false, contCount: 0, cont: null, newsCount: 0, news: null}, over);
 const tile = (a, id) => A.alarmsView(a).tiles.find(t => t.id === id);
 
-test('K-21: every tile has exactly one priority and a target control id; 12 tiles (4 x 3), each with a glyph per state', () => {
+test('K-21: every tile has exactly one base priority and a target control id; 12 tiles (4 x 3), each with a glyph per state', () => {
   const ids = contractIds();
   assert.equal(A.TILES.length, 12);
   const seen = new Set();
   for (const t of A.TILES) {
     assert.ok(['P1', 'P2', 'P3'].includes(t.prio), t.id + ' ' + t.prio);
+    assert.equal(typeof t.escalates, 'boolean', t.id);
     assert.ok(ids.has(t.target), t.id + ' targets #' + t.target + ', not a §5 id');
     assert.ok(!seen.has(t.id));
     seen.add(t.id);
   }
   for (const label of ['UNDER FREQ', 'OVER FREQ', 'N-1 INSECURE', 'HIGH RoCoF', 'UNIT TRIP', 'LINK TRIP', 'UFLS OPERATED', 'AGC LIMIT',
     'STORAGE LOW', 'MIN GEN', 'WEATHER', 'PEAK']) assert.ok(A.TILES.some(t => t.label === label), label);
-  // K-21 P1: UFLS, unit trip, frequency out of band, N-1 insecure at the peak.
-  for (const id of ['ufls', 'unitTrip', 'underFreq', 'overFreq', 'peak']) assert.equal(A.TILES.find(t => t.id === id).prio, 'P1', id);
+  // K-21 P1: UFLS, unit trip, N-1 insecure at the peak. Frequency outside 49.5-50.5 Hz is the
+  // UNDER / OVER FREQ tiles ESCALATED (B-1): their base priority is P2, and only they escalate.
+  for (const id of ['ufls', 'unitTrip', 'linkTrip', 'peak']) assert.equal(A.TILES.find(t => t.id === id).prio, 'P1', id);
+  assert.deepEqual(A.TILES.filter(t => t.escalates).map(t => t.id), ['underFreq', 'overFreq']);
+  for (const t of A.TILES.filter(x => x.escalates)) assert.equal(t.prio, 'P2', t.id);
+  assert.equal(A.TILES.find(t => t.id === 'weather').prio, 'P3');
   const glyphs = new Set(Object.values(A.GLYPH));
   assert.equal(glyphs.size, 4, 'status is never colour-only (K-22)');
+  assert.equal(A.GLYPH.cleared, '◇', 'B-2: the ring-back glyph');
   const v = A.alarmsView(A.createAlarms());
-  for (const t of v.tiles) assert.ok(t.glyph && t.target && t.label && t.prio);
+  for (const t of v.tiles) {
+    assert.ok(t.glyph && t.target && t.label && t.prio);
+    assert.equal(t.prio, t.basePrio, 'at rest the effective priority is the base one');
+    assert.equal(t.escalated, false);
+  }
+});
+
+test('B-1: UNDER / OVER FREQ chime at the normal band and escalate to the horn outside 49.5-50.5 Hz', () => {
+  const a = A.createAlarms();
+  let ms = 0, s = 10000;
+  const up = f => A.updateAlarms(a, snap({fHz: f, s: s++}), {nowMs: (ms += 100), realDtS: 0.1});
+  let r = up(49.84);
+  assert.deepEqual(r.cues, ['chime'], 'P2 at the normal band');
+  assert.deepEqual([tile(a, 'underFreq').prio, tile(a, 'underFreq').basePrio, tile(a, 'underFreq').escalated], ['P2', 'P2', false]);
+  assert.equal(A.alarmsView(a).sounding, false, 'a chime is one sound');
+  A.ackAll(a);
+  assert.equal(tile(a, 'underFreq').state, 'ackd');
+  r = up(49.49);
+  assert.deepEqual([tile(a, 'underFreq').prio, tile(a, 'underFreq').escalated], ['P1', true]);
+  assert.equal(tile(a, 'underFreq').state, 'alarm', 'an acknowledged alarm that escalates flashes again');
+  assert.equal(r.newAlarm, true, 'an escalation ends FAST');
+  assert.deepEqual(r.cues, ['horn'], 'the horn means real trouble');
+  assert.equal(a.audible, 1, 'inside the tile\'s hold-off the horn is the same sounding, upgraded (B-3)');
+  assert.equal(a.repeats, 1);
+  assert.equal(A.alarmsView(a).sounding, true);
+  ms += 4000;
+  assert.deepEqual(up(49.45).cues, ['horn'], 'the horn repeats while escalated and unacknowledged');
+  // Back inside containment (with hysteresis): P2 again, the horn stops.
+  up(49.52);
+  assert.equal(tile(a, 'underFreq').escalated, true, 'not yet: 0.05 Hz of hysteresis');
+  up(49.56);
+  assert.deepEqual([tile(a, 'underFreq').prio, tile(a, 'underFreq').escalated, tile(a, 'underFreq').state], ['P2', false, 'alarm']);
+  ms += 4000;
+  assert.deepEqual(up(49.6).cues, [], 'no horn once it is a warning again');
+  assert.equal(A.alarmsView(a).sounding, false);
+  // A dip straight through both limits inside one frame (sampleTick sees it) is a horn at once.
+  const b = A.createAlarms(), st = createState(1, CLASSIC);
+  st.phys.fHz = 49.3; A.sampleTick(b, st);
+  st.phys.fHz = 49.9;
+  r = A.updateAlarms(b, A.alarmInputFromState(st), {nowMs: 0, realDtS: 0.016});
+  assert.deepEqual(r.cues, ['horn']);
+  assert.equal(tile(b, 'underFreq').escalated, true);
+  assert.equal(b.audible, 1);
+  // OVER FREQ the same way; an escalation outside the hold-off is a new sounding.
+  const c = A.createAlarms();
+  assert.deepEqual(A.updateAlarms(c, snap({fHz: 50.2}), {nowMs: 0}).cues, ['chime']);
+  assert.deepEqual(A.updateAlarms(c, snap({fHz: 50.6, s: 10001}), {nowMs: 31000}).cues, ['horn']);
+  assert.equal(tile(c, 'overFreq').prio, 'P1');
+  assert.equal(c.audible, 2);
+  assert.equal(c.repeats, 0);
+  // The other tiles never escalate.
+  assert.equal(tile(c, 'underFreq').escalated, false);
+});
+
+test('B-3: a P2 chime repeats once, 60 real s later, only if still unacknowledged; SILENCE and ACK cancel it; repeats are not audible alarms', () => {
+  const run = between => {
+    const a = A.createAlarms(), cues = [];
+    let s = 10000;
+    const up = ms => { const r = A.updateAlarms(a, snap({s: s++, hydroFrac: 0.2}), {nowMs: ms, realDtS: 1}); cues.push(...r.cues.map(c => c + '@' + ms)); };
+    up(0);
+    if (between) between(a);
+    for (let ms = 1000; ms <= 200000; ms += 1000) up(ms);
+    return {a, cues};
+  };
+  let r = run(null);
+  assert.deepEqual(r.cues, ['chime@0', 'chime@60000'], 'once, never a third time');
+  assert.equal(r.a.audible, 1);
+  assert.equal(r.a.repeats, 1);
+  assert.deepEqual(run(a => A.ackAll(a)).cues, ['chime@0'], 'acknowledged: no repeat');
+  assert.deepEqual(run(a => A.ackTile(a, 'storageLow')).cues, ['chime@0']);
+  assert.deepEqual(run(a => A.silence(a)).cues, ['chime@0'], 'SILENCE stops the sound, the repeat too');
+  // Horn repeats count as repeats as well.
+  const h = A.createAlarms();
+  A.updateAlarms(h, snap({fHz: 49.4}), {nowMs: 0});
+  for (let ms = 1000; ms <= 12000; ms += 1000) A.updateAlarms(h, snap({fHz: 49.4, s: 10000 + ms / 1000}), {nowMs: ms});
+  assert.equal(h.audible, 1);
+  assert.equal(h.repeats, 3, 'the horn at 4, 8 and 12 s');
+});
+
+test('K-8 accept: across a scripted storm no tile starts a new sounding within 30 real s of its last; held alarms sound once after', () => {
+  // A deterministic storm: frequency flapping through both limits, the security level
+  // flapping, storage low on and off, a watch in the middle, ACK now and then.
+  const a = A.createAlarms();
+  let seed = 12345;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  let ms = 0, s = 10000, cues = 0;
+  const cont = {n: 0, cause: 'unit', id: 'coal2', uflsStages: 1, watchEndS: 0};
+  for (let i = 0; i < 6000; i++) {
+    ms += 100 + Math.floor(rnd() * 400);
+    s += 12;
+    const inWatch = i >= 2000 && i < 2040;
+    if (i === 2000) cont.watchEndS = s + 40 * 12;
+    const f = [50, 49.8, 49.4, 49.95, 50.2, 50.7, 49.86][Math.floor(rnd() * 7)];
+    const x = snap({s, fHz: f, rocof: rnd() < 0.1 ? 1.4 : 0.1, level: rnd() < 0.5 ? 'TIGHT' : 'SECURE', h: 18, hydroFrac: rnd() < 0.3 ? 0.2 : 0.5,
+      agcAtLimitS: rnd() < 0.5 ? 10 : 0, inWatch, contCount: i >= 2000 ? 1 : 0, cont: i >= 2000 ? cont : null});
+    const r = A.updateAlarms(a, x, {nowMs: ms, realDtS: 0.3, stationOf: () => 'coal'});
+    cues += r.cues.length;
+    if (inWatch) assert.deepEqual(r.cues, [], 'sounds are held during the watch');
+    if (!inWatch && rnd() < 0.02) A.ackAll(a);
+    if (rnd() < 0.01) A.silence(a);
+  }
+  assert.ok(a.sounds.length > 40, 'the storm sounded: ' + a.sounds.length);
+  assert.equal(a.audible, a.sounds.length, 'audible counts soundings only');
+  assert.equal(cues, a.audible + a.repeats, 'every cue is a sounding or a re-sound');
+  assert.ok(a.repeats > 0);
+  const last = {};
+  for (const snd of a.sounds) {
+    for (const id of snd.tiles) {
+      if (id in last) assert.ok(snd.atMs - last[id] >= A.RESOUND_HOLDOFF_S * 1000, id + ' sounded twice ' + (snd.atMs - last[id]) + ' ms apart');
+      last[id] = snd.atMs;
+    }
+  }
+  assert.ok(a.sounds.some(x => x.tiles.includes('ufls')), 'the watch\'s held alarms sounded after it');
+  // An alarm that sets again inside its hold-off flashes, is held, and sounds when the window ends.
+  const b = A.createAlarms();
+  A.updateAlarms(b, snap({hydroFrac: 0.2}), {nowMs: 0});
+  A.updateAlarms(b, snap({hydroFrac: 0.5, s: 10001}), {nowMs: 1000});
+  A.ackAll(b);
+  let r = A.updateAlarms(b, snap({hydroFrac: 0.2, s: 10002}), {nowMs: 5000});
+  assert.equal(tile(b, 'storageLow').state, 'alarm');
+  assert.deepEqual(r.cues, []);
+  assert.deepEqual(A.updateAlarms(b, snap({hydroFrac: 0.2, s: 10003}), {nowMs: 29000}).cues, []);
+  assert.deepEqual(A.updateAlarms(b, snap({hydroFrac: 0.2, s: 10004}), {nowMs: 30000}).cues, ['chime'], 'when the 30 s end, if unacknowledged');
+  assert.equal(b.audible, 2);
 });
 
 test('K-8: UNDER FREQ sets below 49.85 Hz and clears above 49.90 Hz (hysteresis); extremes inside a frame count', () => {
@@ -55,7 +184,7 @@ test('K-8: UNDER FREQ sets below 49.85 Hz and clears above 49.90 Hz (hysteresis)
   const r = up(49.84, 1000);
   assert.equal(tile(a, 'underFreq').state, 'alarm');
   assert.equal(tile(a, 'underFreq').flash, 'fast');
-  assert.deepEqual(r.cues, ['horn'], 'P1 horn');
+  assert.deepEqual(r.cues, ['chime'], 'P2 chime at the normal band (B-1)');
   assert.equal(r.newAlarm, true);
   up(49.88, 2000);
   assert.equal(tile(a, 'underFreq').state, 'alarm', 'still set between 49.85 and 49.90');
@@ -84,29 +213,31 @@ test('K-8: UNDER FREQ sets below 49.85 Hz and clears above 49.90 Hz (hysteresis)
 });
 
 test('K-8: SILENCE stops the sound only; the horn repeats every 4 s until then; no tile sounds twice within 30 s', () => {
+  // 49.4 Hz: UNDER FREQ escalated (B-1), a P1 horn.
   const a = A.createAlarms();
-  let r = A.updateAlarms(a, snap({fHz: 49.8}), {nowMs: 0});
+  let r = A.updateAlarms(a, snap({fHz: 49.4}), {nowMs: 0});
   assert.deepEqual(r.cues, ['horn']);
   assert.equal(A.alarmsView(a).sounding, true);
-  r = A.updateAlarms(a, snap({fHz: 49.8, s: 10001}), {nowMs: 2000});
+  r = A.updateAlarms(a, snap({fHz: 49.4, s: 10001}), {nowMs: 2000});
   assert.deepEqual(r.cues, [], 'not yet');
-  r = A.updateAlarms(a, snap({fHz: 49.8, s: 10002}), {nowMs: 4100});
+  r = A.updateAlarms(a, snap({fHz: 49.4, s: 10002}), {nowMs: 4100});
   assert.deepEqual(r.cues, ['horn'], 'repeat after 4 real s');
   assert.equal(a.audible, 1, 'a repeat is not a new audible alarm');
+  assert.equal(a.repeats, 1);
   A.silence(a);
   assert.equal(A.alarmsView(a).sounding, false);
   assert.equal(tile(a, 'underFreq').state, 'alarm', 'SILENCE leaves the tile flashing');
-  r = A.updateAlarms(a, snap({fHz: 49.8, s: 10003}), {nowMs: 9000});
+  r = A.updateAlarms(a, snap({fHz: 49.4, s: 10003}), {nowMs: 9000});
   assert.deepEqual(r.cues, [], 'silenced');
   // Clear, ACK, set again within 30 real s: flashes but does not sound.
   A.updateAlarms(a, snap({fHz: 49.95, s: 10004}), {nowMs: 10000});
   A.ackAll(a);
-  r = A.updateAlarms(a, snap({fHz: 49.8, s: 10005}), {nowMs: 20000});
+  r = A.updateAlarms(a, snap({fHz: 49.4, s: 10005}), {nowMs: 20000});
   assert.equal(tile(a, 'underFreq').state, 'alarm');
   assert.deepEqual(r.cues, [], 'no re-sound within 30 s');
   A.updateAlarms(a, snap({fHz: 49.95, s: 10006}), {nowMs: 21000});
   A.ackAll(a);
-  r = A.updateAlarms(a, snap({fHz: 49.8, s: 10007}), {nowMs: 40000});
+  r = A.updateAlarms(a, snap({fHz: 49.4, s: 10007}), {nowMs: 40000});
   assert.deepEqual(r.cues, ['horn'], 'sounds again after 30 s');
   // ACK one tile.
   assert.equal(A.ackTile(a, 'underFreq'), true);

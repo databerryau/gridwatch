@@ -5,8 +5,7 @@
 **Supersedes:** v3.0 (2026-07-30), which stays in git history
 **Applies to:** today's `index.html` (v2.0: 1,522 lines, 88,590 bytes, one file), which becomes a static multi-file site
 **Repo:** [databerryau/gridwatch](https://github.com/databerryau/gridwatch), branch `spec-v4`. `main` is the live GitHub Pages branch: <https://databerryau.github.io/gridwatch/>
-**Status:** Phase 0 shipped; Phase 1a (the greybox desk on 
-ext.html) built, awaiting the greybox check
+**Status:** Phase 0 shipped; Phase 1a (the greybox desk on `next.html`) built, awaiting the greybox check; Phase 1b (desk polish) built
 
 **How to read this.**
 - §0–§2 say what we are making and the rules it must follow.
@@ -1113,7 +1112,7 @@ All sound is synthesised with WebAudio; there are no samples.
 
 | Priority | Alarms | Sound |
 |---|---|---|
-| P1 | UFLS, unit trip, frequency outside 49.5–50.5 Hz, N-1 insecure at the peak | Two-tone horn every 4 s until SILENCE |
+| P1 | UFLS, unit trip, frequency outside 49.5–50.5 Hz (the UNDER/OVER FREQ tiles escalated, §9.1 Q-11), N-1 insecure at the peak | Two-tone horn every 4 s until SILENCE |
 | P2 | Warnings | One chime; repeated only if still unacknowledged after 60 s |
 | P3 | Information cards | A soft tick |
 
@@ -1272,6 +1271,8 @@ These absorb the useful parts of v3's L- series.
 **F-11 — Performance.** A `?perf` overlay reports frame costs.
 
 *Accept:* p95 frame time ≤8 ms, of which the sim is ≤1 ms at 150× and ≤3 ms at 2,100×; the first visit transfers ≤400 KB compressed and is interactive within 1.5 s; for comparison, v2 costs 1.7 ms per frame at 10 fps.
+
+**Measured at the end of Phase 1b** (2026-10-01, the owner's laptop). `node tools/perf.mjs`: the first visit to `next.html` is 44 files, 304 KB gzip (870 KB raw); sim p95 0.12 ms per frame at 150× and 1.5 ms at 2,100×; the view model 0.14 ms. `next.html?perf` in Chromium at 1280×600, CRUISE, 60-fps frames: frame p95 3.7 ms (p50 2.2), map 0.4 ms, desk 2.6 ms, Live Stack 1.0 ms. The Live Stack was 4.6 ms p95 (over L-1's 4 ms) until it stopped redrawing an unchanged canvas; a full redraw still costs about 3–5 ms, about once in eight frames at CRUISE. Not measured: these are script times with the preview pane hidden, so the browser's own paint is not in them, and "interactive within 1.5 s" was not timed. The overlay marks each line OK or OVER.
 
 ---
 
@@ -2083,6 +2084,7 @@ Each row is labelled in-game (H-14).
 | **Auto-sync takes 4 grid-minutes** (tunable 3–5) after a unit reaches full speed; a clean manual close is faster. | Auto-synchronisers work at the station; their real time to close is not yet checked (§8.3) | Makes SYNC worth doing after the first shift |
 | **Par re-plans after every action.** After each discrete action par re-dispatches every lever and the tie from then to 04:00 over its commitment, without spending another action; it starts from the L-0 plan without its stops (S-4). The desk's RE-DISPATCH key gives the player the same (§9.1 Q-6; RE-PLAN under ASSIST PLAN on the bench). | AEMO re-runs pre-dispatch every 30 min and NEMDE re-dispatches every unit every 5 min | Par stands for a good operator who keeps the plan current; dragging every layer is not the skill graded |
 | **RE-DISPATCH re-runs the pre-dispatch on demand.** A desk key re-runs the 04:30 pre-dispatch from now to 04:00 over the units the player has committed, and every lever glides to the new plan (§9.1 Q-6). Refused during the watch and before 04:30. | AEMO re-runs pre-dispatch every 30 min; NEMDE moves every committed unit every 5 min; operators decide commitment, reserves, the interconnector and emergencies | The plan coming together is something the player causes; typing base points is not the skill |
+| **Frequency alarms escalate by severity.** UNDER FREQ and OVER FREQ are warnings (one chime) outside the normal band, 49.85–50.15 Hz; while frequency is outside the containment band, 49.5–50.5 Hz, the same tile shows as top priority and sounds the horn (K-21, §9.1 Q-11). | One priority per alarm; a worsening value raises a second, more urgent alarm at a further limit | Twelve tiles; the horn is kept for real trouble |
 | **Pre-dispatch is computed once, at 04:30** (L-0). With no input the levers follow it; while districts are dark they are re-dispatched for the lit load every 30 grid-minutes (the plan the player saw is unchanged). | AEMO re-runs pre-dispatch every 30 min, generators self-commit against it, and 5-minute dispatch targets metered demand | Leaves the fixing to the player; a plan written for a whole city must not over-supply a half-dark one |
 | **Act I restore task** on most days: storm-damaged feeders, or a smelter potline waiting to reconnect (D-8). | Storm outages and smelter restarts happen, but not daily | So that RESTORE is played by players who never shed |
 | **The player commits units and sets output.** | Generators self-commit and bid; AEMO dispatches every 5 min and issues directions | The player stands for the whole system |
@@ -2161,6 +2163,18 @@ The owner delegated these on 2026-09-30: *"make the most fun choice RE: those qu
 | Q-8 | K-7: "DIRECT SHED appears only when LOR2 is forecast." | Available while the gauge reads SHORT or SHEDDING (R5 < L now). | The present LOR2-like state is what the desk shows; a separate forecast LOR2 would be a second reserve definition (H-4 forbids two). |
 | Q-9 | K-12: who decides when the scope is "offered"? | The app (presentation: lighting and Marg's line); the sim knows only whether a unit's scope is open, which suspends its auto-sync. Any `ready` unit's scope can be opened from the bay. | Offers are wording; suspending auto-sync changes the grid, so only that is an input (F-6). |
 | Q-10 | K-13 (found in stage C): a whole-day test player who restored whenever the lamp allowed went **black** at 20:50 on seed 20260930. Each restore passed the RESTORE PREVIEW (the pickup's first seconds), but the evening grid had no headroom to carry the load, so frequency sank over the next minute into a deeper UFLS stage, until all eight stages had operated. | **The permissive also needs R5 ≥ the district's cold-load MW** (the lamp and the input), beside the preview. `SIM_VERSION` v4-core-1a.1. | A green lamp a stranger can trust: restoring is the reward for having reserve, which is how restoration really works (AEMO restores load when there is sufficient reserve). The tuning pass had replaced R5 with the preview because R5 alone passed restores whose surge set off UFLS; both are needed, for the seconds and for the minutes. |
+
+**Phase 1b decisions (2026-10-01, delegated under OD-17, confirmed by the owner the same day; `desk/README.md` §11 B-1–B-7).**
+
+| # | Question | Decision | Why it is the most fun (and still real) |
+|---|---|---|---|
+| Q-11 | K-21 makes "frequency outside 49.5–50.5 Hz" P1, but the UNDER/OVER FREQ tiles set at the normal band and K-21 wants one priority per tile. | The two tiles are P2 (a chime) and **escalate** to P1 (the horn) while frequency is outside the containment band. | v2 was "too stressful": the horn should mean real trouble. Real control rooms escalate the same quantity by severity (§8.2). |
+| Q-12 | K-8's flash rates. | ISA-18.1 sequence R, visual: fast 2.5 Hz, slow 0.8 Hz for everyone; reduced motion 1 Hz and steady. | Never above 3 Hz for a stranger arriving by link (WCAG 2.3.1); the glyphs carry the state. |
+| Q-13 | K-21's P2 repeat against K-8's 30 s. | P2 repeats once, 60 real s later, if still unacknowledged. Horn repeats and that repeat are re-sounds of one alarm: not counted as audible alarms, and the only sounds inside a tile's 30-s hold-off. An escalation inside the hold-off sounds the horn at once. | K-8 counts alarms, not horn blasts; a containment breach must not wait 30 s. |
+| Q-14 | K-18's optional CRT overlay. | On by default and subtle (2-px scanlines over the map only, opacity 0.06, no animation); REDUCED EFFECTS turns it and the hum off. | Control-room feel that never costs legibility. |
+| Q-15 | K-22's "no camera zoom in the watch" against G-1's integer pixel scale. | The watch's camera is a spotlight on the tripped plant, easing in over 0.6 s (instant under reduced motion). | Crisp pixels, and the eye still goes to the cause. |
+| Q-16 | Foley for desk gestures. | A presentation cue (`actions.ui({do: 'cue'})`), never a sim input. | The replay log stays clean (F-6). |
+| Q-17 | Where settings live. | A popover from the header (`,`): four volume sliders, REDUCED MOTION, REDUCED EFFECTS, CRT. It never pauses the game. | No menu wall. |
 
 **Delegated tuning decisions (2026-09-30, "most fun within realism").** Recorded here with their measured effect (S-12 has the table):
 
@@ -2246,7 +2260,7 @@ The owner delegated these on 2026-09-30: *"make the most fun choice RE: those qu
 
 **Visual QA.**
 - Browser-pane screenshots do not composite in this environment, so they come back blank.
-- Instead, run a local receiver (`tools/shot-receiver.js`, a small Node http server that saves POSTed PNGs; add it in Phase 1).
+- Instead, run a local receiver (`node tools/shot-receiver.mjs`, a small Node http server that saves POSTed PNGs into the git-ignored `shots/`).
 - From page JS, `POST canvas.toDataURL()` for the map, dial and synchroscope canvases, then read the saved PNGs.
 - DOM parts of the desk are checked by reading the accessibility tree.
 
@@ -2281,10 +2295,11 @@ The owner delegated these on 2026-09-30: *"make the most fun choice RE: those qu
 - [ ] **Greybox check passed** (two new people)
 
 **Phase 1b** (may land after gate 1):
-- [ ] A keyboard-only day (K-23)
-- [ ] Reduced motion and greyscale checks (K-22)
-- [ ] Visual QA PNGs of the map, dial and synchroscope
-- [ ] `?perf` within budget
+- [x] A keyboard-only day (K-23): scripted, `tests/day.test.js`. A person playing a whole daily by keyboard is still to do
+- [x] Reduced motion (the `rm` class, tile rates, map statics: tests) and status without colour (each state's glyph, word or pattern: tests). A greyscale screenshot was not taken
+- [x] Visual QA PNGs of the map (day, afternoon, night, the watch spotlight), the dial, the Live Stack and the synchroscope (`tools/shot-receiver.mjs`)
+- [x] `?perf` within budget (F-11, script time; paint not measured)
+- [ ] Listen to it: every sound was checked against a stand-in audio context only
 
 **Phase 2:**
 - [ ] P-1–P-4 targets met

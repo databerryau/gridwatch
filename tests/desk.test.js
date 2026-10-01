@@ -1,4 +1,6 @@
-// tests/desk.test.js: the Phase 1a desk (desk/README.md §6): K-1, K-3-K-13, K-17 sizes. Built in
+// tests/desk.test.js: the Phase 1a desk (desk/README.md §6): K-1, K-3-K-13, K-17 sizes; and its
+// Phase 1b polish (§13-§14.2): K-8 view, K-20 cues, K-22 (no colour-only status, reduced motion),
+// K-23 (every control by keyboard alone, roles and value text). Built in
 // the stand-in DOM (tests/lib/dom.js) from real par days (tests/lib/vm-fixture.js); inputs are
 // recorded by a mock `actions`, never applied, so every check is about what the desk SENDS.
 
@@ -8,9 +10,9 @@ import {readFileSync} from 'node:fs';
 import {makeDocument} from './lib/dom.js';
 import {dayVm, baseVm} from './lib/vm-fixture.js';
 import {V} from '../sim/params.js';
-import {createDesk, DESK_IDS, SLOT_IDS, LAYOUT} from '../desk/desk.js';
+import {createDesk, roughSyncUnit, DESK_IDS, DESK_KEYS, SLOT_IDS, LAYOUT} from '../desk/desk.js';
 import * as C from '../desk/calc.js';
-import {clockOf, unitLabel} from '../desk/util.js';
+import {clockOf, unitLabel, feelOf, slowAttr, MODE_GLYPH, CLASS_GLYPH, PAN} from '../desk/util.js';
 import {needleHz, dialAngle, barLayout} from '../desk/dial.js';
 import {caughtText} from '../desk/gauge.js';
 import {createState, step, observe} from '../sim/step.js';
@@ -67,6 +69,23 @@ const at = (vm, ms) => Object.assign({}, vm, {frame: {nowMs: ms, dtS: 1 / 60, al
 const later = vm => Object.assign({}, vm, {obs: Object.assign({}, vm.obs, {tick: vm.obs.tick + TPS})});
 const deskText = d => d.el.textContent;
 const inputsOf = (a, type) => a.inputs.filter(x => x.type === type);
+/** The K-20 cue names the desk emitted, and everything else it told the UI. */
+const cuesOf = a => a.uis.filter(u => u.do === 'cue').map(u => u.name);
+const uiOf = a => a.uis.filter(u => u.do !== 'cue');
+/**
+ * A key the way the shell delivers it (§13.3): to the focused element first (it bubbles); if no
+ * control there consumed it (preventDefault), to desk.key. Returns true when either acted.
+ */
+function press(m, key, extra) {
+  const ev = m.doc.dispatch('keydown', Object.assign({key}, extra));
+  return ev.defaultPrevented || m.desk.key(ev);
+}
+function release(m, key, extra) {
+  const ev = m.doc.dispatch('keyup', Object.assign({key}, extra));
+  return ev.defaultPrevented || m.desk.key(ev);
+}
+const tap = (m, key, extra) => { const r = press(m, key, extra); release(m, key, extra); return r; };
+const slotOf = ($, sid) => $('lever-' + sid).parentElement.parentElement;
 
 // ---------------------------------------------------------------- pure helpers (calc.js)
 
@@ -245,7 +264,7 @@ test('the desk updates from real view models without throwing, NaN text or NaN o
   assert.ok(doc0.canvasStats.calls > 100, 'the dial and scope drew');
   assert.equal(a.inputs.length, 0, 'updating never sends an input');
   // HAND is on the dial face (aria) and the key.
-  desk.update(at(hand, t += 16));
+  desk.update(at(hand, t += 1100));   // the dial's text alternative changes at most once per real second
   assert.match(doc0.getElementById('dial-freq').getAttribute('aria-label'), /HAND/);
   assert.match(doc0.getElementById('key-agc').textContent, /HAND/);
 });
@@ -429,16 +448,15 @@ test('K-5: the GUARD ring snaps to 50 MW, previews each detent live, sends guard
   assert.match(pv.$('gauge-n1').textContent, /GOV 260/);
 });
 
-test('battery dial and tie knob send battery / tie; keys step 10 MW', () => {
+test('battery dial and tie knob send battery / tie; the hydro wheel steps 1% / 10%', () => {
   const vm = vmAt(EVE);
+  Object.assign(vm.obs.battery, {mode: 'discharge', orderMW: 120, guardMW: 100});
   const {$, actions: a} = mount(at(vm, 1000));
   const d = $('dial-battery');
   d.focus();
   d.dispatch('keydown', {key: 'ArrowUp'});
   d.dispatch('keyup', {key: 'ArrowUp'});
-  const b = vm.obs.battery, signed = (b.mode === 'charge' ? -1 : b.mode === 'discharge' ? 1 : 0) * b.orderMW;
-  const nv = Math.round(signed + 10);
-  assert.deepEqual(a.inputs, [{type: 'battery', mode: nv > 0 ? 'discharge' : nv < 0 ? 'charge' : 'idle', mw: Math.abs(nv)}]);
+  assert.deepEqual(a.inputs, [{type: 'battery', mode: 'discharge', mw: 170}], '↑ is +50 MW of the present mode (§13.3)');
   a.inputs.length = 0;
   const k = $('knob-tie');
   k.focus();
@@ -521,8 +539,9 @@ test('K-9: tray shows at most 3 cards and its buttons only focus (never an input
   assert.equal(tray.querySelectorAll('.dk-card').length, 3);
   for (const b of btns) b.click();
   assert.equal(a.inputs.length, 0, 'no tray button changes a setpoint, a schedule or a unit state');
-  assert.deepEqual(a.uis.map(u => u.do), ['focus', 'focus', 'focus']);
-  assert.deepEqual(a.uis.map(u => u.target), SLOT_IDS.slice(0, 3));
+  assert.deepEqual(uiOf(a).map(u => u.do), ['focus', 'focus', 'focus']);
+  assert.deepEqual(uiOf(a).map(u => u.target), SLOT_IDS.slice(0, 3));
+  assert.deepEqual(cuesOf(a), ['button', 'button', 'button']);
   $('btn-log').click();
   desk.update(at(vm, 1100));
   assert.match(tray.textContent, /old/);
@@ -543,7 +562,7 @@ test('K-8: an annunciator tile focuses its target; ACK and SILENCE work, even in
   assert.match($('tile-t0').textContent, /◆/, 'a glyph as well as colour');
   $('btn-ack').click();
   $('btn-silence').click();
-  assert.deepEqual(a.uis.slice(-2), [{do: 'ack'}, {do: 'silence'}]);
+  assert.deepEqual(uiOf(a).slice(-2), [{do: 'ack'}, {do: 'silence'}]);
   assert.equal($('annunciator').querySelectorAll('.dk-tile').length, 12);
 });
 
@@ -656,6 +675,562 @@ test('keys 1-8 focus COAL…TIE; the trip preview gauge reads plain words', () =
   assert.match(g, /SPARE IN 5 MIN/);
   assert.match(g, /RISK: /);
   assert.match(g, /SECURE|TIGHT|SHORT|SHEDDING/);
+});
+
+// ---------------------------------------------------------------- Phase 1b: K-23 by keyboard alone
+
+test('K-23 levers by keys alone: 1-5 focus, ↑↓ move, S S starts, X X stops; each gesture has its cue', () => {
+  const vm = vmAt(EVE);
+  const o = vm.obs;
+  const k = o.units.findIndex(u => u.station === 'gtc');
+  Object.assign(o.units[k], {mode: 'off', sync: false, startBlock: '', stopBlock: 'unit is off'});
+  const on = o.units.findLastIndex(u => u.station === 'ccgt' && u.mode === 'on');   // X X takes the last stoppable machine
+  o.units[on].stopBlock = '';
+  const coal = o.stations.find(s => s.id === 'coal');
+  coal.basePointMW = Math.round((coal.minMW + Math.floor(0.96 * coal.maxMW)) / 2);   // room either way, below the gate
+  const m = mount(at(vm, 1000));
+  const {$, doc, actions: a} = m;
+  assert.equal(tap(m, '1'), true);
+  assert.equal(doc.activeElement.id, 'lever-coal');
+  assert.deepEqual(a.uis.at(-1), {do: 'hover', target: 'lever-coal'}, 'focus cross-highlights like the pointer does');
+  assert.equal(tap(m, 'ArrowDown'), true);
+  assert.deepEqual(a.inputs, [{type: 'basePoint', station: 'coal', mw: coal.basePointMW - 10}]);
+  assert.deepEqual(cuesOf(a), [feelOf(coal.basePointMW, coal.basePointMW - 10, C.leverScale(o, 'coal').detents, Math.floor(0.96 * coal.maxMW))]);
+  assert.equal(a.uis.find(u => u.do === 'cue').pan, PAN.coal);
+  // S S on GT·C (key 5): the first S lifts the guard (cover), the second starts (button).
+  a.inputs.length = 0; a.uis.length = 0;
+  tap(m, '5');
+  assert.equal(doc.activeElement.id, 'lever-gtc');
+  assert.equal(tap(m, 's'), true);
+  assert.equal(a.inputs.length, 0);
+  assert.deepEqual(cuesOf(a), ['cover']);
+  assert.equal($('guard-start-' + o.units[k].id).getAttribute('aria-pressed'), 'true');
+  assert.equal(tap(m, 's'), true);
+  assert.deepEqual(a.inputs, [{type: 'start', unit: o.units[k].id}]);
+  assert.deepEqual(cuesOf(a), ['cover', 'button']);
+  // X X on CCGT (key 2).
+  a.inputs.length = 0; a.uis.length = 0;
+  tap(m, '2');
+  tap(m, 'x');
+  assert.equal(a.inputs.length, 0);
+  tap(m, 'x');
+  assert.deepEqual(a.inputs, [{type: 'stop', unit: o.units[on].id}]);
+  assert.deepEqual(cuesOf(a), ['cover', 'button']);
+  // A lifted guard that is not used drops after 2 s, with its click.
+  a.uis.length = 0;
+  tap(m, 'x');
+  m.desk.update(at(vm, 4000));
+  assert.deepEqual(cuesOf(a), ['cover', 'cover']);
+  assert.equal(inputsOf(a, 'stop').length, 1);
+  // Tab to a machine's own guard, then Enter twice: the same guarded press; a held Enter never repeats it.
+  const b = mount(at(vm, 1000));
+  b.$('guard-start-' + o.units[k].id).focus();
+  assert.equal(press(b, 'Enter'), true);
+  assert.equal(press(b, 'Enter', {repeat: true}), true, 'auto-repeat is swallowed');
+  assert.equal(b.actions.inputs.length, 0, 'a held Enter is one press: the guard only lifts');
+  release(b, 'Enter');
+  tap(b, 'Enter');
+  assert.deepEqual(b.actions.inputs, [{type: 'start', unit: o.units[k].id}]);
+  // Keys that are not the desk's, or carry Ctrl/Alt/Meta, or are typed into a field: not acted on.
+  for (const key of ['q', 'z', 't', 'm', 'l', 'Tab', 'Escape', ' ', '?', '9', '0']) assert.equal(b.desk.key({type: 'keydown', key}), false, key);
+  assert.equal(b.desk.key({type: 'keydown', key: 'c', ctrlKey: true}), false);
+  assert.equal(b.desk.key({type: 'keydown', key: '1', target: {tagName: 'INPUT'}}), false);
+  assert.equal(b.desk.key({type: 'keyup', key: '1'}), false);
+});
+
+test('K-23 hydro wheel, battery dial, GUARD ring and tie knob by keys alone (the §13.3 table)', () => {
+  const vm = vmAt(EVE);
+  const o = vm.obs;
+  const hy = o.stations.find(s => s.id === 'hydro');
+  hy.basePointMW = Math.round((hy.minMW + hy.maxMW) / 2);
+  const hk = V.STATIONS.hydro.first;
+  Object.assign(o.units[hk], {mode: 'off', sync: false, startBlock: '', stopBlock: 'unit is off'});
+  Object.assign(o.battery, {mode: 'idle', orderMW: 0, guardMW: 100});
+  o.tie.setMW = 200;
+  const m = mount(at(vm, 1000));
+  const {$, doc, desk, actions: a} = m;
+  // 6: the wheel. → is 1% of nameplate; the gate thunks when the new setting is taken. S S starts a machine.
+  tap(m, '6');
+  assert.equal(doc.activeElement.id, 'wheel-hydro');
+  tap(m, 'ArrowRight');
+  assert.deepEqual(a.inputs, [{type: 'basePoint', station: 'hydro', mw: Math.round(hy.basePointMW + 0.01 * V.STATIONS.hydro.totalMW)}]);
+  assert.deepEqual(cuesOf(a), ['ratchet', 'gate']);
+  tap(m, 's'); tap(m, 's');
+  assert.deepEqual(a.inputs.at(-1), {type: 'start', unit: o.units[hk].id});
+  // 7: the battery. →: IDLE to DISCHARGE at 50 MW; ↑ +50, Shift+↑ +10, Ctrl+↑ +1; ←: back to IDLE, then CHARGE.
+  a.inputs.length = 0; a.uis.length = 0;
+  tap(m, '7');
+  assert.equal(doc.activeElement.id, 'dial-battery');
+  tap(m, 'ArrowRight');
+  assert.deepEqual(a.inputs, [{type: 'battery', mode: 'discharge', mw: 50}]);
+  assert.deepEqual(cuesOf(a), ['ratchet']);
+  Object.assign(o.battery, {mode: 'discharge', orderMW: 50});
+  desk.update(at(later(vm), 2000));
+  a.inputs.length = 0;
+  press(m, 'ArrowUp'); press(m, 'ArrowUp', {shiftKey: true}); press(m, 'ArrowUp', {ctrlKey: true}); release(m, 'ArrowUp');
+  assert.deepEqual(a.inputs, [{type: 'battery', mode: 'discharge', mw: 111}], '+50, +10, +1 in one input');
+  Object.assign(o.battery, {orderMW: 111});
+  desk.update(at(later(later(vm)), 3000));
+  a.inputs.length = 0; a.uis.length = 0;
+  tap(m, 'ArrowLeft');
+  assert.deepEqual(a.inputs, [{type: 'battery', mode: 'idle', mw: 0}]);
+  assert.deepEqual(cuesOf(a), ['detent'], 'IDLE is the dial\'s detent');
+  Object.assign(o.battery, {mode: 'idle', orderMW: 0});
+  desk.update(at(later(later(later(vm))), 4000));
+  a.inputs.length = 0;
+  tap(m, 'ArrowDown');   // in IDLE ↑/↓ set the magnitude the mode keys will order: no input yet
+  assert.equal(a.inputs.length, 0);
+  assert.match($('dial-battery').getAttribute('aria-valuetext'), /idle, mode keys order 61 MW/);
+  tap(m, 'ArrowLeft');
+  assert.deepEqual(a.inputs, [{type: 'battery', mode: 'charge', mw: 61}]);
+  // G: the GUARD ring; one 50-MW detent per press, previewed live.
+  a.inputs.length = 0; a.uis.length = 0;
+  assert.equal(tap(m, 'g'), true);
+  assert.equal(doc.activeElement.id, 'ring-guard');
+  tap(m, 'ArrowRight');
+  assert.deepEqual(a.inputs, [{type: 'guard', mw: 150}]);
+  assert.deepEqual(cuesOf(a), ['detent']);
+  assert.deepEqual(uiOf(a).filter(u => u.do === 'previewGuard'), [{do: 'previewGuard', mw: 150}]);
+  // 8: the tie. ↑ 50 MW (a detent at 250), Shift 10, Ctrl 1, PgUp to the next detent.
+  a.inputs.length = 0; a.uis.length = 0;
+  tap(m, '8');
+  assert.equal(doc.activeElement.id, 'knob-tie');
+  tap(m, 'ArrowUp');
+  assert.deepEqual(a.inputs, [{type: 'tie', mw: 250}]);
+  assert.deepEqual(cuesOf(a), ['detent']);
+  o.tie.setMW = 250;
+  desk.update(at(Object.assign({}, vm, {obs: Object.assign({}, o, {tick: o.tick + 5 * TPS})}), 5000));
+  a.inputs.length = 0; a.uis.length = 0;
+  press(m, 'ArrowLeft', {shiftKey: true}); press(m, 'ArrowLeft', {ctrlKey: true}); release(m, 'ArrowLeft');
+  assert.deepEqual(a.inputs, [{type: 'tie', mw: 239}]);
+  assert.deepEqual(cuesOf(a), ['ratchet'], 'one ratchet per 50 ms from one control');
+  // The arrows were the controls' own (preventDefault): the desk's map never saw them twice.
+  assert.equal(desk.key({type: 'keydown', key: 'ArrowUp'}), false);
+});
+
+test('K-23 emergency row and keys by keyboard: E and D holds, K + Enter Enter sheds, N re-dispatches, V the mode key', () => {
+  const vm = vmAt(EVE);
+  vm.obs.sec.level = 'SHORT';
+  vm.obs.modeLocked = false;
+  const m = mount(at(vm, 1000));
+  const {$, doc, desk, actions: a} = m;
+  // E held 0.6 s: the cover lifts, the key turns.
+  assert.equal(press(m, 'e'), true);
+  assert.equal(press(m, 'e', {repeat: true}), true);
+  desk.update(at(vm, 1300));
+  assert.equal(a.inputs.length, 0);
+  desk.update(at(vm, 1700));
+  assert.deepEqual(a.inputs, [{type: 'armRERT'}]);
+  assert.deepEqual(cuesOf(a), ['cover', 'key', 'cover'], 'cover up, key, cover down');
+  release(m, 'e');
+  // D tapped does nothing; held, it calls DR.
+  a.inputs.length = 0; a.uis.length = 0;
+  tap(m, 'd');
+  assert.equal(a.inputs.length, 0);
+  press(m, 'd');
+  desk.update(at(vm, 2400));
+  assert.deepEqual(a.inputs, [{type: 'callDR'}]);
+  assert.deepEqual(cuesOf(a), ['button']);
+  release(m, 'd');
+  // K reaches DIRECT SHED; Enter lifts, Enter within 2 s commits; one Enter alone never does.
+  a.inputs.length = 0; a.uis.length = 0;
+  assert.equal(tap(m, 'k'), true);
+  assert.equal(doc.activeElement.id, 'key-shed');
+  assert.equal(tap(m, 'Enter'), true);
+  assert.equal(a.inputs.length, 0, 'the first Enter only lifts the cover');
+  assert.deepEqual(cuesOf(a), []);            // the cover's click comes with the frame that shows it lifted
+  desk.update(at(vm, 3000));
+  assert.deepEqual(cuesOf(a), ['cover']);
+  assert.match($('key-shed').getAttribute('aria-label'), /cover lifted/);
+  tap(m, 'Enter');
+  assert.deepEqual(a.inputs, [{type: 'directShed'}]);
+  assert.deepEqual(cuesOf(a), ['cover', 'key']);
+  a.inputs.length = 0;
+  desk.update(at(vm, 4000));
+  tap(m, 'Enter');                             // lifts again
+  desk.update(at(vm, 6500));
+  tap(m, 'Enter');                             // 2.5 s later: too late for the double, and a tap is not a hold
+  assert.equal(a.inputs.length, 0);
+  // Not SHORT: the key is hidden and K does nothing.
+  const tight = vmAt(EVE);
+  tight.obs.sec.level = 'TIGHT';
+  const t = mount(at(tight, 1000));
+  assert.equal(tap(t, 'k'), false);
+  // N presses RE-DISPATCH; so does focus + Enter.
+  a.uis.length = 0;
+  assert.equal(tap(m, 'n'), true);
+  assert.equal(a.redis, 1);
+  assert.deepEqual(cuesOf(a), ['button']);
+  $('btn-redispatch').focus();
+  tap(m, 'Enter');
+  assert.equal(a.redis, 2);
+  // V reaches the AGC/HAND key; Enter turns it while the mode is not locked.
+  a.inputs.length = 0; a.uis.length = 0;
+  assert.equal(tap(m, 'v'), true);
+  assert.equal(doc.activeElement.id, 'key-agc');
+  tap(m, 'Enter');
+  assert.deepEqual(a.inputs, [{type: 'mode', agc: false}]);
+  assert.deepEqual(cuesOf(a), ['key']);
+  assert.deepEqual(DESK_KEYS, {g: 'ring-guard', v: 'key-agc', k: 'key-shed', n: 'btn-redispatch', o: 'bay-sync', b: 'sync-bypass'});
+  for (const [key, id] of Object.entries(DESK_KEYS)) assert.equal($(id).getAttribute('aria-keyshortcuts'), key.toUpperCase(), id);
+});
+
+test('K-23 procedure bay by keyboard: O opens a scope, [ ] C U work it, R ←→ Enter restores', () => {
+  const vm = vmAt(EVE, {offers: [{unit: 'gtc2', why: 'the peak'}]});
+  for (const id of ['gtb1', 'gtc2']) Object.assign(vm.obs.units.find(x => x.id === id), {mode: 'ready', sync: false, outMW: 0, slipHz: 0.25, phaseDeg: -40, timerS: 200});
+  const c = mount(at(vm, 0));
+  assert.equal(tap(c, 'o'), true);
+  assert.deepEqual(c.actions.inputs, [{type: 'scope', unit: 'gtc2'}], 'the offered unit first');
+  assert.deepEqual(uiOf(c.actions).filter(u => u.do === 'offerTaken'), [{do: 'offerTaken', unit: 'gtc2'}]);
+  assert.deepEqual(cuesOf(c.actions), ['button']);
+  // Enter on a unit's bay button opens that one.
+  c.actions.inputs.length = 0;
+  c.$('scope-gtb1').focus();
+  tap(c, 'Enter');
+  assert.deepEqual(c.actions.inputs, [{type: 'scope', unit: 'gtb1'}]);
+  // Scope open: trim, close, auto; O closes the scope.
+  vm.obs.scope = {unit: 'gtc2', open: true};
+  const m = mount(at(vm, 0));
+  for (const key of ['[', ']', 'c', 'u', 'o']) assert.equal(tap(m, key), true, key);
+  assert.deepEqual(m.actions.inputs, [{type: 'syncTrim', unit: 'gtc2', dHz: -0.05}, {type: 'syncTrim', unit: 'gtc2', dHz: 0.05},
+    {type: 'syncClose', unit: 'gtc2', bypass: false}, {type: 'syncAuto', unit: 'gtc2'}, {type: 'scope', unit: ''}]);
+  assert.deepEqual(cuesOf(m.actions), ['button', 'button', 'button', 'button'], 'the close itself sounds from the sim record');
+  assert.equal(tap(m, 'b'), false, 'the bypass key is HAND only');
+  // HAND: B turns the bypass key, shown as text as well as colour.
+  const h = clone(vm.obs);
+  h.mode = 'HAND';
+  const hm = mount(at(baseVm(h), 0));
+  assert.equal(tap(hm, 'b'), true);
+  assert.match(hm.$('sync-bypass').textContent, /●/);
+  assert.equal(hm.$('sync-bypass').getAttribute('aria-checked'), 'true');
+  tap(hm, 'c');
+  assert.deepEqual(hm.actions.inputs, [{type: 'syncClose', unit: 'gtc2', bypass: true}]);
+  assert.deepEqual(cuesOf(hm.actions), ['key']);
+  // RESTORE: R, → to the next district, Enter closes it.
+  const rv = vmAt(EVE);
+  const ds = rv.obs.districts;
+  for (const i of [0, 1, 2]) Object.assign(ds[i], {dark: true, shedBy: 'ufls', darkSinceS: rv.obs.s - 100, restoreBlock: i === 2 ? 'frequency below 49.9 Hz' : ''});
+  const r = mount(at(rv, 1000));
+  assert.equal(tap(r, 'r'), true);
+  assert.equal(r.doc.activeElement.id, 'restore-list');
+  r.desk.update(at(rv, 1016));
+  tap(r, 'ArrowRight');
+  tap(r, 'Enter');
+  assert.deepEqual(r.actions.inputs, [{type: 'restore', district: ds[1].id}]);
+  // The chosen row is marked without colour, and a blocked one says why on the face (not only in a tooltip).
+  tap(r, 'ArrowRight');
+  const rows = r.$('restore-list').querySelectorAll('.dk-feeder');
+  assert.deepEqual(rows.map(x => /▸/.test(x.textContent)), [false, false, true]);
+  assert.match(r.$('bay-restore').parentElement.parentElement.textContent, /frequency below 49\.9 Hz/);
+  tap(r, 'Enter');
+  assert.equal(r.actions.inputs.length, 1, 'a blocked breaker does not close');
+  // Enter on a row's own CLOSE button closes that row.
+  r.$('restore-' + ds[0].id).focus();
+  tap(r, 'Enter');
+  assert.deepEqual(r.actions.inputs.at(-1), {type: 'restore', district: ds[0].id});
+});
+
+test('K-23 annunciator and tray by keyboard: A, Shift+A, tiles and cards with Enter; never during the RESPOND card', () => {
+  const tiles = [{id: 'uf', label: 'UNDER FREQ', prio: 'P2', state: 'alarm', flash: 'fast', glyph: '◆', target: 'dial-freq'}];
+  const cards = [0, 1].map(i => ({id: 'c' + i, from: 'STATION', atS: 50000 + i, text: 'Card ' + i, button: {label: 'GO', target: SLOT_IDS[i]}, sev: 'warn'}));
+  const vm = baseVm(clone(TRIP.obs), {mode: {mode: 'WATCH', rate: 0.15, watchS: 2, locked: true, watchVersion: 'compact'},
+    alarms: {tiles, sounding: true}, tray: {cards, log: []}});
+  const m = mount(at(vm, 1000));
+  const {$, doc, desk, actions: a} = m;
+  assert.equal(tap(m, 'a'), true);
+  assert.equal(tap(m, 'A', {shiftKey: true}), true);
+  assert.deepEqual(uiOf(a), [{do: 'ack'}, {do: 'silence'}], 'ACK and SILENCE work in the watch');
+  assert.deepEqual(cuesOf(a), ['button', 'button']);
+  a.uis.length = 0;
+  $('tile-uf').focus();
+  assert.equal(tap(m, 'Enter'), true);
+  assert.deepEqual(uiOf(a), [{do: 'focus', target: 'dial-freq'}]);
+  // The tray (M is the shell's: it sets vm.focus = 'tray'): focus lands on the first card's button.
+  const open = mount(at(vmAt(EVE, {tray: {cards, log: []}}), 1000));
+  open.desk.update(at(vmAt(EVE, {tray: {cards, log: []}, focus: 'tray'}), 1016));
+  assert.equal(open.doc.activeElement.dataset.target, SLOT_IDS[0]);
+  assert.equal(tap(open, 'ArrowDown'), true);
+  assert.equal(open.doc.activeElement.dataset.target, SLOT_IDS[1]);
+  tap(open, 'Enter');
+  assert.deepEqual(uiOf(open.actions).at(-1), {do: 'focus', target: SLOT_IDS[1]});
+  tap(open, 'ArrowDown');
+  assert.equal(open.doc.activeElement.id, 'btn-log');
+  tap(open, 'Enter');
+  open.desk.update(at(vmAt(EVE, {tray: {cards, log: []}, focus: 'tray'}), 1032));
+  assert.match(open.$('btn-log').textContent, /▾/);
+  assert.equal(open.$('btn-log').getAttribute('aria-pressed'), 'true');
+  // While the RESPOND card is up, Enter is the card's (the shell dismisses it), not a desk button's.
+  const rc = mount(at(vmAt(EVE, {respond: {lines: ['x'], glow: []}}), 1000));
+  rc.$('btn-redispatch').focus();
+  assert.equal(tap(rc, 'Enter'), false);
+  assert.equal(rc.actions.redis, 0);
+  assert.equal(doc.activeElement.id, 'tile-uf');
+  assert.equal(desk.el.contains(doc.activeElement), true);
+});
+
+// ---------------------------------------------------------------- Phase 1b: K-20 cues, K-12 shake
+
+test('K-20: a lever drag cues detent / gate / ratchet on real changes only; the plan moving a lever cues servo', () => {
+  const vm = vmAt(EVE);
+  const o = vm.obs;
+  const coal = o.stations.find(s => s.id === 'coal');
+  const sc = C.leverScale(o, 'coal'), gate = sc.gateMW;
+  const below = sc.detents.filter(d => d < gate).at(-1);
+  coal.basePointMW = Math.round((below + gate) / 2 / 10) * 10;
+  const m = mount(at(vm, 1000));
+  const {$, desk, actions: a} = m;
+  const track = $('lever-coal');
+  track.rect = {left: 0, top: 0, width: 28, height: 260};
+  const yOf = mwv => 260 - mwv / 10;
+  track.dispatch('pointerdown', {clientY: yOf(coal.basePointMW)});
+  track.dispatch('pointermove', {clientY: yOf(coal.basePointMW)});
+  assert.deepEqual(cuesOf(a), [], 'a pointer that does not move the handle is silent');
+  track.dispatch('pointermove', {clientY: yOf(coal.basePointMW - 10)});
+  assert.deepEqual(cuesOf(a), ['ratchet']);
+  track.dispatch('pointermove', {clientY: yOf(below - 20)});
+  assert.deepEqual(cuesOf(a), ['ratchet', 'detent']);
+  track.dispatch('pointermove', {clientY: yOf(gate) - 13});
+  assert.deepEqual(cuesOf(a), ['ratchet', 'detent', 'gate'], 'through the 96% gate');
+  track.dispatch('pointerup', {clientY: yOf(gate) - 13});
+  assert.equal(a.inputs.length, 1);
+  for (const u of a.uis.filter(x => x.do === 'cue')) assert.equal(u.pan, PAN.coal);
+  // The plan moves COAL and GT·A (no hand on them): one servo each, and none for a lever that did not move.
+  a.uis.length = 0;
+  desk.update(at(later(vm), 3000));
+  assert.deepEqual(cuesOf(a), [], 'nothing moved');
+  const moved = clone(later(vm).obs);
+  moved.tick += TPS;
+  moved.stations.find(s => s.id === 'coal').basePointMW += 60;
+  moved.stations.find(s => s.id === 'ccgt').basePointMW -= 40;
+  desk.update(at(baseVm(moved), 4000));
+  assert.deepEqual(a.uis.filter(u => u.do === 'cue'), [{do: 'cue', name: 'servo', pan: PAN.coal}, {do: 'cue', name: 'servo', pan: PAN.ccgt}]);
+  // A hand move is not a servo: the vm reading back the value just sent stays silent.
+  a.uis.length = 0;
+  $('lever-ccgt').focus();
+  tap(m, 'ArrowDown');
+  const sent = a.inputs.at(-1).mw;
+  const back = clone(moved);
+  back.tick += TPS;
+  back.stations.find(s => s.id === 'ccgt').basePointMW = sent;
+  desk.update(at(baseVm(back), 4100));
+  desk.update(at(baseVm(back), 4200));
+  assert.ok(!cuesOf(a).includes('servo'), 'no servo within 0.5 s of the hand: ' + cuesOf(a));
+  assert.equal(a.inputs.filter(x => x.type === 'cue').length, 0, 'a cue is presentation, never a sim input');
+  // feelOf, the rule itself.
+  assert.equal(feelOf(100, 100, [50], 200), '');
+  assert.equal(feelOf(100, 110, [50, 150], 200), 'ratchet');
+  assert.equal(feelOf(100, 150, [50, 150], 200), 'detent');
+  assert.equal(feelOf(160, 150, [50, 150], 200), 'detent', 'dropping into a detent thumps, from either side');
+  assert.equal(feelOf(150, 160, [50, 150], 200), 'ratchet', 'leaving one does not');
+  assert.equal(feelOf(160, 140, [50, 150], 200), 'detent');
+  assert.equal(feelOf(200, 201, [50, 150, 200], 200), 'gate');
+  assert.equal(feelOf(210, 190, [50, 150, 200], 200), 'gate');
+});
+
+test('K-12 / K-22: a rough close shakes that unit\'s lever for 0.6 s; never under reduced motion', () => {
+  const open = vmAt(EVE);
+  Object.assign(open.obs.units.find(x => x.id === 'gtc2'), {mode: 'ready', sync: false, outMW: 0, slipHz: 0.25, phaseDeg: 12, timerS: 200});
+  open.obs.scope = {unit: 'gtc2', open: true};
+  const closed = (slipWas, mode, cues) => {
+    const v = vmAt(EVE, {cues});
+    Object.assign(v.obs.units.find(x => x.id === 'gtc2'), {mode, slipHz: 0, phaseDeg: 0});
+    v.obs.tick += TPS;
+    return v;
+  };
+  const run = (settings, mode, cues, slip = 0.25) => {
+    const o1 = clone(open.obs);
+    o1.units.find(x => x.id === 'gtc2').slipHz = slip;
+    const m = mount(at(baseVm(o1, {settings}), 1000));
+    m.desk.update(at(Object.assign(closed(slip, mode, cues), {settings}), 1016));
+    return m;
+  };
+  const m = run({volume: 1, muted: false}, 'loading', ['breaker', {name: 'growl'}]);
+  assert.ok(slotOf(m.$, 'gtc').classList.contains('shake'), 'GT·C shakes');
+  assert.ok(!slotOf(m.$, 'gtb').classList.contains('shake'), 'only that station');
+  m.desk.update(at(closed(0.25, 'loading', []), 1500));
+  assert.ok(slotOf(m.$, 'gtc').classList.contains('shake'), 'still within 0.6 s');
+  m.desk.update(at(closed(0.25, 'loading', []), 1700));
+  assert.ok(!slotOf(m.$, 'gtc').classList.contains('shake'), 'over after 0.6 s');
+  // Not rough: a clean close (no growl), a reverse close (slip < 0), a bypass close (tripped).
+  assert.ok(!slotOf(run({}, 'loading', ['breaker']).$, 'gtc').classList.contains('shake'));
+  assert.ok(!slotOf(run({}, 'loading', ['growl'], -0.25).$, 'gtc').classList.contains('shake'));
+  assert.ok(!slotOf(run({}, 'tripped', ['growl']).$, 'gtc').classList.contains('shake'));
+  assert.equal(roughSyncUnit(closed(0.25, 'loading', ['growl']), {unit: 'gtc2', slipHz: 0.25}), 'gtc2');
+  assert.equal(roughSyncUnit(closed(0.25, 'loading', ['growl']), null), '');
+  // Reduced motion (vm.settings.reducedMotion; undefined = off): no shake, and the desk says so to its CSS.
+  const rm = run({reducedMotion: true}, 'loading', ['growl']);
+  assert.ok(!slotOf(rm.$, 'gtc').classList.contains('shake'));
+  assert.ok(rm.desk.el.classList.contains('dk-rm'));
+  assert.ok(!m.desk.el.classList.contains('dk-rm'));
+  const noSettings = mount(at(Object.assign(vmAt(EVE), {settings: undefined}), 1000));
+  assert.ok(!noSettings.desk.el.classList.contains('dk-rm'));
+});
+
+// ---------------------------------------------------------------- Phase 1b: K-8 view, K-22
+
+const CSS = readFileSync(new URL('../desk/desk.css', import.meta.url), 'utf8');
+
+test('K-8 view (B-2): 2.5 Hz / 0.8 Hz flashes, 1 Hz / steady under reduced motion, nothing above 3 Hz', () => {
+  const secs = sel => {
+    const m = new RegExp(sel.replace(/[.\s]/g, x => (x === '.' ? '\\.' : '\\s+')) + '\\s*\\{[^}]*?animation(?:-duration)?:\\s*(?:[\\w-]+\\s+)?([\\d.]+)s').exec(CSS);
+    return m ? Number(m[1]) : null;
+  };
+  assert.equal(1 / secs('.dk-tile.flash-fast'), 2.5);
+  assert.equal(1 / secs('.dk-tile.flash-slow'), 0.8);
+  // Reduced motion, all three routes: body.rm (the shell), .dk-rm (the desk's own class), the media query.
+  assert.match(CSS, /body\.rm \.dk-tile\.flash-fast, \.dk-rm \.dk-tile\.flash-fast \{ animation-duration: 1s; \}/);
+  assert.match(CSS, /body\.rm \.dk-tile\.flash-slow, \.dk-rm \.dk-tile\.flash-slow \{ animation: none; \}/);
+  assert.match(CSS, /body\.rm \.dk-handle, \.dk-rm \.dk-handle \{ transition: none; \}/);
+  const media = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(CSS)[1];
+  assert.match(media, /\.dk-tile\.flash-fast \{ animation-duration: 1s; \}/);
+  assert.match(media, /\.dk-tile\.flash-slow \{ animation: none; \}/);
+  assert.match(media, /\.dk-handle \{ transition: none; \}/);
+  assert.match(media, /\.shake[^{]*\{ animation: none; \}/);
+  assert.match(CSS, /body\.rm \.dk \.shake[^{]*\{ animation: none; \}/);
+  // No repeating animation anywhere in the desk's CSS cycles faster than 3 Hz.
+  for (const m of CSS.matchAll(/animation:\s*[\w-]+\s+([\d.]+)s[^;]*infinite/g)) assert.ok(1 / Number(m[1]) <= 3, m[0]);
+});
+
+test('K-8 / K-22: each tile state, and an escalated tile, is distinct without colour or flash', () => {
+  const states = ['normal', 'alarm', 'ackd', 'cleared'];
+  const GLYPH = {normal: '', alarm: '◆', ackd: '■', cleared: '◇'};   // what app/alarms.js sends
+  const tiles = states.map((s, i) => ({id: 't' + i, label: 'TILE', prio: 'P2', state: s, glyph: GLYPH[s], target: 'dial-freq',
+    flash: s === 'alarm' ? 'fast' : s === 'cleared' ? 'slow' : null}));
+  tiles.push({id: 'esc', label: 'TILE', prio: 'P1', state: 'alarm', glyph: '◆', flash: 'fast', escalated: true, target: 'dial-freq'});
+  tiles.push({id: 'noglyph', label: 'TILE', prio: 'P3', state: 'cleared', flash: 'slow', target: 'dial-freq'});
+  const {$} = mount(at(vmAt(EVE, {alarms: {tiles, sounding: false}}), 1000));
+  const texts = [...states.map((s, i) => $('tile-t' + i).textContent), $('tile-esc').textContent];
+  assert.equal(new Set(texts).size, texts.length, 'five different faces: ' + texts.join(' | '));
+  const labels = [...states.map((s, i) => $('tile-t' + i).getAttribute('aria-label')), $('tile-esc').getAttribute('aria-label')];
+  assert.equal(new Set(labels).size, labels.length);
+  assert.match($('tile-esc').textContent, /‼/);
+  assert.ok($('tile-esc').classList.contains('esc'));
+  assert.match($('tile-esc').getAttribute('aria-label'), /escalated/);
+  assert.ok(!$('tile-t1').classList.contains('esc'), 'the same alarm, not escalated');
+  assert.match(CSS, /\.dk-tile\.esc \{ border-style: double;/);
+  assert.match($('tile-noglyph').textContent, /◇/, 'a tile without a glyph still gets its state\'s');
+  assert.ok($('tile-t3').classList.contains('flash-slow') && $('tile-t1').classList.contains('flash-fast'));
+  assert.match($('btn-ack').textContent, /◆/, 'ACK shows there is something to acknowledge');
+});
+
+test('K-22: lamps, levels, bars and previews say their state in text or pattern, not colour alone', () => {
+  // Machine lamps: one glyph per state.
+  assert.equal(new Set(Object.values(MODE_GLYPH)).size, Object.keys(MODE_GLYPH).length);
+  const vm = vmAt(EVE);
+  const o = vm.obs;
+  const coal = o.units.filter(u => u.station === 'coal');
+  const modes = Object.keys(MODE_GLYPH);
+  const seen = new Set();
+  for (let i = 0; i < modes.length; i += coal.length) {
+    coal.forEach((u, j) => { if (modes[i + j]) u.mode = modes[i + j]; });
+    const {$} = mount(at(vm, 1000));
+    coal.forEach((u, j) => {
+      if (!modes[i + j]) return;
+      const b = $('guard-start-' + u.id);
+      assert.ok(b.textContent.startsWith(MODE_GLYPH[u.mode]), u.mode + ': ' + b.textContent);
+      assert.match(b.getAttribute('aria-label'), new RegExp(u.mode.toUpperCase()));
+      seen.add(b.textContent[0]);
+    });
+  }
+  assert.equal(seen.size, modes.length);
+  // The N-1 level word and the SPARE bar: a glyph per state; the fills differ by pattern (CSS).
+  const faces = new Map();
+  for (const [level, r5, l] of [['SECURE', 900, 600], ['TIGHT', 650, 600], ['SHORT', 400, 600], ['SHEDDING', 100, 600]]) {
+    const v = vmAt(EVE);
+    Object.assign(v.obs.sec, {level, r5MW: r5, lMW: l});
+    const {$} = mount(at(v, 1000));
+    const g = $('gauge-n1');
+    faces.set(level, g.querySelector('.dk-level').textContent + '|' + g.querySelector('.dk-gbar-val').textContent.replace(/\d/g, ''));
+    assert.equal(g.querySelector('.dk-gbar').classList.contains('short'), r5 < l, level);
+  }
+  assert.deepEqual([...faces.values()], ['✓ SECURE|✓', '! TIGHT|!', '✕ SHORT|✕', '✕✕ SHEDDING|✕']);
+  assert.match(CSS, /\.dk-gbar \+ \.dk-gbar \.dk-gbar-fill \{ background: repeating-linear-gradient\(135deg/, 'RISK is hatched');
+  assert.match(CSS, /\.dk-gbar\.short \.dk-gbar-fill \{ background: repeating-linear-gradient\(45deg/, 'a short SPARE is cross-hatched');
+  // TRIP PREVIEW colours carry ✓ ! ✕; the latch says it is on.
+  const pv = hz => { const v = vmAt(EVE); v.obs.sec.previewNadirHz = hz; return mount(at(v, 1000)).$('gauge-n1').querySelector('.dk-ptext').textContent; };
+  assert.deepEqual([49.7, 49.3, 48.9].map(hz => pv(hz)[0]), [CLASS_GLYPH.good, CLASS_GLYPH.warn, CLASS_GLYPH.crit]);
+  const on = mount(at(vmAt(EVE, {previewOn: true}), 1000));
+  assert.match(on.$('btn-preview').textContent, /●/);
+  assert.equal(on.$('btn-preview').getAttribute('aria-pressed'), 'true');
+  // The frequency readout and CHANGE: a mark outside the band / above the RoCoF limit.
+  const f = (hz, rocof) => { const v = vmAt(EVE); v.obs.f.hz = hz; v.obs.f.rocofHzS = rocof; v.mode.rate = 1; return mount(at(v, 1000)).$('dial-freq').textContent; };
+  assert.match(f(49.7, 0), /^! 49\.700/);
+  assert.match(f(49.3, -1.4), /^✕ 49\.300 Hz✕ CHANGE/);
+  assert.match(f(50, 0), /^50\.000 HzCHANGE/);
+  // Lamps: the link, the lever above its gate, the tabs.
+  const t = vmAt(EVE);
+  Object.assign(t.obs.tie, {tripped: true, lockoutS: 600});
+  assert.match(mount(at(t, 1000)).$('knob-tie').parentElement.parentElement.textContent, /✕ TRIP/);
+  assert.match(mount(at(vm, 1000)).$('knob-tie').parentElement.parentElement.textContent, /● LINK/);
+  const hot = vmAt(EVE);
+  const st = hot.obs.stations.find(s => s.id === 'ccgt');
+  st.basePointMW = st.maxMW;
+  assert.match(slotOf(mount(at(hot, 1000)).$, 'ccgt').textContent, /! >96%/);
+  assert.match(CSS, /\.dk-tab\[aria-selected="true"\] \{[^}]*border-bottom-width: 3px/);
+  assert.match(CSS, /\.dk-mach\.hot \.dk-start \{[^}]*border-style: dashed/);
+});
+
+test('K-23: roles, value text and shortcuts on every control; canvases have a text alternative, at most one change per real second', () => {
+  const vm = vmAt(EVE, {offers: [{unit: 'gtc2', why: 'the peak'}],
+    alarms: {tiles: [{id: 'a', label: 'A', state: 'alarm', glyph: '◆', target: 'dial-freq'}], sounding: false},
+    tray: {cards: [{id: 'c', from: 'X', atS: 1, text: 't', button: {label: 'GO', target: 'tray'}}], log: []}});
+  Object.assign(vm.obs.units.find(x => x.id === 'gtc2'), {mode: 'ready', sync: false, outMW: 0, slipHz: 0.25, phaseDeg: -40, timerS: 200});
+  vm.obs.scope = {unit: 'gtc2', open: true};
+  vm.obs.sec.level = 'SHORT';
+  vm.mode.rate = 1;
+  const {$, desk} = mount(at(vm, 1000));
+  const KEYS = {'lever-coal': '1', 'lever-ccgt': '2', 'lever-gta': '3', 'lever-gtb': '4', 'lever-gtc': '5', 'wheel-hydro': '6', 'dial-battery': '7',
+    'knob-tie': '8', 'ring-guard': 'G', 'key-rert': 'E', 'btn-dr': 'D', 'key-shed': 'K', 'btn-redispatch': 'N', 'key-agc': 'V', 'bay-sync': 'O',
+    'bay-restore': 'R', 'sync-lower': '[', 'sync-raise': ']', 'sync-close': 'C', 'sync-auto': 'U', 'sync-bypass': 'B', 'btn-ack': 'A',
+    'btn-silence': 'Shift+A', 'tray': 'M', 'btn-preview': 'T'};
+  for (const [id, k] of Object.entries(KEYS)) assert.equal($(id).getAttribute('aria-keyshortcuts'), k, id);
+  for (const id of [...SLOT_IDS, 'ring-guard']) {
+    const e = $(id);
+    assert.equal(e.getAttribute('role'), 'slider', id);
+    for (const k of ['aria-valuemin', 'aria-valuemax', 'aria-valuenow']) assert.ok(Number.isFinite(Number(e.getAttribute(k))), id + ' ' + k);
+    assert.ok(Number(e.getAttribute('aria-valuemin')) <= Number(e.getAttribute('aria-valuenow')) && Number(e.getAttribute('aria-valuenow')) <= Number(e.getAttribute('aria-valuemax')), id);
+    assert.match(e.getAttribute('aria-valuetext'), /MW/, id);
+    assert.ok(e.getAttribute('aria-label'), id);
+  }
+  assert.match($('lever-coal').getAttribute('aria-valuetext'), /^COAL base point \d+ MW, output \d+ MW/);
+  assert.match($('lever-coal').getAttribute('aria-valuetext'), /plan \d+ MW by \d\d:\d\d/, 'the plan ghost\'s tooltip is in the value text too');
+  // Every button has a name; guards and latches say their state.
+  for (const e of desk.el.querySelectorAll('button')) {
+    if (e.classList.contains('empty')) continue;
+    assert.ok((e.getAttribute('aria-label') || e.textContent).trim().length > 0, 'unnamed button ' + (e.id || e.className));
+  }
+  for (const m of V.MACHINES) for (const g of ['guard-start-', 'guard-stop-']) assert.equal($(g + m.id).getAttribute('aria-pressed'), 'false', g + m.id);
+  assert.equal($('key-agc').getAttribute('role'), 'switch');
+  assert.ok(['true', 'false'].includes($('key-agc').getAttribute('aria-checked')));
+  assert.ok(['true', 'false'].includes($('key-rert').getAttribute('aria-pressed')));
+  assert.equal($('tile-a').tagName, 'BUTTON');
+  assert.equal($('scope-gtc2').tagName, 'BUTTON');
+  // Canvases: only the dial and the synchroscope, each role=img with a label.
+  const canvases = desk.el.querySelectorAll('canvas');
+  assert.deepEqual(canvases.map(c => c.id).sort(), ['dial-canvas', 'scope-canvas']);
+  for (const c of canvases) { assert.equal(c.getAttribute('role'), 'img'); assert.ok(!c.hasAttribute('aria-hidden')); }
+  assert.match($('dial-canvas').getAttribute('aria-label'), /^Frequency \d\d\.\d\d\d hertz, in the normal band/);
+  assert.match($('scope-canvas').getAttribute('aria-label'), /GT·C 2: slip plus 0\.25 hertz, needle turning clockwise.*one turn every 4\.0 seconds/);
+  // At most one change per real second, however often the numbers move.
+  const seen = new Set([$('dial-canvas').getAttribute('aria-label')]), scope = new Set([$('scope-canvas').getAttribute('aria-label')]);
+  for (let i = 1; i <= 180; i++) {   // 3 real seconds of 60-Hz frames
+    const v = clone(vm);
+    v.obs.f.hz = 50 + 0.001 * (i % 40);
+    v.obs.units.find(x => x.id === 'gtc2').slipHz = 0.25 - 0.001 * i;
+    desk.update(at(baseVm(v.obs, {mode: vm.mode}), 1000 + i * 1000 / 60));
+    seen.add($('dial-canvas').getAttribute('aria-label'));
+    scope.add($('scope-canvas').getAttribute('aria-label'));
+    assert.equal($('dial-freq').getAttribute('aria-label'), $('dial-canvas').getAttribute('aria-label'));
+  }
+  assert.ok(seen.size >= 3 && seen.size <= 4, 'dial alternative changed ' + (seen.size - 1) + ' times in 3 s');
+  assert.ok(scope.size >= 3 && scope.size <= 4, 'scope alternative changed ' + (scope.size - 1) + ' times in 3 s');
+  // slowAttr itself.
+  let now = 0;
+  const set = slowAttr(() => now), e = $('dial-canvas');
+  set(e, 'data-x', 'a'); now = 500; set(e, 'data-x', 'b');
+  assert.equal(e.getAttribute('data-x'), 'a');
+  now = 1000; set(e, 'data-x', 'c');
+  assert.equal(e.getAttribute('data-x'), 'c');
 });
 
 // ---------------------------------------------------------------- K-17 layout at the floor
