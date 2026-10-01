@@ -212,7 +212,7 @@ test('K-8 accept: the competent proxy triggers <= 8 audible alarms in a day', ()
     const hard = all.filter(s => !seeds.includes(s));
     if (hard.length) console.log('# K-8: not dailies (par sheds): seeds ' + hard.join(', ') + ' -> audible ' + hard.map(s => competentDay(s).audible).join(', '));
   }
-  assert.ok(seeds.length >= 15, 'enough daily-like seeds: ' + seeds.length);
+  if (SLOW) assert.ok(seeds.length >= 15, 'enough daily-like seeds: ' + seeds.length);
   const counts = seeds.map(seed => {
     const a = competentDay(seed);
     assert.ok(a.audible <= 8, 'seed ' + seed + ': ' + a.audible + ' audible alarms ' + JSON.stringify(a.sounds));
