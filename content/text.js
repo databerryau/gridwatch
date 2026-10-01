@@ -156,8 +156,8 @@ const ABSTRACTIONS = [
     params: ['PLAYER_START_H'],
   },
   {
-    // Phase 1b, desk/README.md §11 B-1: stage C adds the row to SPEC.md §8.2.
-    id: 'alarm-escalation', row: 'Frequency alarms escalate by severity.', specPending: true, anchorId: 'alarm-escalation', ui: 'drawer',
+    // Phase 1b, desk/README.md §11 B-1.
+    id: 'alarm-escalation', row: 'Frequency alarms escalate by severity.', anchorId: 'alarm-escalation', ui: 'drawer',
     game: 'annunciator',
     real: 'A control room gives each alarm one priority; a value that keeps getting worse raises a second, more urgent ' +
       'alarm at a further limit.',

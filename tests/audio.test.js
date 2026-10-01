@@ -122,10 +122,9 @@ test('§13.2: pan = (x / 640) x 2 - 1 from the suburb box centre; cues normalise
   assert.equal(M.panOfX(320), 0);
   assert.equal(M.panOfX(640), 1);
   assert.equal(M.panOfX(9999), 1);
-  for (const sb of SUBURBS) {
-    const want = (sb.box[0] + sb.box[2] / 2) / 640 * 2 - 1;
-    assert.ok(Math.abs(M.panOfSuburb(sb.id) - want) < 1e-12, sb.id);
-  }
+  // Suburbs pan across the city's own width (stage C), west -CITY_PAN to east +CITY_PAN.
+  const pans = SUBURBS.map(sb => M.panOfSuburb(sb.id));
+  assert.ok(Math.abs(Math.min(...pans) + M.CITY_PAN) < 1e-12 && Math.abs(Math.max(...pans) - M.CITY_PAN) < 1e-12);
   assert.ok(M.panOfSuburb('HAZ') < M.panOfSuburb('HAR') && M.panOfSuburb('HAR') < M.panOfSuburb('TAL'), 'west to east');
   assert.ok(M.panOfSuburb('SOL') < 0 && M.panOfSuburb('SAL') > 0);
   assert.equal(M.panOfSuburb('XXX'), 0);

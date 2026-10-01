@@ -240,10 +240,19 @@ export function panOfX(x) {
   return Math.max(-1, Math.min(1, x / BASE_W * 2 - 1));
 }
 
-/** Stereo position of a suburb (render/mapdata.js SUBURBS: its box's centre x); 0 if unknown. */
+/** How far the westmost and eastmost suburbs sit from centre (stage C: the map-wide formula gave only -0.19..+0.34). */
+export const CITY_PAN = 0.8;
+const CITY_X = SUBURBS.map(s => s.box[0] + s.box[2] / 2);
+const CITY_MID = (Math.min(...CITY_X) + Math.max(...CITY_X)) / 2, CITY_HALF = (Math.max(...CITY_X) - Math.min(...CITY_X)) / 2 || 1;
+
+/**
+ * Stereo position of a suburb (render/mapdata.js SUBURBS: its box's centre x); 0 if unknown.
+ * The city sits mid-map, so the pan is taken across the city's own width (west suburbs
+ * -CITY_PAN, east +CITY_PAN): a district's clack is heard where it is, not all near centre.
+ */
 export function panOfSuburb(code) {
   const sb = SUBURBS.find(s => s.id === code);
-  return sb ? panOfX(sb.box[0] + sb.box[2] / 2) : 0;
+  return sb ? CITY_PAN * (sb.box[0] + sb.box[2] / 2 - CITY_MID) / CITY_HALF : 0;
 }
 
 /** Seconds between two districts' clacks in one shed (the map darkens its blocks at this rate). */

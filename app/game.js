@@ -163,6 +163,7 @@ export function resetDay(game, seed) {
   if (seed !== undefined) game.seed = seed >>> 0;
   game.state = createState(game.seed, game.scenario);
   game.suburbs = null;
+  game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
   game.director = D.createDirector({game: true, paused: true, seen});
   game.pacer = createPacer({cap: game.pacer.cap, budgetMs: game.pacer.budgetMs});
@@ -587,6 +588,17 @@ export function buildVm(game, f) {
   }
   if (state.over && !game.end) {
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: state.log.length, seed: game.seed, v: SIM_VERSION};
+  }
+  // spoolUp: no sim record marks a machine starting (booked starts included), so it is read
+  // off the unit's mode between two frames (audio/model.js cueOfModeChange).
+  if (!game.unitModes) game.unitModes = {};
+  for (const u of obs.units) {
+    const was = game.unitModes[u.id];
+    if (was !== u.mode) {
+      game.unitModes[u.id] = u.mode;
+      const c = game.phase === 'play' && AM.cueOfModeChange ? AM.cueOfModeChange(was, u.mode) : '';
+      if (c) pushCue(game, c);
+    }
   }
   const cues = game.cues;
   game.cues = [];
