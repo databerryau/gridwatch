@@ -1,10 +1,13 @@
 // content/text.js: the honest-abstractions panel (spec H-14, C-5, SPEC.md §8.2).
 //
-// One entry per §8.2 row: {id, row, anchorId, real, ours, why, params}.
-//   row       the row's bold title exactly as in SPEC.md §8.2 (tests/text.test.js matches it)
-//   anchorId  the id of the UI element the "?" sits next to (next.html); entries whose
-//             element does not exist before the Phase 1 desk carry ui: 'drawer' and show only
-//             in the abstractions drawer (H-14: "the same text is in the manual drawer")
+// One entry per §8.2 row: {id, row, anchorId, game, real, ours, why, params}.
+//   row       the row's bold title exactly as in SPEC.md §8.2 (tests/text.test.js matches it).
+//             An entry for a row not yet in §8.2 carries specPending: true until the row is added.
+//   anchorId  the id of the bench element the "?" sits next to (bench.html); entries whose
+//             element the bench does not have carry ui: 'drawer' and show only in the bench's
+//             abstractions drawer (H-14: "the same text is in the manual drawer")
+//   game      the id of the game element the "?" sits next to (next.html): a desk/stack/map
+//             control id from desk/README.md §5, or a next.html element; 'drawer' = drawer only
 //   real      what the real world does
 //   ours      what GRIDWATCH does, BUILT from sim/params.js (and the scenario / director)
 //             values, never a copied number, so tuning a value retunes the text
@@ -16,6 +19,7 @@
 import {P, V} from '../sim/params.js';
 import {CLASSIC} from './scenarios.js';
 import {FLAT_RATE, WATCH_SCHEDULE} from '../app/director.js';
+import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
 
 // ------------------------------------------------------------------ formatting
 
@@ -49,11 +53,28 @@ const coal = station('coal');
 // The auto-sync delay's tunable band (the params record's `range`; V keeps values only).
 const autoSyncRange = P.AUTO_SYNC_S.range || [V.AUTO_SYNC_S, V.AUTO_SYNC_S];
 
+// The K-12 synchroscope's speed, from the sim's Phase 1a params (desk/README.md §3.3) once
+// they exist; until the sim branch merges, the Phase 0.2 stub's text.
+const SCOPE_KEYS = ['SYNC_SLIP_MIN_HZ', 'SYNC_SLIP_MAX_HZ', 'SYNC_TRIM_HZ', 'SYNC_CLEAN_DEG', 'SYNC_ROUGH_DEG', 'SYNC_BREAKER_TICKS'];
+const SCOPE_PARAMS = SCOPE_KEYS.every(k => V[k] !== undefined) ? SCOPE_KEYS : [];
+function scopeOurs() {
+  if (!SCOPE_PARAMS.length) {
+    return 'SYNC closes cleanly and picks up a block of ' + pct(V.SYNC_BLOCK_FRAC) + '% of rating, then loads to minimum over ' +
+      'T2. The desk\'s scope turns faster than a real one.';
+  }
+  const turn = hzv => num(Math.round(10 / hzv) / 10);
+  return 'The needle turns at the slip, seeded at ' + num(V.SYNC_SLIP_MIN_HZ) + '–' + num(V.SYNC_SLIP_MAX_HZ) + ' Hz either way: one ' +
+    'turn every ' + turn(V.SYNC_SLIP_MAX_HZ) + '–' + turn(V.SYNC_SLIP_MIN_HZ) + ' s, several times a real scope\'s speed. [ and ] ' +
+    'trim it by ' + num(V.SYNC_TRIM_HZ) + ' Hz; the breaker closes ' + num(V.SYNC_BREAKER_TICKS * V.PHYS_DT * 1000) + ' ms after C. ' +
+    'Within ±' + num(V.SYNC_CLEAN_DEG) + '° with the machine fast is clean (a block of ' + pct(V.SYNC_BLOCK_FRAC) + '% of rating), ' +
+    'to ±' + num(V.SYNC_ROUGH_DEG) + '° rough, slow gives a reverse-power trip, beyond that the sync-check relay blocks it.';
+}
+
 // ------------------------------------------------------------------ entries
 
 const ABSTRACTIONS = [
   {
-    id: 'compressed-playback', row: 'Compressed playback.', anchorId: 'rate-badge',
+    id: 'compressed-playback', row: 'Compressed playback.', anchorId: 'rate-badge', game: 'rate-badge',
     real: 'One clock at 1×: a grid-second takes a real second, and real operators have minutes to act.',
     ours: 'One grid clock. Physics integrates every ' + num(V.PHYS_DT * 1000) + ' ms of grid time and the grid update ' +
       'runs every grid second, at every speed, so speed changes what you see, never what happens. The bench cruises at a ' +
@@ -64,7 +85,7 @@ const ABSTRACTIONS = [
     params: ['PHYS_DT', 'REF_PROFILE', 'WATCH_S'],
   },
   {
-    id: 'event-dense-day', row: 'Event-dense day.', anchorId: 'event-log',
+    id: 'event-dense-day', row: 'Event-dense day.', anchorId: 'event-log', game: 'tray',
     real: 'Credible unit and link trips are rare: an operator sees a few a year, not one or two a shift. After a ' +
       'protection trip a unit returns in hours to weeks, depending on the fault and the inspection.',
     ours: 'The classic day always has one large unit trip (the largest online machine), plus an extra unit trip on ' +
@@ -79,16 +100,15 @@ const ABSTRACTIONS = [
     params: ['HEAT_SHARE', 'STORM_SHARE', 'HOT_TRIP_LOCKOUT_S', 'FLEET.coal.minDownH'],
   },
   {
-    id: 'compressed-synchroscope', row: 'Compressed synchroscope.', anchorId: 'sync-scope',
+    id: 'compressed-synchroscope', row: 'Compressed synchroscope.', anchorId: 'sync-scope', game: 'bay-sync',
     real: 'Real slip is at most 0.067 Hz, 15–30 s per turn, and synchronising is mostly automatic, at the power station, ' +
       'not in the control room.',
-    ours: 'Not in the bench yet: SYNC here is the K-12 stub, a clean close that picks up a block of ' + pct(V.SYNC_BLOCK_FRAC) +
-      '% of rating and loads to minimum over T2. The Phase 1 desk adds the scope, turning faster than a real one.',
+    ours: scopeOurs(),
     why: 'A playable skill moment.',
-    params: ['SYNC_BLOCK_FRAC'],
+    params: ['SYNC_BLOCK_FRAC', ...SCOPE_PARAMS],
   },
   {
-    id: 'auto-sync', row: 'Auto-sync takes 4 grid-minutes', anchorId: 'auto-sync',
+    id: 'auto-sync', row: 'Auto-sync takes 4 grid-minutes', anchorId: 'auto-sync', game: 'bay-sync',
     real: 'Auto-synchronisers work at the station; how long they take from full speed to breaker close is not yet ' +
       'checked (§8.3).',
     ours: 'In AGC mode a machine at full speed closes its own breaker ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes later ' +
@@ -98,7 +118,7 @@ const ABSTRACTIONS = [
     params: ['AUTO_SYNC_S'],
   },
   {
-    id: 'pre-dispatch', row: 'Pre-dispatch is computed once, at 04:30', anchorId: 'assist-select',
+    id: 'pre-dispatch', row: 'Pre-dispatch is computed once, at 04:30', anchorId: 'assist-select', game: 'stack',
     real: 'AEMO re-runs pre-dispatch every 30 minutes, and generators self-commit against it.',
     ours: 'The L-0 plan is made once, at ' + hhmm(V.PLAYER_START_H) + ', from the day-ahead forecast: a merit-order ' +
       'schedule that respects start times, ramps and minimum up and down times, and ignores N-1 and hazards. On the bench, ' +
@@ -110,19 +130,32 @@ const ABSTRACTIONS = [
     params: ['PLAYER_START_H', 'PLAN_REFLOW_S'],
   },
   {
-    id: 'par-replans', row: 'Par re-plans after every action.', anchorId: 'assist-select',
+    id: 'par-replans', row: 'Par re-plans after every action.', anchorId: 'assist-select', game: 'btn-redispatch',
     real: 'AEMO re-runs pre-dispatch every 30 minutes and its dispatch engine re-dispatches every unit every 5 minutes; ' +
       'an operator does not move each generator by hand.',
     ours: 'Par takes at most one discrete action per ' + num(V.PAR_ACTION_GAP_REAL_S) + ' real seconds of the reference ' +
       'playback, and after each one it re-dispatches every lever and the tie from then to 04:00 over the units it has, ' +
       'without spending another action. It starts from the ' + hhmm(V.PLAYER_START_H) + ' plan without its planned stops ' +
-      '(it stops units by its own rule). On the bench, RE-PLAN under ASSIST PLAN gives you the same re-dispatch.',
+      '(it stops units by its own rule). On the desk, RE-DISPATCH gives you the same re-dispatch (on the bench, RE-PLAN ' +
+      'under ASSIST PLAN).',
     why: 'Par stands for a good operator who keeps the plan current; dragging every layer by hand is not the skill being ' +
-      'graded. Whether the Phase 1 Live Stack keeps RE-PLAN, or par paces its re-plan instead, is an owner decision.',
+      'graded.',
     params: ['PAR_ACTION_GAP_REAL_S', 'PLAYER_START_H'],
   },
   {
-    id: 'act-i-restore-task', row: 'Act I restore task', anchorId: 'restore-panel',
+    id: 're-dispatch', row: 'RE-DISPATCH re-runs the pre-dispatch on demand.', anchorId: 'btn-redispatch', ui: 'drawer',
+    game: 'btn-redispatch',
+    real: 'AEMO re-runs pre-dispatch every 30 minutes, and its dispatch engine (NEMDE) moves every committed unit every 5 ' +
+      'minutes; operators decide commitment, reserves, the interconnector and emergencies, not each base point.',
+    ours: 'RE-DISPATCH, a key on the desk, re-runs the ' + hhmm(V.PLAYER_START_H) + ' pre-dispatch from now to 04:00 over the ' +
+      'units you have committed now, and every lever glides to the new plan. It is refused during the watch and before ' +
+      hhmm(V.PLAYER_START_H) + '. Par makes the same re-dispatch after each of its actions, without spending one.',
+    why: 'The plan coming together is something you cause: commit a unit on the stack, press RE-DISPATCH, and the desk ' +
+      're-arranges itself.',
+    params: ['PLAYER_START_H'],
+  },
+  {
+    id: 'act-i-restore-task', row: 'Act I restore task', anchorId: 'restore-panel', game: 'bay-restore',
     real: 'Storm outages and smelter restarts happen, but not every day.',
     ours: 'Not in Phase 0.2: the classic day has no restore task, so districts go dark only through UFLS or directed ' +
       'shedding. The Phase 2 event director adds the task.',
@@ -130,7 +163,7 @@ const ABSTRACTIONS = [
     params: [],
   },
   {
-    id: 'player-commits', row: 'The player commits units and sets output.', anchorId: 'stations-panel',
+    id: 'player-commits', row: 'The player commits units and sets output.', anchorId: 'stations-panel', game: 'lever-coal',
     real: 'Generators self-commit and bid; AEMO dispatches every 5 minutes and issues directions.',
     ours: 'You START and STOP each of the ' + V.MACHINES.length + ' machines and set one base point per station (' +
       V.STATION_IDS.length + ' levers, shared equally by the machines that are on); AGC trims them every ' +
@@ -139,7 +172,7 @@ const ABSTRACTIONS = [
     params: ['AGC_CYCLE_S'],
   },
   {
-    id: 'agc-band', row: 'AGC band around each lever.', anchorId: 'agc-mode',
+    id: 'agc-band', row: 'AGC band around each lever.', anchorId: 'agc-mode', game: 'key-agc',
     real: 'AGC sends setpoints up to every 4 s; NEMDE, the dispatch engine, re-dispatches every 5 minutes.',
     ours: 'AGC trims each machine every ' + num(V.AGC_CYCLE_S) + ' s within a band around its base point: coal ±' +
       pct(V.CLASSES.coal.agcBandFrac) + '%, CCGT ±' + pct(V.CLASSES.ccgt.agcBandFrac) + '%, GT ±' +
@@ -150,7 +183,7 @@ const ABSTRACTIONS = [
       'CLASSES.hydro.agcBandFrac'],
   },
   {
-    id: 'dc-tie', row: 'DC tie.', anchorId: 'tie-panel',
+    id: 'dc-tie', row: 'DC tie.', anchorId: 'tie-panel', game: 'knob-tie',
     real: 'Most NEM interconnectors are AC and share one frequency; their flows are set by NEMDE.',
     ours: 'The region is its own frequency island, joined to the neighbour by a DC tie you set: up to ' + num(V.TIE_MAX_MW) +
       ' MW either way, export up to ' + num(V.TIE_EXPORT_CAP_MW) + ' MW during ' + hhmm(V.TIE_EXPORT_CAP_H[0]) + '–' +
@@ -160,7 +193,7 @@ const ABSTRACTIONS = [
     params: ['TIE_MAX_MW', 'TIE_EXPORT_CAP_MW', 'TIE_EXPORT_CAP_H', 'TIE_RAMP_MW_MIN'],
   },
   {
-    id: 'mainland-standard', row: 'Mainland interconnected standard.', anchorId: 'fos-panel',
+    id: 'mainland-standard', row: 'Mainland interconnected standard.', anchorId: 'fos-panel', game: 'dial-freq',
     real: 'An island within the mainland falls under FOS Table A.4: a trip contained within 49.0–51.0 Hz, back to ' +
       '49.5–50.5 Hz within 5 minutes.',
     ours: 'We apply Table A.3: a credible trip must stay within ' + hz(V.CONTAIN_LO_HZ) + '–' + hz(V.CONTAIN_HI_HZ) +
@@ -170,7 +203,7 @@ const ABSTRACTIONS = [
     params: ['CONTAIN_LO_HZ', 'CONTAIN_HI_HZ', 'NORMAL_LO_HZ', 'NORMAL_HI_HZ', 'FOS_RECOVER_S'],
   },
   {
-    id: 'msl-tiers', row: 'MSL3 = 1,000 MW, with MSL2 and MSL1 300 and 600 MW above it', anchorId: 'msl-gauge', ui: 'drawer',
+    id: 'msl-tiers', row: 'MSL3 = 1,000 MW, with MSL2 and MSL1 300 and 600 MW above it', anchorId: 'msl-gauge', game: 'drawer', ui: 'drawer',
     real: 'Minimum-system-load floors vary with the synchronous units online; Victoria\'s are about 790 MW with ~500-MW steps.',
     ours: 'Not modelled until Phase 2 (P-4): the bench has no minimum-system-load floor yet.',
     why: 'Our region is an island whose largest load risk is the ' + num(V.SMELTER_MW) + '-MW smelter potline, so the ' +
@@ -178,14 +211,14 @@ const ABSTRACTIONS = [
     params: ['SMELTER_MW'],
   },
   {
-    id: 'one-node', row: 'One-node network.', anchorId: 'demand-chart',
+    id: 'one-node', row: 'One-node network.', anchorId: 'demand-chart', game: 'map',
     real: 'Transmission lines have limits, so where power is made and used matters.',
     ours: 'One bus: every MW generated reaches every district, with no line limits and no losses.',
     why: 'Scope: the game is about balance, reserve and frequency, not power flow.',
     params: [],
   },
   {
-    id: 'cost-based-offers', row: 'Cost-based offers; scarcity adder.', anchorId: 'price-chart',
+    id: 'cost-based-offers', row: 'Cost-based offers; scarcity adder.', anchorId: 'price-chart', game: 'stack',
     real: 'Generators bid and re-bid their capacity in price bands. When an interconnector is the largest risk, AEMO ' +
       'buys more contingency reserve (FCAS) and may limit the flow.',
     ours: 'Each unit offers at its cost: minimum-load blocks at ' + usd(V.MIN_LOAD_OFFER) + ', coal ' +
@@ -201,7 +234,7 @@ const ABSTRACTIONS = [
       'FLEET.hydro.offer', 'RENEWABLE_OFFER', 'SCARCITY_FREE_X', 'SCARCITY_AT_ONE', 'SCARCITY_QUAD'],
   },
   {
-    id: 'customer-cost', row: 'CUSTOMER COST is the resource cost of serving', anchorId: 'scorecard',
+    id: 'customer-cost', row: 'CUSTOMER COST is the resource cost of serving', anchorId: 'scorecard', game: 'chip-cost',
     real: 'NEM customers pay the market price, plus network charges, not the resource cost.',
     ours: 'CUSTOMER COST adds fuel, no-load, starts, imports minus exports, battery wear (' + usd(V.BATT_WEAR_PER_MWH) +
       '/MWh), DR (' + usd(V.DR_PRICE) + '/MWh) and reserve diesel (' + usd(V.RERT_COST) + '/MWh), in cents per kWh ' +
@@ -210,7 +243,7 @@ const ABSTRACTIONS = [
     params: ['BATT_WEAR_PER_MWH', 'DR_PRICE', 'RERT_COST'],
   },
   {
-    id: 'carbon-generation', row: 'CARBON counts the region\'s own generation.', anchorId: 'scorecard',
+    id: 'carbon-generation', row: 'CARBON counts the region\'s own generation.', anchorId: 'scorecard', game: 'chip-co2',
     real: 'AEMO\'s carbon intensity index divides a region\'s emissions by the energy its generators produce; a ' +
       'consumer-based count would instead charge imported energy the neighbour\'s emissions.',
     ours: 'CARBON is tonnes of CO₂ per MWh generated in the region: coal ' + num(coal.co2) + ', CCGT ' + num(station('ccgt').co2) +
@@ -221,7 +254,7 @@ const ABSTRACTIONS = [
     params: ['FLEET.coal.co2', 'FLEET.ccgt.co2', 'FLEET.gta.co2', 'RERT_CO2'],
   },
   {
-    id: 'lor-states', row: 'LOR states via 1.25 × L.', anchorId: 'security-panel',
+    id: 'lor-states', row: 'LOR states via 1.25 × L.', anchorId: 'security-panel', game: 'gauge-n1',
     real: 'LOR1 is reserve below the two largest risks, LOR2 below the largest, LOR3 is load shedding.',
     ours: 'SECURE needs spare in ' + num(V.R5_WINDOW_MIN) + ' min (R5) of at least ' + num(V.SECURE_RATIO) + ' × the ' +
       'biggest risk (L) and a TRIP PREVIEW nadir of at least ' + hz(V.SECURE_NADIR_HZ) + ' Hz plus a ' +
@@ -229,14 +262,14 @@ const ABSTRACTIONS = [
       'of the preview\'s age; it is re-run at least every ' + num(V.PREVIEW_REFRESH_S) + ' grid-seconds and whenever frequency ' +
       'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L; SHORT is R5 < L; SHEDDING while load is off.',
     why: 'One gauge. The margin covers what a preview with frozen schedules cannot see (demand wobble, AGC and ramps), ' +
-      'measured so that no SECURE state misses ' + hz(V.SECURE_NADIR_HZ) + ' Hz when the biggest risk, L, trips. SECURE ' +
-      'guards L only: a unit of nearly L\'s size can still dip below ' + hz(V.SECURE_NADIR_HZ) + ' Hz, because its trip ' +
-      'also takes away its inertia and governor (previewing every credible contingency is an open decision).',
+      'measured so that no SECURE state misses ' + hz(V.SECURE_NADIR_HZ) + ' Hz when a credible contingency trips. The ' +
+      'preview runs for both credible contingencies, the largest unit and the tie import (N-1), and BIGGEST RISK names ' +
+      'the one whose loss would dip deeper: a unit of nearly the tie\'s size also takes its inertia and governor with it.',
     params: ['R5_WINDOW_MIN', 'SECURE_RATIO', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ', 'PREVIEW_AGE_MARGIN_HZ_S', 'PREVIEW_REFRESH_S',
       'PREVIEW_F_TOL_HZ'],
   },
   {
-    id: 'ufls-blocks', row: 'UFLS: 8 × 6% blocks from 49.0 Hz in 0.125 Hz steps.', anchorId: 'ufls-strip',
+    id: 'ufls-blocks', row: 'UFLS: 8 × 6% blocks from 49.0 Hz in 0.125 Hz steps.', anchorId: 'ufls-strip', game: 'annunciator',
     real: 'Schemes differ by region (QLD 2021: 8 blocks, 49.00–48.60 Hz, 0.15 s delay); overall they reach down to ' +
       '47.5 Hz and at most 60% of load.',
     ours: num(V.UFLS_STAGES) + ' stages of about ' + pct(V.UFLS_BLOCK_FRAC) + '% of load, two districts each, from ' +
@@ -246,7 +279,7 @@ const ABSTRACTIONS = [
     params: ['UFLS_STAGES', 'UFLS_BLOCK_FRAC', 'UFLS_FIRST_HZ', 'UFLS_STEP_HZ', 'UFLS_DELAY_S'],
   },
   {
-    id: 'collapse', row: 'Collapse after 20 s at 47.5–48.0 Hz.', anchorId: 'freq-readout',
+    id: 'collapse', row: 'Collapse after 20 s at 47.5–48.0 Hz.', anchorId: 'freq-readout', game: 'dial-freq',
     real: 'Whether a grid collapses depends on protection settings, not on a timer.',
     ours: 'Black at once at ' + hz(V.BLACK_LO_HZ) + ' Hz or below and at ' + hz(V.BLACK_HI_HZ) + ' Hz or above; after ' +
       V.COLLAPSE_BANDS.map(b => num(b.holdS) + ' s below ' + hz(b.hiHz) + ' Hz').join(' or after ') + ' (compressed).',
@@ -254,7 +287,7 @@ const ABSTRACTIONS = [
     params: ['BLACK_LO_HZ', 'BLACK_HI_HZ', 'COLLAPSE_BANDS'],
   },
   {
-    id: 'wind-solar-pfr', row: 'Wind and utility solar give no primary frequency response.', anchorId: 'ofgs-lamps',
+    id: 'wind-solar-pfr', row: 'Wind and utility solar give no primary frequency response.', anchorId: 'ofgs-lamps', game: 'map',
     real: 'Under the NEM\'s mandatory primary frequency response rule (2020), wind and solar farms respond outside ±0.015 Hz ' +
       'with a droop of 5% or less: they always lower output when frequency is high, and raise it only from output they ' +
       'hold back (curtailment).',
@@ -267,7 +300,7 @@ const ABSTRACTIONS = [
     params: ['OFGS_STAGES_HZ', 'OFGS_STAGE_FRAC', 'GOV_DROOP'],
   },
   {
-    id: 'directed-shedding', row: 'Automatic directed shedding when the FOS timers run out.', anchorId: 'fos-countdown',
+    id: 'directed-shedding', row: 'Automatic directed shedding when the FOS timers run out.', anchorId: 'fos-countdown', game: 'key-shed',
     real: 'AEMO directs the network companies to shed load.',
     ours: 'If frequency is still below ' + hz(V.NORMAL_LO_HZ) + ' Hz when the ' + minutes(V.FOS_RECOVER_S) + '-minute ' +
       'countdown ends, or below ' + hz(V.CONTAIN_LO_HZ) + ' Hz for more than ' + num(V.DIRECTED_BELOW_CONTAIN_S) + ' s, ' +
@@ -277,16 +310,18 @@ const ABSTRACTIONS = [
     params: ['NORMAL_LO_HZ', 'FOS_RECOVER_S', 'CONTAIN_LO_HZ', 'DIRECTED_BELOW_CONTAIN_S', 'DIRECTED_INTERVAL_S'],
   },
   {
-    id: 'restore-permissive', row: 'Restore permissive', anchorId: 'restore-permissive',
+    id: 'restore-permissive', row: 'Restore permissive', anchorId: 'restore-permissive', game: 'bay-restore',
     real: 'AEMO gives permission, and the networks switch small groups back every few minutes.',
     ours: 'RESTORE is allowed when frequency is at least ' + hz(V.RESTORE_MIN_HZ) + ' Hz, ' + minutes(V.RESTORE_INTERVAL_S) +
-      ' grid-minutes have passed since the last restore, and a RESTORE PREVIEW of picking up the district\'s cold load ' +
+      ' grid-minutes have passed since the last restore, spare in ' + num(V.R5_WINDOW_MIN) + ' min (R5) covers the district\'s ' +
+      'cold load, and a RESTORE PREVIEW of picking up that cold load ' +
       '(run on the restore itself) keeps the nadir at or above ' + hz(V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ) + ' Hz.',
-    why: 'A visible, learnable rule that cannot set off UFLS again (spare in 5 minutes is not primary response).',
-    params: ['RESTORE_MIN_HZ', 'RESTORE_INTERVAL_S', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ'],
+    why: 'A visible, learnable rule that cannot set off UFLS again: the preview checks the pickup\'s first seconds, and the ' +
+      'spare in 5 minutes checks the load can be carried after them.',
+    params: ['RESTORE_MIN_HZ', 'RESTORE_INTERVAL_S', 'R5_WINDOW_MIN', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ'],
   },
   {
-    id: 'cold-load', row: 'Cold-load pickup ×1.5.', anchorId: 'cold-load',
+    id: 'cold-load', row: 'Cold-load pickup ×1.5.', anchorId: 'cold-load', game: 'bay-restore',
     real: 'Cold-load pickup varies by feeder and weather.',
     ours: 'A district dark for more than ' + minutes(V.COLD_LOAD_AFTER_S) + ' grid-minutes comes back at ' +
       num(V.COLD_LOAD_FACTOR) + '× its share of demand; the surge decays over ' + minutes(V.COLD_LOAD_DECAY_S) +
@@ -295,7 +330,7 @@ const ABSTRACTIONS = [
     params: ['COLD_LOAD_AFTER_S', 'COLD_LOAD_FACTOR', 'COLD_LOAD_DECAY_S'],
   },
   {
-    id: 'city-levers', row: 'City levers\' MW, costs and patience.', anchorId: 'dr-panel',
+    id: 'city-levers', row: 'City levers\' MW, costs and patience.', anchorId: 'dr-panel', game: 'btn-dr',
     real: 'Demand-response programs differ, and customers opt out.',
     ours: 'Phase 0.2 has one city lever, industrial DR: ' + num(V.DR_MW) + ' MW for ' + minutes(V.DR_DURATION_S) +
       ' min at ' + usd(V.DR_PRICE) + '/MWh, ' + num(V.DR_CALLS) + ' calls a day, shedding and returning at ' +
@@ -304,14 +339,14 @@ const ABSTRACTIONS = [
     params: ['DR_MW', 'DR_DURATION_S', 'DR_PRICE', 'DR_CALLS', 'DR_RAMP_MW_MIN'],
   },
   {
-    id: 'hot-water-hold', row: 'HOT WATER HOLD is 80 MW', anchorId: 'hot-water-hold', ui: 'drawer',
+    id: 'hot-water-hold', row: 'HOT WATER HOLD is 80 MW', anchorId: 'hot-water-hold', game: 'drawer', ui: 'drawer',
     real: 'Energex alone held 777 MW of hot-water and pool load on 25 May 2021.',
     ours: 'Not in Phase 0.2: the hold is a Phase 2 city lever (U-2).',
     why: 'It keeps the hold one lever among several; real controlled load is about ten times bigger.',
     params: [],
   },
   {
-    id: 'coal-ramp', row: 'Coal ramps at 3 MW/min per machine', anchorId: 'station-coal',
+    id: 'coal-ramp', row: 'Coal ramps at 3 MW/min per machine', anchorId: 'station-coal', game: 'lever-coal',
     real: 'The Aurecon 2021 new-build reference is 3%/min, 19.5 MW/min for a 650-MW machine; ramps of existing units ' +
       'are unverified (§8.3).',
     ours: 'Each ' + num(coal.ratingMW) + '-MW coal machine ramps at ' + num(coal.rampMWMin) + ' MW/min (' +
@@ -321,7 +356,7 @@ const ABSTRACTIONS = [
     params: ['FLEET.coal.ratingMW', 'FLEET.coal.minMW', 'FLEET.coal.rampMWMin', 'FLEET.coal.machines'],
   },
   {
-    id: 'region-scale', row: 'Region scale.', anchorId: 'region-scale',
+    id: 'region-scale', row: 'Region scale.', anchorId: 'region-scale', game: 'map',
     real: 'Real NEM regions range from Tasmania to New South Wales; ours sits between Victoria and South Australia.',
     ours: 'A classic-day peak of about ' + num(peakMW) + ' MW, ' + num(households / 1e6) + ' million households in ' +
       CLASSIC.city.suburbs.length + ' suburbs, ' + num(V.WIND_MW) + ' MW of wind and ' + num(V.SOLAR_MW) + ' MW of ' +
@@ -330,15 +365,17 @@ const ABSTRACTIONS = [
     params: ['WIND_MW', 'SOLAR_MW'],
   },
   {
-    id: 'hum-tone', row: 'Hum reference tone', anchorId: 'hum', ui: 'drawer',
+    id: 'hum-tone', row: 'Hum reference tone', anchorId: 'hum', game: 'btn-mute', ui: 'drawer',
     real: 'There is no such tone: operators read frequency from instruments.',
-    ours: 'Not in the bench, which has no sound. The Phase 1 desk plays a hum that follows frequency against a fixed ' +
-      'reference tone.',
+    ours: 'The game hums at twice grid frequency (partials at ' + HUM_K.map(k => k + ' × 2f').join(', ') + ') over a quiet fixed ' +
+      'reference at ' + HUM_K.map(k => num(k * 2 * F0)).join(' / ') + ' Hz, ' + num(-REF_REL_DB) + ' dB below the hum; each ' +
+      'partial beats against its reference at 2k × |f − ' + num(F0) + '|, so at 49.75 Hz the ' + num(4 * 2 * F0) + ' Hz partial ' +
+      'wobbles twice a second. Default level ' + num(HUM_DBFS) + ' dBFS. The bench has no sound.',
     why: 'Sonification, like a tuning fork.',
     params: [],
   },
   {
-    id: 'hydro-allocation', row: 'Daily hydro allocation', anchorId: 'hydro-storage',
+    id: 'hydro-allocation', row: 'Daily hydro allocation', anchorId: 'hydro-storage', game: 'wheel-hydro',
     real: 'Hydro storages are managed across seasons, not days.',
     ours: 'The gorge gets ' + num(V.HYDRO_ALLOCATION_MWH) + ' MWh of water a day; at ' + num(V.HYDRO_STOP_MWH) + ' MWh ' +
       'left the station unloads. Its offer rises from ' + usd(station('hydro').offer) + '/MWh as the water runs down.',
@@ -346,7 +383,7 @@ const ABSTRACTIONS = [
     params: ['HYDRO_ALLOCATION_MWH', 'HYDRO_STOP_MWH', 'FLEET.hydro.offer'],
   },
   {
-    id: 'hydro-spins-free', row: 'Hydro spins free.', anchorId: 'station-hydro',
+    id: 'hydro-spins-free', row: 'Hydro spins free.', anchorId: 'station-hydro', game: 'wheel-hydro',
     real: 'A hydro machine spinning at no load still passes water, a few % of its rated flow, and runs inefficiently near ' +
       'zero output; running it as a condenser is a separate, costed operation.',
     ours: 'A gorge machine on line at any output down to ' + num(station('hydro').minMW) + ' MW uses water only for what ' +
@@ -361,7 +398,7 @@ const ABSTRACTIONS = [
       'R5_WINDOW_MIN'],
   },
   {
-    id: 'late-summer', row: 'Every daily is a late-summer day, until Y-9 ships', anchorId: 'clock',
+    id: 'late-summer', row: 'Every daily is a late-summer day, until Y-9 ships', anchorId: 'clock', game: 'clock',
     real: 'Heatwaves come from about November to March; winter has a later sunrise, an earlier sunset and an evening ' +
       'peak of its own.',
     ours: 'Every bench day is the classic late-summer day: sunrise ' + hhmm(CLASSIC.sun.riseH) + ', sunset ' +

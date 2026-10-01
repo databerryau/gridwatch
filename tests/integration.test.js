@@ -25,7 +25,39 @@ const EMPTY_INPUTS = [];
 
 test('F-6: the input vocabulary', () => {
   assert.deepEqual([...INPUT_TYPES].sort(), ['abortStop', 'armRERT', 'basePoint', 'battery', 'callDR', 'curtail', 'directShed',
-    'guard', 'mode', 'restore', 'standDownRERT', 'start', 'stop', 'syncClose', 'tie'].sort());
+    'guard', 'mode', 'restore', 'standDownRERT', 'start', 'stop', 'syncClose', 'tie',
+    // Phase 1a (desk/README.md §3.2)
+    'planKey', 'planDel', 'planStart', 'planStop', 'planUnbook', 'planRejoin', 'planLoad', 'scope', 'syncTrim', 'syncAuto'].sort());
+});
+
+test('F-6: planLoad\'s list arguments are checked for shape and order, and logged canonically (every station, fresh arrays)', () => {
+  const s = createState(1, CLASSIC);
+  const bad = [
+    {fromS: 10, stations: [], tie: [], starts: [], stops: []},
+    {fromS: 10, stations: {nuclear: []}, tie: [], starts: [], stops: []},
+    {fromS: 10, stations: {coal: [[20, 100], [20, 200]]}, tie: [], starts: [], stops: []},
+    {fromS: 10, stations: {coal: [[20.5, 100]]}, tie: [], starts: [], stops: []},
+    {fromS: 10, stations: {coal: [[20, -1]]}, tie: [], starts: [], stops: []},
+    {fromS: 10, stations: {}, tie: [[20, 900]], starts: [], stops: []},
+    {fromS: 10, stations: {}, tie: [], starts: [['gta1', 30], ['gta1', 40]], stops: []},
+    {fromS: 10, stations: {}, tie: [], starts: [['gtb1', 40], ['gta1', 30]], stops: []},
+    {fromS: 10, stations: {}, tie: [], starts: [['coal9', 30]], stops: []},
+    {fromS: 10, stations: {}, tie: [], starts: [], stops: [], extra: 1},
+    {fromS: 10, stations: {coal: new Array(V.PLAN_MAX_KEYS + 1).fill(0).map((_, k) => [20 + k, 1])}, tie: [], starts: [], stops: []},
+    {fromS: 10, stations: {coal: [[5, 100]]}, tie: [], starts: [], stops: []}, // before fromS (grid)
+  ];
+  for (const x of bad) assert.equal(applyInput(s, Object.assign({type: 'planLoad'}, x)).ok, false, JSON.stringify(x).slice(0, 80));
+  assert.equal(s.log.length, 0);
+  const arg = {type: 'planLoad', fromS: 10, stations: {gta: [[400, 300]]}, tie: [[600, -0]], starts: [['gta1', 20]], stops: []};
+  assert.equal(applyInput(s, arg).ok, true);
+  const a = s.log[0].args;
+  assert.deepEqual(Object.keys(a.stations), V.STATION_IDS, 'every station, in order');
+  assert.deepEqual(a.stations.gta, [[400, 300]]);
+  assert.ok(Object.is(a.tie[0][1], 0), '-0 folded');
+  arg.stations.gta[0][1] = 999; arg.starts.length = 0;
+  assert.deepEqual(a.stations.gta, [[400, 300]], 'the log never shares the caller\'s arrays');
+  assert.deepEqual(s.plan.starts, [{unit: 'gta1', atS: 20}]);
+  assert.notEqual(s.plan.stations[2].keys[0], a.stations.gta[0]);
 });
 
 test('F-6: malformed inputs are refused before they touch state, and are not logged', () => {
@@ -111,7 +143,7 @@ function fuzzLog(seed, n, untilTick = V.DAY_TICKS, watchS = []) {
     start: () => ({unit: one(V.MACHINE_IDS)}),
     stop: () => ({unit: one(V.MACHINE_IDS)}),
     abortStop: () => ({unit: one(V.MACHINE_IDS)}),
-    syncClose: () => ({unit: one(V.MACHINE_IDS)}),
+    syncClose: () => (r() < 0.5 ? {unit: one(V.MACHINE_IDS)} : {unit: one(V.MACHINE_IDS), bypass: r() < 0.5}),
     battery: () => ({mode: one(['charge', 'idle', 'discharge']), mw: Math.floor(r() * 500)}),
     guard: () => ({mw: V.GUARD_STEP_MW * Math.floor(r() * 11)}),
     tie: () => ({mw: Math.floor(r() * 1601) - 800}),
@@ -119,6 +151,22 @@ function fuzzLog(seed, n, untilTick = V.DAY_TICKS, watchS = []) {
     callDR: () => ({}), armRERT: () => ({}), standDownRERT: () => ({}), directShed: () => ({}),
     mode: () => ({agc: r() < 0.5}),
     restore: () => ({district: one(districts)}),
+    // Phase 1a: the plan and the synchroscope (times from now-ish into the next hours; the
+    // sim rewrites or refuses what cannot happen).
+    planKey: () => ({station: one(V.STATION_IDS), atS: Math.floor(r() * 30000), mw: Math.floor(r() * 2700)}),
+    planDel: () => ({station: one(V.STATION_IDS), atS: Math.floor(r() * 30000)}),
+    planStart: () => ({unit: one(V.MACHINE_IDS), atS: Math.floor(r() * 30000)}),
+    planStop: () => ({unit: one(V.MACHINE_IDS), atS: Math.floor(r() * 30000)}),
+    planUnbook: () => ({unit: one(V.MACHINE_IDS)}),
+    planRejoin: () => ({station: one(V.STATION_IDS), keep: r() < 0.5}),
+    planLoad: () => {
+      const from = Math.floor(r() * 20000), st = one(V.STATION_IDS);
+      return {fromS: from, stations: {[st]: [[from + 300, Math.floor(r() * 1500)], [from + 900, Math.floor(r() * 1500)]]},
+        tie: [[from + 600, Math.floor(r() * 1601) - 800]], starts: [[one(V.MACHINE_IDS), from + 60]], stops: []};
+    },
+    scope: () => ({unit: r() < 0.3 ? '' : one(V.MACHINE_IDS)}),
+    syncTrim: () => ({unit: one(V.MACHINE_IDS), dHz: r() < 0.5 ? -V.SYNC_TRIM_HZ : V.SYNC_TRIM_HZ}),
+    syncAuto: () => ({unit: one(V.MACHINE_IDS)}),
   };
   assert.deepEqual(Object.keys(make).sort(), [...INPUT_TYPES].sort(), 'the fuzzer covers every input type');
   const log = [];
@@ -339,7 +387,12 @@ test('K-15 through step(): inputs of every type during a watch are refused, neve
   const tries = [{type: 'basePoint', station: 'coal', mw: 1000}, {type: 'start', unit: 'gta1'}, {type: 'stop', unit: 'coal2'},
     {type: 'abortStop', unit: 'coal2'}, {type: 'syncClose', unit: 'gtc1'}, {type: 'battery', mode: 'discharge', mw: 300},
     {type: 'guard', mw: 300}, {type: 'tie', mw: 800}, {type: 'curtail', kind: 'solar', limitPct: 50}, {type: 'callDR'},
-    {type: 'armRERT'}, {type: 'standDownRERT'}, {type: 'mode', agc: false}, {type: 'restore', district: 'SOL3'}, {type: 'directShed'}];
+    {type: 'armRERT'}, {type: 'standDownRERT'}, {type: 'mode', agc: false}, {type: 'restore', district: 'SOL3'}, {type: 'directShed'},
+    {type: 'planKey', station: 'gta', atS: TRIP_S + 900, mw: 400}, {type: 'planDel', station: 'coal', atS: TRIP_S + 600},
+    {type: 'planStart', unit: 'gtb1', atS: TRIP_S + 600}, {type: 'planStop', unit: 'ccgt1', atS: TRIP_S + 7200},
+    {type: 'planUnbook', unit: 'gtb1'}, {type: 'planRejoin', station: 'coal', keep: true},
+    {type: 'planLoad', fromS: TRIP_S + 60, stations: {coal: [[TRIP_S + 600, 1800]]}, tie: [], starts: [], stops: []},
+    {type: 'scope', unit: 'gtc1'}, {type: 'syncTrim', unit: 'gtc1', dHz: V.SYNC_TRIM_HZ}, {type: 'syncAuto', unit: 'gtc1'}];
   assert.deepEqual(tries.map(x => x.type).sort(), [...INPUT_TYPES].sort(), 'every input type is tried');
   let refused = 0;
   while (a.tick < endTick) {
@@ -426,9 +479,23 @@ test('K-10 through step(): a preview taken at a second boundary matches the real
     assert.equal(s.conts[s.contIdx].id, big.id);
     assert.ok(Math.abs(minHz - p.nadirHz) <= 0.02, 'seed ' + seed + ': real ' + minHz.toFixed(4) + ' preview ' + p.nadirHz.toFixed(4));
   }
+  // A-2 (Phase 1a): the other credible contingency, the tie import, previews its real nadir too
+  // (N-1 over both; the sim's sec.previewLinkHz is this preview).
+  for (const seed of [4, 5]) {
+    const s = withoutContingencies(createState(seed, CLASSIC));
+    s.tie.setMW = 700; // test poke: a large import, reached at the tie ramp before the trip
+    while (!s.over && s.tick < TRIP_S * TPS) step(s);
+    assert.ok(s.tie.flowMW > 300, 'importing ' + s.tie.flowMW);
+    const p = previewTrip(s, {kind: 'link', id: 'tie'});
+    injectTrip(s, TRIP_S, 'link');
+    let minHz = Infinity;
+    while (!s.over && s.tick < (TRIP_S + V.PREVIEW_HORIZON_S) * TPS) { step(s); minHz = Math.min(minHz, s.phys.fHz); }
+    assert.equal(s.conts[s.contIdx].cause, 'link');
+    assert.ok(Math.abs(minHz - p.nadirHz) <= 0.02, 'seed ' + seed + ' link: real ' + minHz.toFixed(4) + ' preview ' + p.nadirHz.toFixed(4));
+  }
 });
 
-test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing L keeps the nadir >= 49.5 Hz', slowOnly(), () => {
+test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing L (A-2: either credible contingency) keeps the nadir >= 49.5 Hz', slowOnly(), () => {
   // Sample par days at most once per 5 grid-minutes, at a second boundary (before that
   // second's grid update). SECURE is judged with a FRESH preview taken at the sampled tick
   // (security(state) re-runs previewTrip for L), so the preview is not the cached one that can
@@ -463,8 +530,13 @@ test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing
       if (isFresh) fresh++;
       if (isLive) live++;
       const judged = [];
-      if (isFresh) judged.push(['fresh', fr.lKind]);
-      if (isLive) judged.push(['live', st.sec.lKind]);
+      if (V.N1_PREVIEW_ALL) { // A-2: SECURE previews both credible contingencies, so both must hold
+        judged.push(['both', 'unit']);
+        if (!st.tie.tripped && st.tie.flowMW > V.EVENT_THRESHOLD_MW) judged.push(['both', 'link']);
+      } else {
+        if (isFresh) judged.push(['fresh', fr.lKind]);
+        if (isLive) judged.push(['live', st.sec.lKind]);
+      }
       for (const [how, kind] of judged) {
         const minHz = probe(st, sec, kind);
         if (minHz < V.CONTAIN_LO_HZ) failures.push('seed ' + seed + ' s ' + sec + ' ' + how + ' L=' + kind + ': ' + minHz.toFixed(3));
@@ -483,7 +555,9 @@ test('S-1: observe().score.unservedMWh equals the integral of shed MW over settl
   const end = ticksAt(5, 30);
   let integral = 0;
   for (;;) {
-    step(s, inputs.get(s.tick));
+    const x = inputs.get(s.tick);
+    if (x && x[0].type === 'directShed') s.sec.level = 'SHORT'; // A-3: the key needs a shortfall (test poke of the gauge)
+    step(s, x);
     if (s.over) { integral += s.phys.shedMW * V.PHYS_DT / 3600; break; } // finish() settled this tick too
     if (s.tick % TPS === 1 && s.tick > end) break; // the tick just run is in acc, not yet settled
     integral += s.phys.shedMW * V.PHYS_DT / 3600;

@@ -81,7 +81,8 @@ function runOne(S, scenario, seed, proxy, withActions) {
   };
   if (withActions) {
     row.actionsList = r.log.map((x, i) => [x, r.origins[i]]).filter(([, o]) => o !== 'plan' && o !== 'replan')
-      .map(([x, o]) => hhmm(V, x.tick) + ' ' + o + ' ' + x.type + (Object.keys(x.args).length ? ' ' + JSON.stringify(x.args) : ''));
+      .map(([x, o]) => hhmm(V, x.tick) + ' ' + o + ' ' + x.type + (x.type === 'planLoad' ? ' (re-dispatch from ' + hhmm(V, x.args.fromS * TPS) + ', ' +
+        Object.values(x.args.stations).reduce((a, k) => a + k.length, 0) + ' keys)' : Object.keys(x.args).length ? ' ' + JSON.stringify(x.args) : ''));
     row.contingencies = st.conts.map(c => hhmm(V, c.startTick) + ' ' + c.cause + ' ' + c.id + ' ' + Math.round(c.lostMW) + ' MW, extreme ' +
       c.extremeHz.toFixed(3) + ' Hz' + (c.uflsStages ? ', UFLS ' + c.uflsStages : ''));
   }
@@ -205,8 +206,8 @@ async function main() {
     table(main, cols);
     if (main.length === 1 && main[0].actionsList) {
       console.log('\ncontingencies:\n  ' + (main[0].contingencies.join('\n  ') || '(none)'));
-      console.log('\ndiscrete actions (' + main[0].actionsList.length + '; the plan\'s ' + main[0].planInputs + ' keyframe inputs and the ' +
-        main[0].replanInputs + ' of par\'s re-plans are not listed):\n  ' + main[0].actionsList.join('\n  '));
+      console.log('\ndiscrete actions (' + main[0].actionsList.length + '; the plan\'s ' + main[0].planInputs + ' planLoad input(s) and ' +
+        main[0].replanInputs + ' re-plans (planLoad) are not listed):\n  ' + main[0].actionsList.join('\n  '));
     }
   }
   summary(`summary: ${o.proxy}, ${main.length} seeds` + (o.heat ? ' (forced heatwave)' : '') + `, wall ${((Date.now() - t0) / 1000).toFixed(0)} s`, main);

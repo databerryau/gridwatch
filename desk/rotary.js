@@ -1,0 +1,384 @@
+// desk/rotary.js: K-4 hydro gate wheel, K-5 battery dial + GUARD ring, K-6 tie knob
+// (desk/README.md §6). DOM controls with role="slider" (K-23): drag in a circle, keys, scroll.
+// Each sends its sim input on release / key-up and shows the vm's applied value otherwise.
+
+import {V} from '../sim/params.js';
+import {waterLastsUntilS, redArcFromMW, knobValue, knobAngle, pointerAngle, guardFromAngle, tieSnap, TIE_DETENTS,
+  nextDetent, wrapDeg, KNOB_SWEEP, GUARD_MAX_MW} from './calc.js';
+import {createMachine, stationKey} from './levers.js';
+import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, smw, clamp, fin, clockOf, mmss} from './util.js';
+
+export const WHEEL_MW_PER_TURN = 250;   // K-4: one full turn of the hand wheel
+export const SEND_IDLE_MS = 250;        // scroll / key auto-repeat: send after this long idle
+export const PREVIEW_LINGER_MS = 1500;  // K-5: the guard ghost stays this long after the last turn
+const HYDRO = V.STATIONS.hydro;
+
+/**
+ * Shared rotary behaviour. o: {id, cls, label, value(), bounds() -> [lo, hi], angleValue(deg) or
+ * null (relative wheel), perTurn (relative), step(ev, v) -> v | null, snap(v) (always), dragSnap(v) (drags only), send(v), turning(v)}
+ */
+function makeRotary(ctx, o) {
+  const doc = ctx.doc;
+  const knob = control(doc, 'div', 'dk-knob ' + o.cls, 'slider', o.id, o.label);
+  const pointer = el(doc, 'i', 'dk-pointer');
+  knob.appendChild(pointer);
+  let drag = null, pending = null, shown = null;
+  const cur = () => (drag ? drag.v : pending ? pending.v : shown ? shown.v : o.value());
+  const center = () => { const r = knob.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
+  function apply(v, dragging) { const [lo, hi] = o.bounds(); v = clamp(v, lo, hi); return o.snap ? o.snap(v) : dragging && o.dragSnap ? o.dragSnap(v) : Math.round(v); }
+  function commit(v) {
+    if (ctx.locked()) return;
+    const r = o.send(v);
+    shown = r ? null : {v, afterTick: ctx.vm().obs.tick, frames: 0};
+  }
+  knob.addEventListener('pointerdown', ev => {
+    if (!ctx.vm() || ctx.locked()) return;
+    ev.stopPropagation && ev.stopPropagation();
+    knob.setPointerCapture && knob.setPointerCapture(ev.pointerId);
+    const [cx, cy] = center();
+    const a = pointerAngle(cx, cy, ev.clientX, ev.clientY);
+    drag = {v: cur(), a, v0: cur()};
+    if (o.angleValue) drag.v = apply(o.angleValue(a), true);
+    if (o.turning) o.turning(drag.v);
+    knob.focus && knob.focus();
+    o.render();
+  });
+  knob.addEventListener('pointermove', ev => {
+    if (!drag) return;
+    const [cx, cy] = center();
+    const a = pointerAngle(cx, cy, ev.clientX, ev.clientY);
+    let v;
+    if (o.angleValue) v = apply(o.angleValue(a), true);
+    else { const da = wrapDeg(a - drag.a); drag.a = a; v = clamp(drag.v + da / 360 * o.perTurn, ...o.bounds()); }
+    const changed = apply(v, true) !== apply(drag.v, true);
+    drag.v = v;
+    if (changed && o.turning) o.turning(apply(v, true));
+    o.render();
+  });
+  const release = () => {
+    if (!drag) return;
+    const v = apply(drag.v, true), v0 = drag.v0;
+    drag = null;
+    if (Math.round(v) !== Math.round(v0)) commit(v);
+    o.render();
+  };
+  knob.addEventListener('pointerup', release);
+  knob.addEventListener('pointercancel', release);
+  knob.addEventListener('lostpointercapture', release);
+  knob.addEventListener('keydown', ev => {
+    if (!ctx.vm() || ctx.locked()) return;
+    const t = o.step(ev, cur());
+    if (t === null || t === undefined) return;
+    ev.preventDefault();
+    const v = apply(t);
+    pending = {v, t: pending ? pending.t : ctx.now()};
+    if (o.turning) o.turning(v);
+    o.render();
+  });
+  knob.addEventListener('keyup', () => flush());
+  knob.addEventListener('wheel', ev => {
+    if (!ctx.vm() || ctx.locked() || !o.wheelStep) return;
+    ev.preventDefault && ev.preventDefault();
+    const v = apply(cur() + (fin(ev.deltaY) < 0 ? 1 : -1) * o.wheelStep(ev));
+    pending = {v, t: ctx.now()};
+    if (o.turning) o.turning(v);
+    o.render();
+  });
+  function flush() {
+    if (!pending) return;
+    const v = pending.v;
+    pending = null;
+    if (Math.round(v) !== Math.round(o.value())) commit(v);
+    o.render();
+  }
+  return {
+    knob, pointer, cur,
+    moving: () => !!(drag || pending),
+    tick(vm) {
+      if (shown && (vm.obs.tick > shown.afterTick || ++shown.frames >= 2)) shown = null;
+      if (ctx.locked()) { drag = null; pending = null; }
+      if (pending && ctx.now() - pending.t >= SEND_IDLE_MS) flush();
+    },
+  };
+}
+
+// ---------------------------------------------------------------- K-4 hydro gate wheel
+
+export function createHydroWheel(ctx, parent) {
+  const doc = ctx.doc;
+  const box = el(doc, 'div', 'dk-rot dk-hydro');
+  box.dataset.station = 'hydro';
+  const title = el(doc, 'div', 'dk-rot-title', 'HYDRO');
+  const face = el(doc, 'div', 'dk-rot-face');
+  const rim = el(doc, 'div', 'dk-rim');
+  const water = el(doc, 'div', 'dk-water');
+  let vm = null;
+  const so = () => vm.obs.stations.find(x => x.id === 'hydro') || {basePointMW: 0, outMW: 0, onCount: 0, minMW: 0, maxMW: 0};
+  const r = makeRotary(ctx, {
+    id: 'wheel-hydro', cls: 'dk-wheel', label: 'Hydro gate wheel',
+    value: () => fin(so().basePointMW),
+    bounds: () => [fin(so().minMW), Math.max(fin(so().minMW), fin(so().maxMW))],
+    angleValue: null, perTurn: WHEEL_MW_PER_TURN,
+    step(ev, v) {
+      const k = ev.key, st = (ev.shiftKey ? 0.1 : 0.01) * HYDRO.totalMW;
+      if (k === 'ArrowRight' || k === 'ArrowUp') return v + st;
+      if (k === 'ArrowLeft' || k === 'ArrowDown') return v - st;
+      if (k === 'PageUp') return v + 0.1 * HYDRO.totalMW;
+      if (k === 'PageDown') return v - 0.1 * HYDRO.totalMW;
+      if (k === 'Home') return 0;
+      if (k === 'End') return HYDRO.totalMW;
+      return null;
+    },
+    wheelStep: ev => (ev.shiftKey ? 0.1 : 0.01) * HYDRO.totalMW,
+    send(v) {
+      if (!(so().onCount > 0)) { ctx.note(box, 'no hydro machine on: START one'); return 'no machine on'; }
+      const res = ctx.send({type: 'basePoint', station: 'hydro', mw: Math.round(v)}, box);
+      if (!res) ctx.live('HYDRO gate ' + Math.round(v) + ' MW');
+      return res;
+    },
+    render: () => render(),
+  });
+  const spokes = el(doc, 'i', 'dk-spokes');
+  r.knob.appendChild(spokes);
+  face.append(rim, water, r.knob);
+  const lasts = el(doc, 'div', 'dk-lasts');
+  const store = el(doc, 'div', 'dk-store');
+  const machCol = el(doc, 'div', 'dk-machs');
+  const machines = [];
+  for (let k = HYDRO.first; k < HYDRO.first + HYDRO.count; k++) { const m = createMachine(ctx, k); machines.push(m); machCol.appendChild(m.el); }
+  const left = el(doc, 'div', 'dk-rot-main');
+  left.append(title, face, lasts, store);
+  box.append(left, machCol);
+  parent.appendChild(box);
+
+  function render() {
+    if (!vm) return;
+    const o = vm.obs, s = so(), v = r.cur();
+    const T = HYDRO.totalMW;
+    // Hand wheel turns as the gate opens; the rim is the gate scale, red where the water would
+    // run out before the forecast peak ends (K-4).
+    setStyle(spokes, 'transform', 'rotate(' + (fin(v) / WHEEL_MW_PER_TURN * 360).toFixed(1) + 'deg)');
+    const red = redArcFromMW(o.s, o.hydro.storageMWh, o.forecast);
+    const aNow = knobAngle(v, 0, T) + KNOB_SWEEP / 2;
+    const aRed = red === null ? KNOB_SWEEP : clamp(knobAngle(red, 0, T) + KNOB_SWEEP / 2, 0, KNOB_SWEEP);
+    setStyle(rim, 'background', 'conic-gradient(from ' + (-KNOB_SWEEP / 2) + 'deg, var(--dk-rim) 0deg ' + aRed.toFixed(1) +
+      'deg, var(--dk-red) ' + aRed.toFixed(1) + 'deg ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');
+    setStyle(r.pointer, 'transform', 'rotate(' + (aNow - KNOB_SWEEP / 2).toFixed(1) + 'deg)');
+    setStyle(water, 'height', (clamp(fin(o.hydro.frac), 0, 1) * 100).toFixed(1) + '%');
+    const until = waterLastsUntilS(o.s, o.hydro.storageMWh, v);
+    const inRed = red !== null && v > red;
+    const dayEnd = V.DAY_S;
+    setText(lasts, v <= 0 ? 'GATE SHUT' : until >= dayEnd ? 'LASTS ALL DAY' : (inRed ? '✕ ' : '') + 'LASTS ' + clockOf(until));
+    setCls(lasts, 'crit', inRed);
+    setText(store, mw(o.hydro.storageMWh) + ' MWh ' + Math.round(fin(o.hydro.frac) * 100) + '%');
+    setCls(box, 'hand', o.mode === 'HAND');
+    setCls(box, 'moving', r.moving());
+    setCls(box, 'glow', !!(vm.glow && vm.glow.has('wheel-hydro')));
+    setAttr(r.knob, 'aria-valuemin', 0);
+    setAttr(r.knob, 'aria-valuemax', T);
+    setAttr(r.knob, 'aria-valuenow', Math.round(v));
+    setAttr(r.knob, 'aria-valuetext', 'hydro gate ' + mw(v) + ' MW, output ' + mw(s.outMW) + ' MW, ' +
+      (v <= 0 ? 'gate shut' : until >= dayEnd ? 'water lasts all day' : 'water lasts until ' + clockOf(until)) +
+      (red !== null ? ', settings above ' + mw(red) + ' MW empty the dam before the peak ends' : ''));
+    setAttr(r.knob, 'aria-disabled', ctx.locked() ? 'true' : 'false');
+  }
+  return {
+    el: box, knob: r.knob, machines,
+    update(v) { vm = v; r.tick(v); for (const m of machines) m.update(v); render(); },
+    key(target, k) { return target && box.contains(target) ? stationKey(machines, k) : false; },
+  };
+}
+
+// ---------------------------------------------------------------- K-5 battery dial + GUARD ring
+
+export function createBatteryDial(ctx, parent) {
+  const doc = ctx.doc;
+  const box = el(doc, 'div', 'dk-rot dk-batt');
+  const title = el(doc, 'div', 'dk-rot-title');
+  const soc = el(doc, 'span', 'dk-soc');
+  title.append(el(doc, 'span', '', 'BATT'), soc);
+  const face = el(doc, 'div', 'dk-rot-face dk-batt-face');
+  let vm = null, lastTurnT = -1, previewMW = null;
+  const bt = () => vm.obs.battery;
+  const avail = () => Math.max(0, fin(bt().ratedMW, V.BATT_MW) - fin(bt().guardMW));
+  const signed = () => (bt().mode === 'charge' ? -1 : bt().mode === 'discharge' ? 1 : 0) * fin(bt().orderMW);
+
+  // GUARD ring (outer): 0..500 MW in 50-MW detents; turning it re-runs TRIP PREVIEW live.
+  const ring = makeRotary(ctx, {
+    id: 'ring-guard', cls: 'dk-ring', label: 'GUARD ring: battery MW held back to catch trips',
+    value: () => fin(bt().guardMW),
+    bounds: () => [0, GUARD_MAX_MW],
+    angleValue: a => guardFromAngle(a),
+    snap: v => clamp(Math.round(v / V.GUARD_STEP_MW) * V.GUARD_STEP_MW, 0, GUARD_MAX_MW),
+    step(ev, v) {
+      const k = ev.key;
+      if (k === 'ArrowUp' || k === 'ArrowRight' || k === 'PageUp') return v + V.GUARD_STEP_MW;
+      if (k === 'ArrowDown' || k === 'ArrowLeft' || k === 'PageDown') return v - V.GUARD_STEP_MW;
+      if (k === 'Home') return 0;
+      if (k === 'End') return GUARD_MAX_MW;
+      return null;
+    },
+    wheelStep: () => V.GUARD_STEP_MW,
+    turning(v) {
+      lastTurnT = ctx.now();
+      if (v !== previewMW) { previewMW = v; ctx.ui({do: 'previewGuard', mw: v}); }
+    },
+    send(v) {
+      const r = ctx.send({type: 'guard', mw: v}, box);
+      if (!r) ctx.live('GUARD ' + v + ' MW');
+      return r;
+    },
+    render: () => render(),
+  });
+  // Dial (inner): CHARGE ← IDLE → DISCHARGE, magnitude up to the MW not on guard.
+  const dial = makeRotary(ctx, {
+    id: 'dial-battery', cls: 'dk-bdial', label: 'Battery dial: charge, idle or discharge',
+    value: () => clamp(signed(), -avail(), avail()),
+    bounds: () => [-avail(), avail()],
+    angleValue: a => knobValue(a, -avail(), avail()),
+    dragSnap: v => (Math.abs(v) <= 15 ? 0 : Math.round(v)),
+    step(ev, v) {
+      const k = ev.key, st = ev.shiftKey ? 1 : 10;
+      if (k === 'ArrowUp' || k === 'ArrowRight') return v + st;
+      if (k === 'ArrowDown' || k === 'ArrowLeft') return v - st;
+      if (k === 'PageUp') return v + 50;
+      if (k === 'PageDown') return v - 50;
+      if (k === 'Home') return -avail();
+      if (k === 'End') return avail();
+      return null;
+    },
+    wheelStep: ev => (ev.shiftKey ? 1 : 10),
+    send(v) {
+      const mode = v > 0 ? 'discharge' : v < 0 ? 'charge' : 'idle';
+      const r = ctx.send({type: 'battery', mode, mw: Math.abs(Math.round(v))}, box);
+      if (!r) ctx.live('BATTERY ' + mode + ' ' + Math.abs(Math.round(v)) + ' MW');
+      return r;
+    },
+    render: () => render(),
+  });
+  const arc = el(doc, 'div', 'dk-batt-arc');
+  face.append(ring.knob, arc, dial.knob);
+  const read = el(doc, 'div', 'dk-rot-read');
+  const lamps = el(doc, 'div', 'dk-lamps');
+  const ffr = el(doc, 'span', 'dk-lamp dk-ffr'), full = el(doc, 'span', 'dk-lamp dk-full');
+  lamps.append(ffr, full);
+  title.appendChild(lamps);
+  box.append(title, face, read);
+  parent.appendChild(box);
+
+  function render() {
+    if (!vm) return;
+    const b = bt(), g = ring.cur(), v = dial.cur(), a = avail();
+    setStyle(ring.pointer, 'transform', 'rotate(' + knobAngle(g, 0, GUARD_MAX_MW).toFixed(1) + 'deg)');
+    setStyle(dial.pointer, 'transform', 'rotate(' + knobAngle(v, -a, a).toFixed(1) + 'deg)');
+    // The dial's travel shrinks as the guard grows (K-5): the unusable part of the sweep is shaded.
+    const lost = KNOB_SWEEP / 2 * (1 - a / fin(b.ratedMW, V.BATT_MW));
+    setStyle(arc, 'background', 'conic-gradient(from ' + (-KNOB_SWEEP / 2) + 'deg, var(--dk-shade) 0deg ' + lost.toFixed(1) +
+      'deg, transparent ' + lost.toFixed(1) + 'deg ' + (KNOB_SWEEP - lost).toFixed(1) + 'deg, var(--dk-shade) ' +
+      (KNOB_SWEEP - lost).toFixed(1) + 'deg ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');
+    const word = v > 0 ? '▲ DIS ' : v < 0 ? '▼ CHG ' : '■ IDLE ';
+    setText(read, word + (v ? mw(Math.abs(v)) : '') + ' · ' + smw(b.outMW));
+    setText(soc, Math.round(fin(b.socMWh) / fin(b.capMWh, V.BATT_MWH) * 100) + '%');
+    setAttr(soc, 'title', 'state of charge ' + mw(b.socMWh) + ' of ' + mw(b.capMWh) + ' MWh');
+    setText(ffr, b.guardFired ? '⚡ FIRED ' + mw(b.ffrMW) : g > 0 ? '⚡ FFR ' + mw(g) : '○ FFR 0');
+    setCls(ffr, 'lit', g > 0 && !b.guardFired);
+    setCls(ffr, 'fired', !!b.guardFired);
+    setAttr(ffr, 'title', 'FFR ARMED: ' + mw(g) + ' MW held back on the GUARD ring, delivered within 1 s of a trip');
+    setText(full, b.fullHold ? 'F FULL–HOLD' : b.ufSuspend ? '! UF HOLD' : '');
+    setHidden(full, !(b.fullHold || b.ufSuspend));
+    setCls(full, 'lit', !!(b.fullHold || b.ufSuspend));
+    setCls(box, 'glow', !!(vm.glow && (vm.glow.has('dial-battery') || vm.glow.has('ring-guard'))));
+    for (const [k, lo, hi, now, text] of [[ring.knob, 0, GUARD_MAX_MW, g, 'GUARD ' + mw(g) + ' MW' + (b.guardFired ? ' (fired)' : '')],
+      [dial.knob, -a, a, v, (v > 0 ? 'discharge ' : v < 0 ? 'charge ' : 'idle ') + mw(Math.abs(v)) + ' MW of ' + mw(a) + ' beside the guard']]) {
+      setAttr(k, 'aria-valuemin', Math.round(lo));
+      setAttr(k, 'aria-valuemax', Math.round(hi));
+      setAttr(k, 'aria-valuenow', Math.round(now));
+      setAttr(k, 'aria-valuetext', text);
+      setAttr(k, 'aria-disabled', ctx.locked() ? 'true' : 'false');
+    }
+  }
+  return {
+    el: box, ring: ring.knob, dial: dial.knob,
+    update(v) {
+      vm = v;
+      ring.tick(v); dial.tick(v);
+      if (previewMW !== null && !ring.moving() && ctx.now() - lastTurnT >= PREVIEW_LINGER_MS) {
+        previewMW = null;
+        ctx.ui({do: 'previewGuard', mw: null});
+      }
+      render();
+    },
+  };
+}
+
+// ---------------------------------------------------------------- K-6 tie knob
+
+export function createTieKnob(ctx, parent) {
+  const doc = ctx.doc;
+  const box = el(doc, 'div', 'dk-rot dk-tie');
+  const title = el(doc, 'div', 'dk-rot-title');
+  title.append(el(doc, 'span', '', 'TIE'));
+  const face = el(doc, 'div', 'dk-rot-face');
+  const rim = el(doc, 'div', 'dk-rim');
+  const flow = el(doc, 'i', 'dk-flow');
+  let vm = null;
+  const t = () => vm.obs.tie;
+  const k = makeRotary(ctx, {
+    id: 'knob-tie', cls: 'dk-tknob', label: 'Interconnector knob: + import, − export',
+    value: () => fin(t().setMW),
+    bounds: () => [-V.TIE_MAX_MW, V.TIE_MAX_MW],
+    angleValue: a => knobValue(a, -V.TIE_MAX_MW, V.TIE_MAX_MW),
+    dragSnap: v => tieSnap(v),
+    step(ev, v) {
+      const key = ev.key, st = ev.shiftKey ? 1 : 10;
+      if (key === 'ArrowUp' || key === 'ArrowRight') return v + st;
+      if (key === 'ArrowDown' || key === 'ArrowLeft') return v - st;
+      if (key === 'PageUp') return nextDetent(v, TIE_DETENTS, 1);
+      if (key === 'PageDown') return nextDetent(v, TIE_DETENTS, -1);
+      if (key === 'Home') return -V.TIE_MAX_MW;
+      if (key === 'End') return V.TIE_MAX_MW;
+      return null;
+    },
+    wheelStep: ev => (ev.shiftKey ? 1 : 10),
+    send(v) {
+      const r = ctx.send({type: 'tie', mw: Math.round(v)}, box);
+      if (!r) ctx.live('TIE ' + smw(v) + ' MW');
+      return r;
+    },
+    render: () => render(),
+  });
+  face.append(rim, flow, k.knob);
+  const read = el(doc, 'div', 'dk-rot-read');
+  const rSet = el(doc, 'span', 'dk-tie-set'), rFlow = el(doc, 'span', 'dk-tie-flow');
+  read.append(rSet, rFlow);
+  const lamp = el(doc, 'span', 'dk-lamp dk-link');
+  title.appendChild(lamp);
+  box.append(title, face, read);
+  parent.appendChild(box);
+
+  function render() {
+    if (!vm) return;
+    const tt = t(), v = k.cur();
+    const cap = fin(tt.exportLimitMW, V.TIE_MAX_MW);
+    // The export cap (F-13) as a red arc from -800 to -cap.
+    const aCap = knobAngle(-cap, -V.TIE_MAX_MW, V.TIE_MAX_MW) + KNOB_SWEEP / 2;
+    setStyle(rim, 'background', 'conic-gradient(from ' + (-KNOB_SWEEP / 2) + 'deg, var(--dk-red) 0deg ' + aCap.toFixed(1) +
+      'deg, var(--dk-rim) ' + aCap.toFixed(1) + 'deg ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');
+    setStyle(k.pointer, 'transform', 'rotate(' + knobAngle(v, -V.TIE_MAX_MW, V.TIE_MAX_MW).toFixed(1) + 'deg)');
+    setStyle(flow, 'transform', 'rotate(' + knobAngle(tt.flowMW, -V.TIE_MAX_MW, V.TIE_MAX_MW).toFixed(1) + 'deg)');
+    setText(rSet, 'SET ' + smw(v));
+    setText(rFlow, 'FLOW ' + smw(tt.flowMW));
+    setText(lamp, tt.tripped ? '✕ TRIP ' + mmss(tt.lockoutS) : '● LINK');
+    setCls(lamp, 'crit', !!tt.tripped);
+    setCls(lamp, 'lit', !tt.tripped);
+    setCls(box, 'capped', cap < V.TIE_MAX_MW);
+    setCls(box, 'glow', !!(vm.glow && vm.glow.has('knob-tie')));
+    setAttr(k.knob, 'aria-valuemin', -V.TIE_MAX_MW);
+    setAttr(k.knob, 'aria-valuemax', V.TIE_MAX_MW);
+    setAttr(k.knob, 'aria-valuenow', Math.round(v));
+    setAttr(k.knob, 'aria-valuetext', 'tie set ' + smw(v) + ' MW (+ import), flow ' + smw(tt.flowMW) + ' MW, export cap ' + mw(cap) +
+      ' MW' + (tt.tripped ? ', link tripped' : ''));
+    setAttr(k.knob, 'aria-disabled', ctx.locked() ? 'true' : 'false');
+  }
+  return {el: box, knob: k.knob, update(v) { vm = v; k.tick(v); render(); }};
+}

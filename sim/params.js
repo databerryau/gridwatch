@@ -18,7 +18,10 @@
 // preview, the planOnly reflow); the end of Phase 0.2 (golden: tools/baseline-v4.golden.md).
 // 0.2.2: the review fixes (hashState's word mixing, the price on the lit demand with the cap only
 // for directed shedding, available wind and solar in the stack, CARBON on regional generation).
-export const SIM_VERSION = 'v4-core-0.2.2';
+// 1a.0: Phase 1a (desk/README.md §3): the plan in state and its executor, the new plan, scope and
+// sync inputs, the K-12 synchroscope outcomes, DIRECT SHED gated on SHORT/SHEDDING, and N-1 over
+// both credible contingencies (A-2); par and the L-0 plan act through planLoad inputs.
+export const SIM_VERSION = 'v4-core-1a.1';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);
@@ -406,6 +409,25 @@ export const P = {
   CURTAIL_RAMP_FRAC_MIN: simp(0.2, 'pu of nameplate per min', 'A curtailment LIMIT change moves wind or solar output at this rate (20% of nameplate a minute: a full-range change over about one 5-min dispatch interval, as semi-scheduled plant ramps to its dispatch target over the interval) instead of in one grid second, so curtailing solar at noon is never a >1-GW self-made step. Weather changes pass straight through; only the curtailed part is ramp-limited. Plant ramp limits vary (unverified).', UNVERIFIED),
   DR_RAMP_MW_MIN: simp(100, 'MW/min', 'Industrial DR sheds and returns at this rate (3.5 min for 350 MW, the same slope as RERT_RAMP_MW_MIN) instead of as one 350-MW load step on and off, which would be a self-made event larger than the 256-MW smelter trip and not recorded as a contingency. Real DR response times vary (unverified).', UNVERIFIED),
   // ---- stage B "integration" block: end
+  // ---- phase 1a "sim" block: begin
+  DEG_PER_TURN: src(360, 'deg', 'Definition: one turn of the synchroscope needle'),
+  PLAN_HISTORY_S: src(1800, 's', 'L-1: the Live Stack shows 30 minutes of past; plan keyframes older than this are dropped from state.plan (the past is drawn from history).'),
+  PLAN_MAX_KEYS: simp(400, 'count', 'planLoad: at most this many entries per list (a whole day of 5-min columns is 282). Keeps one input and the log bounded; not a grid value.'),
+  N1_PREVIEW_ALL: simp(true, 'flag', 'H-4 / H-8 / K-10, Phase 1a decision A-2: SECURE needs the TRIP PREVIEW of BOTH credible contingencies (the largest unit and the tie import) to clear 49.5 Hz + margins, and BIGGEST RISK names the one with the lower nadir. N-1 means any credible contingency (NER cl. 4.2.6); a unit of nearly the tie\'s MW also takes its inertia and governor with it, so previewing only the larger MW missed 28 of 4,904 states (end of Phase 0.2). false previews only L, the larger MW.'),
+  SYNC_SLIP_MIN_HZ: simp(0.15, 'Hz', 'K-12: the slip a machine reaches full speed with is drawn (play stream) between this and SYNC_SLIP_MAX_HZ, either sign: one needle turn every 2.5-6.7 s. Real operators aim for 15-30 s per turn; ours turns faster (§8.2 "Our synchroscope turns faster").'),
+  SYNC_SLIP_MAX_HZ: simp(0.4, 'Hz', 'K-12: upper end of the seeded slip (see SYNC_SLIP_MIN_HZ).'),
+  SYNC_TRIM_HZ: simp(0.05, 'Hz', 'K-12: one [ or ] press moves the machine speed target by this (governor raise/lower pulse).'),
+  SYNC_TRIM_S: simp(0.5, 's', 'K-12: the slip moves linearly to a new speed target over this time (the governor response to a trim pulse).'),
+  SYNC_SLIP_LIMIT_HZ: simp(1, 'Hz', 'K-12: the speed trim never takes the slip beyond this (the machine is at full speed; the governor holds it near synchronous).'),
+  SYNC_BREAKER_TICKS: simp(4, 'ticks', 'K-12: the breaker takes 80 ms (4 ticks) to close, so the outcome is judged at the angle 80 ms after the close command, and real practice closes just before 12 o\'clock. HV circuit-breaker closing times are typically a few tens of ms to ~100 ms (unverified for this fleet).', UNVERIFIED),
+  SYNC_CLEAN_DEG: simp(10, 'deg', 'K-12: a close within +-10 degrees with the needle clockwise is clean (the spec\'s table; operators aim within about 10 degrees of 12 o\'clock). Exact utility settings unverified.', UNVERIFIED),
+  SYNC_ROUGH_DEG: simp(20, 'deg', 'K-12: beyond 20 degrees the sync-check relay (ANSI device 25) blocks the close; between SYNC_CLEAN_DEG and this the close is rough (the spec\'s table). Real device 25 angle windows are set per plant; unverified.', UNVERIFIED),
+  SYNC_BLOCK_SLIP_HZ: simp(0.5, 'Hz', 'K-12: the sync-check relay blocks a close at more than this slip (real device 25 slip limits are ~0.1-0.3 Hz; ours is looser because our needle turns faster, §8.2).'),
+  SYNC_REVERSE_TRIP_S: simp(2, 's', 'K-12: a close with the machine slow (needle anticlockwise) motors it; reverse-power protection trips it after this, back to full speed and the queue with no lockout (real reverse-power relays wait seconds).'),
+  SYNC_BYPASS_LOCKOUT_S: simp(1200, 's', 'K-12: a close forced past the sync-check relay (HAND bypass key) trips the unit at once and locks it out for 20 grid-minutes for inspection (shaft and winding stress; real out-of-phase closes can mean weeks of repair).'),
+  SYNC_AUTO_SLIP_HZ: simp(0.1, 'Hz', 'K-12 AUTO: the auto-synchroniser trims the slip to +0.10 Hz (machine slightly fast, so it picks up load, not motor) and closes on the next pass through 0 degrees.'),
+  SYNC_ROUGH_MW: simp(40, 'MW', 'K-12: a rough close (10-20 degrees) adds a one-second MW swing of this size to the unit\'s schedule on top of the clean block: the power surge that pulls the rotor into step. Game abstraction of an electromechanical transient that really lasts ~1 s and oscillates; kept below the 50-MW FOS event threshold so it is felt, not a contingency.'),
+  // ---- phase 1a "sim" block: end
 };
 
 // ------------------------------------------------------------------ plain values

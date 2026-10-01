@@ -172,7 +172,7 @@ test('S-4: observe() hides the seed, the regime, the event list and event ids', 
 const OBS_SHAPE = {
   '': ['v', 'scenarioId', 'tick', 's', 'clock', 'over', 'black', 'mode', 'modeLocked', 'inWatch', 'inRespond', 'f',
     'balance', 'demand', 'units', 'stations', 'battery', 'tie', 'wind', 'solar', 'hydro', 'dr', 'rert', 'smelter', 'sec',
-    'fos', 'agc', 'price', 'score', 'districts', 'news', 'contingency', 'contingencies', 'forecast', 'dayAhead'],
+    'fos', 'agc', 'price', 'score', 'districts', 'news', 'contingency', 'contingencies', 'forecast', 'dayAhead', 'plan', 'scope'],
   clock: ['h', 'hh', 'mm', 'ss', 'text'],
   f: ['hz', 'devHz', 'rocofHzS', 'ekGWs'],
   balance: ['schedSupplyMW', 'supplyMW', 'servedMW', 'loadMW', 'imbalanceMW', 'inertiaMW', 'governorsMW', 'batteryPfrMW',
@@ -180,7 +180,7 @@ const OBS_SHAPE = {
   demand: ['nowMW', 'servedMW', 'shedMW', 'heatActive', 'tempC'],
   'units[]': ['id', 'station', 'name', 'cls', 'mode', 'sync', 'timerS', 'outMW', 'schedMW', 'basePointMW', 'agcTrimMW',
     'govMW', 'availMW', 'minMW', 'ratingMW', 'rampMWMin', 'offer', 'startToMinS', 'hotS', 'starts', 'upForS', 'downForS',
-    'startBlock', 'stopBlock'],
+    'startBlock', 'stopBlock', 'slipHz', 'phaseDeg'],
   'stations[]': ['id', 'name', 'basePointMW', 'onCount', 'minMW', 'maxMW', 'outMW'],
   battery: ['mode', 'orderMW', 'guardMW', 'schedMW', 'agcTrimMW', 'pfrMW', 'ffrMW', 'guardFired', 'outMW', 'socMWh', 'capMWh',
     'ratedMW', 'fullHold', 'ufSuspend'],
@@ -191,7 +191,8 @@ const OBS_SHAPE = {
   dr: ['callsLeft', 'activeS', 'mw'],
   rert: ['armed', 'leadS', 'outMW', 'standingDown', 'armedEver'],
   smelter: ['loadMW', 'returning'],
-  sec: ['r5MW', 'lMW', 'lKind', 'lId', 'ratio', 'previewNadirHz', 'previewAtS', 'previewLId', 'previewLMW', 'dirty', 'level'],
+  sec: ['r5MW', 'lMW', 'lKind', 'lId', 'ratio', 'previewNadirHz', 'previewAtS', 'previewLId', 'previewLMW', 'dirty', 'level',
+    'previewUnitHz', 'previewLinkHz'],
   fos: ['outsideS', 'belowContainS', 'countdownS', 'directed', 'nextShedS'],
   agc: ['nextCycleS', 'requestMW', 'unmetMW', 'atLimitS', 'aceMW'],
   price: ['mwh', 'marginalId', 'adder', 'exhausted', 'x'],
@@ -207,17 +208,30 @@ const OBS_SHAPE = {
   'contingency.caught': ['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW'],
   'contingencies[]': ['n', 'startS', 'cause', 'id', 'lostMW', 'watchEndS', 'backInBandS'],
   forecast: ['fromS', 'stepS', 'n', 'demandP50', 'demandP10', 'demandP90', 'windMW', 'solarMW', 'neighbourPrice', 'exportLimitMW'],
+  // Phase 1a (desk/README.md §3): the plan in state and the synchroscope.
+  plan: ['madeAtS', 'rev', 'stations', 'tie', 'starts', 'stops'],
+  'plan.stations[]': ['id', 'man', 'doneS', 'clampedMW', 'keys'],
+  'plan.stations[].keys[]': ['atS', 'mw'],
+  'plan.tie': ['doneS', 'keys'],
+  'plan.starts[]': ['unit', 'atS'],
+  'plan.stops[]': ['unit', 'atS'],
+  scope: ['unit', 'open'],
 };
 
 test('README §8: the observe() shape is frozen (every key list, including dayAhead and a contingency)', async () => {
   const {tripUnit, unitIndex} = await import('../sim/fleet.js');
   const s = createState(9, CLASSIC);
   s.news.push({atS: 10, kind: 'heat', fromS: 20, toS: 30, text: 'x'});
+  // A plan with a key, a tie key and both bookings (Phase 1a), so every list has an entry (before the trip's watch).
+  const {applyInput} = await import('../sim/step.js');
+  for (const x of [{type: 'planKey', station: 'coal', atS: 600, mw: 1500}, {type: 'tie', mw: 300},
+    {type: 'planStart', unit: 'gta1', atS: 900}, {type: 'planStop', unit: 'ccgt2', atS: 7200}]) assert.equal(applyInput(s, x).ok, true, x.type);
   tripUnit(s, unitIndex('coal1'), 'test', 3600, []);
   const o = observe(s, {dayAhead: true});
-  const at = path => path.split('.').reduce((x, k) => x[k], o);
+  // 'a.b[].c': a path; a segment ending in [] takes the list's first entry.
+  const at = path => path.split('.').reduce((x, k) => (k.endsWith('[]') ? x[k.slice(0, -2)][0] : x[k]), o);
   for (const [path, keys] of Object.entries(OBS_SHAPE)) {
-    const obj = path === '' ? o : path.endsWith('[]') ? o[path.slice(0, -2)][0] : at(path);
+    const obj = path === '' ? o : at(path);
     assert.deepEqual(Object.keys(obj), keys, 'obs.' + (path || '(top)'));
   }
   assert.deepEqual(Object.keys(o.dayAhead), OBS_SHAPE.forecast);
