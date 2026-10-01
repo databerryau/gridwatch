@@ -18,7 +18,7 @@ import * as W from '../app/watch.js';
 import * as K from '../app/keys.js';
 import * as PF from '../app/perf.js';
 import * as D from '../app/director.js';
-import {bootGame, layoutSizes} from '../app/shell.js';
+import {bootGame, layoutSizes, createLive, liveFrame, bandOf, LIVE_GAP_MS} from '../app/shell.js';
 import {traceOf} from '../app/record.js';
 import {TEXT} from '../content/text.js';
 
@@ -50,7 +50,11 @@ test('K-18: none of the removed elements\' ids remain in next.html', () => {
   const ids = [...NEXT.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
   for (const id of removed) assert.ok(!ids.includes(id), 'next.html still has #' + id);
   for (const id of ['clock', 'rate-badge', 'chip-lights', 'chip-cost', 'chip-co2', 'btn-pause', 'btn-help', 'map', 'desk', 'respond-card',
-    'watch-vignette', 'stopwatch', 'end-card', 'drawer', 'perf', 'stack-overlay', 'briefing-card']) assert.ok(ids.includes(id), '#' + id);
+    'watch-vignette', 'stopwatch', 'end-card', 'drawer', 'perf', 'stack-overlay', 'briefing-card',
+    // Phase 1b (desk/README.md §14.4): the settings popover and the live region
+    'btn-settings', 'settings', 'set-volume', 'set-hum', 'set-fx', 'set-alarms', 'set-rm', 'set-fxlow', 'set-crt', 'aria-live', 'btn-mute']) {
+    assert.ok(ids.includes(id), '#' + id);
+  }
   assert.equal(new Set(ids).size, ids.length, 'ids are unique');
 });
 
@@ -80,7 +84,7 @@ test('C-3 / C-8: no location.reload anywhere; every localStorage access in the s
 // ------------------------------------------------------------------ stand-in modules (contract shapes only)
 
 const VM_KEYS = ['obs', 'mode', 'frame', 'alarms', 'tray', 'focus', 'hover', 'stackExpanded', 'previewOn', 'previewGuardMW', 'offers',
-  'respond', 'glow', 'hist', 'settings'];
+  'respond', 'glow', 'hist', 'settings', 'settingsOpen', 'cues'];
 
 function stubModules() {
   const seen = {map: [], desk: [], stack: []};
@@ -505,6 +509,150 @@ test('F-11 ?perf: percentiles over the window', () => {
   assert.equal(s.frameP95, 95);
   assert.equal(s.draw.map.p95, 2);
   assert.match(PF.perfLines(s).join('\n'), /frame ms p50 50\.00 · p95 95\.00/);
+});
+
+test('F-11 budget: frame p95 <= 8 ms, sim p95 <= 1 ms up to 150x and <= 3 ms above; each line says OK or OVER', () => {
+  assert.equal(PF.BUDGET.frameP95Ms, 8);
+  assert.equal(PF.BUDGET.simP95Ms, 1);
+  assert.equal(PF.simBudgetMs(120), 1);
+  assert.equal(PF.simBudgetMs(150), 1, 'at 150x the budget is still 1 ms');
+  assert.equal(PF.simBudgetMs(360), 3);
+  assert.equal(PF.simBudgetMs(2100), 3);
+  const run = (frameMs, simMs, rate, draw) => {
+    const p = PF.createPerf();
+    for (let i = 0; i < 60; i++) PF.perfFrame(p, {frameMs, simMs, ticks: 100, rate, draw});
+    const st = PF.perfStats(p);
+    return {st, lines: PF.perfLines(st)};
+  };
+  let r = run(5, 0.6, 120, {map: 1.5, desk: 1, stack: 3});
+  assert.deepEqual([r.st.over.frame, r.st.over.sim, r.st.budget.simMs], [false, false, 1]);
+  assert.match(r.lines[0], /^frame ms p50 5\.00 · p95 5\.00 {2}OK \(budget 8 ms\)$/);
+  assert.match(r.lines[1], /^sim ms p50 0\.60 · p95 0\.60 {2}OK \(budget 1 ms\) at ≤150×$/);
+  assert.match(r.lines.find(l => l.startsWith('draw map')), /OK \(budget 2 ms\)$/);
+  assert.match(r.lines.find(l => l.startsWith('draw stack')), /OK \(budget 4 ms\)$/);
+  assert.ok(!/OK|OVER/.test(r.lines.find(l => l.startsWith('draw desk'))), 'no budget is named for the desk: unmarked');
+  r = run(9, 2, 120, {map: 2.5});
+  assert.deepEqual([r.st.over.frame, r.st.over.sim, r.st.over.draw.map], [true, true, true]);
+  assert.match(r.lines[0], /OVER \(budget 8 ms\)$/);
+  assert.match(r.lines[1], /OVER \(budget 1 ms\) at ≤150×$/);
+  r = run(7, 2, 2100, {});
+  assert.deepEqual([r.st.over.sim, r.st.budget.simMs, r.st.rateMax], [false, 3, 2100], '2 ms of sim is inside the 3-ms budget at 2,100x');
+  assert.match(r.lines[1], /OK \(budget 3 ms\) at >150×$/);
+  // A paused window (rate 0) is judged at the 1-ms budget; a frame without a rate counts as 0.
+  const p = PF.createPerf();
+  PF.perfFrame(p, {frameMs: 1, simMs: 0.1, ticks: 0, draw: {}});
+  assert.equal(PF.perfStats(p).budget.simMs, 1);
+});
+
+test('F-11: the ?perf overlay shows the budget marks; ?debug exposes the boot handle as globalThis.gridwatch, and only then', () => {
+  assert.equal('gridwatch' in globalThis, false);
+  const plain = boot('?seed=7&perf');
+  assert.equal('gridwatch' in globalThis, false, 'no ?debug: no global');
+  plain.$('btn-take').click();
+  plain.frames(45);
+  assert.match(plain.$('perf').textContent, /frame ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget 8 ms\)\nsim ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget 1 ms\) at ≤150×/);
+  try {
+    const dbg = boot('?seed=7&debug');
+    assert.equal(globalThis.gridwatch, dbg.h, 'the handle bootGame returned');
+    assert.equal(typeof globalThis.gridwatch.frame, 'function');
+    assert.equal(dbg.$('perf').hidden, true, '?debug alone shows no overlay');
+  } finally {
+    delete globalThis.gridwatch;
+  }
+});
+
+test('§13.1 / §13.2 in the vm: settings in the contract shape, settingsOpen, cues', () => {
+  const {h, frames} = boot('?seed=7');
+  frames(1);
+  const vm = h.vm();
+  assert.deepEqual(Object.keys(vm.settings).sort(), ['alarms', 'crt', 'fx', 'hum', 'muted', 'reducedEffects', 'reducedMotion', 'volume']);
+  assert.equal(vm.settingsOpen, false);
+  assert.ok(Array.isArray(vm.cues));
+  for (const t of vm.alarms.tiles) assert.deepEqual(Object.keys(t).sort(), ['basePrio', 'escalated', 'flash', 'glyph', 'id', 'label', 'prio', 'state', 'target']);
+  assert.equal(h.actions.ui({do: 'cue', name: 'button'}), '');
+  frames(1);
+  assert.deepEqual(h.vm().cues, ['button'], 'a desk gesture\'s cue reaches the frame\'s vm (B-6)');
+});
+
+// ------------------------------------------------------------------ the live region (K-23, §13.3)
+
+test('K-23 live region (model): mode, frequency band, N-1 word, a new alarm, a tray warning; one message per 2 real s, newest alarm wins', () => {
+  const tiles = over => ['underFreq', 'n1', 'ufls'].map(id => Object.assign({id, label: id.toUpperCase(), prio: 'P2', escalated: false, state: 'normal'}, over && over[id]));
+  const mk = (o = {}) => ({obs: {tick: o.tick || 100, f: {hz: o.hz === undefined ? 50 : o.hz}, sec: {level: o.level || 'SECURE'}},
+    mode: {mode: o.mode || 'CRUISE', rate: o.mode === 'PAUSE' ? 0 : 120, watchS: -1}, alarms: {tiles: tiles(o.tiles)}, tray: {cards: o.cards || []}});
+  const L = createLive();
+  assert.equal(liveFrame(L, mk(), 0), null, 'the first frame only takes note');
+  assert.equal(liveFrame(L, mk(), 5000), null, 'nothing changed: nothing said');
+  assert.equal(liveFrame(L, mk({mode: 'PAUSE'}), 6000), 'PAUSE 0×');
+  assert.equal(liveFrame(L, mk({mode: 'CRUISE'}), 6500), null, 'at most one message per ' + LIVE_GAP_MS + ' ms');
+  assert.equal(liveFrame(L, mk(), 8000), 'CRUISE 120×', 'the rest waits its turn');
+  // The frequency band: normal / outside normal / outside containment (K-11's bands).
+  assert.equal(bandOf(50), 'normal');
+  assert.equal(bandOf(49.84), 'outside');
+  assert.equal(bandOf(50.16), 'outside');
+  assert.equal(bandOf(49.49), 'containment');
+  assert.equal(bandOf(50.51), 'containment');
+  assert.equal(liveFrame(L, mk({hz: 49.8}), 11000), 'Frequency outside the normal band, 49.80 Hz');
+  assert.equal(liveFrame(L, mk({hz: 49.4}), 14000), 'Frequency outside the containment band, 49.40 Hz');
+  assert.equal(liveFrame(L, mk({hz: 49.8}), 14100), null);
+  assert.equal(liveFrame(L, mk({hz: 49.4}), 14200), null);
+  assert.equal(liveFrame(L, mk({hz: 49.4}), 17000), null, 'a band that flapped back to what was said has nothing to say');
+  assert.equal(liveFrame(L, mk({hz: 50}), 20000), 'Frequency back in the normal band, 50.00 Hz');
+  assert.equal(liveFrame(L, mk({level: 'TIGHT'}), 23000), 'N-1 TIGHT');
+  // Alarms: the newest wins the alarm slot, and an alarm is said before anything else waiting.
+  const t0 = 30000;
+  assert.equal(liveFrame(L, mk({level: 'TIGHT', tiles: {n1: {state: 'alarm'}}}), t0), 'Alarm: N1, P2');
+  assert.equal(liveFrame(L, mk({level: 'SHORT', mode: 'FAST', tiles: {n1: {state: 'alarm'}, underFreq: {state: 'alarm'}}}), t0 + 100), null);
+  assert.equal(liveFrame(L, mk({level: 'SHORT', mode: 'FAST', tiles: {n1: {state: 'alarm'}, underFreq: {state: 'alarm'}, ufls: {state: 'alarm', prio: 'P1'}}}), t0 + 200), null);
+  const now = {level: 'SHORT', mode: 'FAST', tiles: {n1: {state: 'ackd'}, underFreq: {state: 'alarm'}, ufls: {state: 'alarm', prio: 'P1'}}};
+  assert.equal(liveFrame(L, mk(now), t0 + 2000), 'Alarm: UFLS, P1', 'the newest alarm, not the one before it');
+  assert.equal(liveFrame(L, mk(now), t0 + 4000), 'N-1 SHORT');
+  assert.equal(liveFrame(L, mk(now), t0 + 6000), 'FAST 120×');
+  assert.equal(liveFrame(L, mk(now), t0 + 8000), null);
+  // Escalation (B-1) is announced; ACK and clearing are not alarms.
+  now.tiles.underFreq = {state: 'alarm', prio: 'P1', escalated: true};
+  assert.equal(liveFrame(L, mk(now), t0 + 10000), 'Alarm escalated: UNDERFREQ, P1');
+  now.tiles.underFreq = {state: 'cleared'};
+  now.tiles.ufls = {state: 'ackd', prio: 'P1'};
+  assert.equal(liveFrame(L, mk(now), t0 + 13000), null);
+  // The tray: warnings only, once each.
+  const cards = [{id: 'card1', sev: 'info', from: 'STATION', text: 'GT·A at full speed.'}, {id: 'card2', sev: 'warn', from: 'WEATHER BUREAU', text: 'Storm from 15:00.'}];
+  assert.equal(liveFrame(L, mk(Object.assign({}, now, {cards})), t0 + 16000), 'WEATHER BUREAU: Storm from 15:00.');
+  assert.equal(liveFrame(L, mk(Object.assign({}, now, {cards})), t0 + 19000), null);
+  // A new day on the same page (the tick goes back): take note again, say nothing.
+  assert.equal(liveFrame(L, mk({tick: 1, mode: 'PAUSE', cards: [{id: 'card1', sev: 'warn', from: 'X', text: 'y'}]}), t0 + 30000), null);
+  assert.equal(liveFrame(L, mk({tick: 2, mode: 'CRUISE'}), t0 + 33000), 'CRUISE 120×');
+});
+
+test('K-23 live region (shell): #aria-live is a polite status region that mirrors the mode and a new alarm', () => {
+  const {$, h, frames, key, advance} = boot('?seed=7');
+  assert.equal($('aria-live').getAttribute('aria-live'), 'polite');
+  assert.equal($('aria-live').getAttribute('role'), 'status');
+  assert.equal(h.live.primed, false);
+  frames(1);
+  $('btn-take').click();
+  frames(2);
+  advance(2500);
+  frames(1);
+  assert.equal($('aria-live').textContent, 'CRUISE 120×', 'the mode change after the briefing');
+  key(' ');
+  frames(1);
+  assert.equal($('aria-live').textContent, 'CRUISE 120×', 'inside 2 real s: not yet');
+  advance(2500);
+  frames(1);
+  assert.equal($('aria-live').textContent, 'PAUSE 0×');
+  key(' ');
+  // A new alarm's label (test poke: storage low).
+  h.game.state.hydro.storageMWh = 0.2 * V.HYDRO_ALLOCATION_MWH;
+  advance(2500);
+  frames(2);
+  assert.equal($('aria-live').textContent, 'Alarm: STORAGE LOW, P2');
+  // The header's own controls say what they are and which key reaches them.
+  for (const [id, keys] of [['btn-pause', 'Space'], ['btn-mute', 'Shift+M'], ['btn-settings', ','], ['btn-help', '?']]) {
+    assert.equal($(id).getAttribute('aria-keyshortcuts'), keys, '#' + id);
+  }
+  assert.equal($('stopwatch').getAttribute('aria-hidden'), 'true', 'the stopwatch changes every frame: not for a live region');
+  assert.equal($('rate-badge').getAttribute('role'), null, 'the badge is mirrored by #aria-live, not announced every frame');
 });
 
 test('app/boot.js boots next.html with the real stage B modules', async () => {

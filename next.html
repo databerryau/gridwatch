@@ -5,10 +5,13 @@
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="desk/desk.css">
 <!--
-  next.html: the Phase 1a greybox game (SPEC Phase 1 "next.html plays a full day at a flat 120x
-  with the desk, the Live Stack, the watch and the map"; desk/README.md §8). The Phase 0.2 bench
-  moved to bench.html. Static: no build, no requests to other origins. Serve the repo root and
-  open next.html. Query: ?seed=N (default: today, YYYYMMDD) &perf (the F-11 overlay).
+  next.html: the Phase 1 game (SPEC Phase 1 "next.html plays a full day at a flat 120x with the
+  desk, the Live Stack, the watch and the map"; desk/README.md §8, and §11-§15 for the 1b
+  polish). The Phase 0.2 bench moved to bench.html. Static: no build, no requests to other
+  origins. Serve the repo root and open next.html. Query: ?seed=N (default: today, YYYYMMDD)
+  &perf (the F-11 overlay and its budget marks) &debug (the boot handle as globalThis.gridwatch).
+  Body classes the shell sets from the settings (K-22, desk/README.md §13.1): rm (reduced
+  motion), fxlow (reduced effects), crt (the B-4 scanlines), so CSS follows without the vm.
   Layout (SPEC §4.2, K-17): a 32-px header (40 px from 1600 px wide), the map on top, the desk
   at the bottom: max(300 px, half the viewport below the header). app/boot.js mounts the map,
   the desk and the Live Stack, and draws the overlays below.
@@ -50,6 +53,10 @@
   .grow { flex: 1; }
 
   #map { position: relative; min-height: 0; overflow: hidden; background: #0a0e14; }
+  /* B-4: the CRT overlay. Fixed 2-px scanlines over the map only (1 px dark, 1 px clear), very
+     faint, never animated, never in the way of the pointer. Off with REDUCED EFFECTS. */
+  body.crt #map::before { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0.06;
+    background: repeating-linear-gradient(to bottom, #000 0, #000 1px, transparent 1px, transparent 2px); }
   #desk { position: relative; min-height: 0; overflow: hidden; border-top: 1px solid var(--line); background: var(--panel); }
   #stack-overlay { position: fixed; z-index: 8; left: 16px; right: 16px; top: calc(var(--hdr) + 8px); height: 420px;
     background: var(--panel); border: 1px solid var(--dim); border-radius: 6px; box-shadow: 0 10px 30px #000c; }
@@ -74,6 +81,15 @@
   #briefing-card .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   #briefing-card .take { font-weight: 700; padding: 6px 16px; border-color: var(--blue); }
   #end-card { top: calc(var(--hdr) + 40px); width: 520px; }
+  /* B-7: the SETTINGS popover, under its header button. It never pauses the game. */
+  #settings { z-index: 16; top: calc(var(--hdr) + 6px); left: auto; right: 8px; transform: none; width: 268px; }
+  #settings label { display: flex; align-items: center; gap: 8px; min-height: 24px; margin: 4px 0; font: 11px var(--mono); color: var(--dim); }
+  #settings label span { width: 76px; flex: none; }
+  #settings input[type=range] { flex: 1; min-width: 0; height: 24px; margin: 0; accent-color: var(--blue); }
+  #settings input[type=checkbox] { width: 24px; height: 24px; margin: 0; flex: none; accent-color: var(--blue); }
+  #settings label.sw span { width: auto; flex: 1; color: var(--text); }
+  #settings input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+  #settings .hint { color: var(--faint); font-size: 11px; margin: 6px 0 0; }
   #end-card .score { font: 13px var(--mono); }
   #toast { position: fixed; z-index: 14; left: 50%; bottom: 16px; transform: translateX(-50%); background: #da363333;
     border: 1px solid var(--red); color: var(--bright); border-radius: 6px; padding: 4px 12px; font-size: 12px; }
@@ -102,21 +118,22 @@
 <header id="hdr">
   <div class="brand">GRIDWATCH</div>
   <div id="clock" title="Grid clock (the day runs 04:00 to 04:00)"><span id="clock-text">04:00</span></div>
-  <div id="rate-badge" role="status" title="Mode and playback rate: grid seconds per real second (F-5)"><span id="rate-text">PAUSE 0×</span></div>
+  <div id="rate-badge" title="Mode and playback rate: grid seconds per real second (F-5)"><span id="rate-text">PAUSE 0×</span></div>
   <div id="chip-lights" class="chip" title="LIGHTS ON: share of the energy the city asked for that it got">LIGHTS ON <b id="chip-lights-v">100%</b></div>
   <div id="chip-cost" class="chip" title="CUSTOMER COST so far">COST <b id="chip-cost-v">-</b> c/kWh</div>
   <div id="chip-co2" class="chip" title="CO₂ per MWh generated in the region so far">CO₂ <b id="chip-co2-v">-</b> t/MWh</div>
   <span class="grow"></span>
-  <button id="btn-pause" title="Space">PAUSE</button>
-  <button id="btn-mute" title="Sound on or off (Shift+M)">SOUND ON</button>
-  <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)">?</button>
+  <button id="btn-pause" title="Space" aria-keyshortcuts="Space">PAUSE</button>
+  <button id="btn-mute" title="Sound on or off (Shift+M)" aria-keyshortcuts="Shift+M" aria-pressed="false">SOUND ON</button>
+  <button id="btn-settings" title="Settings: volumes, reduced motion, reduced effects, CRT (,)" aria-keyshortcuts="," aria-haspopup="dialog" aria-expanded="false" aria-controls="settings">SETTINGS</button>
+  <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)" aria-label="What GRIDWATCH simplifies, and why" aria-keyshortcuts="?">?</button>
 </header>
 <div id="map" aria-label="The city and its power stations"></div>
 <div id="desk" aria-label="The control desk"></div>
 <noscript>GRIDWATCH needs JavaScript (ES modules).</noscript>
 
 <div id="stack-overlay" hidden></div>
-<div id="watch-vignette" hidden aria-live="polite"><div id="stopwatch">T+0.00 s ×0.15</div><div id="beat-caption"></div><div id="beat-steps"></div></div>
+<div id="watch-vignette" hidden><div id="stopwatch" aria-hidden="true">T+0.00 s ×0.15</div><div id="beat-caption" aria-live="polite"></div><div id="beat-steps" aria-hidden="true"></div></div>
 <div id="respond-card" class="card" role="dialog" aria-label="What happened" hidden></div>
 <div id="briefing-card" class="card" role="dialog" aria-label="Briefing" hidden>
   <h2>Tonight's desk</h2>
@@ -130,11 +147,22 @@
   </div>
 </div>
 <div id="end-card" class="card" role="dialog" aria-label="Day over" hidden></div>
+<div id="settings" class="card" role="dialog" aria-label="Settings" hidden>
+  <h2>Settings</h2>
+  <label><span>MASTER</span><input id="set-volume" type="range" min="0" max="100" step="5" value="80" aria-label="Master volume"></label>
+  <label><span>HUM</span><input id="set-hum" type="range" min="0" max="100" step="5" value="100" aria-label="Hum volume"></label>
+  <label><span>EFFECTS</span><input id="set-fx" type="range" min="0" max="100" step="5" value="100" aria-label="Effects volume"></label>
+  <label><span>ALARMS</span><input id="set-alarms" type="range" min="0" max="100" step="5" value="100" aria-label="Alarms volume"></label>
+  <label class="sw"><input id="set-rm" type="checkbox"><span>REDUCED MOTION</span></label>
+  <label class="sw"><input id="set-fxlow" type="checkbox"><span>REDUCED EFFECTS</span></label>
+  <label class="sw"><input id="set-crt" type="checkbox"><span>CRT</span></label>
+  <p class="hint">Shift+M mutes. Reduced effects turns the hum and the CRT lines off. The clock keeps running.</p>
+</div>
 <div id="drawer" role="dialog" aria-label="Abstractions" hidden></div>
 <div id="popover" role="dialog" hidden></div>
 <div id="toast" role="alert" hidden></div>
 <div id="q-layer"></div>
-<div id="aria-live" class="sr" aria-live="polite"></div>
+<div id="aria-live" class="sr" role="status" aria-live="polite"></div>
 <pre id="perf" hidden></pre>
 <script type="module" src="app/boot.js"></script>
 </body>

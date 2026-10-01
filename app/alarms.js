@@ -1,20 +1,34 @@
-// app/alarms.js: the K-8 annunciator model (Phase 1a basics) and the K-21 priority of each tile.
-// Pure and DOM-free; desk/annunciator.js draws `alarmsView()` (vm.alarms).
+// app/alarms.js: the K-8 annunciator model and the K-21 priority of each tile (Phase 1b:
+// desk/README.md §11 B-1, B-2, B-3). Pure and DOM-free; desk/annunciator.js draws
+// `alarmsView()` (vm.alarms).
 //
-// Twelve tiles (4 x 3; MSL arrives in Phase 2 with P-4). Each has one priority and a target
-// control id (a click or Enter focuses it). Analogue tiles have separate set and clear
+// Twelve tiles (4 x 3; MSL arrives in Phase 2 with P-4). Each has one BASE priority and a
+// target control id (a click or Enter focuses it). Analogue tiles have separate set and clear
 // thresholds (K-8), event tiles are set by what happened (a contingency, a UFLS stage, news).
 //
-// States (ISA-18.1 basics): normal -> alarm (new: flashes fast, sounds by priority) -> ACK ->
-// ackd (steady) -> condition clears -> normal. An alarm that clears before ACK is 'cleared'
-// (flashes slowly) until ACK returns it to normal. SILENCE stops the sound only.
+// Escalation (B-1): UNDER FREQ and OVER FREQ are P2 tiles (`escalates: true`). While the
+// frequency is outside the containment band (49.5-50.5 Hz) the tile is escalated: the view
+// gives it `prio: 'P1'` and `escalated: true`, and it sounds the horn. An acknowledged tile
+// that escalates flashes again (it is worse news than the one acknowledged).
 //
-// Sound (K-21): P1 a two-tone horn, repeated every HORN_REPEAT_S real s while sounding and
-// unacknowledged; P2 one chime; P3 tiles are silent here (their tray card makes the soft
-// tick). One sound per update at most (the highest priority). No tile sounds again within
-// RESOUND_HOLDOFF_S real s. During the watch sounds are held; any still unacknowledged sound
-// once when the watch ends. `a.audible` counts the alarm sounds started (not horn repeats):
-// K-8's accept, "the competent proxy triggers <= 8 audible alarms per daily".
+// States (ISA-18.1 sequence R, ring-back, visual only; B-2): normal -> alarm (new: flashes
+// fast, sounds by priority) -> ACK -> ackd (steady) -> condition clears -> normal (dark). An
+// alarm that clears before ACK is 'cleared' (flashes slowly, the ring-back) until ACK returns
+// it to normal. SILENCE stops the sound only. The flash rates are the desk's (2.5 / 0.8 Hz).
+//
+// Sound (K-21, B-3). A SOUNDING is one alarm sound started: the horn (the highest effective
+// priority among the tiles that start it is P1) or one chime (P2); P3 tiles are silent here
+// (their tray card makes the soft tick). One sounding per update at most. `a.audible` counts
+// soundings (K-8's accept: "the competent proxy triggers <= 8 audible alarms per daily").
+// RE-SOUNDS are the same alarm heard again and count in `a.repeats`, never in `a.audible`:
+//   * the horn every HORN_REPEAT_S real s while a P1 alarm is unacknowledged and not silenced;
+//   * one chime P2_REPEAT_S real s after a P2 tile sounded, if it is still unacknowledged
+//     (and not silenced, and no horn is going);
+//   * the horn starting on a tile that escalates inside its own hold-off (below).
+// No tile starts a NEW sounding within RESOUND_HOLDOFF_S real s of its last one (K-8 accept):
+// an alarm that sets again inside that window flashes at once and is held; if it is still
+// unacknowledged when the window ends it sounds then. During the watch every sound is held
+// the same way; tiles still unacknowledged sound once when the watch ends.
 //
 // Inputs: updateAlarms(a, x, ctx) reads a small snapshot `x` built by alarmInput(obs) in the
 // game, or alarmInputFromState(state) in headless runs (tests; they must agree). Frequency
@@ -51,14 +65,22 @@ export const WEATHER_HOLD_S = 3600;
 export const RESOUND_HOLDOFF_S = 30;
 /** Real seconds between horn repeats while a P1 alarm sounds unacknowledged (K-21). */
 export const HORN_REPEAT_S = 4;
+/** Real seconds after a P2 chime before its single repeat, if still unacknowledged (K-21, B-3). */
+export const P2_REPEAT_S = 60;
+/**
+ * B-1: a tile with `escalates` is escalated while the frequency is outside the containment
+ * band (FOS Table A.3); it steps back down ESC_HYST_HZ inside the band so it cannot chatter.
+ */
+export const ESC_LO_HZ = V.CONTAIN_LO_HZ, ESC_HI_HZ = V.CONTAIN_HI_HZ, ESC_HYST_HZ = 0.05;
 
 /**
- * The tiles, in annunciator order (4 columns x 3 rows). prio: K-21. target: the control id a
+ * The tiles, in annunciator order (4 columns x 3 rows). prio: the K-21 BASE priority (one per
+ * tile); escalates: B-1 (the view's `prio` is the effective one). target: the control id a
  * click focuses (desk/README.md §5); a trip tile retargets to the tripped unit's lever.
  */
 export const TILES = Object.freeze([
-  {id: 'underFreq', label: 'UNDER FREQ', prio: 'P1', target: 'dial-freq'},
-  {id: 'overFreq', label: 'OVER FREQ', prio: 'P1', target: 'dial-freq'},
+  {id: 'underFreq', label: 'UNDER FREQ', prio: 'P2', escalates: true, target: 'dial-freq'},
+  {id: 'overFreq', label: 'OVER FREQ', prio: 'P2', escalates: true, target: 'dial-freq'},
   {id: 'n1', label: 'N-1 INSECURE', prio: 'P2', target: 'gauge-n1'},
   {id: 'rocof', label: 'HIGH RoCoF', prio: 'P2', target: 'dial-freq'},
   {id: 'unitTrip', label: 'UNIT TRIP', prio: 'P1', target: 'stack'},
@@ -69,23 +91,29 @@ export const TILES = Object.freeze([
   {id: 'minGen', label: 'MIN GEN', prio: 'P2', target: 'stack'},
   {id: 'weather', label: 'WEATHER', prio: 'P3', target: 'tray'},
   {id: 'peak', label: 'PEAK', prio: 'P1', target: 'gauge-n1'},
-].map(t => Object.freeze(t)));
+].map(t => Object.freeze(Object.assign({escalates: false}, t))));
 
 const PRIO_RANK = {P1: 3, P2: 2, P3: 1};
-/** Glyphs per state (K-22: status is never colour-only). */
-export const GLYPH = Object.freeze({normal: '·', alarm: '!', ackd: '■', cleared: '○'});
+/** Glyphs per state (K-22: status is never colour-only; B-2: ◇ marks the ring-back without its flash). */
+export const GLYPH = Object.freeze({normal: '·', alarm: '!', ackd: '■', cleared: '◇'});
+// The effective priority (B-1): P1 while escalated, else the tile's base priority.
+const prioOf = (a, t) => (t.escalates && a.tiles[t.id].esc ? 'P1' : t.prio);
 
 /** A new annunciator. */
 export function createAlarms() {
   const tiles = {};
   for (const t of TILES) {
-    tiles[t.id] = {id: t.id, state: 'normal', cond: false, target: t.target, lastSoundMs: -Infinity, held: false, setAtS: -1};
+    // esc: escalated now (B-1); held: its sound waits (the watch, or its own hold-off);
+    // repeatAtMs: when its single P2 repeat is due (Infinity: none).
+    tiles[t.id] = {id: t.id, state: 'normal', cond: false, esc: false, target: t.target, lastSoundMs: -Infinity, held: false, setAtS: -1,
+      repeatAtMs: Infinity};
   }
   return {
     tiles,
     sounding: false, soundPrio: '', lastHornMs: -Infinity,
-    audible: 0,                   // alarm sounds started (K-8 accept)
-    sounds: [],                   // every sound started, {atS, prio, tiles} (tests, debrief)
+    audible: 0,                   // soundings started (K-8 accept)
+    repeats: 0,                   // re-sounds: horn repeats, the P2 repeat, an escalation inside the hold-off (B-3)
+    sounds: [],                   // every sounding, {atS, atMs, prio, tiles} (tests, debrief)
     // trackers
     samp: {fMin: Infinity, fMax: -Infinity, rocofMax: 0, n: 0},
     notSecureSinceS: -1, secureSinceS: 0, agcRealS: 0,
@@ -105,7 +133,10 @@ export function sampleTick(a, state) {
   sp.n++;
 }
 
-/** The alarm snapshot from observe() (the game, once per frame). */
+/**
+ * The alarm snapshot from observe() (the game, once per frame). Escalation (B-1) reads the same
+ * frequency as the UNDER / OVER tiles: `fHz` here plus the extremes sampleTick() kept.
+ */
 export function alarmInput(obs) {
   const c = obs.contingency;
   const last = obs.news.length ? obs.news[obs.news.length - 1] : null;
@@ -146,8 +177,8 @@ const hyst = (was, setNow, clearNow) => (was ? !clearNow : setNow);
  * @param {{nowMs:number, realDtS:number, stationOf?:function(string):string}} ctx
  *   nowMs: a real-time clock (ms) for the re-sound hold-off and horn repeats; realDtS: real
  *   seconds since the last update (AGC LIMIT's 5 real s); stationOf(unitId): station id (targets).
- * @returns {{cues:string[], newAlarm:boolean}} cues: 'horn' | 'chime' to play now; newAlarm:
- *   a P1/P2 tile went into alarm (ends FAST).
+ * @returns {{cues:string[], newAlarm:boolean}} cues: 'horn' | 'chime' to play now (a sounding
+ *   or a re-sound); newAlarm: a P1/P2 tile went into alarm or escalated (ends FAST).
  */
 export function updateAlarms(a, x, ctx) {
   const sp = a.samp, T = a.tiles, s = x.s;
@@ -201,57 +232,101 @@ export function updateAlarms(a, x, ctx) {
   };
   T.storageLow.target = x.hydroFrac < HYDRO_LOW || (T.storageLow.cond && x.battFrac >= BATT_OK) ? 'wheel-hydro' : 'dial-battery';
 
+  // B-1: escalated while the tile's condition holds and the frequency is outside containment.
+  const esc = {
+    underFreq: cond.underFreq && hyst(T.underFreq.esc, fMin < ESC_LO_HZ, fMin > ESC_LO_HZ + ESC_HYST_HZ),
+    overFreq: cond.overFreq && hyst(T.overFreq.esc, fMax > ESC_HI_HZ, fMax < ESC_HI_HZ - ESC_HYST_HZ),
+  };
+
   // Transitions.
-  const fresh = [];
+  const fresh = [], raised = [];
   for (const t of TILES) {
-    const k = T[t.id], on = cond[t.id];
+    const k = T[t.id], on = cond[t.id], e = t.escalates && !!esc[t.id];
     if (on && !k.cond) {
       if (k.state !== 'alarm') { k.state = 'alarm'; k.setAtS = s; fresh.push(t); }
     } else if (!on && k.cond) {
       if (k.state === 'alarm') k.state = 'cleared';
       else if (k.state === 'ackd') k.state = 'normal';
+    } else if (on && e && !k.esc) {
+      // An alarm already standing got worse: it flashes again if it had been acknowledged.
+      k.state = 'alarm';
+      raised.push(t);
     }
     k.cond = on;
+    k.esc = e;
   }
 
   // Sound.
   const cues = [];
-  const now = ctx.nowMs;
-  let newAlarm = false;
+  const now = ctx.nowMs, holdMs = RESOUND_HOLDOFF_S * 1000;
+  const unacked = k => k.state === 'alarm' || k.state === 'cleared';
+  let newAlarm = false, hornNow = false;
   const candidates = [];
   for (const t of fresh) {
     if (t.prio === 'P3') continue;
     newAlarm = true;
-    if (x.inWatch) { T[t.id].held = true; continue; }
-    if (now - T[t.id].lastSoundMs < RESOUND_HOLDOFF_S * 1000) continue;
+    // Held: by the watch, or by the tile's own hold-off (it sounds when that ends, below).
+    if (x.inWatch || now - T[t.id].lastSoundMs < holdMs) { T[t.id].held = true; continue; }
     candidates.push(t);
   }
-  if (a.prevInWatch && !x.inWatch) {
-    // The watch ended: tiles still unacknowledged sound once.
+  for (const t of raised) {
+    const k = T[t.id];
+    newAlarm = true;
+    if (k.held) continue;
+    if (x.inWatch) k.held = true;
+    else if (now - k.lastSoundMs < holdMs) hornNow = true; // the same sounding, now a horn (a re-sound, B-3)
+    else candidates.push(t);
+  }
+  if (!x.inWatch) {
+    // The watch ended, or a hold-off ran out: held tiles still unacknowledged sound once.
     for (const t of TILES) {
       const k = T[t.id];
-      if (k.held) { k.held = false; if (k.state === 'alarm' || k.state === 'cleared') candidates.push(t); }
+      if (!k.held || candidates.includes(t)) continue;
+      if (!unacked(k)) { k.held = false; continue; }
+      if (now - k.lastSoundMs < holdMs) continue;
+      candidates.push(t);
     }
   }
   a.prevInWatch = x.inWatch;
+  const hornTile = () => TILES.some(t => prioOf(a, t) === 'P1' && T[t.id].state === 'alarm');
   if (candidates.length) {
-    let best = candidates[0];
-    for (const t of candidates) if (PRIO_RANK[t.prio] > PRIO_RANK[best.prio]) best = t;
-    for (const t of candidates) T[t.id].lastSoundMs = now;
-    cues.push(best.prio === 'P1' ? 'horn' : 'chime');
+    let best = prioOf(a, candidates[0]);
+    for (const t of candidates) if (PRIO_RANK[prioOf(a, t)] > PRIO_RANK[best]) best = prioOf(a, t);
+    for (const t of candidates) {
+      const k = T[t.id];
+      k.lastSoundMs = now;
+      k.held = false;
+      k.repeatAtMs = prioOf(a, t) === 'P2' ? now + P2_REPEAT_S * 1000 : Infinity;
+    }
+    // One sound has just called the operator: repeats that were due are covered by it.
+    for (const t of TILES) if (T[t.id].repeatAtMs <= now) T[t.id].repeatAtMs = Infinity;
+    cues.push(best === 'P1' ? 'horn' : 'chime');
     a.audible++;
-    a.sounds.push({atS: s, prio: best.prio, tiles: candidates.map(t => t.id)});
-    if (best.prio === 'P1' || !a.sounding) { a.sounding = true; a.soundPrio = best.prio; a.lastHornMs = now; }
-  } else if (a.sounding && a.soundPrio === 'P1' && !x.inWatch && now - a.lastHornMs >= HORN_REPEAT_S * 1000) {
-    const stillP1 = TILES.some(t => t.prio === 'P1' && T[t.id].state === 'alarm');
-    if (stillP1) { cues.push('horn'); a.lastHornMs = now; } else { a.sounding = false; a.soundPrio = ''; }
+    a.sounds.push({atS: s, atMs: now, prio: best, tiles: candidates.map(t => t.id)});
+    if (best === 'P1') { a.sounding = true; a.soundPrio = 'P1'; a.lastHornMs = now; }
+  } else if (hornNow) {
+    cues.push('horn');
+    a.repeats++;
+    a.sounding = true; a.soundPrio = 'P1'; a.lastHornMs = now;
+  } else if (a.sounding && !x.inWatch && now - a.lastHornMs >= HORN_REPEAT_S * 1000) {
+    // K-21: the horn again every 4 real s until SILENCE or ACK, while a P1 alarm still flashes.
+    if (hornTile()) { cues.push('horn'); a.repeats++; a.lastHornMs = now; } else { a.sounding = false; a.soundPrio = ''; }
+  } else if (!a.sounding && !x.inWatch) {
+    // B-3: the single P2 repeat, 60 real s after the chime, if the tile is still unacknowledged.
+    let due = false;
+    for (const t of TILES) {
+      const k = T[t.id];
+      if (k.repeatAtMs > now) continue;
+      k.repeatAtMs = Infinity;
+      if (unacked(k)) due = true;
+    }
+    if (due) { cues.push('chime'); a.repeats++; }
   }
-  if (a.sounding && a.soundPrio === 'P2') { a.sounding = false; a.soundPrio = ''; } // a chime sounds once
   a.lastS = s;
   return {cues, newAlarm};
 }
 
-/** ACK: flashing alarms turn steady; cleared ones go dark; the sound stops. */
+/** ACK: flashing alarms turn steady; cleared ones go dark; the sound stops (no repeat follows). */
 export function ackAll(a) {
   for (const t of TILES) ackTile(a, t.id);
   a.sounding = false; a.soundPrio = '';
@@ -264,26 +339,31 @@ export function ackTile(a, id) {
   if (k.state === 'alarm') k.state = k.cond ? 'ackd' : 'normal';
   else if (k.state === 'cleared') k.state = 'normal';
   k.held = false;
-  if (!TILES.some(t => a.tiles[t.id].state === 'alarm' && t.prio !== 'P3')) { a.sounding = false; a.soundPrio = ''; }
+  k.repeatAtMs = Infinity;
+  if (!TILES.some(t => a.tiles[t.id].state === 'alarm' && prioOf(a, t) === 'P1')) { a.sounding = false; a.soundPrio = ''; }
   return true;
 }
 
-/** SILENCE: stops the sound only (tiles keep flashing). */
+/** SILENCE: stops the sound only (tiles keep flashing): the horn, and any P2 repeat still to come. */
 export function silence(a) {
   a.sounding = false;
   a.soundPrio = '';
+  for (const t of TILES) a.tiles[t.id].repeatAtMs = Infinity;
 }
 
 /**
- * vm.alarms (desk/README.md §5).
- * @returns {{tiles:Array<{id, label, prio, state, flash:'fast'|'slow'|null, glyph, target}>, sounding:boolean, unacked:number}}
+ * vm.alarms (desk/README.md §5, §14.2). A tile's `prio` is the EFFECTIVE priority (B-1: P1
+ * while escalated), `basePrio` the one in TILES, `escalated` true while they differ.
+ * @returns {{tiles:Array<{id, label, prio, basePrio, escalated:boolean, state, flash:'fast'|'slow'|null, glyph, target}>,
+ *   sounding:boolean, unacked:number}}
  */
 export function alarmsView(a) {
   let unacked = 0;
   const tiles = TILES.map(t => {
     const k = a.tiles[t.id];
     if (k.state === 'alarm' || k.state === 'cleared') unacked++;
-    return {id: t.id, label: t.label, prio: t.prio, state: k.state,
+    const prio = prioOf(a, t);
+    return {id: t.id, label: t.label, prio, basePrio: t.prio, escalated: prio !== t.prio, state: k.state,
       flash: k.state === 'alarm' ? 'fast' : k.state === 'cleared' ? 'slow' : null, glyph: GLYPH[k.state], target: k.target};
   });
   return {tiles, sounding: a.sounding, unacked};

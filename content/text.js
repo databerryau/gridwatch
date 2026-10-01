@@ -20,6 +20,7 @@ import {P, V} from '../sim/params.js';
 import {CLASSIC} from './scenarios.js';
 import {FLAT_RATE, WATCH_SCHEDULE} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
+import {HORN_REPEAT_S} from '../app/alarms.js';
 
 // ------------------------------------------------------------------ formatting
 
@@ -153,6 +154,19 @@ const ABSTRACTIONS = [
     why: 'The plan coming together is something you cause: commit a unit on the stack, press RE-DISPATCH, and the desk ' +
       're-arranges itself.',
     params: ['PLAYER_START_H'],
+  },
+  {
+    // Phase 1b, desk/README.md §11 B-1: stage C adds the row to SPEC.md §8.2.
+    id: 'alarm-escalation', row: 'Frequency alarms escalate by severity.', specPending: true, anchorId: 'alarm-escalation', ui: 'drawer',
+    game: 'annunciator',
+    real: 'A control room gives each alarm one priority; a value that keeps getting worse raises a second, more urgent ' +
+      'alarm at a further limit.',
+    ours: 'UNDER FREQ and OVER FREQ are warnings with one chime, set outside the normal band (' + hz(V.NORMAL_LO_HZ) + '–' +
+      hz(V.NORMAL_HI_HZ) + ' Hz). While frequency is outside the containment band (' + hz(V.CONTAIN_LO_HZ) + '–' +
+      hz(V.CONTAIN_HI_HZ) + ' Hz) the same tile is escalated: it shows as top priority and sounds the horn every ' +
+      num(HORN_REPEAT_S) + ' s until SILENCE or ACK.',
+    why: 'One tile per quantity fits a twelve-tile panel, and the horn is kept for real trouble.',
+    params: ['NORMAL_LO_HZ', 'NORMAL_HI_HZ', 'CONTAIN_LO_HZ', 'CONTAIN_HI_HZ'],
   },
   {
     id: 'act-i-restore-task', row: 'Act I restore task', anchorId: 'restore-panel', game: 'bay-restore',

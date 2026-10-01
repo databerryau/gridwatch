@@ -114,6 +114,12 @@ test('H-14: "ours" is built from the live values, and says nothing the params co
   assert.ok(byId.get('hydro-allocation').ours.includes(V.HYDRO_ALLOCATION_MWH.toLocaleString('en-US') + ' MWh'));
   assert.ok(byId.get('hum-tone').ours.includes(AM.HUM_DBFS + ' dBFS'), byId.get('hum-tone').ours);
   assert.ok(byId.get('re-dispatch').ours.includes('04:30'));
+  // Phase 1b, B-1: the alarm escalation is labelled beside the annunciator, from the live band limits.
+  const esc = byId.get('alarm-escalation'), AL = await import('../app/alarms.js');
+  assert.equal(esc.game, 'annunciator');
+  assert.ok(esc.ours.includes(V.NORMAL_LO_HZ + '–' + V.NORMAL_HI_HZ + ' Hz') && esc.ours.includes(V.CONTAIN_LO_HZ + '–' + V.CONTAIN_HI_HZ + ' Hz'), esc.ours);
+  assert.ok(esc.ours.includes('every ' + AL.HORN_REPEAT_S + ' s'));
+  assert.deepEqual([AL.ESC_LO_HZ, AL.ESC_HI_HZ], [V.CONTAIN_LO_HZ, V.CONTAIN_HI_HZ], 'the tiles escalate at the limits the text names');
   if (V.SYNC_SLIP_MIN_HZ !== undefined) assert.ok(byId.get('compressed-synchroscope').ours.includes(String(V.SYNC_SLIP_MIN_HZ)));
   for (const e of TEXT.abstractions) assert.ok(!/undefined|NaN|Infinity/.test(e.ours + e.real + e.why), e.id + ': ' + e.ours);
 });

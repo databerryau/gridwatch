@@ -5,10 +5,18 @@
 //   {ui: {...}}           a presentation command (actions.ui)
 //   {input: {...}}        a sim input (actions.input)
 //   {redispatch: true}    RE-DISPATCH (actions.redispatch)
-// bindKeys(doc, keys, getVm, run) attaches it to a document. Keys typed into text fields are
-// ignored, and so is a key a focused desk control already consumed (it calls
-// preventDefault): the desk handles its own arrows, S S and so on when it has focus, and this
-// map is the fallback that makes every K-23 key work from anywhere.
+// bindKeys(doc, keys, getVm, run, now, route) attaches it to a document: the page's ONE key
+// listener. Its order (desk/README.md §13.3), so that the same key never acts twice:
+//   1. a key typed into a text field, or already consumed by a focused control (it called
+//      preventDefault: the desk's controls handle their own arrows, S S and so on), or one the
+//      shell says is not the game's (route.own: the settings popover's sliders), is left alone;
+//      so is anything with Ctrl / Meta / Alt (browser shortcuts are never game keys);
+//   2. route.first(ev) (the shell: Enter on the briefing card);
+//   3. each module of route.chain() that has key(ev), in order: the desk, the Live Stack, the
+//      map. The first that returns true used the key: preventDefault, stop;
+//   4. this file's map, the fallback that makes every K-23 key work from anywhere.
+// D and E holds are the desk's while a desk with key() is mounted (keys.holds = false): the
+// fallback then neither times nor fires them.
 //
 // | 1-8                     focus COAL / CCGT / GT·A / GT·B / GT·C / hydro / battery / tie
 // | ↑ ↓ (Shift fine), PgUp/PgDn   move the focused lever (±10 / ±1 MW, next detent) or wheel
@@ -22,6 +30,7 @@
 // | Space, Esc, F (hold)    pause, skip the watch (after a full one), fast
 // | Enter                   dismiss the respond card
 // | ?                       the abstractions drawer; Shift+M mute
+// | ,                       the SETTINGS popover (B-7)
 
 import {V} from '../sim/params.js';
 
@@ -33,8 +42,9 @@ export const DOUBLE_MS = 2000;
 export const HOLD_MS = 600;
 const DETENTS = [0.25, 0.5, 0.75];
 
-export function createKeys() {
-  return {last: {key: '', atMs: -Infinity}, holds: {}, fired: {}};
+/** @param {{holds?:boolean}} [o] holds: false when a mounted desk owns the D / E holds (§13.3). */
+export function createKeys(o) {
+  return {last: {key: '', atMs: -Infinity}, holds: {}, fired: {}, deskHolds: !!(o && o.holds === false)};
 }
 
 const leverStation = id => (typeof id === 'string' && id.startsWith('lever-') ? id.slice(6) : '');
@@ -77,6 +87,7 @@ export function keyDown(k, ev, vm, nowMs) {
   if (!ev.repeat) k.last = double ? {key: '', atMs: -Infinity} : {key: lower, atMs: nowMs};
   // Holds: D, E, F.
   if (lower === 'd' || lower === 'e' || lower === 'f') {
+    if (lower !== 'f' && k.deskHolds) return null; // the desk's own hold keys (§13.3)
     if (!k.holds[lower]) { k.holds[lower] = nowMs; k.fired[lower] = false; }
     return lower === 'f' && !ev.repeat ? {ui: {do: 'fast', on: true}} : null;
   }
@@ -84,6 +95,7 @@ export function keyDown(k, ev, vm, nowMs) {
   if (key === 'Escape') return {ui: {do: 'skipWatch'}};
   if (key === 'Enter') return vm && vm.respond ? {ui: {do: 'dismissRespond'}} : null;
   if (key === '?') return {ui: {do: 'drawer'}};
+  if (key === ',') return {ui: {do: 'settings'}};
   if (key === 'M' && ev.shiftKey) return {ui: {do: 'mute'}};
   if (key >= '1' && key <= '8' && key.length === 1) return {ui: {do: 'focus', target: FOCUS_KEYS[key.charCodeAt(0) - 49]}};
   if (lower === 'a') return ev.shiftKey ? {ui: {do: 'silence'}} : {ui: {do: 'ack'}};
@@ -142,20 +154,44 @@ export function poll(k, nowMs) {
   return out;
 }
 
+/** True for a key event typed into a text field (never a game key). */
+export function typing(t) {
+  const tag = t && t.tagName ? t.tagName.toLowerCase() : '';
+  return tag === 'input' && t.type !== 'range' && t.type !== 'button' && t.type !== 'checkbox' || tag === 'textarea' || tag === 'select' ||
+    !!(t && t.isContentEditable);
+}
+
 /**
- * Listen on `doc`. run(action) performs one action. Keys typed in text fields, and keys a
- * focused control consumed (defaultPrevented), are left alone.
+ * Listen on `doc` (the order is in the file header). run(action) performs one fallback action.
+ * @param {{own?:function(Event):boolean, first?:function(Event):boolean, chain?:function():Array<object|null>,
+ *   used?:function(object, Event):void, error?:function(Error):void}} [route]
+ *   own(ev): true when the key belongs to something outside the game (left alone);
+ *   first(ev): true when the shell itself used the key; chain(): the modules to offer the key
+ *   to, in order (those without key() are skipped); used(mod, ev): a module took the key;
+ *   error(e): a module's key() threw (the key then falls through).
+ *   A keyup always reaches the chain and the fallback, whatever its target: a hold must never
+ *   miss its release.
  * @returns {function():void} unbind
  */
-export function bindKeys(doc, k, getVm, run, now) {
+export function bindKeys(doc, k, getVm, run, now, route) {
   const clock = now || (() => globalThis.performance.now());
-  const typing = t => {
-    const tag = t && t.tagName ? t.tagName.toLowerCase() : '';
-    return tag === 'input' && t.type !== 'range' && t.type !== 'button' && t.type !== 'checkbox' || tag === 'textarea' || tag === 'select' ||
-      !!(t && t.isContentEditable);
+  const o = route || {};
+  const offer = ev => {
+    for (const m of o.chain ? o.chain() : []) {
+      if (!m || typeof m.key !== 'function') continue;
+      let took = false;
+      try { took = m.key(ev) === true; } catch (e) { if (o.error) o.error(e); }
+      if (!took) continue;
+      if (ev.preventDefault) ev.preventDefault();
+      if (o.used) o.used(m, ev);
+      return true;
+    }
+    return false;
   };
   const down = ev => {
-    if (ev.defaultPrevented || typing(ev.target)) return;
+    if (ev.defaultPrevented || typing(ev.target) || ev.ctrlKey || ev.metaKey || ev.altKey || (o.own && o.own(ev))) return;
+    if (o.first && o.first(ev)) { if (ev.preventDefault) ev.preventDefault(); return; }
+    if (offer(ev)) return;
     const a = keyDown(k, ev, getVm(), clock());
     if (!a) return;
     if (ev.preventDefault) ev.preventDefault();
@@ -163,6 +199,7 @@ export function bindKeys(doc, k, getVm, run, now) {
     run(a);
   };
   const up = ev => {
+    if (offer(ev)) return;
     const a = keyUp(k, ev);
     if (a) run(a);
   };
