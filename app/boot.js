@@ -11,5 +11,8 @@ import {createMap} from '../render/map.js';
 import * as system from './system.js';
 import * as planview from './planview.js';
 import {bootGame} from './shell.js';
+import {DESK} from '../content/scenarios.js';
 
-export const handle = bootGame(globalThis.document, {createDesk, createLiveStack, createMap, system, planview});
+export const handle = bootGame(globalThis.document, {createDesk, createLiveStack, createMap, system, planview,
+  // SPEC §9.1 Q-18: the commitment is the player's, on the lean-overnight day, and the desk opens with the clock held.
+  scenario: DESK, commit: 'player', startPaused: true});

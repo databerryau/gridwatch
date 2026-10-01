@@ -14,6 +14,17 @@
 //   * RE-DISPATCH (A-1): redispatch() re-runs the pre-dispatch from now to 04:00 over the
 //     commitment the player has now (par's amend: units on and coming, the booked starts and
 //     stops kept), and every lever glides to the new plan.
+//
+// Two modes (createSystem({commit})):
+//   'system'  the Phase 1a behaviour above: the 04:30 plan commits units too (its booked STARTs
+//             and STOPs). The bench and the planOnly proxy use it.
+//   'player'  the game (SPEC §9.1 Q-18): COMMITMENT IS THE PLAYER'S. The system never books a
+//             start or a stop. At 04:30 it dispatches only what is running; from then it
+//             re-dispatches the committed units (the same planLoad RE-DISPATCH sends) whenever the
+//             commitment changes (a start, a stop, a booking, a unit synchronised or tripped) and
+//             every DISPATCH_S (5 grid-minutes, as NEMDE does) for the newer forecast. Which units run, and when, is the
+//             player's plan; a day with no input runs short. A lever, tie or plan-key edit by hand
+//             still takes the levers over until RE-DISPATCH.
 // Everything it does is a sim input (planLoad), logged, so replay() reproduces a game day (F-6).
 // It runs on the autopilot's 'planOnly' memory and runPar's cadence: a game day with no player
 // input is the planOnly proxy's day, hash for hash (tests/system.test.js).
@@ -27,13 +38,50 @@ const EMPTY = Object.freeze([]);
 const DAY_AHEAD = Object.freeze({dayAhead: true});
 /** Input types by which the player takes the plan over (the periodic re-flow then waits). */
 const EDITS = new Set(['basePoint', 'tie', 'planKey', 'planDel', 'planStart', 'planStop', 'planUnbook', 'planRejoin', 'planLoad']);
+/** 'player' mode: hand edits of the levers take them over; commitment inputs are the plan itself. */
+const HAND_EDITS = new Set(['basePoint', 'tie', 'planKey', 'planDel', 'planRejoin']);
+/** 'player' mode: the dispatch of committed units refreshes this often (NEMDE's 5-minute dispatch). */
+export const DISPATCH_S = 300;
 
 /**
  * A fresh system operator (plain JSON: a JSON copy resumes it, like the autopilot memo).
  * @returns {{memo:object, loadTick:number, logIdx:number, edited:boolean, loads:number}}
  */
-export function createSystem() {
-  return {memo: AP.createAutopilot({proxy: 'planOnly'}), loadTick: -1, logIdx: 0, edited: false, loads: 0};
+export function createSystem(opts) {
+  return {memo: AP.createAutopilot({proxy: 'planOnly'}), loadTick: -1, logIdx: 0, edited: false, loads: 0,
+    commit: opts && opts.commit === 'player' ? 'player' : 'system', sig: '', dispatchS: -1};
+}
+
+// 'player' mode: what the dispatch is made over. It changes when a unit starts, synchronises,
+// stops or trips, a start or stop is booked or unbooked, or the dark share of the city moves.
+function commitSig(obs) {
+  let s = '';
+  for (const u of obs.units) s += u.mode === 'on' || u.mode === 'loading' ? '1' : u.mode === 'off' || u.mode === 'tripped' ? '0' : '2';
+  for (const e of obs.plan.starts) s += '+' + e.unit + e.atS;
+  for (const e of obs.plan.stops) s += '-' + e.unit + e.atS;
+  let dark = 0;
+  for (const d of obs.districts) if (d.dark) dark++;
+  return s + '|' + dark + (obs.tie.tripped ? 'T' : '');
+}
+
+function playerInputs(sys, state, s) {
+  const memo = sys.memo;
+  const first = memo.plan === null;
+  const obs = observe(state, first ? DAY_AHEAD : undefined);
+  if (first) {
+    // The day-ahead columns the dispatch falls back on beyond the 4.5-h forecast. Its own
+    // commitment (P.load's starts and stops) is never sent: that is the player's to make.
+    const P = AP.preDispatch(obs);
+    delete P.load;
+    memo.plan = P;
+  }
+  const sig = commitSig(obs);
+  if (!first && (sys.edited || (sig === sys.sig && s - sys.dispatchS < DISPATCH_S))) return EMPTY;
+  const input = AP.replan(obs, memo);
+  if (!input) return EMPTY;
+  sys.sig = sig; sys.dispatchS = s;
+  loaded(sys, state, 1);
+  return [input];
 }
 
 // Has the player edited the plan since the system's last planLoad (at loadTick)? Scans the new
@@ -42,7 +90,7 @@ function scanEdits(sys, state) {
   const log = state.log;
   for (let i = sys.logIdx; i < log.length; i++) {
     const r = log[i];
-    if (!EDITS.has(r.type) || r.tick < sys.loadTick) continue;
+    if (!(sys.commit === 'player' ? HAND_EDITS : EDITS).has(r.type) || r.tick < sys.loadTick) continue;
     if (r.type === 'planLoad' && r.tick === sys.loadTick) continue; // the system's own
     sys.edited = true;
   }
@@ -76,6 +124,7 @@ export function systemInputs(sys, state) {
   memo.afterWatch = false;
   memo.nextS = s + EVERY_S;
   scanEdits(sys, state);
+  if (sys.commit === 'player') return playerInputs(sys, state, s);
   const obs = observe(state, memo.plan === null ? DAY_AHEAD : undefined);
   const out = AP.planUpdates(obs, memo, null, {periodic: !sys.edited});
   loaded(sys, state, out.length);
@@ -98,5 +147,6 @@ export function redispatch(sys, state) {
   if (!input) return {input: null, reason: 'no plan before 04:30'};
   scanEdits(sys, state);
   loaded(sys, state, 1);
+  if (sys.commit === 'player') { sys.sig = ''; sys.dispatchS = Math.floor(state.tick / TPS); }
   return {input, reason: ''};
 }

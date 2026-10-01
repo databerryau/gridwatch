@@ -135,7 +135,8 @@ export function bootGame(doc, deps) {
   const mm = o.matchMedia === undefined ? (typeof globalThis.matchMedia === 'function' ? q => globalThis.matchMedia(q) : null) : o.matchMedia;
   let rmQuery = null;
   try { rmQuery = mm ? mm('(prefers-reduced-motion: reduce)') : null; } catch { rmQuery = null; }
-  const game = G.createGame({seed: G.seedFrom(search, o.date), system: o.system, planview: o.planview,
+  const game = G.createGame({seed: G.seedFrom(search, o.date), system: o.system, planview: o.planview, scenario: o.scenario, commit: o.commit,
+    startPaused: o.startPaused,
     storage: o.storage === undefined ? safeStorage() : o.storage, reducedMotion: () => !!(rmQuery && rmQuery.matches)});
   const audio = createAudio(o.audioWin === undefined ? globalThis : o.audioWin);
   const perf = query.has('perf') ? createPerf() : null;
@@ -312,6 +313,20 @@ export function bootGame(doc, deps) {
     toastUntil = now() + 3000;
   }
   const setText = (id, s) => { const el = $(id); if (el && el.textContent !== s) el.textContent = s; };
+
+  // The standing objective (Q-18): one line, with the level as a glyph and a word.
+  const LEVEL_WORD = {ok: '✓ STEADY', plan: '◷ PLAN', act: '▶ ACT NOW', crit: '‼ SHORT'};
+  function drawObjective(v) {
+    const box = $('objective');
+    if (!box) return;
+    const o = v.objective;
+    const paused = v.mode.mode === 'PAUSE' && v.phase === 'play' && !v.obs.over;
+    box.hidden = !o || v.phase !== 'play' || v.obs.over || !!v.respond;
+    if (box.hidden) return;
+    if (box.className !== o.level) box.className = o.level;
+    setText('objective-level', LEVEL_WORD[o.level] || '');
+    setText('objective-text', (o.text || '') + (paused ? '  ·  Clock held: press Space to run.' : ''));
+  }
 
   function drawHeader(v) {
     const m = v.mode;
@@ -492,7 +507,7 @@ export function bootGame(doc, deps) {
     if (mods.desk) timed('desk', () => mods.desk.update(vm));
     if (mods.stack) timed('stack', () => mods.stack.update(vm));
     timed('shell', () => {
-      drawHeader(vm); drawSettings(vm.settings, vm.settingsOpen); drawWatch(vm); drawRespond(vm); drawEnd(vm); placeStack(vm);
+      drawHeader(vm); drawObjective(vm); drawSettings(vm.settings, vm.settingsOpen); drawWatch(vm); drawRespond(vm); drawEnd(vm); placeStack(vm);
       announce(vm, t1);
       const b = $('briefing-card');
       if (b) b.hidden = vm.phase !== 'briefing';

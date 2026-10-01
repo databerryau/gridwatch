@@ -251,3 +251,45 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   assert.deepEqual(g.h.mods.errors, []);
   assert.deepEqual(doc.canvasStats.bad, []);
 });
+
+// ---------------------------------------------------------------- SPEC §9.1 Q-18: the page as boot.js boots it
+
+test('Q-18, the real page: the clock is held at 04:30, the objective names a unit, starting it by keys clears the line', async () => {
+  const {DESK} = await import('../content/scenarios.js');
+  const doc = makeDocument(NEXT);
+  let t = 1000;
+  const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
+  const h = bootGame(doc, {createDesk, createMap, createLiveStack, system, planview, scenario: DESK, commit: 'player', startPaused: true,
+    search: '?seed=7', storage: null, audioWin: {}, raf: false, now: () => t});
+  restore();
+  const $ = id => doc.getElementById(id);
+  const frame = (dtS = 0.1) => { t += dtS * 1000; h.frame(dtS); };
+  const tap = (key, extra) => { doc.dispatch('keydown', Object.assign({key}, extra)); doc.dispatch('keyup', Object.assign({key}, extra)); frame(1 / 60); };
+  $('btn-take').click();
+  frame();
+  assert.equal(h.vm().mode.mode, 'PAUSE', 'the desk opens with the clock held');
+  assert.equal($('objective').hidden, false);
+  assert.match($('objective-text').textContent, /press Space to run/);
+  const tick0 = h.game.state.tick;
+  for (let i = 0; i < 20; i++) frame();
+  assert.equal(h.game.state.tick, tick0);
+  tap(' ');
+  // Run until the line asks for the CCGT now, doing nothing else.
+  let n = 0;
+  while (!(h.vm().objective && h.vm().objective.level === 'act' && /CCGT 2 now/.test(h.vm().objective.text)) && n++ < 4000) frame();
+  assert.ok(n < 4000, 'the objective asked for CCGT 2: ' + $('objective-text').textContent);
+  assert.ok(h.vm().glow.has('guard-start-ccgt2'), 'and its START guard is lit');
+  assert.equal($('objective').className, 'act');
+  assert.match($('objective-level').textContent, /ACT NOW/);
+  tap('2'); tap('s'); tap('s');
+  assert.equal(h.game.state.log.filter(r => r.type === 'start' && r.args.unit === 'ccgt2').length, 1, '2, S, S started it');
+  for (let i = 0; i < 30; i++) frame();
+  assert.doesNotMatch($('objective-text').textContent, /CCGT 2/, 'the line moves on');
+  // An alarm tile says what it means when pressed; ACK with nothing flashing says so.
+  $('tile-n1').click();
+  assert.match($('annunciator').textContent, /N-1 INSECURE: losing your biggest unit/);
+  // A map click selects the plant's control.
+  assert.deepEqual(h.mods.errors, []);
+  const r = replay(7, DESK, h.game.state.log, {untilTick: h.game.state.tick});
+  assert.equal(hashState(r), hashState(h.game.state));
+});

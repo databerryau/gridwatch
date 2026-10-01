@@ -167,9 +167,25 @@ function deepFreeze(x) {
   }
   return x;
 }
-deepFreeze(CLASSIC);
+/**
+ * The game's day (SPEC §9.1 Q-18): the classic day with a leaner 04:00 commitment, so that which
+ * units run is the player's plan from the first minute. CCGT 2 is off overnight
+ * (as two-shifting plant is) and the morning ramp needs the CCGT back, about fifty minutes after
+ * its START. Everything else is the classic day.
+ */
+export const DESK = Object.assign({}, CLASSIC, {
+  id: 'desk',
+  name: 'Late-summer day, lean overnight commitment',
+  commitment: Object.assign({}, CLASSIC.commitment, {
+    src: 'The classic 04:00 commitment (2,920 MW of plant, 250 MW import) with CCGT 2 off overnight (§9.1 Q-18): simplified.',
+    units: {coal1: 540, coal2: 540, coal3: 540, coal4: 540, ccgt1: 480, hydro1: 140, hydro2: 140},
+  }),
+});
 
-export const SCENARIOS = Object.freeze({classic: CLASSIC});
+deepFreeze(CLASSIC);
+deepFreeze(DESK);
+
+export const SCENARIOS = Object.freeze({classic: CLASSIC, desk: DESK});
 
 /** Scenario by id; throws on an unknown id. */
 export function getScenario(id) {

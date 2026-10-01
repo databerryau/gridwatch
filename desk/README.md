@@ -717,6 +717,16 @@ The four branches merged without conflicts; `node --test` 392 pass. What integra
   in the F-11 numbers; no greyscale screenshot; first use of a long voice (growl, spool) renders
   for 20–50 ms once; §7 above still describes the 1a greybox map.
 
+## 17. After the owner's first play (2026-10-01): the commitment is the player's
+
+SPEC §9.1 Q-18. `app/boot.js` boots the game with `scenario: DESK, commit: 'player', startPaused:
+true`; `createGame` / `bootGame` default to the Phase 1a behaviour (classic day, the system
+commits), which most tests still use. New: `app/objective.js` (pure: `capacityShort(obs)`,
+`objective(obs, ctx)`), `vm.objective` (`{level, text, targets, action, startBy, short}`, its
+targets added to `vm.glow`), `#objective` in `next.html`, `TILE_HELP` in
+`desk/annunciator.js`, a click on the map (focus the plant's control), `content/scenarios.js
+DESK`, `createSystem({commit})` and `DISPATCH_S` in `app/system.js`. The sim is unchanged.
+
 ## 15. Done means
 
 `node --test` green and still under 60 s; each agent reports: what it built, every deviation

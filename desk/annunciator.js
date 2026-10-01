@@ -11,6 +11,21 @@
 import {el, setText, setAttr, setCls, PAN} from './util.js';
 
 export const TILE_SLOTS = 12;
+/** What each tile means and what answers it, shown when the tile is pressed (one sentence each). */
+export const TILE_HELP = Object.freeze({
+  underFreq: 'UNDER FREQ: demand is beating supply and the grid is slowing. More power: start a unit, or call DR.',
+  overFreq: 'OVER FREQ: supply is beating demand. Less power: stop a unit, or charge the battery.',
+  n1: 'N-1 INSECURE: losing your biggest unit would not be caught. More spare: start a gas turbine or raise the battery GUARD.',
+  rocof: 'HIGH RoCoF: frequency is moving fast because little heavy plant is spinning. Keep more big machines on.',
+  unitTrip: 'UNIT TRIP: a machine has dropped off. Replace its output: the objective line names the quickest unit.',
+  linkTrip: 'LINK TRIP: the tie line to the neighbour is out. Replace its import with your own plant.',
+  ufls: 'UFLS OPERATED: relays cut districts to save the grid. Restore them from the bay (R) once there is spare.',
+  agcLimit: 'AGC LIMIT: the running units have no room left to follow demand. Commit another unit.',
+  storageLow: 'STORAGE LOW: the hydro water or the battery is nearly spent. Do not count on it for the peak.',
+  minGen: 'MIN GEN: running units cannot go low enough. Stop one, or charge the battery.',
+  weather: 'WEATHER: the bureau has issued a warning. Read the message tray (M).',
+  peak: 'PEAK: it is the evening peak and you are not secure. Every spare unit should be on.',
+});
 const STATE_GLYPH = {normal: '', alarm: '◆', ackd: '■', cleared: '◇'};
 const STATE_WORD = {normal: 'normal', alarm: 'ALARM, not acknowledged', ackd: 'acknowledged', cleared: 'cleared, not acknowledged'};
 export const ESCALATED_GLYPH = '‼';
@@ -32,7 +47,13 @@ export function createAnnunciator(ctx, parent) {
   sil.id = 'btn-silence'; sil.type = 'button';
   sil.setAttribute('aria-label', 'Silence the horn (Shift+A)');
   sil.setAttribute('aria-keyshortcuts', 'Shift+A');
-  const doAck = () => { ctx.cue('button', PAN.panel); ctx.ui({do: 'ack'}); };
+  let unackedNow = false;
+  const doAck = () => {
+    ctx.cue('button', PAN.panel);
+    // ACK is not a switch: it marks flashing tiles as seen. With none flashing, say so.
+    if (!unackedNow) ctx.note(box, 'Nothing to acknowledge: ACK marks flashing alarms as seen.');
+    ctx.ui({do: 'ack'});
+  };
   const doSilence = () => { ctx.cue('button', PAN.panel); ctx.ui({do: 'silence'}); };
   ack.addEventListener('click', doAck);
   sil.addEventListener('click', doSilence);
@@ -53,7 +74,9 @@ export function createAnnunciator(ctx, parent) {
       if (t) {
         b.id = 'tile-' + t.id;
         b.dataset.target = t.target || '';
-        b.addEventListener('click', () => { if (b.dataset.target) { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); } });
+        b.addEventListener('click', () => { if (b.dataset.target) { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); }
+          const st = b.dataset.state || 'normal';
+          ctx.note(box, (TILE_HELP[t.id] || t.label) + (st === 'normal' ? ' Not in alarm now.' : ''), 6000); });
       } else {
         b.classList.add('empty');
         b.setAttribute('aria-hidden', 'true');
@@ -72,7 +95,7 @@ export function createAnnunciator(ctx, parent) {
       for (let i = 0; i < tiles.length; i++) {
         const t = list[i], T = tiles[i];
         if (!t) continue;
-        T.b.dataset.target = t.target || '';
+        T.b.dataset.target = t.target || ''; T.b.dataset.state = t.state;
         const esc = t.escalated === true && t.state !== 'normal';
         setAttr(T.b, 'class', 'dk-tile s-' + t.state + (t.flash ? ' flash-' + t.flash : '') + (t.prio ? ' ' + String(t.prio).toLowerCase() : '') +
           (esc ? ' esc' : ''));
@@ -82,6 +105,7 @@ export function createAnnunciator(ctx, parent) {
           (esc ? ', escalated' : '') + '. Enter: go to its control.');
       }
       const unacked = list.some(t => t.state === 'alarm' || t.state === 'cleared');
+      unackedNow = unacked;
       setCls(ack, 'lit', unacked);
       setText(ack, unacked ? '◆ ACK' : 'ACK');
       setCls(sil, 'lit', !!(vm.alarms && vm.alarms.sounding));
