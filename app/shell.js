@@ -15,8 +15,13 @@
 //   #stack-overlay   L-4: while vm.stackExpanded the shell moves the Live Stack's `el` here
 //                    (over the map, ~1248 x 420) and back into #stack-slot after; the stack
 //                    sizes its canvas from its parent on update.
+//
+// Phase 1b (desk/README.md §13): the SETTINGS popover (#btn-settings, `,`; B-7) and the body
+// classes rm / fxlow / crt that follow vm.settings; the one key listener and its order (§13.3:
+// the desk's key(ev), then the stack's and the map's, then app/keys.js); the #aria-live region
+// (createLive / liveFrame below); the ?perf budget marks; ?debug -> globalThis.gridwatch.
 
-import {SIM_VERSION} from '../sim/params.js';
+import {SIM_VERSION, V} from '../sim/params.js';
 import * as G from './game.js';
 import {startRaf} from './loop.js';
 import {createKeys, bindKeys, poll as pollKeys} from './keys.js';
@@ -35,13 +40,89 @@ export function layoutSizes(width, height) {
 
 const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNORS', ufls: 'UFLS', settle: 'SETTLE'};
 
+// ------------------------------------------------------------------ the live region (K-23, §13.3)
+
+/** #aria-live says at most one message per this many real ms. */
+export const LIVE_GAP_MS = 2000;
+// What waits is one slot per kind (the newest of a kind replaces the older: "newest alarm
+// wins"), said in this order.
+const LIVE_ORDER = ['alarm', 'tray', 'band', 'level', 'mode'];
+const BAND_TEXT = {normal: 'Frequency back in the normal band', outside: 'Frequency outside the normal band',
+  containment: 'Frequency outside the containment band'};
+
+/** The frequency band the live region names: 'normal' | 'outside' (normal) | 'containment' (outside it). */
+export function bandOf(hz) {
+  if (hz < V.CONTAIN_LO_HZ || hz > V.CONTAIN_HI_HZ) return 'containment';
+  return hz < V.NORMAL_LO_HZ || hz > V.NORMAL_HI_HZ ? 'outside' : 'normal';
+}
+
+/** A new live-region model (pure; liveFrame feeds it a vm per frame). */
+export function createLive() {
+  return {primed: false, lastMs: -Infinity, tick: -1, mode: '', band: '', bandSaid: '', level: '', levelSaid: '', tiles: {}, cards: new Set(),
+    q: {}};
+}
+
+/**
+ * One frame of the live region: note what changed in `vm` (the mode, the frequency band, the
+ * N-1 word, a tile going into alarm or escalating, a new tray warning) and return the one
+ * message to say now, or null. At most one per LIVE_GAP_MS; the rest wait, one per kind.
+ */
+export function liveFrame(L, vm, nowMs) {
+  const obs = vm.obs;
+  if (obs.tick < L.tick) { const fresh = createLive(); fresh.lastMs = L.lastMs; Object.assign(L, fresh); } // a new day on the same page
+  L.tick = obs.tick;
+  const first = !L.primed;
+  L.primed = true;
+  const mode = vm.mode.mode;
+  if (mode !== L.mode) { L.mode = mode; if (!first) L.q.mode = mode === 'WATCH' ? 'WATCH' : badgeText(vm.mode); }
+  const band = bandOf(obs.f.hz);
+  if (band !== L.band) { L.band = band; if (first) L.bandSaid = band; else L.q.band = BAND_TEXT[band] + ', ' + obs.f.hz.toFixed(2) + ' Hz'; }
+  const level = obs.sec.level;
+  if (level !== L.level) { L.level = level; if (first) L.levelSaid = level; else L.q.level = 'N-1 ' + level; }
+  for (const t of vm.alarms.tiles) {
+    const was = L.tiles[t.id], is = t.state + (t.escalated ? '!' : '');
+    if (was !== is) {
+      L.tiles[t.id] = is;
+      if (t.state === 'alarm' && !first && (t.escalated ? !(was && was.endsWith('!')) : !(was && was.startsWith('alarm')))) {
+        L.q.alarm = (t.escalated ? 'Alarm escalated: ' : 'Alarm: ') + t.label + ', ' + t.prio;
+      }
+    }
+  }
+  for (const c of vm.tray.cards) {
+    if (L.cards.has(c.id)) continue;
+    L.cards.add(c.id);
+    if (c.sev === 'warn' && !first) L.q.tray = c.from + ': ' + c.text;
+  }
+  if (nowMs - L.lastMs < LIVE_GAP_MS) return null;
+  // A band or level that flapped back to what was last said has nothing to say.
+  if (L.q.band && L.band === L.bandSaid) delete L.q.band;
+  if (L.q.level && L.level === L.levelSaid) delete L.q.level;
+  for (const k of LIVE_ORDER) {
+    const text = L.q[k];
+    if (!text) continue;
+    delete L.q[k];
+    if (k === 'band') L.bandSaid = L.band;
+    if (k === 'level') L.levelSaid = L.level;
+    L.lastMs = nowMs;
+    return text;
+  }
+  return null;
+}
+
+// vm.settings key -> the popover's control id (next.html #settings).
+const SET_RANGES = {volume: 'set-volume', hum: 'set-hum', fx: 'set-fx', alarms: 'set-alarms'};
+const SET_CHECKS = {reducedMotion: 'set-rm', reducedEffects: 'set-fxlow', crt: 'set-crt'};
+
 /**
  * Boot the game on `doc`.
  * @param {Document} doc
  * @param {{createDesk?:function, createLiveStack?:function, createMap?:function, system?:object, planview?:object,
- *   search?:string, storage?:object|null, audioWin?:object, raf?:boolean, now?:function():number, date?:Date}} deps
- *   raf: false to skip startRaf (tests call handle.frame(dtS) themselves).
- * @returns {object} handle {game, actions, frame(dtS), vm(), audio, mods, keys, unbind()}
+ *   search?:string, storage?:object|null, audioWin?:object, raf?:boolean, now?:function():number, date?:Date,
+ *   matchMedia?:function(string):{matches:boolean}|null}} deps
+ *   raf: false to skip startRaf (tests call handle.frame(dtS) themselves). matchMedia: the
+ *   system's prefers-reduced-motion is read through it (default: globalThis.matchMedia when
+ *   present; null: no system preference).
+ * @returns {object} handle {game, actions, frame(dtS), vm(), audio, mods, keys, perf, live, unbind()}
  */
 export function bootGame(doc, deps) {
   const o = deps || {};
@@ -49,12 +130,18 @@ export function bootGame(doc, deps) {
   const now = o.now || (() => globalThis.performance.now());
   const search = o.search === undefined ? (globalThis.location ? globalThis.location.search : '') : o.search;
   const query = new URLSearchParams(search);
+  // K-22: reduced motion defaults from the system. Asked on every read, so a change of the
+  // system setting is followed without a listener.
+  const mm = o.matchMedia === undefined ? (typeof globalThis.matchMedia === 'function' ? q => globalThis.matchMedia(q) : null) : o.matchMedia;
+  let rmQuery = null;
+  try { rmQuery = mm ? mm('(prefers-reduced-motion: reduce)') : null; } catch { rmQuery = null; }
   const game = G.createGame({seed: G.seedFrom(search, o.date), system: o.system, planview: o.planview,
-    storage: o.storage === undefined ? safeStorage() : o.storage});
+    storage: o.storage === undefined ? safeStorage() : o.storage, reducedMotion: () => !!(rmQuery && rmQuery.matches)});
   const audio = createAudio(o.audioWin === undefined ? globalThis : o.audioWin);
   const perf = query.has('perf') ? createPerf() : null;
   const keys = createKeys();
-  let vm = null, lastPerfDraw = -1e9, toastUntil = 0, qNext = 0, prevMode = '';
+  const live = createLive();
+  let vm = null, lastPerfDraw = -1e9, toastUntil = 0, qNext = 0;
 
   // ---------------------------------------------------------------- actions (desk/README.md §4)
   const base = G.makeActions(game);
@@ -65,6 +152,7 @@ export function bootGame(doc, deps) {
       const r = base.ui(cmd);
       if (cmd && cmd.do === 'focus' && cmd.target) focusEl(cmd.target);
       if (cmd && (cmd.do === 'drawer')) drawDrawer();
+      if (cmd && (cmd.do === 'settings' || cmd.do === 'set' || cmd.do === 'mute')) drawSettings(G.settingsView(game), game.ui.settingsOpen);
       return r;
     },
     previewTrip: opts => base.previewTrip(opts),
@@ -92,6 +180,8 @@ export function bootGame(doc, deps) {
   }
   mods.stack = mount('stack', o.createLiveStack, slot);
   let stackOut = false;
+  // §13.3: the D and E holds belong to a mounted desk that takes keys.
+  keys.deskHolds = !!(mods.desk && typeof mods.desk.key === 'function');
 
   // ---------------------------------------------------------------- header, briefing
   const on = (id, ev, f) => { const el = $(id); if (el) el.addEventListener(ev, f); };
@@ -194,6 +284,9 @@ export function bootGame(doc, deps) {
   doc.addEventListener('click', ev => {
     const pop = $('popover');
     if (pop && !pop.hidden && !(ev.target && ev.target.classList && ev.target.classList.contains('q')) && !pop.contains(ev.target)) pop.hidden = true;
+    // A click anywhere else closes the SETTINGS popover (its own button toggles it).
+    const set = $('settings'), btn = $('btn-settings');
+    if (game.ui.settingsOpen && set && !set.contains(ev.target) && !(btn && btn.contains(ev.target))) actions.ui({do: 'settings', on: false});
   });
   function drawDrawer() {
     const d = $('drawer');
@@ -233,7 +326,6 @@ export function bootGame(doc, deps) {
     setText('btn-pause', m.mode === 'PAUSE' || m.mode === 'HIDDEN' ? 'PLAY' : 'PAUSE');
     const bp = $('btn-pause');
     if (bp) bp.disabled = v.phase !== 'play' || v.obs.over;
-    setText('btn-mute', v.settings.muted ? 'SOUND OFF' : 'SOUND ON');
   }
 
   function drawWatch(v) {
@@ -330,11 +422,57 @@ export function bootGame(doc, deps) {
     if (stackOut) { ov.appendChild(mods.stack.el); ov.hidden = false; } else { slot.appendChild(mods.stack.el); ov.hidden = true; }
   }
 
-  function announce(v) {
-    if (v.mode.mode === prevMode) return;
-    prevMode = v.mode.mode;
-    setText('aria-live', badgeText(v.mode));
+  // K-23: #aria-live mirrors the mode, the frequency band, the N-1 word, new alarms and tray
+  // warnings, one message per 2 real s (liveFrame above).
+  function announce(v, nowMs) {
+    const text = liveFrame(live, v, nowMs);
+    if (text) setText('aria-live', text);
   }
+
+  // ---------------------------------------------------------------- settings (K-22, §13.1, B-7)
+  let setKey = '', setOpen = false;
+  function drawSettings(st, open) {
+    // Body classes, so CSS follows without reading the vm: rm, fxlow, crt (B-4).
+    const key = (st.reducedMotion ? 'r' : '-') + (st.reducedEffects ? 'f' : '-') + (st.crt ? 'c' : '-');
+    if (key !== setKey) {
+      setKey = key;
+      doc.body.classList.toggle('rm', st.reducedMotion);
+      doc.body.classList.toggle('fxlow', st.reducedEffects);
+      doc.body.classList.toggle('crt', st.crt);
+    }
+    for (const k of Object.keys(SET_RANGES)) {
+      const el = $(SET_RANGES[k]), val = String(Math.round(st[k] * 100));
+      if (el && String(el.value) !== val) el.value = val;
+    }
+    for (const k of Object.keys(SET_CHECKS)) {
+      const el = $(SET_CHECKS[k]);
+      if (el && el.checked !== st[k]) el.checked = st[k];
+    }
+    const crt = $(SET_CHECKS.crt);
+    if (crt && crt.disabled !== st.reducedEffects) crt.disabled = st.reducedEffects; // reduced effects has no CRT
+    const mute = $('btn-mute');
+    if (mute) {
+      setText('btn-mute', st.muted ? 'SOUND OFF' : 'SOUND ON');
+      if (mute.getAttribute('aria-pressed') !== String(st.muted)) mute.setAttribute('aria-pressed', String(st.muted));
+    }
+    const pop = $('settings'), btn = $('btn-settings');
+    if (pop && pop.hidden === open) pop.hidden = !open;
+    if (open !== setOpen) {
+      setOpen = open;
+      if (btn) { btn.setAttribute('aria-expanded', String(open)); btn.classList.toggle('on', open); }
+      // Keyboard: opening lands on the first slider; closing hands focus back to the button.
+      if (open) focusEl(SET_RANGES.volume);
+      else if (pop && btn && pop.contains(doc.activeElement)) focusEl('btn-settings');
+    }
+  }
+  for (const k of Object.keys(SET_RANGES)) {
+    const send = ev => actions.ui({do: 'set', key: k, value: Math.max(0, Math.min(1, Number(ev.target.value) / 100))});
+    on(SET_RANGES[k], 'input', send);
+    on(SET_RANGES[k], 'change', send);
+  }
+  for (const k of Object.keys(SET_CHECKS)) on(SET_CHECKS[k], 'change', ev => actions.ui({do: 'set', key: k, value: !!ev.target.checked}));
+  on('btn-settings', 'click', () => actions.ui({do: 'settings'}));
+  drawSettings(G.settingsView(game), false);
 
   // ---------------------------------------------------------------- the frame (X-26: draw after the ticks)
   const drawMs = {};
@@ -354,7 +492,8 @@ export function bootGame(doc, deps) {
     if (mods.desk) timed('desk', () => mods.desk.update(vm));
     if (mods.stack) timed('stack', () => mods.stack.update(vm));
     timed('shell', () => {
-      drawHeader(vm); drawWatch(vm); drawRespond(vm); drawEnd(vm); placeStack(vm); announce(vm);
+      drawHeader(vm); drawSettings(vm.settings, vm.settingsOpen); drawWatch(vm); drawRespond(vm); drawEnd(vm); placeStack(vm);
+      announce(vm, t1);
       const b = $('briefing-card');
       if (b) b.hidden = vm.phase !== 'briefing';
       const dr = $('drawer');
@@ -365,7 +504,7 @@ export function bootGame(doc, deps) {
     });
     timed('audio', () => audio.update(vm));
     if (perf) {
-      perfFrame(perf, {frameMs: now() - t0, simMs: t1 - t0, ticks, draw: drawMs});
+      perfFrame(perf, {frameMs: now() - t0, simMs: t1 - t0, ticks, rate: vm.mode.rate, draw: drawMs});
       if (t1 - lastPerfDraw > 500) {
         lastPerfDraw = t1;
         const el = $('perf');
@@ -379,7 +518,9 @@ export function bootGame(doc, deps) {
   function run(a) {
     if (a.ui) {
       if (a.ui.do === 'dismissRespond' || a.ui.do === 'skipWatch') {
+        // Esc closes what is open on top first: the settings, the drawer, a "?" popover.
         const pop = $('popover');
+        if (a.ui.do === 'skipWatch' && game.ui.settingsOpen) { actions.ui({do: 'settings', on: false}); return; }
         if (a.ui.do === 'skipWatch' && game.ui.drawer) { actions.ui({do: 'drawer', on: false}); return; }
         if (a.ui.do === 'skipWatch' && pop && !pop.hidden) { pop.hidden = true; return; }
       }
@@ -387,12 +528,25 @@ export function bootGame(doc, deps) {
     } else if (a.input) actions.input(a.input);
     else if (a.redispatch) actions.redispatch();
   }
+  // The page's one key listener (§13.3; the order is app/keys.js bindKeys'): text fields and
+  // consumed keys are left alone, then the desk, the stack, the map, then the fallback map.
+  const inSettings = t => { const s = $('settings'); return !!(s && t && s.contains(t)); };
   const unbindKeys = bindKeys(doc, keys, () => vm, a => {
     if (game.phase === 'briefing' && a.ui && a.ui.do === 'dismissRespond') return;
     run(a);
-  }, now);
-  // Enter on the briefing card takes the desk.
-  doc.addEventListener('keydown', ev => { if (game.phase === 'briefing' && ev.key === 'Enter' && !ev.defaultPrevented) take(); });
+  }, now, {
+    // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
+    own: ev => inSettings(ev.target) && ev.key !== 'Escape' && ev.key !== ',',
+    // Enter on the briefing card takes the desk (and nothing else: the key stops here).
+    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
+    chain: () => [mods.desk, mods.stack, mods.map],
+    // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows.
+    used: (m, ev) => {
+      const ae = doc.activeElement, desk = $('desk');
+      if (ev.type !== 'keyup' && ae && ae.id && ae !== doc.body && ae.id !== game.ui.focus && desk && desk.contains(ae)) base.ui({do: 'focus', target: ae.id});
+    },
+    error: e => { mods.errors.push('key: ' + (e && e.message ? e.message : e)); },
+  });
   const gesture = () => { if (!audio.started) audio.start(); };
   doc.addEventListener('pointerdown', gesture);
   doc.addEventListener('keydown', gesture);
@@ -401,12 +555,15 @@ export function bootGame(doc, deps) {
   if (o.raf !== false) stopRaf = startRaf(onFrame, hidden => { game.director.hidden = hidden; });
   if (mods.errors.length) showToast(mods.errors[0]);
 
-  return {
-    game, actions, audio, mods, keys, perf,
+  const handle = {
+    game, actions, audio, mods, keys, perf, live,
     frame: onFrame,
     vm: () => vm,
     unbind() { unbindKeys(); if (stopRaf) stopRaf(); },
   };
+  // F-11: ?debug exposes the boot handle for stage C's shot and perf tools (nothing else may use it).
+  if (query.has('debug')) globalThis.gridwatch = handle;
+  return handle;
 }
 
 function safeStorage() {
