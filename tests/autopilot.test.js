@@ -4,7 +4,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {runPar, createAutopilot, decide, refRealSeconds, preDispatch} from '../sim/autopilot.js';
-import {createState, step, observe, hashState} from '../sim/step.js';
+import {createState, step, observe, hashState, applyInput} from '../sim/step.js';
 import {V} from '../sim/params.js';
 import {CLASSIC} from '../content/scenarios.js';
 import {slowOnly, ticksAt, SLOW, TPS, injectTrip, clone} from './lib/sim-helpers.js';
@@ -48,21 +48,31 @@ test('L-0: the pre-dispatch plan is deterministic, starts at the desk opening an
   const plan = preDispatch(observe(s, {dayAhead: true}));
   assert.deepEqual(preDispatch(observe(stepTo(4, V.PLAYER_START_TICK), {dayAhead: true})), plan, 'same seed, same plan');
   assert.equal(plan.madeAtS, V.PLAYER_START_S);
-  for (const list of ['starts', 'stops', 'basePoints', 'ties']) {
-    for (let i = 1; i < plan[list].length; i++) assert.ok(plan[list][i].atS >= plan[list][i - 1].atS, list + ' sorted');
-    for (const e of plan[list]) assert.ok(e.atS >= V.PLAYER_START_S && e.atS < V.DAY_S, list + ' at ' + e.atS);
+  // Phase 1a: the plan is a planLoad input (arrive-by keys at the column times, bookings sorted).
+  const L = plan.load;
+  assert.equal(L.type, 'planLoad');
+  assert.equal(L.fromS, V.PLAYER_START_S);
+  assert.deepEqual(Object.keys(L.stations), V.STATION_IDS);
+  for (const [list, at] of [['starts', 1], ['stops', 1], ['tie', 0], ...V.STATION_IDS.map(id => [id, 0])]) {
+    const xs = list in L.stations ? L.stations[list] : L[list];
+    for (let i = 1; i < xs.length; i++) assert.ok(xs[i][at] >= xs[i - 1][at], list + ' sorted');
+    for (const e of xs) assert.ok(e[at] > V.PLAYER_START_S && e[at] < V.DAY_S, list + ' at ' + e[at]);
   }
-  // Every base point is reachable at the station's ramp from the previous keyframe.
+  for (const id of V.STATION_IDS) for (const e of L.stations[id]) assert.equal((e[0] - V.PLAYER_START_S) % V.FC_STEP_S, 0, 'arrive-by at a column time');
+  // L-4: every planned step is reachable at the station's ramp from the previous keyframe (whole MW: 1 MW).
   for (const id of V.STATION_IDS) {
-    const bp = plan.basePoints.filter(b => b.station === id);
+    const bp = L.stations[id];
     const st = V.STATIONS[id], rampPerS = st.rampMWMin / 60 * st.machines;
     for (let i = 1; i < bp.length; i++) {
-      assert.ok(Math.abs(bp[i].mw - bp[i - 1].mw) <= rampPerS * (bp[i].atS - bp[i - 1].atS) + 1e-6, id + ' ramp at ' + bp[i].atS);
-      assert.ok(bp[i].mw <= st.totalMW + 1e-9);
+      assert.ok(Math.abs(bp[i][1] - bp[i - 1][1]) <= rampPerS * (bp[i][0] - bp[i - 1][0]) + 1, id + ' ramp at ' + bp[i][0]);
+      assert.ok(bp[i][1] <= st.totalMW + 1e-9);
     }
   }
   // The tie follows merit order: at least one import and one lower setpoint over the day (P-6).
-  assert.ok(new Set(plan.ties.map(t => t.mw)).size >= 2, 'tie plan pinned at one value');
+  assert.ok(new Set(L.tie.map(t => t[1])).size >= 2, 'tie plan pinned at one value');
+  // The sim accepts it as it is.
+  assert.equal(applyInput(s, L).ok, true);
+  assert.equal(s.plan.madeAtS, V.PLAYER_START_S);
 });
 
 test('S-4: information barrier: scrambling hidden state (future events, the regime, the series, the heat window) leaves par\'s log unchanged', () => {
@@ -112,7 +122,8 @@ test('S-4 pace: at most one discrete action per 3 real s of the reference playba
   const firstAct = r.origins.findIndex(o => /^rule/.test(o));
   const re = r.log.filter((x, i) => r.origins[i] === 'replan');
   assert.ok(re.length > 0 && r.origins.indexOf('replan') > firstAct, 'replan before any action');
-  assert.ok(re.every(x => x.type === 'basePoint' || x.type === 'tie' || x.type === 'start'), 'a re-plan never stops a unit');
+  assert.ok(re.every(x => x.type === 'planLoad' && x.args.stops.length === 0), 'a re-plan is a planLoad and never stops a unit');
+  assert.equal(r.log.filter((x, i) => r.origins[i] === 'plan').length, 1, 'one L-0 plan (a planLoad at 04:30)');
   for (const x of r.log) {
     const sx = x.tick / TPS;
     assert.ok(!conts.some(c => sx >= c.startS && sx < c.watchEndS), 'input during the watch at ' + sx);
@@ -149,6 +160,7 @@ test('D-2: the reference profile integrates to 245 +- 3 real s from 04:30 to 04:
 test('K-13 / par rule 9: par restores a shed district once the permissive allows', () => {
   const s = createState(2, CLASSIC);
   while (!s.over && s.tick < ticksAt(4, 10)) step(s);
+  s.sec.level = 'SHORT'; // A-3: DIRECT SHED needs a shortfall (test poke of the gauge)
   step(s, [{type: 'directShed'}]);
   const id = s.city.districts.find(d => d.dark).id;
   const r = runPar(2, CLASSIC, {state: s, untilTick: ticksAt(6)});

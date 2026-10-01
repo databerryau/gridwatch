@@ -139,6 +139,7 @@ function parDay(S, seed, o) {
   let chMWh = 0, chCost = 0, chOrderMWh = 0, chOrderCost = 0, disMWh = 0, rev = 0, shortMin = 0;
   let nextProbe = V.PLAYER_START_S, probes = 0, fails = 0, worst = Infinity, fresh = 0, live = 0;
   let otherN = 0, otherFails = 0, otherWorst = Infinity;
+  const byKind = {unit: {n: 0, fails: 0, worst: Infinity}, link: {n: 0, fails: 0, worst: Infinity}};
   // Legacy §3.2 optimistic bound, on the v4 fleet: every machine not in protection lockout at
   // its (heat-derated) availability, tie 800 MW unless tripped, battery, diesel and DR all at
   // once with no energy limit, plus the wind and solar available, against demand.
@@ -177,26 +178,31 @@ function parDay(S, seed, o) {
     const isFresh = fr !== null && fr.level === 'SECURE';
     if (!isFresh && !isLive) { nextProbe = sec + PROBE_RETRY_S; continue; }
     nextProbe = sec + PROBE_EVERY_S;
-    // Trip the L each SECURE judgement previewed: the fresh L, and the cached L the desk showed
-    // (they differ only when a unit and the tie import are within a few MW, so L changed kind).
+    // Trip both credible contingencies from the state (H-8, A-2): the largest unit, and the tie
+    // import when it exceeds the FOS event threshold. The SECURE judgement previewed both with
+    // N1_PREVIEW_ALL (A-2), else only L (the fresh L, and the cached L the desk showed: they
+    // differ only when a unit and the tie import are within a few MW, so L changed kind).
+    const importing = !state.tie.tripped && state.tie.flowMW > V.EVENT_THRESHOLD_MW;
+    const hz = {unit: probeTrip(S, state, sec, 'unit'), link: importing ? probeTrip(S, state, sec, 'link') : Infinity};
     const kinds = [];
-    if (isFresh) kinds.push(fr.lKind);
-    if (isLive && !kinds.includes(state.sec.lKind)) kinds.push(state.sec.lKind);
+    if (V.N1_PREVIEW_ALL) { kinds.push('unit'); if (importing) kinds.push('link'); }
+    else {
+      if (isFresh) kinds.push(fr.lKind);
+      if (isLive && !kinds.includes(state.sec.lKind)) kinds.push(state.sec.lKind);
+    }
     let minHz = Infinity;
-    for (const k of kinds) minHz = Math.min(minHz, probeTrip(S, state, sec, k));
+    for (const k of kinds) if (k === 'unit' || k === 'link') minHz = Math.min(minHz, hz[k]);
     probes++;
     if (isFresh) fresh++;
     if (isLive) live++;
     if (minHz < V.CONTAIN_LO_HZ) fails++;
     if (minHz < worst) worst = minHz;
-    // The other credible contingency, which H-4 does not preview: the largest unit when L is the
-    // tie import, the tie import when L is a unit.
-    const other = kinds[0] === 'link' ? 'unit' : !state.tie.tripped && state.tie.flowMW > V.EVENT_THRESHOLD_MW ? 'link' : null;
-    if (other !== null && !kinds.includes(other)) {
-      const m = probeTrip(S, state, sec, other);
-      otherN++;
-      if (m < V.CONTAIN_LO_HZ) otherFails++;
-      if (m < otherWorst) otherWorst = m;
+    for (const k of ['unit', 'link']) {
+      if (hz[k] === Infinity) continue;
+      byKind[k].n++;
+      if (hz[k] < V.CONTAIN_LO_HZ) byKind[k].fails++;
+      if (hz[k] < byKind[k].worst) byKind[k].worst = hz[k];
+      if (!kinds.includes(k)) { otherN++; if (hz[k] < V.CONTAIN_LO_HZ) otherFails++; if (hz[k] < otherWorst) otherWorst = hz[k]; }
     }
   }
   const sc = observe(state).score;
@@ -206,6 +212,8 @@ function parDay(S, seed, o) {
     costDollars: sc.costDollars, centsPerKWh: sc.centsPerKWh, co2tPerMWh: sc.co2tPerMWh, trips: state.conts.length,
     p19, negH: negS / V.S_PER_H, chMWh, chCost, chOrderMWh, chOrderCost, disMWh, battPnl: rev, alarmDiff, shortMin,
     probes, fresh, live, fails, worst: probes ? worst : null, otherN, otherFails, otherWorst: otherN ? otherWorst : null,
+    unitN: byKind.unit.n, unitFails: byKind.unit.fails, unitWorst: byKind.unit.n ? byKind.unit.worst : null,
+    linkN: byKind.link.n, linkFails: byKind.link.fails, linkWorst: byKind.link.n ? byKind.link.worst : null,
     hash: hashState(state), trace,
     secs: Number(process.hrtime.bigint() - t0) / 1e9};
 }
@@ -447,7 +455,12 @@ function fixedProbes(S) {
     const tries = [{type: 'basePoint', station: 'coal', mw: 1000}, {type: 'start', unit: 'gta1'}, {type: 'stop', unit: 'coal2'},
       {type: 'abortStop', unit: 'coal2'}, {type: 'syncClose', unit: 'gtc1'}, {type: 'battery', mode: 'discharge', mw: 300},
       {type: 'guard', mw: 300}, {type: 'tie', mw: 800}, {type: 'curtail', kind: 'solar', limitPct: 50}, {type: 'callDR'},
-      {type: 'armRERT'}, {type: 'standDownRERT'}, {type: 'mode', agc: false}, {type: 'restore', district: 'SOL3'}, {type: 'directShed'}];
+      {type: 'armRERT'}, {type: 'standDownRERT'}, {type: 'mode', agc: false}, {type: 'restore', district: 'SOL3'}, {type: 'directShed'},
+      {type: 'planKey', station: 'gta', atS: V.PLAYER_START_S + 900, mw: 400}, {type: 'planDel', station: 'coal', atS: V.PLAYER_START_S + 600},
+      {type: 'planStart', unit: 'gtb1', atS: V.PLAYER_START_S + 600}, {type: 'planStop', unit: 'ccgt1', atS: V.PLAYER_START_S + 7200},
+      {type: 'planUnbook', unit: 'gtb1'}, {type: 'planRejoin', station: 'coal', keep: true},
+      {type: 'planLoad', fromS: V.PLAYER_START_S + 120, stations: {coal: [[V.PLAYER_START_S + 600, 1800]]}, tie: [], starts: [], stops: []},
+      {type: 'scope', unit: 'gtc1'}, {type: 'syncTrim', unit: 'gtc1', dHz: V.SYNC_TRIM_HZ}, {type: 'syncAuto', unit: 'gtc1'}];
     let tried = 0, accepted = 0;
     const end = s.conts[s.contIdx].watchEndTick;
     while (s.tick < end) {
@@ -618,12 +631,23 @@ function report(S, o, plan, results, wallS) {
   const probes = allPar.reduce((a, r) => a + r.probes, 0), fails = allPar.reduce((a, r) => a + r.fails, 0);
   const fresh = allPar.reduce((a, r) => a + r.fresh, 0), live = allPar.reduce((a, r) => a + r.live, 0);
   const worst = Math.min(...allPar.filter(r => r.probes).map(r => r.worst));
+  const a2 = V.N1_PREVIEW_ALL;
   rows2.push(['Credible trip from a SECURE state (both H-4 conditions)', 'nadir ≥ 49.5 Hz in 1,000 of 1,000', int(probes - fails) + ' of ' + int(probes) +
     ' (' + int(fresh) + ' SECURE on a fresh preview, ' + int(live) + ' as the desk showed it); worst ' + (probes ? fix(worst, 3) : '-') + ' Hz',
-  'par days (' + allPar.length + ' seeds), at most one state per ' + PROBE_EVERY_S / V.S_PER_MIN + ' grid-min; L tripped in a copy (H-8)']);
+  'par days (' + allPar.length + ' seeds), at most one state per ' + PROBE_EVERY_S / V.S_PER_MIN + ' grid-min; ' + (a2
+    ? 'both credible contingencies the SECURE judgement previewed (N1_PREVIEW_ALL, A-2)' : 'L tripped (N1_PREVIEW_ALL off: SECURE previews L only)') +
+    ', tripped in a copy (H-8)']);
+  const kindRow = (k, what) => {
+    const n = allPar.reduce((a, r) => a + r[k + 'N'], 0), f = allPar.reduce((a, r) => a + r[k + 'Fails'], 0);
+    const w = Math.min(...allPar.filter(r => r[k + 'N']).map(r => r[k + 'Worst']));
+    rows2.push(['… losing ' + what, 'nadir ≥ 49.5 Hz', int(n - f) + ' of ' + int(n) + ' hold 49.5 Hz; worst ' + (n ? fix(w, 3) : '-') + ' Hz',
+      'the same SECURE states' + (k === 'link' ? ', where the tie imports more than the 50-MW event threshold' : '')]);
+  };
+  kindRow('unit', 'the largest unit');
+  kindRow('link', 'the tie import');
   const oN = allPar.reduce((a, r) => a + r.otherN, 0), oF = allPar.reduce((a, r) => a + r.otherFails, 0);
   const oW = Math.min(...allPar.filter(r => r.otherN).map(r => r.otherWorst));
-  rows2.push(['The other credible contingency from the same SECURE states', '— (H-4 previews L only)', int(oN - oF) + ' of ' + int(oN) +
+  rows2.push(['… losing the credible contingency SECURE did not preview', a2 ? '— (A-2 previews both)' : '— (H-4 previews L only)', int(oN - oF) + ' of ' + int(oN) +
     ' hold 49.5 Hz; worst ' + (oN ? fix(oW, 3) : '-') + ' Hz', 'the largest unit when L is the tie import, the tie import (> 50 MW) when L is a unit; ' +
     'a unit trip also removes its inertia and governor, so it can be worse than a tie import of the same MW']);
   const alarmDiff = allPar.reduce((a, r) => a + r.alarmDiff, 0), ticks = allPar.reduce((a, r) => a + r.endS * V.TICKS_PER_S, 0);
@@ -700,15 +724,17 @@ function report(S, o, plan, results, wallS) {
   p('');
   p('Unserved, UFLS and directed energy in MWh; RERT = armed; DR = calls; ¢ = cost to serve per kWh; t = t CO2/MWh; 19:00 = price at 19:00:00 ($/MWh; - if black ' +
     'before); neg = hours at a negative price; charge = battery average charge price ($/MWh); P&L = battery Σ price × output ($); short = minutes below the optimistic bound; ' +
-    'probes = SECURE states probed by tripping L / below 49.5 Hz / worst nadir (Hz); other = the same for the other credible contingency; alarm = ticks where the desk\'s level and the last SECURITY line differ; hash = hashState at the end of the day.');
+    'probes = SECURE states probed by tripping the contingencies SECURE previewed / below 49.5 Hz / worst nadir (Hz); unit, link = the same for losing the largest unit and the tie import (> 50 MW); other = the contingency SECURE did not preview (none with A-2); alarm = ticks where the desk\'s level and the last SECURITY line differ; hash = hashState at the end of the day.');
   p('');
   p('### 3.1 Par, raw seeds');
   p('');
   const parRow = r => [r.seed, r.cls, (r.black ? 'BLACK ' + hhmm(V, r.endS) : ''), num(r.unservedMWh, 1), num(r.uflsMWh, 1), num(r.directedMWh, 1),
     r.rert ? 'yes' : '', r.drCalls, fix(r.centsPerKWh, 3), fix(r.co2tPerMWh, 3), r.trips, r.p19 === null ? '-' : int(r.p19), fix(r.negH, 1),
     r.chMWh > 0 ? int(r.chCost / r.chMWh) : '-', int(r.battPnl), r.shortMin, r.probes + ' / ' + r.fails + ' / ' + (r.worst === null ? '-' : fix(r.worst, 3)),
+    r.unitN + ' / ' + r.unitFails + ' / ' + (r.unitWorst === null ? '-' : fix(r.unitWorst, 3)),
+    r.linkN + ' / ' + r.linkFails + ' / ' + (r.linkWorst === null ? '-' : fix(r.linkWorst, 3)),
     r.otherN + ' / ' + r.otherFails + ' / ' + (r.otherWorst === null ? '-' : fix(r.otherWorst, 3)), r.alarmDiff, hex(r.hash)];
-  const parHead = ['seed', 'class', 'black', 'unserved', 'UFLS', 'directed', 'RERT', 'DR', '¢', 't', 'trips', '19:00', 'neg', 'charge', 'P&L', 'short', 'probes', 'other', 'alarm', 'hash'];
+  const parHead = ['seed', 'class', 'black', 'unserved', 'UFLS', 'directed', 'RERT', 'DR', '¢', 't', 'trips', '19:00', 'neg', 'charge', 'P&L', 'short', 'probes', 'unit', 'link', 'other', 'alarm', 'hash'];
   for (const l of mdTable(parHead, raw.map(parRow))) p(l);
   p('');
   const heatOnly = heatOnlyOf(heat, o);

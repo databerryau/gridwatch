@@ -278,7 +278,7 @@ test('F-6: a bench session (desk inputs and ASSIST PLAN) replays headless to the
   for (let i = 0; i < 400; i++) frame(sess, 1 / 60);
   const file = JSON.parse(JSON.stringify(sessionLog(sess)));
   assert.equal(file.poked, false);
-  assert.ok(file.log.length > 5, 'the plan issued inputs');
+  assert.ok(file.log.some(r => r.type === 'planLoad'), 'the plan was loaded (a planLoad input at 04:30)');
   const again = replay(file.seed, CLASSIC, file.log, {untilTick: sess.state.tick});
   assert.equal(hashState(again), hashState(sess.state));
   assert.deepEqual(observe(again).score, observe(sess.state).score);
@@ -306,13 +306,17 @@ test('RE-PLAN (ASSIST PLAN): the player gets par\'s re-dispatch; the session sti
   assert.equal(sendInput(sess, {type: 'start', unit: 'gta1'}).ok, true);
   runTo(sess, at(6, 20));
   const amended = sess.assist.memo.plan.amended;
+  const rev = sess.state.plan.rev;
   assert.equal(replan(sess), '');
   assert.equal(sess.assist.memo.plan.amended, amended + 1);
-  assert.ok(sess.assist.memo.plan.queue.length > 0 && sess.assist.memo.plan.queue.every(e => e.re), 'the queue is the re-plan');
+  const last = sess.state.log[sess.state.log.length - 1];
+  assert.equal(last.type, 'planLoad', 'the re-plan is a logged planLoad');
+  assert.equal(last.tick, sess.state.tick);
+  assert.equal(sess.state.plan.madeAtS, Math.floor(sess.state.tick / V.TICKS_PER_S));
+  assert.ok(sess.state.plan.rev > rev);
   assert.ok(sess.records.some(r => r.code === 'REPLAN' && r.sev === 'info'));
-  const n = sess.state.log.length;
   runTo(sess, at(7, 30));
-  assert.ok(sess.state.log.length > n, 'the re-planned keyframes are issued');
+  assert.ok(sess.state.plan.stations.some(p => p.doneS > at(6, 20) / V.TICKS_PER_S), 'the executor applies the re-planned keyframes');
   const file = JSON.parse(JSON.stringify(sessionLog(sess)));
   assert.equal(hashState(replay(file.seed, CLASSIC, file.log, {untilTick: sess.state.tick})), hashState(sess.state));
   // RE-PLAN is ASSIST PLAN's: under PAR it does nothing (par re-plans itself).
@@ -321,6 +325,7 @@ test('RE-PLAN (ASSIST PLAN): the player gets par\'s re-dispatch; the session sti
   // K-13 on the bench: a lit lamp still asks the restore input's preview.
   const s2 = createSession({seed: 2, scenario: CLASSIC, assist: 'off', paused: false});
   runTo(s2, at(4, 10));
+  s2.state.sec.level = 'SHORT'; // A-3: DIRECT SHED needs a shortfall (test poke of the gauge)
   assert.equal(sendInput(s2, {type: 'directShed'}).ok, true);
   runTo(s2, at(4, 20));
   const obs = observe(s2.state), checks = restoreChecks(s2, obs);

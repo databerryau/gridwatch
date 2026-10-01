@@ -1,10 +1,14 @@
 // sim/grid.js: the 1-second grid update and every player command's semantics
 // (spec F-2, F-13, H-1, H-2, H-4, H-10, H-11, K-1, K-2, K-3, K-5..K-7, K-12/K-13 stubs, S-11).
 //
-// STAGE B owner: "grid". Contract: sim/README.md, section "grid.js".
+// STAGE B owner: "grid". Contract: sim/README.md, section "grid.js". Phase 1a (sim agent) added
+// the plan's executor and edits (L-0, L-4, L-6, K-2 HAND/MAN), the K-12 synchroscope, DIRECT
+// SHED's gate (A-3) and N-1 over both credible contingencies (A-2): see the sections below.
 // step() calls, at every grid-second boundary and in this order:
-//   unitsSecond -> agcSecond -> dispatchSecond -> fosSecond -> securitySecond
-// (after market.settleSecond, events.applyDue and weather.sampleSecond; before market.priceSecond).
+//   planSecond (right after events.applyDue) -> unitsSecond -> agcSecond -> dispatchSecond ->
+//   fosSecond -> securitySecond
+// (after market.settleSecond, events.applyDue and weather.sampleSecond; before market.priceSecond),
+// and syncTick on the tick a syncAuto close is due (state.scope.nextAutoTick).
 // Trips, breakers, districts, relays and base points go through sim/fleet.js, which keeps
 // the invariants listed at the top of that file.
 //
@@ -136,11 +140,13 @@ const chargeCapMW = b => taperMW((BATT_MWH - b.socMWh) * S_PER_H / BATT_EFF);
 
 // ------------------------------------------------------------------ unit transitions
 
-/** Breaker close (K-12 auto-sync or the syncClose stub): the <=5% block, then T2 to MIN. */
+/** Breaker close (K-12: auto-sync or a syncClose that the relay allows): the <=5% block, then T2 to MIN. */
 function closeBreaker(state, i, out) {
   const u = state.units[i], c = MC[i];
   fleet.setSync(state, i, true);
   u.schedMW = c.blockMW;
+  u.autoTick = -1;
+  if (state.scope.unit === u.id) state.scope.unit = ''; // the unit leaves the scope (FOCUS ends)
   out.push({tick: state.tick, kind: 'breaker', unit: u.id, closed: true, why: 'sync', cue: 'breaker'});
   if (c.loadRate > 0) {
     u.mode = 'loading';
@@ -200,15 +206,20 @@ function stepUnit(state, i, out) {
         u.mode = 'ready';
         const auto = state.control.mode === 'AGC';
         u.timerS = auto ? AUTO_SYNC_S : 0;
+        seedSlip(state, i);
         log(state, out, 'info', 'UNIT_READY', nameOf(i) + ' at full speed: ' +
           (auto ? 'auto-sync in ' + minutes(AUTO_SYNC_S) + ' min (or SYNC now).' : 'ready to synchronise (HAND: manual SYNC).'));
       }
       break;
     case 'ready':
-      // K-12: the auto-synchroniser runs in AGC mode only; HAND has none (manual syncClose).
-      if (state.control.mode === 'AGC') {
+      // K-12: the auto-synchroniser runs in AGC mode only (HAND has none: manual syncClose), and
+      // waits while the unit is on the synchroscope (A-4: the player has it).
+      if (state.control.mode === 'AGC' && state.scope.unit !== u.id) {
         u.timerS = Math.max(0, u.timerS - 1);
-        if (u.timerS <= 0) closeBreaker(state, i, out);
+        if (u.timerS <= 0) {
+          closeBreaker(state, i, out);
+          out.push({tick: state.tick, kind: 'sync', unit: u.id, result: 'auto', angleDeg: 0, slipHz: V.SYNC_AUTO_SLIP_HZ});
+        }
       }
       break;
     case 'loading':
@@ -291,7 +302,9 @@ function shedNextRotation(state, out) {
  * changed). applyCommand MAY rewrite cmd's numeric args to the value actually applied
  * (step logs cmd after this returns), and must not touch its other fields. Command types:
  * basePoint, start, stop, abortStop, syncClose, battery, guard, tie, curtail, callDR,
- * armRERT, standDownRERT, restore, directShed ('mode' is step's). See README §6. Key rules:
+ * armRERT, standDownRERT, restore, directShed, and (Phase 1a) planKey, planDel, planStart,
+ * planStop, planUnbook, planRejoin, planLoad, scope, syncTrim, syncAuto ('mode' is step's).
+ * See README §6 (it has the Phase 1a rules; the plan section below has the details). Key rules:
  *   basePoint {station, mw}: accepted always. Every 'on' machine of the station gets an
  *     equal share, fleet.setBasePoint(state, i, mw / onCount) (machines of one station have
  *     identical [minMW, availMW], so the clamp is exact), and cmd.mw is rewritten to the
@@ -303,10 +316,10 @@ function shedNextRotation(state, out) {
  *   abortStop: 'unloading' -> 'on' with basePointMW = schedMW (nothing jumps); 'shutdown'
  *     (or unloading still below MIN) -> 'loading' (T2 slope from its present output up to
  *     MIN). Refused for hydro with no water.
- *   syncClose: mode 'ready' -> breaker closes now (K-12 stub: always clean).
+ *   syncClose: mode 'ready' -> the K-12 outcome table (syncClose() below).
  *   battery {mode, mw}: orderMW = mw (cmd.mw rewritten to min(mw, BATT_MW)), mode set,
  *     fullHold = false. guard {mw}: guardMW.
- *   tie {mw}: setMW (clamped to the export cap only at use). curtail {kind, limitPct}:
+ *   tie {mw}: setMW (clamped to the export cap only at use) and the tie's plan key (Phase 1a). curtail {kind, limitPct}:
  *     ren.windLimitPct / solarLimitPct (output LIMIT, 100 = no curtailment).
  *   callDR: calls left and none active. armRERT: not armed. standDownRERT: armed and not
  *     already standing down (before it arrives it simply cancels).
@@ -314,7 +327,8 @@ function shedNextRotation(state, out) {
  *     restore preview runs here, on the input only); fleet.setDistrictDark(..., false);
  *     district.surgeMW = coldLoad - its present share of demand (>= 0); city.lastRestoreS =
  *     s; fleet.rearmUfls for its stage; emit {kind:'restore', district, mw: coldLoad}.
- *   directShed: darken the next lit rotation district ('directed'), emit 'shed'.
+ *   directShed: only while sec.level is SHORT or SHEDDING (A-3); darken the next lit rotation
+ *     district ('directed'), emit 'shed'.
  * @param {object} state
  * @param {{type:string}} cmd
  * @param {Array<object>} out
@@ -324,14 +338,16 @@ export function applyCommand(state, cmd, out) {
   const s = secondOf(state);
   switch (cmd.type) {
     case 'basePoint': {
-      const row = V.STATIONS[cmd.station];
-      const r = fleet.stationRange(state, cmd.station);
-      if (r.onCount > 0) {
-        for (let i = row.first; i < row.first + row.count; i++) {
-          if (state.units[i].mode === 'on') fleet.setBasePoint(state, i, cmd.mw / r.onCount);
-        }
+      const j = SIDX[cmd.station], before = state.stations[j].basePointMW;
+      stationNow(state, j);
+      cmd.mw = setLever(state, cmd.station, cmd.mw);
+      const ps = state.plan.stations[j];
+      if (state.control.mode === 'AGC') {
+        if (NOW.onCount > 0) leverKey(state, ps, s, cmd.mw, NOW.rampMWs > 0 ? Math.abs(cmd.mw - before) / NOW.rampMWs : 0, NOW.onCount);
+      } else {
+        ps.man = true; // HAND (K-2, L-6): a grabbed lever leaves the plan until P rejoins it
       }
-      cmd.mw = fleet.refreshLever(state, cmd.station) + 0;
+      state.plan.rev += 1;
       return '';
     }
     case 'start': {
@@ -379,12 +395,36 @@ export function applyCommand(state, cmd, out) {
       log(state, out, 'info', 'UNIT_ABORT_STOP', nameOf(i) + ': stop aborted.');
       return '';
     }
-    case 'syncClose': {
-      const i = fleet.unitIndex(cmd.unit);
-      if (state.units[i].mode !== 'ready') return 'unit is not at full speed waiting to synchronise';
-      closeBreaker(state, i, out);
+    case 'syncClose': return syncClose(state, cmd, out);
+    case 'scope': {
+      if (cmd.unit === '') { state.scope.unit = ''; return ''; }
+      if (state.units[fleet.unitIndex(cmd.unit)].mode !== 'ready') return NOT_READY;
+      state.scope.unit = cmd.unit;
       return '';
     }
+    case 'syncTrim': {
+      const i = fleet.unitIndex(cmd.unit), u = state.units[i];
+      if (u.mode !== 'ready') return NOT_READY;
+      if (state.scope.unit !== u.id) return 'open the synchroscope on ' + nameOf(i) + ' first';
+      reAnchor(u, state.tick);
+      u.slipToHz = clamp(u.slipToHz + cmd.dHz, -SLIP_LIMIT, SLIP_LIMIT) + 0;
+      if (u.autoTick >= 0) { u.autoTick = -1; refreshAutoTick(state); } // the player took the speed knob back
+      return '';
+    }
+    case 'syncAuto': {
+      const i = fleet.unitIndex(cmd.unit), u = state.units[i];
+      if (u.mode !== 'ready') return NOT_READY;
+      if (state.control.mode !== 'AGC') return 'HAND: there is no auto-synchroniser (close by hand)';
+      armAutoSync(state, i);
+      return '';
+    }
+    case 'planKey': return planKey(state, cmd, s, out);
+    case 'planDel': return planDel(state, cmd, s);
+    case 'planStart': return planStart(state, cmd, s);
+    case 'planStop': return planStop(state, cmd, s);
+    case 'planUnbook': return planUnbook(state, cmd);
+    case 'planRejoin': return planRejoin(state, cmd, s);
+    case 'planLoad': return planLoad(state, cmd, s);
     case 'battery': {
       const b = state.battery;
       cmd.mw = Math.min(cmd.mw, BATT_MW) + 0;
@@ -396,9 +436,15 @@ export function applyCommand(state, cmd, out) {
     case 'guard':
       state.battery.guardMW = cmd.mw;
       return '';
-    case 'tie':
+    case 'tie': {
+      const before = state.tie.setMW;
       state.tie.setMW = cmd.mw;
+      // The tie's plan like a lever's (§3.2), in both modes: HAND concerns the units, the tie is a
+      // DC setpoint either way, so a tie move always writes its arrive-by key.
+      leverKey(state, state.plan.tie, s, cmd.mw, Math.abs(cmd.mw - before) / TIE_STEP, 0);
+      state.plan.rev += 1;
       return '';
+    }
     case 'curtail':
       if (cmd.kind === 'wind') state.ren.windLimitPct = cmd.limitPct;
       else state.ren.solarLimitPct = cmd.limitPct;
@@ -457,6 +503,9 @@ export function applyCommand(state, cmd, out) {
       return '';
     }
     case 'directShed': {
+      // K-7 / A-3: the key is for a shortfall: R5 below L now (SHORT, the LOR2-like state) or shedding already.
+      const lv = state.sec.level;
+      if (lv !== 'SHORT' && lv !== 'SHEDDING') return 'DIRECT SHED is for a shortfall: the gauge reads ' + lv + ' (it needs SHORT or SHEDDING)';
       const d = shedNextRotation(state, out);
       if (d < 0) return 'no lit district left in the rotation';
       log(state, out, 'crit', 'DIRECT_SHED', 'DIRECT SHED: district ' + state.city.districts[d].id + ' off supply.');
@@ -490,8 +539,16 @@ export function unitsSecond(state, out) {
       u.availMW = avail;
       if (u.mode === 'on' && u.basePointMW > avail) fleet.setBasePoint(state, i, u.basePointMW);
     }
+    // K-12: a rough close's one-second swing ends; a slow close trips on reverse power.
+    if (u.kickMW !== 0 && state.tick >= u.kickEndTick) { u.schedMW = Math.max(0, u.schedMW - u.kickMW) + 0; u.kickMW = 0; }
+    if (u.revTripS > 0) {
+      u.revTripS -= 1;
+      if (u.revTripS === 0 && u.sync) { reverseTrip(state, i, out); continue; }
+    }
     stepUnit(state, i, out);
   }
+  const sc = state.scope;
+  if (sc.unit !== '' && units[fleet.unitIndex(sc.unit)].mode !== 'ready') sc.unit = ''; // the scoped unit left 'ready'
 
   // Hydro water (P-6, legacy L477-479): warnings, then the station unloads before the water is gone.
   const hy = state.hydro;
@@ -776,48 +833,82 @@ export function fosSecond(state, out) {
 
 // ------------------------------------------------------------------ security (H-4)
 
-/** TRIP PREVIEW nadir for losing L (H-4 SECURE condition, K-10). */
-function previewNadir(state, L) {
-  if (L.kind === 'unit') return previewTrip(state, {kind: 'unit', id: L.id}).nadirHz;
-  if (L.kind === 'link') return previewTrip(state, {kind: 'link', id: 'tie'}).nadirHz;
-  return F0;
+// The two credible contingencies (H-4, A-2): the largest synchronised machine by output (ties to
+// the lower index, as fleet.largestContingency) and the tie import. Scratch, overwritten per call.
+// pvLinkMW: the import the link preview needs to run for. A link trip of no more MW than the
+// largest unit is never deeper than that unit's trip (it removes no inertia and no governor;
+// measured in the Phase 1a sim pass: deeper in 0 of 3,578 par-day states), so with
+// N1_PREVIEW_ALL the link is previewed only while it imports more than the largest unit
+// outputs, and previewLinkHz otherwise carries the unit's nadir as its bound.
+// headMW: the primary response the fleet holds now (Σ over 'on' units of governor headroom up to
+// the governor cap, plus the battery charge an under-frequency would suspend, H-10): a cached
+// preview is re-run when it moved more than PREVIEW_L_TOL_MW (Phase 1a; see securitySecond).
+const CR = {unitId: '', unitMW: 0, linkMW: 0, pvLinkMW: 0, headMW: 0};
+function credible(state) {
+  let id = '', mw = 0;
+  const units = state.units;
+  for (let i = 0; i < N; i++) { const u = units[i]; if (u.sync && u.outMW > mw) { id = u.id; mw = u.outMW; } }
+  const t = state.tie;
+  CR.unitId = id; CR.unitMW = mw; CR.linkMW = !t.tripped && t.flowMW > 0 ? t.flowMW : 0;
+  CR.pvLinkMW = CR.linkMW > 0 && (id === '' || CR.linkMW > mw) ? CR.linkMW : 0;
+  let head = 0;
+  for (let i = 0; i < N; i++) {
+    const u = units[i];
+    if (u.mode === 'on') head += Math.min(M[i].govCapMW, Math.max(0, u.availMW - u.schedMW));
+  }
+  const b = state.battery.schedMW;
+  CR.headMW = head + (b < 0 ? -b : 0);
 }
 
+const previewUnit = (state, id) => previewTrip(state, {kind: 'unit', id}).nadirHz;
+const previewLink = state => previewTrip(state, {kind: 'link', id: 'tie'}).nadirHz;
+
 /**
- * Refresh state.sec from security(state). The preview (physics.previewTrip for losing L)
- * is re-run when ANY of: sec.dirty (set by every accepted input, fleet.setSync, trips);
- * L's id differs from sec.previewLId; |L MW - sec.previewLMW| > PREVIEW_L_TOL_MW; the
- * frequency has moved more than PREVIEW_F_TOL_HZ from sec.previewFHz (the preview starts from
- * the present frequency and governor state: one cached during an excursion overstates the
- * nadir once frequency has come back); or PREVIEW_REFRESH_S have passed since sec.previewAtS.
- * On a re-run it sets previewNadirHz, previewAtS = s, previewLId, previewLMW, previewFHz and
- * clears dirty; otherwise the cached nadir is reused (security(state, {previewNadirHz})).
- * Emits a log line when the level changes.
+ * Refresh state.sec from security(state). The previews (physics.previewTrip) are re-run when ANY
+ * of: sec.dirty (set by every accepted input, fleet.setSync, trips, the plan executor); the
+ * previewed contingency changed (N1_PREVIEW_ALL: the largest unit's id, or either contingency's
+ * MW moved more than PREVIEW_L_TOL_MW; otherwise L's id or MW, as before A-2); the frequency has
+ * moved more than PREVIEW_F_TOL_HZ from sec.previewFHz (the preview starts from the present
+ * frequency and governor state); or PREVIEW_REFRESH_S have passed since sec.previewAtS. With
+ * N1_PREVIEW_ALL (A-2) both credible contingencies are previewed: the largest unit and the tie
+ * import (when importing); sec.previewUnitHz / previewLinkHz hold them (49.5 Hz and up is
+ * contained) and previewNadirHz, lKind, lId, previewLId and previewLMW name the worse one (ties to
+ * the unit). Otherwise the cached nadirs are reused (security(state, {previewUnitHz,
+ * previewLinkHz, previewAgeS})). Emits a log line when the level changes.
  */
 export function securitySecond(state, out) {
   const s = secondOf(state), sec = state.sec;
   const L = fleet.largestContingency(state);
+  credible(state);
   const f = state.phys.fHz;
-  if (sec.dirty || sec.previewAtS < 0 || L.id !== sec.previewLId || Math.abs(L.mw - sec.previewLMW) > PREVIEW_L_TOL ||
-      Math.abs(f - sec.previewFHz) > PREVIEW_F_TOL || s - sec.previewAtS >= PREVIEW_REFRESH_S) {
-    sec.previewNadirHz = previewNadir(state, L);
+  const moved = N1_ALL
+    ? CR.unitId !== sec.pvUnitId || Math.abs(CR.unitMW - sec.pvUnitMW) > PREVIEW_L_TOL || Math.abs(CR.pvLinkMW - sec.pvLinkMW) > PREVIEW_L_TOL
+    : L.id !== sec.previewLId || Math.abs(L.mw - sec.previewLMW) > PREVIEW_L_TOL;
+  if (sec.dirty || sec.previewAtS < 0 || moved || Math.abs(CR.headMW - sec.pvHeadMW) > PREVIEW_L_TOL || Math.abs(f - sec.previewFHz) > PREVIEW_F_TOL || s - sec.previewAtS >= PREVIEW_REFRESH_S) {
+    const unitId = CR.unitId, unitMW = CR.unitMW, linkMW = CR.linkMW, pvLink = CR.pvLinkMW;
+    sec.previewUnitHz = unitId !== '' && (N1_ALL || L.kind === 'unit') ? previewUnit(state, unitId) : F0;
+    sec.previewLinkHz = N1_ALL ? (pvLink > 0 ? previewLink(state) : linkMW > 0 ? sec.previewUnitHz : F0)
+      : linkMW > 0 && L.kind === 'link' ? previewLink(state) : F0;
+    sec.pvUnitId = unitId; sec.pvUnitMW = unitMW; sec.pvLinkMW = pvLink; sec.pvHeadMW = CR.headMW;
     sec.previewAtS = s;
-    sec.previewLId = L.id;
-    sec.previewLMW = L.mw;
     sec.previewFHz = f;
     sec.dirty = false;
+    const r0 = security(state, {previewUnitHz: sec.previewUnitHz, previewLinkHz: sec.previewLinkHz});
+    sec.previewLId = N1_ALL ? r0.lId : L.id;
+    sec.previewLMW = N1_ALL ? r0.riskMW : L.mw;
   }
-  const r = security(state, {previewNadirHz: sec.previewNadirHz, previewAgeS: s - sec.previewAtS});
+  const r = security(state, {previewUnitHz: sec.previewUnitHz, previewLinkHz: sec.previewLinkHz, previewAgeS: s - sec.previewAtS});
   const before = sec.level;
   sec.r5MW = r.r5MW;
   sec.lMW = r.lMW;
   sec.lKind = r.lKind;
   sec.lId = r.lId;
   sec.ratio = r.ratio;
+  sec.previewNadirHz = r.previewNadirHz;
   sec.level = r.level;
   if (r.level !== before) {
     log(state, out, SEV[r.level], 'SECURITY', 'SECURITY ' + r.level + ': spare in 5 min ' + Math.round(r.r5MW) + ' MW, biggest risk ' +
-      (r.lKind === 'none' ? 'none' : r.lId + ' ' + Math.round(r.lMW) + ' MW') + ', trip preview ' + r.previewNadirHz.toFixed(2) + ' Hz.');
+      (r.lKind === 'none' ? 'none' : r.lId + ' ' + Math.round(r.riskMW) + ' MW') + ', trip preview ' + r.previewNadirHz.toFixed(2) + ' Hz.');
   }
 }
 
@@ -829,16 +920,22 @@ export function securitySecond(state, out) {
  *      + battery min(BATT_MW - outMW, socMWh / BATT_R5_SUSTAIN_H)
  *      + tie (not tripped) min(TIE_MAX_MW - flowMW, TIE_RAMP_MW_MIN * R5_WINDOW_MIN)
  *      (each term floored at 0: a unit above its derated capacity has no headroom, not less)
- *   L  = fleet.largestContingency(state)
+ *   L  = fleet.largestContingency(state): lMW is the larger MW (the R5 test, ratio, the P-7 x)
  *   ratio = R5 / L, capped at SEC_RATIO_MAX (finite when L is 0)
+ *   previews (A-2, N1_PREVIEW_ALL): the largest unit (previewUnitHz) and the tie import
+ *          (previewLinkHz, when importing); lKind / lId / previewNadirHz / riskMW name the worse
+ *          one, ties to the unit ("BIGGEST RISK", K-10). Without N1_PREVIEW_ALL: L's preview only.
  *   level: 'SHEDDING' if city.shedFrac > 0; 'SHORT' if R5 < L; 'TIGHT' if R5 < SECURE_RATIO*L
- *          or previewNadirHz < SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ; else 'SECURE' (the margin
- *          covers what the frozen-schedule preview cannot see: H-8 containment, tuning pass),
- *          plus PREVIEW_AGE_MARGIN_HZ_S x opts.previewAgeS for a cached preview.
+ *          or previewNadirHz < SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ (with N1_PREVIEW_ALL: either
+ *          preview); else 'SECURE' (the margin covers what the frozen-schedule preview cannot see:
+ *          H-8 containment, tuning pass), plus PREVIEW_AGE_MARGIN_HZ_S x opts.previewAgeS for a
+ *          cached preview.
  * @param {object} state
- * @param {{previewNadirHz?:number, previewAgeS?:number}} [opts] reuse a cached preview instead of running
- *   physics.previewTrip; previewAgeS: its age in grid seconds (0 if omitted)
- * @returns {{r5MW:number, lMW:number, lKind:string, lId:string, ratio:number, previewNadirHz:number, level:string}}
+ * @param {{previewUnitHz?:number, previewLinkHz?:number, previewNadirHz?:number, previewAgeS?:number}} [opts]
+ *   reuse cached previews instead of running physics.previewTrip (previewNadirHz alone: one value
+ *   for both, and L by MW is named, the Phase 0.2 form); previewAgeS: their age in grid seconds
+ * @returns {{r5MW:number, lMW:number, lKind:string, lId:string, riskMW:number, ratio:number, previewNadirHz:number,
+ *   previewUnitHz:number, previewLinkHz:number, level:string}}
  */
 export function security(state, opts) {
   const units = state.units;
@@ -859,14 +956,557 @@ export function security(state, opts) {
   }
   r5 += 0;
   const L = fleet.largestContingency(state);
-  const cached = opts && typeof opts.previewNadirHz === 'number';
-  const nadir = cached ? opts.previewNadirHz : previewNadir(state, L);
+  credible(state);
+  const unitId = CR.unitId, unitMW = CR.unitMW, linkMW = CR.linkMW;
+  let unitHz, linkHz, legacy = false;
+  if (opts && typeof opts.previewUnitHz === 'number') {
+    unitHz = opts.previewUnitHz; linkHz = opts.previewLinkHz;
+  } else if (opts && typeof opts.previewNadirHz === 'number') {
+    unitHz = linkHz = opts.previewNadirHz; legacy = true;
+  } else {
+    unitHz = unitId !== '' && (N1_ALL || L.kind === 'unit') ? previewUnit(state, unitId) : F0;
+    linkHz = N1_ALL ? (CR.pvLinkMW > 0 ? previewLink(state) : linkMW > 0 ? unitHz : F0)
+      : linkMW > 0 && L.kind === 'link' ? previewLink(state) : F0;
+  }
+  let kind = L.kind, id = L.id, riskMW = L.mw, nadir;
+  if (N1_ALL && !legacy) {
+    if (unitId !== '' && (linkMW <= 0 || unitHz <= linkHz)) { kind = 'unit'; id = unitId; riskMW = unitMW; nadir = unitHz; }
+    else if (linkMW > 0) { kind = 'link'; id = 'tie'; riskMW = linkMW; nadir = linkHz; }
+    else { kind = 'none'; id = ''; riskMW = 0; nadir = F0; }
+  } else {
+    nadir = L.kind === 'unit' ? unitHz : L.kind === 'link' ? linkHz : F0;
+  }
+  const cached = opts && (typeof opts.previewUnitHz === 'number' || legacy);
   const needHz = SECURE_NADIR + (cached && opts.previewAgeS > 0 ? AGE_MARGIN * opts.previewAgeS : 0);
   const ratio = L.mw > 0 ? Math.min(SEC_RATIO_MAX, r5 / L.mw) : SEC_RATIO_MAX;
   const level = state.city.shedFrac > 0 ? 'SHEDDING'
     : r5 < L.mw ? 'SHORT'
       : r5 < SECURE_RATIO * L.mw || nadir < needHz ? 'TIGHT' : 'SECURE';
-  return {r5MW: r5, lMW: L.mw, lKind: L.kind, lId: L.id, ratio, previewNadirHz: nadir, level};
+  return {r5MW: r5, lMW: L.mw, lKind: kind, lId: id, riskMW, ratio, previewNadirHz: nadir, previewUnitHz: unitHz, previewLinkHz: linkHz, level};
+}
+
+// ------------------------------------------------------------------ the plan (Phase 1a: L-0, L-4, L-6, K-2)
+//
+// state.plan (desk/README.md §3.1, sim/README.md §5): per station arrive-by keyframes {atS, mw}
+// (the lever should ARRIVE at mw by atS), the tie's keys, and booked STARTs and STOPs. The
+// executor (planSecond) runs each grid second right after events.applyDue. A key applies once
+// (doneS = its atS), through the basePoint path (equal shares, clamped to the station's range),
+// at the last second from which the station's ramp still reaches it by atS, or at once when
+// atS has passed (only the latest past key). Private per station: clampOn (the on-line count
+// when the last key applied) and lastMW (that key's MW), for the one re-apply after a clamp.
+//
+// A key of 0 MW is "the lever to its floor" (Σ MIN; hydro: gates shut). The STOP that makes a
+// layer dragged to 0 end is an explicit booking in plan.stops (planKey books it), so a hydro wheel
+// turned to 0 never stops the machines, and the Live Stack draws stops from plan.stops.
+
+const SIDS = V.STATION_IDS, NS = SIDS.length, ROWS = SIDS.map(id => V.STATIONS[id]);
+const SIDX = {};
+for (let j = 0; j < NS; j++) SIDX[SIDS[j]] = j;
+const PLAN_KEEP_S = V.PLAN_HISTORY_S, DAY_S = V.DAY_S;
+
+/** An empty plan (createState). */
+export function newPlan() {
+  return {madeAtS: -1, rev: 0,
+    stations: SIDS.map(id => ({id, man: false, doneS: -1, clampedMW: 0, keys: [], clampOn: 0, lastMW: 0})),
+    tie: {doneS: -1, keys: []}, starts: [], stops: []};
+}
+
+// Station j now (scratch, overwritten per call): machines 'on', their summed ramp, MIN and available MW.
+const NOW = {onCount: 0, rampMWs: 0, minMW: 0, maxMW: 0};
+function stationNow(state, j) {
+  const row = ROWS[j], units = state.units;
+  let n = 0, r = 0, mn = 0, mx = 0;
+  for (let i = row.first; i < row.first + row.count; i++) {
+    const u = units[i];
+    if (u.mode !== 'on') continue;
+    n++; r += M[i].rampMWs; mn += M[i].minMW; mx += u.availMW;
+  }
+  NOW.onCount = n; NOW.rampMWs = r; NOW.minMW = mn; NOW.maxMW = mx;
+}
+
+/**
+ * The basePoint path: every 'on' machine of the station gets an equal share (fleet.setBasePoint
+ * clamps each to [minMW, availMW], so the lever is clamp(mw, Σmin, Σavail)); 0 if none is on.
+ * Returns the lever applied.
+ */
+function setLever(state, id, mw) {
+  const row = V.STATIONS[id];
+  let n = 0;
+  for (let i = row.first; i < row.first + row.count; i++) if (state.units[i].mode === 'on') n++;
+  if (n > 0) for (let i = row.first; i < row.first + row.count; i++) if (state.units[i].mode === 'on') fleet.setBasePoint(state, i, mw / n);
+  return fleet.refreshLever(state, id) + 0;
+}
+
+/** Insert key into sorted keys (replacing one at the same atS). */
+function insertKey(keys, key) {
+  let k = 0;
+  while (k < keys.length && keys[k].atS < key.atS) k++;
+  if (k < keys.length && keys[k].atS === key.atS) keys[k] = key; else keys.splice(k, 0, key);
+}
+
+/** After inserting a key at a: if it lies at or before the last applied key, the executor must consider it. */
+function reopenAt(ps, a) {
+  if (ps.doneS < a) return;
+  let last = -1;
+  for (const k of ps.keys) if (k.atS < a) last = k.atS;
+  ps.doneS = last >= 0 ? last : a - 1;
+}
+
+/**
+ * A lever (or tie) move writes the plan (§3.2; L-6 "exactly one keyframe, at the earliest
+ * ramp-feasible time"): keys from now to the arrival, and the move in flight (keys up to the last
+ * applied one), are dropped; {arrival, mw} is inserted and counts as applied. Later keys stay.
+ */
+function leverKey(state, ps, s, mw, leadS, onCount) {
+  const arrival = s + Math.max(0, Math.ceil(leadS - EPS));
+  const kept = [];
+  for (const k of ps.keys) if (k.atS < s || (k.atS > arrival && k.atS > ps.doneS)) kept.push(k);
+  insertKey(kept, {atS: arrival, mw});
+  ps.keys = kept;
+  ps.doneS = arrival;
+  if (onCount > 0) { ps.clampedMW = 0; ps.lastMW = mw; ps.clampOn = onCount; }
+}
+
+/** Run the bookings of list (sorted by atS) due at s through the input path; a refused one is dropped with a PLAN log line. */
+function runBookings(state, list, type, s, out) {
+  while (list.length !== 0 && list[0].atS <= s) {
+    const b = list.shift();
+    const why = applyCommand(state, {type, unit: b.unit}, out);
+    if (why) log(state, out, 'warn', 'PLAN', 'PLAN: ' + type.toUpperCase() + ' ' + nameOf(fleet.unitIndex(b.unit)) + ' dropped: ' + why + '.');
+  }
+  state.sec.dirty = true;
+}
+
+/** The executor for station j (not MAN). Returns true if it changed the plan's bookkeeping. */
+function stationPlanSecond(state, j, ps, s) {
+  const keys = ps.keys;
+  let k = 0;
+  while (k < keys.length && keys[k].atS <= ps.doneS) k++;
+  const reapply = ps.clampedMW > 0;
+  if (k === keys.length && !reapply) return false;
+  stationNow(state, j);
+  const id = SIDS[j];
+  let changed = false;
+  if (reapply && NOW.onCount > ps.clampOn) { // a machine joined since the key was clamped: once more
+    const applied = setLever(state, id, ps.lastMW);
+    ps.clampedMW = Math.max(0, ps.lastMW - applied) + 0;
+    ps.clampOn = NOW.onCount;
+    state.sec.dirty = true;
+    changed = true;
+  }
+  if (k === keys.length) return changed;
+  let key = keys[k];
+  let due = key.atS <= s;
+  if (!due && NOW.onCount > 0 && NOW.rampMWs > 0) {
+    const target = clamp(key.mw, NOW.minMW, NOW.maxMW);
+    due = s + Math.abs(target - state.stations[j].basePointMW) / NOW.rampMWs >= key.atS;
+  }
+  if (!due) return changed;
+  while (k + 1 < keys.length && keys[k + 1].atS <= s) key = keys[++k]; // only the latest past key
+  const applied = setLever(state, id, key.mw);
+  ps.doneS = key.atS;
+  ps.clampedMW = Math.max(0, key.mw - applied) + 0;
+  ps.clampOn = NOW.onCount;
+  ps.lastMW = key.mw;
+  state.sec.dirty = true;
+  return true;
+}
+
+function tiePlanSecond(state, s) {
+  const tp = state.plan.tie, keys = tp.keys, t = state.tie;
+  let k = 0;
+  while (k < keys.length && keys[k].atS <= tp.doneS) k++;
+  if (k === keys.length) return false;
+  let key = keys[k];
+  if (!(key.atS <= s || s + Math.abs(key.mw - t.setMW) / TIE_STEP >= key.atS)) return false;
+  while (k + 1 < keys.length && keys[k + 1].atS <= s) key = keys[++k];
+  t.setMW = key.mw;
+  tp.doneS = key.atS;
+  state.sec.dirty = true;
+  return true;
+}
+
+/**
+ * The plan's executor, once per grid second right after events.applyDue (desk/README.md §3.1):
+ * booked STOPs, then STARTs, due now (through the input path; a refused one is dropped with a
+ * `log` record, code 'PLAN'); keys older than PLAN_HISTORY_S dropped; each station not MAN
+ * (HAND) applies its next arrive-by key when due, and re-applies a clamped key once more when a
+ * machine joined; the tie's keys set tie.setMW the same way at TIE_RAMP_MW_MIN. plan.rev += 1
+ * when anything changed.
+ */
+export function planSecond(state, out) {
+  const P = state.plan, s = secondOf(state);
+  let changed = false;
+  if (P.stops.length !== 0 && P.stops[0].atS <= s) { runBookings(state, P.stops, 'stop', s, out); changed = true; }
+  if (P.starts.length !== 0 && P.starts[0].atS <= s) { runBookings(state, P.starts, 'start', s, out); changed = true; }
+  const old = s - PLAN_KEEP_S;
+  for (let j = 0; j < NS; j++) {
+    const ps = P.stations[j];
+    if (ps.keys.length !== 0 && ps.keys[0].atS < old) { while (ps.keys.length !== 0 && ps.keys[0].atS < old) ps.keys.shift(); changed = true; }
+    if (!ps.man && stationPlanSecond(state, j, ps, s)) changed = true;
+  }
+  const tk = P.tie.keys;
+  if (tk.length !== 0 && tk[0].atS < old) { while (tk.length !== 0 && tk[0].atS < old) tk.shift(); changed = true; }
+  if (tiePlanSecond(state, s)) changed = true;
+  if (changed) P.rev += 1;
+}
+
+// ---- projections for plan edits (inputs only; they may allocate)
+
+const bookingOf = (list, unit) => { for (const b of list) if (b.unit === unit) return b; return null; };
+
+/** Seconds from START to MIN for machine i now (auto-sync counted in AGC mode only; HAND closes by hand). */
+const startToMinS = (state, i) => M[i].t1S + (state.control.mode === 'AGC' ? AUTO_SYNC_S : 0) + M[i].t2S;
+
+/** The grid second machine i is (or will be) 'on', from its mode and its booked start; -1 if not coming. */
+function onAtS(state, i, s) {
+  const u = state.units[i], m = M[i], auto = state.control.mode === 'AGC';
+  switch (u.mode) {
+    case 'on': return s;
+    case 'loading': return s + u.timerS;
+    case 'ready': return s + (auto && state.scope.unit !== u.id ? u.timerS : 0) + m.t2S;
+    case 'starting': return s + u.timerS + (auto ? AUTO_SYNC_S : 0) + m.t2S;
+    default: {
+      const b = bookingOf(state.plan.starts, u.id);
+      return b ? b.atS + startToMinS(state, i) : -1;
+    }
+  }
+}
+
+/** The earliest grid second >= s machine i (off or tripped) could START, or -1 (no water). */
+function startFreeAt(state, i, s) {
+  const u = state.units[i], m = M[i];
+  if (m.station === 'hydro' && state.hydro.storageMWh <= HYDRO_STOP_MWH) return -1;
+  if (u.mode === 'tripped') return s + u.timerS;
+  if (u.mode !== 'off') return -1;
+  return u.downWhy !== 'trip' ? Math.max(s, u.downSinceS + m.minDownS) : s;
+}
+
+/** Station j's machines on by grid second t (their MIN, rating and ramp summed), with `extra` a start booked but not yet stored. */
+function project(state, j, t, s, extra) {
+  const row = ROWS[j], on = [];
+  let minMW = 0, maxMW = 0, rampMWs = 0;
+  for (let i = row.first; i < row.first + row.count; i++) {
+    const id = M[i].id;
+    const at = extra !== null && extra.unit === id ? extra.atS + startToMinS(state, i) : onAtS(state, i, s);
+    if (at < 0 || at > t) continue;
+    const st = bookingOf(state.plan.stops, id);
+    if (st !== null && st.atS <= t) continue;
+    on.push({i, at});
+    minMW += M[i].minMW; maxMW += M[i].ratingMW; rampMWs += M[i].rampMWs;
+  }
+  return {n: on.length, minMW, maxMW, rampMWs, on};
+}
+
+/** Put booking b in list (sorted by atS, then unit), replacing the unit's earlier booking there. */
+function book(list, b) {
+  for (let k = 0; k < list.length; k++) if (list[k].unit === b.unit) { list.splice(k, 1); break; }
+  let k = 0;
+  while (k < list.length && (list[k].atS < b.atS || (list[k].atS === b.atS && list[k].unit < b.unit))) k++;
+  list.splice(k, 0, b);
+}
+
+const stationName = id => V.STATIONS[id].name;
+
+/**
+ * planKey {station, atS, mw} (§3.2; L-4, L-6): insert or replace the key at atS, rewritten to
+ * what can happen: atS up to the earliest time the station's ramp reaches mw from the previous
+ * key (or from the lever now), counting machines joining at MIN on the way; mw into [Σmin,
+ * Σrating] of the machines on or booked on by then. With none on or booked and mw > 0 the first
+ * machine free to start is booked so that it reaches MIN at its start time and climbs to mw by
+ * atS (atS moves later if that start is past). mw 0: the lever to MIN by atS, then a STOP of every
+ * machine on by then, booked at atS.
+ */
+function planKey(state, cmd, s, out) { // eslint-disable-line no-unused-vars
+  const id = cmd.station, j = SIDX[id], ps = state.plan.stations[j], row = ROWS[j];
+  let a = cmd.atS;
+  if (a < s) return 'that time has passed';
+  // The rewrite is a fixed point in a (it only moves later), and every choice in it (booking a
+  // start, the previous key, the machines on) is made from the current a, so the logged
+  // (rewritten) key rewrites to itself on replay (F-6: canonical logs).
+  let extra = null, pj = null, target = 0, done = false;
+  for (let it = 0; it < ps.keys.length + row.count + NS && !done; it++) {
+    extra = null;
+    pj = project(state, j, a, s, null);
+    if (pj.n === 0) {
+      if (!(cmd.mw > 0)) return 'no ' + stationName(id) + ' machine is on or booked by then';
+      let pick = -1, free = 0;
+      for (let i = row.first; i < row.first + row.count; i++) { // (a later booked START is moved earlier)
+        const f = startFreeAt(state, i, s);
+        if (f >= 0) { pick = i; free = f; break; }
+      }
+      if (pick < 0) return 'no ' + stationName(id) + ' machine can start';
+      const m = M[pick];
+      const climb = Math.max(0, Math.ceil((clamp(cmd.mw, m.minMW, m.ratingMW) - m.minMW) / m.rampMWs - EPS));
+      const lead = startToMinS(state, pick) + climb;
+      const at = Math.max(a - lead, free);
+      a = at + lead;
+      extra = {unit: m.id, atS: at};
+      pj = project(state, j, a, s, extra);
+    }
+    target = cmd.mw > 0 ? clamp(cmd.mw, pj.minMW, pj.maxMW) : pj.minMW;
+    let tp = s, mp = state.stations[j].basePointMW;
+    for (const k of ps.keys) if (k.atS >= s && k.atS < a) { tp = k.atS; mp = k.mw; }
+    let base = mp, tB = tp;
+    for (const o of pj.on) if (o.at > tp) { base += M[o.i].minMW; if (o.at > tB) tB = o.at; }
+    const need = pj.rampMWs > 0 ? tB + Math.max(0, Math.ceil(Math.abs(target - base) / pj.rampMWs - EPS)) : tB;
+    if (need <= a) done = true; else a = need;
+  }
+  if (!done) return 'no time the ramp can reach it';
+  if (a > DAY_S) return 'that cannot happen before the day ends';
+  const mw = cmd.mw > 0 ? target + 0 : 0;
+  insertKey(ps.keys, {atS: a, mw});
+  reopenAt(ps, a);
+  if (extra !== null) book(state.plan.starts, extra);
+  if (mw === 0) for (const o of pj.on) book(state.plan.stops, {unit: M[o.i].id, atS: a});
+  cmd.atS = a;
+  cmd.mw = mw;
+  state.plan.rev += 1;
+  return '';
+}
+
+/** planDel {station, atS}: remove the key at exactly atS (and any STOP of the station booked at that second). */
+function planDel(state, cmd, s) {
+  if (cmd.atS < s) return 'that keyframe is in the past';
+  const ps = state.plan.stations[SIDX[cmd.station]];
+  const k = ps.keys.findIndex(x => x.atS === cmd.atS);
+  if (k < 0) return 'no keyframe there';
+  ps.keys.splice(k, 1);
+  const P = state.plan;
+  P.stops = P.stops.filter(b => !(b.atS === cmd.atS && M[fleet.unitIndex(b.unit)].station === cmd.station));
+  P.rev += 1;
+  return '';
+}
+
+/** planStart {unit, atS}: book a START (replacing the unit's booking); the unit must be free to start by atS. */
+function planStart(state, cmd, s) {
+  if (cmd.atS < s) return 'that time has passed';
+  const i = fleet.unitIndex(cmd.unit), u = state.units[i];
+  if (u.mode !== 'off' && u.mode !== 'tripped') return 'unit is ' + u.mode;
+  const free = startFreeAt(state, i, s);
+  if (free < 0) return 'no water';
+  if (free > cmd.atS) return (fleet.startBlock(state, i) || 'unit is ' + u.mode) + ' (free to start ' + minutes(free - s) + ' min from now)';
+  book(state.plan.starts, {unit: cmd.unit, atS: cmd.atS});
+  state.plan.rev += 1;
+  return '';
+}
+
+/** planStop {unit, atS}: book a STOP (replacing the unit's booking); the unit must be committed or booked to start before atS. */
+function planStop(state, cmd, s) {
+  if (cmd.atS < s) return 'that time has passed';
+  const u = state.units[fleet.unitIndex(cmd.unit)];
+  const b = bookingOf(state.plan.starts, cmd.unit);
+  const committed = u.mode === 'on' || u.mode === 'loading' || u.mode === 'starting' || u.mode === 'ready';
+  if (!committed && !(b !== null && b.atS < cmd.atS)) return 'unit is ' + u.mode;
+  book(state.plan.stops, {unit: cmd.unit, atS: cmd.atS});
+  state.plan.rev += 1;
+  return '';
+}
+
+/** planUnbook {unit}: remove the unit's booked START and STOP. */
+function planUnbook(state, cmd) {
+  const P = state.plan;
+  const n = P.starts.length + P.stops.length;
+  P.starts = P.starts.filter(b => b.unit !== cmd.unit);
+  P.stops = P.stops.filter(b => b.unit !== cmd.unit);
+  if (P.starts.length + P.stops.length === n) return 'nothing is booked for ' + nameOf(fleet.unitIndex(cmd.unit));
+  P.rev += 1;
+  return '';
+}
+
+/** planRejoin {station, keep} (HAND, L-6): the lever follows the plan again; keep re-anchors it at the present lever. */
+function planRejoin(state, cmd, s) {
+  if (state.control.mode !== 'HAND') return 'AGC levers always follow the plan (rejoin is for HAND)';
+  const j = SIDX[cmd.station], ps = state.plan.stations[j];
+  if (!ps.man) return 'the lever is following the plan';
+  ps.man = false;
+  if (cmd.keep) {
+    const lever = state.stations[j].basePointMW;
+    ps.keys = ps.keys.filter(k => k.atS <= ps.doneS || k.atS > s);
+    insertKey(ps.keys, {atS: s, mw: lever});
+    stationNow(state, j);
+    ps.doneS = s; ps.clampedMW = 0; ps.lastMW = lever; ps.clampOn = NOW.onCount;
+  }
+  state.plan.rev += 1;
+  return '';
+}
+
+/**
+ * planLoad {fromS, stations, tie, starts, stops}: replace every plan entry with atS >= fromS by
+ * the lists given (step.js has checked their shape and order); MAN flags clear; madeAtS = now. A
+ * key the executor had already applied at or after fromS is superseded (doneS moves back).
+ */
+function planLoad(state, cmd, s) {
+  const from = cmd.fromS;
+  if (from < s) return 'fromS is in the past';
+  const late = list => list.some(e => (typeof e[0] === 'number' ? e[0] : e[1]) < from);
+  for (const id of SIDS) if (late(cmd.stations[id])) return 'every entry must be at or after fromS';
+  if (late(cmd.tie) || late(cmd.starts) || late(cmd.stops)) return 'every entry must be at or after fromS';
+  const P = state.plan;
+  for (let j = 0; j < NS; j++) {
+    const ps = P.stations[j];
+    ps.keys = ps.keys.filter(k => k.atS < from).concat(cmd.stations[SIDS[j]].map(e => ({atS: e[0], mw: e[1]})));
+    if (ps.doneS >= from) ps.doneS = from - 1;
+    ps.man = false;
+  }
+  P.tie.keys = P.tie.keys.filter(k => k.atS < from).concat(cmd.tie.map(e => ({atS: e[0], mw: e[1]})));
+  if (P.tie.doneS >= from) P.tie.doneS = from - 1;
+  P.starts = P.starts.filter(b => b.atS < from).concat(cmd.starts.map(e => ({unit: e[0], atS: e[1]})));
+  P.stops = P.stops.filter(b => b.atS < from).concat(cmd.stops.map(e => ({unit: e[0], atS: e[1]})));
+  P.madeAtS = s;
+  P.rev += 1;
+  return '';
+}
+
+// ------------------------------------------------------------------ K-12 synchroscope (Phase 1a)
+//
+// A unit reaching full speed ('ready') gets a slip from the PLAY stream (magnitude SYNC_SLIP_MIN..
+// MAX_HZ, either sign) and a phase angle; slip = machine - grid (+ = machine fast = needle
+// clockwise). The slip is piecewise linear (a trim moves it to its new target over SYNC_TRIM_S),
+// so the angle is its exact integral (syncAt): no per-tick state, no transcendental Math.
+
+const DT = V.PHYS_DT, DEG = V.DEG_PER_TURN, HALF_TURN = DEG / 2;
+const TRIM_S = V.SYNC_TRIM_S, TRIM_TICKS = Math.round(TRIM_S * TPS);
+const SLIP_MIN = V.SYNC_SLIP_MIN_HZ, SLIP_MAX = V.SYNC_SLIP_MAX_HZ, SLIP_LIMIT = V.SYNC_SLIP_LIMIT_HZ;
+const BREAKER_TICKS = V.SYNC_BREAKER_TICKS, CLEAN_DEG = V.SYNC_CLEAN_DEG, ROUGH_DEG = V.SYNC_ROUGH_DEG;
+const BLOCK_SLIP = V.SYNC_BLOCK_SLIP_HZ, REV_TRIP_S = V.SYNC_REVERSE_TRIP_S, BYPASS_LOCKOUT_S = V.SYNC_BYPASS_LOCKOUT_S;
+const AUTO_SLIP = V.SYNC_AUTO_SLIP_HZ, ROUGH_MW = V.SYNC_ROUGH_MW;
+const N1_ALL = V.N1_PREVIEW_ALL;
+
+/** The sync-check relay's refusal (step.js adds the 'buzz' cue to the input record). */
+export const SYNC_BLOCKED = 'blocked by sync-check relay';
+/** Refusal reasons that carry a sound cue on the input record. */
+export const REFUSAL_CUES = Object.freeze({[SYNC_BLOCKED]: 'buzz'});
+const NOT_READY = 'unit is not at full speed waiting to synchronise';
+
+/** An angle in degrees wrapped to [-180, 180). */
+const wrapDeg = x => x - DEG * Math.floor((x + HALF_TURN) / DEG) + 0;
+
+/**
+ * Slip (Hz, + = machine fast) and phase angle (degrees, -180..180, 0 = in phase) of unit u's
+ * machine against the grid at `tick`: exact for the piecewise-linear slip. Pure.
+ * @returns {{slipHz:number, phaseDeg:number}}
+ */
+export function syncAt(u, tick) {
+  const dt = (tick - u.slipAtTick) * DT, s0 = u.slipHz, s1 = u.slipToHz;
+  let slip, turns;
+  if (dt <= 0) { slip = s0; turns = 0; }
+  else if (dt < TRIM_S) { const a = (s1 - s0) / TRIM_S; slip = s0 + a * dt; turns = s0 * dt + a * dt * dt / 2; }
+  else { slip = s1; turns = (s0 + s1) / 2 * TRIM_S + s1 * (dt - TRIM_S); }
+  return {slipHz: slip + 0, phaseDeg: wrapDeg(u.phaseAtDeg + DEG * turns)};
+}
+
+/** Restart the slip ramp from where it is now (before a new target). */
+function reAnchor(u, tick) {
+  const a = syncAt(u, tick);
+  u.slipHz = a.slipHz;
+  u.phaseAtDeg = a.phaseDeg;
+  u.slipAtTick = tick;
+}
+
+/** K-12: the slip and angle a machine reaches full speed with (PLAY stream: player-dependent timing). */
+function seedSlip(state, i) {
+  const u = state.units[i], t = state.tick, seed = state.seed;
+  const mag = SLIP_MIN + (SLIP_MAX - SLIP_MIN) * uniform(seed, STREAM.PLAY, t, i, 1);
+  const sign = uniform(seed, STREAM.PLAY, t, i, 2) < 1 / 2 ? -1 : 1;
+  u.slipHz = sign * mag + 0;
+  u.slipToHz = u.slipHz;
+  u.phaseAtDeg = uniform(seed, STREAM.PLAY, t, i, 1 + 2) * DEG - HALF_TURN + 0;
+  u.slipAtTick = t;
+  u.autoTick = -1;
+}
+
+/** scope.nextAutoTick = the earliest pending syncAuto close (units no longer 'ready' drop theirs). */
+function refreshAutoTick(state) {
+  let next = -1;
+  for (const u of state.units) {
+    if (u.autoTick < 0) continue;
+    if (u.mode !== 'ready' || u.autoTick < state.tick) { u.autoTick = -1; continue; }
+    if (next < 0 || u.autoTick < next) next = u.autoTick;
+  }
+  state.scope.nextAutoTick = next;
+}
+
+/** K-12 AUTO: trim the slip to +SYNC_AUTO_SLIP_HZ and close on the next pass through 0 degrees (the command 80 ms before it). */
+function armAutoSync(state, i) {
+  const u = state.units[i], t = state.tick;
+  reAnchor(u, t);
+  u.slipToHz = AUTO_SLIP;
+  const t1 = t + TRIM_TICKS;
+  const a1 = syncAt(u, t1).phaseDeg;
+  const d = a1 <= 0 ? -a1 : DEG - a1; // degrees to the next pass through 0, needle clockwise
+  u.autoTick = t1 + Math.max(0, Math.ceil(d / (DEG * AUTO_SLIP * DT) - EPS)) - BREAKER_TICKS;
+  refreshAutoTick(state);
+}
+
+/** step(): the tick a syncAuto close is due (scope.nextAutoTick). Always clean. */
+export function syncTick(state, out) {
+  const t = state.tick;
+  for (let i = 0; i < N; i++) {
+    const u = state.units[i];
+    if (u.autoTick !== t) continue;
+    u.autoTick = -1;
+    if (u.mode !== 'ready') continue;
+    const a = syncAt(u, t + BREAKER_TICKS);
+    closeBreaker(state, i, out);
+    out.push({tick: t, kind: 'sync', unit: u.id, result: 'auto', angleDeg: a.phaseDeg, slipHz: a.slipHz});
+  }
+  refreshAutoTick(state);
+}
+
+/**
+ * syncClose {unit, bypass}: the K-12 outcome table, judged at the angle and slip SYNC_BREAKER_TICKS
+ * (80 ms) after the command. Blocked (|slip| > SYNC_BLOCK_SLIP_HZ or |angle| > SYNC_ROUGH_DEG):
+ * refused (the relay's buzz), unless HAND and bypass: closes, then trips at once with
+ * SYNC_BYPASS_LOCKOUT_S. Machine slow (slip < 0): closes, then a reverse-power trip after
+ * SYNC_REVERSE_TRIP_S back to 'ready' with a new slip, no lockout. Machine fast (slip >= 0):
+ * within SYNC_CLEAN_DEG clean (the <=5% block, then T2), else rough (the block plus a one-second
+ * SYNC_ROUGH_MW swing; shaft stress logged). The breaker record is the close's; a `sync` record
+ * {unit, result, angleDeg, slipHz, cue} says how it went.
+ */
+function syncClose(state, cmd, out) {
+  const i = fleet.unitIndex(cmd.unit), u = state.units[i], t = state.tick;
+  if (u.mode !== 'ready') return NOT_READY;
+  const a = syncAt(u, t + BREAKER_TICKS), th = Math.abs(a.phaseDeg), sg = a.slipHz;
+  const rec = result => ({tick: t, kind: 'sync', unit: u.id, result, angleDeg: a.phaseDeg, slipHz: sg,
+    cue: result === 'clean' ? 'breaker' : 'growl'});
+  if (Math.abs(sg) > BLOCK_SLIP || th > ROUGH_DEG) {
+    if (!(cmd.bypass && state.control.mode === 'HAND')) return SYNC_BLOCKED;
+    closeBreaker(state, i, out);
+    out.push(rec('bypass'));
+    fleet.tripUnit(state, i, 'closed out of phase with the sync-check bypassed', BYPASS_LOCKOUT_S, out);
+    return '';
+  }
+  closeBreaker(state, i, out);
+  if (sg < 0) {
+    u.schedMW = 0; // the machine is slow: it motors instead of picking up its block
+    u.revTripS = REV_TRIP_S;
+    out.push(rec('reverse'));
+    log(state, out, 'warn', 'SYNC_REVERSE', nameOf(i) + ' closed slow (needle anticlockwise): reverse power, protection trips it in ' +
+      REV_TRIP_S + ' s. Back to full speed, no lockout.');
+  } else if (th > CLEAN_DEG) {
+    u.schedMW += ROUGH_MW;
+    u.kickMW = ROUGH_MW;
+    u.kickEndTick = t + TPS;
+    out.push(rec('rough'));
+    log(state, out, 'warn', 'SYNC_ROUGH', nameOf(i) + ' closed ' + Math.round(th) + ' degrees out: rough close, shaft stress logged.');
+  } else {
+    out.push(rec('clean'));
+  }
+  return '';
+}
+
+/** The reverse-power protection opens a slow-closed machine: back to 'ready' with a new slip, no lockout. */
+function reverseTrip(state, i, out) {
+  const u = state.units[i];
+  u.mode = 'ready';
+  u.schedMW = 0; u.agcTrimMW = 0; u.hotS = 0; u.revTripS = 0; u.kickMW = 0;
+  fleet.setBasePoint(state, i, 0); // not 'on': 0, and the lever loses it if it had reached 'on' (hydro)
+  fleet.setSync(state, i, false, 'trip');
+  u.timerS = state.control.mode === 'AGC' ? AUTO_SYNC_S : 0;
+  seedSlip(state, i);
+  out.push({tick: state.tick, kind: 'breaker', unit: u.id, closed: false, why: 'trip', cue: 'breaker'});
+  log(state, out, 'warn', 'SYNC_REVERSE_TRIP', nameOf(i) + ': reverse-power trip. Back at full speed, ready to synchronise again.');
 }
 
 // ------------------------------------------------------------------ restore permissive (K-13)
