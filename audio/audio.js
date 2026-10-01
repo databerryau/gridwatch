@@ -1,88 +1,137 @@
-// audio/audio.js: WebAudio for the game (K-19 hum, K-20 breaker clack, K-21 basic tones).
+// audio/audio.js: WebAudio for the game (K-19 hum, K-20 foley, K-21 tones, K-22 buses).
 //
 // Created on the first user gesture (browsers refuse to start audio before one) and silent
 // when WebAudio is missing or refuses (C-8: the game plays fully without sound). Everything is
-// synthesised; no samples. At most MAX_NODES nodes live at once: a cue that would pass the
-// budget is dropped. Math.random is allowed here (fx only, F-3): the clack's noise burst.
+// synthesised; no samples: a foley voice is mixed from its recipe (audio/model.js VOICES) into
+// a buffer the first time it is asked for. Math.random is allowed here (fx only, F-3): the
+// noise layers.
+//
+//   master <- hum bus (the hum's two gains) | fx bus | alarms bus      gains: vm.settings
+//
+// At most MAX_NODES nodes live at once, the hum, the buses and the master included; a cue that
+// would pass the budget is dropped and counted (au.dropped). A delayed cue (delayS) holds no
+// nodes until it is due: it waits in au.pending and update() starts it, on time, a frame ahead.
 //
 //   const au = createAudio(globalThis);   // nothing happens yet
 //   au.start();                           // on the first pointerdown / keydown
-//   au.update(vm);                        // every frame: hum follows vm.needleHz; vm.cues play
-//   au.cue('breaker');
+//   au.update(vm);                        // every frame: hum follows vm.needleHz; vm.settings; vm.cues play
+//   au.cue('breaker'); au.cue({name: 'clack', pan: -0.2, delayS: 0.09});
 
-import {humPartials, HUM_K, MAX_NODES, HUM_NODES, CLACK, TONES, nodesFor, dbToGain} from './model.js';
+import {humPartials, HUM_K, MAX_NODES, BASE_NODES, TONES, VOICES, RATE, nodesFor, busOf, busGains, normCue,
+  rateAllows, durationOf, renderVoice} from './model.js';
 
 /** Hum glide time constant (s): the pitch follows the needle smoothly. */
 const GLIDE_S = 0.05;
+/** A pending cue is started this far ahead of its time (s): more than one 60-Hz frame. */
+const LOOKAHEAD_S = 0.02;
+/** A voice whose `ended` event never came is freed this long after its end (s). */
+const REAP_S = 0.005;
+/** A pending cue later than this (a hidden tab's stalled frame loop) is dropped, not played late (s). */
+const STALE_S = 0.5;
+/** Most cues that may wait at once. */
+const MAX_PENDING = 64;
 
 /**
  * @param {object} win an object that may carry AudioContext / webkitAudioContext (globalThis)
- * @returns {object} the audio handle
+ * @returns {object} the audio handle:
+ *   ok, started, ctx, master, bus {fx, alarms}, hum; live / peak (nodes), dropped (cues over
+ *   the budget or stale), limited (rate-limited), unknown (names not in the table); played
+ *   (the last 50 names); settings; start(), update(vm), cue(c), setSettings(s), setVolume(v),
+ *   setMuted(m), liveNodes()
  */
 export function createAudio(win) {
   const Ctx = win && (win.AudioContext || win.webkitAudioContext);
   const au = {
-    ok: !!Ctx, started: false, ctx: null, master: null, hum: null, live: 0, peak: 0, dropped: 0,
-    volume: 0.8, muted: false, humOn: true, played: [],
+    ok: !!Ctx, started: false, ctx: null, master: null, bus: null, hum: null, live: 0, peak: 0,
+    dropped: 0, limited: 0, unknown: 0, played: [], pending: [], voices: [], buffers: {}, lastAt: {},
+    settings: {volume: 0.8, hum: 1, fx: 1, alarms: 1, muted: false, reducedEffects: false},
+    volume: 0.8, muted: false, humOn: true, humOver: false, canPan: false,
     start() {
       if (au.started || !Ctx) return au.started;
       try {
-        au.ctx = new Ctx();
-        au.master = au.ctx.createGain();
-        au.master.gain.value = au.muted ? 0 : au.volume;
-        au.master.connect(au.ctx.destination);
-        au.live = 1;
+        const ctx = au.ctx = new Ctx();
+        au.master = ctx.createGain();
+        au.master.connect(ctx.destination);
+        au.bus = {fx: ctx.createGain(), alarms: ctx.createGain()};
+        au.bus.fx.connect(au.master); au.bus.alarms.connect(au.master);
         buildHum(au);
+        au.canPan = typeof ctx.createStereoPanner === 'function';
+        au.live = au.peak = BASE_NODES;
         au.started = true;
-        if (au.ctx.resume) { try { const p = au.ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch { /* ignore */ } }
+        applyGains(au);
+        if (ctx.resume) { try { const p = ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch { /* ignore */ } }
       } catch {
-        au.ok = false; au.ctx = null; au.master = null; au.hum = null; au.live = 0;
+        au.ok = false; au.started = false; au.ctx = null; au.master = null; au.bus = null; au.hum = null; au.live = 0;
       }
       return au.started;
     },
     update(vm) {
       if (!au.started) return;
-      const f = vm && Number.isFinite(vm.needleHz) ? vm.needleHz : vm && vm.obs ? vm.obs.f.hz : 50;
-      setHum(au, f, vm && vm.obs ? vm.obs.over : false);
-      if (vm && vm.settings) { au.setVolume(vm.settings.volume); au.setMuted(vm.settings.muted); }
+      try {
+        const f = vm && Number.isFinite(vm.needleHz) ? vm.needleHz : vm && vm.obs && vm.obs.f ? vm.obs.f.hz : 50;
+        au.humOver = !!(vm && vm.obs && vm.obs.over);
+        if (vm && vm.settings) au.setSettings(vm.settings); else applyGains(au);
+        setHum(au, f);
+        drain(au);
+      } catch { /* C-8: sound never stops the game */ }
       if (vm && vm.cues) for (const c of vm.cues) au.cue(c);
     },
-    cue(name) {
+    /**
+     * Play a cue: a name or {name, pan?, gain?, delayS?}. False when it did not (and will not)
+     * sound: not started, unknown name, rate-limited, over the node budget. Never throws.
+     */
+    cue(x) {
       if (!au.started) return false;
-      const need = nodesFor(name);
-      if (!need || au.live + need > MAX_NODES) { au.dropped++; return false; }
       try {
-        if (name === 'breaker') clack(au); else tone(au, TONES[name]);
-        au.played.push(name);
-        if (au.played.length > 50) au.played.shift();
-        return true;
+        const c = normCue(x);
+        if (!c || !busOf(c.name)) { au.unknown++; return false; }
+        const now = au.ctx.currentTime || 0;
+        if (!rateAllows(c.name, now, au.lastAt[c.name])) { au.limited++; return false; }
+        if (RATE[c.name]) au.lastAt[c.name] = now;
+        if (c.delayS > LOOKAHEAD_S) {
+          if (au.pending.length >= MAX_PENDING) { au.dropped++; return false; }
+          au.pending.push({c, due: now + c.delayS});
+          return true;
+        }
+        return play(au, c, now + c.delayS);
       } catch {
         return false;
       }
     },
-    setVolume(v) {
-      if (!(v >= 0 && v <= 1)) return;
-      au.volume = v;
-      if (au.master) au.master.gain.value = au.muted ? 0 : v;
+    /** vm.settings (desk/README §13.1); the 1a shape {volume, muted} works too. */
+    setSettings(s) {
+      if (!s) return;
+      const o = au.settings;
+      for (const k of ['volume', 'hum', 'fx', 'alarms']) if (s[k] >= 0 && s[k] <= 1) o[k] = s[k];
+      if ('muted' in s) o.muted = !!s.muted;
+      if ('reducedEffects' in s) o.reducedEffects = !!s.reducedEffects;
+      au.volume = o.volume; au.muted = o.muted;
+      applyGains(au);
     },
-    setMuted(m) {
-      au.muted = !!m;
-      if (au.master) au.master.gain.value = au.muted ? 0 : au.volume;
-    },
+    setVolume(v) { au.setSettings({volume: v}); },
+    setMuted(m) { au.setSettings({muted: !!m}); },
     liveNodes() { return au.live; },
   };
   return au;
 }
 
-function track(au, n) {
-  au.live += n;
-  if (au.live > au.peak) au.peak = au.live;
+const setParam = (p, v) => { if (p.value !== v) p.value = v; };
+
+function applyGains(au) {
+  if (!au.started) return;
+  const g = busGains(au.settings), h = au.hum, hum = au.humOn ? g.hum : 0;
+  setParam(au.master.gain, g.master);
+  setParam(au.bus.fx.gain, g.fx);
+  setParam(au.bus.alarms.gain, g.alarms);
+  // The hum bus is the hum's own two gains (a third node would only cost budget). The hum
+  // falls silent when the day is over; its reference stays, as in 1a.
+  setParam(h.humGain.gain, au.humOver ? 0 : h.level * hum);
+  setParam(h.refGain.gain, h.refLevel * hum);
 }
 
 function buildHum(au) {
   const ctx = au.ctx, parts = humPartials(50);
   const humGain = ctx.createGain(), refGain = ctx.createGain();
-  humGain.gain.value = 1; refGain.gain.value = 1;
   humGain.connect(au.master); refGain.connect(au.master);
   const osc = [], ref = [];
   for (const p of parts) {
@@ -94,90 +143,124 @@ function buildHum(au) {
     osc.push(o); ref.push(r);
   }
   // Levels: a gain node per voice would double the node count (K-20's budget), so the four
-  // partials sum at equal level on one bus and the two bus gains carry the -30 dBFS hum and
-  // the quieter reference (the model's 1/k shares, averaged).
+  // partials sum at equal level on one gain and the two gains carry the -30 dBFS hum and the
+  // quieter reference (the model's 1/k shares, averaged).
   const g = parts.reduce((a, p) => a + p.gain, 0), rg = parts.reduce((a, p) => a + p.refGain, 0);
-  humGain.gain.value = g / HUM_K.length;
-  refGain.gain.value = rg / HUM_K.length;
-  au.hum = {osc, ref, humGain, refGain, level: g / HUM_K.length};
-  track(au, HUM_NODES - 1); // the master is already counted
+  au.hum = {osc, ref, humGain, refGain, level: g / HUM_K.length, refLevel: rg / HUM_K.length};
 }
 
-function setHum(au, f, over) {
-  const h = au.hum;
-  if (!h) return;
-  const t = au.ctx.currentTime || 0;
+function setHum(au, f) {
+  const h = au.hum, t = au.ctx.currentTime || 0;
   for (let i = 0; i < h.osc.length; i++) {
-    const hz = HUM_K[i] * 2 * f;
-    const fr = h.osc[i].frequency;
+    const hz = HUM_K[i] * 2 * f, fr = h.osc[i].frequency;
     if (fr.setTargetAtTime) fr.setTargetAtTime(hz, t, GLIDE_S); else fr.value = hz;
   }
-  const lvl = over || !au.humOn ? 0 : h.level;
-  if (h.humGain.gain.value !== lvl) h.humGain.gain.value = lvl;
 }
 
-// A node group that frees its budget when its last source ends.
-function release(au, n, src) {
-  let done = false;
-  const free = () => { if (!done) { done = true; au.live -= n; } };
-  if (src && 'onended' in src) src.onended = free; else if (src && src.addEventListener) src.addEventListener('ended', free);
-  else free();
+// ------------------------------------------------------------------ the node budget
+
+// Free the voices that ended without saying so (a suspended context, a missing `ended`).
+function reap(au, now) {
+  let any = false;
+  for (const v of au.voices) {
+    if (!v.done && now > v.endT + REAP_S) v.free();
+    if (v.done) any = true;
+  }
+  if (any) au.voices = au.voices.filter(v => !v.done);
 }
 
-function tone(au, spec) {
-  const ctx = au.ctx, t0 = ctx.currentTime || 0;
-  const g = ctx.createGain();
+// Count a voice's nodes until its source ends (or reap() finds it overdue).
+function hold(au, n, endT, src, nodes) {
+  const v = {n, endT, done: false, free() {
+    if (v.done) return;
+    v.done = true; au.live -= n;
+    for (const x of nodes) { try { x.disconnect(); } catch { /* ignore */ } }
+  }};
+  au.live += n;
+  if (au.live > au.peak) au.peak = au.live;
+  au.voices.push(v);
+  if ('onended' in src) src.onended = v.free; else if (src.addEventListener) src.addEventListener('ended', v.free);
+}
+
+// Start the pending cues that are due within the next frame, each at its own time.
+function drain(au) {
+  const now = au.ctx.currentTime || 0;
+  reap(au, now);
+  if (!au.pending.length) return;
+  const keep = [];
+  for (const p of au.pending) {
+    if (p.due > now + LOOKAHEAD_S) keep.push(p);
+    else if (p.due < now - STALE_S) au.dropped++;
+    else { try { play(au, p.c, Math.max(now, p.due)); } catch { /* ignore */ } }
+  }
+  au.pending = keep;
+}
+
+// ------------------------------------------------------------------ playing
+
+function play(au, c, at) {
+  reap(au, au.ctx.currentTime || 0);
+  const panned = au.canPan && c.pan !== 0, need = nodesFor(c.name, panned);
+  if (au.live + need > MAX_NODES) { au.dropped++; return false; }
+  const ctx = au.ctx, nodes = [];
+  try {
+    const g = ctx.createGain();
+    nodes.push(g);
+    let tail = g;
+    if (panned) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = c.pan;
+      g.connect(p);
+      nodes.push(p);
+      tail = p;
+    }
+    tail.connect(au.bus[busOf(c.name)]);
+    const src = TONES[c.name] ? tone(au, TONES[c.name], g, c.gain, at, nodes) : voice(au, c.name, g, c.gain, at, nodes);
+    hold(au, need, at + durationOf(c.name), src, nodes);
+  } catch {
+    for (const x of nodes) { try { x.disconnect(); } catch { /* ignore */ } }
+    return false;
+  }
+  au.played.push(c.name);
+  if (au.played.length > 50) au.played.shift();
+  return true;
+}
+
+// Oscillator notes through one gain, gated per note. Returns the source that ends last.
+function tone(au, spec, g, gain, t0, nodes) {
+  const ctx = au.ctx, level = spec.level * gain;
   g.gain.value = 0;
-  g.connect(au.master);
-  let last = null, end = 0;
+  let last = null, end = -1;
   for (const [hz, at, dur] of spec.notes) {
     const o = ctx.createOscillator();
+    nodes.push(o);
     o.type = spec.type; o.frequency.value = hz;
     o.connect(g);
     if (g.gain.setValueAtTime) {
-      g.gain.setValueAtTime(spec.level, t0 + at);
+      g.gain.setValueAtTime(level, t0 + at);
       g.gain.setValueAtTime(0, t0 + at + dur);
-    } else g.gain.value = spec.level;
+    } else g.gain.value = level;
     o.start(t0 + at); o.stop(t0 + at + dur);
     if (at + dur >= end) { end = at + dur; last = o; }
   }
-  const n = spec.notes.length + 1;
-  track(au, n);
-  release(au, n, last);
+  return last;
 }
 
-function clack(au) {
-  const ctx = au.ctx, t0 = ctx.currentTime || 0, sr = ctx.sampleRate || 48000;
-  const len = Math.max(1, Math.floor(sr * CLACK.decayS));
-  const buf = ctx.createBuffer(1, len, sr);
-  const data = buf.getChannelData ? buf.getChannelData(0) : new Float32Array(len);
-  const k = Math.log(1000) / CLACK.decayS;
-  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-(i / sr) * k);
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  const bp = ctx.createBiquadFilter();
-  bp.type = 'bandpass'; bp.frequency.value = CLACK.noiseCentreHz; bp.Q.value = CLACK.noiseQ;
-  const ng = ctx.createGain();
-  ng.gain.value = CLACK.level;
-  src.connect(bp); bp.connect(ng); ng.connect(au.master);
-  const pg = ctx.createGain();
-  pg.gain.value = CLACK.level * 0.4;
-  if (pg.gain.setTargetAtTime) pg.gain.setTargetAtTime(0, t0, CLACK.decayS / 6.9);
-  pg.connect(au.master);
-  let last = src;
-  for (const hz of CLACK.partialsHz) {
-    const o = ctx.createOscillator();
-    o.type = 'sine'; o.frequency.value = hz;
-    o.connect(pg); o.start(t0); o.stop(t0 + CLACK.decayS);
+// A foley voice: its rendered buffer (made once per context) through one gain.
+function voice(au, name, g, gain, t0, nodes) {
+  const ctx = au.ctx, spec = VOICES[name];
+  let buf = au.buffers[name];
+  if (!buf) {
+    const sr = ctx.sampleRate || 48000, data = renderVoice(spec, sr);
+    buf = ctx.createBuffer(1, data.length, sr);
+    if (buf.copyToChannel) buf.copyToChannel(data, 0); else buf.getChannelData(0).set(data);
+    au.buffers[name] = buf;
   }
-  const th = ctx.createOscillator(), tg = ctx.createGain();
-  th.type = 'sine'; th.frequency.value = CLACK.thudHz;
-  tg.gain.value = CLACK.level * dbToGain(-3);
-  if (tg.gain.setTargetAtTime) tg.gain.setTargetAtTime(0, t0, CLACK.thudDecayS / 6.9);
-  th.connect(tg); tg.connect(au.master);
-  th.start(t0); th.stop(t0 + CLACK.thudDecayS * 1.5);
+  const src = ctx.createBufferSource();
+  nodes.push(src);
+  src.buffer = buf;
+  g.gain.value = spec.level * gain;
+  src.connect(g);
   src.start(t0);
-  last = th;
-  track(au, 9);
-  release(au, 9, last);
+  return src;
 }
