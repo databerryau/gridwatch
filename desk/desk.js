@@ -4,7 +4,7 @@
 //   desk.update(vm);          // every frame, after the ticks (reads the view model only, §5)
 //   desk.key(ev);             // the shell's K-23 key map forwards keydown/keyup: 1-8, S, X, P, [ ] C U, R, D, E
 //   desk.focus(id);           // focus a desk control by its §5 id (also done when vm.focus changes)
-//   desk.slots.stack          // the #stack element the Live Stack mounts into (render/livestack.js)
+//   desk.slots.stack          // the #stack-slot element the Live Stack (#stack) mounts into (render/livestack.js)
 //   desk.el                   // the desk's own container
 //
 // Four columns at the 1280×300 floor (232 / 424 / 336 / 256 px + 8-px gutters): the frequency
@@ -31,7 +31,7 @@ export const SLOT_IDS = Object.freeze(['lever-coal', 'lever-ccgt', 'lever-gta', 
 /** Every stable id of desk/README.md §5 the desk builds (the shell adds `map`; guards per machine are extra). */
 export const DESK_IDS = Object.freeze([
   ...LEVER_STATIONS.map(s => 'lever-' + s), 'wheel-hydro', 'dial-battery', 'ring-guard', 'knob-tie', 'key-rert', 'btn-dr', 'key-shed',
-  'key-agc', 'btn-redispatch', 'bay-sync', 'bay-restore', 'gauge-n1', 'dial-freq', 'bar-imbalance', 'annunciator', 'tray', 'stack',
+  'key-agc', 'btn-redispatch', 'bay-sync', 'bay-restore', 'gauge-n1', 'dial-freq', 'bar-imbalance', 'annunciator', 'tray', 'stack-slot',
 ]);
 
 /**
@@ -92,7 +92,7 @@ export function createDesk(doc, root, actions, opts = {}) {
   const c1a = cell(c1, 'dk-c1a'), c1b = cell(c1, 'dk-c1b');
   const c2a = cell(c2, 'dk-c2a dk-panel'), c2b = cell(c2, 'dk-c2b dk-panel');
   const stack = cell(c3, 'dk-c3a dk-stack-slot');
-  stack.id = 'stack';
+  stack.id = 'stack-slot'; // the Live Stack's own element is #stack (render/livestack.js)
   const c3b = cell(c3, 'dk-c3b');
   const c4a = cell(c4, 'dk-c4a'), c4b = cell(c4, 'dk-c4b'), c4c = cell(c4, 'dk-c4c dk-panel');
 

@@ -110,7 +110,12 @@ test('L-4: projections are ramp-feasible and no layer starts before its earliest
   assertEarliestLines(m, P1, 'morning');
   // evening: every GT on; unload GT·A to zero (unload, T4, breaker open) and move hydro
   const e = await evening();
-  planOf(e, plan => { key(plan, 'gta', e.s + 900, 0); key(plan, 'hydro', e.s + 1800, 300); key(plan, 'gtb', e.s + 3600, 400); });
+  // A planKey input of 0 MW leaves the key (lever to its floor) AND books the stops (the sim's
+  // planKey; a 0-MW key alone is only the floor, sim/README.md §12 Phase 1a deviation 1).
+  planOf(e, plan => {
+    key(plan, 'gta', e.s + 900, 0); plan.stops.push({unit: 'gta1', atS: e.s + 900});
+    key(plan, 'hydro', e.s + 1800, 300); key(plan, 'gtb', e.s + 3600, 400);
+  });
   const P2 = PV.project(e);
   assertRampFeasible(e, P2, 'evening');
   const k0 = P2.times.findIndex(t => t >= e.s + 900 + M.find(x => x.id === 'gta1').t4S + 30);
@@ -231,6 +236,32 @@ test('L-5: gaps are red below P50 and amber below P90; past columns read the she
   assert.equal(P.past.demand[5], 7600);
   assert.equal(P.past.layers.coal[5], 2000);
   assert.ok(Number.isNaN(P.past.demand[0]));
+});
+
+test('stage C, L-6: the projection agrees with the sim\'s plan executor, 4.5 h ahead, to within the AGC band (no input, no trip)', async () => {
+  // The game's system operator loads the 04:30 pre-dispatch; at 06:00 the stack projects; the
+  // sim then runs 4.5 h with no input (seed 7 has no contingency before 11:47). AGC trims and
+  // governors are not projected (desk/README §7), so each station may differ by its AGC band.
+  const {createState, step, observe} = await import('../sim/step.js');
+  const system = await import('../app/system.js');
+  const {CLASSIC} = await import('../content/scenarios.js');
+  const TPS = V.TICKS_PER_S, state = createState(7, CLASSIC), sys = system.createSystem();
+  while (state.tick < 2 * 3600 * TPS) step(state, system.systemInputs(sys, state));
+  const P = PV.project(observe(state));
+  const band = {};
+  for (const m of M) band[m.station] = (band[m.station] || 0) + m.agcBandMW;
+  let worst = 0;
+  for (let k = 0; k < P.n; k++) {
+    while (state.tick < P.times[k] * TPS) step(state, []);
+    const o = observe(state);
+    assert.equal(o.contingencies.length, 0);
+    for (const st of o.stations) {
+      const d = Math.abs(P.stations[st.id].mw[k] - st.outMW);
+      worst = Math.max(worst, d - band[st.id]);
+      assert.ok(d <= band[st.id] + 1, st.id + ' at ' + o.clock.text + ': projected ' + P.stations[st.id].mw[k].toFixed(0) + ' MW, real ' +
+        st.outMW.toFixed(0) + ' MW, AGC band ' + band[st.id].toFixed(0) + ' MW');
+    }
+  }
 });
 
 test('planview imports only sim/params.js and uses no Math.random', () => {

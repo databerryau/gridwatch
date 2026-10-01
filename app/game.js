@@ -139,10 +139,16 @@ const errText = e => (e && e.message ? e.message : String(e));
 
 // ------------------------------------------------------------------ history rings (vm.hist)
 
+// The Live Stack's past layers: the six stations, then the other layers it draws (signed: tie
+// + import, battery + discharge), in that order (app/planview.js pastFromHist).
+const HIST_IDS = [...V.STATION_IDS, 'wind', 'solar', 'tie', 'battery', 'rert', 'dr'];
+const NST = V.STATION_IDS.length;
+const ST_IDX = V.MACHINES.map(m => V.STATION_IDS.indexOf(m.station));
+
 function createHist() {
-  const n = V.STATION_IDS.length, ring = HIST_COLS + 1;
+  const n = HIST_IDS.length, ring = HIST_COLS + 1;
   return {
-    colSum: V.STATION_IDS.map(() => new Float64Array(ring)), demSum: new Float64Array(ring), colN: new Float64Array(ring),
+    colSum: HIST_IDS.map(() => new Float64Array(ring)), demSum: new Float64Array(ring), colN: new Float64Array(ring),
     colIdx: new Float64Array(ring).fill(-1), n,
   };
 }
@@ -158,11 +164,14 @@ function histSecond(game) {
     for (let i = 0; i < h.n; i++) h.colSum[i][j] = 0;
   }
   const units = st.units;
-  for (let k = 0; k < units.length; k++) {
-    const u = units[k];
-    const i = V.STATION_IDS.indexOf(u.station);
-    h.colSum[i][j] += u.outMW;
-  }
+  for (let k = 0; k < units.length; k++) h.colSum[ST_IDX[k]][j] += units[k].outMW;
+  const x = h.colSum;
+  x[NST][j] += st.ren.windMW * (1 - st.ofgs.trippedFrac);
+  x[NST + 1][j] += st.ren.solarMW;
+  x[NST + 2][j] += st.tie.flowMW;
+  x[NST + 3][j] += st.battery.outMW;
+  x[NST + 4][j] += st.rert.outMW;
+  x[NST + 5][j] += st.dr.mw;
   h.demSum[j] += st.env.demandMW;
   h.colN[j] += 1;
 }
@@ -179,11 +188,11 @@ export function histView(game) {
   const w = secondsWindow(game.rec, s - HIST_FREQ_S, s);
   const h = game.hist, cur = Math.floor(s / HIST_COL_S);
   const stations = {}, demand = [];
-  V.STATION_IDS.forEach(id => { stations[id] = []; });
+  HIST_IDS.forEach(id => { stations[id] = []; });
   for (let c = cur - HIST_COLS; c < cur; c++) {
     const j = ((c % (HIST_COLS + 1)) + HIST_COLS + 1) % (HIST_COLS + 1);
     const ok = c >= 0 && h.colIdx[j] === c && h.colN[j] > 0;
-    V.STATION_IDS.forEach((id, i) => stations[id].push(ok ? h.colSum[i][j] / h.colN[j] : NaN));
+    HIST_IDS.forEach((id, i) => stations[id].push(ok ? h.colSum[i][j] / h.colN[j] : NaN));
     demand.push(ok ? h.demSum[j] / h.colN[j] : NaN);
   }
   game.histView = {freq: Array.from(w.mean), freqMin: Array.from(w.min), freqMax: Array.from(w.max), freqFromS: s - HIST_FREQ_S,
@@ -306,6 +315,8 @@ export function redispatch(game) {
   } catch (e) {
     return 'RE-DISPATCH failed: ' + errText(e);
   }
+  // app/system.js returns {input, reason}; a bare string or input(s) are accepted too.
+  if (r && typeof r === 'object' && !Array.isArray(r) && 'reason' in r && !('type' in r)) r = r.reason || r.input;
   if (typeof r === 'string') {
     if (r) game.refusal = {type: 'redispatch', reason: r, tick: game.state.tick};
     return r;
@@ -466,7 +477,10 @@ export function buildVm(game, f) {
     let glow = null;
     if (game.planview && game.planview.glowSet) {
       try {
-        const gap = {fromS: obs.s, toS: Math.floor(c.secureByTick / TPS), mw: Math.max(0, obs.sec.lMW - obs.sec.r5MW)};
+        // The gap the trip opened (planview's first red run, L-5); with none on the stack, the
+        // N-1 problem itself: what can arrive before the 30-min secure countdown ends.
+        const first = game.planview.project && game.planview.firstGap ? game.planview.firstGap(game.planview.project(obs)) : null;
+        const gap = first || {atS: Math.floor(c.secureByTick / TPS), mw: Math.max(0, obs.sec.lMW - obs.sec.r5MW)};
         glow = [...game.planview.glowSet(obs, gap)];
       } catch {
         glow = null;

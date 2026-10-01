@@ -153,7 +153,7 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   assert.ok(vm.glow instanceof Set);
   assert.equal(vm.alarms.tiles.length, 12);
   assert.equal(vm.hist.freq.length, G.HIST_FREQ_S);
-  assert.deepEqual(Object.keys(vm.hist.stations), [...V.STATION_IDS]);
+  assert.deepEqual(Object.keys(vm.hist.stations), [...V.STATION_IDS, 'wind', 'solar', 'tie', 'battery', 'rert', 'dr']);
   assert.equal(mods.seen.desk.at(-1), mods.seen.map.at(-1), 'every module reads the same vm');
   assert.equal(h.actions.redispatch(), 'no plan before 04:30');
   // HAND, then TAKE THE DESK (Enter works too): 04:00-04:30 runs headless, then CRUISE.
@@ -507,7 +507,7 @@ test('F-11 ?perf: percentiles over the window', () => {
   assert.match(PF.perfLines(s).join('\n'), /frame ms p50 50\.00 · p95 95\.00/);
 });
 
-test('app/boot.js boots next.html with the real stage B modules', {todo: 'needs stage B merge (desk/desk.js, render/livestack.js, render/map.js, app/system.js, app/planview.js)'}, async () => {
+test('app/boot.js boots next.html with the real stage B modules', async () => {
   for (const f of ['desk/desk.js', 'render/livestack.js', 'render/map.js', 'app/system.js', 'app/planview.js']) {
     assert.ok(existsSync(join(ROOT, f)), f + ' is not merged yet');
   }

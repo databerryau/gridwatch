@@ -9,3 +9,5 @@ Thumbs.db
 # Scratch output from visual-QA captures
 shots/
 tools/shots/
+
+.claude/worktrees/

@@ -2,8 +2,7 @@
 //
 // One entry per §8.2 row: {id, row, anchorId, game, real, ours, why, params}.
 //   row       the row's bold title exactly as in SPEC.md §8.2 (tests/text.test.js matches it).
-//             An entry for a row stage C has still to add to §8.2 carries specPending: true
-//             (Phase 1a: A-1 RE-DISPATCH, desk/README.md §0); stage C adds the row and drops it.
+//             An entry for a row not yet in §8.2 carries specPending: true until the row is added.
 //   anchorId  the id of the bench element the "?" sits next to (bench.html); entries whose
 //             element the bench does not have carry ui: 'drawer' and show only in the bench's
 //             abstractions drawer (H-14: "the same text is in the manual drawer")
@@ -145,7 +144,7 @@ const ABSTRACTIONS = [
   },
   {
     id: 're-dispatch', row: 'RE-DISPATCH re-runs the pre-dispatch on demand.', anchorId: 'btn-redispatch', ui: 'drawer',
-    game: 'btn-redispatch', specPending: true,
+    game: 'btn-redispatch',
     real: 'AEMO re-runs pre-dispatch every 30 minutes, and its dispatch engine (NEMDE) moves every committed unit every 5 ' +
       'minutes; operators decide commitment, reserves, the interconnector and emergencies, not each base point.',
     ours: 'RE-DISPATCH, a key on the desk, re-runs the ' + hhmm(V.PLAYER_START_H) + ' pre-dispatch from now to 04:00 over the ' +
@@ -263,9 +262,9 @@ const ABSTRACTIONS = [
       'of the preview\'s age; it is re-run at least every ' + num(V.PREVIEW_REFRESH_S) + ' grid-seconds and whenever frequency ' +
       'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L; SHORT is R5 < L; SHEDDING while load is off.',
     why: 'One gauge. The margin covers what a preview with frozen schedules cannot see (demand wobble, AGC and ramps), ' +
-      'measured so that no SECURE state misses ' + hz(V.SECURE_NADIR_HZ) + ' Hz when the biggest risk, L, trips. SECURE ' +
-      'guards L only: a unit of nearly L\'s size can still dip below ' + hz(V.SECURE_NADIR_HZ) + ' Hz, because its trip ' +
-      'also takes away its inertia and governor (previewing every credible contingency is an open decision).',
+      'measured so that no SECURE state misses ' + hz(V.SECURE_NADIR_HZ) + ' Hz when a credible contingency trips. The ' +
+      'preview runs for both credible contingencies, the largest unit and the tie import (N-1), and BIGGEST RISK names ' +
+      'the one whose loss would dip deeper: a unit of nearly the tie\'s size also takes its inertia and governor with it.',
     params: ['R5_WINDOW_MIN', 'SECURE_RATIO', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ', 'PREVIEW_AGE_MARGIN_HZ_S', 'PREVIEW_REFRESH_S',
       'PREVIEW_F_TOL_HZ'],
   },
@@ -314,10 +313,12 @@ const ABSTRACTIONS = [
     id: 'restore-permissive', row: 'Restore permissive', anchorId: 'restore-permissive', game: 'bay-restore',
     real: 'AEMO gives permission, and the networks switch small groups back every few minutes.',
     ours: 'RESTORE is allowed when frequency is at least ' + hz(V.RESTORE_MIN_HZ) + ' Hz, ' + minutes(V.RESTORE_INTERVAL_S) +
-      ' grid-minutes have passed since the last restore, and a RESTORE PREVIEW of picking up the district\'s cold load ' +
+      ' grid-minutes have passed since the last restore, spare in ' + num(V.R5_WINDOW_MIN) + ' min (R5) covers the district\'s ' +
+      'cold load, and a RESTORE PREVIEW of picking up that cold load ' +
       '(run on the restore itself) keeps the nadir at or above ' + hz(V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ) + ' Hz.',
-    why: 'A visible, learnable rule that cannot set off UFLS again (spare in 5 minutes is not primary response).',
-    params: ['RESTORE_MIN_HZ', 'RESTORE_INTERVAL_S', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ'],
+    why: 'A visible, learnable rule that cannot set off UFLS again: the preview checks the pickup\'s first seconds, and the ' +
+      'spare in 5 minutes checks the load can be carried after them.',
+    params: ['RESTORE_MIN_HZ', 'RESTORE_INTERVAL_S', 'R5_WINDOW_MIN', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ'],
   },
   {
     id: 'cold-load', row: 'Cold-load pickup ×1.5.', anchorId: 'cold-load', game: 'bay-restore',

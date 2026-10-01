@@ -394,3 +394,45 @@ bounding-box test proves no building sits outside the terrain.
   stand-in DOM, fake frames, a scripted desk player that only uses `actions`, a full day to
   04:00 without an exception, replay of its log matches its scorecard (F-6).
 * Greybox check (SPEC Phase 1a gate) is the owner's, after merge.
+
+---
+
+## 10. Stage C record (integration, 2026-10-01)
+
+The four stage B branches merged without conflicts. What integration found and changed:
+
+* **Seams between the agents' modules** (each passed its own tests against the contract):
+  * `app/system.js` returns `{input, reason}` from `redispatch`; `app/game.js` read an object as
+    an input. Fixed in game.js (string, input, list or `{input, reason}`).
+  * The respond card passed `{fromS, toS}` to `planview.glowSet`, which reads `gap.atS`, so
+    nothing glowed. game.js now passes planview's first red run (`firstGap(project(obs))`), or
+    the N-1 problem's `{atS: secureBy}` when the stack shows none.
+  * The desk named its Live Stack slot `#stack` (the stack's own element id) while the shell
+    mounts into `#stack-slot`. The desk's slot is `#stack-slot`; `#stack` is the Live Stack.
+  * `vm.hist`: the shell kept six numeric column means; the stack read `{s, mw}` records and also
+    draws wind, solar, tie, battery, diesel and DR. The shell records all twelve layers and
+    `planview.pastFromHist` reads the shell's column form.
+  * `app/planview.js` treated a 0-MW key as "stop the station" (this file's §3.1 wording); the sim
+    made it "lever to its floor" with stops as separate bookings (sim/README.md §12 Phase 1a,
+    deviation 1). The projection follows the sim now. It showed hydro switched off for ~30 min
+    at the evening peak while it ran at ~900 MW.
+* **Projection vs the executor** (`tests/planview.test.js`, stage C test): 4.5 h ahead with no
+  input, every station's projected MW is within its AGC band of the sim's real output. The
+  other misses seen in probes were all unforecast trips.
+* **K-13 reserve rule** (`sim/grid.js restorePermissive`; SPEC §9.1 Q-10; `SIM_VERSION`
+  v4-core-1a.1): the whole-day test's restoring player went black on seed 20260930, because
+  restores that passed the preview could not be carried. The permissive (lamp and input) now also
+  needs R5 ≥ the district's cold-load MW.
+* **Whole days** (`tests/day.test.js`): `next.html` with every real module in the stand-in DOM,
+  a scripted player using `actions` only; 04:00–09:00 and a trip walked through WATCH →
+  RESPOND-CARD → RESPOND in the default suite, three whole days in the slow suite; the logs
+  replay to the same `hashState` (F-6).
+* **Browser** (Chromium, the preview pane at 1280×600): the page boots with every module, no
+  console error, header 32 / map 268 / desk 300 px, the Live Stack mounted at 334×167 in its slot,
+  no horizontal scroll. The pane is hidden in this environment, so frames do not run there; play
+  is covered by the Node day tests.
+* **Risk found (not fixed): stale modules after a deploy.** The first browser load mixed a cached
+  old `render/format.js` with new modules and failed on a missing export. GitHub Pages lets
+  browsers cache files for ~10 minutes, so a returning visitor during that window after a push
+  could get the same failure. A fix (a version query on every import, or one versioned entry
+  path) belongs with the Phase 4 switch of `index.html`, before strangers arrive.

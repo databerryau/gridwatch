@@ -134,11 +134,10 @@ function simInit(obs) {
 
 function applyKey(S, st, mw, atS) {
   const ms = st.mach;
+  // A 0-MW key takes the lever to its floor (every 'on' machine at MIN); stops are separate
+  // bookings in obs.plan.stops (the sim's executor, sim/README.md §12 Phase 1a deviation 1).
   if (mw === 0) {
-    for (const x of ms) {
-      if (x.mode === 'on') x.base = x.m.minMW;
-      if (committed(x.mode)) S.stops.push({unit: x.id, atS, done: false});
-    }
+    for (const x of ms) if (x.mode === 'on') x.base = x.m.minMW;
     st.clamped = 0; st.lastReq = 0;
     return;
   }
@@ -371,8 +370,18 @@ export function nowEdge(obs) {
 export function pastFromHist(hist, pastTimes) {
   const out = {demand: new Float64Array(N_PAST).fill(NaN), layers: {}};
   if (!hist) return out;
+  // app/game.js's form: per id, an array of column means; column c covers
+  // [colFromS + c * colS, colFromS + (c + 1) * colS) and lands on the past column ending there.
+  const cols = Number.isFinite(hist.colFromS) && hist.colS > 0;
   const pick = (arr, dst) => {
     if (!Array.isArray(arr)) return;
+    if (cols && (arr.length === 0 || typeof arr[0] === 'number')) {
+      for (let p = 0; p < N_PAST; p++) {
+        const c = Math.round((pastTimes[p] - hist.colFromS) / hist.colS) - 1;
+        if (c >= 0 && c < arr.length && Number.isFinite(arr[c])) dst[p] = arr[c];
+      }
+      return;
+    }
     for (let p = 0; p < N_PAST; p++) {
       const hi = pastTimes[p], lo = hi - COL_S;
       for (let i = arr.length - 1; i >= 0; i--) {

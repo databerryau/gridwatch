@@ -209,7 +209,7 @@ test('createDesk builds every §5 control id and each machine guard, with ARIA r
     assert.equal($(id).getAttribute('tabindex'), '0', id + ' focusable');
   }
   assert.equal($('key-agc').getAttribute('role'), 'switch');
-  assert.equal(desk.slots.stack.id, 'stack');
+  assert.equal(desk.slots.stack.id, 'stack-slot');
   for (const e of desk.el.querySelectorAll('button')) assert.ok(e.id || e.dataset.target || e.classList.contains('dk-tile') || e.classList.contains('dk-q'), 'button ids');
 });
 

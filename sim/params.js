@@ -21,7 +21,7 @@
 // 1a.0: Phase 1a (desk/README.md §3): the plan in state and its executor, the new plan, scope and
 // sync inputs, the K-12 synchroscope outcomes, DIRECT SHED gated on SHORT/SHEDDING, and N-1 over
 // both credible contingencies (A-2); par and the L-0 plan act through planLoad inputs.
-export const SIM_VERSION = 'v4-core-1a.0';
+export const SIM_VERSION = 'v4-core-1a.1';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);

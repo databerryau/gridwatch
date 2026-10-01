@@ -6,7 +6,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as grid from '../sim/grid.js';
 import {sampleSecond} from '../sim/weather.js';
-import {unitIndex, largestContingency, setBasePoint, tripUnit, setOfgsStage} from '../sim/fleet.js';
+import {unitIndex, largestContingency, setBasePoint, tripUnit, setOfgsStage, districtColdLoadMW} from '../sim/fleet.js';
 import {uniform, STREAM} from '../sim/rng.js';
 import {V} from '../sim/params.js';
 import {opening, commit, TPS} from './lib/sim-helpers.js';
@@ -22,6 +22,7 @@ function seconds(s, n, fHz = V.F0_HZ) {
     grid.agcSecond(s, out);
     grid.dispatchSecond(s, out);
     grid.fosSecond(s, out);
+    s.sec.r5MW = grid.security(s).r5MW; // R5 for the K-13 permissive (stage C: the reserve must carry a restore)
     for (const u of s.units) u.outMW = u.sync ? u.schedMW : 0;
     s.battery.outMW = s.battery.schedMW;
     s.tick += TPS;
@@ -260,12 +261,28 @@ test('K-13: the restore input refuses a district whose RESTORE PREVIEW dips belo
   const d = s.city.districts.findIndex(x => x.dark);
   s.tick += (V.COLD_LOAD_AFTER_S + 60) * TPS; // dark long enough for cold-load pickup
   s.last.fMeanHz = V.F0_HZ;
-  assert.equal(grid.restorePermissive(s, d), '', 'the lamp (frequency, interval) is lit');
+  s.sec.r5MW = 1e4; // test poke: reserve enough to carry it (the reserve rule has its own test)
+  assert.equal(grid.restorePermissive(s, d), '', 'the lamp (frequency, interval, reserve) is lit');
   const why = grid.restorePermissive(s, d, {preview: true});
   assert.match(why, /restore preview/);
   const before = JSON.stringify(s);
   assert.match(grid.applyCommand(s, {type: 'restore', district: s.city.districts[d].id}, []), /restore preview/);
   assert.equal(JSON.stringify(s), before, 'a refused restore (and its preview) changes nothing');
+});
+
+test('K-13 (stage C): the permissive also needs R5 to carry the district\'s cold-load MW; the lamp and the input agree', () => {
+  const s = opening(10);
+  directShed(s, []);
+  const d = s.city.districts.findIndex(x => x.dark);
+  seconds(s, 10, 50);
+  const cold = districtColdLoadMW(s, d);
+  assert.ok(s.sec.r5MW >= cold, 'the opening fleet carries it');
+  assert.equal(grid.restorePermissive(s, d), '');
+  s.sec.r5MW = cold - 1; // test poke: one MW short of carrying it for the next five minutes
+  assert.match(grid.restorePermissive(s, d), /not enough reserve to carry it/, 'the lamp');
+  const before = JSON.stringify(s);
+  assert.match(grid.applyCommand(s, {type: 'restore', district: s.city.districts[d].id}, []), /not enough reserve/, 'the input');
+  assert.equal(JSON.stringify(s), before);
 });
 
 test('K-13: a district dark > 10 min comes back with a 1.5x cold-load surge that decays over 10 min', () => {

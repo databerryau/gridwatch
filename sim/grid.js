@@ -1536,6 +1536,13 @@ export function restorePermissive(state, d, opts) {
   if (state.last.fMeanHz < RESTORE_MIN_HZ) return 'frequency below ' + RESTORE_MIN_HZ + ' Hz';
   const since = secondOf(state) - state.city.lastRestoreS;
   if (since < RESTORE_INTERVAL_S) return 'wait ' + minutes(RESTORE_INTERVAL_S - since) + ' min after the last restore';
+  // Stage C: the minutes as well as the seconds. The preview checks the pickup's first seconds;
+  // the load must also be carried after them, so R5 (5-minute headroom, H-4) must cover the
+  // district's cold-load MW. Without it a restore that passed the preview sank frequency over
+  // the next minute into a deeper UFLS stage (seed 20260930: restore, UFLS, restore... until all
+  // eight stages had operated and the next fall went black at 20:50).
+  const cold = fleet.districtColdLoadMW(state, d);
+  if (state.sec.r5MW < cold) return 'not enough reserve to carry it: ' + Math.round(state.sec.r5MW) + ' MW spare in 5 min for ' + Math.round(cold) + ' MW';
   if (opts && opts.preview) {
     const p = previewTrip(state, {kind: 'district', id: dist.id});
     if (p.nadirHz < RESTORE_NADIR) {
