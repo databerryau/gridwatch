@@ -281,7 +281,7 @@ export function createMap(doc, root, actions) {
   const frame = layer(BASE_H), skyL = layer(HORIZON_Y + 2), terrL = layer(BASE_H), cityL = layer(BASE_H), cloudA = layer(HORIZON_Y + 2), cloudB = layer(HORIZON_Y + 2);
   const g = frame.getContext('2d');
 
-  let vm = null, blocks = null, cityList = [], unitIdx = null, layout = null, hoverId = null, sentTarget = null, kbdIdx = -1, focused = false;
+  let vm = null, blocks = null, cityList = [], unitIdx = null, layout = null, hoverId = null, sentTarget = null, kbdIdx = -1, byKey = false, focused = false;
   let lastMs = 0, drawMs = 0, labels = [], labelsAt = -1e9, labelsKey = '', ariaAt = -1e9, ariaText = '';
   let lightKey = '', cityKey = '', watchSinceMs = -1, watchEndMs = -1e9, spotX = 0, spotY = 0, boltUntil = 0, boltNext = 0, boltX = 0;
   let skyCss = '#6a9fd0', groundCss = '#3f6b3a', hasClouds = false;
@@ -306,7 +306,6 @@ export function createMap(doc, root, actions) {
   for (const q of parts) if (q.p.k === 'stack' && q.p.band) stackTops.push(q.p.x + 1, q.p.y - q.p.h - 1);
   const towers = PLANT_PARTS.coal.filter(p => p.k === 'tower');
   const tiePylons = PLANT_PARTS.tie.filter(p => p.k === 'pylon');
-  const coalUnits = PLANTS.find(p => p.id === 'coal').machines.map(m => m.unit);
 
   // ------------------------------------------------------------ cached layers
 
@@ -520,7 +519,7 @@ export function createMap(doc, root, actions) {
       G.fillStyle = STEEL; G.fillRect(x - 4, y - 5, 1, 6); G.fillRect(x + 1, y - 5, 1, 6); G.fillRect(x - 4, y - 5, 6, 1);
     }
     // wires: trunks on medium pylons, a spur from each plant, the tie on tall pylons off the west edge
-    G.strokeStyle = 'rgba(22,26,32,0.85)'; G.lineWidth = 1; G.beginPath();
+    G.strokeStyle = 'rgba(22,26,32,0.72)'; G.lineWidth = 1; G.beginPath();
     for (const T of TRUNKS) for (let i = 0; i < T.length - 1; i++) {
       const hb = i + 1 === T.length - 1 ? 5 : PYLON_H * 0.84;
       wire(G, T[i][0] - 2, T[i][1] - PYLON_H * 0.84, T[i + 1][0] - 2, T[i + 1][1] - hb, 1.5);
@@ -530,8 +529,8 @@ export function createMap(doc, root, actions) {
       if (p.toEdge) {
         for (let i = 0; i < p.line.length - 1; i++) {
           const a = p.line[i], b = p.line[i + 1], ha = TIE_H, hb = i + 1 === p.line.length - 1 ? PYLON_H : TIE_H;
-          wire(G, a[0] - (i ? 4 : 0), a[1] - ha * 0.84, b[0] - 4, b[1] - hb * 0.84, 2);
-          wire(G, a[0] + (i ? 6 : 0), a[1] - ha * 0.66, b[0] + 6, b[1] - hb * 0.66, 2);
+          wire(G, a[0] - (i ? 4 : 0), a[1] - ha * 0.84, b[0] - 4, b[1] - hb * 0.84, 2.5);
+          wire(G, a[0] + (i ? 6 : 0), a[1] - ha * 0.66, b[0] + 6, b[1] - hb * 0.66, 2.5);
         }
       } else wire(G, p.line[0][0], p.line[0][1] - POLE_H, p.line[1][0], p.line[1][1] - PYLON_H * 0.75, 1);
     }
@@ -685,8 +684,8 @@ export function createMap(doc, root, actions) {
       for (const p of PLANTS) for (const mc of p.machines) {
         const u = unitOf(obs, mc.unit);
         if (!u || !!u.sync !== !!pass) continue;
-        const r = spin(mc.unit, u.sync ? ff : 0, dt), cx = Math.cos(r.a) * 2, sy = Math.sin(r.a);
-        g.moveTo(mc.x - cx, mc.y - sy); g.lineTo(mc.x + cx, mc.y + sy); g.moveTo(mc.x + sy * 2, mc.y - cx / 2); g.lineTo(mc.x - sy * 2, mc.y + cx / 2);
+        const r = spin(mc.unit, u.sync ? ff : 0, dt), cx = Math.cos(r.a) * 2, sn = Math.sin(r.a);
+        g.moveTo(mc.x - cx, mc.y - sn); g.lineTo(mc.x + cx, mc.y + sn); g.moveTo(mc.x + sn * 2, mc.y - cx / 2); g.lineTo(mc.x - sn * 2, mc.y + cx / 2);
         if (u.mode === 'tripped') { if (Math.random() < 0.5) emit(0, mc.x + Math.random(), mc.y - 1, drift * (0.6 + Math.random() * 0.5), -1.2 - Math.random(), 1); }
         else if (u.sync && mc.vent && Math.random() < 0.16 * (u.outMW / u.ratingMW)) emit(1, mc.vent[0], mc.vent[1], drift * (0.5 + Math.random() * 0.4), -0.8 - Math.random() * 0.5, 0.8);
         if (u.sync && p.id === 'coal') coalOn++;
@@ -1027,8 +1026,8 @@ export function createMap(doc, root, actions) {
     cv.style.cursor = id ? 'pointer' : 'default';
   }
 
-  cv.addEventListener('pointermove', ev => { const id = pick(baseAt(ev)); kbdIdx = KEY_ORDER.indexOf(id); setHover(id); });
-  cv.addEventListener('pointerleave', () => { if (kbdIdx < 0 || !focused) setHover(null); });
+  cv.addEventListener('pointermove', ev => { const id = pick(baseAt(ev)); if (id || !byKey) { byKey = false; kbdIdx = KEY_ORDER.indexOf(id); setHover(id); } });
+  cv.addEventListener('pointerleave', () => { if (!byKey) setHover(null); }); // a hover set by the keys stays until Esc or blur
 
   /**
    * K-23: the map's keys, when it has the focus: ←/→ step through the plants then the suburbs
@@ -1042,16 +1041,17 @@ export function createMap(doc, root, actions) {
     const k = ev.key, n = KEY_ORDER.length;
     if (k === 'ArrowRight' || k === 'ArrowLeft' || k === 'Home') {
       kbdIdx = k === 'Home' ? 0 : kbdIdx < 0 ? (k === 'ArrowRight' ? 0 : n - 1) : (kbdIdx + (k === 'ArrowRight' ? 1 : n - 1)) % n;
+      byKey = true;
       setHover(KEY_ORDER[kbdIdx]);
       return true;
     }
-    if (k === 'Escape') { kbdIdx = -1; setHover(null); if (el.blur) el.blur(); return true; }
+    if (k === 'Escape') { kbdIdx = -1; byKey = false; setHover(null); if (el.blur) el.blur(); return true; }
     return false;
   }
 
   el.addEventListener('keydown', ev => { if (key(ev)) { ev.preventDefault(); ev.stopPropagation(); } });
   el.addEventListener('focus', () => { focused = true; });
-  el.addEventListener('blur', () => { focused = false; if (kbdIdx >= 0) { kbdIdx = -1; setHover(null); } });
+  el.addEventListener('blur', () => { focused = false; if (byKey) { byKey = false; kbdIdx = -1; setHover(null); } });
 
   function update(v) {
     vm = v;
