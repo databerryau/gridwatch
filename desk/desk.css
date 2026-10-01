@@ -3,7 +3,10 @@
    panel heights per column below (flex ratios equal the floor pixels, so 300 px is exact).
    --dk-k (set by desk.js, 1..1.5) scales knobs and type up to the 1920×520 wide layout.
    Every control is at least 24×24 px (WCAG 2.5.8); tests/desk.test.js reads the sizes here.
-   Status is never colour-only: every lamp and tile also carries a glyph or letter (K-22). */
+   Status is never colour-only: every lamp and tile also carries a glyph or letter, and fills that
+   differ by state also differ by pattern or border (K-22, desk/README.md §13.4).
+   Reduced motion (§13.5) comes three ways and all three must agree: `body.rm` (the shell's
+   setting), `.dk-rm` (the desk's own class from vm.settings.reducedMotion) and the media query. */
 
 .dk {
   --dk-k: 1;
@@ -59,7 +62,8 @@
   cursor: pointer; padding: 0 4px; white-space: nowrap; }
 .dk-btn { min-width: 24px; min-height: 24px; }
 .dk-q { width: 24px; height: 24px; min-width: 24px; min-height: 24px; padding: 0; color: var(--dk-dim); flex: none; }
-.dk-btn.on, .dk-tab[aria-selected="true"] { background: #1f6feb33; border-color: var(--dk-blue); color: var(--dk-bright); }
+.dk-btn.on, .dk-tab[aria-selected="true"] { background: #1f6feb33; border-color: var(--dk-blue); color: var(--dk-bright);
+  border-bottom-width: 3px; }
 .dk-btn.lit { border-color: var(--dk-amber); color: var(--dk-bright); }
 .dk [aria-disabled="true"], .dk button:disabled { opacity: 0.45; cursor: default; }
 
@@ -95,8 +99,9 @@
 .dk-gbar-label { color: var(--dk-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dk-gbar-track { position: relative; height: 8px; background: var(--dk-panel2); border-radius: 2px; }
 .dk-gbar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--dk-green); border-radius: 2px; }
-.dk-gbar + .dk-gbar .dk-gbar-fill { background: var(--dk-orange); }
-.dk-gbar.short .dk-gbar-fill { background: var(--dk-red); }
+/* Not by colour alone: SPARE is solid, RISK is hatched, a SPARE short of the risk is cross-hatched. */
+.dk-gbar + .dk-gbar .dk-gbar-fill { background: repeating-linear-gradient(135deg, var(--dk-orange) 0 3px, #f0883e66 3px 6px); }
+.dk-gbar.short .dk-gbar-fill { background: repeating-linear-gradient(45deg, var(--dk-red) 0 2px, #f8514955 2px 4px); }
 .dk-gbar-mark { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--dk-bright); }
 .dk-gbar-val { font-family: var(--dk-mono); text-align: right; }
 .dk-preview { display: flex; align-items: center; gap: 4px; height: 24px; flex: none; }
@@ -133,6 +138,9 @@
   background: linear-gradient(#aab4c0, #6e7781); border: 1px solid #0008; transition: bottom 0.35s ease-out; }
 .dk-handle::after { content: ""; position: absolute; left: 3px; right: 3px; top: 11px; height: 2px; background: #0d1117; }
 .dk-lever-slot.moving .dk-handle { transition: none; }
+/* K-12: a rough close shakes the unit's lever (or the hydro wheel) for 0.6 s. */
+.dk-lever-slot.shake .dk-track, .dk-hydro.shake .dk-rot-face { animation: dk-shake 0.1s linear 6; }
+@keyframes dk-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
 .dk-lever-slot.hot .dk-handle { background: linear-gradient(#f0a0a0, #b04040); }
 .dk-lever-foot { height: 12px; flex: none; font: calc(8.5 * var(--u)) var(--dk-mono); display: flex; gap: 2px; white-space: nowrap; overflow: hidden; }
 .dk-rd-base { color: var(--dk-bright); } .dk-rd-sep { color: var(--dk-faint); } .dk-rd-out { color: var(--dk-orange); }
@@ -145,7 +153,7 @@
 .dk-mach.m-ready .dk-start { color: var(--dk-cyan); border-color: var(--dk-cyan); }
 .dk-mach.m-tripped .dk-start { color: var(--dk-red); }
 .dk-mach.m-off .dk-start { color: var(--dk-faint); }
-.dk-mach.hot .dk-start { background: #da363333; }
+.dk-mach.hot .dk-start { background: #da363333; border-style: dashed; }
 .dk-mach.offered { box-shadow: 0 0 0 2px var(--dk-cyan); }
 
 /* ---- column 2 bottom: hydro wheel, battery dial + GUARD ring, tie knob, keys */
@@ -234,12 +242,22 @@
 .dk-tile.s-alarm.p3 { background: #9a7a22aa; }
 .dk-tile.s-ackd { background: #da363366; color: var(--dk-bright); }
 .dk-tile.s-cleared { color: var(--dk-text); border-color: var(--dk-amber); }
-.dk-tile.flash-fast { animation: dk-flash 0.25s steps(2, jump-none) infinite; }
-.dk-tile.flash-slow { animation: dk-flash 1s steps(2, jump-none) infinite; }
+/* ISA-18.1 sequence R (§11 B-2): fast 2.5 Hz, slow 0.8 Hz, never above 3 Hz (WCAG 2.3.1). */
+.dk-tile.flash-fast { animation: dk-flash 0.4s steps(2, jump-none) infinite; }
+.dk-tile.flash-slow { animation: dk-flash 1.25s steps(2, jump-none) infinite; }
 @keyframes dk-flash { 0% { filter: brightness(1.6); } 100% { filter: brightness(0.6); } }
+/* B-1: an escalated tile (a P2 tile showing as P1) is double-bordered and bold, with ‼ in its glyph. */
+.dk-tile.esc { border-style: double; border-width: 3px; font-weight: 700; }
+/* Reduced motion: fast = 1 Hz, slow = steady (the ◇ glyph carries it); no shake; no handle glide. */
+body.rm .dk-tile.flash-fast, .dk-rm .dk-tile.flash-fast { animation-duration: 1s; }
+body.rm .dk-tile.flash-slow, .dk-rm .dk-tile.flash-slow { animation: none; }
+body.rm .dk-handle, .dk-rm .dk-handle { transition: none; }
+body.rm .dk .shake .dk-track, body.rm .dk .shake .dk-rot-face, .dk-rm .shake .dk-track, .dk-rm .shake .dk-rot-face { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .dk-tile.flash-fast { animation-duration: 0.5s; }   /* 2 Hz: never faster than 3 Hz (K-22) */
+  .dk-tile.flash-fast { animation-duration: 1s; }
+  .dk-tile.flash-slow { animation: none; }
   .dk-handle { transition: none; }
+  .dk .shake .dk-track, .dk .shake .dk-rot-face { animation: none; }
 }
 .dk-annun-side { display: flex; flex-direction: column; gap: 3px; }
 .dk-ack, .dk-silence { flex: 1 1 0; min-height: 24px; min-width: 24px; font-weight: 700; }

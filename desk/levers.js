@@ -8,15 +8,20 @@
 // Shift ±1, PgUp/PgDn next detent; crossing the gate needs 12 px of extra drag or Shift+↑.
 // An idle station's lever books its start through the plan (`planKey`, AGC mode, L-6).
 // One lamp per machine with its own START and STOP guards (lift, then press; S S / X X).
+// Foley (K-20): a hand move cues `detent` / `gate` / `ratchet`, a plan move cues `servo`; guards
+// cue `cover` (lift, drop) and `button` (the press that commits). A rough close shakes the lever.
 
 import {V} from '../sim/params.js';
 import {leverScale, nextDetent, rampCone, agcBandMW, stationUnits} from './calc.js';
 import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, clamp, fin, clockOf, mmss, unitLabel,
-  STATION_SHORT, LEVER_STATIONS, MODE_GLYPH, MODE_WORD} from './util.js';
+  STATION_SHORT, LEVER_STATIONS, MODE_GLYPH, MODE_WORD, PAN} from './util.js';
 
 export const GATE_PX = 12;          // K-1: extra drag past the spring gate
 export const DRAG_SEND_MS = 250;    // K-1: at most one basePoint per 250 ms while dragging
 export const KEY_STEP_MW = 10, KEY_FINE_MW = 1;
+export const HAND_MS = 500;         // K-20: no servo cue within 0.5 s of a hand move
+export const SERVO_MS = 250;        // K-20: at most one servo cue per lever per 0.25 s
+export const SHAKE_MS = 600;        // K-12: a rough close shakes the lever this long
 const HOT_RISK_TEXT = (V.HOT_TRIP_PER_H * 100).toFixed(1) + '%/h';
 
 const pct = (v, total) => (total > 0 ? clamp(fin(v) / total, 0, 1) * 100 : 0);
@@ -28,7 +33,7 @@ const pct = (v, total) => (total > 0 ? clamp(fin(v) / total, 0, 1) * 100 : 0);
  * on a READY unit it opens the synchroscope. STOP: lift, then press (cancels a start while
  * starting/ready); while unloading/shutdown it offers ABORT (one press, restores the unit).
  */
-export function createMachine(ctx, k) {
+export function createMachine(ctx, k, pan) {
   const doc = ctx.doc, m = V.MACHINES[k];
   const box = el(doc, 'div', 'dk-mach');
   box.dataset.unit = m.id;
@@ -37,7 +42,7 @@ export function createMachine(ctx, k) {
   const stop = el(doc, 'button', 'dk-guard dk-stop');
   stop.id = 'guard-stop-' + m.id; stop.type = 'button';
   box.append(start, stop);
-  let u = null, offered = false;
+  let u = null, offered = false, wasS = false, wasX = false;
 
   const startAction = () => (!u ? '' : u.mode === 'off' ? (u.startBlock ? '' : 'start') : u.mode === 'ready' ? 'scope' : '');
   const stopAction = () => {
@@ -61,10 +66,10 @@ export function createMachine(ctx, k) {
     if (!a) { ctx.note(box, why() || MODE_WORD[u ? u.mode : 'off']); return; }
     if (a === 'scope') {
       const r = ctx.send({type: 'scope', unit: m.id}, box);
-      if (!r) { if (offered) ctx.ui({do: 'offerTaken', unit: m.id}); ctx.showBay('sync'); }
+      if (!r) { ctx.cue('button', pan); if (offered) ctx.ui({do: 'offerTaken', unit: m.id}); ctx.showBay('sync'); }
       return;
     }
-    const res = ctx.guards.press(start.id, () => ctx.send({type: 'start', unit: m.id}, box));
+    const res = ctx.guards.press(start.id, () => { wasS = false; if (!ctx.send({type: 'start', unit: m.id}, box)) ctx.cue('button', pan); });
     if (res === 'lift') ctx.live(unitLabel(m.id) + ' START guard lifted: press again to start');
     render();
   }
@@ -72,8 +77,8 @@ export function createMachine(ctx, k) {
     if (ctx.locked()) return;
     const a = stopAction();
     if (!a) { ctx.note(box, why() || 'nothing to stop'); return; }
-    if (a === 'abort') { ctx.send({type: 'abortStop', unit: m.id}, box); return; }
-    const res = ctx.guards.press(stop.id, () => ctx.send({type: 'stop', unit: m.id}, box));
+    if (a === 'abort') { if (!ctx.send({type: 'abortStop', unit: m.id}, box)) ctx.cue('button', pan); return; }
+    const res = ctx.guards.press(stop.id, () => { wasX = false; if (!ctx.send({type: 'stop', unit: m.id}, box)) ctx.cue('button', pan); });
     if (res === 'lift') ctx.live(unitLabel(m.id) + (a === 'cancel' ? ' CANCEL START' : ' STOP') + ' guard lifted: press again');
     render();
   }
@@ -84,6 +89,11 @@ export function createMachine(ctx, k) {
     if (!u) return;
     const sa = startAction(), so = stopAction();
     const upS = ctx.guards.lifted(start.id), upX = ctx.guards.lifted(stop.id);
+    // A guard lifting, or dropping unused after 2 s, clicks (a commit has its own button cue).
+    if (upS !== wasS) { wasS = upS; ctx.cue('cover', pan); }
+    if (upX !== wasX) { wasX = upX; ctx.cue('cover', pan); }
+    setAttr(start, 'aria-pressed', upS ? 'true' : 'false');
+    setAttr(stop, 'aria-pressed', upX ? 'true' : 'false');
     setAttr(box, 'class', 'dk-mach m-' + u.mode + (u.hotS > 0 ? ' hot' : '') + (offered ? ' offered' : ''));
     setText(start, upS ? '▲?' : (MODE_GLYPH[u.mode] || '?') + m.j);
     setText(stop, upX ? '▼?' : so === 'abort' ? '↺' : so ? '■' : '·');
@@ -92,8 +102,11 @@ export function createMachine(ctx, k) {
     setAttr(start, 'aria-disabled', sa ? 'false' : 'true');
     setAttr(stop, 'aria-disabled', so ? 'false' : 'true');
     const name = unitLabel(m.id), w = why();
-    setAttr(start, 'aria-label', name + ' ' + MODE_WORD[u.mode] + ': ' + (sa === 'start' ? 'START (guarded)' : sa === 'scope' ? 'open synchroscope' : 'no start'));
-    setAttr(stop, 'aria-label', name + ': ' + (so === 'abort' ? 'ABORT STOP' : so === 'cancel' ? 'CANCEL START (guarded)' : so ? 'STOP (guarded)' : 'no stop'));
+    const hot = u.hotS > 0 ? ', RUNNING HOT ' + mmss(u.hotS) : '';
+    setAttr(start, 'aria-label', name + ' ' + MODE_WORD[u.mode] + hot + ': ' + (upS ? 'START guard lifted, press again to start' :
+      sa === 'start' ? 'START (guarded: press twice within 2 s)' : sa === 'scope' ? 'open synchroscope' : 'no start' + (w ? ', ' + w : '')));
+    setAttr(stop, 'aria-label', name + ': ' + (upX ? 'guard lifted, press again' : so === 'abort' ? 'ABORT STOP' :
+      so === 'cancel' ? 'CANCEL START (guarded: press twice within 2 s)' : so ? 'STOP (guarded: press twice within 2 s)' : 'no stop'));
     setAttr(box, 'title', name + ' · ' + MODE_WORD[u.mode] + (u.sync ? ' · ' + mw(u.outMW) + ' MW' : '') +
       (u.hotS > 0 ? ' · RUNNING HOT ' + mmss(u.hotS) + ' (trip risk ' + HOT_RISK_TEXT + ' once armed)' : '') + (w ? ' · ' + w : ''));
   }
@@ -137,8 +150,10 @@ function createLever(ctx, sid, parent) {
   man.setAttribute('aria-label', STATION_SHORT[sid] + ' MAN lamp: double-click or P to resume the plan, Shift+P to keep');
   head.append(name, man);
   const body = el(doc, 'div', 'dk-lever-body');
+  const pan = PAN[sid];
   const track = control(doc, 'div', 'dk-track', 'slider', 'lever-' + sid, STATION_SHORT[sid] + ' lever');
   setAttr(track, 'aria-orientation', 'vertical');
+  setAttr(track, 'aria-keyshortcuts', String(LEVER_STATIONS.indexOf(sid) + 1));
   const off = el(doc, 'div', 'dk-offzone'), gate = el(doc, 'div', 'dk-gatezone'), gateLbl = el(doc, 'span', 'dk-gate-label');
   gate.appendChild(gateLbl);
   const cone = el(doc, 'div', 'dk-cone'), band = el(doc, 'div', 'dk-band'), ticks = el(doc, 'div', 'dk-ticks');
@@ -147,7 +162,7 @@ function createLever(ctx, sid, parent) {
   const machCol = el(doc, 'div', 'dk-machs');
   const st = V.STATIONS[sid];
   const machines = [];
-  for (let k = st.first; k < st.first + st.count; k++) { const m = createMachine(ctx, k); machines.push(m); machCol.appendChild(m.el); }
+  for (let k = st.first; k < st.first + st.count; k++) { const m = createMachine(ctx, k, pan); machines.push(m); machCol.appendChild(m.el); }
   body.append(track, machCol);
   const foot = el(doc, 'div', 'dk-lever-foot');
   const rBase = el(doc, 'span', 'dk-rd-base'), rOut = el(doc, 'span', 'dk-rd-out');
@@ -161,6 +176,11 @@ function createLever(ctx, sid, parent) {
   let drag = null;            // {crossed, t0, lastSendT, lastSent, v}
   let pending = null;         // {v, t} key moves not yet sent
   let shown = null;           // {v, afterTick, frames} value sent, shown until a later tick (or the second frame) arrives
+  // Foley state: the base point last frame (a change the hand did not make is the plan's servo),
+  // when the hand last moved the lever, the last servo cue, and the rough-close shake's end.
+  let prevBase = null, handT = -1e12, servoT = -1e12, shakeUntil = -1;
+  const feelSt = {};
+  const feel = (a, b) => { handT = ctx.now(); ctx.feel(feelSt, Math.round(a), Math.round(b), sc.detents, gateOn() ? sc.gateMW : null, pan); };
 
   const obs = () => vm.obs;
   const stationObs = () => obs().stations.find(x => x.id === sid);
@@ -178,6 +198,7 @@ function createLever(ctx, sid, parent) {
     else if (o.mode === 'AGC') r = ctx.send({type: 'planKey', station: sid, atS: o.s, mw: x}, slot);
     else { ctx.note(slot, 'no machine on: START one first'); r = 'no machine on'; }
     shown = r ? null : {v: sc.onCount > 0 ? x : baseNow(), afterTick: o.tick, frames: 0};
+    handT = ctx.now();
     if (!r) ctx.live(STATION_SHORT[sid] + ' ' + x + ' MW');
     return r;
   }
@@ -197,7 +218,9 @@ function createLever(ctx, sid, parent) {
         if (gateY - y >= GATE_PX) drag.crossed = true; else v = sc.gateMW;
       } else if (drag.crossed && v <= sc.gateMW) drag.crossed = false;
     }
+    const was = drag.v;
     drag.v = Math.round(v);
+    feel(was, drag.v);
   }
   track.addEventListener('pointerdown', ev => {
     if (!vm || ctx.locked()) return;
@@ -234,6 +257,9 @@ function createLever(ctx, sid, parent) {
   track.addEventListener('lostpointercapture', release);
   slot.addEventListener('pointerenter', () => ctx.ui({do: 'hover', target: 'lever-' + sid}));
   slot.addEventListener('pointerleave', () => ctx.ui({do: 'hover', target: null}));
+  // The same cross-highlight for the keyboard (K-23: nothing hover-only).
+  track.addEventListener('focus', () => ctx.ui({do: 'hover', target: 'lever-' + sid}));
+  track.addEventListener('blur', () => ctx.ui({do: 'hover', target: null}));
 
   // ---- keyboard (K-23): ↑↓ ±10, Shift ±1 (and crosses the gate), PgUp/PgDn detents, Home/End
   track.addEventListener('keydown', ev => {
@@ -252,6 +278,7 @@ function createLever(ctx, sid, parent) {
     // The spring gate: only Shift+↑ crosses it (K-1).
     if (gateOn() && v <= sc.gateMW && t > sc.gateMW && !(up && ev.shiftKey)) t = sc.gateMW;
     t = Math.round(clamp(t, lo, hi));
+    feel(v, t);
     pending = {v: t, t: pending ? pending.t : ctx.now()};
     render();
   });
@@ -272,7 +299,7 @@ function createLever(ctx, sid, parent) {
     if (!vm || ctx.locked()) return;
     const p = planOf();
     if (!p || !p.man) { ctx.note(slot, obs().mode === 'HAND' ? 'following the plan' : 'AGC: levers always follow the plan'); return; }
-    ctx.send({type: 'planRejoin', station: sid, keep: !!keep}, slot);
+    if (!ctx.send({type: 'planRejoin', station: sid, keep: !!keep}, slot)) ctx.cue('button', pan);
   }
   man.addEventListener('dblclick', ev => rejoin(ev.shiftKey));
   man.addEventListener('click', () => { if (vm && planOf() && planOf().man) ctx.note(slot, 'double-click or P: RESUME PLAN · Shift+P: KEEP'); });
@@ -320,7 +347,7 @@ function createLever(ctx, sid, parent) {
     const hotS = Math.max(0, ...units.map(u => fin(u.hotS)));
     const armed = hotS >= V.HOT_ARM_S;
     setCls(slot, 'hot', hotS > 0 || (gOn && v > sc.gateMW));
-    setText(gateLbl, hotS > 0 ? (armed ? '✕ ' + HOT_RISK_TEXT : '! ' + mmss(V.HOT_ARM_S - hotS)) : '96%');
+    setText(gateLbl, hotS > 0 ? (armed ? '✕ ' + HOT_RISK_TEXT : '! ' + mmss(V.HOT_ARM_S - hotS)) : gOn && v > sc.gateMW ? '! >96%' : '96%');
     setAttr(gate, 'title', 'Spring gate at 96% of available: above it a machine runs hot; after ' + V.HOT_ARM_S / 60 +
       ' min hot it may trip (≈' + HOT_RISK_TEXT + ')' + (hotS > 0 ? ' · hot ' + mmss(hotS) : ''));
     // HAND: MAN lamp; AGC: hidden (no MAN state in AGC, K-2).
@@ -333,13 +360,16 @@ function createLever(ctx, sid, parent) {
     setCls(slot, 'moving', !!(drag || pending));
     setCls(slot, 'glow', !!(vm.glow && vm.glow.has('lever-' + sid)));
     setCls(slot, 'hover', vm.hover === 'lever-' + sid);
+    setCls(slot, 'shake', ctx.now() < shakeUntil && !ctx.rm());
     setText(rBase, mw(v));
     setText(rOut, mw(so.outMW));
     setAttr(track, 'aria-valuemin', 0);
     setAttr(track, 'aria-valuemax', T);
     setAttr(track, 'aria-valuenow', Math.round(v));
-    setAttr(track, 'aria-valuetext', STATION_SHORT[sid] + ' base ' + mw(v) + ' MW, output ' + mw(so.outMW) + ' MW, ' +
-      so.onCount + ' of ' + st.count + ' on' + (so.onCount ? ', ' + mw(sc.minMW) + '–' + mw(sc.maxMW) + ' MW' : ''));
+    setAttr(track, 'aria-valuetext', STATION_SHORT[sid] + ' base point ' + mw(v) + ' MW, output ' + mw(so.outMW) + ' MW, ' +
+      so.onCount + ' of ' + st.count + ' on' + (so.onCount ? ', ' + mw(sc.minMW) + '–' + mw(sc.maxMW) + ' MW' : '') +
+      (nk ? ', plan ' + mw(nk.mw) + ' MW by ' + clockOf(nk.atS) : '') + (p && p.man ? ', MAN: off the plan' : '') +
+      (hotS > 0 ? ', running hot ' + mmss(hotS) + (armed ? ', trip risk ' + HOT_RISK_TEXT : '') : gOn && v > sc.gateMW ? ', above the 96% gate' : ''));
     setAttr(track, 'aria-disabled', ctx.locked() ? 'true' : 'false');
   }
 
@@ -351,6 +381,13 @@ function createLever(ctx, sid, parent) {
       if (shown && (v.obs.tick > shown.afterTick || ++shown.frames >= 2)) shown = null;
       if (pending && ctx.now() - pending.t >= DRAG_SEND_MS && !ctx.locked()) flush();
       if (ctx.locked()) { drag = null; pending = null; }
+      // K-20 servo: the handle moved and no hand moved it (the plan did, L-6).
+      const b = Math.round(baseNow()), t = ctx.now();
+      if (prevBase !== null && b !== prevBase && !drag && !pending && !shown && t - handT >= HAND_MS && t - servoT >= SERVO_MS) {
+        servoT = t;
+        ctx.cue('servo', pan);
+      }
+      prevBase = b;
       for (const m of machines) m.update(v);
       render();
     },
@@ -358,6 +395,8 @@ function createLever(ctx, sid, parent) {
       if (k === 'p') { rejoin(shift); return true; }
       return stationKey(machines, k);
     },
+    /** K-12: a rough close on one of this station's machines (no shake under reduced motion). */
+    shake() { shakeUntil = ctx.now() + SHAKE_MS; },
   };
 }
 
@@ -377,5 +416,6 @@ export function createLevers(ctx, parent) {
       const l = levers.find(x => x.sid === slot.dataset.station);
       return l ? l.key(k, shift) : false;
     },
+    shake(sid) { const l = levers.find(x => x.sid === sid); if (l) l.shake(); },
   };
 }
