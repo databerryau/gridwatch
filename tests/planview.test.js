@@ -330,6 +330,16 @@ test('C-11: proj.surplusMW is must-run + wind and solar after the LIMIT - (P50 +
   for (let k = 0; k < Pc.n; k++) assert.ok(Math.abs(Pc.surplusMW[k] - (deepMW(k) - Pc.charging[k])) < 1e-6, 'charge at column ' + k + ': ' + Pc.surplusMW[k]);
   assert.ok(Math.abs(Pc.surplusMW[3] - (deepMW(3) - 200)) < 1e-6 && Pc.surplusMW[3] > 500 && Pc.blue[3] === 1, 'the order takes 200 MW of the spill: ' + Pc.surplusMW[3]);
   assert.ok(Math.abs(Pc.surplusMW[Pc.n - 1] - deepMW(Pc.n - 1)) < 1e-6, 'the whole spill again once the battery is full');
+  // a battery ordered to DISCHARGE and demand response called both add to the spill, MW for MW, for as
+  // long as the projection has them running (the wave-2 merge: the sim's cut counts both)
+  const dis = bellyOf(await evening(), {p50: DEEP, edit: o => Object.assign(o.battery, {mode: 'discharge', orderMW: 200, schedMW: 200, outMW: 200, socMWh: o.battery.capMWh})});
+  const Pd = PV.project(dis), batt = Pd.layers.find(L => L.id === 'battery').mw;
+  assert.ok(Math.abs(batt[0] - 200) < 1e-6 && Math.abs(batt[10] - 200) < 1e-6, 'the fixture: discharging 200 MW');
+  for (let k = 0; k < Pd.n; k++) assert.ok(Math.abs(Pd.surplusMW[k] - (deepMW(k) + batt[k])) < 1e-6, 'discharge at column ' + k + ': ' + Pd.surplusMW[k]);
+  const dr = bellyOf(await evening(), {p50: DEEP, edit: o => Object.assign(o.dr, {activeS: 1800, mw: V.DR_MW})});
+  const Pdr = PV.project(dr), drMW = Pdr.layers.find(L => L.id === 'dr').mw;
+  assert.ok(drMW[0] > 300 && drMW[Pdr.n - 1] === 0, 'the fixture: DR running for half an hour, then released');
+  for (let k = 0; k < Pdr.n; k++) assert.ok(Math.abs(Pdr.surplusMW[k] - (deepMW(k) + drMW[k])) < 1e-6, 'DR at column ' + k + ': ' + Pdr.surplusMW[k]);
   // a charge bigger than the spill leaves none (floored at 0, never negative) and no blue: the flat belly
   // spills 20 MW at column 13 and 200 MW by column 20; an empty battery charging 200 MW takes all of it until then
   const big = bellyOf(await evening(), {edit: o => Object.assign(o.battery, {mode: 'charge', orderMW: 200, socMWh: 0})});

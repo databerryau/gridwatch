@@ -360,7 +360,9 @@ export function project(obs, opts = {}) {
     deficit[q] = fc.demandP50[q] - supply[q];
     gap[q] = supply[q] < fc.demandP50[q] - 0.5 ? 'red' : supply[q] < fc.demandP90[q] - 0.5 ? 'amber' : '';
     const room = tieDown[q] ? 0 : fc.exportLimitMW ? fc.exportLimitMW[q] : V.TIE_MAX_MW;
-    const spill = floorOut[q] + rertOut[q] + wind[q] + solar[q] - (fc.demandP50[q] + room + battChg[q]);
+    // DR called and a battery ordered to DISCHARGE both push supply onto a grid that is already
+    // full, and the sim's cut counts them (measured 350 and 200 MW low without these two terms).
+    const spill = floorOut[q] + rertOut[q] + wind[q] + solar[q] + drOut[q] + battDis[q] - (fc.demandP50[q] + room + battChg[q]);
     surplusMW[q] = spill > 0 ? spill : 0;
     blue[q] = surplusMW[q] > V.SURPLUS_MIN_MW ? 1 : 0;
   }
