@@ -17,8 +17,8 @@
 //        focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
 //        target}); vm.hover rings the plant back.
 //   G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
-//        west and down at the scenario's 19:48; long warm light and long shadows at sunset;
-//        lit windows at night, as many as the city is using (underlying demand). Rooftop PV
+//        west; long warm light and long shadows at sunset; lit windows at night, as many as
+//        the city is using (underlying demand). Rooftop PV
 //        (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
 //        layer, cached) and a glint on them each frame: per suburb, as bright as its output
 //        over its capacity (cloud dims it) and as the light; never on a dark district, on a
@@ -50,13 +50,16 @@ const STROBE_MS = 500;        // half period: 1 Hz
 const STROBE_RM_MS = 1000;    // reduced motion: 0.5 Hz (§13.5: <= 1 Hz)
 const SPOT_MS = 600;          // B-5: the watch spotlight eases in over 0.6 s
 const SPOT_R = 44;            // its radius, base px
-// The light (G-3): it eases over two hours around each of these, so the sky is half way down
-// at 18:48 (G-3 accept: in sunset) and dark at 19:48, as the P-2 rooftop curve's tail is.
+// The sun (G-3). These are the middle of the two-hour ease of the light at each end of the
+// day: the sky is in sunset at 18:48 (G-3 accept), in dusk through the evening neck, and the
+// light is gone at 19:48, which is the scenario's own sunset (content/scenarios.js sun.setH
+// 19.8) and the end of the P-2 rooftop curve. The disc is drawn against that light: it meets
+// the horizon at 18:48 and is gone by 19:12, an hour before the scenario's geometric sunset.
+// Phase 2a looked at moving the disc to 19:48 and left it (desk/README.md §21.5): the stars
+// come out from about 19:00, so a disc on the horizon until 19:48 sits under them, and moving
+// the whole light an hour later takes dusk off the evening neck (G-3). What follows the sun
+// here follows the light, not the disc: the rooftop glint is under one alpha step by 19:05.
 const SUNRISE_H = 6.3, SUNSET_H = 18.8;
-// The sun disc and the shadows follow the scenario's sun (content/scenarios.js sun: riseH 6.2,
-// setH 19.8, the hours of the P-2 curve): on the horizon at 19:48, when the light is gone and
-// the last panel stops. The map reads no scenario; until Y-9 every daily is this late-summer day.
-const SUN_RISE_H = 6.2, SUN_SET_H = 19.8;
 /** Rooftop MW in the text alternative, to this step (it is re-read at most once a second, K-23). */
 const ROOF_SAY_MW = 50;
 const LABEL_FONT = '600 10px system-ui, -apple-system, "Segoe UI", sans-serif';
@@ -161,7 +164,6 @@ function lightAt(h, L) {
   const t = q / 8;
   lerp3(a[1], b[1], t, L.top); lerp3(a[2], b[2], t, L.bot); lerp3(a[3], b[3], t, L.tint);
   L.tint[3] = a[3][3] + (b[3][3] - a[3][3]) * t;
-  L.hq = flat ? h : a[0] + (b[0] - a[0]) * t; // the hour this bucket stands for (the clock's, where the light is steady)
   return i * 16 + q;
 }
 
@@ -310,7 +312,7 @@ export function createMap(doc, root, actions) {
   let lastMs = 0, drawMs = 0, labels = [], labelsAt = -1e9, labelsKey = '', ariaAt = -1e9, ariaText = '';
   let lightKey = '', cityKey = '', watchSinceMs = -1, watchEndMs = -1e9, spotX = 0, spotY = 0, boltUntil = 0, boltNext = 0, boltX = 0;
   let skyCss = '#6a9fd0', groundCss = '#3f6b3a', hasClouds = false;
-  const L = {top: [0, 0, 0], bot: [0, 0, 0], tint: [0, 0, 0, 0], hq: 12};
+  const L = {top: [0, 0, 0], bot: [0, 0, 0], tint: [0, 0, 0, 0]};
   const darkState = new Map();   // district id -> {dark, sinceMs, off}
   const rotor = new Map();       // machine id / 'wT<i>' -> {a, v}
   // particles (smoke, steam): a fixed pool, no allocation per frame
@@ -1046,17 +1048,13 @@ export function createMap(doc, root, actions) {
     const sun = sunAmount(h), night = 1 - sun, wx = weatherOf(obs);
     fx.sky = skyState(h); fx.heat = wx.heat; fx.storm = wx.storm; fx.cloud = wx.cloud;
     // the sun: east (right) at dawn to west (left) at sunset; shadows fall away from it
-    const st = (h - SUN_RISE_H) / (SUN_SET_H - SUN_RISE_H), elev = Math.sin(Math.PI * clamp01(st));
+    const st = (h - SUNRISE_H) / (SUNSET_H - SUNRISE_H), elev = Math.sin(Math.PI * clamp01(st));
     const sunUp = st > -0.03 && st < 1.03;
     fx.sunUp = sunUp; fx.sunX = 612 - 584 * st; fx.sunY = HORIZON_Y - 6 - elev * 5;
-    // Shadows lengthen as the sun sinks. Through dawn and dusk they take the sun's height at the
-    // light bucket's hour, so they move when the light does and cost no layer redraw of their own.
-    const lb = lightAt(h, L);
-    const stS = (L.hq - SUN_RISE_H) / (SUN_SET_H - SUN_RISE_H), elevS = Math.sin(Math.PI * clamp01(stS));
-    const shLen = sunUp ? Math.max(0.3, Math.min(1.7, 0.3 / Math.max(elevS, 0.12))) : 0;
-    const shQ = sunUp ? Math.round(shLen * 3) * (stS < 0.5 ? -1 : 1) : 0;
+    const shLen = sunUp ? Math.max(0.3, Math.min(1.7, 0.3 / Math.max(elev, 0.12))) : 0;
+    const shQ = sunUp ? Math.round(shLen * 3) * (st < 0.5 ? -1 : 1) : 0;
     WX.heat = wx.heat; WX.stormB = Math.round(wx.storm * 4); WX.cloudB = Math.round(wx.cloud * 3);
-    const lk = lb + '|' + shQ + '|' + (WX.heat ? 1 : 0) + WX.stormB + WX.cloudB;
+    const lk = lightAt(h, L) + '|' + shQ + '|' + (WX.heat ? 1 : 0) + WX.stormB + WX.cloudB;
     SH.x = shQ / 3 * 0.9; SH.y = Math.abs(shQ) / 3 * 0.28; SH.a = sunUp ? 0.26 * sun * (1 - 0.25 * WX.stormB) * (1 - 0.2 * WX.cloudB) : 0;
     const sig = districtsFrame(obs, nowMs);
     // night windows follow what the city is using: underlying demand, not the grid's net of rooftop (Phase 2a)

@@ -110,6 +110,8 @@ export function makeConsider(now, guards, send) {
   return {
     hover(id, on) { if (on) hover = id; else if (hover === id) hover = null; resolve(); },
     focus(id, on) { if (on) focus = id; else if (focus === id) focus = null; resolve(); },
+    /** The focused guard as the document has it (null: none), set every frame: a window that is not the active one sends no focus events. */
+    focusIs(id) { focus = id; },
     /** The guard's cover went up (the first press). byKey: by S / X on its lever. */
     lift(id, byKey) { drop(id); lifts.push({id, at: now(), byKey: !!byKey}); if (held.id === id) held.id = null; resolve(); },
     /** The second press: the input was sent. A commit counts as a drop, and ends a key hold on that guard. */
@@ -253,7 +255,11 @@ export function createDesk(doc, root, actions, opts = {}) {
       desk.style.setProperty('--dk-k', k.toFixed(3));
     }
     ctx.guards.expire();
-    ctx.consider.tick();   // C-10: a cover that dropped by itself changes what is being considered
+    // C-10: the focused guard is read from the document as well as heard from its events; a cover
+    // that dropped by itself changes what is being considered
+    const ae = doc.activeElement;
+    ctx.consider.focusIs(ae && ae.classList && ae.classList.contains('dk-guard') && desk.contains(ae) ? ae.id : null);
+    ctx.consider.tick();
     ctx.holds.tick();
     for (const [host, n] of notes) if (nowFn() > n.until && !n.span.hidden) n.span.hidden = true;
     setCls(desk, 'dk-locked', locked());

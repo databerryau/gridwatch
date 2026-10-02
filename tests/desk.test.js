@@ -1380,6 +1380,14 @@ test('C-10 consider: the desk names the guard being considered: lifted, then foc
   assert.equal(considers(a).at(-1), other);
   $(other).blur();
   assert.equal(considers(a).at(-1), null);
+  // a window that is not the active one sends no focus events: the desk also reads the focused guard each frame
+  const doc = $(gx).ownerDocument;
+  doc.activeElement = $(gx);
+  desk.update(at(vm, 3600));
+  assert.equal(considers(a).at(-1), gx);
+  doc.activeElement = $('lever-coal');
+  desk.update(at(vm, 3700));
+  assert.equal(considers(a).at(-1), null, 'a lever is not a guard');
   // sent only when the resolved target changes: no two the same in a row, over all of the above and idle frames
   const n = considers(a).length;
   for (let t = 4000; t < 9000; t += 16) desk.update(at(vm, t));

@@ -59,8 +59,8 @@ const BIG_FONT = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
 export const SURPLUS_MIN_PX = 4;
 /** L-2: rooftop under this many MW is not drawn (night; the CLASSIC scenario has none). */
 const ROOF_MIN_MW = 1;
-const ROOF_HATCH_PX = 7;
-const ROOF_HATCH = 'rgba(241,211,92,0.55)', SILHOUETTE = 'rgba(230,237,243,0.45)';
+const ROOF_HATCH_PX = 9;
+const ROOF_HATCH = 'rgba(241,211,92,0.32)', SILHOUETTE = 'rgba(230,237,243,0.5)';
 const NAMES = {coal: 'COAL', ccgt: 'CCGT', gta: 'GT·A', gtb: 'GT·B', gtc: 'GT·C', hydro: 'HYDRO', wind: 'WIND', solar: 'SOLAR',
   tie: 'TIE', battery: 'BATTERY', rert: 'DIESEL', dr: 'DR'};
 

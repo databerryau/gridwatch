@@ -198,25 +198,15 @@ test('G-3: skyState is night, dawn, day, sunset, dusk by the hour, and 18:48 is 
   assert.deepEqual(seq, ['night', 'dawn', 'day', 'sunset', 'dusk', 'night']);
 });
 
-test('G-3: the sun crosses the sky east to west, is low in the west at 18:48 and on the horizon at the scenario\'s sunset (19:48), and the light is cached in buckets', async () => {
+test('G-3: the sun crosses the sky east to west, sits on the western horizon at sunset, and the light is cached in buckets', async () => {
   const {map, doc} = mount(1280, 268);
   const at = async h => { const vm = await wxVm({h}); map.update(vm); return {...map.debug.fx}; };
-  const am = await at(8), noon = await at(12.5), pm = await at(17), set = await at(18.8), down = await at(19.75), gone = await at(20.3), night = await at(23);
-  assert.ok(am.sunUp && noon.sunUp && pm.sunUp && set.sunUp && down.sunUp && !gone.sunUp && !night.sunUp);
-  assert.ok(am.sunX > noon.sunX && noon.sunX > pm.sunX && pm.sunX > set.sunX && set.sunX > down.sunX, 'east (right) to west (left)');
-  assert.ok(noon.sunY < am.sunY && noon.sunY < pm.sunY && pm.sunY < set.sunY && set.sunY < down.sunY, 'highest at midday, sinking through the evening');
-  // Phase 2a: the disc keeps the scenario's sun hours (06:12 to 19:48, the P-2 rooftop curve), so
-  // it is still up while the panels still make power; before, it sat on the horizon at 18:48 and
-  // was gone by 19:12 with the solar farm at a seventh of its noon output.
-  assert.equal(set.sky, 'sunset', 'G-3 accept: at 18:48 the sky is in sunset');
-  assert.ok(set.sunX < 100, 'low in the west at 18:48: x ' + set.sunX.toFixed(0));
-  assert.ok(down.sunX < 60 && down.sunY <= D.HORIZON_Y && down.sunY >= D.SAFE.y, 'on the western horizon at 19:45, inside the rows the floor shows');
-  const {DESK, CLASSIC} = await import('../content/scenarios.js');
-  for (const scn of [DESK, CLASSIC]) {
-    assert.equal(scn.sun.setH, 19.8, 'the scenario\'s sunset the map\'s disc is set to');
-    assert.equal(scn.sun.riseH, 6.2);
-  }
-  assert.ok(Math.abs(down.sunX - (612 - 584 * (19.75 - 6.2) / (19.8 - 6.2))) < 1e-9, 'the disc\'s path spans the scenario\'s sun hours');
+  const am = await at(8), noon = await at(12.5), pm = await at(17), set = await at(18.8), night = await at(23);
+  assert.ok(am.sunUp && noon.sunUp && pm.sunUp && set.sunUp && !night.sunUp);
+  assert.ok(am.sunX > noon.sunX && noon.sunX > pm.sunX && pm.sunX > set.sunX, 'east (right) to west (left)');
+  assert.ok(noon.sunY < am.sunY && noon.sunY < pm.sunY, 'highest at midday');
+  assert.ok(set.sunX < 60 && set.sunY <= D.HORIZON_Y && set.sunY >= D.SAFE.y, 'on the western horizon, inside the rows the floor shows');
+  assert.equal(set.sky, 'sunset');
   assert.ok(D.HORIZON_Y - D.SAFE.y >= 10, 'the 1280x600 floor still shows a strip of sky');
   // a still scene costs no layer redraws; an hour of daylight costs none either
   const vm = await wxVm({h: 11});
@@ -658,12 +648,16 @@ test('G-3 (2a): the glint is one path and one fill per suburb, as bright as its 
   vm.frame.nowMs += 16; map.update(vm);
   assert.ok(Math.abs(roof.alpha[j] - a0 / 2) < 1e-6, 'half the output, half the glint');
   others.forEach((a, i) => { if (i !== j) assert.equal(roof.alpha[i], a); });
-  // graded by the light: half at 18:48 (the sky in sunset), gone when the light is
+  // graded by the light: half at 18:48 (the sky in sunset), gone when the light is, which is
+  // the scenario's sunset (19:48, the end of the P-2 curve), whatever the view says the roofs make
   const sol = D.SUBURBS.findIndex(sb => sb.id === 'SOL'), aNoon = roof.alpha[sol];
   vm.obs.clock.h = 18.8; vm.frame.nowMs += 16; map.update(vm);
   assert.ok(Math.abs(roof.alpha[sol] - aNoon / 2) < 1e-6, 'the same output in half the light: ' + roof.alpha[sol] + ' of ' + aNoon);
-  vm.obs.clock.h = 21; vm.frame.nowMs += 16; map.update(vm);
-  assert.deepEqual([Array.from(roof.alpha), Array.from(roof.on), map.debug.fx.glint], [[0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 0]);
+  for (const h of [19.8, 21, 3]) {
+    vm.obs.clock.h = h; vm.frame.nowMs += 16; map.update(vm);
+    assert.deepEqual([Array.from(roof.alpha), Array.from(roof.on), map.debug.fx.glint], [[0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 0], 'h = ' + h);
+  }
+  assert.equal(DESK_WEEKEND.sun.setH, 19.8);
   // mid-day: output, cloud and the clock move; nothing cached is redrawn and nothing is searched
   vm.obs.clock.h = 11; vm.frame.nowMs += 16; map.update(vm);
   const r0 = {...map.debug.rebuilds};
