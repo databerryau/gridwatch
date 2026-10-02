@@ -6,7 +6,9 @@
 //
 // The unit tests poke real observations: one followed MILD morning (seed 8 to 13:00) is run
 // once, and the observation behind each kind of line is kept (a deep copy) for the tests to
-// change one thing at a time. The accepts of §21.4 over the 11 seeds x 2 scenarios are slow-only.
+// change one thing at a time. The accepts of §21.4 over the 11 seeds x 2 scenarios are slow-only
+// (about 4 minutes for a to i without f; f re-runs a day per STOP, about 11 minutes, and is a TODO:
+// it fails as written, see its reason).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createState, step, observe, applyInput, replay, hashState} from '../sim/step.js';
@@ -736,7 +738,7 @@ for (const scn of [DESK, DESK_WEEKEND]) {
   });
 }
 
-test('§21.4 accept f (slow): each quoted STOP saving against the same day with that one STOP skipped', {...slowOnly(), todo: 'f fails as written: a skipped STOP freezes the queue of later STOPs and moves the sim\'s trip target (measured; see the wave-3 report)'}, t => {
+test('§21.4 accept f (slow): each quoted STOP saving against the same day with that one STOP skipped', {...slowOnly(), todo: 'f fails as written (45 of 155 at wave 3): skipping one STOP also forgoes every later STOP of its queue, so the realised figure is the queue\'s; and a morning STOP is worth +-$100k by where the day\'s trip lands. Stop by stop within a queue the quotes hold on 98 of 107 evening and night STOPs (desk/README.md, the wave-3 record)'}, t => {
   let ok = 0, n = 0;
   for (const scn of [DESK, DESK_WEEKEND]) for (const [seed, type] of SEEDS) {
     const day = followDay(seed, scn);
