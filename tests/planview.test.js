@@ -2,6 +2,9 @@
 // of the plan, earliest arrivals, the L-9 glow set and drop snapping. Before the sim agent's
 // executor merges these run against real par days (tests/lib/vm-fixture.js) with hand-built
 // plans in the §3.1 shape; stage C re-checks the projection against a stepped sim.
+// Phase 2a (desk/README §19.5, §21.5; C-11): proj.rooftop / proj.past.rooftop and the projected
+// spill (proj.surplusMW, proj.blue, blueRuns), by hand on a poked belly and against the cut the
+// sim makes on a real mild weekend of the game's scenario (tests/lib/follow.js, no input).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -262,6 +265,221 @@ test('stage C, L-6: the projection agrees with the sim\'s plan executor, 4.5 h a
         st.outMW.toFixed(0) + ' MW, AGC band ' + band[st.id].toFixed(0) + ' MW');
     }
   }
+});
+
+// ------------------------------------------------------------------ Phase 2a (desk/README §19.5, §21.5, C-11)
+
+/** A flat belly poked into a real evening: every unit at its lever, no keys, the forecast given. */
+function bellyOf(obs, o = {}) {
+  planOf(obs);
+  const n = obs.forecast.demandP50.length, fc = obs.forecast;
+  for (let k = 0; k < n; k++) {
+    fc.demandP50[k] = 3000 - 20 * k; fc.demandP10[k] = fc.demandP50[k] - 100; fc.demandP90[k] = fc.demandP50[k] + 100;
+    fc.windMW[k] = 500; fc.solarMW[k] = 400; fc.exportLimitMW[k] = k < 20 ? 300 : 250;
+  }
+  obs.wind.limitPct = 80; obs.solar.limitPct = 100;
+  Object.assign(obs.battery, {mode: 'idle', orderMW: 0, schedMW: 0, outMW: 0, agcTrimMW: 0});
+  Object.assign(obs.rert, {armed: false, leadS: 0, outMW: 0, standingDown: false});
+  Object.assign(obs.dr, {activeS: 0, mw: 0});
+  Object.assign(obs.tie, {tripped: false, lockoutS: 0}, o.tie);
+  if (o.edit) o.edit(obs);
+  return obs;
+}
+const FLOOR_ALL = M.reduce((a, m) => a + m.minMW, 0); // every machine 'on' at 18:30 on seed 7: the floor blocks are every MIN
+const room = k => (k < 20 ? 300 : 250);
+/** C-11 by hand for the flat belly: floor + wind after its 80% LIMIT + solar - (P50 + export room). */
+const bellyMW = (k, floor = FLOOR_ALL) => floor + 400 + 400 - (3000 - 20 * k) - room(k);
+
+test('C-11: proj.surplusMW is must-run + wind and solar after the LIMIT - (P50 + export room + ordered charge), floored at 0; blue is its own array', async () => {
+  const e = bellyOf(await evening());
+  assert.ok(e.units.every(u => u.mode === 'on'), 'the fixture: every machine on');
+  const P = PV.project(e);
+  for (let k = 0; k < P.n; k++) {
+    assert.ok(Math.abs(P.surplusMW[k] - Math.max(0, bellyMW(k))) < 1e-6, 'column ' + k + ': ' + P.surplusMW[k] + ' vs ' + bellyMW(k));
+    assert.equal(P.blue[k], P.surplusMW[k] > V.SURPLUS_MIN_MW ? 1 : 0);
+    assert.ok(P.gap[k] === '' || P.gap[k] === 'red' || P.gap[k] === 'amber', 'blue is never a kind in proj.gap');
+  }
+  assert.equal(P.surplusMW[0], 0, 'floored at 0 where demand takes it all');
+  const first = P.blue.indexOf(1);
+  assert.ok(bellyMW(first) > V.SURPLUS_MIN_MW && bellyMW(first - 1) <= V.SURPLUS_MIN_MW && bellyMW(first - 1) > 0, 'a spill at or under SURPLUS_MIN_MW is not blue');
+  assert.deepEqual(PV.blueRuns(P), [{atS: P.times[first], endS: P.times[P.n - 1], k0: first, k1: P.n - 1, mw: bellyMW(P.n - 1)}]);
+  // the tie tripped: no export room until it is back (its public lockout), then the cap again
+  const t = bellyOf(await evening(), {tie: {tripped: true, lockoutS: 3000}});
+  const Pt = PV.project(t);
+  for (let k = 0; k < Pt.n; k++) {
+    if (Pt.times[k] < t.s + 3000 - 300) assert.ok(Math.abs(Pt.surplusMW[k] - Math.max(0, bellyMW(k) + room(k))) < 1e-6, 'tie out at column ' + k);
+    if (Pt.times[k] > t.s + 3000 + 300) assert.ok(Math.abs(Pt.surplusMW[k] - Math.max(0, bellyMW(k))) < 1e-6, 'tie back at column ' + k);
+  }
+  // a CHARGE order is room for as long as the battery has room; AGC's trim on an idle battery is not
+  const c = bellyOf(await evening(), {edit: o => Object.assign(o.battery, {mode: 'charge', orderMW: 200, socMWh: o.battery.capMWh - 120})});
+  const Pc = PV.project(c);
+  assert.ok(Math.abs(Pc.charging[3] - 200) < 1e-6 && Pc.charging[Pc.n - 1] === 0, 'charging 200 MW, then full: ' + Pc.charging[3] + ', ' + Pc.charging[Pc.n - 1]);
+  for (let k = 0; k < Pc.n; k++) assert.ok(Math.abs(Pc.surplusMW[k] - Math.max(0, bellyMW(k) - Pc.charging[k])) < 1e-6, 'charge at column ' + k);
+  assert.ok(Pc.blue[20] === 1 && Pc.surplusMW[3] === 0, 'the order takes the first spill; blue again once the battery is full');
+  const a = bellyOf(await evening(), {edit: o => Object.assign(o.battery, {schedMW: -150, outMW: -150, agcTrimMW: -150})});
+  assert.deepEqual(Array.from(PV.project(a).surplusMW.slice(6)), Array.from(P.surplusMW.slice(6)), 'the trim is not counted as room');
+  // reserve diesel on line is must-run (§25)
+  const r = bellyOf(await evening(), {edit: o => Object.assign(o.rert, {armed: true, leadS: 0, outMW: V.RERT_MW})});
+  const Pr = PV.project(r);
+  for (let k = 0; k < Pr.n; k++) assert.ok(Math.abs(Pr.surplusMW[k] - Math.max(0, bellyMW(k) + V.RERT_MW)) < 1e-6, 'RERT at column ' + k);
+});
+
+test('C-11: a machine counts at MIN while on and at its projected MW while loading, unloading or shutting down', async () => {
+  // a booked STOP (between two column ends): GT·A unloads to MIN, runs down its T4 slope and
+  // opens; its floor block follows it
+  const STOP_IN_S = 1000;
+  const e = bellyOf(await evening(), {edit: o => { o.plan.stops.push({unit: 'gta1', atS: o.s + STOP_IN_S}); }});
+  const g = M.find(x => x.id === 'gta1');
+  const P = PV.project(e);
+  let down = 0;
+  for (let k = 0; k < P.n; k++) {
+    const mine = P.times[k] < e.s + STOP_IN_S ? g.minMW : P.units.gta1[k];
+    if (P.times[k] > e.s + STOP_IN_S && P.times[k] < e.s + STOP_IN_S + g.t4S + 600) assert.ok(mine <= P.units.gta1[Math.max(0, k - 1)] + 1e-6, 'falling');
+    if (mine === 0) down++;
+    assert.ok(Math.abs(P.surplusMW[k] - Math.max(0, bellyMW(k, FLOOR_ALL - g.minMW + mine))) < 1e-6, 'stopping at column ' + k + ': ' + P.surplusMW[k]);
+  }
+  assert.ok(down > 10, 'off the grid: its block is gone');
+  // a booked START in the morning: nothing until the breaker closes, the T2 climb, then MIN however high the lever goes
+  const m = bellyOf(await morning(), {edit: o => { o.plan.starts.push({unit: 'gtb1', atS: o.s}); key(o.plan, 'gtb', o.s + 9000, 350); }});
+  const b = M.find(x => x.id === 'gtb1');
+  const on = m.units.filter(u => u.mode === 'on');
+  assert.equal(m.units.filter(u => u.mode !== 'on' && u.mode !== 'off').length, 0, 'the fixture: on or off');
+  const floor0 = on.reduce((s, u) => s + u.minMW, 0);
+  const Pm = PV.project(m);
+  const seen = new Set();
+  for (let k = 0; k < Pm.n; k++) {
+    const out = Pm.units.gtb1[k], mine = Math.min(out, b.minMW);
+    seen.add(out === 0 ? 'off' : out < b.minMW - 1e-6 ? 'loading' : out > b.minMW + 1 ? 'above' : 'min');
+    assert.ok(Math.abs(Pm.surplusMW[k] - Math.max(0, bellyMW(k, floor0 + mine))) < 1e-6, 'starting at column ' + k + ': ' + Pm.surplusMW[k]);
+  }
+  assert.deepEqual([...seen].sort(), ['above', 'loading', 'min', 'off']);
+});
+
+test('C-11: nothing is blue on the classic day (no rooftop, no belly), where the old floor-above-P10 rule lit columns for imports', async () => {
+  for (const obs of [planOf(await morning()), planOf(await evening()), planOf(await tripped())]) {
+    const P = PV.project(obs);
+    assert.ok(P.surplusMW.every(v => v === 0) && P.blue.every(v => v === 0));
+    assert.deepEqual(PV.blueRuns(P), []);
+    assert.ok(P.rooftop.every(v => v === 0), 'no rooftop on CLASSIC');
+    // a view of the day before Phase 2a (no rooftop column, no export limit in the forecast) still projects
+    const old = structuredClone(obs);
+    delete old.forecast.rooftopMW; delete old.forecast.exportLimitMW; delete old.rooftop;
+    const Q = PV.project(old);
+    assert.ok(Q.rooftop.every(v => v === 0) && Q.surplusMW.every(v => Number.isFinite(v)));
+  }
+});
+
+let MILD = null;
+/**
+ * A real mild weekend at 11:00 with nobody at the desk (desk-weekend, seed 8): the belly is
+ * opening. One run for the file; each caller gets its own copy of the state, the system
+ * operator and the view.
+ */
+async function mildWeekend() {
+  if (!MILD) {
+    const {followDay} = await import('./lib/follow.js');
+    const {observe} = await import('../sim/step.js');
+    const {DESK_WEEKEND} = await import('../content/scenarios.js');
+    const {st, sys} = followDay(8, DESK_WEEKEND, {follow: false, untilH: 11});
+    MILD = {st, sys, obs: observe(st)};
+  }
+  return structuredClone(MILD);
+}
+
+test('L-2 / §19.5: proj.rooftop is the rooftop bite of the forecast and proj.past.rooftop that of the history, in both history forms', async () => {
+  const {obs} = await mildWeekend();
+  const from = obs.forecast.fromS;
+  const P = PV.project(obs, {hist: {colFromS: from - 6 * 300, colS: 300, demand: [1, 2, 3, 4, 5, 6].map(v => v * 1000), rooftop: [10, 20, NaN, 40, 50, 60], stations: {}}});
+  assert.deepEqual(Array.from(P.rooftop), Array.from(obs.forecast.rooftopMW));
+  assert.ok(P.rooftop[0] > 2000, 'a mild 11:00: ' + P.rooftop[0]);
+  // the forecast's own identity: underlying = operational + rooftop + the smelter's missing load
+  for (let k = 0; k < P.n; k++) assert.ok(obs.forecast.underlyingP50[k] >= P.p50[k] + P.rooftop[k] - 1e-6);
+  assert.deepEqual(Array.from(P.past.rooftop), [10, 20, NaN, 40, 50, 60]);
+  assert.deepEqual(Array.from(P.past.demand), [1000, 2000, 3000, 4000, 5000, 6000]);
+  const R = PV.project(obs, {hist: {demand: [{s: obs.s - 10, mw: 2300}], rooftop: [{s: obs.s - 700, mw: 2700}, {s: obs.s - 10, mw: 2800}], stations: {}}});
+  assert.equal(R.past.rooftop[5], 2800);
+  assert.ok(Number.isNaN(R.past.rooftop[0]));
+  assert.equal(PV.project(obs).past.rooftop.length, PV.N_PAST, 'no history: NaN columns, the same length');
+});
+
+test('C-11 on a real mild weekend (no input, 11:00): the projected spill is the cut the sim then makes', async () => {
+  // The belly opens about 11:00 on a mild weekend with nobody at the desk. Project, then run the
+  // same day on for an hour with the system operator alone and take the automatic cut
+  // (obs.wind.autoMW + obs.solar.autoMW) over the minute around each column's end.
+  const {step, observe} = await import('../sim/step.js');
+  const SYS = await import('../app/system.js');
+  const TPS = V.TICKS_PER_S, NK = 12;
+  const {st, sys, obs} = await mildWeekend();
+  assert.deepEqual(obs.day, {temp: 'MILD', weekend: true});
+  const P = PV.project(obs);
+  const cut = new Float64Array(NK), wind = new Float64Array(NK), solar = new Float64Array(NK), lit = new Float64Array(NK), cnt = new Float64Array(NK);
+  while (st.tick <= (P.times[NK - 1] + 30) * TPS) {
+    step(st, SYS.systemInputs(sys, st));
+    if (st.tick % TPS) continue;
+    const s = st.tick / TPS, k = Math.round((s - P.fromS) / PV.COL_S) - 1;
+    if (k < 0 || k >= NK || Math.abs(s - P.times[k]) > 30) continue;
+    const o = observe(st);
+    cut[k] += o.wind.autoMW + o.solar.autoMW; wind[k] += o.wind.availMW; solar[k] += o.solar.availMW; lit[k] += o.demand.litMW; cnt[k]++;
+  }
+  assert.equal(st.conts.length, 0, 'the fixture: no contingency inside the hour');
+  for (let k = 0; k < NK; k++) { cut[k] /= cnt[k]; wind[k] /= cnt[k]; solar[k] /= cnt[k]; lit[k] /= cnt[k]; }
+  assert.ok(Math.max(...cut) > 300 && Math.max(...P.surplusMW.subarray(0, NK)) > 300, 'the sim spills in this hour and the stack says so');
+  // (1) The arithmetic: give the projection the wind, the sun and the demand that then happened
+  // (in place of its forecast of them) and it is the sim's cut, column for column, for the hour.
+  const told = structuredClone(obs);
+  for (let k = 0; k < NK; k++) { told.forecast.windMW[k] = wind[k]; told.forecast.solarMW[k] = solar[k]; told.forecast.demandP50[k] = lit[k]; }
+  const T = PV.project(told);
+  for (let k = 0; k < NK; k++) assert.ok(Math.abs(T.surplusMW[k] - cut[k]) <= 2, '+' + (k + 1) * 5 + ' min: projected ' + T.surplusMW[k].toFixed(1) + ' MW, the sim cut ' + cut[k].toFixed(1) + ' MW');
+  // (2) With its own forecast the difference is the forecast's error in wind, sun and demand:
+  // within 200 MW a quarter of an hour ahead (measured on 6 mild weekend seeds at 10:30, 11:00,
+  // 12:00 and 13:00, 72 columns: median 49 MW, 90% within 141 MW, worst 244 MW), and on this
+  // seed the hour's spilled energy within a quarter.
+  for (let k = 0; k < 3; k++) assert.ok(Math.abs(P.surplusMW[k] - cut[k]) <= 200, '+' + (k + 1) * 5 + ' min: forecast ' + P.surplusMW[k].toFixed(0) + ' MW, the sim cut ' + cut[k].toFixed(0) + ' MW');
+  assert.ok(P.blue[0] === 1 && cut[0] > V.SURPLUS_MIN_MW, 'blue now, and spilling five minutes later');
+  const mwh = a => { let x = 0; for (let k = 0; k < NK; k++) x += a[k] / 12; return x; };
+  assert.ok(Math.abs(mwh(P.surplusMW) - mwh(cut)) <= 0.25 * mwh(cut), 'the hour: forecast ' + mwh(P.surplusMW).toFixed(0) + ' MWh, spilled ' + mwh(cut).toFixed(0) + ' MWh');
+});
+
+test('C-11 over mild weekends (slow): seeds 1, 5, 8, 9, 13 and 20261004 projected at 10:30, 11:00, 12:00 and 13:00', {skip: !process.env.GRIDWATCH_SLOW}, async () => {
+  const {followDay} = await import('./lib/follow.js');
+  const {step, observe} = await import('../sim/step.js');
+  const SYS = await import('../app/system.js');
+  const {DESK_WEEKEND} = await import('../content/scenarios.js');
+  const TPS = V.TICKS_PER_S, NK = 12, HOURS = [10.5, 11, 12, 13];
+  const sOf = h => Math.round((h - V.DAY_START_H) * V.S_PER_H);
+  const told = [], guessed = [];
+  for (const seed of [1, 5, 8, 9, 13, 20261004]) {
+    const {st, sys} = followDay(seed, DESK_WEEKEND, {follow: false, untilH: HOURS[0]});
+    const s0 = st.tick / TPS, endS = sOf(HOURS[HOURS.length - 1]) + (NK + 1) * PV.COL_S;
+    const cut = new Float64Array(endS - s0 + 1), wind = new Float64Array(cut.length), solar = new Float64Array(cut.length), lit = new Float64Array(cut.length), conts = new Uint8Array(cut.length);
+    const views = [];
+    for (;;) {
+      if (st.tick % TPS === 0) {
+        const s = st.tick / TPS, o = observe(st), i = s - s0;
+        if (HOURS.some(h => sOf(h) === s)) views.push(o);
+        cut[i] = o.wind.autoMW + o.solar.autoMW; wind[i] = o.wind.availMW; solar[i] = o.solar.availMW; lit[i] = o.demand.litMW; conts[i] = st.conts.length;
+        if (s >= endS) break;
+      }
+      step(st, SYS.systemInputs(sys, st));
+    }
+    const mean = (a, t) => { let x = 0; for (let s = t - 30; s <= t + 30; s++) x += a[s - s0]; return x / 61; };
+    for (const obs of views) {
+      const P = PV.project(obs), truth = structuredClone(obs);
+      for (let k = 0; k < NK; k++) { truth.forecast.windMW[k] = mean(wind, P.times[k]); truth.forecast.solarMW[k] = mean(solar, P.times[k]); truth.forecast.demandP50[k] = mean(lit, P.times[k]); }
+      const T = PV.project(truth), quiet = conts[P.times[NK - 1] + 30 - s0] === conts[obs.s - s0];
+      for (let k = 0; k < NK; k++) {
+        const real = mean(cut, P.times[k]);
+        if (quiet) told.push(Math.abs(T.surplusMW[k] - real)); // a trip inside the hour changes the floor: not the arithmetic's error
+        if (k < 3) guessed.push(Math.abs(P.surplusMW[k] - real));
+      }
+    }
+  }
+  const q = (a, f) => a.slice().sort((x, y) => x - y)[Math.floor(a.length * f)];
+  assert.ok(told.length >= 100 && guessed.length === 72, told.length + ' / ' + guessed.length);
+  // given what then happened, the projection is the sim's cut (the onset of a spill, where AGC's unmet request joins the cut, is the tail)
+  assert.ok(q(told, 0.5) <= 1 && q(told, 0.9) <= 2 && Math.max(...told) <= 60, 'told: median ' + q(told, 0.5).toFixed(2) + ', p90 ' + q(told, 0.9).toFixed(2) + ', worst ' + Math.max(...told).toFixed(1) + ' MW');
+  // with its own forecast, 5 to 15 minutes ahead
+  assert.ok(q(guessed, 0.5) <= 80 && q(guessed, 0.9) <= 200 && Math.max(...guessed) <= 300, 'forecast: median ' + q(guessed, 0.5).toFixed(0) + ', p90 ' + q(guessed, 0.9).toFixed(0) + ', worst ' + Math.max(...guessed).toFixed(0) + ' MW');
 });
 
 test('planview imports only sim/params.js and uses no Math.random', () => {
