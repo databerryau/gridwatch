@@ -584,8 +584,37 @@ function mountWatched(w = 1280, h = 268) {
   frame.beginPath = () => { seen.paths++; };
   frame.fill = () => { seen.fills++; };
   frame.rect = (x, y, rw) => { seen.rects.push(x + ',' + y + ',' + rw); };
-  return {doc, map, seen};
+  // the cached city layer: the panels painted on it at its last rebuild (it is cleared first), as 'x,y,w,h'
+  // and the front-bottom corner of each building in the order it is painted (a cuboid's left and right face both start there)
+  const city = made[4].getContext('2d'), pv = [], fronts = [];
+  let last = null;
+  city.clearRect = () => { pv.length = 0; fronts.length = 0; last = null; };
+  city.fillRect = (x, y, rw, rh) => { if (city.fillStyle === D.ROOF_PV.colour) pv.push(x + ',' + y + ',' + rw + ',' + rh); };
+  city.moveTo = (x, y) => { if (last && last.x === x && last.y === y) fronts.push(last); last = {x, y}; };
+  return {doc, map, seen, pv, fronts};
 }
+
+/** Is point (X, Y) inside the polygon pts ([[x, y], ...])? (Crossing number; the test's own, not the map's.) */
+function inPoly(pts, X, Y) {
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    if ((yi > Y) !== (yj > Y) && X < (xj - xi) * (Y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+/** Is (X, Y) on the outline itself? */
+function onEdge(pts, X, Y) {
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const [xi, yi] = pts[i], [xj, yj] = pts[j];
+    const cross = (xj - xi) * (Y - yi) - (yj - yi) * (X - xi), dot = (X - xi) * (X - xj) + (Y - yi) * (Y - yj);
+    if (Math.abs(cross) < 1e-9 && dot <= 1e-9) return true;
+  }
+  return false;
+}
+/** The outline the map's three cuboid faces cover, for a building {x, y, w, d, h} (front-bottom corner at x, y). */
+const outline = b => [[b.x, b.y], [b.x + b.w, b.y - b.w / 2], [b.x + b.w, b.y - b.w / 2 - b.h], [b.x + b.w - b.d, b.y - (b.w + b.d) / 2 - b.h],
+  [b.x - b.d, b.y - b.d / 2 - b.h], [b.x - b.d, b.y - b.d / 2]];
 
 test('G-3 (2a): panels on every suburb\'s roofs in proportion to its rooftop MW, each inside its roof, the same every day', () => {
   const vm = noonVm();
@@ -610,6 +639,42 @@ test('G-3 (2a): panels on every suburb\'s roofs in proportion to its rooftop MW,
     assert.ok(q.ph >= 0 && q.ph < 1 && (q.k === 0 || q.k === 1));
   }
   assert.ok(Math.max(...perRoof.values()) <= D.ROOF_PV.maxPerRoof);
+  // no panel lies behind a building drawn after its own (the map paints every building back to front, by y then
+  // x, and the glint is drawn over the finished city: a hidden panel would glint on the nearer building's wall)
+  const order = [];
+  blocks.forEach((blk, bi) => blk.buildings.forEach((b, i) => order.push({b, key: bi + ':' + i})));
+  order.sort((p, q) => p.b.y - q.b.y || p.b.x - q.b.x);
+  let checked = 0;
+  for (const q of panels) {
+    const mine = order.findIndex(c => c.key === q.blk + ':' + q.b);
+    for (let n = mine + 1; n < order.length; n++) {
+      for (let i = 0; i < q.w; i++, checked++) assert.ok(!inPoly(outline(order[n].b), q.x + i + 0.5, q.y + 0.5), 'panel ' + JSON.stringify(q) + ' is behind ' + JSON.stringify(order[n].b));
+    }
+    for (let i = 0; i < q.w; i++) assert.ok(inPoly(outline(blocks[q.blk].buildings[q.b]), q.x + i + 0.5, q.y + 0.5), 'and it is on its own building: ' + JSON.stringify(q));
+  }
+  assert.ok(checked > 10000);
+  // mapdata's own test of "covered" (cuboidCovers) is that outline, edge included, for every pixel around 40 buildings
+  let inN = 0, outN = 0;
+  for (const b of order.filter((c, i) => i % 4 === 0).map(c => c.b)) {
+    const bb = D.cuboidBounds(b.x, b.y, b.w, b.d, b.h);
+    for (let px = Math.floor(bb.x) - 1; px <= bb.x + bb.w + 1; px++) for (let py = Math.floor(bb.y) - 1; py <= bb.y + bb.h + 1; py++) {
+      const want = inPoly(outline(b), px + 0.5, py + 0.5) || onEdge(outline(b), px + 0.5, py + 0.5);
+      assert.equal(D.cuboidCovers(b, px, py), want, 'cuboidCovers at ' + px + ',' + py + ' of ' + JSON.stringify(b));
+      if (want) inN++; else outN++;
+    }
+  }
+  assert.ok(inN > 1000 && outN > 1000, inN + ' / ' + outN);
+  assert.ok(D.backToFront({x: 5, y: 10}, {x: 1, y: 11}) < 0 && D.backToFront({x: 5, y: 10}, {x: 6, y: 10}) < 0 && D.backToFront({x: 5, y: 10}, {x: 5, y: 10}) === 0);
+  // a low roof behind a tower: both of its places are covered, so the tower's two are dealt first; the low
+  // roof's are used only when the suburb's capacity asks for more panels than there are clear places
+  const pair = [{id: 'SOL1', suburb: 'SOL', style: 'estate', cell: [90, 80, 30, 30], buildings: [{x: 100, y: 100, w: 5, d: 4, h: 3, win: 1}, {x: 101, y: 104, w: 6, d: 5, h: 12, win: 4}]}];
+  const on = mw => D.roofPanels(pair, {SOL: mw}).map(q => q.b + ':' + q.k);
+  assert.deepEqual(on(25), ['1:0']);
+  assert.deepEqual(on(50), ['1:0', '1:1'], 'the second panel goes on the tower again, not behind it');
+  assert.deepEqual(on(75), ['1:0', '1:1', '0:0']);
+  assert.deepEqual(on(100), ['1:0', '1:1', '0:0', '0:1'], 'the count comes first');
+  assert.deepEqual(on(500), ['1:0', '1:1', '0:0', '0:1'], 'never more than two on a roof');
+  for (const q of D.roofPanels(pair, {SOL: 100}).filter(q => q.b === 0)) assert.ok(inPoly(outline(pair[0].buildings[1]), q.x + 0.5, q.y + 0.5), 'the fixture: behind the tower');
   // the denser suburbs fill every roof before any roof gets a second panel
   assert.ok([...perRoof].filter(([k]) => k.startsWith('HAR')).every(([, n]) => n === 1), 'Harbourside: half its roofs, one each');
   assert.equal(new Set([...perRoof.keys()].filter(k => k.startsWith('SOL'))).size, 30, 'Solstice Rise: every roof');
@@ -617,6 +682,71 @@ test('G-3 (2a): panels on every suburb\'s roofs in proportion to its rooftop MW,
   assert.deepEqual(D.roofPanels(blocks, Object.fromEntries(rs.map(r => [r.id, 0]))), []);
   assert.deepEqual(D.roofPanels(blocks, undefined), []);
   assert.ok(D.ROOF_PV.glintHz <= 3 && D.ROOF_PV.glintDuty > 0 && D.ROOF_PV.glintDuty < 1, 'nothing flashes above 3 Hz (K-22)');
+});
+
+test('G-3 (2a): every panel is painted on the cached city layer, on lit buildings only; none on the classic day', async () => {
+  const {map, pv, fronts} = mountWatched();
+  const vm = noonVm({settings: {reducedMotion: true}});
+  const cap = Object.fromEntries(vm.obs.rooftop.suburbs.map(r => [r.id, r.capMW]));
+  const blocks = D.districtBlocks(vm.obs.districts), panels = D.roofPanels(blocks, cap);
+  const strip = q => q.x + ',' + q.y + ',' + q.w + ',1';
+  const sorted = a => a.slice().sort();
+  vm.frame.nowMs = 1000; map.update(vm);
+  assert.equal(map.debug.rebuilds.city, 1);
+  assert.equal(pv.length, 200);
+  assert.deepEqual(sorted(pv), sorted(panels.map(strip)), 'each panel of the layout, as a strip one base pixel tall, in the panels\' colour');
+  // the buildings are painted back to front in the order the layout assumes when it keeps panels out from behind nearer ones
+  const corners = blocks.flatMap(blk => blk.buildings.map(b => ({x: b.x, y: b.y}))).sort(D.backToFront);
+  assert.equal(corners.length, 177);
+  assert.deepEqual(fronts, corners);
+  // a steady noon: the layer is not painted again
+  for (let i = 0; i < 30; i++) { vm.frame.nowMs += 16; map.update(vm); }
+  assert.equal(map.debug.rebuilds.city, 1);
+  // a district goes dark, building by building (G-5): its panels go with its roofs, the others stay
+  const dark = vm.obs.districts.find(d => d.suburb === 'SOL'), mine = panels.filter(q => q.id === dark.id);
+  assert.ok(mine.length >= 4 && mine.length < 20, dark.id + ' has ' + mine.length + ' panels');
+  dark.dark = true;
+  vm.frame.nowMs += 16; map.update(vm);
+  const first = pv.length;
+  assert.ok(first < 200 && first > 200 - mine.length, 'the first building is out: ' + first);
+  vm.frame.nowMs += 5000; map.update(vm);
+  assert.equal(map.debug.districts[dark.id].darkBlocks, map.debug.districts[dark.id].blocks);
+  assert.deepEqual(sorted(pv), sorted(panels.filter(q => q.id !== dark.id).map(strip)), 'no panel is painted on a dark roof');
+  // relit: they come back with the roofs
+  dark.dark = false;
+  vm.frame.nowMs += 5000; map.update(vm);
+  vm.frame.nowMs += 5000; map.update(vm);
+  assert.deepEqual(sorted(pv), sorted(panels.map(strip)));
+  // a scenario without rooftop, and a view without the key: the same city, no panels
+  const m0 = mountWatched(), classic = await vmOf();
+  assert.equal(classic.obs.rooftop.capMW, 0);
+  classic.obs.clock.h = 12.5; classic.frame.nowMs = 1000; m0.map.update(classic);
+  assert.ok(m0.map.debug.rebuilds.city >= 1);
+  assert.deepEqual(m0.pv, []);
+  const m1 = mountWatched(), none = noonVm();
+  delete none.obs.rooftop;
+  none.frame.nowMs = 1000; m1.map.update(none);
+  assert.deepEqual(m1.pv, []);
+});
+
+test('G-3 (2a): a storm dims the glint with the light (60% at its height), as cloud over the suburbs already does through their output', async () => {
+  const alphaAt = o => {
+    const {map} = mountWatched();
+    const vm = noonVm({settings: {reducedMotion: true}});
+    if (o) { vm.obs.news = [{atS: vm.obs.s - o.agoS - 3600, kind: 'storm', fromS: vm.obs.s - o.agoS, toS: null, text: ''}]; vm.obs.sky.windFrac = o.wind; }
+    vm.frame.nowMs = 1000; map.update(vm);
+    return {alpha: Array.from(map.debug.roof.alpha), storm: map.debug.fx.storm, on: Array.from(map.debug.roof.on)};
+  };
+  const clear = alphaAt(null), full = alphaAt({agoS: 2400, wind: 1}), building = alphaAt({agoS: 450, wind: 1});
+  assert.equal(clear.storm, 0);
+  assert.equal(full.storm, 1);
+  assert.ok(Math.abs(building.storm - 0.65) < 1e-9, 'half way through the 15 minutes it takes to build: ' + building.storm);
+  clear.alpha.forEach((a, j) => {
+    assert.ok(a > 0.5, 'a clear noon: ' + a);
+    assert.ok(Math.abs(full.alpha[j] - a * 0.4) < 1e-6, 'overhead: ' + full.alpha[j] + ' of ' + a);
+    assert.ok(Math.abs(building.alpha[j] - a * (1 - 0.6 * 0.65)) < 1e-6, 'building: ' + building.alpha[j] + ' of ' + a);
+  });
+  assert.deepEqual(full.on, clear.on, 'the same panels catch what light there is');
 });
 
 test('G-3 (2a): the glint is one path and one fill per suburb, as bright as its output over its capacity and as the light; none at night; no cached layer is rebuilt for it', () => {

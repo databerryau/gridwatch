@@ -164,6 +164,21 @@ export function cuboidBounds(x, y, w, d, h) {
   return {x: left, y: top, w: right - left, h: bottom - top, fx: left, fy: y - (w + d) / 2, fw: right - left, fh: (w + d) / 2};
 }
 
+/**
+ * Is the centre of base pixel (px, py) inside the silhouette of an iso cuboid {x, y, w, d, h}
+ * (front-bottom corner at (x, y)): the hexagon its three drawn faces cover?
+ */
+export function cuboidCovers(b, px, py) {
+  const X = px + 0.5, Y = py + 0.5;
+  if (X < b.x - b.d || X > b.x + b.w) return false;
+  const bottom = b.y - Math.abs(X - b.x) / 2;
+  const top = X <= b.x + b.w - b.d ? b.y - b.d / 2 - b.h - (X - (b.x - b.d)) / 2 : b.y - (b.w + b.d) / 2 - b.h + (X - (b.x + b.w - b.d)) / 2;
+  return Y >= top && Y <= bottom;
+}
+
+/** The order the map draws the city's buildings in, back to front (a comparator over {x, y}). */
+export const backToFront = (a, c) => a.y - c.y || a.x - c.x;
+
 /** Bounds of one PLANT_PARTS part, in the cuboidBounds shape (drawn box and ground footprint). */
 export function partBounds(p) {
   switch (p.k) {
@@ -254,6 +269,10 @@ export function districtBlocks(districts) {
  * a fixed shuffled order of its buildings (a hash of the district id), then a second round,
  * never more than ROOF_PV.maxPerRoof on a roof. A panel is a w x 1 strip of base px on the
  * building's top face (the front half, then the back half); `ph` is its glint phase in [0, 1).
+ * A place that a building drawn later (nearer the viewer, in any district) covers, wholly or in
+ * part, is passed over for the next in the deal: the glint is drawn over the finished city, so a
+ * panel behind a tower would glint on that tower's wall. Such places are used only when a suburb
+ * has no clear ones left (the count, and so the proportion, comes first).
  * @param {Array} blocks districtBlocks() output
  * @param {Object<string, number>} capBySuburb rooftop nameplate MW by suburb id (0 or missing: none)
  * @returns {Array<{id:string, suburb:string, blk:number, b:number, k:number, x:number, y:number, w:number, ph:number}>}
@@ -261,6 +280,18 @@ export function districtBlocks(districts) {
  */
 export function roofPanels(blocks, capBySuburb) {
   const out = [];
+  let city = null;   // every building, in drawing order, built when the first panel asks
+  const hiddenAt = (q, blk, b) => {
+    if (!city) {
+      city = [];
+      blocks.forEach((bl, bi) => bl.buildings.forEach((bd, i) => city.push({x: bd.x, y: bd.y, bd, key: bi * 64 + i})));
+      city.sort(backToFront);
+    }
+    for (let n = city.findIndex(c => c.key === blk * 64 + b) + 1; n < city.length; n++) {
+      for (let i = 0; i < q.w; i++) if (cuboidCovers(city[n].bd, q.x + i, q.y)) return true;
+    }
+    return false;
+  };
   for (const sb of SUBURBS) {
     const want = Math.round((capBySuburb && capBySuburb[sb.id] > 0 ? capBySuburb[sb.id] : 0) / ROOF_PV.mwPerPanel);
     if (!want) continue;
@@ -268,15 +299,18 @@ export function roofPanels(blocks, capBySuburb) {
     blocks.forEach((blk, bi) => { if (blk.suburb === sb.id) blk.buildings.forEach((bd, b) => roofs.push({blk: bi, id: blk.id, b, bd, r: hash01(blk.id, 900 + b)})); });
     if (!roofs.length) continue;
     roofs.sort((p, q) => p.r - q.r || p.blk - q.blk || p.b - q.b);
-    const n = Math.min(want, roofs.length * ROOF_PV.maxPerRoof);
-    for (let i = 0; i < n; i++) {
+    const n = Math.min(want, roofs.length * ROOF_PV.maxPerRoof), places = roofs.length * ROOF_PV.maxPerRoof, hidden = [];
+    let placed = 0;
+    for (let i = 0; i < places && placed < n; i++) {
       const rf = roofs[i % roofs.length], k = Math.floor(i / roofs.length), bd = rf.bd;
       // the top face is the parallelogram from the front corner (x, y - h) along +w and -d;
       // the strip sits half way along w, 0.3 (front) or 0.7 (back) of the way along d
       const v = k ? 0.7 : 0.3, w = bd.w >= 6 ? 3 : 2;
       const cx = bd.x + bd.w / 2 - v * bd.d, cy = bd.y - bd.h - bd.w / 4 - v * bd.d / 2;
-      out.push({id: rf.id, suburb: sb.id, blk: rf.blk, b: rf.b, k, x: Math.round(cx - w / 2), y: Math.floor(cy), w, ph: hash01(rf.id, 700 + rf.b * 3 + k)});
+      const q = {id: rf.id, suburb: sb.id, blk: rf.blk, b: rf.b, k, x: Math.round(cx - w / 2), y: Math.floor(cy), w, ph: hash01(rf.id, 700 + rf.b * 3 + k)};
+      if (hiddenAt(q, rf.blk, rf.b)) hidden.push(q); else { out.push(q); placed++; }
     }
+    for (let i = 0; placed < n && i < hidden.length; i++, placed++) out.push(hidden[i]);
   }
   return out;
 }

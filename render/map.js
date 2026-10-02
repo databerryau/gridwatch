@@ -41,7 +41,7 @@
 
 import {V} from '../sim/params.js';
 import {BASE_W, BASE_H, HORIZON_Y, COLOURS, UI, SUBURBS, SUBSTATIONS, TRUNKS, PLANTS, PLANT_PARTS, WIND_TURBINES, TURBINE_H,
-  SOLAR_ROWS, SOLAR_ROW_W, RIDGE, LAKE, RIVER, BAY, ROADS, FIELDS, TREES, ROOF_PV, districtBlocks, roofPanels, hash01, scaleFor} from './mapdata.js';
+  SOLAR_ROWS, SOLAR_ROW_W, RIDGE, LAKE, RIVER, BAY, ROADS, FIELDS, TREES, ROOF_PV, districtBlocks, roofPanels, backToFront, hash01, scaleFor} from './mapdata.js';
 import {mw as fmtMW} from './format.js';
 
 export const MAX_REST_LABELS = 3;
@@ -661,7 +661,7 @@ export function createMap(doc, root, actions) {
       debug.districts[blk.id] = {dark: st.dark, darkBlocks: 0, windows: 0, blocks: blk.buildings.length, roof: ''};
       blk.buildings.forEach((b, i) => cityList.push({b, i, id: blk.id, style: blk.style, st}));
     }
-    cityList.sort((a, c) => a.b.y - c.b.y || a.b.x - c.b.x);
+    cityList.sort((a, c) => backToFront(a.b, c.b));   // mapdata.roofPanels places the panels by the same order
     lightKey = ''; cityKey = '';
   }
 
