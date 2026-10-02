@@ -9,8 +9,9 @@
 // An idle station's lever books its start through the plan (`planKey`, AGC mode, L-6).
 // One lamp per machine with its own START and STOP guards (lift, then press; S S / X X).
 // Phase 2a (C-10, desk/README.md §19.5): a guard lights when its id is in vm.glow (the
-// objective's STOP or START), and tells the desk when it is hovered, focused, lifted or
-// committed (ctx.consider), so the shell can say what the press will do before it is made.
+// objective's STOP or START), and tells the desk when it is hovered, pressed by a pointer,
+// focused, lifted or committed (ctx.consider), so the shell can say what the press will do
+// before it is made.
 // Foley (K-20): a hand move cues `detent` / `gate` / `ratchet`, a plan move cues `servo`; guards
 // cue `cover` (lift, drop) and `button` (the press that commits). A rough close shakes the lever.
 
@@ -46,10 +47,14 @@ export function createMachine(ctx, k, pan) {
   stop.id = 'guard-stop-' + m.id; stop.type = 'button';
   box.append(start, stop);
   let u = null, offered = false, wasS = false, wasX = false, glowS = false, glowX = false;
-  // C-10: hover and focus on either guard are the desk's to resolve (ctx.consider, desk.js)
+  // C-10: hover and focus on either guard are the desk's to resolve (ctx.consider, desk.js); it
+  // is told of a pointer press too, because the focus a click leaves on a button is not the keyboard's
   for (const g of [start, stop]) {
     g.addEventListener('pointerenter', () => ctx.consider.hover(g.id, true));
     g.addEventListener('pointerleave', () => ctx.consider.hover(g.id, false));
+    g.addEventListener('pointerdown', () => ctx.consider.press(g.id));
+    g.addEventListener('pointerup', () => ctx.consider.up(g.id));
+    g.addEventListener('pointercancel', () => ctx.consider.up(g.id));
     g.addEventListener('focus', () => ctx.consider.focus(g.id, true));
     g.addEventListener('blur', () => ctx.consider.focus(g.id, false));
   }

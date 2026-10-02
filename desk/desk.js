@@ -46,8 +46,11 @@
 // focused one, then the hovered one; null when none. A commit counts as a drop. A lift made by
 // key (S / X on a lever: nothing is hovered and the lever, not the guard, has the focus) is held
 // CONSIDER_HOLD_MS after its cover drops, so a keyboard player has time to read what the press
-// would do (the cover itself still drops after 2 s). The shell shows vm.consider in the
-// objective line; the desk only names the guard.
+// would do (the cover itself still drops after 2 s). "Focused" is the keyboard's focus: the
+// focus a mouse click leaves on a guard is not counted (makeConsider says how), so after a
+// pointer lift or commit the target clears when the pointer leaves. The shell shows vm.consider
+// in the objective line; the desk only names the guard. After a new day (obs.tick going back)
+// the target is sent again, because the shell clears its copy.
 
 import {createLevers} from './levers.js';
 import {createHydroWheel, createBatteryDial, createTieKnob} from './rotary.js';
@@ -83,39 +86,73 @@ export const LAYOUT = Object.freeze({
 
 export const NOTE_MS = 2500;   // a refusal / hint stays on its control this long
 export const CONSIDER_HOLD_MS = 6000;   // C-10: a guard lifted by key stays the considered one this long after its cover drops
+export const PRESS_FOCUS_MS = 1000;     // C-10: a focus this soon after a pointer came up on the guard is that press's, not the keyboard's
 
 /**
- * C-10: which guard the player is considering (the header says the rule). hover / focus / lift /
- * commit are told by the machine guards (desk/levers.js); tick() runs every frame for the covers
- * that drop by themselves. `send(target)` is called only when the resolved target changes.
+ * C-10: which guard the player is considering (the header says the rule). hover / press / focus /
+ * lift / commit are told by the machine guards (desk/levers.js); tick() runs every frame for the
+ * covers that drop by themselves. `send(target)` is called only when the resolved target changes.
+ *
+ * Focus means the keyboard's. A click focuses a button in most browsers and leaves it focused
+ * when the pointer has gone, with nothing shown on it: that focus is the pointer's and does not
+ * count (press() marks it), so a mouse player's target is the guard under the pointer or the one
+ * lifted, and it clears when the pointer leaves, the cover drops or the press commits. The focus
+ * counts again once the keyboard uses that guard (Enter on it: keyboard()) or comes back to it
+ * from another element.
+ * A guard that takes the keyboard's focus after a key lift was made outranks that lift's hold.
+ * A guard losing the focus or the pointer is resolved by the next tick(), not at once: Tab from
+ * one guard to the next, or the pointer crossing from START to STOP, is one change, never a null
+ * between the two; a window that stops being the active one keeps its focused guard.
  * @param {function():number} now the desk clock (ms) @param {{lifted:function(string):boolean}} guards
  */
 export function makeConsider(now, guards, send) {
-  let hover = null, focus = null, sent = null;
+  let hover = null, focus = null, focusAt = -Infinity, sent = null;
+  let pressing = null, upAt = Infinity; // the guard a pointer last went down on; when that pointer came up (Infinity: still down)
+  let ptr = null;                      // the guard whose focus the pointer gave: not the keyboard's
+  // a touch focuses the button after its pointer is up, a browser that does not focus on a click never does:
+  // the focus is the press's while the pointer is down and for PRESS_FOCUS_MS after
+  const pressed = id => pressing === id && now() - upAt <= PRESS_FOCUS_MS;
   const lifts = [];                    // [{id, at, byKey}], oldest first: the last one still up wins
-  const held = {id: null, until: -1};  // a key lift whose cover has dropped
+  const held = {id: null, until: -1, since: -1};  // a key lift whose cover has dropped (since: when it was lifted)
+  const setFocus = id => { if (id !== focus) { focus = id; if (id !== null) focusAt = now(); } };
   function resolve() {
     const t = now();
     for (let i = lifts.length - 1; i >= 0; i--) {
       const l = lifts[i];
       if (guards.lifted(l.id)) continue;
       lifts.splice(i, 1);              // its cover dropped unused, GUARD_MS after the lift
-      if (l.byKey && l.at + GUARD_MS + CONSIDER_HOLD_MS > held.until) { held.id = l.id; held.until = l.at + GUARD_MS + CONSIDER_HOLD_MS; }
+      if (l.byKey && l.at + GUARD_MS + CONSIDER_HOLD_MS > held.until) { held.id = l.id; held.until = l.at + GUARD_MS + CONSIDER_HOLD_MS; held.since = l.at; }
     }
-    if (held.id && t > held.until) held.id = null;
+    if (held.id && (t > held.until || (focus !== null && focus !== held.id && focusAt > held.since))) held.id = null;
     const target = lifts.length ? lifts[lifts.length - 1].id : held.id || focus || hover || null;
     if (target !== sent) { sent = target; send(target); }
   }
   const drop = id => { for (let i = lifts.length - 1; i >= 0; i--) if (lifts[i].id === id) lifts.splice(i, 1); };
   return {
-    hover(id, on) { if (on) hover = id; else if (hover === id) hover = null; resolve(); },
-    focus(id, on) { if (on) focus = id; else if (focus === id) focus = null; resolve(); },
-    /** The focused guard as the document has it (null: none), set every frame: a window that is not the active one sends no focus events. */
-    focusIs(id) { focus = id; },
+    hover(id, on) { if (on) { hover = id; resolve(); } else if (hover === id) hover = null; },
+    /** A pointer went down on this guard: the focus that press gives it (or that it already has) is the pointer's. */
+    press(id) { pressing = id; upAt = Infinity; if (focus === id) { ptr = id; focus = null; } },
+    /** That pointer came up, or was cancelled. */
+    up(id) { if (pressing === id && upAt === Infinity) upAt = now(); },
+    focus(id, on) {
+      if (!on) { if (focus === id) focus = null; if (pressing === id) pressing = null; return; }
+      // still the pointer's when the press gave it, and when the document's focus never left the guard
+      // (focusIs has not seen it elsewhere): the window went away and came back
+      if (pressed(id) || ptr === id) { ptr = id; return; }
+      pressing = null;
+      setFocus(id);
+      resolve();
+    },
+    /** The focused guard as the document has it (null: none), told every frame: a window that is not the active one sends no focus events. */
+    focusIs(id) { if (ptr !== null && id !== ptr) ptr = null; setFocus(id !== null && id === ptr ? null : id); },
+    /** The keyboard pressed this guard (Enter on it): its focus is the keyboard's from here on. */
+    keyboard(id) { pressing = null; if (ptr === id) { ptr = null; setFocus(id); } },
     /** The guard's cover went up (the first press). byKey: by S / X on its lever. */
     lift(id, byKey) { drop(id); lifts.push({id, at: now(), byKey: !!byKey}); if (held.id === id) held.id = null; resolve(); },
-    /** The second press: the input was sent. A commit counts as a drop, and ends a key hold on that guard. */
-    commit(id) { drop(id); if (held.id === id) held.id = null; resolve(); },
+    /** The second press: the input was sent. A commit counts as a drop (the lift it follows already ended any hold on that guard). */
+    commit(id) { drop(id); resolve(); },
+    /** The shell has forgotten its target (a new day): the present one, if any, is sent again by the next tick(). */
+    forget() { sent = null; },
     tick: resolve,
     get target() { return sent; },
   };
@@ -138,7 +175,7 @@ export function roughSyncUnit(vm, prev) {
 }
 
 export function createDesk(doc, root, actions, opts = {}) {
-  let vm = null, lastFocus = null, frameNow = 0, previewKey = '', preview = null, prevScope = null;
+  let vm = null, lastFocus = null, frameNow = 0, previewKey = '', preview = null, prevScope = null, lastTick = -1;
   const nowFn = typeof opts.now === 'function' ? opts.now : () => frameNow;
   const notes = new Map();   // host element -> {span, until}
   const live = el(doc, 'div', 'dk-live');
@@ -256,9 +293,12 @@ export function createDesk(doc, root, actions, opts = {}) {
     }
     ctx.guards.expire();
     // C-10: the focused guard is read from the document as well as heard from its events; a cover
-    // that dropped by itself changes what is being considered
+    // that dropped by itself, or a guard that lost the focus or the pointer since the last frame,
+    // changes what is being considered. A new day: the shell has cleared its target, so say it again.
     const ae = doc.activeElement;
     ctx.consider.focusIs(ae && ae.classList && ae.classList.contains('dk-guard') && desk.contains(ae) ? ae.id : null);
+    if (fin(v.obs.tick, 0) < lastTick) ctx.consider.forget();
+    lastTick = fin(v.obs.tick, 0);
     ctx.consider.tick();
     ctx.holds.tick();
     for (const [host, n] of notes) if (nowFn() > n.until && !n.span.hidden) n.span.hidden = true;
@@ -317,6 +357,7 @@ export function createDesk(doc, root, actions, opts = {}) {
       if (vm.respond || !active || !desk.contains(active)) return false;
       if (active === tray.el) return ev.repeat ? true : tray.focusFirst();
       if (active.tagName !== 'BUTTON' || active.disabled || active.classList.contains('dk-hold')) return false;
+      if (active.classList.contains('dk-guard')) ctx.consider.keyboard(active.id);   // C-10: the keyboard is on this guard now, whoever focused it
       if (!ev.repeat) active.click();
       return true;
     }

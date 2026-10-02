@@ -150,7 +150,7 @@ export function createEmergency(ctx, keysParent, emergParent) {
   const shed = holdKey(ctx, box, {
     id: 'key-shed', cls: 'dk-shed', covered: true, label: 'DIRECT SHED', cue: 'key', shortcut: 'K', twice: true,
     can: () => '',
-    cost: () => 'sheds ' + shedText(obs()).text,
+    cost: () => { const next = shedText(obs()); return next.id ? 'sheds ' + next.text : 'sheds nothing, ' + next.text; },
     commit() { return ctx.send({type: 'directShed'}, shed.el); },
   });
 
