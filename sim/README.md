@@ -1265,12 +1265,17 @@ state, memo}`. JSDoc has the details. The contract:
   every line here is exactly the pre-2a behaviour.
   * *Lit operational demand.* A dark district takes its roofs off with its feeder, so the lit
     load is not a proportional slice of operational demand. The dispatch (`context`), the
-    lit-load re-flow and the adequacy walk read the present from `obs.demand.litMW` and a
+    lit-load re-flow, the adequacy walk and rule 4's evening (`eveningHolds`) read the present
+    from `obs.demand.litMW` (the sim's own: each suburb's sky, relit roofs still waiting) and a
     forecast column as `(demandP50 + rooftopMW) x (1 - dark customers) - rooftopMW x (1 - dark
     rooftop)` (`litMW`, `darkShare`: a district holds an equal part of its suburb's nameplate,
-    from `obs.rooftop.suburbs`). Wind and solar are read as AVAILABLE (`obs.wind.availMW`, the
-    forecast; the walk adds back `autoMW`), so what the dispatch is holding back in a surplus
-    (C-6) is never a shortfall. The plan's day-ahead columns carry the rooftop (`plan.fc.roof`).
+    from `obs.rooftop.suburbs`); a plan column inside the first forecast step lies between the
+    two. The cold-load term is `servedMW + dr.mw - demand.litMW`. Wind and solar are read as
+    AVAILABLE (`obs.wind.availMW`, the forecast; the walk adds back `autoMW`, the wind's less
+    its OFGS-tripped share), so what the dispatch is holding back in a surplus (C-6) is never a
+    shortfall. The plan's day-ahead columns carry the rooftop (`plan.fc.roof`); beyond the 4.5-h
+    forecast a heatwave announced after the plan was made lifts the underlying demand (P50 +
+    rooftop), and the roofs' own heat derate is left out (`litDayAhead`).
   * *The plan in a surplus.* Units to their floor, the tie to the export limit (par exports only
     to absorb must-run), the rest left to the sim's cut: the column's `gap` is negative.
   * *Rule 6 gains S-14 rule 2*, a union with its window: charge whenever `obs.price.mwh <= 0` or
@@ -1279,11 +1284,20 @@ state, memo}`. JSDoc has the details. The contract:
     (the sim's cut is net of the order), never less than the window's rate, at most
     `PAR_BATT_CHARGE_MAX_MW`, and no more than reaches `PAR_BATT_CHARGE_TO` by par's next
     possible action. A belly order (`memo.belly`) is held while the surplus still feeds it and
-    comes down by what the thermal units carry above their floor (else it flapped at every
-    decision: the order takes the whole spill, so the price turns positive and nothing is spilled).
+    comes down by what it would be buying instead (`boughtMW`: the thermal units above their
+    floor, hydro, and the tie above its export limit; else it flapped at every decision: the
+    order takes the whole spill, so the price turns positive and nothing is spilled).
+    `memo.belly` follows the order in place at every look of rule 6: true only while the order
+    is above the window's own rate for the surplus's sake. Narrower than "fires on the price": outside the window, with
+    nothing spilled, a price at or below $0 starts no order (there is no free power to take: the
+    order would be `max(window rate, ordered + spill) = 0`); it keeps a running order going.
+    Measured on desk seeds 1-16: 105 s in all in that state.
   * *Rule 4 gains S-14 rule 4*: after the gas units, and only once none is committed, ONE coal
     machine a day (`PAR_COAL_STOPS_DAY`, `memo.coalStops`) is stopped if the forecast is at or
-    below MSL2 (per column `+ MSL_TIE_OUT_MW` before the tie's return) for `PAR_COAL_MSL2_H` and
+    below MSL2 (per column `+ MSL_TIE_OUT_MW` before the tie's return) for `PAR_COAL_MSL2_H`
+    (counted over the 4.5-h forecast's 5-minute columns, not necessarily one run; the present
+    second is not a column), the machine has been on `PAR_DECOMMIT_MIN_ON_MIN`, N-1 in minutes
+    holds without it, and
     `eveningHolds`: in every plan column until the machine could be back at MIN (unload, T4,
     minimum down from breaker open to the next START, `startToMinS`), the other machines on,
     coming or free to start at `PAR_MAX_LOADING`, hydro at rule 5's release rate and the tie at
@@ -1294,7 +1308,15 @@ state, memo}`. JSDoc has the details. The contract:
   * *A battery order in the dispatch* (`batteryOrder`) counts for the energy behind it: a
     discharge until `PAR_BATT_RESERVE_FRAC`, a charge until full, at most the inverter less the
     GUARD. That is the player's order (through `replan()`, whose memory runs no rule 6) and par's
-    belly charge (until `PAR_BATT_CHARGE_TO`); par's window orders still end with their window.
+    own, with the ends rule 6 gives them: a charge until `PAR_BATT_CHARGE_TO`, a discharge until
+    the reserve and no later than the end of `PAR_BATT_DISCHARGE_H`. A window order is sized to
+    end with its window, so little moves there; the night's recharge (ordered after 15:30) is now
+    in par's plan, where before AGC carried the whole order for hours. This moves par on the
+    classic day too (198 of 200 rows; S-12 measured again).
+  * *Rule 9 in the belly.* The cap "no pickup larger than L" is lifted while the dispatch is
+    spilling at least the district's pickup (`obs.wind.autoMW + obs.solar.autoMW >=
+    coldLoadMW`): there L is a machine at its 240-MW floor and every pickup (the underlying load,
+    roofs off) is larger. The scaled TRIP PREVIEW estimate and the sim's permissive still decide.
   * *Rule 7* reads `agc.requestMW` net of the units' lowering trims while the dispatch is spilling
     (AGC then takes them to MIN beyond their bands, C-6: the dispatch at work, not drift), and a
     surplus the plan itself shows for the coming column is not a miss of the forecast.
@@ -1320,8 +1342,10 @@ state, memo}`. JSDoc has the details. The contract:
   the highest MSL level and rule 4's coal stops; `--probe` trips both credible contingencies in a
   copy of each SECURE state (H-8, as `tools/baseline-v4.js` does on the classic day); `--rows FILE`.
   `tools/follow.mjs` runs the hint-following player (`tests/lib/follow.js`) over seeds: unserved
-  energy, `score.cost` by key with par's beside it, and each STOP line's quoted saving against the
-  realised difference (the same day with that STOP skipped).
+  energy, `score.cost` by key with par's beside it (black days are left out of "dearer than
+  par"), and each STOP line's quoted saving against the realised difference: the same day with
+  that STOP skipped, which is the line asked about an observation in which that unit is not free
+  to stop (its `stopBlock` set) until the day next started it, so every other branch is followed.
 
 ### step.js (A, kept by "integration")
 

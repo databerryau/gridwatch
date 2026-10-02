@@ -463,7 +463,7 @@ export const P = {
   // ---- phase 2a "grid" block: end
   //
   // ---- phase 2a "par" block: begin
-  PAR_COAL_MSL2_H: src(3, 'h', 'S-14 rule 4 (desk/README.md C-12): par decommits a coal machine only if MSL2 is forecast for at least 3 h (and the evening holds N-1 without it). Counted over the present and the 4.5-h forecast columns at or below MSL2_MW (+ MSL_TIE_OUT_MW in a column where the tie is still out, as the MSL notice counts it).'),
+  PAR_COAL_MSL2_H: src(3, 'h', 'S-14 rule 4 (desk/README.md C-12): par decommits a coal machine only if MSL2 is forecast for at least 3 h (and the evening holds N-1 without it). Counted over the 4.5-h forecast\'s 5-minute columns at or below MSL2_MW (+ MSL_TIE_OUT_MW in a column where the tie is still out, as the MSL notice counts it): 36 of the 54, not necessarily in one run; the present second is not a column and is not counted.'),
   PAR_COAL_STOPS_DAY: simp(1, 'stops per day', 'S-14 rule 4 says "a coal machine": par stops at most this many coal machines in a day. A machine stopped at 10:00 is not back at minimum load before 21:14 (T4, the 8-h minimum down time from breaker open to the next START, then T1, auto-sync and T2), so a second stop is a different decision that the rule does not make.'),
   // ---- phase 2a "par" block: end
 };
