@@ -25,7 +25,7 @@ import {hash32} from './rng.js';
 export {SIM_VERSION};
 
 const TPS = V.TICKS_PER_S, DAY_TICKS = V.DAY_TICKS, DAY_S = V.DAY_S, F0 = V.F0_HZ;
-const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN;
+const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN, MSL_CHECK_S = V.MSL_CHECK_S;
 const EMPTY = Object.freeze([]);
 const buf = []; // step()'s event buffer, reused; step returns a copy only when non-empty
 
@@ -96,9 +96,8 @@ export function createState(seed, scenario) {
   const state = {
     v: SIM_VERSION, seed, scenarioId: scn.id, tick: 0, over: false, black: false,
     scn, scnHash: canonicalHash(scn),
-    // ext.rooftop: the per-suburb clearness series (C-5), null when the scenario has no rooftop;
-    // null on every scenario at stage A (the Phase 2a world job pre-rolls it).
-    ext: {regime, events: evs, series, rooftop: null,
+    // ext.rooftop: the per-suburb clearness series (P-2, C-5), null when the scenario has no rooftop.
+    ext: {regime, events: evs, series, rooftop: weather.prerollRooftop(seed, scn, evs),
       heat: ha ? {announceS: ha.atS, onsetS: ha.args.onsetS, endS: ha.args.endS} : null},
     evNext: 0,
     // Phase 2a (desk/README.md §19.2, C-2): the public kind of day. The hidden ext.regime.temp is
@@ -107,7 +106,7 @@ export function createState(seed, scenario) {
     env: {s: 0, h: 0, demandMW: 0, underlyingMW: 0, windAvailMW: 0, solarAvailMW: 0, windFrac: 0, clearness: 0,
       heatActive: false, heatMult: 1, tempC: 0, neighbourPrice: 0, exportLimitMW: 0,
       rooftopMW: 0, roofSubMW: zeros(nSub), roofClearFrac: ones(nSub)}, // Phase 2a: as if every inverter were connected
-    msl: {level: 0, minMW: 0, atS: -1, sinceS: -1}, // P-4 (Phase 2a, C-9): events.mslSecond (the world job)
+    msl: {level: 0, minMW: 0, atS: -1, sinceS: -1}, // P-4 (Phase 2a, C-9): events.mslSecond, every MSL_CHECK_S; never written with no rooftop
     control: {mode: c.mode, modeLocked: false},
     stations: fleet.buildStations(units),
     units,
@@ -156,6 +155,9 @@ function gridSecond(state, out) {
   events.applyDue(state, out);                          // ext events due now (trips, weather, news)
   grid.planSecond(state, out);                          // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)
   weather.sampleSecond(state);                          // env for this second
+  if (state.env.s % MSL_CHECK_S === 0) {                // P-4 (Phase 2a): the MSL level, from one forecast per check
+    events.mslSecond(state, weather.forecast(state, V.FC_HORIZON_S, V.FC_STEP_S), out);
+  }
   grid.unitsSecond(state, out);                         // state machines, timers, hot trips
   grid.agcSecond(state, out);                           // AGC trims (every AGC_CYCLE_S)
   grid.dispatchSecond(state, out);                      // ramps, battery, tie, renewables, RERT, DR

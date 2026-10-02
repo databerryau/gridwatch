@@ -132,6 +132,8 @@ step(state, inputs = []):
       events.applyDue(state, out)                            ext events with atS <= s (trips, weather, news)
       grid.planSecond(state, out)                            Phase 1a: the plan's booked stops, starts, keys, tie keys
       weather.sampleSecond(state)                            state.env for second s
+      if s % MSL_CHECK_S === 0:                              Phase 2a (P-4): the MSL level, from ONE forecast per check
+          events.mslSecond(state, weather.forecast(state, FC_HORIZON_S, FC_STEP_S), out)
       grid.unitsSecond(state, out)                           state machines, timers, derate, hot trips, lockouts
       grid.agcSecond(state, out)                             AGC trims (every AGC_CYCLE_S)
       grid.dispatchSecond(state, out)                        schedules move at ramps; battery, tie, renewables, RERT, DR
@@ -153,6 +155,12 @@ load relief, relays) on top. Trips from ext events therefore land on a second bo
 first physics tick after them sees the new state. A loop that steps must stop on
 `state.over` (step is a no-op after it).
 
+The MSL check (Phase 2a; desk/README.md §21.1) sits directly after the weather, so it tests the
+second's own demand and a tie or potline trip applied by `events.applyDue` in the same second;
+the tie coming back (`grid.unitsSecond`, later in the second) shows at the next check. step.js
+builds the forecast and hands it over, so `events.js` still imports nothing from `weather.js`.
+On a scenario with no rooftop `mslSecond` returns at once.
+
 ## 4. Random streams (F-3)
 
 `sim/rng.js`: counter-based `hash32(seed, stream, a, b = 0, c = 0)` (MurmurHash3 fmix32 chain),
@@ -167,14 +175,16 @@ first physics tick after them sees the new state. A loop that steps must stop on
 | `EXT_WIND` | a = minute sample | wind fraction series | createState |
 | `EXT_CLOUD` | a = minute sample | utility-solar clearness series | createState |
 | `EXT_FINE` | a = grid second | +-6 MW per-second demand wobble | on the fly in `sampleSecond` (a pure function of seed and second, so it is "pre-rolled" in effect) |
-| `EXT_ROOFTOP` | a = sample, b = suburb | **reserved** for Phase 2 rooftop PV (P-1, P-2) | - |
+| `EXT_ROOFTOP` | a = 5-min sample; b = suburb index, and b = the number of suburbs for the shared regional sky | the rooftop skies (Phase 2a, P-2; desk/README.md C-5): `ext.rooftop`, per-suburb clearness = one regional series + a local term each (`normal` draws). Not drawn when the scenario has no rooftop | createState |
 | `PLAY` | a = tick, b = unit index, c = draw | player-dependent outcomes: overheat trip (H-2: `uniform(seed, PLAY, tick, k)` at the grid second's tick, c = 0); K-12 sync slip (Phase 1a: at the tick the unit reaches 'ready' or is sent back there, c = 1 magnitude, 2 sign, 3 phase angle) | when the outcome is decided |
 
 Ext draws never depend on play (C-6): the same seed gives the same weather, demand, events and
 lockout times whatever anyone does. **Trip targets are rules, not dice**: "the largest online
 machine by output" (`fleet.largestContingency`; ties to the lower index), "the station's
 largest online machine", "the unit that ran hot". Ext series are quantised integers (MW,
-per-mille) at `SERIES_STEP_S` = 60 s; ext event args have at most 3 exact decimals (tested).
+per-mille) at `SERIES_STEP_S` = 60 s (the rooftop skies at `scn.rooftop.cloud.stepS` = 300 s:
+six of them at one minute would break the 64-KB state limit); ext event args have at most 3
+exact decimals (tested).
 `fx` (cosmetic) randomness lives in `render/` and `audio/` only.
 
 ## 5. State shape
@@ -198,7 +208,7 @@ modules named. "A" = set by createState only, never changed after. "-" = nobody 
 | `evNext` | int | events | index of the next `ext.events` entry to apply |
 | `day` | `{temp: 'MILD'\|'HOT', weekend: bool}` | A | the public kind of day (P-3): `temp` from the hidden `ext.regime.temp`, read once (a heatwave day reads `'HOT'`); `weekend` from `scn.day.weekend` (Phase 2a; desk/README.md §19.2) |
 | `env` | object | weather | this second's external conditions (below) |
-| `msl` | `{level, minMW, atS, sinceS}` | events (`mslSecond`: the Phase 2a world job) | P-4 notice level 0..3, the forecast minimum behind it and its time; `{0, 0, -1, -1}` at stage A and whenever the scenario has no rooftop (Phase 2a; desk/README.md §19.2) |
+| `msl` | `{level, minMW, atS, sinceS}` | events (`mslSecond`) | P-4 notice level 0..3, the forecast minimum behind it and its time ("msl" below); `{0, 0, -1, -1}` for the whole day when the scenario has no rooftop (Phase 2a; desk/README.md §19.2) |
 | `control` | `{mode: 'AGC'\|'HAND', modeLocked: bool}` | step (applyInput) | K-2 / D-7 |
 | `stations` | array | fleet (derived) | one lever per station (below) |
 | `units` | array | grid, physics, fleet | one entry per machine, `V.MACHINES` order |
@@ -246,7 +256,7 @@ explicit keys without `clampOn` and `lastMW`.
 | `events[]` | `{id: 'e7', atS, type, args, contingency: bool, warned: bool}`, sorted by `atS`, then type order, then menu slot; contingencies never share a second |
 | `heat` | `{announceS, onsetS, endS}` or `null` |
 | `series` | `{stepS: 60, demandNoiseMW: int[1441], windPm: int[1441], clearPm: int[1441]}` |
-| `rooftop` | `null` at stage A on every scenario; from the world job `{stepS, clearPm: [[int] x nSub]}` (per-suburb clearness from `EXT_ROOFTOP`), `null` when `scn.rooftop.capacityMW` is 0; never read by `forecast()` (Phase 2a; desk/README.md §19.2) |
+| `rooftop` | `{stepS: 300, clearPm: [[int x 289] x nSub]}`: each suburb's clearness (`scn.city.suburbs` order) as integer per-mille inside `cloud.min..max`, from `weather.prerollRooftop` on `EXT_ROOFTOP`; `null` when `scn.rooftop.capacityMW` is 0. One shared regional sky (reverts to `cloud.mu`; a heatwave's clear skies lift that mean from its onset) plus a small zero-mean local term per suburb, stored already combined; the 2a cloud front does not cross the suburbs. Read only by `sampleSecond`, for the present second; never by `forecast()` (Phase 2a; desk/README.md §19.2, C-5) |
 
 Event types (classic menu, legacy L331-370): `notice {code}`, `heatAnnounce {onsetS, endS,
 upliftPm, deratePm}` (integer per-mille), `heatOnset {clearMuAtLeast}`, `heatEnd`, `stormWarn
@@ -258,16 +268,56 @@ createState; `applyDue` only logs them.
 
 ### env (weather.sampleSecond, every grid second; public "present" values)
 
-`s` (grid second), `h` (hour of day), `demandMW` (operational demand = underlying minus the
-smelter's missing load; before Phase 2 operational = underlying), `underlyingMW` (DEM x heat
-multiplier + noise + wobble), `windAvailMW`, `solarAvailMW` (clear-sky table x clearness),
-`windFrac`, `clearness`, `heatActive` (onset <= s < end), `heatMult`, `tempC` (display),
-`neighbourPrice` ($/MWh, P-6), `exportLimitMW` (300 in 09:00-16:00, else 800).
-(Phase 2a; desk/README.md §19.2) `rooftopMW` (every suburb's rooftop PV as if every inverter were
+`s` (grid second), `h` (hour of day), `demandMW` (operational demand, P-1: underlying minus
+rooftop PV minus the smelter's missing load), `underlyingMW` (the day's shape x heat multiplier
++ noise + wobble), `windAvailMW`, `solarAvailMW` (clear-sky table x clearness), `windFrac`,
+`clearness`, `heatActive` (onset <= s < end), `heatMult`, `tempC` (display; a MILD day shows
+`scn.temperatureC.mildTable`), `neighbourPrice` ($/MWh, P-6), `exportLimitMW` (300 in
+09:00-16:00, else 800), `rooftopMW` (every suburb's rooftop PV as if every inverter were
 connected), `roofSubMW[nSub]` (per suburb, `scn.city.suburbs` order), `roofClearFrac[nSub]` (its
-clearness): stage A writes 0, zeros and ones each second on every scenario, in place. The identity
-the world job keeps each grid second: `demandMW = underlyingMW - rooftopMW - (SMELTER_MW -
-smelter.loadMW)`; `demandMW` stays THE operational total every consumer reads.
+clearness now). Phase 2a (desk/README.md §19.2, C-3, C-4):
+
+* **P-3.** `underlyingMW = weather.underlyingBaseMW(scn, state.day, h) x heatMult + noise +
+  wobble`. The shape is `DEM(h)` on a HOT weekday; a MILD day takes off its cooling load,
+  `COOLING_MAX_MW x clamp((T - COOLING_BASE_C) / COOLING_SPAN_C)` with T from the scenario's
+  hot-day temperature table; a weekend multiplies either by `WEEKEND_DEMAND_FACTOR`. MILD and
+  the weekend come from the public `state.day`, the heat from `ext.heat`.
+* **P-2.** `roofSubMW[j] = capacityMW x share[j] x clearFactor x shape(h) x (1 - cloudBite x
+  (1 - k_j)) x (1 - (1 - heatFactor) x r(s))`: `shape` is `scn.rooftop.shapePm` (integer
+  per-mille of the 13:00 peak, linear between its 15-min points; 0 outside 06:12-19:48), `k_j` =
+  `roofClearFrac[j]`, read from `ext.rooftop` (linear between its 5-min samples), and `r(s)` =
+  `weather.heatRampAt(ext.heat, s)`, the 0..1 ramp `heatMultAt` uses, so the hot-panel derate
+  starts with the heat window and never leaks a heatwave that has not been announced.
+  `rooftopMW` is the sum. Clear noon (13:00, k = 1) is 3,500 MW; 18:48 about 386 MW; k = 0.32
+  everywhere leaves 52.4% (tested).
+* **P-1.** `demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW)` on every grid
+  second (flex = 0 in 2a; tested over a whole DESK day through a potline trip). `demandMW`
+  stays THE operational total every consumer reads; what is off with dark or reconnecting
+  districts is `city.roofOffMW` (fleet), never taken out of `env`.
+* With no rooftop (`ext.rooftop` null) `rooftopMW` is 0, `roofSubMW` zeros and `roofClearFrac`
+  ones, written in place each second; with that and a HOT weekday (the classic day, C-1) every
+  `env` value is bit-identical to the pre-2a formula (tested, association order included).
+
+### day and msl (Phase 2a; desk/README.md C-2, C-9)
+
+`day = {temp: 'MILD' | 'HOT', weekend}` is the public kind of day, set once by createState
+(`temp` from the hidden `ext.regime.temp`, a heatwave reading `'HOT'`; `weekend` from
+`scn.day.weekend`) and never written again. `sampleSecond` and `forecast` take the day type from
+it; nothing else reads `ext.regime.temp`.
+
+`msl = {level, minMW, atS, sinceS}` (writer: `events.mslSecond`, every `MSL_CHECK_S` = 300 s).
+`minMW` is the minimum forecast operational demand: the least of `env.demandMW` now and
+`forecast.demandP50` over the 4.5-h window; `atS` its grid second (now, when the present is the
+minimum). Both are refreshed at every check, unrounded. In the last 4.5 h of the sim day the
+window runs past 04:00, as the forecast's own columns do (tomorrow morning, on the same day
+type), so `atS` may be up to `FC_HORIZON_S` past `DAY_S`: a consumer that maps it onto the day
+(a `dayAhead` column, a plan position) clamps it. No level is reached at night (no rooftop), so
+no record carries such a time. `level` 0..3: a level is **reached**
+when `minMW` is at or below its threshold (`MSL1_MW` 1,600, `MSL2_MW` 1,300, `MSL3_MW` 1,000,
+each raised by `MSL_TIE_OUT_MW` while `tie.tripped`) and **left** only once `minMW` is more than
+`MSL_CLEAR_MW` above it. `sinceS` is the grid second of the last change of level (-1: none yet
+today). Every change of level emits one `log` record (§7). With no rooftop the object is never
+written: `{0, 0, -1, -1}` all day.
 
 ### stations[i] - `{id, basePointMW}` (K-1)
 
@@ -526,6 +576,20 @@ Every record has `tick` and `kind`; `cue` (optional) names a sound for `audio/`.
 Phase 1a log codes (kind `log`): `PLAN` (a booked START or STOP refused when due, dropped),
 `SYNC_ROUGH`, `SYNC_REVERSE`, `SYNC_REVERSE_TRIP`.
 
+Phase 2a MSL codes (kind `log`, from `events.mslSecond`; P-4, desk/README.md §19.3): `MSL1`,
+`MSL2`, `MSL3` and `MSL_CLEAR`, one record on **every** change of `msl.level` (a rise, a fall to
+a lower level, the clear), named for the level reached. These records carry three more fields:
+`{tick, kind: 'log', sev, code, msg, level, minMW, atS}`, with `sev` `info` / `warn` / `crit` for
+levels 1 / 2 / 3 and `good` for the clear, `minMW` rounded to 1 MW and `atS` the grid second of
+that minimum. `msg` is complete on its own in at most 25 words and names the level's threshold
+as it stands, e.g. "MSL1 notice: lowest forecast demand 1,850 MW at 12:40. MSL1 is 1,900 MW (tie
+out): two load trips above the security floor." When the minimum is the present second (`atS`
+equals the record's own second: a potline trip, or a clear while demand is rising) the value is
+measured, not forecast, and the message says so: "MSL1 notice: demand is at its lowest now,
+1,471 MW. MSL1 is 1,600 MW: two load trips above the security floor." Never a news item (news is
+weather). The `DUCK`
+notice has its own wording on a scenario with rooftop PV (the sun leaving the rooftops).
+
 Message text lives in these records for the bench; Phase 1a moves wording to `content/text.js`.
 
 ## 8. observe(state, opts): the player's view (S-4 barrier)
@@ -550,8 +614,9 @@ unless 'ready'); `sec` gains `previewUnitHz`, `previewLinkHz`; `plan` = {madeAtS
 {unit, atS}}; `scope` = {unit, open}. Phase 1b added `sky` = {clearness, windFrac}: the present
 `env` values (public, like `solar.availMW`), for the map's weather (G-3, G-4). It is not state:
 `hashState` and `SIM_VERSION` are unchanged.
-Phase 2a (desk/README.md §19.3; stage A wired every key with its neutral value, the world and
-grid jobs fill them in): `balance` gains `renPfrMW`, `roofPfrMW` (after `shedMW`); `demand`
+Phase 2a (desk/README.md §19.3; stage A wired every key, the world job filled in `env`, `day`,
+`msl` and the forecast, and the grid job fills in what it owns: `phys`, `city`, `ren`, `score`,
+`conts`): `balance` gains `renPfrMW`, `roofPfrMW` (after `shedMW`); `demand`
 gains `underlyingMW`, `rooftopMW` (as if connected, so `nowMW = underlyingMW - rooftopMW -
 (SMELTER_MW - smelter.loadMW)` holds in obs), `litMW` (`fleet.litDemandMW`), `unservedMW`
 (`G x shedFrac`, `G = env.demandMW + env.rooftopMW`) (after `tempC`); `wind` and `solar` gain
@@ -562,7 +627,9 @@ and `.caught` gain `inverterMW` (last); `forecast` and `dayAhead` gain `underlyi
 `scope`: `rooftop` = {mw (generating now: availMW - offMW - `phys.roofPfrMW`), availMW
 (`env.rooftopMW`), capMW (`scn.rooftop.capacityMW`), offMW (`city.roofOffMW`), suburbs[] {id, mw,
 capMW, clearness}: one per `scn.city.suburbs`, in order, also at capacity 0}; `msl` = {level,
-minMW, atS, sinceS}; `day` = {temp, weekend}. Never `ext.regime.temp` or `ext.rooftop`.
+minMW, atS, sinceS}; `day` = {temp, weekend}. Never `ext.regime.temp` or `ext.rooftop`: on a
+heatwave day `day.temp` is `'HOT'` and the word HEATWAVE appears nowhere in `observe()` at any
+hour (the 10:30 warning is the news), and no key `clearPm` exists in it (`tests/state.test.js`).
 `restoreBlock` is `grid.restorePermissive(state, d)` for a dark district (the lamp: frequency and
 interval; the restore preview runs only on the restore input, never per district here) and
 `fleet.DISTRICT_LIT` for a lit one. The bench asks the preview itself for lit lamps
@@ -570,12 +637,16 @@ interval; the restore preview runs only on the restore input, never per district
 
 `forecast` = `weather.forecast(state, FC_HORIZON_S, FC_STEP_S)`: 54 five-minute columns
 `{fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[], neighbourPrice[],
-exportLimitMW[], underlyingP50[], rooftopMW[]}` built from the scenario's climatology, the present
-(`env`) and `news` only. (Phase 2a: `underlyingP50` = `demandP50` + `rooftopMW` + the smelter's
-expected missing load at that column; `rooftopMW` is 0 in every column at stage A.)
+exportLimitMW[], underlyingP50[], rooftopMW[]}` built from the scenario's climatology, the public
+kind of day (`state.day`), the present (`env`) and `news` only. (Phase 2a: `demandP50` / `P10` /
+`P90` are operational demand; `underlyingP50` = `demandP50` + `rooftopMW` + the smelter's
+expected missing load at that column; `rooftopMW` is the rooftop forecast as if every inverter
+were connected, after the heat derate of an ANNOUNCED heat window, and 0 in every column on a
+scenario with no rooftop; §11 weather.js.)
 `dayAhead` is `null` unless `observe(state, {dayAhead: true})`: then the same forecast to the
 end of the sim day (L-0 pre-dispatch). Neither may read `ext` (`tests/events.test.js`
-scrambles ext, including the series and the heat window, and expects an identical forecast).
+scrambles ext, including the series, the heat window and, on DESK, the rooftop skies and the
+hidden day type, and expects an identical forecast).
 
 ## 9. hashState(state)
 
@@ -705,6 +776,36 @@ The stage A relative band (`FC_SIGMA_NEAR`..`FC_SIGMA_FAR`) covered 96% at 4 h a
 those params are kept only for the §8.3 register. `neighbourPrice[]` and `exportLimitMW[]`
 are the exact public shapes.
 
+**Phase 2a "world"** (desk/README.md §21.1): `heatRampAt(heat, s)` (the 0..1 ramp of
+`heatMultAt`, whose own expression is unchanged), `underlyingBaseMW(scn, day, h)` (P-3),
+`rooftopClearSkyMW(scn, h)` (P-2: capacity x clear-sky factor x the shape table),
+`prerollRooftop(seed, scn, events)` (C-5: `ext.rooftop`, or `null` at capacity 0; built on a
+step-and-length-generic copy of the mean-reverting series, `ouSeries` itself untouched), and
+`sampleSecond` and `forecast` with rooftop and day types (§5 env). `sampleSecond` also reads
+`state.day`.
+
+`forecast` on a day with rooftop. Underlying P50 = `underlyingBaseMW(day, h)` x announced heat
++ the decaying present deviation. Rooftop = the P-2 curve at ONE clearness, the suburbs'
+capacity-weighted `env.roofClearFrac` (the rooftop factor is affine in k, so this is exact),
+drifting from its present value toward `cloud.mu` (toward `events.heat.clearMu` from an
+announced onset) by `regional.revertPerStep` per `cloud.stepS`, x the heat derate inside the
+announced window. `demandP50` = underlying - rooftop - the smelter's expected missing load. The
+band adds the rooftop's own forecast error, in MW at that column's sun: `(clear-sky MW x
+cloudBite)^2 x [vR(n) + S2 x (vL(n) + sL^2 x (aR^n - aL^n)^2)]`, where vR and vL are the
+regional and local variances grown over the n steps of lead (`sigma^2 (1 - a^2n) / (1 - a^2)`),
+S2 the sum of squared shares (the local terms are independent), sL^2 the local term's stationary
+variance, and the last term the part of the present deviation that was local and fades faster
+than the forecast (which treats all of it as regional) assumes. It reads `scn`, `state.day`,
+`env`, `news` and the smelter; never `ext` (the DESK scramble cases).
+Measured on `desk`, seeds 1-200 (15-min intervals, the slow test's method): coverage of P10-P90
+80.7% at 1 h and 79.9% at 4 h (L-2: 80 +- 5%; heatwave days 73.9% at 4 h: the unannounced heat is
+the forecast's honest error). The aggregate rooftop forecast error is 2.9% of the forecast at
+1 h and 3.1% at 4 h (sigma, daylight columns; L-2's starting values were 5% and 15%): the cloud
+process forgets a deviation in about an hour and cannot be clearer than 1, so the error
+saturates. That clamp also puts the mean clearness (0.937) under `cloud.mu` (0.95), which the
+forecast drifts to: a bias of -0.6% of rooftop at 1 h and -1.1% at 4 h (+4 / +27 MW of
+operational demand in daylight), small against the band and left labelled.
+
 ### events.js
 
 Stage A (done): `prerollEvents(seed, scn, regime)`, `TYPE_ORDER`, `CONTINGENCY_TYPES`.
@@ -721,6 +822,25 @@ offS`; `smelterReturn` -> `smelter.returning = true`. While returning, `smelter.
 min(SMELTER_MW, max(loadMW, `SMELTER_RETURN_MW_MIN / 60` x (s - returnS + 1))): a function of
 time, so it is the same called every second or after a jump. Invariant: each event applies
 exactly once; nothing in ext is modified.
+
+**Phase 2a "world"** (P-4; desk/README.md C-9, §21.1): `mslSecond(state, fc, out)`. step()
+calls it straight after `weather.sampleSecond` on every `MSL_CHECK_S`-th grid second with that
+second's `weather.forecast(state, FC_HORIZON_S, FC_STEP_S)`. It keeps `state.msl` (§5 "day and
+msl") and pushes the §7 MSL record on every change of level; it returns at once on a scenario
+with no rooftop. Reads `scn.rooftop.capacityMW`, `scn.clock`, `env.{s, demandMW}`,
+`tie.tripped`, `msl`, `tick` and `fc`; writes `msl.*`. No new import.
+Measured (weather and events only, no input; the tie's lockout counted as `grid.unitsSecond`
+does): on mild weekends (`desk-weekend`) MSL1 is reached on 14.9% of days in seeds 1-200 (15 of
+101) and 21.0% in seeds 1-1,000, MSL2 on 0% and 1.3%, MSL3 never (P-4: 10-30%, <= 10%); on
+mild weekdays MSL1 on 0.4%, on HOT and heatwave days never. The first notice of the day follows
+a tie outage on 59 of 113 days, a potline trip on 49 and neither on 5 (seeds 1-1,000). A potline
+notice has no lead (the trip is the news); a tie-out notice raised in the morning has up to
+4.5 h (median 175 min), but 35 of the 37 first notices with >= 2 h of lead were cancelled before
+their minimum arrived, because the tie came back first (C-9 raises every threshold for the whole
+window while the tie is out NOW); the 5 with no contingency are a clear sky with demand ~150 MW
+under its curve, seen only as it happens (lead 0). Stage C rewords P-4's lead clause (C-9). Not
+built, measured for it: raising the threshold only for the columns before the tie's public
+return time (`tie.lockoutS`) gives MSL1 16.7%, MSL2 1.3%, and 5 of 8 early notices standing.
 
 ### physics.js (B "physics")
 
@@ -974,7 +1094,14 @@ state, memo}`. JSDoc has the details. The contract:
 `inWatch(state)`, `observe(state, opts)`, `hashState(state)`, `canonicalHash(x)`,
 `replay(seed, scenario, log, opts)`, `INPUT_TYPES`, `SIM_VERSION`. createState pre-rolls ext,
 samples second 0 and balances the opening second with the online hydro machines (as
-`tools/baseline.js` did for the legacy build). Integration also builds `next.html`,
+`tools/baseline.js` did for the legacy build). Phase 2a "world": createState also pre-rolls
+`ext.rooftop` (`weather.prerollRooftop`) and sets the public `state.day`; the grid second runs
+the MSL check after the weather (§3); `observe()` carries the desk/README.md §19.3 values (§8).
+`balanceOpening` is unchanged: with the weekend factor and the MILD shape in `env.demandMW` the
+04:00 second balances within 1 MW on `desk` and `desk-weekend` on MILD and HOT days alike
+(tested; over seeds 1-200 the two hydro machines open at 96-159 MW each on `desk` and 217-276 MW
+on `desk-weekend`, inside their 0-317 MW range: the weekend draws water from 04:00, which stage
+C's commitment tuning, C-14, may change). Integration also builds `next.html`,
 `app/loop.js` (F-5: rAF, `min(frameDt, 0.1) x rate` accumulator, whole ticks, per-frame cap),
 `content/text.js` (H-14: one entry per §8.2 row, `{id, row, anchorId, real, ours, why,
 params}`, `ours` built from params values; `tests/text.test.js`) and `tools/baseline-v4.js`

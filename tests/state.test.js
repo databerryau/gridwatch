@@ -5,10 +5,10 @@ import assert from 'node:assert/strict';
 import {getHeapSpaceStatistics} from 'node:v8';
 import {createState, step, observe, hashState, canonicalHash} from '../sim/step.js';
 import * as physics from '../sim/physics.js';
-import {prerollRegime, prerollSeries, sampleSecond} from '../sim/weather.js';
-import {prerollEvents, CONTINGENCY_TYPES} from '../sim/events.js';
+import {prerollRegime, prerollSeries, prerollRooftop, sampleSecond} from '../sim/weather.js';
+import {prerollEvents, applyDue, CONTINGENCY_TYPES} from '../sim/events.js';
 import {V} from '../sim/params.js';
-import {CLASSIC} from '../content/scenarios.js';
+import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 
 const scn = JSON.parse(JSON.stringify(CLASSIC)); // plain copy, as createState stores it (src keys are ignored by the sim)
 
@@ -379,4 +379,186 @@ test('F-3: ext event arguments are quantised: every number has at most 3 exact d
 test('content: CLASSIC is deep-frozen (an in-place edit would leak into later createState calls)', () => {
   assert.ok(Object.isFrozen(CLASSIC) && Object.isFrozen(CLASSIC.commitment.units) && Object.isFrozen(CLASSIC.demand.baseMW[0]));
   assert.throws(() => { CLASSIC.commitment.tieMW = 1; }, TypeError);
+});
+
+// ------------------------------------------------------------------ Phase 2a "world" (desk/README.md §21.1)
+// The game's days (DESK, DESK_WEEKEND) carry what the classic day does not: the rooftop skies in
+// ext (C-5), MILD days (C-2) and a weekend. The same guarantees, measured where they bind.
+
+const deskScn = JSON.parse(JSON.stringify(DESK));
+const GAME_DAYS = [DESK, DESK_WEEKEND];
+
+/** Set the clock to grid second sec and apply what is due (no physics or grid logic). */
+function goTo(s, sec) {
+  s.tick = sec * V.TICKS_PER_S;
+  applyDue(s, []);
+  sampleSecond(s);
+  return s;
+}
+
+/** Every key at any depth of x. */
+function keysOf(x, keys = new Set()) {
+  if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) { keys.add(k); keysOf(v, keys); }
+  return keys;
+}
+
+test('F-2 (DESK): with the rooftop skies the state is still plain JSON under 64 KB on every seed, and survives a round trip', () => {
+  let max = 0;
+  for (const scenario of GAME_DAYS) {
+    for (let seed = 1; seed <= 60; seed++) {
+      const j = JSON.stringify(createState(seed, scenario));
+      max = Math.max(max, j.length);
+      assert.ok(j.length < 64 * 1024, scenario.id + ' seed ' + seed + ': state is ' + j.length + ' bytes');
+    }
+    const s = createState(1, scenario);
+    assertPlainJson(s);
+    const back = JSON.parse(JSON.stringify(s));
+    assert.equal(JSON.stringify(back), JSON.stringify(s));
+    assert.equal(hashState(back), hashState(s));
+    assert.deepEqual(createState(1, scenario).ext, s.ext, 'the pre-roll is a pure function of (seed, scenario)');
+  }
+  assert.ok(max > 40 * 1024, 'the skies are in it: ' + max + ' bytes');
+});
+
+test('F-3 / C-5: ext.rooftop is six series of 289 integer per-mille inside min..max x 1000, every suburb opening at startFrac; null with no rooftop', () => {
+  const c = deskScn.rooftop.cloud;
+  for (let seed = 1; seed <= 50; seed++) {
+    const s = createState(seed, DESK), r = s.ext.rooftop;
+    assert.deepEqual(Object.keys(r), ['stepS', 'clearPm']);
+    assert.equal(r.stepS, 300);
+    assert.equal(r.clearPm.length, 6, 'one per suburb');
+    for (const row of r.clearPm) {
+      assert.equal(row.length, 289);
+      assert.ok(row.every(Number.isInteger), 'integers');
+      assert.ok(row.every(x => x >= c.min * 1000 && x <= c.max * 1000), 'inside ' + c.min + '..' + c.max);
+      assert.equal(row[0], c.startFrac * 1000);
+    }
+    assert.deepEqual(prerollRooftop(seed, deskScn, s.ext.events), r);
+    assert.deepEqual(createState(seed, DESK_WEEKEND).ext.rooftop, r, 'the weekend has the weekday\'s sky');
+    assert.equal(createState(seed, CLASSIC).ext.rooftop, null);
+    assert.equal(prerollRooftop(seed, scn, s.ext.events), null);
+  }
+});
+
+test('C-5: the suburbs share one regional sky and differ by a small local term; a heatwave clears it from its onset', () => {
+  const dev = [], spread = [];
+  let heatSum = 0, heatN = 0, restSum = 0, restN = 0;
+  for (let seed = 1; seed <= 200; seed++) {
+    const s = createState(seed, DESK), rows = s.ext.rooftop.clearPm;
+    for (let i = 60; i <= 180; i += 12) { // 09:00 to 19:00, hourly
+      const m = rows.reduce((a, row) => a + row[i], 0) / rows.length;
+      dev.push(Math.abs(m - 950));
+      spread.push(Math.max(...rows.map(row => row[i])) - Math.min(...rows.map(row => row[i])));
+      if (i < 138) continue; // from 15:30: the heat window (13:30-20:00) has had two hours to clear the sky
+      if (s.ext.heat) { heatSum += m; heatN++; } else { restSum += m; restN++; }
+    }
+  }
+  const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+  assert.ok(mean(spread) > 20 && mean(spread) < 150, 'suburbs differ, a little: mean spread ' + mean(spread) + ' per-mille');
+  assert.ok(mean(dev) > 0.3 * mean(spread), 'and move together: the shared sky is ' + mean(dev) + ' per-mille from its mean on average');
+  assert.ok(heatN > 50 && heatSum / heatN > restSum / restN + 8, 'heat ' + heatSum / heatN + ' against ' + restSum / restN);
+});
+
+test('C-2: on the game\'s day MILD is 55 +- 3% of 2,000 seeds and HOT 30 +- 3%; the heat seeds are the classic day\'s own', () => {
+  const counts = {MILD: 0, HOT: 0, HEATWAVE: 0};
+  for (let seed = 1; seed <= 2000; seed++) {
+    const g = prerollRegime(seed, deskScn), c = prerollRegime(seed, scn);
+    counts[g.temp]++;
+    assert.equal(g.cls, c.cls, 'seed ' + seed + ': the weather class draw is untouched');
+    assert.equal(g.temp === 'HEATWAVE', g.cls === 'heat');
+    assert.equal(c.temp, c.cls === 'heat' ? 'HEATWAVE' : 'HOT', 'the classic day is never MILD');
+  }
+  assert.ok(Math.abs(counts.MILD / 2000 - 0.55) <= 0.03, 'MILD share ' + counts.MILD / 2000);
+  assert.ok(Math.abs(counts.HOT / 2000 - 0.30) <= 0.03, 'HOT share ' + counts.HOT / 2000);
+  assert.ok(Math.abs(counts.HEATWAVE / 2000 - 0.15) <= 0.02, 'heat share ' + counts.HEATWAVE / 2000);
+});
+
+test('opening state (DESK, DESK_WEEKEND): 04:00 balances within 1 MW on MILD and HOT days, the hydro machines inside their range', () => {
+  for (const scenario of GAME_DAYS) {
+    const seen = new Set();
+    for (let seed = 1; seed <= 30; seed++) {
+      const s = createState(seed, scenario);
+      seen.add(s.day.temp);
+      const supply = s.units.reduce((a, u) => a + u.outMW, 0) + s.tie.flowMW + s.ren.windMW + s.ren.solarMW + s.battery.outMW;
+      assert.ok(Math.abs(supply - s.env.demandMW) < 1, scenario.id + ' seed ' + seed + ' (' + s.day.temp + '): imbalance ' + (supply - s.env.demandMW));
+      const hydro = s.units.filter(u => u.station === 'hydro' && u.sync);
+      assert.equal(hydro.length, 2);
+      for (const u of hydro) assert.ok(u.outMW > 0 && u.outMW < 317, scenario.id + ' seed ' + seed + ': ' + u.id + ' at ' + u.outMW);
+      assert.equal(s.env.rooftopMW, 0, 'no sun at 04:00');
+      assert.equal(s.units.find(u => u.id === 'coal4').sync, scenario === DESK);
+    }
+    assert.deepEqual([...seen].sort(), ['HOT', 'MILD']);
+  }
+});
+
+test('S-4 (DESK): observe() never carries the rooftop skies or the hidden day type: no key clearPm, and on heat seeds no "HEATWAVE" at any hour', () => {
+  const heatSeeds = [];
+  for (let seed = 1; heatSeeds.length < 3; seed++) if (prerollRegime(seed, deskScn).cls === 'heat') heatSeeds.push(seed);
+  for (const scenario of GAME_DAYS) {
+    for (const seed of [1, 2, ...heatSeeds]) {
+      const s = createState(seed, scenario);
+      assert.equal(s.ext.regime.temp === 'HEATWAVE', heatSeeds.includes(seed));
+      for (let h = 0; h < 24; h++) {
+        goTo(s, h * 3600 + 1800);
+        const o = observe(s, {dayAhead: true}), keys = keysOf(o), text = JSON.stringify(o);
+        for (const k of ['clearPm', 'ext', 'seed', 'regime', 'events', 'evNext', 'series', 'scn', 'scnHash'])
+          assert.ok(!keys.has(k), 'obs exposes ' + k);
+        assert.ok(!text.includes('HEATWAVE'), scenario.id + ' seed ' + seed + ', ' + o.clock.text + ': obs says HEATWAVE');
+        assert.equal(o.day.temp, seed === 1 ? 'MILD' : 'HOT');
+        assert.equal(o.day.weekend, scenario === DESK_WEEKEND);
+      }
+      // What the heat warning says is public from 10:30, as on the classic day; the word above is the hidden type's.
+      assert.equal(s.news.some(n => n.kind === 'heat'), heatSeeds.includes(seed));
+    }
+  }
+});
+
+test('README §8 (DESK): the same frozen shape on a day with rooftop, and the Phase 2a values are the desk/README.md §19.3 expressions', async () => {
+  const {litDemandMW} = await import('../sim/fleet.js');
+  const s = goTo(createState(8, DESK), 7 * 3600); // 11:00 on a MILD day (its potline trips at 12:23)
+  s.city.roofOffMW = 120; s.city.roofDarkMW = 80; s.phys.roofPfrMW = 40; s.phys.renPfrMW = 7; s.city.shedFrac = 0.06; // as the grid job will keep them
+  s.msl = {level: 2, minMW: 1287.4, atS: 33000, sinceS: 32100};
+  const o = observe(s, {dayAhead: true}), e = s.env, roof = s.scn.rooftop;
+  for (const path of ['', 'balance', 'demand', 'wind', 'solar', 'score', 'districts[]', 'forecast', 'rooftop', 'rooftop.suburbs[]', 'msl', 'day']) {
+    const obj = path === '' ? o : path.split('.').reduce((x, k) => (k.endsWith('[]') ? x[k.slice(0, -2)][0] : x[k]), o);
+    assert.deepEqual(Object.keys(obj), OBS_SHAPE[path], 'obs.' + (path || '(top)'));
+  }
+  assert.deepEqual(Object.keys(o.dayAhead), OBS_SHAPE.forecast);
+  assert.ok(e.rooftopMW > 2500, 'a sunny morning: ' + e.rooftopMW);
+  assert.deepEqual(o.demand, {nowMW: e.demandMW, servedMW: s.phys.servedMW, shedMW: s.phys.shedMW, heatActive: false, tempC: e.tempC,
+    underlyingMW: e.underlyingMW, rooftopMW: e.rooftopMW, litMW: litDemandMW(s), unservedMW: (e.demandMW + e.rooftopMW) * 0.06});
+  assert.equal(o.demand.nowMW, o.demand.underlyingMW - o.demand.rooftopMW - (V.SMELTER_MW - o.smelter.loadMW), 'P-1 holds in obs');
+  assert.deepEqual([o.balance.renPfrMW, o.balance.roofPfrMW], [7, 40]);
+  assert.deepEqual(o.rooftop, {mw: e.rooftopMW - 120 - 40, availMW: e.rooftopMW, capMW: 5000, offMW: 120,
+    suburbs: s.scn.city.suburbs.map((sub, j) => ({id: sub.id, mw: e.roofSubMW[j], capMW: 5000 * roof.share[j], clearness: e.roofClearFrac[j]}))});
+  assert.deepEqual(o.rooftop.suburbs.map(x => x.id), ['SOL', 'HAZ', 'RED', 'HAR', 'TAL', 'SAL']);
+  assert.ok(Math.abs(o.rooftop.suburbs.reduce((a, x) => a + x.mw, 0) - o.rooftop.availMW) < 1e-9);
+  assert.deepEqual(o.msl, {level: 2, minMW: 1287.4, atS: 33000, sinceS: 32100});
+  assert.deepEqual(o.day, {temp: 'MILD', weekend: false});
+  for (const fc of [o.forecast, o.dayAhead]) {
+    assert.ok(fc.rooftopMW[0] > 2500 && fc.rooftopMW.every(x => x >= 0));
+    fc.underlyingP50.forEach((u, k) => assert.ok(Math.abs(u - fc.demandP50[k] - fc.rooftopMW[k]) < 1e-9, 'column ' + k + ' (the potline is on)'));
+  }
+  assert.equal(o.dayAhead.rooftopMW[o.dayAhead.n - 1], 0, 'no sun at 04:00 tomorrow');
+  // Fresh copies: the view never hands out state's arrays.
+  o.rooftop.suburbs[0].mw = -1; o.msl.level = 0; o.day.temp = 'x';
+  assert.ok(s.env.roofSubMW[0] > 0 && s.msl.level === 2 && s.day.temp === 'MILD');
+  // The classic day carries the same keys with nothing in them.
+  const c = observe(createState(8, CLASSIC));
+  assert.deepEqual(c.rooftop, {mw: 0, availMW: 0, capMW: 0, offMW: 0,
+    suburbs: ['SOL', 'HAZ', 'RED', 'HAR', 'TAL', 'SAL'].map(id => ({id, mw: 0, capMW: 0, clearness: 1}))});
+  assert.deepEqual([c.msl, c.day], [{level: 0, minMW: 0, atS: -1, sinceS: -1}, {temp: 'HOT', weekend: false}]);
+});
+
+test('env is a pure function of ext, the day and the smelter on the game\'s days too: sampling any second twice gives the same values', () => {
+  for (const scenario of GAME_DAYS) {
+    const s = createState(5, scenario);
+    s.tick = 9 * 3600 * V.TICKS_PER_S; // 13:00
+    sampleSecond(s);
+    const a = JSON.stringify(s.env);
+    s.tick = 0; sampleSecond(s);
+    s.tick = 9 * 3600 * V.TICKS_PER_S; sampleSecond(s);
+    assert.equal(JSON.stringify(s.env), a);
+    assert.ok(s.env.rooftopMW > 2000 && s.env.demandMW < s.env.underlyingMW - 2000, scenario.id + ': rooftop ' + s.env.rooftopMW);
+  }
 });
