@@ -21,10 +21,15 @@
 //   'player'  the game (SPEC §9.1 Q-18): COMMITMENT IS THE PLAYER'S. The system never books a
 //             start or a stop. At 04:30 it dispatches only what is running; from then it
 //             re-dispatches the committed units (the same planLoad RE-DISPATCH sends) whenever the
-//             commitment changes (a start, a stop, a booking, a unit synchronised or tripped) and
+//             commitment changes (a start, a stop, a booking, a unit synchronised or tripped; from
+//             Phase 2a also the battery's order or GUARD: commitSig) and
 //             every DISPATCH_S (5 grid-minutes, as NEMDE does) for the newer forecast. Which units run, and when, is the
 //             player's plan; a day with no input runs short. A lever, tie or plan-key edit by hand
 //             still takes the levers over until RE-DISPATCH.
+//             The belly (Phase 2a, desk/README.md §21.3): the dispatch is for the lit operational
+//             demand against the wind and solar AVAILABLE; in a surplus it takes every unit to its
+//             floor and the tie to the export limit, and the sim's own cut spills the rest (C-6). A
+//             battery order counts for the energy behind it (autopilot batteryOrder).
 // Everything it does is a sim input (planLoad), logged, so replay() reproduces a game day (F-6).
 // It runs on the autopilot's 'planOnly' memory and runPar's cadence: a game day with no player
 // input is the planOnly proxy's day, hash for hash (tests/system.test.js).

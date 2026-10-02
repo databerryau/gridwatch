@@ -1298,10 +1298,6 @@ state, memo}`. JSDoc has the details. The contract:
   * *Rule 7* reads `agc.requestMW` net of the units' lowering trims while the dispatch is spilling
     (AGC then takes them to MIN beyond their bands, C-6: the dispatch at work, not drift), and a
     surplus the plan itself shows for the coming column is not a miss of the forecast.
-  * *`replan()`* gives the first plan column, which arrives in less than a whole column unless
-    the re-dispatch falls on the 5-min grid, only the ramp its remaining time allows (the
-    player's levers ran up to 45 MW behind a whole-column first key while coal climbed). Par's
-    own amendments keep the whole-column window (unchanged; a stage C candidate).
 * **Proxies** (`opts.proxy`): `par`; `planOnly` (the plan, nothing else: the L-0 accept);
   `doNothing` (no input at all: F-3); `lean` (plan + rules 1, 2, 7, 8, 9); `competent` (plan +
   rules 1-9 at `PROXY_COMPETENT_GAP_REAL_S`: H-1(b), F-3, K-8); `commitAll` (S-11: START every

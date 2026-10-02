@@ -336,6 +336,8 @@ test('S-14 rule 2 (C-12): par charges whenever the price is at or below $0 or po
   // The threshold is SURPLUS_MIN_MW exactly: 50 MW spilled at a positive price is not a surplus, 51 MW is.
   r = early(obs => { obs.solar.autoMW = V.SURPLUS_MIN_MW; });
   assert.notEqual(r.memo.lastOrigin, 'rule6');
+  r = early(obs => { Object.assign(obs.battery, {mode: 'charge', orderMW: 100}); obs.solar.autoMW = V.SURPLUS_MIN_MW; });
+  assert.deepEqual(r.d, [{type: 'battery', mode: 'idle', mw: 0}], '50 MW spilled does not keep a charge order going');
   r = early(obs => { obs.solar.autoMW = V.SURPLUS_MIN_MW + 1; });
   assert.deepEqual(r.d, [{type: 'battery', mode: 'charge', mw: V.SURPLUS_MIN_MW + 1}]);
   // The price alone keeps a charge order going (at $0, 30 MW spilled); at a positive price it is ended.
@@ -496,26 +498,6 @@ test('rule 8\'s adequacy walk reads wind and solar as AVAILABLE: what the dispat
     obs.forecast.windMW = obs.forecast.windMW.map(() => 100); obs.forecast.solarMW = obs.forecast.solarMW.map(() => 100); });
   assert.deepEqual(r.d, [{type: 'callDR'}]);
   assert.equal(r.memo.lastOrigin, 'rule8');
-});
-
-test('replan() (the game\'s re-dispatch): the first column, reached in less than a whole column, gets only the ramp its time allows', () => {
-  // A mild afternoon, coal climbing for the evening at 3 MW/min a machine. The plan's grid is the
-  // 15:30 one; the re-dispatch comes at 15:33:20, 100 s before the 15:35 column: the first key is
-  // within 100 s of ramp from where the machines are.
-  const s = parDayAt(1, DESK, 15, 30), memo = createAutopilot({proxy: 'planOnly'});
-  planUpdates(observe(s, {dayAhead: true}), memo);
-  for (let k = 0; k < 200 * TPS; k++) step(s);
-  const obs = observe(s), load = replan(obs, memo);
-  const coal = obs.units.filter(u => u.station === 'coal' && u.mode === 'on');
-  const now = coal.reduce((a, u) => a + u.schedMW, 0), rampS = coal.reduce((a, u) => a + u.rampMWMin / 60, 0);
-  // The dispatcher's working copy (the planLoad writes a key only for a lever move of 5 MW or more).
-  const P = memo.plan, j = V.STATION_IDS.indexOf('coal'), k0 = Math.floor((obs.s - P.madeAtS) / P.stepS);
-  assert.equal(P.t0 + k0 * P.stepS, ticksAt(15, 35) / TPS, 'the first column is 15:35');
-  assert.equal(P.t0 + k0 * P.stepS - obs.s, 100);
-  const first = P.lever[j][k0], second = P.lever[j][k0 + 1];
-  assert.ok(Math.abs(first - (now + rampS * 100)) < 0.5, 'coal at 15:35: ' + first.toFixed(1) + ' MW from ' + now.toFixed(1) + ' MW in 100 s (' + (rampS * 100).toFixed(1) + ' MW of ramp)');
-  assert.ok(Math.abs(second - first - rampS * P.stepS) < 0.5, 'and a whole column of ramp to 15:40: +' + (second - first).toFixed(1) + ' MW');
-  assert.ok(load.stations.coal.every(([t, mw], i, a) => i === 0 || mw - a[i - 1][1] <= rampS * (t - a[i - 1][0]) + 1), 'every key reachable from the one before');
 });
 
 test('the battery in the plan (desk/README.md §21.3): the player\'s order counts for the energy behind it; par\'s window orders end with their window', () => {

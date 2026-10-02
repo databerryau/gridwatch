@@ -395,7 +395,6 @@ function context(obs, P, k0, par, memo, keepStops) {
     x0: new Array(NS).fill(0), c0: new Array(NS).fill(0), tie0: obs.tie.flowMW, storage0: obs.hydro.storageMWh,
     loading: par ? PAR_LOADING : PLAN_LOADING,
     holdS: par && memo ? memo.tieHoldS : -1, holdMW: par && memo ? memo.tieHoldMW : 0,
-    firstFrac: 1, // the part of a column's ramp the first column may use (replan() sets it: see amend)
     starts: [], stops: []};
   for (let i = 0; i < NU; i++) {
     const u = obs.units[i];
@@ -679,23 +678,20 @@ function dispatchPlan(P, cx) {
   store = cx.storage0;
   for (let k = k0; k < n; k++) {
     const t = colTime(P, k);
-    // The first column is reached from the present in the time that is left of it (cx.firstFrac
-    // of a column, 1 unless replan() asked: see amend); every later one in a whole column.
-    const frac = k === k0 ? cx.firstFrac : 1;
     for (let j = 0; j < NS; j++) {
       const c = cnt[j][k];
       let base = prev[j];
       if (c > prevCnt[j]) base += (c - prevCnt[j]) * STA[j].minMW;
       else if (c < prevCnt[j]) base = prevCnt[j] > 0 ? base * c / prevCnt[j] : 0;
       if (c === 0) { wLo[j] = 0; wHi[j] = 0; wFull[j] = 0; continue; }
-      const lo0 = STA[j].cls === 'hydro' ? 0 : minS[j][k], ramp = rampS[j][k] * frac;
-      wLo[j] = Math.max(lo0, base - ramp);
-      wHi[j] = Math.max(wLo[j], Math.min(capS[j][k], base + ramp));
-      wFull[j] = Math.max(wHi[j], Math.min(fullS[j][k], base + ramp));
+      const lo0 = STA[j].cls === 'hydro' ? 0 : minS[j][k];
+      wLo[j] = Math.max(lo0, base - rampS[j][k]);
+      wHi[j] = Math.max(wLo[j], Math.min(capS[j][k], base + rampS[j][k]));
+      wFull[j] = Math.max(wHi[j], Math.min(fullS[j][k], base + rampS[j][k]));
       if (wLo[j] > wHi[j]) wLo[j] = wHi[j];
     }
-    const tieCap = cx.tieCap[k], tieRamp = TIE_COL * frac;
-    let tlo = Math.max(-cx.expLim[k], prevTie - tieRamp), thiAll = Math.min(tieCap, prevTie + tieRamp);
+    const tieCap = cx.tieCap[k];
+    let tlo = Math.max(-cx.expLim[k], prevTie - TIE_COL), thiAll = Math.min(tieCap, prevTie + TIE_COL);
     if (tlo > thiAll) tlo = thiAll;
     let thi = Math.max(tlo, Math.min(thiAll, tieHi(cx, k, t, tieCap, bigS[k])));
     if (cx.holdS > t) { const h = clamp(cx.holdMW, tlo, thiAll); tlo = h; thi = h; thiAll = h; }
@@ -862,18 +858,11 @@ export function preDispatch(obs) {
  * Par's amendment (a RE-PLAN): re-dispatch plan P from now to 04:00 over the present commitment
  * and the plan's pending bookings, with the latest forecast. Returns the planLoad input that puts
  * it in state (from now on; par drops pending STOPs: it decommits by rule 4 only, keepStops false).
- * partial (replan() only, Phase 2a): the first column, which arrives in less than a whole column
- * unless the re-dispatch falls on the 5-min grid, is given only the ramp its remaining time
- * allows. A whole column's ramp there put a slow station's first key out of reach, the levers
- * ran up to 45 MW (three coal machines) behind the plan for as long as coal climbed, and the
- * Live Stack showed the difference as a shortfall AGC was carrying. Par's own amendments keep
- * the whole-column window they have had since 0.2 (the classic golden is their guard).
  */
-function amend(obs, memo, P, keepStops, partial) {
+function amend(obs, memo, P, keepStops) {
   const k0 = colAfter(P, obs.s);
   const ks = keepStops === undefined ? PROXIES[memo.proxy].stops : keepStops;
   const cx = context(obs, P, k0, true, memo, ks);
-  if (partial && k0 < P.n) cx.firstFrac = clamp((colTime(P, k0) - obs.s) / STEP_S, 0, 1);
   dispatchPlan(P, cx);
   P.amended += 1;
   return buildLoad(P, cx, obs, ks, false);
@@ -891,7 +880,7 @@ function amend(obs, memo, P, keepStops, partial) {
  */
 export function replan(obs, memo) {
   if (!memo.plan || obs.over || obs.s < START_S) return null;
-  return amend(obs, memo, memo.plan, true, true);
+  return amend(obs, memo, memo.plan, true);
 }
 
 // ------------------------------------------------------------------ memo and plan updates
