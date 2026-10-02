@@ -269,12 +269,16 @@ test('stage C, L-6: the projection agrees with the sim\'s plan executor, 4.5 h a
 
 // ------------------------------------------------------------------ Phase 2a (desk/README §19.5, §21.5, C-11)
 
-/** A flat belly poked into a real evening: every unit at its lever, no keys, the forecast given. */
+/**
+ * A flat belly poked into a real evening: every unit at its lever, no keys, the forecast given.
+ * P50 is 3,000 - 20k MW (the spill begins about column 13: the floor at 0 is in the fixture), or
+ * o.p50(k) (a deeper belly, spilling from column 0, so no term can hide behind that floor).
+ */
 function bellyOf(obs, o = {}) {
   planOf(obs);
   const n = obs.forecast.demandP50.length, fc = obs.forecast;
   for (let k = 0; k < n; k++) {
-    fc.demandP50[k] = 3000 - 20 * k; fc.demandP10[k] = fc.demandP50[k] - 100; fc.demandP90[k] = fc.demandP50[k] + 100;
+    fc.demandP50[k] = o.p50 ? o.p50(k) : 3000 - 20 * k; fc.demandP10[k] = fc.demandP50[k] - 100; fc.demandP90[k] = fc.demandP50[k] + 100;
     fc.windMW[k] = 500; fc.solarMW[k] = 400; fc.exportLimitMW[k] = k < 20 ? 300 : 250;
   }
   obs.wind.limitPct = 80; obs.solar.limitPct = 100;
@@ -289,6 +293,9 @@ const FLOOR_ALL = M.reduce((a, m) => a + m.minMW, 0); // every machine 'on' at 1
 const room = k => (k < 20 ? 300 : 250);
 /** C-11 by hand for the flat belly: floor + wind after its 80% LIMIT + solar - (P50 + export room). */
 const bellyMW = (k, floor = FLOOR_ALL) => floor + 400 + 400 - (3000 - 20 * k) - room(k);
+/** The deeper bellies (o.p50): the evening's spills 760 MW at column 0, the morning's (1,310 MW of floor) 310 MW. */
+const DEEP = k => 2000 - 20 * k, DEEP_AM = k => 1500 - 10 * k;
+const deepMW = (k, floor = FLOOR_ALL, p50 = DEEP) => floor + 400 + 400 - p50(k) - room(k);
 
 test('C-11: proj.surplusMW is must-run + wind and solar after the LIMIT - (P50 + export room + ordered charge), floored at 0; blue is its own array', async () => {
   const e = bellyOf(await evening());
@@ -310,12 +317,44 @@ test('C-11: proj.surplusMW is must-run + wind and solar after the LIMIT - (P50 +
     if (Pt.times[k] < t.s + 3000 - 300) assert.ok(Math.abs(Pt.surplusMW[k] - Math.max(0, bellyMW(k) + room(k))) < 1e-6, 'tie out at column ' + k);
     if (Pt.times[k] > t.s + 3000 + 300) assert.ok(Math.abs(Pt.surplusMW[k] - Math.max(0, bellyMW(k))) < 1e-6, 'tie back at column ' + k);
   }
-  // a CHARGE order is room for as long as the battery has room; AGC's trim on an idle battery is not
-  const c = bellyOf(await evening(), {edit: o => Object.assign(o.battery, {mode: 'charge', orderMW: 200, socMWh: o.battery.capMWh - 120})});
+  // a CHARGE order is room for as long as the battery has room; AGC's trim on an idle battery is not.
+  // In the deep belly (spilling from column 0) 200 MW into 425 MWh of room at 85% lasts 2.5 h = 30 columns:
+  // the spill is 200 MW less in every one of them and whole again once the battery is full.
+  const full = bellyOf(await evening(), {p50: DEEP});
+  const Pf = PV.project(full);
+  for (let k = 0; k < Pf.n; k++) assert.ok(deepMW(k) > 700 && Math.abs(Pf.surplusMW[k] - deepMW(k)) < 1e-6, 'the deep belly at column ' + k + ': ' + Pf.surplusMW[k]);
+  const c = bellyOf(await evening(), {p50: DEEP, edit: o => Object.assign(o.battery, {mode: 'charge', orderMW: 200, socMWh: o.battery.capMWh - 200 * V.BATT_CHARGE_EFF * 2.5})});
   const Pc = PV.project(c);
-  assert.ok(Math.abs(Pc.charging[3] - 200) < 1e-6 && Pc.charging[Pc.n - 1] === 0, 'charging 200 MW, then full: ' + Pc.charging[3] + ', ' + Pc.charging[Pc.n - 1]);
-  for (let k = 0; k < Pc.n; k++) assert.ok(Math.abs(Pc.surplusMW[k] - Math.max(0, bellyMW(k) - Pc.charging[k])) < 1e-6, 'charge at column ' + k);
-  assert.ok(Pc.blue[20] === 1 && Pc.surplusMW[3] === 0, 'the order takes the first spill; blue again once the battery is full');
+  const charged = Array.from(Pc.charging).filter(v => Math.abs(v - 200) < 1e-6).length;
+  assert.ok(charged >= 28 && charged <= 30 && Pc.charging[3] === 200 && Pc.charging[Pc.n - 1] === 0, 'charging 200 MW for 2.5 h, then full: ' + charged + ' columns');
+  for (let k = 0; k < Pc.n; k++) assert.ok(Math.abs(Pc.surplusMW[k] - (deepMW(k) - Pc.charging[k])) < 1e-6, 'charge at column ' + k + ': ' + Pc.surplusMW[k]);
+  assert.ok(Math.abs(Pc.surplusMW[3] - (deepMW(3) - 200)) < 1e-6 && Pc.surplusMW[3] > 500 && Pc.blue[3] === 1, 'the order takes 200 MW of the spill: ' + Pc.surplusMW[3]);
+  assert.ok(Math.abs(Pc.surplusMW[Pc.n - 1] - deepMW(Pc.n - 1)) < 1e-6, 'the whole spill again once the battery is full');
+  // a charge bigger than the spill leaves none (floored at 0, never negative) and no blue: the flat belly
+  // spills 20 MW at column 13 and 200 MW by column 20; an empty battery charging 200 MW takes all of it until then
+  const big = bellyOf(await evening(), {edit: o => Object.assign(o.battery, {mode: 'charge', orderMW: 200, socMWh: 0})});
+  const Pb = PV.project(big);
+  for (let k = 0; k < Pb.n; k++) {
+    assert.equal(Pb.charging[k], 200, 'charging at column ' + k);
+    assert.ok(Math.abs(Pb.surplusMW[k] - Math.max(0, bellyMW(k) - 200)) < 1e-6 && Pb.surplusMW[k] >= 0, 'a charge over the spill at column ' + k + ': ' + Pb.surplusMW[k]);
+  }
+  assert.ok(bellyMW(16) > V.SURPLUS_MIN_MW && Pb.surplusMW[16] === 0 && Pb.blue[16] === 0 && P.blue[16] === 1, 'blue without the charge, not with it');
+  assert.deepEqual([P.blue.indexOf(1), Pb.blue.indexOf(1)], [15, 23], 'the blue begins 200 MW later (60 MW at column 15; 270 MW at column 23, the export limit 50 MW lower from column 20)');
+  // a charge that ends before the spill begins (the flat belly: 120 MWh of room is full by column 8) changes nothing
+  const early = bellyOf(await evening(), {edit: o => Object.assign(o.battery, {mode: 'charge', orderMW: 200, socMWh: o.battery.capMWh - 120})});
+  const Pe = PV.project(early);
+  assert.ok(Math.abs(Pe.charging[3] - 200) < 1e-6 && Pe.charging[Pe.n - 1] === 0, 'charging 200 MW, then full: ' + Pe.charging[3] + ', ' + Pe.charging[Pe.n - 1]);
+  for (let k = 0; k < Pe.n; k++) assert.ok(Math.abs(Pe.surplusMW[k] - Math.max(0, bellyMW(k) - Pe.charging[k])) < 1e-6, 'an early charge at column ' + k);
+  assert.ok(Pe.blue[20] === 1 && Pe.surplusMW[3] === 0);
+  // blue is ABOVE SURPLUS_MIN_MW: a column spilling exactly that much is not blue, before a run or after it
+  const edge = bellyOf(await evening(), {p50: k => FLOOR_ALL + 800 - room(k) - (k === 4 ? V.SURPLUS_MIN_MW - 0.5 : k === 5 || k === 7 ? V.SURPLUS_MIN_MW : k === 6 ? V.SURPLUS_MIN_MW + 0.5 : 0)});
+  const Pg = PV.project(edge);
+  assert.deepEqual([Pg.surplusMW[4], Pg.surplusMW[5], Pg.surplusMW[6], Pg.surplusMW[7], Pg.surplusMW[8]], [V.SURPLUS_MIN_MW - 0.5, V.SURPLUS_MIN_MW, V.SURPLUS_MIN_MW + 0.5, V.SURPLUS_MIN_MW, 0]);
+  assert.deepEqual([Pg.blue[4], Pg.blue[5], Pg.blue[6], Pg.blue[7], Pg.blue[8]], [0, 0, 1, 0, 0]);
+  assert.deepEqual(PV.blueRuns(Pg), [{atS: Pg.times[6], endS: Pg.times[6], k0: 6, k1: 6, mw: V.SURPLUS_MIN_MW + 0.5}]);
+  // a run that rises and falls: its mw is the largest spill in it, not the last
+  const hump = bellyOf(await evening(), {p50: k => FLOOR_ALL + 800 - room(k) - (k >= 10 && k <= 14 ? [100, 300, 420, 180, 70][k - 10] : 0)});
+  assert.deepEqual(PV.blueRuns(PV.project(hump)), [{atS: hump.forecast.fromS + 11 * 300, endS: hump.forecast.fromS + 15 * 300, k0: 10, k1: 14, mw: 420}]);
   const a = bellyOf(await evening(), {edit: o => Object.assign(o.battery, {schedMW: -150, outMW: -150, agcTrimMW: -150})});
   assert.deepEqual(Array.from(PV.project(a).surplusMW.slice(6)), Array.from(P.surplusMW.slice(6)), 'the trim is not counted as room');
   // reserve diesel on line is must-run (§25)
@@ -353,6 +392,40 @@ test('C-11: a machine counts at MIN while on and at its projected MW while loadi
     assert.ok(Math.abs(Pm.surplusMW[k] - Math.max(0, bellyMW(k, floor0 + mine))) < 1e-6, 'starting at column ' + k + ': ' + Pm.surplusMW[k]);
   }
   assert.deepEqual([...seen].sort(), ['above', 'loading', 'min', 'off']);
+  // The two fixtures above spill nothing in their first columns (the floor at 0 hides the block while
+  // the machine is changing), so the same in the deep bellies, where every column spills.
+  // A coal machine stopped: 25 columns of unloading at 3 MW a minute, far above its MIN, then 14 down
+  // its T4 slope, below MIN; its block is its projected MW through both, and nothing once it is off.
+  const coal = M.find(x => x.id === 'coal1');
+  const ec = bellyOf(await evening(), {p50: DEEP, edit: o => { o.plan.stops.push({unit: 'coal1', atS: o.s + STOP_IN_S}); }});
+  const Pc = PV.project(ec);
+  const kinds = {on: 0, unloading: 0, shutdown: 0, off: 0};
+  for (let k = 0; k < Pc.n; k++) {
+    const out = Pc.units.coal1[k], before = Pc.times[k] < ec.s + STOP_IN_S;
+    const mine = before ? coal.minMW : out;
+    kinds[before ? 'on' : out > coal.minMW + 1 ? 'unloading' : out > 0 ? 'shutdown' : 'off']++;
+    if (!before && out > coal.minMW + 1 && Pc.times[k - 1] > ec.s + STOP_IN_S) assert.ok(Math.abs(Pc.units.coal1[k - 1] - out - coal.rampMWs * 300) < 1e-6, 'unloading at its ramp (15 MW a column), column ' + k + ': ' + out);
+    const want = deepMW(k, FLOOR_ALL - coal.minMW + mine);
+    assert.ok(want > 500 && Math.abs(Pc.surplusMW[k] - want) < 1e-6, 'coal stopping at column ' + k + ': ' + Pc.surplusMW[k] + ' vs ' + want);
+  }
+  assert.ok(kinds.on >= 3 && kinds.unloading >= 20 && kinds.shutdown >= 10 && kinds.off >= 5, JSON.stringify(kinds));
+  // GT·B 1 started in the deep morning belly, its breaker closing between two column ends: nothing while
+  // it is starting or ready to synchronise (off the bars, though no longer 'off'), its T2 climb, then MIN
+  const START_IN_S = 240;
+  const mc = bellyOf(await morning(), {p50: DEEP_AM, edit: o => { o.plan.starts.push({unit: 'gtb1', atS: o.s + START_IN_S}); key(o.plan, 'gtb', o.s + 9000, 350); }});
+  const Pq = PV.project(mc);
+  const breakerS = mc.s + START_IN_S + b.t1S + V.AUTO_SYNC_S, onS = breakerS + b.t2S;
+  const seenQ = {waiting: 0, loading: 0, min: 0, above: 0};
+  for (let k = 0; k < Pq.n; k++) {
+    const out = Pq.units.gtb1[k], t = Pq.times[k];
+    const mine = t < breakerS ? 0 : t < onS ? out : b.minMW;
+    if (t < breakerS) assert.equal(out, 0, 'no output before the breaker closes, column ' + k);
+    if (t >= breakerS + 10 && t < onS - 10) assert.ok(out > 0 && out < b.minMW, 'the T2 climb at column ' + k + ': ' + out);
+    seenQ[t < breakerS ? 'waiting' : t < onS ? 'loading' : out > b.minMW + 1 ? 'above' : 'min']++;
+    const want = deepMW(k, floor0 + mine, DEEP_AM);
+    assert.ok(want > 250 && Math.abs(Pq.surplusMW[k] - want) < 1e-6, 'GT·B starting at column ' + k + ': ' + Pq.surplusMW[k] + ' vs ' + want);
+  }
+  assert.ok(seenQ.waiting >= 2 && seenQ.loading >= 1 && seenQ.min >= 1 && seenQ.above >= 1, JSON.stringify(seenQ));
 });
 
 test('C-11: nothing is blue on the classic day (no rooftop, no belly), where the old floor-above-P10 rule lit columns for imports', async () => {
@@ -447,7 +520,8 @@ test('C-11 over mild weekends (slow): seeds 1, 5, 8, 9, 13 and 20261004 projecte
   const {DESK_WEEKEND} = await import('../content/scenarios.js');
   const TPS = V.TICKS_PER_S, NK = 12, HOURS = [10.5, 11, 12, 13];
   const sOf = h => Math.round((h - V.DAY_START_H) * V.S_PER_H);
-  const told = [], guessed = [];
+  const ONSET_S = 600;   // the first ten minutes of a spill: AGC's unmet lowering request joins the cut while the units come down to MIN (§25 M-3)
+  const told = [], settled = [], onset = [], guessed = [];
   for (const seed of [1, 5, 8, 9, 13, 20261004]) {
     const {st, sys} = followDay(seed, DESK_WEEKEND, {follow: false, untilH: HOURS[0]});
     const s0 = st.tick / TPS, endS = sOf(HOURS[HOURS.length - 1]) + (NK + 1) * PV.COL_S;
@@ -469,15 +543,26 @@ test('C-11 over mild weekends (slow): seeds 1, 5, 8, 9, 13 and 20261004 projecte
       const T = PV.project(truth), quiet = conts[P.times[NK - 1] + 30 - s0] === conts[obs.s - s0];
       for (let k = 0; k < NK; k++) {
         const real = mean(cut, P.times[k]);
-        if (quiet) told.push(Math.abs(T.surplusMW[k] - real)); // a trip inside the hour changes the floor: not the arithmetic's error
         if (k < 3) guessed.push(Math.abs(P.surplusMW[k] - real));
+        if (!quiet) continue; // a trip inside the hour changes the floor: not the arithmetic's error
+        const err = Math.abs(T.surplusMW[k] - real);
+        told.push(err);
+        // a settled column: nothing cut in its minute, or the sim has been cutting without a break for ONSET_S before it
+        let since = 0, any = false;
+        for (let s = P.times[k] - 30; s <= P.times[k] + 30; s++) if (cut[s - s0] > 0) any = true;
+        for (let s = P.times[k] - 30; s >= s0 && since < ONSET_S && cut[s - s0] > 0; s--) since++;
+        (!any || since >= ONSET_S ? settled : onset).push(err);
       }
     }
   }
   const q = (a, f) => a.slice().sort((x, y) => x - y)[Math.floor(a.length * f)];
   assert.ok(told.length >= 100 && guessed.length === 72, told.length + ' / ' + guessed.length);
-  // given what then happened, the projection is the sim's cut (the onset of a spill, where AGC's unmet request joins the cut, is the tail)
-  assert.ok(q(told, 0.5) <= 1 && q(told, 0.9) <= 2 && Math.max(...told) <= 60, 'told: median ' + q(told, 0.5).toFixed(2) + ', p90 ' + q(told, 0.9).toFixed(2) + ', worst ' + Math.max(...told).toFixed(1) + ' MW');
+  // given what then happened, the projection is the sim's cut: within a megawatt or so once a spill
+  // has settled (measured: 191 columns, worst 1.0 MW), and within the AGC request while one begins
+  // (37 columns, median 0.3, worst 59 MW)
+  assert.ok(q(told, 0.5) <= 1 && q(told, 0.9) <= 2, 'told: median ' + q(told, 0.5).toFixed(2) + ', p90 ' + q(told, 0.9).toFixed(2) + ' MW');
+  assert.ok(settled.length >= 100 && Math.max(...settled) <= 3, 'settled: ' + settled.length + ' columns, worst ' + Math.max(...settled).toFixed(2) + ' MW');
+  assert.ok(onset.length >= 10 && Math.max(...onset) <= 100, 'onset: ' + onset.length + ' columns, worst ' + Math.max(...onset).toFixed(1) + ' MW');
   // with its own forecast, 5 to 15 minutes ahead
   assert.ok(q(guessed, 0.5) <= 80 && q(guessed, 0.9) <= 200 && Math.max(...guessed) <= 300, 'forecast: median ' + q(guessed, 0.5).toFixed(0) + ', p90 ' + q(guessed, 0.9).toFixed(0) + ', worst ' + Math.max(...guessed).toFixed(0) + ' MW');
 });
