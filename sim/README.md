@@ -783,7 +783,7 @@ Reads and writes per stage B module (a write through a `fleet.js` action counts 
 | events (`mslSecond`) | `scn.rooftop.capacityMW`, `scn.clock`, `env.{s, demandMW}`, `tie.{tripped, lockoutS}`, `msl`, `tick`, the forecast passed in | `msl.*` |
 | weather (`sampleSecond`) | `tick`, `seed`, `scn` (incl. `scn.rooftop`, `scn.temperatureC`), `ext.{heat, series, rooftop}` for the present second, `day`, `smelter.loadMW` | `env.*` (`roofSubMW` and `roofClearFrac` in place) |
 | weather (`forecast`) | `scn` (incl. `scn.rooftop` and its cloud process, the public `scn.events` timings), `day`, `env` (incl. `roofClearFrac`), `news`, `smelter.{loadMW, returning, returnS}` (the announced return) | nothing |
-| autopilot | `observe()` output only | its own memo |
+| autopilot | `observe()` output only (Phase 2a: also `demand.litMW`, `rooftop`, `districts[].suburb`, `forecast.rooftopMW`, `wind` / `solar` `.autoMW`, `units[].agcTrimMW`, `tie.exportLimitMW` and `.flowMW`, `msl`) | its own memo (incl. `belly`, `coalStops`) |
 | step | everything (orchestration) | `tick`, `over`, `log`, `control`, `sec.dirty`; `createState` also writes `ext.rooftop` (`weather.prerollRooftop`) and `day` (once, from `ext.regime.temp` and `scn.day`); `gridSecond` calls `events.mslSecond` |
 
 Only `weather.sampleSecond` and `events.applyDue` read `ext`, and only for the present second;

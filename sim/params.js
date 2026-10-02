@@ -110,7 +110,7 @@ export const P = {
   BLACK_HI_HZ: src(52, 'Hz', FOS + ' Table A.3 extreme limit'),
   COLLAPSE_BANDS: simp([{loHz: 47, hiHz: 47.5, holdS: 2}, {loHz: 47.5, hiHz: 48, holdS: 20}], 'Hz, s', '§8.2 / H-7: black after 2 s in 47.0-47.5 Hz or 20 s in 47.5-48.0 Hz; the 20-s window is compressed and labelled. Real collapse depends on protection settings.'),
   OFGS_STAGES_HZ: src([51, 51.25, 51.5, 51.75], 'Hz', 'AEMO 2025 frequency review Table 1: wind trips in stages between 51 and 52 Hz (stage spacing simplified)'),
-  OFGS_STAGE_FRAC: simp(0.25, 'pu of wind output', 'Each OFGS stage trips a quarter of the wind output (H-7). Apart from these trips wind and utility solar hold their output whatever the frequency: no droop response (§8.2 "Wind and utility solar give no primary frequency response."; real semi-scheduled plant has mandatory PFR).'),
+  OFGS_STAGE_FRAC: simp(0.25, 'pu of wind output', 'Each OFGS stage trips a quarter of the wind output (H-7). Since Phase 2a wind and utility solar also lower their output on over-frequency (REN_PFR_ON, desk/README.md C-7); before it they held their output whatever the frequency (§8.2 "Wind and utility solar give no primary frequency response."; real semi-scheduled plant has mandatory PFR).'),
   OFGS_DELAY_S: simp(0.3, 's', 'OFGS relay delay, taken equal to UFLS_DELAY_S.'),
   OFGS_RECONNECT_S: simp(600, 's', 'Tripped wind reconnects after 10 grid-minutes back in the normal band.'),
 
@@ -447,8 +447,8 @@ export const P = {
   ROOF_FW_START_HZ: src(50.25, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: the over-frequency response starts at fULCO = 50.25 Hz (desk/README.md C-7)'),
   ROOF_FW_ZERO_HZ: src(52, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: output falls linearly from fULCO to zero at fPmin = 52 Hz (desk/README.md C-7)'),
   ROOF_FW_HYST_HZ: src(0.1, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: hysteresis 0.1 Hz. The lowest output reached is held until frequency is back under fULCO - 0.1 Hz = 50.15 Hz (desk/README.md C-7)'),
-  REN_PFR_ON: simp(true, 'flag', 'desk/README.md C-7: wind and utility solar lower their output on over-frequency (GOV_DROOP on rating beyond GOV_DEADBAND_HZ, capped by present output). Lowering only: real semi-scheduled plant under mandatory PFR also raises from curtailed headroom. A simplified flag: false at stage A (no behaviour change on any scenario); the Phase 2a grid job turns it on.'),
-  ROOF_FW_ON: simp(true, 'flag', 'desk/README.md C-7: rooftop inverters back off between ROOF_FW_START_HZ and ROOF_FW_ZERO_HZ and hold the lowest value reached (the AS/NZS 4777.2 response, modelled as one aggregate inverter). A simplified flag: false at stage A (no behaviour change on any scenario); the Phase 2a grid job turns it on.'),
+  REN_PFR_ON: simp(true, 'flag', 'desk/README.md C-7: wind and utility solar lower their output on over-frequency (GOV_DROOP on rating beyond GOV_DEADBAND_HZ, capped by present output). Lowering only: real semi-scheduled plant under mandatory PFR also raises from curtailed headroom. A simplified flag: on since Phase 2a wave 1 (false reproduces the pre-2a physics exactly).'),
+  ROOF_FW_ON: simp(true, 'flag', 'desk/README.md C-7: rooftop inverters back off between ROOF_FW_START_HZ and ROOF_FW_ZERO_HZ and hold the lowest value reached (the AS/NZS 4777.2 response, modelled as one aggregate inverter). A simplified flag: on since Phase 2a wave 1 (false reproduces the pre-2a physics exactly).'),
   SURPLUS_MIN_MW: simp(50, 'MW', 'desk/README.md C-11 / §21.3: projected or present spill at or below this is not shown as SURPLUS on the Live Stack and does not fire par rule 2 or the objective\'s CHARGE. A display and rule threshold, not a grid value.'),
   // ---- phase 2a "shared" block: end
   //
