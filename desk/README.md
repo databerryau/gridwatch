@@ -1343,3 +1343,18 @@ Changes to §21 for the next waves:
   the dispatch is lowering in a surplus. S-12 is re-measured with the C-7 flags on.
 * **§21.4 app (wave 3), added.** The respond card words `inverterMW` for both signs. MIN GEN reads
   `spillMW` (0 outside a floor surplus), never `score.spillMWh`.
+
+**Measured on the merged sim before wave 3 (the objective as it was at Q-18, 11 seeds a scenario).**
+The hint-following player is never black and ends with nothing unserved on 10 of 11 `desk` seeds
+(seed 3: 12,876 MWh) and 10 of 11 weekend seeds, but **at ruinous cost**: it arms the reserve
+diesel on 19 of 22 days and never stands it down ($10M to $110M a day), calls all three DR blocks
+every day, and pays 15 to 114 c/kWh where par pays about 4.7. Its `spare` line has no action, so
+N-1 is never restored, the evening's guaranteed trip finds it short, and the fast answers are
+all it has. Wave 3's accept adds a cost bar for that reason (§21.4 as amended in the wave-3
+brief). The no-input day leaves 11,000 to 37,000 MWh unserved on every seed of both scenarios.
+
+**C-14 tuned at the merge.** With one CCGT the hot weekend opened 170 MW under the capacity
+margin, leaning on 270 MW a machine of hydro from 04:00, and the line started eight units in
+eight minutes. `desk-weekend` now opens with **both CCGTs on** (CCGT 2 at 300 MW) and coal 4 off:
+hydro balances at 75 to 120 MW a machine, nothing is asked for before 06:00, and the no-input
+weekend still fails on 11 of 11 seeds.
