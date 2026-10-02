@@ -139,6 +139,63 @@ test('P-1: the identity holds each grid second through step() (04:00 to 06:45, p
   assert.equal(o.demand.nowMW, o.demand.underlyingMW - o.demand.rooftopMW - (V.SMELTER_MW - o.smelter.loadMW));
 });
 
+test('P-1: the identity holds each grid second through step() across a potline trip and its return (DESK seed 87, 04:00 to 11:15, no input)', () => {
+  // Seed 87 is a HOT weekday whose potline trips at 10:16:32 for 45 min; with no input the day
+  // runs clean to that point and through the return ramp (no district dark). The real grid second
+  // is exercised here: applyDue (the trip, the return), planSecond, sampleSecond, the units, physics.
+  const s = createState(87, DESK);
+  const trip = s.ext.events.find(e => e.type === 'smelterTrip'), end = secOf(11, 15);
+  assert.equal(s.ext.regime.temp, 'HOT');
+  assert.ok(trip.atS > secOf(10) && trip.atS + 45 * 60 + 700 < end, 'the trip and its return are inside the run: second ' + trip.atS);
+  let seconds = 0, bad = 0, off = 0, part = 0, roofMin = Infinity, mid = null;
+  while (!s.over && s.tick < end * TPS) {
+    step(s);
+    if ((s.tick - 1) % TPS !== 0) continue;
+    seconds++;
+    const e = s.env, gap = V.SMELTER_MW - s.smelter.loadMW;
+    if (!(Math.abs(e.demandMW - (e.underlyingMW - e.rooftopMW - gap)) < 1e-9) ||
+      !(Math.abs(sum(e.roofSubMW) - e.rooftopMW) < 1e-9)) bad++;
+    if (s.smelter.loadMW === 0) off++; else if (gap > 0) part++;
+    if (gap > 0) roofMin = Math.min(roofMin, e.rooftopMW);
+    if (e.s === trip.atS + 20 * 60) mid = observe(s);
+  }
+  // If a later change stops the no-input day before the potline is back, this seed no longer
+  // exercises the trip: choose another (a HOT weekday with a mid-morning potline trip), do not drop the case.
+  assert.equal(s.over, false, 'the no-input day ran past the potline\'s return (black: ' + s.black + ' at second ' + s.env.s + ')');
+  assert.equal(seconds, end, 'every grid second from 04:00 to 11:15');
+  assert.equal(bad, 0, bad + ' seconds break the identity');
+  assert.equal(off, 45 * 60, 'the potline was out for 45 min');
+  assert.ok(part > 500, 'and came back on its ramp (' + part + ' s)');
+  assert.equal(s.smelter.loadMW, V.SMELTER_MW, 'all of it back by 11:15');
+  assert.ok(roofMin > 2000, 'with the roofs in play throughout: at least ' + roofMin + ' MW');
+  // observe() in the middle of the outage: the same identity, all three terms non-zero.
+  assert.equal(mid.smelter.loadMW, 0);
+  assert.ok(mid.demand.rooftopMW > 2000);
+  assert.equal(mid.demand.nowMW, mid.demand.underlyingMW - mid.demand.rooftopMW - V.SMELTER_MW);
+});
+
+test('P-2: between the 5-min samples of ext.rooftop a suburb\'s clearness is linear (sim/README.md §5), and its MW follows that value', () => {
+  const s = createState(2, DESK), sky = s.ext.rooftop, roof = s.scn.rooftop; // real skies, not poked
+  assert.equal(sky.stepS, 300);
+  for (const [sec, fr] of [[150, 0.5], [75, 0.25], [secOf(12) + 100, 1 / 3], [secOf(13) + 299, 299 / 300], [V.DAY_S - 1, 299 / 300]]) {
+    goTo(s, sec);
+    const i = Math.floor(sec / sky.stepS);
+    assert.ok(i + 1 < sky.clearPm[0].length && Math.abs((sec - i * sky.stepS) / sky.stepS - fr) < 1e-12);
+    let moved = 0;
+    sky.clearPm.forEach((row, j) => {
+      const want = (row[i] + (row[i + 1] - row[i]) * fr) / 1000;
+      assert.ok(Math.abs(s.env.roofClearFrac[j] - want) < 1e-12, 'suburb ' + j + ' at second ' + sec + ': ' + s.env.roofClearFrac[j] + ' vs ' + want);
+      if (row[i + 1] !== row[i]) moved++;
+      const mw = rooftopClearSkyMW(s.scn, s.env.h) * roof.share[j] * (1 - roof.cloudBite * (1 - want));
+      assert.ok(Math.abs(s.env.roofSubMW[j] - mw) < 1e-9, 'suburb ' + j + ' MW at second ' + sec);
+    });
+    assert.ok(moved >= 2, 'the samples either side differ (a step function would show): ' + moved + ' of 6 at second ' + sec);
+  }
+  // On a sample the value is the sample itself.
+  goTo(s, secOf(12));
+  assert.deepEqual(s.env.roofClearFrac, sky.clearPm.map(row => row[secOf(12) / 300] / 1000));
+});
+
 test('P-3: a MILD day is the hot day less its cooling load; a weekend is x 0.92; a HOT weekday is the DEM curve itself', () => {
   const scn = createState(1, DESK).scn;
   const hot = {temp: 'HOT', weekend: false}, mild = {temp: 'MILD', weekend: false};
