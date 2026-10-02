@@ -285,14 +285,21 @@ function districtIndex(state, id) {
  */
 function shedNextRotation(state, out) {
   const ds = state.city.districts;
-  let best = -1;
+  // Phase 2a (the wave-1 merge's decision): a district that is feeding back at a sunny noon is
+  // passed over, as an operator would pass over a feeder in reverse flow: shedding it takes
+  // generation off (measured: SOL3 at -33 MW tipped a 4-MW shortfall into UFLS). When no lit
+  // rotation district has load to give, the old rule stands. UFLS blocks stay static (C-8).
+  let best = -1, any = -1;
   for (let d = 0; d < ds.length; d++) {
     const x = ds[d];
     if (x.rot < 0 || x.dark) continue;
-    if (best < 0) { best = d; continue; }
-    const y = ds[best];
-    if (x.restoredAtS < y.restoredAtS || (x.restoredAtS === y.restoredAtS && x.rot < y.rot)) best = d;
+    const y = any < 0 ? null : ds[any];
+    if (!y || x.restoredAtS < y.restoredAtS || (x.restoredAtS === y.restoredAtS && x.rot < y.rot)) any = d;
+    if (!(fleet.districtColdLoadMW(state, d) > 0)) continue;
+    const z = best < 0 ? null : ds[best];
+    if (!z || x.restoredAtS < z.restoredAtS || (x.restoredAtS === z.restoredAtS && x.rot < z.rot)) best = d;
   }
+  if (best < 0) best = any;
   if (best < 0) return -1;
   const mw = fleet.districtColdLoadMW(state, best);
   fleet.setDistrictDark(state, best, true, 'directed');

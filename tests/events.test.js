@@ -450,20 +450,25 @@ test('P-4 / C-9: the MSL level is the forecast minimum against 1,600 / 1,300 / 1
   assert.equal(s.news.length, 0, 'never a news item: news is weather');
 });
 
-test('P-4 / C-9: every threshold is 300 MW higher while the tie is out; demand now counts as well as the forecast', () => {
+test('P-4 / C-9: every threshold is 300 MW higher for the hours the tie is out; demand now counts as well as the forecast', () => {
   const s = createState(1, DESK_WEEKEND);
   goTo(s, secOf(9));
   const out = [];
   mslSecond(s, fcMin(s, 1850), out);
   assert.equal(s.msl.level, 0);
-  s.tie.tripped = true;
+  // A tie that is back before the forecast minimum raises nothing there (the per-column rule).
+  s.tie.tripped = true; s.tie.lockoutS = 60;
+  mslSecond(s, fcMin(s, 1850), out);
+  assert.equal(s.msl.level, 0, 'the tie returns at 09:01, the minimum is at 09:10');
+  assert.equal(out.length, 0);
+  s.tie.lockoutS = 3 * H; // still out at the minimum
   mslSecond(s, fcMin(s, 1850), out);
   assert.equal(s.msl.level, 1);
   assert.equal(out[0].msg, 'MSL1 notice: lowest forecast demand 1,850 MW at 09:10. MSL1 is 1,900 MW (tie out): two load trips above the security floor.');
   assert.ok(words(out[0].msg) <= 25);
   mslSecond(s, fcMin(s, 1590), out);
   assert.deepEqual([s.msl.level, out[1].code], [2, 'MSL2'], '1,590 MW is MSL2 with the tie out (at or below 1,600)');
-  s.tie.tripped = false;
+  s.tie.tripped = false; s.tie.lockoutS = 0;
   mslSecond(s, fcMin(s, 1590), out);
   assert.deepEqual([s.msl.level, out[2].code], [1, 'MSL1'], 'and MSL1 again with the tie back');
   mslSecond(s, fcMin(s, 1850), out);
@@ -475,7 +480,7 @@ test('P-4 / C-9: every threshold is 300 MW higher while the tie is out; demand n
   assert.equal(out[4].atS, s.env.s);
   // A measured present value is never called a forecast (atS is the record's own second).
   assert.equal(out[4].msg, 'MSL1 notice: demand is at its lowest now, 1,500 MW. MSL1 is 1,600 MW: two load trips above the security floor.');
-  s.tie.tripped = true;
+  s.tie.tripped = true; // the present counts as out while the tie is tripped, whatever its return
   s.env.demandMW = 1450;
   mslSecond(s, fcMin(s, 5000), out);
   assert.equal(out[5].msg, 'MSL2 notice: demand is at its lowest now, 1,450 MW. MSL2 is 1,600 MW (tie out): one load trip above the security floor.');
@@ -593,10 +598,16 @@ test('P-4: step() returns the §19.3 record on a change of level (a rise with th
     minMW: Math.round(a.msl.minMW), atS: a.msl.atS});
   assert.deepEqual(a.msl, {level: 0, minMW: a.env.demandMW, atS: 0, sinceS: 0}, 'at 04:00 demand only rises: the minimum is now');
   assert.match(cleared[0].msg, /^MSL notice cancelled: demand is at its lowest now, [\d,]+ MW\. MSL1 is 1,600 MW\.$/);
-  // The rise: 08:30 with the tie out; the 13:00 minimum is under MSL1 + 300 MW.
+  // A tie due back at 11:30 raises no notice about 13:00.
+  const c = createState(1, DESK_WEEKEND);
+  c.tick = secOf(8, 30) * TPS;
+  c.tie.tripped = true; c.tie.lockoutS = 3 * H;
+  assert.deepEqual(mslRecs(step(c)), []);
+  assert.equal(c.msl.level, 0);
+  // The rise: 08:30 with the tie out past 13:00; the 13:00 minimum is under MSL1 + 300 MW.
   const b = createState(1, DESK_WEEKEND);
   b.tick = secOf(8, 30) * TPS;
-  b.tie.tripped = true; b.tie.lockoutS = 3 * H;
+  b.tie.tripped = true; b.tie.lockoutS = 5 * H;
   const evs = step(b), up = mslRecs(evs);
   assert.equal(up.length, 1);
   assert.deepEqual(Object.keys(up[0]), REC_KEYS);
@@ -609,20 +620,22 @@ test('P-4: step() returns the §19.3 record on a change of level (a rise with th
 });
 
 test('P-4: the check runs straight after the weather, before grid.unitsSecond counts the tie\'s lockout: the second the tie returns still tests with the tie out', () => {
+  // A mild weekend at 13:00: demand NOW is between MSL1 (1,600) and MSL1 with the tie out (1,900).
   const s = createState(1, DESK_WEEKEND);
-  s.tick = secOf(8, 30) * TPS;
+  s.tick = secOf(13) * TPS;
   s.tie.tripped = true; s.tie.lockoutS = 1; // back in service this very second (grid.unitsSecond, later in it)
   const evs = step(s);
+  assert.ok(s.env.demandMW > V.MSL1_MW + V.MSL_CLEAR_MW && s.env.demandMW < V.MSL1_MW + V.MSL_TIE_OUT_MW, 'demand now ' + s.env.demandMW);
   assert.equal(s.tie.tripped, false, 'the tie came back in this second');
   const codes = evs.filter(r => r.kind === 'log').map(r => r.code);
   assert.ok(codes.includes('MSL1') && codes.includes('LINK_BACK'), codes.join(' '));
   assert.ok(codes.indexOf('MSL1') < codes.indexOf('LINK_BACK'), 'the notice comes before the tie is back: ' + codes.join(' '));
-  assert.deepEqual([s.msl.level, s.msl.sinceS], [1, secOf(8, 30)], 'tested with the tie still out (1,870 MW against 1,900)');
-  // The next check sees the tie back: 1,870 MW is clear of MSL1 (1,600) and of its hysteresis (1,700).
-  s.tick = (secOf(8, 30) + V.MSL_CHECK_S) * TPS;
+  assert.deepEqual([s.msl.level, s.msl.sinceS, s.msl.atS], [1, secOf(13), secOf(13)], 'tested with the tie still out: the present second is under 1,900 MW');
+  // The next check sees the tie back: demand is clear of MSL1 (1,600) and of its hysteresis (1,700).
+  s.tick = (secOf(13) + V.MSL_CHECK_S) * TPS;
   const next = mslRecs(step(s));
   assert.deepEqual(next.map(r => r.code), ['MSL_CLEAR']);
-  assert.deepEqual([s.msl.level, s.msl.sinceS], [0, secOf(8, 30) + V.MSL_CHECK_S]);
+  assert.deepEqual([s.msl.level, s.msl.sinceS], [0, secOf(13) + V.MSL_CHECK_S]);
 });
 
 test('P-4: on a mild weekend a potline trip at noon brings MSL1 at the next check, as a log record; it is cancelled once the potline is back', () => {

@@ -334,18 +334,35 @@ test('P-9 / P-12: the price clears on the lit OPERATIONAL demand: rooftop behind
   assert.ok(q.mwh < p.mwh);
 });
 
-test('P-12: Solstice Rise at noon is net negative: DIRECT SHED of it takes off about nothing, and LIGHTS ON still counts its customers', () => {
+test('P-12: Solstice Rise at noon is net negative: DIRECT SHED passes over it for a district with load; shed anyway, it takes off about nothing and LIGHTS ON still counts its customers', () => {
   const s = noon({roofSubMW: roofAt(12.5)});
   const d = district(s, 'SOL3'), share = s.city.districts[d].share;
   const net = netMW(s, 'SOL3');
   assert.ok(net < 0 && net > -30, 'net load of SOL3 at the 2,110-MW noon: ' + net.toFixed(1) + ' MW');
   near(fleet.districtColdLoadMW(s, d), net, 1e-9, 'a lit district\'s cold-load MW is its net load now');
-  s.sec.level = 'SHORT'; // test poke (A-3): the key needs a shortfall
-  const out = [];
-  assert.equal(grid.applyCommand(s, {type: 'directShed'}, out), '');
-  const rec = out.find(e => e.kind === 'shed');
-  assert.equal(rec.district, 'SOL3', 'the first rotation district');
-  near(rec.mw, net, 1e-9, 'the shed record carries the net MW');
+  // The rotation passes over a district that is feeding back (the wave-1 merge's decision): the
+  // first one with load to give is shed, and the record carries its net MW.
+  {
+    const t = noon({roofSubMW: roofAt(12.5)});
+    t.sec.level = 'SHORT'; // test poke (A-3): the key needs a shortfall
+    const out = [];
+    assert.equal(grid.applyCommand(t, {type: 'directShed'}, out), '');
+    const rec = out.find(e => e.kind === 'shed');
+    assert.notEqual(rec.district, 'SOL3', 'SOL3 leads the rotation but is exporting');
+    assert.equal(rec.district, t.scn.city.rotation.find(id => netMW(noon({roofSubMW: roofAt(12.5)}), id) > 0), 'the first rotation district with load');
+    assert.ok(rec.mw > 0, 'it takes load off: ' + rec.mw.toFixed(1) + ' MW');
+    assert.equal(t.city.districts[district(t, 'SOL3')].dark, false);
+  }
+  // With no rooftop nothing is passed over: the first rotation district, as before.
+  {
+    const t = noon({});
+    t.sec.level = 'SHORT';
+    const out = [];
+    assert.equal(grid.applyCommand(t, {type: 'directShed'}, out), '');
+    assert.equal(out.find(e => e.kind === 'shed').district, 'SOL3', 'the first rotation district');
+  }
+  // Shed anyway (as a relay or a later rule might): the relay MW is the net load, about nothing.
+  fleet.setDistrictDark(s, d, true, 'directed');
   const underlying = totalMW(s) * share;
   near(fleet.districtColdLoadMW(s, d), underlying, 1e-9, 'dark: the undelayed underlying pickup, no rooftop netted off');
   hold(s, TPS, F0);

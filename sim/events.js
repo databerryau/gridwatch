@@ -369,9 +369,13 @@ const mwText = mw => String(Math.round(mw) + 0).replace(/\B(?=(\d{3})+$)/g, ',')
  * The tested quantity is the minimum forecast operational demand: the least of demand now
  * (env.demandMW) and fc.demandP50 over the 4.5-h window. A level is REACHED when it is at or
  * below that level's threshold (MSL1_MW / MSL2_MW / MSL3_MW, each raised by MSL_TIE_OUT_MW
- * while the tie is tripped: no export sink) and LEFT only once it is more than MSL_CLEAR_MW
- * above it (hysteresis: a notice does not chatter, K-8). msl.minMW and msl.atS (the grid second
- * of that minimum; now when the present is the minimum) are refreshed at every check; msl.level
+ * for the hours the tie is out: no export sink) and LEFT only once it is more than MSL_CLEAR_MW
+ * above it (hysteresis: a notice does not chatter, K-8). The rise is per column (the wave-1
+ * merge's decision): the present counts as out while the tie is tripped, a forecast column
+ * only if it falls before the tie's public return (env.s + tie.lockoutS), so a morning outage
+ * that ends at 09:45 raises no notice about 12:40. The column tested is the one closest to its
+ * own threshold; with the tie in that is simply the minimum. msl.minMW and msl.atS (the demand
+ * and the grid second of that column; now when the present is it) are refreshed at every check; msl.level
  * and msl.sinceS (the grid second of the last change of level) move only on a change, and every
  * change pushes one record {tick, kind: 'log', sev, code, msg, level, minMW, atS}: code
  * 'MSL' + level or 'MSL_CLEAR' at 0, sev info / warn / crit for levels 1 / 2 / 3 and good for
@@ -381,7 +385,7 @@ const mwText = mw => String(Math.round(mw) + 0).replace(/\B(?=(\d{3})+$)/g, ',')
  * weather). On a scenario with no rooftop it returns at once: state.msl keeps its createState
  * value. Late in the day the window runs past the end of the sim day, as the forecast's columns
  * do, so msl.atS may be up to FC_HORIZON_S past DAY_S (tomorrow morning on the same day type).
- * Reads: scn.rooftop.capacityMW, scn.clock, env.{s, demandMW}, tie.tripped, msl, tick, fc.
+ * Reads: scn.rooftop.capacityMW, scn.clock, env.{s, demandMW}, tie.{tripped, lockoutS}, msl, tick, fc.
  * Writes: msl.*.
  * @param {object} state
  * @param {{fromS:number, stepS:number, n:number, demandP50:number[]}} fc
@@ -390,11 +394,12 @@ const mwText = mw => String(Math.round(mw) + 0).replace(/\B(?=(\d{3})+$)/g, ',')
 export function mslSecond(state, fc, out) {
   if (!(state.scn.rooftop.capacityMW > 0)) return;
   const env = state.env, msl = state.msl;
-  let minMW = env.demandMW, atS = env.s;
+  const tie = state.tie, backS = tie.tripped ? env.s + tie.lockoutS : -1; // the tie's public return
+  let minMW = env.demandMW, atS = env.s, lift = tie.tripped ? V.MSL_TIE_OUT_MW : 0;
   for (let k = 0; k < fc.n; k++) {
-    if (fc.demandP50[k] < minMW) { minMW = fc.demandP50[k]; atS = fc.fromS + (k + 1) * fc.stepS; }
+    const t = fc.fromS + (k + 1) * fc.stepS, up = t <= backS ? V.MSL_TIE_OUT_MW : 0;
+    if (fc.demandP50[k] - up < minMW - lift) { minMW = fc.demandP50[k]; atS = t; lift = up; }
   }
-  const lift = state.tie.tripped ? V.MSL_TIE_OUT_MW : 0;
   let level = 0;
   for (let i = 0; i < MSL_MW.length; i++) {
     const at = MSL_MW[i] + lift;
