@@ -819,13 +819,36 @@ uflsStages, black, caught}` (JSDoc in the file). Order inside `tick`:
     accumulators (when `acc.ticks === 0`, `fMinHz = fMaxHz = f` first; `unservedMWs` adds the
     unserved rate, `spillMWs` adds `renPfrMW`).
 
-Phase 2a measurements (the grid job, the owner's laptop, another job running): the tick cost
-135 ns before and 135-146 ns after (best of 9 x 200,000 ticks, three rounds each; 1.84-1.87
-before and 1.74-1.95 after in yardstick units, of a 4.29 budget): inside the noise, flags off
-or on. The preview's backup, save and restore carry every field the engine or `fleet.
-setDistrictDark` now writes (`phys.renPfrMW`, `roofPfrMW`, `roofHoldFrac`; each district's
-`reconnectS`; `city.roofDarkMW`, `roofOffMW`; the two new accumulators), tested by hash for
-every preview kind with a Solstice Rise district dark and another reconnecting.
+Phase 2a measurements (the grid job, the owner's laptop with another job running; best of 9 x
+200,000 ticks on the seed-5 opening state, in yardstick units so the load cancels): the tick
+cost 1.78-1.87 units before (135-152 ns), 1.85-1.90 with the code and the flags off, 1.87-1.91
+with the flags on (138-160 ns): about 5 ns more, against a budget of 4.29 units (300 ns).
+The preview's backup, save and restore carry every field the engine or `fleet.setDistrictDark`
+now writes (`phys.renPfrMW`, `roofPfrMW`, `roofHoldFrac`; each district's `reconnectS`;
+`city.roofDarkMW`, `roofOffMW`; the two new accumulators), tested by hash for every preview
+kind with a Solstice Rise district dark and another reconnecting.
+
+C-7 measured with the flags on (hand-driven poked noon, `tests/belly.test.js`): from the
+curtailing state (510 MW held back, battery full, six units at MIN) a 256-MW load loss peaks at
+50.232 Hz and a trip of the tie at 300 MW export at 50.273 Hz (50.260 Hz with 3,465 MW of
+rooftop connected: the roofs start backing off at 50.25 Hz), with no OFGS stage; with the flags
+off the same two events reached 51.660 and 51.829 Hz with three and four OFGS stages. The droop
+is stateless and on rating, so it does not overshoot; the dispatch's feed-forward cut then takes
+the MW over at its ramp (about 30 s) and the frequency returns to 50 Hz. The H-7 desk-lab midday
+case (`tools/baseline-v4.js`: two coal machines, 6.5 GW.s, -650 MW, no battery) no longer
+overshoots to 52 Hz after its over-shed: peak 51.082 Hz, one OFGS stage, not black (was black at
+52.110 Hz after 1.10 s). Rebuilt on a mild 12:30 with net-load blocks (operational demand 2,400
+MW, 3,465 MW of rooftop, 700 MW solar, 400 MW wind, no tie flow; Solstice Rise net negative):
+no battery, nadir 47.435 Hz, all 8 stages for 1,295 MW of net load (2,942 MW of customers dark),
+peak 50.440 Hz, not black; with the battery, nadir 48.451 Hz, 3 stages for 396 MW net (1,093 MW
+of customers dark). The same supply with no rooftop sheds 447 MW of customers in 3 stages: with
+rooftop behind them the static blocks darken about 2.4 times the customers for the same relief
+(P-12; SPEC §8.2 "ufls-blocks"). On the classic day (no rooftop, never a surplus) the droop is
+the one thing of Phase 2a wave 1 that moves: it acts whenever the frequency is above 50.015 Hz
+with wind or solar generating, so par's days diverge after the first such second. Par, seeds
+1-48, before -> after: black 0 -> 0; days with nothing unserved 45 -> 44; highest frequency of
+any day 50.275 -> 50.152 Hz; energy backed off 15.5 MWh a day on average (18.8 at most), counted
+in `score.spillMWh`.
 
 `previewTrip` runs the same step function on state itself between a save and an exact
 restore (§10) with schedules, demand and renewables frozen (no grid seconds; the inverters'
