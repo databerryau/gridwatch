@@ -453,6 +453,10 @@ export const P = {
   // ---- phase 2a "shared" block: end
   //
   // ---- phase 2a "world" block: begin
+  COOLING_MAX_MW: simp(1400, 'MW', 'P-3 / desk/README.md C-3: the cooling load a MILD day does not have. cooling = COOLING_MAX_MW x clamp((T - COOLING_BASE_C) / COOLING_SPAN_C, 0, 1) with T from the scenario\'s hot-day temperature table: about 100 MW per degC above 22 degC, all 1,400 MW at 36 degC. The ~100 MW/degC is unverified (SPEC §8.3).', UNVERIFIED),
+  COOLING_BASE_C: simp(22, 'degC', 'P-3: no cooling load at or below this temperature (see COOLING_MAX_MW; unverified, SPEC §8.3).', UNVERIFIED),
+  COOLING_SPAN_C: simp(14, 'degC', 'P-3: the cooling load reaches COOLING_MAX_MW this far above COOLING_BASE_C (36 degC, the hot-day table\'s peak; see COOLING_MAX_MW; unverified, SPEC §8.3).', UNVERIFIED),
+  WEEKEND_DEMAND_FACTOR: simp(0.92, 'x underlying demand', 'P-3 / J-13 / desk/README.md C-3: a Saturday or Sunday multiplies the underlying demand shape of any day type by this (before the heat uplift and the noise). A game value: one factor for the whole day, where real weekend load shapes differ hour by hour; not checked against a region\'s data.', UNVERIFIED),
   // ---- phase 2a "world" block: end
   //
   // ---- phase 2a "grid" block: begin

@@ -3,6 +3,10 @@
 // Stage A (implemented, frozen API): the weather regime and the pre-rolled ext series,
 // table readers, and sampleSecond(), which sets state.env for each grid second.
 // Stage B owner "market + events": forecast() (S-4 drift toward announced regime, L-2 band).
+// Phase 2a owner "world" (desk/README.md §21.1): rooftop PV behind the meter (P-1, P-2), the
+// day types (P-3: MILD days and weekends, from the public state.day), the per-suburb rooftop
+// skies (prerollRooftop, C-5) and the forecast's rooftop and underlying columns. On a scenario
+// with no rooftop and no MILD days (the classic day, C-1) every value is bit-identical to before.
 //
 // Pure functions only. No transcendental Math functions (risk 5): tables are
 // interpolated with arithmetic, and noise comes from rng.normal (exact arithmetic).
@@ -89,6 +93,47 @@ export function heatMultAt(heat, s) {
   return 1 + V.HEAT_DEMAND_UPLIFT * Math.min(rise, fall);
 }
 
+/**
+ * The 0..1 ramp of a heat window {onsetS, endS} (or null: 0) at grid second s: the same rise
+ * and fall as heatMultAt, which keeps its own expression (the classic day is bit-identical).
+ * The rooftop heat derate follows it (P-2; desk/README.md C-3): a derate from sunrise would
+ * leak a heatwave that has not been announced.
+ */
+export function heatRampAt(heat, s) {
+  if (!heat) return 0;
+  const r = V.HEAT_RAMP_S;
+  const rise = Math.min(1, Math.max(0, (s - (heat.onsetS - r)) / r));
+  const fall = Math.min(1, Math.max(0, (heat.endS + r - s) / r));
+  return Math.min(rise, fall);
+}
+
+/**
+ * P-3 underlying demand shape at hour h, before the heat uplift, the noise and the smelter
+ * (MW; desk/README.md C-3). `day` is the public state.day {temp, weekend}: a MILD day is the
+ * hot day with its cooling load removed, cooling = COOLING_MAX_MW x clamp((T - COOLING_BASE_C)
+ * / COOLING_SPAN_C) with T from the scenario's (hot-day) temperature table; a weekend
+ * multiplies any type by WEEKEND_DEMAND_FACTOR. A HOT weekday is demandBaseMW(scn, h) exactly.
+ */
+export function underlyingBaseMW(scn, day, h) {
+  let mw = demandBaseMW(scn, h);
+  if (day.temp === 'MILD') {
+    const t = tableLinear(scn.temperatureC.table, h);
+    mw -= V.COOLING_MAX_MW * Math.min(1, Math.max(0, (t - V.COOLING_BASE_C) / V.COOLING_SPAN_C));
+  }
+  return day.weekend ? mw * V.WEEKEND_DEMAND_FACTOR : mw;
+}
+
+/**
+ * P-2 clear-sky rooftop PV of the whole city at hour h (MW): capacityMW x clearFactor x the
+ * shapePm table (integer per-mille of the 13:00 peak, linear between its 15-min points; C-4),
+ * before the suburbs' shares, their cloud and the heat derate. 0 outside the sun hours and on
+ * a scenario with no rooftop.
+ */
+export function rooftopClearSkyMW(scn, h) {
+  const r = scn.rooftop;
+  return r.capacityMW * r.clearFactor * tableLinear(r.shapePm, h) / PM;
+}
+
 // ------------------------------------------------------------------ pre-roll (stage A)
 
 /**
@@ -157,6 +202,60 @@ export function prerollSeries(seed, scn, regime, events) {
   };
 }
 
+// The step-and-length-generic copy of ouSeries (Phase 2a; ouSeries itself stays as it is, with
+// the classic day's series): `len` samples at `stepS` spacing from `start`, reverting to `mu`
+// (moved by `changes`, as in ouSeries) by `revert` of the gap per step, with `sigma` of noise
+// per step from normal(seed, stream, sample, b), kept inside [lo, hi]. Raw values, not quantised.
+function revertSeries(seed, stream, b, len, stepS, start, mu, revert, sigma, lo, hi, changes) {
+  const out = new Array(len);
+  let x = start, m = mu, next = 0;
+  out[0] = x;
+  for (let k = 1; k < len; k++) {
+    const s = k * stepS;
+    while (next < changes.length && changes[next].atS <= s) {
+      const c = changes[next++];
+      m = c.atLeast ? Math.max(m, c.mu) : c.mu;
+    }
+    x += (m - x) * revert + sigma * normal(seed, stream, k, b);
+    x = Math.min(hi, Math.max(lo, x));
+    out[k] = x;
+  }
+  return out;
+}
+
+const NO_CHANGES = Object.freeze([]);
+
+/**
+ * Pre-roll the rooftop skies (P-2; desk/README.md C-5): ext.rooftop = {stepS, clearPm}, one
+ * clearness series per suburb (scn.city.suburbs order) as integer per-mille at the scenario's
+ * rooftop.cloud.stepS spacing (289 samples from 04:00 to 04:00 at 300 s), or null when the
+ * scenario has no rooftop (capacityMW 0). Each suburb's series is ONE shared regional sky
+ * (EXT_ROOFTOP with b = the number of suburbs: slow, reverting to cloud.mu inside [min, max])
+ * PLUS a small local term of its own (b = the suburb's index; zero mean), stored already
+ * combined and kept inside [min, max]. A heatwave's clear skies (the heatOnset event's
+ * clearMuAtLeast) raise the regional mean as they do over the solar precinct; the 2a cloud
+ * front does not cross the suburbs (it stays over the solar precinct, as its notice says,
+ * until D-8 gives fronts a proper lead). Like every ext series it never depends on play.
+ */
+export function prerollRooftop(seed, scn, events) {
+  const roof = scn.rooftop;
+  if (!roof || !(roof.capacityMW > 0)) return null;
+  const c = roof.cloud, nSub = scn.city.suburbs.length, len = Math.floor(V.DAY_S / c.stepS) + 1;
+  const changes = [];
+  for (const e of events) {
+    if (e.args.clearMuAtLeast !== undefined) changes.push({atS: e.atS, mu: e.args.clearMuAtLeast, atLeast: true});
+  }
+  const sky = revertSeries(seed, STREAM.EXT_ROOFTOP, nSub, len, c.stepS, c.startFrac, c.mu,
+    c.regional.revertPerStep, c.regional.sigmaPerStep, c.min, c.max, changes);
+  const span = c.max - c.min, clearPm = [];
+  for (let j = 0; j < nSub; j++) {
+    const local = revertSeries(seed, STREAM.EXT_ROOFTOP, j, len, c.stepS, 0, 0,
+      c.local.revertPerStep, c.local.sigmaPerStep, -span, span, NO_CHANGES);
+    clearPm.push(local.map((x, k) => quantise(Math.min(c.max, Math.max(c.min, sky[k] + x)) * PM, 1)));
+  }
+  return {stepS: c.stepS, clearPm};
+}
+
 /** Per-second demand wobble (ext stream, integer MW). Evaluated on the fly: it is a pure function of (seed, s). */
 export function fineNoiseMW(seed, s) {
   return quantise(V.FINE_NOISE_MW * normal(seed, STREAM.EXT_FINE, s), 1);
@@ -169,36 +268,68 @@ function seriesAt(arr, s) {
   return arr[k] + (arr[k1] - arr[k]) * fr;
 }
 
+// seriesAt for a series at any spacing (the rooftop skies: ext.rooftop.stepS).
+function seriesAtStep(arr, s, stepS) {
+  const last = arr.length - 1;
+  const k = Math.min(last, Math.floor(s / stepS));
+  const k1 = Math.min(last, k + 1);
+  return arr[k] + (arr[k1] - arr[k]) * (s - k * stepS) / stepS;
+}
+
 /**
  * Set state.env for the current grid second (called by step() at every second boundary,
  * after events.applyDue, so a smelter trip shows in demand in the same second).
- * Reads: tick, seed, scn, ext, smelter.loadMW. Writes: env.* only (env.roofSubMW and
+ *
+ * Phase 2a (desk/README.md §19.2, §21.1):
+ *   P-3  underlyingMW = underlyingBaseMW(scn, state.day, h) x heat uplift + noise + wobble
+ *        (MILD and the weekend from the public state.day; the heat from ext.heat);
+ *   P-2  roofSubMW[j] = capacityMW x share[j] x clearFactor x shape(h) x (1 - cloudBite x
+ *        (1 - k_j)) x (1 - (1 - heatFactor) x r(s)), with k_j = roofClearFrac[j] read from
+ *        ext.rooftop and r(s) = heatRampAt(ext.heat, s); rooftopMW is their sum, as if every
+ *        inverter were connected (fleet.refreshRoof keeps what is off with dark districts);
+ *   P-1  demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW), every grid
+ *        second (flex = 0 in 2a). demandMW stays THE operational total every consumer reads.
+ * With no rooftop (ext.rooftop null: capacityMW 0) rooftopMW is 0, roofSubMW zeros and
+ * roofClearFrac ones, and on a HOT weekday every value is bit-identical to the classic day's.
+ * Reads: tick, seed, scn, ext, day, smelter.loadMW. Writes: env.* only (env.roofSubMW and
  * env.roofClearFrac in place: no allocation).
  */
 export function sampleSecond(state) {
   const s = Math.floor(state.tick / TPS);
-  const scn = state.scn, ext = state.ext, env = state.env;
+  const scn = state.scn, ext = state.ext, env = state.env, day = state.day;
   const h = hourOfDay(scn, s);
   const heatMult = heatMultAt(ext.heat, s);
   env.s = s;
   env.h = h;
   env.heatActive = ext.heat !== null && s >= ext.heat.onsetS && s < ext.heat.endS;
   env.heatMult = heatMult;
-  env.underlyingMW = demandBaseMW(scn, h) * heatMult + seriesAt(ext.series.demandNoiseMW, s) + fineNoiseMW(state.seed, s);
-  env.demandMW = env.underlyingMW - (V.SMELTER_MW - state.smelter.loadMW);
+  env.underlyingMW = underlyingBaseMW(scn, day, h) * heatMult + seriesAt(ext.series.demandNoiseMW, s) + fineNoiseMW(state.seed, s);
+  // Rooftop PV (P-2), suburb by suburb, as if every inverter were connected.
+  const roof = scn.rooftop, sky = ext.rooftop, sub = env.roofSubMW, clr = env.roofClearFrac;
+  let rooftopMW = 0;
+  if (sky === null) {
+    for (let j = 0; j < sub.length; j++) { sub[j] = 0; clr[j] = 1; }
+  } else {
+    const clearSky = rooftopClearSkyMW(scn, h) * (1 - (1 - roof.heatFactor) * heatRampAt(ext.heat, s));
+    for (let j = 0; j < sub.length; j++) {
+      const k = seriesAtStep(sky.clearPm[j], s, sky.stepS) / PM;
+      clr[j] = k;
+      sub[j] = clearSky * roof.share[j] * (1 - roof.cloudBite * (1 - k));
+      rooftopMW += sub[j];
+    }
+  }
+  env.rooftopMW = rooftopMW;
+  env.demandMW = env.underlyingMW - rooftopMW - (V.SMELTER_MW - state.smelter.loadMW); // the P-1 identity
   env.windFrac = seriesAt(ext.series.windPm, s) / PM;
   env.windAvailMW = V.WIND_MW * env.windFrac;
   env.clearness = seriesAt(ext.series.clearPm, s) / PM;
   env.solarAvailMW = clearSkySolarMW(scn, h) * env.clearness;
-  env.tempC = tableLinear(scn.temperatureC.table, h) + (env.heatActive ? V.HEAT_TEMP_UPLIFT_C : 0);
+  // A MILD day shows its own, display-only temperatures (C-3); the cooling load reads the hot-day table.
+  const temps = scn.temperatureC;
+  env.tempC = tableLinear(day.temp === 'MILD' && temps.mildTable ? temps.mildTable : temps.table, h) +
+    (env.heatActive ? V.HEAT_TEMP_UPLIFT_C : 0);
   env.neighbourPrice = neighbourPrice(scn, h);
   env.exportLimitMW = exportLimitMW(h);
-  // Rooftop PV (P-1, P-2; Phase 2a, desk/README.md §19.2). Stage A writes the neutral values on
-  // every scenario (no rooftop, clear suburbs) into the existing arrays; the world job fills in
-  // the model, and the identity demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW).
-  env.rooftopMW = 0;
-  const sub = env.roofSubMW, clr = env.roofClearFrac;
-  for (let j = 0; j < sub.length; j++) { sub[j] = 0; clr[j] = 1; }
 }
 
 // ------------------------------------------------------------------ forecast (stage B: events)
@@ -265,6 +396,30 @@ function clearPlan(state, heatNews) {
   return sortPlan(plan);
 }
 
+// Rooftop clearness (C-5): the suburbs' shared regional sky reverts to the scenario's mean; an
+// announced heatwave clears it from its onset, as prerollRooftop does with the hidden event. No
+// cloud front crosses the suburbs in 2a, so the cloud news is not in this plan.
+function roofPlan(state, heatNews) {
+  const ev = state.scn.events || {}, plan = [];
+  if (heatNews && ev.heat) plan.push({atS: heatNews.fromS, op: 'atLeast', mu: ev.heat.clearMu, endS: 0});
+  return sortPlan(plan);
+}
+
+// One step of the rooftop cloud process as the forecast sees it (or the part f of one), on
+// o = {k, vR, vL, dR, dL}: the weighted clearness k moves toward the mean in force, mu, at the
+// regional sky's revert rate; the error variances of the regional sky and of a local term (vR,
+// vL) grow as in prerollRooftop's own recursion; dR and dL are what is left of a present
+// regional or local deviation.
+function skyStep(o, cloud, mu, f) {
+  const reg = cloud.regional, loc = cloud.local;
+  const aR = 1 - reg.revertPerStep * f, aL = 1 - loc.revertPerStep * f;
+  o.k += (mu - o.k) * reg.revertPerStep * f;
+  o.dR *= aR;
+  o.dL *= aL;
+  o.vR = o.vR * aR * aR + reg.sigmaPerStep * reg.sigmaPerStep * f;
+  o.vL = o.vL * aL * aL + loc.sigmaPerStep * loc.sigmaPerStep * f;
+}
+
 // The smelter's expected load at second t: out until its announced return (smelter.returnS,
 // set by events at the trip: what the potline's owner tells the operator), then back at
 // SMELTER_RETURN_MW_MIN (the same arithmetic as events.applyDue). Persistence otherwise.
@@ -276,36 +431,47 @@ function smelterLoadAt(sm, pending, t) {
 /**
  * Forecast for the player and par (S-4, L-1, L-2). Uses ONLY public information: the
  * scenario's climatology (demand shape and noise process, clear-sky sun, mean wind and
- * clearness, the event menu's public timings), the present state (state.env, and the
- * smelter's present load and announced return) and announcements already made
+ * clearness, the rooftop curve and its cloud process, the event menu's public timings), the
+ * public kind of day (state.day: MILD or HOT, weekend), the present state (state.env, and
+ * the smelter's present load and announced return) and announcements already made
  * (state.news). Never reads state.ext.
  *
  * Returns {fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[],
  * neighbourPrice[], exportLimitMW[], underlyingP50[], rooftopMW[]}, column k (0-based) at grid
  * second fromS + (k + 1) * stepS. neighbourPrice and exportLimitMW are the public daily shapes
  * (P-6, F-13), exact, for the tie's merit order in the L-0 plan. Phase 2a (desk/README.md §19.3):
- * demandP50 / P10 / P90 stay OPERATIONAL; underlyingP50 = demandP50 + rooftopMW + the smelter's
- * expected missing load at that column; rooftopMW is the rooftop forecast as if every inverter
- * were connected (0 in every column at stage A). horizonS may run to the end of the sim day
- * (observe's dayAhead).
+ * demandP50 / P10 / P90 are OPERATIONAL demand (P-1); underlyingP50 = demandP50 + rooftopMW +
+ * the smelter's expected missing load at that column; rooftopMW is the rooftop forecast as if
+ * every inverter were connected, after the heat derate (0 in every column on a scenario with
+ * no rooftop). horizonS may run to the end of the sim day (observe's dayAhead).
  *
  * Integrated minute by minute (so the result does not depend on stepS):
- *   demand P50 = DEM(h) x announced heat multiplier + the present deviation decaying at
- *     the scenario's noise revert rate - the smelter's expected missing load;
+ *   underlying P50 = underlyingBaseMW(day, h) x announced heat multiplier + the present
+ *     deviation decaying at the scenario's noise revert rate;
+ *   rooftop = the P-2 curve at the suburbs' capacity-weighted clearness (the rooftop factor is
+ *     affine in k, so one weighted value is exact), drifting from its present value toward the
+ *     scenario's mean (an announced heatwave's clear skies from its onset) at the regional
+ *     sky's revert rate, x the heat derate inside the ANNOUNCED heat window;
+ *   demand P50 = underlying P50 - rooftop - the smelter's expected missing load;
  *   P10 / P90 = P50 -+ Z_P90 x sd(lead), where sd is the forecast error of the scenario's
  *     own demand-noise process (an OU series: var grows as sigma^2 (1 - a^2L) / (1 - a^2)
  *     with a = 1 - revertPerMin) plus the per-second wobble (FINE_NOISE_MW, at the target
- *     and carried from the origin). sd is 0 at lead 0 and grows with lead (L-2). This
+ *     and carried from the origin) plus the rooftop's (below). sd is 0 at lead 0 (L-2). This
  *     replaces the stage A band P50 x (1 -+ Z sigma(lead)) with FC_SIGMA_NEAR..FAR, which
  *     is not calibrated to the sim's truth (see the stage B report, CONTRACT NOTES);
  *   wind and clearness drift from the present toward the climatological mean, or toward
  *     the announced regime (storm surge then cut-out risk; drought; cloud front inside its
  *     warned window; heat's clear skies), with time constant FC_DRIFT_TAU_S.
+ * The rooftop part of the band is the forecast error of the C-5 cloud process itself, in MW at
+ * that hour's sun: the regional sky's variance grown over the lead, plus the suburbs' local
+ * terms (independent, so weighted by the sum of squared shares): their own growth, and the
+ * part of the present deviation that was local and fades faster than the forecast assumes
+ * ((regional decay - local decay)^2 x their stationary variance).
  * Unannounced events (a heatwave before its 10:30 warning, trips, the smelter's trip) are
  * not in it: that is the forecast's honest error.
  */
 export function forecast(state, horizonS, stepS) {
-  const scn = state.scn, env = state.env, s0 = env.s;
+  const scn = state.scn, env = state.env, s0 = env.s, day = state.day;
   const n = Math.max(0, Math.floor(horizonS / stepS));
   const heatNews = announced(state, 'heat');
   const heat = heatNews ? {onsetS: heatNews.fromS, endS: heatNews.toS} : null;
@@ -316,8 +482,26 @@ export function forecast(state, horizonS, stepS) {
   const smPending = !sm.returning && sm.returnS > s0 && sm.loadMW < V.SMELTER_MW - V.MW_EPS;
   const out = {fromS: s0, stepS, n, demandP50: [], demandP10: [], demandP90: [], windMW: [], solarMW: [],
     neighbourPrice: [], exportLimitMW: [], underlyingP50: [], rooftopMW: []};
-  let dev = env.underlyingMW - demandBaseMW(scn, env.h) * heatMultAt(heat, s0);
+  let dev = env.underlyingMW - underlyingBaseMW(scn, day, env.h) * heatMultAt(heat, s0);
   let wind = env.windFrac, clear = env.clearness, varOU = 0, decay = 1, t = s0;
+  // Rooftop (P-2, C-5): the suburbs' capacity-weighted clearness now, and the cloud process.
+  const roof = scn.rooftop, hasRoof = roof.capacityMW > 0;
+  const sky = {k: 1, vR: 0, vL: 0, dR: 1, dL: 1}, part = {k: 1, vR: 0, vL: 0, dR: 1, dL: 1};
+  let cloud = null, rPlan = null, shareSum = 0, share2 = 0, locStat2 = 0, tc = s0;
+  if (hasRoof) {
+    cloud = roof.cloud;
+    rPlan = roofPlan(state, heatNews);
+    sky.k = 0;
+    for (let j = 0; j < roof.share.length; j++) {
+      shareSum += roof.share[j];
+      share2 += roof.share[j] * roof.share[j];
+      sky.k += roof.share[j] * env.roofClearFrac[j];
+    }
+    sky.k /= shareSum;
+    share2 /= shareSum * shareSum;
+    const aL = 1 - cloud.local.revertPerStep;
+    locStat2 = cloud.local.sigmaPerStep * cloud.local.sigmaPerStep / (1 - aL * aL); // the local term's stationary variance
+  }
   for (let k = 0; k < n; k++) {
     const s = s0 + (k + 1) * stepS;
     while (t < s) {
@@ -332,9 +516,24 @@ export function forecast(state, horizonS, stepS) {
       clear += (muAt(clearMu, cPlan, t) - clear) * g;
     }
     const h = hourOfDay(scn, s);
-    const under = demandBaseMW(scn, h) * heatMultAt(heat, s) + dev; // before the smelter term (and, from the world job, rooftop)
-    const p50 = under - (V.SMELTER_MW - smelterLoadAt(sm, smPending, s));
-    const band = V.Z_P90 * Math.sqrt(varOU + fine2 * (1 + decay * decay));
+    const under = underlyingBaseMW(scn, day, h) * heatMultAt(heat, s) + dev; // before rooftop and the smelter
+    let roofMW = 0, roofVar = 0;
+    if (hasRoof) {
+      // The skies move in whole steps of their own from now (cloud.stepS); a column inside a
+      // step takes that part of it in proportion, so the result does not depend on stepS.
+      while (tc + cloud.stepS <= s) {
+        tc += cloud.stepS;
+        skyStep(sky, cloud, muAt(cloud.mu, rPlan, tc), 1);
+      }
+      part.k = sky.k; part.vR = sky.vR; part.vL = sky.vL; part.dR = sky.dR; part.dL = sky.dL;
+      if (s > tc) skyStep(part, cloud, muAt(cloud.mu, rPlan, s), (s - tc) / cloud.stepS);
+      const clearSky = rooftopClearSkyMW(scn, h) * shareSum * (1 - (1 - roof.heatFactor) * heatRampAt(heat, s));
+      const perK = clearSky * roof.cloudBite, lag = part.dR - part.dL; // perK: MW of rooftop per unit of weighted clearness
+      roofMW = clearSky * (1 - roof.cloudBite * (1 - part.k));
+      roofVar = perK * perK * (part.vR + share2 * (part.vL + locStat2 * lag * lag));
+    }
+    const p50 = under - roofMW - (V.SMELTER_MW - smelterLoadAt(sm, smPending, s));
+    const band = V.Z_P90 * Math.sqrt(varOU + fine2 * (1 + decay * decay) + roofVar);
     out.demandP50.push(p50);
     out.demandP10.push(p50 - band);
     out.demandP90.push(p50 + band);
@@ -343,7 +542,7 @@ export function forecast(state, horizonS, stepS) {
     out.neighbourPrice.push(neighbourPrice(scn, h));
     out.exportLimitMW.push(exportLimitMW(h));
     out.underlyingP50.push(under);
-    out.rooftopMW.push(0); // stage A: no rooftop in the forecast yet (Phase 2a world job)
+    out.rooftopMW.push(roofMW);
   }
   return out;
 }
