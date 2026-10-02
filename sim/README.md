@@ -314,8 +314,10 @@ type), so `atS` may be up to `FC_HORIZON_S` past `DAY_S`: a consumer that maps i
 (a `dayAhead` column, a plan position) clamps it. No level is reached at night (no rooftop), so
 no record carries such a time. `level` 0..3: a level is **reached**
 when `minMW` is at or below its threshold (`MSL1_MW` 1,600, `MSL2_MW` 1,300, `MSL3_MW` 1,000,
-each raised by `MSL_TIE_OUT_MW` while `tie.tripped`) and **left** only once `minMW` is more than
-`MSL_CLEAR_MW` above it. `sinceS` is the grid second of the last change of level (-1: none yet
+each raised by `MSL_TIE_OUT_MW` for the hours the tie is out: the present while `tie.tripped`, a
+forecast column only if it falls before the tie's public return, `env.s + tie.lockoutS`; the
+column tested is the one closest to its own threshold, and `minMW` / `atS` are that column's)
+and **left** only once `minMW` is more than `MSL_CLEAR_MW` above it. `sinceS` is the grid second of the last change of level (-1: none yet
 today). Every change of level emits one `log` record (§7). With no rooftop the object is never
 written: `{0, 0, -1, -1}` all day.
 
@@ -573,7 +575,7 @@ An input is `{type, ...args}`. `applyInput(state, input, out)` (step.js) runs:
 | `standDownRERT` | - | armed and not already standing down | ramps out at `RERT_RAMP_MW_MIN`, then disarmed; before it arrives it simply cancels |
 | `mode` | `agc` bool | before 04:30 and `!control.modeLocked` | `control.mode` = AGC / HAND (D-7) |
 | `restore` | `district` | dark and `grid.restorePermissive(state, d, {preview: true})` is '' (the lamp's conditions plus the RESTORE PREVIEW, run on the input only) | **K-13 stub**: relit; `surgeMW` = cold load - its share of demand; `lastRestoreS`; UFLS stage re-armed if both its districts are lit |
-| `directShed` | - | `sec.level` is SHORT or SHEDDING (Phase 1a, A-3: R5 < L now, the LOR2-like state) and a lit district in rotation remains (K-7) | darkens the lit rotation district restored longest ago (never shed first; ties by the lowest `rot`: on a fresh day, the lowest `rot`), `shedBy 'directed'` (true rotation: a district just restored is not the next one shed) |
+| `directShed` | - | `sec.level` is SHORT or SHEDDING (Phase 1a, A-3: R5 < L now, the LOR2-like state) and a lit district in rotation remains (K-7) | darkens the lit rotation district restored longest ago (never shed first; ties by the lowest `rot`: on a fresh day, the lowest `rot`; Phase 2a: passing over a district with no net load to give), `shedBy 'directed'` (true rotation: a district just restored is not the next one shed) |
 | `planKey` | `station`, `atS` (whole s), `mw` >= 0 | `atS >= s`; something of the station on, booked, or free to start by then; before 04:00 | insert or replace the key at atS, **rewritten** (logged as applied): atS up to the earliest time the station's ramp reaches mw from the previous key after now (or the lever now), counting machines joining at MIN; mw into [Σmin, Σrating] of the machines on or booked on by then. None on or booked and mw > 0: books the START of the first machine free to start so it reaches MIN and climbs to mw by atS (a later booking of it moves earlier; atS moves later if the start would be past). mw 0: to MIN by atS, and a STOP of every machine on by then booked at atS. The rewrite is a fixed point: the logged key rewrites to itself on replay |
 | `planDel` | `station`, `atS` | a key at exactly atS, not in the past | removes it, and the STOPs of the station booked at that second |
 | `planStart` | `unit`, `atS` | `atS >= s`; unit off (or tripped) and free to start by atS (minimum down time, lockout, water) | books START at atS (replacing the unit's booking) |
@@ -778,7 +780,7 @@ Reads and writes per stage B module (a write through a `fleet.js` action counts 
 | grid | everything above plus `env` (incl. `rooftopMW`, `roofSubMW`), `last` (`fMeanHz`: the AGC term of the automatic cut), `agc.unmetMW`, `ren.{windAutoMW, solarAutoMW}` (`agcSecond`: units first while spilling), `control`, `sec`, `seed` (play stream) | `units[].{mode, timerS, agcTrimMW, schedMW, availMW, hotS, starts}`, base points via `fleet.setBasePoint`, `battery.{mode, orderMW, guardMW, schedMW, agcTrimMW, fullHold}`, `tie.{setMW, flowMW, tripped, lockoutS}`, `ren.*` (incl. `windAutoMW`, `solarAutoMW`), `hydro.warned`, `rert.*`, `dr.*`, `city.{coldLoadMW, lastRestoreS}`, `districts[].surgeMW`, `ofgs.okS`, `agc.*`, `fos.*`, `sec.*`, `acc.startCost`, `conts[contIdx].backInBandTick`; breakers via `fleet.setSync`, trips via `fleet.tripUnit`, districts via `fleet.setDistrictDark` and the roofs via `fleet.refreshRoof` (`districts[].reconnectS`, `city.{roofDarkMW, roofOffMW}`), re-arm / reconnect via `fleet.rearmUfls` / `fleet.setOfgsStage` |
 | market | `env` (incl. `rooftopMW`, through `fleet.litDemandMW`), `units`, `battery`, `tie`, `ren` (incl. the manual and automatic curtailment), `ofgs.trippedFrac`, `rert`, `dr`, `city` (incl. `roofOffMW`), `sec`, `acc` (incl. `unservedMWs`, `spillMWs`), `hydro.storageMWh` | `price.*`, `score.*` (incl. `spillMWh`), `last.*`, `acc` (via `fleet.resetAcc`) |
 | events (`applyDue`) | `ext.events`, `evNext`, `units`, `tie`, `smelter`, `scn` (the storm and cloud text timings; `scn.rooftop.capacityMW` for the DUCK wording) | `evNext`, `news`, `smelter.{returning, loadMW, returnS}`; trips via `fleet.tripUnit`, `tripTie`, `tripSmelter` |
-| events (`mslSecond`) | `scn.rooftop.capacityMW`, `scn.clock`, `env.{s, demandMW}`, `tie.tripped`, `msl`, `tick`, the forecast passed in | `msl.*` |
+| events (`mslSecond`) | `scn.rooftop.capacityMW`, `scn.clock`, `env.{s, demandMW}`, `tie.{tripped, lockoutS}`, `msl`, `tick`, the forecast passed in | `msl.*` |
 | weather (`sampleSecond`) | `tick`, `seed`, `scn` (incl. `scn.rooftop`, `scn.temperatureC`), `ext.{heat, series, rooftop}` for the present second, `day`, `smelter.loadMW` | `env.*` (`roofSubMW` and `roofClearFrac` in place) |
 | weather (`forecast`) | `scn` (incl. `scn.rooftop` and its cloud process, the public `scn.events` timings), `day`, `env` (incl. `roofClearFrac`), `news`, `smelter.{loadMW, returning, returnS}` (the announced return) | nothing |
 | autopilot | `observe()` output only | its own memo |
@@ -890,9 +892,10 @@ calls it straight after `weather.sampleSecond` on every `MSL_CHECK_S`-th grid se
 second's `weather.forecast(state, FC_HORIZON_S, FC_STEP_S)`. It keeps `state.msl` (§5 "day and
 msl") and pushes the §7 MSL record on every change of level; it returns at once on a scenario
 with no rooftop. Reads `scn.rooftop.capacityMW`, `scn.clock`, `env.{s, demandMW}`,
-`tie.tripped`, `msl`, `tick` and `fc`; writes `msl.*`. No new import.
-Measured (weather and events only, no input; the tie's lockout counted as `grid.unitsSecond`
-does): on mild weekends (`desk-weekend`) MSL1 is reached on 14.9% of days in seeds 1-200 (15 of
+`tie.{tripped, lockoutS}`, `msl`, `tick` and `fc`; writes `msl.*`. No new import.
+Measured by the world job under its first rule, which raised every threshold for the whole
+window while the tie was out NOW (weather and events only, no input; the tie's lockout counted
+as `grid.unitsSecond` does): on mild weekends (`desk-weekend`) MSL1 is reached on 14.9% of days in seeds 1-200 (15 of
 101) and 21.0% in seeds 1-1,000, MSL2 on 0% and 1.3%, MSL3 never (P-4: 10-30%, <= 10%); on
 mild weekdays MSL1 on 0.4%, on HOT and heatwave days never. The first notice of the day follows
 a tie outage on 59 of 113 days, a potline trip on 49 and neither on 5 (seeds 1-1,000). A potline
@@ -903,6 +906,8 @@ window while the tie is out NOW); the 5 with no contingency are a clear sky with
 under its curve, seen only as it happens (lead 0). Stage C rewords P-4's lead clause (C-9). Not
 built, measured for it: raising the threshold only for the columns before the tie's public
 return time (`tie.lockoutS`) gives MSL1 16.7%, MSL2 1.3%, and 5 of 8 early notices standing.
+**The wave-1 merge adopted that per-column rule** (desk/README.md §25 M-1): the code and §5 "day
+and msl" describe it; the slow P-4 test (seeds 1-200) passes with it.
 
 ### physics.js (B "physics")
 
@@ -1137,7 +1142,9 @@ rules:
 * The restore surge is the pickup beyond the district's share of the total before rooftop;
   `fosSecond` calls `fleet.refreshRoof` beside the cold-load refresh (P-12, Phase 2a).
 * Directed shedding (FOS and DIRECT SHED): the lit rotation district restored longest ago
-  (never shed first), ties by rot (§6).
+  (never shed first), ties by rot (§6). Phase 2a (desk/README.md §25 M-2): a district whose net
+  load is zero or negative (feeding back at a sunny noon) is passed over while any other lit
+  rotation district has load to give; shedding it would take generation off.
 * **N-1 over both credible contingencies** (Phase 1a, A-2, `N1_PREVIEW_ALL`): the TRIP PREVIEW
   runs for the largest unit and for the tie import; SECURE needs R5 >= 1.25 L and **both**
   previews >= 49.5 Hz + margins; `lKind` / `lId` / `previewNadirHz` name the worse one (ties to

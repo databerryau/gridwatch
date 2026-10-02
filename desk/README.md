@@ -1255,3 +1255,91 @@ checks found no defect. Settled while building it:
   weekend: balanced, but drawing water from 04:00. Stage C tunes the commitment (C-14).
 * DESK_WEEKEND shares DESK's `rooftop`, `weather` and `temperatureC` objects (none is shared
   with CLASSIC). First-visit transfer is 312.4 KB gzip of 400.
+
+## 25. Wave 1 record (the sim; merged 2026-10-02)
+
+`world` and `grid` were each built in a worktree, reviewed by two readers (one against the
+contract, one trying to break it, with mutation testing) and fixed. Merged with one README
+conflict; the golden was re-recorded at the merge (C-13). **The order of the remaining work
+changes: wave 2 is `par` and `view`; `app` is wave 3**, built on both, because the objective's
+accepts need the final dispatch and the real blue.
+
+What the sim now does, measured (weather and events only unless said; seeds 1–200):
+
+* Day types: MILD 50.5%, HOT 35%, HEATWAVE 14.5% (seeds 1–2,000: 54 / 31 / 15). Pinned seeds:
+  MILD 1, 5, 8, 9, 13, 20261001, 20261004; HOT 2, 3, 7, 11, 20260930, 20261003; HEATWAVE 4.
+* Minimum operational demand, median: HOT 3,242, HEATWAVE 3,271, MILD weekday 2,202, MILD weekend
+  1,746 MW (P-3: all in band). L-2 coverage on `desk` 80.7% at 1 h, 79.9% at 4 h. Rooftop
+  forecast-error sigma 2.9% / 3.1% (L-2's 5% / 15% is not reachable with a mean-reverting sky;
+  stage C rewrites the line). State 45.6 KB of 64.
+* MSL on mild weekends: MSL1 on 15–21% of days, MSL2 on ≤ 1.3%, MSL3 never. A no-contingency
+  MSL1 has no lead (it needs −150 MW of demand noise, which the forecast forgets in an hour):
+  P-4's 2-hour lead clause is not met and stage C rewords it.
+* C-6: a 510-MW surplus is held at 50.000 Hz with 510 MW cut; an idle battery gains < 1 MWh in 30
+  minutes; a CHARGE 300 order takes exactly 300 MW off the cut. The same run on the stage A sim
+  goes black at 52 Hz. C-7: a 256-MW load loss from the curtailing state peaks at 50.23 Hz and a
+  tie trip at 300 MW export at 50.27 Hz (51.66 and 51.83 Hz with the flags off). H-7's midday
+  case on net-load blocks: 8 stages take 1,295 MW net for 650 MW lost and leave 2,942 MW of
+  customers dark; peak 50.44 Hz, not black (black at 52 Hz with the flags off).
+* CLASSIC: bit-identical through `world` and through `grid`'s flags-off commit. With the flags on
+  the droop acts on about 15% of ticks and par's days diverge (48 seeds: zero-unserved days 45 →
+  44; black 0 → 0).
+
+Decisions taken at the merge (integrator):
+
+| # | Question | Decision |
+|---|---|---|
+| M-1 | The whole-window tie rise raised MSL1 for morning tie outages that ended hours before the belly: 35 of 37 long-lead notices were cancelled before their minimum. | **Per column**: the present counts as out while the tie is tripped; a forecast column only if it falls before the tie's public return (`env.s + tie.lockoutS`). The column tested is the one closest to its own threshold; `msl.minMW` / `atS` are that column's. P-4 still in band (slow test, seeds 1–200). |
+| M-2 | Directed shedding took the next rotation district whatever its net load: SOL3 at −33 MW tipped a 4-MW shortfall into UFLS. | `shedNextRotation` **passes over a lit rotation district whose net load is ≤ 0** (the old rule when none has load). UFLS blocks stay static (C-8). The desk names the same district (§21.5 below). |
+| M-3 | `grid`'s deviations from §21.2. | Accepted as built: AGC's unmet lowering request joins the cut only **while the floor surplus is > 0** (added always, it spilled wind on CLASSIC with no surplus); it is the last second's ACE, not an integral; while the dispatch is spilling a lowering request goes to **the units first, as far as MIN**, then the battery; the cut is a **cap on output** in both directions; RERT output counts as must-run; the rooftop hold releases at a fixed 1 / `ROOF_RAMP_S` per second. |
+| M-4 | Left open for stage C. | A plan far above MIN with **no** floor surplus parks high (600 MW above: 50.13 Hz; 1,000: 50.28 Hz; never OFGS, never black): in the game the dispatch re-plans every 5 minutes, so only hand-held levers get there. In a **deep belly** (must-run above demand with every MW of wind and sun already held back) AGC charges an idle battery with the excess, and with no room left frequency parks at about 50.35 Hz on the roofs' back-off: the only remedy is stopping a unit (MSL3's card says so). `caught.uflsMW` is short by the still-off rooftop when a stage sheds a district relit under 7 minutes ago (labelled). `msl.atS` may be up to 4.5 h past 04:00 late at night (level 0 then; clamp before mapping it to a column). |
+
+Facts the next waves build on:
+
+* `forecast.demandP50/P10/P90` are operational; `underlyingP50 = demandP50 + rooftopMW + the
+  smelter's expected missing load`; `rooftopMW` is as if every inverter were connected, after the
+  derate of an **announced** heat window. The band is widest where the sun is high.
+* The cut works from the **floor blocks**: in a surplus a base point above MIN is carried by AGC
+  (which lowers units to MIN at their own ramps, coal 3 MW/min a machine), with
+  `|agc.requestMW|` up to the units' whole room above MIN while spilling, beyond the regulating
+  bands. `agc.unmetMW` flickers negative for about a third of the seconds while the units are at
+  MIN and the battery charges on its whole inverter.
+* `spillMW = obs.wind.autoMW + obs.solar.autoMW` is exactly 0 outside a floor surplus. The
+  droop's back-off is **not** in it: that is `balance.renPfrMW`, and `score.spillMWh` counts it
+  (about 15 MWh on any day), so "spill > 0" in the score does not mean a surplus.
+* `caught.inverterMW` is negative when the inverters caught a loss of load (−253 of a 256-MW
+  potline trip) and can be positive after a loss of supply that began above 50.015 Hz.
+* `obs.districts[].coldLoadMW`: a lit district's **net** load (negative at a sunny noon: SOL3
+  −8.9 MW); a dark one's underlying pickup. `ufls` / `shed` records' `mw` is net (the load the
+  relays took off); `restore`'s is the underlying pickup. `obs.demand.shedMW` is the relay MW
+  (can be ≤ 0 with customers dark); `obs.demand.unservedMW` is the customers' load.
+* MSL records: `{tick, kind: 'log', sev, code, msg, level, minMW, atS}` on every change, a fall
+  included (MSL2 → MSL1 emits `MSL1` / `info`). A level held by hysteresis can sit 100 MW above
+  its threshold, so a card says the minimum and its time, never "below X". When the minimum is
+  the present second the message says "demand is at its lowest now".
+* The S-4 scramble in `tests/autopilot.test.js` needs a DESK case (`par`): `createState(5, DESK)`
+  with donor `createState(4, DESK)`, the existing recipe plus `s.ext.rooftop.clearPm[j] =
+  row.map((x, i) => (i * stepS > cutS ? donor.ext.rooftop.clearPm[j][i] : x))`. Do not swap
+  `state.day`: it is public.
+* `desk-weekend` opens balanced with hydro at 217–276 MW a machine from 04:00 (C-14 tuning).
+
+Red on purpose after the merge (the next owner's):
+
+* `view`: `tests/desk.test.js` K-11 "the bar balances about zero" (`desk/dial.js` needs the
+  inverter segment); `tests/map.test.js` G-5 "machine rotor slows in the watch" (a fragile seed-7
+  fixture whose frequency the droop moved by 8 mHz: measure cruise at 50 Hz or widen the margin).
+* `app` (wave 3): `tests/objective.test.js` "the DESK scenario is the classic day…" and "a day
+  with no input runs short by mid-morning…", and its slow whole-day case.
+
+Changes to §21 for the next waves:
+
+* **§21.5 view, added.** The dial's SHED mark keys on `obs.demand.unservedMW` (not `shedMW`,
+  which is ≤ 0 with a net exporter dark) and the bar tolerates a negative `shedMW`. DIRECT SHED
+  names the lit rotation district with the lowest (`restoredAtS`, `rot`) **among those whose
+  `coldLoadMW` > 0** (all of them when none is), as M-2 sheds. C-11's blue also counts
+  `obs.rert.outMW` as must-run and uses the battery's order (not AGC's trim), as the sim's cut
+  does. `obs.msl.atS` is clamped to the end of the day before it is mapped to a column.
+* **§21.3 par, added.** The S-4 DESK scramble case above. Rule 7 reads the request net of what
+  the dispatch is lowering in a surplus. S-12 is re-measured with the C-7 flags on.
+* **§21.4 app (wave 3), added.** The respond card words `inverterMW` for both signs. MIN GEN reads
+  `spillMW` (0 outside a floor surplus), never `score.spillMWh`.
