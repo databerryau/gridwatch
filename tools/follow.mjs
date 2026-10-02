@@ -18,10 +18,14 @@
 // Per seed: the day type, black or not, unserved MWh, score.cost by key, the cost the §21.4
 // accept compares (fuel + no-load + starts + tie + battery wear: RERT and DR are excluded, they
 // are set by when the diesel was armed, not by the plan) and par's cost on the same seed beside
-// it. For each STOP line the player followed (line.kind === 'stop' with an accepted action): the
-// saving the line quoted against the REALISED difference, which is the same day with that one
-// STOP skipped (its action dropped from the STOP's minute until the original day next started
-// the unit) minus the day as played, on the accept's cost. The quoted saving is line.saving or
+// it (a day that ends black, the player's or par's, is left out of the "dearer than par" count:
+// its cost stops when it does). For each STOP line the player followed (line.kind === 'stop' with
+// an accepted action): the saving the line quoted against the REALISED difference, which is the
+// same day with that one STOP skipped minus the day as played, on the accept's cost. Skipped
+// means: from the STOP's minute until the original day next started the unit, the line is asked
+// about an observation in which that unit is not free to stop (its stopBlock set), so the player
+// follows whatever the line says THEN (the battery and commit-later branches under the STOP
+// branch are not hidden behind a STOP line nobody presses). The quoted saving is line.saving or
 // line.action.saving when the objective gives one, else the first "$N" after "save" in the text;
 // n/a when there is none. Until the objective has STOP lines (Phase 2a wave 3) the STOP table is
 // empty. The day type is the seed's hidden regime (a measurement tool reads state.ext for
@@ -95,21 +99,44 @@ export function quotedSaving(line) {
   return m ? Number(m[1].replace(/,/g, '')) : null;
 }
 
+/** The stopBlock a skipped STOP's unit is given (see skipping). */
+export const SKIPPED = 'this STOP is skipped (tools/follow.mjs)';
+
 /**
- * The standing objective with one followed STOP skipped: its action is dropped for that unit
- * from the STOP's minute until `untilS` (the line still shows; the player just does not press).
+ * The objective with one followed STOP skipped. From the STOP's minute until `untilS` the line
+ * is asked about a copy of the observation in which that unit is not free to stop (stopBlock
+ * set; desk/README.md §21.4: a candidate that is not `on` with `stopBlock === ''` gets no STOP
+ * line), and what it then says is followed: the day is the same player's, with every other branch
+ * still open. A line that names the unit all the same has that action dropped (it still shows).
+ * The first form of this wrapper kept the STOP line with a null action for the whole window, which
+ * hid every branch below STOP for hours: the realised difference then counted everything else the
+ * player no longer did (measured on DESK seed 1 with a battery branch below the STOP: $22,974
+ * against $73,636 for the true skip).
  * @param {{s:number, action:{unit:string}}} stop a `said` entry of followDay
  * @param {number} untilS
  * @param {function} [line] the objective to wrap (default: app/objective.js)
  */
 export function skipping(stop, untilS, line = standingObjective) {
+  const unit = stop.action.unit;
   return (obs, ctx) => {
-    const x = line(obs, ctx);
-    if (x && x.kind === 'stop' && x.action && x.action.type === 'stop' && x.action.unit === stop.action.unit && obs.s >= stop.s && obs.s < untilS) {
-      return Object.assign({}, x, {action: null});
-    }
+    if (obs.s < stop.s || obs.s >= untilS) return line(obs, ctx);
+    const held = Object.assign({}, obs, {units: obs.units.map(u => (u.id === unit ? Object.assign({}, u, {stopBlock: SKIPPED}) : u))});
+    const x = line(held, ctx);
+    if (x && x.action && x.action.type === 'stop' && x.action.unit === unit) return Object.assign({}, x, {action: null});
     return x;
   };
+}
+
+/**
+ * How many of these rows cost more than par on the accept's cost, among the days that can be
+ * compared: a day that ended black (the player's or par's) stopped paying when it stopped, so it
+ * is counted in `na`, never as cheaper.
+ * @param {Array<{black:boolean, planCost:number, par:{black:boolean, planCost:number}}>} rows
+ * @returns {{dearer:number, of:number, na:number}}
+ */
+export function dearerThanPar(rows) {
+  const whole = rows.filter(r => !r.black && !r.par.black);
+  return {dearer: whole.filter(r => r.planCost > r.par.planCost).length, of: whole.length, na: rows.length - whole.length};
 }
 
 /** The followed STOP lines of a day, each with the second the day next started that unit (or the day's end). */
@@ -231,10 +258,10 @@ function report(o, scenario, rows, wallS) {
   table(types.concat(types.length > 1 ? ['all'] : []).map(d => {
     const g = d === 'all' ? rows : rows.filter(r => r.day === d);
     const clean = g.filter(r => r.unservedMWh === 0 && !r.black).length, black = g.filter(r => r.black);
-    const dearer = o.par ? g.filter(r => r.planCost > r.par.planCost).length : 0;
+    const dp = o.par ? dearerThanPar(g) : null;
     return {d, n: g.length, clean: clean + ' (' + pct(clean, g.length) + ')', black: black.length + (black.length ? ': ' + black.map(r => r.seed).join(', ') : ''),
       un: f1(median(g.map(r => r.unservedMWh))) + ' / ' + f1(Math.max(...g.map(r => r.unservedMWh))), plan: k$(median(g.map(r => r.planCost))), total: k$(median(g.map(r => r.totalCost))),
-      par: o.par ? k$(median(g.map(r => r.par.planCost))) + ' / ' + k$(median(g.map(r => r.par.totalCost))) : '-', dearer: o.par ? dearer + ' of ' + g.length : '-',
+      par: o.par ? k$(median(g.map(r => r.par.planCost))) + ' / ' + k$(median(g.map(r => r.par.totalCost))) : '-', dearer: dp ? dp.dearer + ' of ' + dp.of + (dp.na ? ' (' + dp.na + ' black: n/a)' : '') : '-',
       stops: g.reduce((a, r) => a + r.stops.length, 0)};
   }), [['day type', r => r.d], ['n', r => r.n], ['zero unserved', r => r.clean], ['black', r => r.black], ['unserved MWh (median / max)', r => r.un],
     ['plan cost (median)', r => r.plan], ['total (median)', r => r.total], ['par plan / total (median)', r => r.par], ['player dearer than par (plan cost)', r => r.dearer], ['STOPs', r => r.stops]]);
@@ -254,5 +281,5 @@ async function main() {
   report(o, scenario, rows, (Date.now() - t0) / 1000);
 }
 
-// Run as a script (or as one of its own workers); tests import followSeed, quotedSaving, skipping and stopLines.
+// Run as a script (or as one of its own workers); tests import followSeed, quotedSaving, skipping, stopLines and dearerThanPar.
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main().catch(e => { console.error(e); process.exit(1); });

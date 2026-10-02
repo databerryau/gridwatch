@@ -10,7 +10,8 @@ import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {SLOW, slowOnly, ticksAt, injectTrip} from './lib/sim-helpers.js';
 import {followDay} from './lib/follow.js';
 import {objective} from '../app/objective.js';
-import {followSeed, quotedSaving, stopLines, skipping, planCost, PLAN_COST_KEYS} from '../tools/follow.mjs';
+import {followSeed, quotedSaving, stopLines, skipping, planCost, dearerThanPar, SKIPPED, PLAN_COST_KEYS} from '../tools/follow.mjs';
+import * as fleet from '../sim/fleet.js';
 
 const TPS = V.TICKS_PER_S;
 const SEEDS = n => Array.from({length: n}, (_, i) => i + 1);
@@ -141,6 +142,10 @@ test('§21.3 commitSig: the dispatch is made over the battery\'s mode, order and
   assert.notEqual(poked({mode: 'charge', orderMW: 300}), poked({mode: 'discharge', orderMW: 300}));
   assert.notEqual(poked({mode: 'charge', orderMW: 300}), poked({mode: 'charge', orderMW: 300, fullHold: true}), 'a charge paused on a full battery is no longer a load');
   assert.notEqual(poked({guardMW: 100}), sig);
+  // (and, as before Phase 2a, over the dark share of the city and the tie being in service)
+  const other = poke => { const x = JSON.parse(JSON.stringify(obs)); poke(x); return commitSig(x); };
+  assert.notEqual(other(x => { x.districts[3].dark = true; }), sig);
+  assert.notEqual(other(x => { x.tie.tripped = true; }), sig);
 });
 
 test('§21.3 player mode: a battery order re-flows the plan at the system\'s next look, not at the next 5-minute dispatch; the plan carries it', () => {
@@ -167,8 +172,11 @@ test('§21.3 player mode: a battery order re-flows the plan at the system\'s nex
   assert.equal(hashState(replay(2, DESK, s.log, {untilTick: s.tick})), hashState(s));
 });
 
-test('§21.3 player mode in the belly: units at their floor, the tie at the export limit, the dispatch spilling the rest; no shortfall from what it holds back', () => {
-  // A mild weekend noon with no input: the weekend commitment (three coal, one CCGT) and more sun than load.
+test('§21.3 player mode in the belly: units at their floor, the tie at the export limit, the dispatch spilling the rest; no shortfall from what it holds back; a dark net-exporting suburb raises what is dispatched (P-12)', () => {
+  // A mild weekend noon with no input: the weekend's 04:00 fleet (three coal machines and the CCGTs it
+  // opens with; C-14 is tuned in stage C, the asserts do not count machines) and more sun than load.
+  // A regression guard: the dispatch before wave 2 already planned this noon so. What it got wrong
+  // is below (a dark suburb that is a net exporter) and in 'a battery order re-flows the plan'.
   const {s, sys} = playerDay(1, DESK_WEEKEND, ticksAt(12, 30));
   const obs = observe(s);
   const spill = obs.wind.autoMW + obs.solar.autoMW;
@@ -184,6 +192,27 @@ test('§21.3 player mode in the belly: units at their floor, the tie at the expo
   }
   assert.ok(Math.abs(obs.agc.requestMW) < V.PAR_REBASE_MW, 'AGC is not carrying the plan: ' + obs.agc.requestMW.toFixed(0) + ' MW');
   assert.ok(Math.abs(obs.f.hz - V.F0_HZ) < 0.1);
+
+  // P-12 in the game's dispatch: Solstice Rise goes dark (five districts, 14.7% of the customers,
+  // a quarter of the rooftop: at noon a net exporter). The system re-dispatches at its next look,
+  // and the plan's columns are for the LIT demand: the lit customers' load less the rooftop still
+  // connected, which is MORE than before, not P50 x (1 - shed).
+  const D = {shed: 0, roof: DESK_WEEKEND.rooftop.share[DESK_WEEKEND.city.suburbs.findIndex(x => x.id === 'SOL')]};
+  while (s.tick < ticksAt(12, 32)) step(s, systemInputs(sys, s)); // (off the 5-minute dispatch: the next one is three minutes away)
+  s.city.districts.forEach((d, i) => { if (d.suburb === 'SOL') { fleet.setDistrictDark(s, i, true, 'directed'); D.shed += d.share; } });
+  assert.ok(D.roof === 0.25 && D.shed > 0.14 && D.shed < 0.15);
+  const n = planLoads(s), t0 = s.tick;
+  while (planLoads(s) === n) step(s, systemInputs(sys, s));
+  assert.ok((s.tick - t0) / TPS <= V.PAR_DECIDE_EVERY_S + 1, 'the dark share moved: re-dispatched at the next look');
+  const o2 = observe(s), P = sys.memo.plan, fc = o2.forecast, k0 = Math.floor((o2.s - P.madeAtS) / P.stepS);
+  for (const q of [2, 6]) {
+    // plan column k0 + q lies between two forecast columns: the same linear mix of both
+    const j = (P.t0 + (k0 + q) * P.stepS - o2.s) / fc.stepS - 1, a = Math.floor(j), mix = arr => arr[a] + (arr[a + 1] - arr[a]) * (j - a);
+    const p50 = mix(fc.demandP50), roof = mix(fc.rooftopMW), lit = (p50 + roof) * (1 - D.shed) - roof * (1 - D.roof);
+    const want = lit - mix(fc.windMW) - mix(fc.solarMW);
+    assert.ok(Math.abs(planCover(sys, s, q) - want) < 5, 'column +' + q + ': the plan covers ' + planCover(sys, s, q).toFixed(0) + ' MW, lit net demand is ' + want.toFixed(0) + ' MW');
+    assert.ok(lit > p50 && lit - p50 * (1 - D.shed) > 250, 'share arithmetic would read ' + (lit - p50 * (1 - D.shed)).toFixed(0) + ' MW less');
+  }
 });
 
 // ---------------------------------------------------------------- tools/follow.mjs (the hint-following player's command line)
@@ -207,33 +236,66 @@ test('tools/follow.mjs: a STOP line\'s quoted saving is read from the line; the 
   ];
   const stops = stopLines(said);
   assert.deepEqual(stops.map(x => [x.line.s, x.line.action.unit, x.untilS]), [[200, 'ccgt2', 900], [300, 'gta1', V.DAY_S]]);
-  // skipping(): the line still shows; its action is dropped for that unit inside the window only.
-  const line = obs => ({kind: 'stop', level: 'plan', text: 't', action: {type: 'stop', unit: obs.unit}});
+  // skipping(): a line in the §21.4 branch order, STOP above BATTERY. The STOP's candidate is the
+  // first unit; when it is not free to stop there is no STOP line and the battery branch speaks.
+  const CHARGE = {type: 'battery', mode: 'charge', mw: 300};
+  const line = obs => {
+    const u = obs.units[0];
+    if (u.mode === 'on' && u.stopBlock === '') return {kind: 'stop', level: 'plan', text: 'Stop it: saves about $20,000.', action: {type: 'stop', unit: u.id}};
+    return {kind: 'battery', level: 'plan', text: 'Charge: power is being spilled.', action: CHARGE};
+  };
+  const obsAt = (s, first) => ({s, units: [{id: first, mode: 'on', stopBlock: ''}, {id: 'coal1', mode: 'on', stopBlock: ''}]});
   const skip = skipping(stops[0].line, stops[0].untilS, line);
-  assert.equal(skip({s: 200, unit: 'ccgt2'}).action, null);
-  assert.equal(skip({s: 899, unit: 'ccgt2'}).kind, 'stop');
-  assert.equal(skip({s: 899, unit: 'ccgt2'}).action, null);
-  assert.deepEqual(skip({s: 900, unit: 'ccgt2'}).action, {type: 'stop', unit: 'ccgt2'});
-  assert.deepEqual(skip({s: 199, unit: 'ccgt2'}).action, {type: 'stop', unit: 'ccgt2'});
-  assert.deepEqual(skip({s: 500, unit: 'gta1'}).action, {type: 'stop', unit: 'gta1'});
+  // Inside the window the skipped day follows what the line says to a player who cannot stop that
+  // unit: the branch BELOW the STOP, action and all (not a STOP line with its action removed).
+  for (const s of [200, 899]) {
+    const x = skip(obsAt(s, 'ccgt2'));
+    assert.equal(x.kind, 'battery', 'at ' + s + ' s');
+    assert.deepEqual(x.action, CHARGE);
+  }
+  // Before and after it, and for another unit inside it, the line is the line.
+  assert.deepEqual(skip(obsAt(199, 'ccgt2')).action, {type: 'stop', unit: 'ccgt2'});
+  assert.deepEqual(skip(obsAt(900, 'ccgt2')).action, {type: 'stop', unit: 'ccgt2'});
+  assert.deepEqual(skip(obsAt(500, 'gta1')).action, {type: 'stop', unit: 'gta1'});
+  // The observation the line was given is a copy: the caller's is untouched, the unit reads as not free to stop.
+  const seen = [], mine = obsAt(500, 'ccgt2');
+  skipping(stops[0].line, stops[0].untilS, obs => { seen.push(obs); return null; })(mine);
+  assert.equal(mine.units[0].stopBlock, '');
+  assert.equal(seen[0].units[0].stopBlock, SKIPPED);
+  assert.equal(seen[0].units[1].stopBlock, '');
+  // A line that names the unit all the same (it ignores stopBlock) has that action dropped; the line still shows.
+  const stubborn = obs => ({kind: 'stop', level: 'plan', text: 't', action: {type: 'stop', unit: obs.units[0].id}});
+  const skip2 = skipping(stops[0].line, stops[0].untilS, stubborn);
+  assert.equal(skip2(obsAt(500, 'ccgt2')).kind, 'stop');
+  assert.equal(skip2(obsAt(500, 'ccgt2')).action, null);
+  assert.deepEqual(skip2(obsAt(900, 'ccgt2')).action, {type: 'stop', unit: 'ccgt2'});
+  // "Dearer than par" leaves out a day that ended black (its cost stopped when it did).
+  const day = (planCost, black, parCost, parBlack = false) => ({planCost, black, par: {planCost: parCost, black: parBlack}});
+  assert.deepEqual(dearerThanPar([day(6, false, 5), day(4, false, 5), day(1.5, true, 5), day(9, false, 2, true)]), {dearer: 1, of: 2, na: 2});
   // followDay takes it as its objective: a day with every action dropped is the day with no input.
   const none = followDay(7, DESK, {untilH: 6, objective: () => null}), idle = followDay(7, DESK, {untilH: 6, follow: false});
   assert.equal(hashState(none.st), hashState(idle.st));
 });
 
 test('tools/follow.mjs end to end: a followed STOP is re-run skipped, and its quoted saving is set against the realised difference', slowOnly(), () => {
-  // The objective has no STOP branch until wave 3, so the line is synthetic: the standing objective,
-  // plus one STOP of CCGT 1 at 10:30 on a mild weekday (at its floor in the belly), quoting $20,000.
-  const stopAt = ticksAt(10, 30) / TPS;
-  const line = (obs, ctx) => {
-    const x = objective(obs, ctx), u = obs.units.find(q => q.id === 'ccgt1');
-    if ((!x || !x.action) && obs.s >= stopAt && u.mode === 'on' && u.stopBlock === '') {
+  // The objective has no STOP or BATTERY branch until wave 3, so the line is synthetic, in the
+  // §21.4 order: the standing objective's own actions first, then one STOP of CCGT 1 from 10:30 on
+  // a mild weekday (at its floor in the belly), quoting $20,000, then a battery branch below it
+  // (from 10:30 too: charge while power is spilled). `withStop` false is the same player with no STOP branch at all.
+  const stopAt = ticksAt(10, 30) / TPS, noStopAfter = ticksAt(13, 0) / TPS;
+  const mk = withStop => (obs, ctx) => {
+    const x = objective(obs, ctx), u = obs.units.find(q => q.id === 'ccgt1'), b = obs.battery;
+    if (x && x.action) return x;
+    if (withStop && obs.s >= stopAt && obs.s < noStopAfter && u.mode === 'on' && u.stopBlock === '') {
       return {level: 'plan', kind: 'stop', text: 'RIVERTON CCGT 1 is not needed before the evening. Stop it: saves about $20,000.', targets: ['guard-stop-ccgt1'],
         action: {type: 'stop', unit: 'ccgt1'}, startBy: -1, short: null, long: null};
     }
+    if (obs.s >= stopAt && obs.wind.autoMW + obs.solar.autoMW > V.SURPLUS_MIN_MW && b.mode !== 'charge' && b.socMWh < 950) {
+      return {level: 'plan', kind: 'battery', text: 'Charge: power is being spilled.', targets: ['dial-battery'], action: {type: 'battery', mode: 'charge', mw: 300}, startBy: -1, short: null, long: null};
+    }
     return x;
   };
-  const row = followSeed(DESK, 1, {untilH: 14, par: false, objective: line});
+  const row = followSeed(DESK, 1, {untilH: 14, par: false, objective: mk(true)});
   assert.equal(row.day, 'MILD');
   assert.equal(row.stops.length, 1, JSON.stringify(row.kinds));
   const s = row.stops[0];
@@ -244,6 +306,12 @@ test('tools/follow.mjs end to end: a followed STOP is re-run skipped, and its qu
   // no-load while solar is spilled: the day with the STOP is the cheaper one.
   assert.ok(s.realised > 20000 && s.realised < 120000, 'realised ' + Math.round(s.realised));
   assert.equal(s.unservedSkipped, 0);
+  // The re-run IS the day of the same player without the STOP branch: it follows the battery
+  // branch under the STOP (the first form of the tool hid it for the whole window and under-read
+  // the difference by a factor of three on this seed).
+  const never = followDay(1, DESK, {untilH: 14, objective: mk(false)});
+  assert.ok(never.said.some(x => x.kind === 'battery' && x.accepted && x.s >= stopAt), 'the fixture: the battery branch is followed after 10:30');
+  assert.ok(Math.abs(s.realised - (planCost(never.score.cost) - row.planCost)) < 1, 'realised ' + Math.round(s.realised) + ' against the true skip ' + Math.round(planCost(never.score.cost) - row.planCost));
   // And with no STOP followed the table is empty.
   assert.deepEqual(followSeed(DESK, 1, {untilH: 6, par: false}).stops, []);
 });
