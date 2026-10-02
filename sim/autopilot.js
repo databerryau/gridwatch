@@ -80,11 +80,49 @@
 //   * Rule 9 (extension, README §12) restores only a district whose cold load is at most
 //     L and whose estimated dip (the TRIP PREVIEW scaled by coldLoad / L) holds the K-13
 //     restore preview's line (SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ), so the restore input,
-//     which runs the real restore preview, is seldom refused.
+//     which runs the real restore preview, is seldom refused. Phase 2a: the cap at L is lifted
+//     while the dispatch is spilling at least the district's pickup (in the belly L is a machine
+//     at its floor, smaller than any pickup); the estimate still decides.
 //   * planOnly re-dispatches the L-0 plan for the lit load while districts are dark
 //     (reflowLit), as NEM dispatch targets metered demand (L-0: never black with no input).
 // The S-4 pace applies to every discrete action; at the reference playback's night roll
 // (2,100x) that is one action per ~105 grid-minutes, so restores after a late shed are slow.
+//
+// Phase 2a, the belly (SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §25):
+//   * LIT OPERATIONAL DEMAND. With rooftop PV a dark district takes its roofs off with its
+//     feeder (P-12), so what is left is not a proportional slice of the operational demand. The
+//     dispatch (context), the lit-load re-flow, the adequacy walk and rule 4's evening read the
+//     present from obs.demand.litMW and a forecast column as (P50 + rooftop) x (1 - dark
+//     customers) - rooftop x (1 - dark rooftop) (litMW; darkShare; the dark rooftop share is by
+//     nameplate). With no rooftop this is the old P50 x (1 - shed).
+//   * S-14 rule 2 joins rule 6 as a union with its window: par charges whenever the price is at
+//     or below $0 or the dispatch is spilling more than SURPLUS_MIN_MW (obs.wind.autoMW +
+//     obs.solar.autoMW; C-6), while the battery has room below PAR_BATT_CHARGE_TO. The order is
+//     the present charge order plus what is still being spilled (the sim's cut is net of the
+//     order), within PAR_BATT_CHARGE_MAX_MW: free power, never fuel. An order that takes the
+//     whole spill leaves nothing spilled and a positive price, so it is HELD while the surplus
+//     still feeds it, less what it would be buying instead: thermal output above the floors,
+//     hydro, and the tie above its export limit (boughtMW). The price alone starts no order
+//     outside the window (with nothing spilled there is no free power to take); it keeps one
+//     going. On the classic day the price never reaches $0 and nothing is spilled, so the rule
+//     cannot fire there.
+//   * S-14 rule 3 as reworded (C-12): export to the cap, charge, and the dispatch curtails the
+//     rest. Nothing for par to send: its plan already takes every unit to its floor and the tie
+//     to the export limit in a surplus (clearColumn), and the sim holds back wind and solar.
+//   * S-14 rule 4 joins rule 4: once no gas unit is committed, ONE coal machine is stopped only
+//     if MSL2 is forecast for PAR_COAL_MSL2_H or more AND the evening holds N-1 without it until
+//     it could be back at minimum load (T4, the minimum down time from breaker open to the next
+//     START, then T1, auto-sync and T2: a 10:00 stop is back at 21:14). Expected never to fire on
+//     real days (MSL2 for 3 h does not occur); measured, not tuned (tools/par.js prints the count).
+//   * A battery order is counted in the dispatch only for the energy behind it (batteryOrder): a
+//     discharge until PAR_BATT_RESERVE_FRAC, a charge until full, at most the inverter less the
+//     GUARD. That is how replan() reads the PLAYER's order, and how par reads its own: a charge
+//     until PAR_BATT_CHARGE_TO, a discharge until the reserve and no later than 22:00. Par's night
+//     recharge (ordered after the charge window) is therefore in its plan; before, it was not.
+//   * Rule 7 reads AGC's request net of what the dispatch is lowering in a surplus: while wind or
+//     solar is being spilled AGC takes the units down to MIN beyond their regulating bands (C-6),
+//     which is the dispatch at work and not a plan gone stale; and a surplus the plan already
+//     shows (its negative gap) is not a miss of the forecast.
 
 import {V} from './params.js';
 import {createState, step, observe, hashState, applyInput, inWatch} from './step.js';
@@ -145,6 +183,10 @@ const RERT_LOOK_S = V.PAR_RERT_LOOKAHEAD_MIN * S_PER_MIN, RERT_MARGIN = V.PAR_RE
 const RERT_STANDDOWN_S = V.PAR_RERT_STANDDOWN_MIN * S_PER_MIN, DR_MARGIN = V.PAR_DR_MARGIN_MW;
 const NORMAL_LO = V.NORMAL_LO_HZ, RESTORE_MIN_HZ = V.RESTORE_MIN_HZ, SECURE_AGAIN_S = V.SECURE_AGAIN_S;
 const RESTORE_NADIR = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ; // the K-13 restore preview's line (grid.restorePermissive)
+// Phase 2a (S-14; desk/README.md C-12).
+const SURPLUS_MIN = V.SURPLUS_MIN_MW, MSL2_MW = V.MSL2_MW, MSL_TIE_OUT = V.MSL_TIE_OUT_MW;
+const COAL_MSL2_S = V.PAR_COAL_MSL2_H * S_PER_H, COAL_STOPS_DAY = V.PAR_COAL_STOPS_DAY;
+const WATER_RELEASE_H = (WATER_EMPTY_S - WATER_HOLD_S) / S_PER_H;
 
 // ------------------------------------------------------------------ proxies
 
@@ -196,6 +238,52 @@ function onFromNow(u, i, now, auto) {
 const committedMode = mode => mode === 'on' || mode === 'loading' || mode === 'starting' || mode === 'ready';
 const hydroWet = obs => obs.hydro.storageMWh > HYDRO_STOP + EPS;
 
+/**
+ * The dark part of the city (obs only): `shed`, the dark districts' share of the customers, and
+ * `roof`, their share of the rooftop PV (a district holds an equal part of its suburb's nameplate;
+ * 0 on a scenario with no rooftop). Phase 2a (P-12): the roofs go off with their feeder.
+ */
+function darkShare(obs) {
+  const D = {shed: 0, roof: 0};
+  const roofs = obs.rooftop;
+  for (const d of obs.districts) {
+    if (!d.dark) continue;
+    D.shed += d.share;
+    if (!roofs || !(roofs.capMW > 0)) continue;
+    let inSuburb = 0, capMW = 0;
+    for (const x of obs.districts) if (x.suburb === d.suburb) inSuburb++;
+    for (const sub of roofs.suburbs) if (sub.id === d.suburb) capMW = sub.capMW;
+    D.roof += capMW / inSuburb / roofs.capMW;
+  }
+  return D;
+}
+
+/**
+ * Lit operational demand of a forecast column (P-12; the sim's fleet.litDemandMW on the
+ * forecast): the lit customers draw (P50 + rooftop) x (1 - shed) and the rooftop still connected
+ * comes off it. Not P50 x (1 - shed): a dark district's roofs are off with it. With rooftop zero
+ * it is P50 x (1 - shed) exactly (the classic day).
+ */
+const litMW = (p50, roofMW, D) => (p50 + roofMW) * (1 - D.shed) - roofMW * (1 - D.roof);
+/** A forecast's rooftop column (zeros on an observation made before Phase 2a). */
+const roofColumn = fc => fc.rooftopMW || fc.demandP50.map(() => 0);
+/** A forecast's columns as lit operational demand (litMW over its P50 and its rooftop column). */
+function litColumns(fc, D) {
+  const roof = roofColumn(fc);
+  return fc.demandP50.map((p50, j) => litMW(p50, roof[j], D));
+}
+/**
+ * Plan column k (at grid second t) as lit operational demand from the plan's DAY-AHEAD columns,
+ * for the hours beyond the 4.5-h forecast. A heatwave announced after the plan was made lifts the
+ * underlying demand (P50 + rooftop) by HEAT_DEMAND_UPLIFT inside its window; the roofs' own heat
+ * derate is left out (the autopilot cannot read the scenario's factor).
+ */
+function litDayAhead(P, k, t, heat, D) {
+  const roof = P.fc.roof ? P.fc.roof[k] : 0;
+  const late = heat !== null && heat.atS > P.madeAtS && t >= heat.fromS && t < heat.toS;
+  return litMW((P.fc.p50[k] + roof) * (late ? 1 + HEAT_UP : 1) - roof, roof, D);
+}
+
 // ------------------------------------------------------------------ reference playback (D-2, D-5)
 
 const PROF = V.REF_PROFILE.map(p => ({a: secOfH(p.fromH), b: secOfH(p.toH), rate: p.rate}));
@@ -214,6 +302,13 @@ function profileReal(a, b) {
   }
   if (b > PROF_LAST.b) r += (b - Math.max(a, PROF_LAST.b)) / PROF_LAST.rate;
   return r;
+}
+
+/** Grid seconds until the proxy of `memo` may act again after an action now: its S-4 gap at the D-2 profile's present rate. */
+function paceS(now, memo) {
+  let rate = PROF_LAST.rate;
+  for (let j = PROF.length - 1; j >= 0; j--) if (now < PROF[j].b) rate = PROF[j].rate;
+  return PROXIES[memo.proxy].gapS * rate;
 }
 
 /** End of a contingency's RESPOND segment at RESPOND_RATE (D-5). */
@@ -288,7 +383,7 @@ function newPlan(madeAtS) {
   const n = Math.max(0, Math.floor((DAY_S - madeAtS) / STEP_S));
   const z = () => new Array(n).fill(0);
   return {madeAtS, t0: madeAtS + STEP_S, stepS: STEP_S, n,
-    fc: {p50: z(), wind: z(), solar: z(), price: z(), expLim: z()},
+    fc: {p50: z(), wind: z(), solar: z(), price: z(), expLim: z(), roof: z()},
     lever: SIDS.map(() => z()), tie: z(), marg: z(), gap: z(), amended: 0};
 }
 
@@ -349,42 +444,73 @@ function context(obs, P, k0, par, memo, keepStops) {
       if (e.atS >= now && cx.on[i] >= 0) { cx.off[i] = Math.min(cx.off[i], e.atS); cx.stops.push({unit: e.unit, atS: e.atS}); }
     }
   }
-  let shed = 0;
-  for (const d of obs.districts) if (d.dark) shed += d.share;
+  // The dispatch is for the LIT operational demand (Phase 2a, P-12): the present is the sim's own
+  // obs.demand.litMW (each suburb's sky as it is, relit roofs still waiting or ramping), a forecast
+  // column goes through litMW() (the dark districts' roofs are off with them), and a plan column
+  // inside the first forecast step lies between the two (fcAt), as for every other series.
+  const D = darkShare(obs);
   // Load the forecast does not carry (the cold-load surge of restored districts, K-13), fading
   // out over COLD_LOAD_DECAY_S as it does in the grid.
-  const coldNow = par ? Math.max(0, obs.balance.servedMW + obs.dr.mw - obs.demand.nowMW * (1 - shed)) : 0;
-  const ofgs = obs.wind.ofgsTrippedFrac, fc = obs.forecast, fn = fc.n;
-  const b = obs.battery;
-  const order = b.mode === 'discharge' ? b.orderMW : b.mode === 'charge' && !b.fullHold ? -b.orderMW : 0;
-  const orderEnd = order > 0 ? DIS_TO_S : order < 0 ? CHARGE_TO_S : now;
+  const coldNow = par ? Math.max(0, obs.balance.servedMW + obs.dr.mw - obs.demand.litMW) : 0;
+  const ofgs = obs.wind.ofgsTrippedFrac, fc = obs.forecast, fn = fc.n, fcLit = litColumns(fc, D);
+  // The battery's order counts for the energy behind it (batteryOrder): wind and solar the
+  // dispatch is holding back are NOT netted off: the forecast and the present here are what is
+  // AVAILABLE (obs.wind.availMW), so a curtailed present never reads as a low forecast.
+  const order = par ? batteryOrder(obs, memo) : NO_ORDER;
   const tieBack = obs.tie.tripped ? now + obs.tie.lockoutS : now;
   const rert = obs.rert, dr = obs.dr;
-  const heatLate = heat && heat.atS > P.madeAtS; // announced after the day-ahead forecast was made
   for (let k = k0; k < n; k++) {
     const t = colTime(P, k), lead = t - now;
-    let p50 = fcAt(fc.demandP50, obs.demand.nowMW, fn, lead);
+    let lit = fcAt(fcLit, obs.demand.litMW, fn, lead);
     let wind = fcAt(fc.windMW, obs.wind.availMW, fn, lead);
     let solar = fcAt(fc.solarMW, obs.solar.availMW, fn, lead);
     let price = fcAt(fc.neighbourPrice, obs.tie.neighbourPrice, fn, lead);
     let expLim = fcAt(fc.exportLimitMW, obs.tie.exportLimitMW, fn, lead);
-    if (p50 === null) { // beyond the 4.5-h forecast: the day-ahead values, with an announced heatwave
-      p50 = P.fc.p50[k] * (heatLate && t >= heat.fromS && t < heat.toS ? 1 + HEAT_UP : 1);
+    if (lit === null) { // beyond the 4.5-h forecast: the day-ahead values (litDayAhead: with an announced heatwave)
+      lit = litDayAhead(P, k, t, heat, D);
       wind = P.fc.wind[k]; solar = P.fc.solar[k]; price = P.fc.price[k]; expLim = P.fc.expLim[k];
     }
     let other = 0;
     if (par) {
-      if (t < orderEnd) other += order;
+      if (t < order.endS) other += order.mw;
       if (rert.armed && !rert.standingDown) other += lead >= rert.leadS ? RERT_MW : rert.outMW;
       if (dr.activeS > 0 && lead < dr.activeS) other += DR_MW;
       other -= coldNow * Math.max(0, 1 - lead / V.COLD_LOAD_DECAY_S);
     }
-    cx.cover[k] = p50 * (1 - shed) - wind * (1 - ofgs) - solar - other;
+    cx.cover[k] = lit - wind * (1 - ofgs) - solar - other;
     cx.price[k] = price;
     cx.expLim[k] = expLim;
     cx.tieCap[k] = t < tieBack ? 0 : TIE_MAX;
   }
   return cx;
+}
+
+const NO_ORDER = Object.freeze({mw: 0, endS: -1});
+
+/**
+ * The battery's order as the dispatch counts it: {mw (+ discharge, - charge), endS}. Phase 2a
+ * (desk/README.md §21.3): an order counts only for the energy behind it, a discharge until
+ * PAR_BATT_RESERVE_FRAC and a charge until full, at most the inverter less the GUARD. So the
+ * player's order (replan() runs on a memory with no rule 6) re-flows the plan and never shows as
+ * supply the battery cannot give. Par's own orders (a memory that runs rule 6) are read the same
+ * way, with the ends rule 6 gives them: a charge until PAR_BATT_CHARGE_TO, a discharge until the
+ * reserve and no later than the end of the discharge window (rule6End). A window order is sized
+ * to end with its window, so it still does unless AGC has moved the battery since; a belly charge
+ * (S-14 rule 2) ends at 97%; and the night's recharge, ordered after 15:30, is in the plan for as
+ * long as it runs (it used to end "at 15:30", already past: AGC carried the whole order, 260 to
+ * 500 MW for hours on desk seed 1, and rule 7's re-dispatch could not see why).
+ */
+function batteryOrder(obs, memo) {
+  const b = obs.battery, now = obs.s;
+  const mw = b.mode === 'discharge' ? b.orderMW : b.mode === 'charge' && !b.fullHold ? -b.orderMW : 0;
+  const pars = memo !== null && PROXIES[memo.proxy].rules.includes('rule6');
+  const lim = Math.max(0, b.ratedMW - b.guardMW), x = clamp(mw, -lim, lim);
+  if (x > EPS) {
+    const endS = now + Math.max(0, b.socMWh - BATT_RESERVE_MWH) / x * S_PER_H;
+    return {mw: x, endS: pars && now < DIS_TO_S ? Math.min(endS, DIS_TO_S) : endS};
+  }
+  if (x < -EPS) return {mw: x, endS: now + Math.max(0, (pars ? CHARGE_TO_MWH : BATT_MWH) - b.socMWh) / (-x * BATT_EFF) * S_PER_H};
+  return NO_ORDER;
 }
 
 const heatAt = (cx, t) => cx.heat !== null && t >= cx.heat.fromS && t < cx.heat.toS;
@@ -741,11 +867,11 @@ function byAtThenUnit(a, b) {
 export function preDispatch(obs) {
   const fc = obs.dayAhead || obs.forecast;
   const P = newPlan(obs.s);
-  const last = Math.max(0, fc.n - 1);
+  const last = Math.max(0, fc.n - 1), roof = roofColumn(fc);
   for (let k = 0; k < P.n; k++) {
     const j = Math.min(k, last);
     P.fc.p50[k] = fc.demandP50[j]; P.fc.wind[k] = fc.windMW[j]; P.fc.solar[k] = fc.solarMW[j];
-    P.fc.price[k] = fc.neighbourPrice[j]; P.fc.expLim[k] = fc.exportLimitMW[j];
+    P.fc.price[k] = fc.neighbourPrice[j]; P.fc.expLim[k] = fc.exportLimitMW[j]; P.fc.roof[k] = roof[j];
   }
   // The day-ahead columns fall exactly on the plan grid: use them as the forecast here.
   const dayObs = Object.assign({}, obs, {forecast: fc});
@@ -803,7 +929,7 @@ export function createAutopilot(opts) {
   if (!Object.hasOwn(PROXIES, proxy)) throw new Error('createAutopilot: unknown proxy ' + proxy);
   return {proxy, plan: null, outbox: [], lastActTick: -1, lastOrigin: '', actions: 0,
     amendDue: false, seenConts: 0, trip: null, tieHoldS: -1, tieHoldMW: 0, secureTieMW: 0, guardHoldS: -1, rebaseQuietS: -1,
-    water: 'hold', rertSinceS: -1, planShed: 0, reflowS: -1, nextS: -1, afterWatch: false};
+    water: 'hold', rertSinceS: -1, planShed: 0, reflowS: -1, nextS: -1, afterWatch: false, belly: false, coalStops: 0};
 }
 
 /** Make the day's plan from a day-ahead observation; its planLoad (origin 'plan') waits in the outbox. */
@@ -1025,12 +1151,89 @@ function rule4(obs, memo, C) {
     if (u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S) continue;
     if (m.cls === 'coal' || m.cls === 'hydro') continue;
     if (mx + COMMIT_MARGIN + DECOMMIT_EXTRA + u.availMW >= C.capCommitted + C.battMW / 2) continue;
-    const r5Without = obs.sec.r5MW - Math.max(0, Math.min(u.availMW - u.outMW, u.rampMWMin * R5_MIN));
-    const lWithout = obs.sec.lId === u.id ? secondLargest(obs, u.id) : obs.sec.lMW;
-    if (r5Without < TIGHT * lWithout) continue;
+    if (!n1Without(obs, u)) continue;
+    return {type: 'stop', unit: u.id};
+  }
+  return coalStop(obs, memo);
+}
+
+/** N-1 in minutes still holds with unit u (an observe row) stopped: R5 without its headroom against L without it. */
+function n1Without(obs, u) {
+  const r5Without = obs.sec.r5MW - Math.max(0, Math.min(u.availMW - u.outMW, u.rampMWMin * R5_MIN));
+  const lWithout = obs.sec.lId === u.id ? secondLargest(obs, u.id) : obs.sec.lMW;
+  return r5Without >= TIGHT * lWithout;
+}
+
+// Rule 4, the coal branch (S-14 rule 4, Phase 2a; desk/README.md C-12): decommit ONE coal
+// machine only if MSL2 is forecast for PAR_COAL_MSL2_H or more AND the evening holds N-1
+// without it. Gas goes first (the loop above): while any CCGT or GT is still committed the
+// dearer plant is what is in the way, and if it is needed, so is the coal. The machine is gone
+// for the evening by the code's timing: unload to MIN, T4, the minimum down time (from breaker
+// open to the next START order), then its start: a 10:00 stop is back at MIN at 21:14.
+// Expected never to fire on the game's days (MSL2 for three hours does not occur there).
+function coalStop(obs, memo) {
+  const stopped = memo.coalStops || 0; // (a memo saved before Phase 2a has no count)
+  if (!memo.plan || stopped >= COAL_STOPS_DAY) return null;
+  for (let i = 0; i < NU; i++) if (M[i].thermal && M[i].cls !== 'coal' && committedMode(obs.units[i].mode)) return null;
+  if (msl2S(obs) < COAL_MSL2_S) return null;
+  for (const i of MERIT_DESC) {
+    const u = obs.units[i], m = M[i];
+    if (m.cls !== 'coal' || u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S) continue;
+    if (!n1Without(obs, u)) continue;
+    const backS = obs.s + Math.max(0, u.outMW - m.minMW) / m.rampMWs + m.t4S + m.minDownS + u.startToMinS;
+    if (!eveningHolds(obs, memo, i, backS)) continue;
+    memo.coalStops = stopped + 1;
     return {type: 'stop', unit: u.id};
   }
   return null;
+}
+
+/**
+ * Grid seconds of the 4.5-h forecast at or below MSL2 (P-4, C-9): a column counts when its P50
+ * is at or below MSL2_MW, raised by MSL_TIE_OUT_MW in a column that falls before the tie's
+ * return (M-1: per column), as the sim's own MSL notice counts it.
+ */
+function msl2S(obs) {
+  const fc = obs.forecast, tieBack = obs.tie.tripped ? obs.s + obs.tie.lockoutS : obs.s;
+  let s = 0;
+  for (let k = 0; k < fc.n; k++) {
+    const t = fc.fromS + (k + 1) * fc.stepS;
+    if (fc.demandP50[k] <= MSL2_MW + (t < tieBack ? MSL_TIE_OUT : 0)) s += fc.stepS;
+  }
+  return s;
+}
+
+/**
+ * Does the evening hold N-1 without machine `without`, in every plan column from now until it
+ * could be back at minimum load (backS)? Firm supply as par counts it elsewhere: every other
+ * machine that is on, coming, or free to start by then, at PAR_MAX_LOADING x its available MW
+ * (derated in an announced heatwave); hydro at the rate rule 5's release sustains; the tie at
+ * its secure import (the largest unit, 0 while tripped). N-1: that supply less its largest
+ * single loss covers the lit net demand (the 4.5-h forecast, the day-ahead beyond it) plus
+ * PAR_COMMIT_MARGIN_MW. The battery, DR and the diesel are the reserve and are not counted.
+ */
+function eveningHolds(obs, memo, without, backS) {
+  const P = memo.plan, A = adequacySetup(obs), fc = obs.forecast;
+  const water = Math.max(0, obs.hydro.storageMWh - WATER_FLOOR) / WATER_RELEASE_H;
+  for (let k = colAfter(P, obs.s); k < P.n; k++) {
+    const t = colTime(P, k), lead = t - obs.s;
+    if (t > backS) break;
+    let lit = fcAt(A.lit, obs.demand.litMW, fc.n, lead), wind = fcAt(fc.windMW, obs.wind.availMW, fc.n, lead);
+    let solar = fcAt(fc.solarMW, obs.solar.availMW, fc.n, lead);
+    if (lit === null) { lit = litDayAhead(P, k, t, A.heat, A.dark); wind = P.fc.wind[k]; solar = P.fc.solar[k]; }
+    let thermal = 0, hydro = 0, big = 0;
+    for (let j = 0; j < NU; j++) {
+      if (j === without || A.onAt[j] < 0 || A.onAt[j] > t) continue;
+      const m = M[j], hot = A.heat !== null && t >= A.heat.fromS && t < A.heat.toS;
+      const mw = PAR_LOADING * (t <= A.now + STEP_S ? obs.units[j].availMW : m.thermal && hot ? m.ratingMW * DERATE_KEEP : m.ratingMW);
+      if (m.station === 'hydro') hydro += mw; else thermal += mw;
+      if (mw > big) big = mw;
+    }
+    const tie = t < A.tieBack ? 0 : Math.min(TIE_MAX, big);
+    const firm = thermal + Math.min(hydro, water) + tie - Math.max(big, tie);
+    if (lit - wind - solar + COMMIT_MARGIN > firm) return false;
+  }
+  return true;
 }
 
 function secondLargest(obs, id) {
@@ -1062,8 +1265,29 @@ function rule5(obs, memo) {
 function rule6(obs, memo) {
   const b = obs.battery, now = obs.s;
   const lim = Math.max(0, b.ratedMW - b.guardMW);
-  let mode = 'idle', mw = 0;
-  if (now >= CHARGE_FROM_S && now < CHARGE_TO_S && b.socMWh < CHARGE_TO_MWH - ORDER_TOL * COL_H) {
+  let mode = 'idle', mw = 0, belly = false;
+  const room = b.socMWh < CHARGE_TO_MWH - ORDER_TOL * COL_H;
+  // S-14 rule 2 (Phase 2a, C-12), a union with the window below: the price is at or below $0 or
+  // the dispatch is spilling (C-6), and the battery has room. The order is the charge already
+  // ordered plus what is still being spilled (the sim's cut is net of the order): free power.
+  // Once it takes the whole spill the price is no longer negative and nothing is spilled, so a
+  // belly order is HELD while the surplus still feeds it, and comes down by what it would be
+  // buying instead (boughtMW: the thermal units above their floor, hydro, the tie above its
+  // export limit) when it does not. Without the hold the order flapped between the spill and the
+  // window's rate at every decision (desk seed 1, six orders in 90 min).
+  const spillMW = obs.wind.autoMW + obs.solar.autoMW;
+  const ordered = b.mode === 'charge' && !b.fullHold ? b.orderMW : 0;
+  let freeMW = ordered + spillMW;
+  if (memo.belly && ordered > 0 && !(spillMW > 0)) freeMW -= boughtMW(obs);
+  if (room && (obs.price.mwh <= 0 || spillMW > SURPLUS_MIN || (memo.belly && ordered > 0 && freeMW > SURPLUS_MIN))) {
+    // Never less than the window's own rate, at most PAR_BATT_CHARGE_MAX_MW, and no more than
+    // reaches PAR_BATT_CHARGE_TO by par's next possible action (its pace, not the 5-min column).
+    const inWindow = now >= CHARGE_FROM_S && now < CHARGE_TO_S, toFullMW = (CHARGE_TO_MWH - b.socMWh) / BATT_EFF;
+    const windowMW = inWindow ? toFullMW / Math.max(COL_H, (CHARGE_TO_S - now) / S_PER_H) : 0;
+    mw = Math.min(lim, CHARGE_MAX, toFullMW / Math.max(COL_H, paceS(now, memo) / S_PER_H), Math.max(windowMW, freeMW));
+    mode = mw > EPS ? 'charge' : 'idle';
+    belly = mode === 'charge' && mw > windowMW + EPS; // above the window's own rate: an order for the surplus
+  } else if (now >= CHARGE_FROM_S && now < CHARGE_TO_S && room) {
     const hours = Math.max(COL_H, (CHARGE_TO_S - now) / S_PER_H);
     mw = Math.min(lim, CHARGE_MAX, (CHARGE_TO_MWH - b.socMWh) / BATT_EFF / hours);
     mode = mw > EPS ? 'charge' : 'idle';
@@ -1088,8 +1312,24 @@ function rule6(obs, memo) {
   if (mode === 'idle') mw = 0;
   const want = mode === 'discharge' ? mw : -mw;
   const have = b.mode === 'discharge' ? b.orderMW : b.mode === 'charge' && !b.fullHold ? -b.orderMW : 0;
+  memo.belly = belly; // the order in place is (still) a belly order, or the window's again: also when nothing is re-ordered
   if (Math.abs(want - have) <= ORDER_TOL) return null;
   return {type: 'battery', mode, mw: Math.floor(mw)};
+}
+
+/**
+ * MW on the grid now that are NOT surplus (S-14 rule 2's hold): what the thermal units carry above
+ * their floor, what hydro generates, and what the tie carries above its export limit (an import,
+ * or an export short of the limit; nothing while it is tripped). A charge order fed by any of it
+ * is buying fuel, water or the neighbour's power, not soaking up what would be spilled.
+ */
+function boughtMW(obs) {
+  let mw = obs.tie.tripped ? 0 : Math.max(0, obs.tie.flowMW + obs.tie.exportLimitMW);
+  for (let i = 0; i < NU; i++) {
+    const u = obs.units[i];
+    if (u.mode === 'on') mw += Math.max(0, u.outMW - (M[i].thermal ? u.minMW : 0));
+  }
+  return mw;
 }
 
 // Rule 6's own window (extension, review fix): a battery order never expires by itself, so a
@@ -1108,10 +1348,16 @@ function rule6End(obs, memo) {
 // Rule 7 (with its extension): keep units at or below PAR_MAX_LOADING unless that would
 // shed load, and keep the plan on the forecast (re-dispatch when AGC or the plan is off by
 // more than PAR_REBASE_MW). Returns a marker; decide() amends and picks the lever to move.
+// Phase 2a (desk/README.md §25): in a surplus the sim is curtailing and AGC is told to take the
+// units down to MIN, beyond their regulating bands (C-6), so |agc.requestMW| can be the units'
+// whole room above MIN for as long as the belly lasts. That part is the dispatch at work, not
+// drift: rule 7 reads the request net of it (what is left is the battery's share). And a surplus
+// the plan itself shows for the coming column (its negative gap: units at their floor, the tie
+// at the export limit, the rest spilled) is not a miss of the forecast.
 function rule7(obs, memo, C) {
   const P = memo.plan;
   if (!P) return null;
-  let trigger = Math.abs(obs.agc.requestMW) > REBASE;
+  let trigger = Math.abs(agcCarriedMW(obs)) > REBASE;
   for (const u of obs.units) if (u.mode === 'on' && u.basePointMW > PAR_LOADING * u.availMW + KEYFRAME_MIN) trigger = true;
   if (!trigger) {
     const k = colAfter(P, obs.s);
@@ -1121,10 +1367,19 @@ function rule7(obs, memo, C) {
       const t = colTime(P, k), lead = t - obs.s, fc = obs.forecast;
       const p50 = fcAt(fc.demandP50, obs.demand.nowMW, fc.n, lead), w = fcAt(fc.windMW, obs.wind.availMW, fc.n, lead);
       const so = fcAt(fc.solarMW, obs.solar.availMW, fc.n, lead);
-      if (p50 !== null && Math.abs(p50 - w - so - supply) > REBASE) trigger = true;
+      if (p50 !== null && Math.abs(p50 - w - so - supply - Math.min(0, P.gap[k])) > REBASE) trigger = true;
     }
   }
   return trigger ? {amendThen: 'lever'} : null;
+}
+
+/** AGC's request as rule 7 reads it: while the dispatch is spilling (C-6), net of what it is lowering the units by. */
+function agcCarriedMW(obs) {
+  let mw = obs.agc.requestMW;
+  if (mw < 0 && obs.wind.autoMW + obs.solar.autoMW > 0) {
+    for (const u of obs.units) if (u.agcTrimMW < 0) mw -= u.agcTrimMW; // (only units that are on carry a trim)
+  }
+  return mw;
 }
 
 // Rule 8: reserve diesel is an emergency (§9 Q-2, tuning pass): armed on a projected shortfall
@@ -1164,11 +1419,10 @@ function rule7(obs, memo, C) {
 // tie counted only up to the largest unit: par then armed on 68% of raw days and every heat
 // day. Measured with this walk: 23.5% of 200 raw seeds, par zero-unserved 89.5% (tuning pass).
 
-/** Once per decision: when each machine can be on, the tie's return, the pool's energy. */
+/** Once per decision: the dark share and the forecast as lit demand, when each machine can be on, the tie's return, the pool's energy. */
 function adequacySetup(obs) {
   const now = obs.s, auto = obs.mode === 'AGC', b = obs.battery, dr = obs.dr;
-  let shed = 0;
-  for (const d of obs.districts) if (d.dark) shed += d.share;
+  const dark = darkShare(obs);
   const wet = hydroWet(obs);
   const onAt = new Array(NU).fill(-1);
   for (let i = 0; i < NU; i++) {
@@ -1178,7 +1432,7 @@ function adequacySetup(obs) {
     else if (u.mode === 'off' && u.startBlock === '') onAt[i] = now + u.startToMinS;
     else if (u.mode === 'tripped') onAt[i] = now + u.timerS + u.startToMinS;
   }
-  return {obs, now, shed, onAt, heat: latestNews(obs, 'heat'), tieBack: obs.tie.tripped ? now + obs.tie.lockoutS : now,
+  return {obs, now, dark, lit: litColumns(obs.forecast, dark), onAt, heat: latestNews(obs, 'heat'), tieBack: obs.tie.tripped ? now + obs.tie.lockoutS : now,
     hydroE: Math.max(0, obs.hydro.storageMWh - WATER_FLOOR), drE: DR_MW * (dr.callsLeft + Math.max(0, dr.activeS) / S_PER_H),
     battE: Math.max(0, b.socMWh - BATT_RESERVE_MWH), battP: b.ratedMW};
 }
@@ -1206,10 +1460,13 @@ function walk(A, rertLead) {
   const obs = A.obs, fc = obs.forecast, rert = obs.rert, now = A.now;
   const n = fc.n + 1, un = new Array(n).fill(0), need = new Array(n).fill(0);
   let hydroE = A.hydroE, drE = A.drE, battE = A.battE;
+  // Net demand is for the lit districts (Phase 2a, P-12: obs.demand.litMW now, litMW() ahead), less
+  // the wind and solar there is: what the dispatch holds back in a surplus (C-6) is not a shortage.
+  const windNow = obs.wind.outMW + obs.wind.autoMW * (1 - obs.wind.ofgsTrippedFrac), solarNow = obs.solar.outMW + obs.solar.autoMW;
   for (let k = 0; k < n; k++) {
     const lead = k * fc.stepS, t = now + lead, h = k === 0 ? 0 : fc.stepS / S_PER_H;
-    const net = k === 0 ? obs.demand.nowMW * (1 - A.shed) - obs.wind.outMW - obs.solar.outMW
-      : fc.demandP50[k - 1] * (1 - A.shed) - fc.windMW[k - 1] - fc.solarMW[k - 1];
+    const net = k === 0 ? obs.demand.litMW - windNow - solarNow
+      : A.lit[k - 1] - fc.windMW[k - 1] - fc.solarMW[k - 1];
     const U = unitsAt(A, t);
     let firm = U.th + (t < A.tieBack ? 0 : Math.min(TIE_MAX, TIE_COL / STEP_S * (t - A.tieBack) + (obs.tie.tripped ? 0 : TIE_MAX)));
     if (rertLead === RERT_AS_ARMED && rert.armed && !rert.standingDown) firm += lead >= rert.leadS ? RERT_MW : rert.outMW;
@@ -1296,9 +1553,15 @@ function rule9(obs) {
   const sec = obs.sec;
   if (obs.f.hz < RESTORE_MIN_HZ || sec.lMW <= 0) return null;
   const F0 = V.F0_HZ, drop = Math.max(0, F0 - sec.previewNadirHz);
+  const spillMW = obs.wind.autoMW + obs.solar.autoMW;
   let best = null;
   for (const d of obs.districts) {
-    if (!d.dark || d.restoreBlock !== '' || d.coldLoadMW > sec.lMW) continue;
+    if (!d.dark || d.restoreBlock !== '') continue;
+    // No larger than L, except in the belly (Phase 2a): there L is a machine at its floor (240 MW)
+    // and a dark district's pickup is its underlying load with its roofs off (250-290 MW), so the
+    // cap refused every district for hours while the dispatch spilled four times the pickup. When
+    // what is being spilled covers the pickup, the scaled estimate below decides alone.
+    if (d.coldLoadMW > sec.lMW && !(spillMW >= d.coldLoadMW)) continue;
     if (F0 - drop * d.coldLoadMW / sec.lMW < RESTORE_NADIR) continue;
     if (best === null) { best = d; continue; }
     const sd = d.uflsStage > 0 ? d.uflsStage : NEVER, sb = best.uflsStage > 0 ? best.uflsStage : NEVER;
