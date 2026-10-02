@@ -7,7 +7,8 @@ import {readFileSync} from 'node:fs';
 import {V} from '../sim/params.js';
 import {createState, step, observe} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
-import {CLASSIC} from '../content/scenarios.js';
+import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
+import {followDay} from './lib/follow.js';
 import * as A from '../app/alarms.js';
 import * as T from '../app/tray.js';
 import {SLOW} from './lib/sim-helpers.js';
@@ -307,10 +308,71 @@ test('the alarm snapshot from observe() equals the one read straight from state'
   const s = createState(4, CLASSIC);
   for (let i = 0; i < 3 * 60 * TPS + 17; i++) step(s);
   const a = A.alarmInput(observe(s)), b = A.alarmInputFromState(s);
+  assert.deepEqual(Object.keys(a), Object.keys(b));
   for (const k of Object.keys(a)) {
     if (typeof a[k] === 'number') assert.ok(Math.abs(a[k] - b[k]) < 1e-9, k + ' ' + a[k] + ' vs ' + b[k]);
     else assert.deepEqual(a[k], b[k], k);
   }
+  assert.equal(a.spillMW, 0, 'the classic day never spills (no rooftop: C-1)');
+});
+
+// ------------------------------------------------------------------ MIN GEN (Phase 2a, desk/README.md C-9, §21.4)
+
+test('MIN GEN: sets after 60 grid-s of more than 50 MW spilled, clears only after 1,800 grid-s under 10 MW; a snapshot without spillMW never sets it', () => {
+  assert.deepEqual([A.MINGEN_SET_MW, A.MINGEN_SET_S, A.MINGEN_CLEAR_MW, A.MINGEN_CLEAR_S], [V.SURPLUS_MIN_MW, 60, 10, 1800]);
+  const t = A.TILES.find(x => x.id === 'minGen');
+  assert.deepEqual([t.prio, t.target], ['P2', 'stack']);
+  const a = A.createAlarms();
+  let s = 30000;
+  const up = spillMW => A.updateAlarms(a, snap(spillMW === undefined ? {s: s++} : {s: s++, spillMW}), {nowMs: s * 10, realDtS: 0.016});
+  for (let i = 0; i < 300; i++) up(undefined);
+  assert.equal(tile(a, 'minGen').state, 'normal', 'a CLASSIC fixture has no spillMW');
+  for (let i = 0; i < 300; i++) up(A.MINGEN_SET_MW);
+  assert.equal(tile(a, 'minGen').state, 'normal', 'exactly 50 MW is not more than 50 MW');
+  // above the level, but not for 60 s on end
+  for (let i = 0; i < A.MINGEN_SET_S; i++) up(120);
+  assert.equal(tile(a, 'minGen').state, 'normal');
+  up(40);
+  for (let i = 0; i < A.MINGEN_SET_S; i++) up(120);
+  assert.equal(tile(a, 'minGen').state, 'normal', 'a dip under the level restarts the 60 s');
+  const r = up(120);
+  assert.equal(tile(a, 'minGen').state, 'alarm');
+  assert.deepEqual(r.cues, ['chime'], 'P2: one chime');
+  A.ackAll(a);
+  // between the two levels it holds; under 10 MW it clears only after 1,800 s on end
+  for (let i = 0; i < 3000; i++) up(30);
+  assert.equal(tile(a, 'minGen').state, 'ackd', '30 MW is under the set level and over the clear level: held');
+  for (let i = 0; i < A.MINGEN_CLEAR_S - 1; i++) { up(0); if (i === 900) up(15); }
+  assert.equal(tile(a, 'minGen').state, 'ackd', 'a cloud passing: 15 MW for a second restarts the clear window');
+  for (let i = 0; i < 1000; i++) up(0);
+  assert.equal(tile(a, 'minGen').state, 'normal');
+  // and it does not chime again for a cloud over the belly: spilling again within the clear window was never cleared
+  // (the operator ACKs each sound, so B-3's one repeat of an unacknowledged chime is not counted)
+  const b = A.createAlarms();
+  let n = 0, s2 = 40000;
+  const up2 = spillMW => { const x = A.updateAlarms(b, snap({s: s2++, spillMW}), {nowMs: s2 * 1000, realDtS: 1}); n += x.cues.length; if (x.cues.length) A.ackAll(b); };
+  for (let k = 0; k < 6; k++) { for (let i = 0; i < 600; i++) up2(200); for (let i = 0; i < 600; i++) up2(0); }
+  assert.equal(n, 1, 'six ten-minute clouds: one chime');
+});
+
+test('MIN GEN on a real belly: observe() and state give the same spillMW; the tile lights on a mild weekend noon and not before sunrise', () => {
+  const a = A.createAlarms();
+  let spillS = 0, setS = -1, checked = 0;
+  const day = followDay(5, DESK_WEEKEND, {follow: false, untilH: 13, onMinute: (st, obs) => {
+    const x = A.alarmInput(obs), y = A.alarmInputFromState(st);
+    assert.deepEqual(Object.keys(x), Object.keys(y));
+    assert.ok(Math.abs(x.spillMW - y.spillMW) < 1e-9, 'spillMW ' + x.spillMW + ' vs ' + y.spillMW);
+    assert.equal(x.spillMW, obs.wind.autoMW + obs.solar.autoMW);
+    checked++;
+    if (x.spillMW > A.MINGEN_SET_MW) spillS += 60;
+    A.updateAlarms(a, x, {nowMs: obs.s * 10, realDtS: 0.5});
+    if (setS < 0 && tile(a, 'minGen').state !== 'normal') setS = obs.s;
+    if (obs.s < (7 - V.DAY_START_H) * V.S_PER_H) assert.equal(tile(a, 'minGen').state, 'normal', 'before the sun is up nothing is spilled');
+  }});
+  assert.ok(checked > 400);
+  assert.equal(day.st.black, false);
+  assert.ok(spillS >= 1800, 'the do-nothing weekend spills for ' + spillS / 60 + ' min by 13:00 (both CCGTs at minimum under the belly)');
+  assert.ok(setS > (8 - V.DAY_START_H) * V.S_PER_H && setS < (13 - V.DAY_START_H) * V.S_PER_H, 'MIN GEN set at ' + setS);
 });
 
 /** Count the competent proxy's audible alarms over a day; the operator ACKs 3 real s after each sound. */
@@ -397,4 +459,57 @@ test('K-9: every record kind that makes a warning card offers a one-click jump t
     assert.ok(ids.has(c.button.target), r.kind + ' -> ' + c.button.target);
   }
   assert.equal(T.cardOf({tick: 1, kind: 'log', code: 'SECURITY', msg: 'SECURITY TIGHT: ...'}), null, 'TIGHT is the gauge\'s, not a card');
+});
+
+// ------------------------------------------------------------------ MSL notices (P-4; desk/README.md C-9, §21.4)
+
+test('MSL cards: MARKET NOTICE, the forecast minimum and its time and the one thing this desk can do; <= 25 words; a focus-only button; never "below X"', () => {
+  const ids = contractIds();
+  const nowS = (9 - V.DAY_START_H) * V.S_PER_H, noonS = (12 + 40 / 60 - V.DAY_START_H) * V.S_PER_H;
+  const rec = (level, atS, minMW = 1540.4) => ({tick: nowS * TPS, kind: 'log', sev: ['good', 'info', 'warn', 'crit'][level], code: level ? 'MSL' + level : 'MSL_CLEAR',
+    msg: 'MSL' + Math.max(1, level) + ' notice: lowest forecast demand 1,540 MW at 12:40. MSL1 is 1,600 MW.', level, minMW, atS});
+  const c1 = T.cardOf(rec(1, noonS)), c2 = T.cardOf(rec(2, noonS, 1262)), c3 = T.cardOf(rec(3, noonS, 980)), c0 = T.cardOf(rec(0, noonS, 1712));
+  assert.equal(c1.text, 'Lowest demand 1,540 MW at 12:40. Keep battery room for noon.');
+  assert.equal(c2.text, 'Lowest demand 1,262 MW at 12:40. A gas unit at minimum is in the way: see the objective.');
+  assert.equal(c3.text, 'Lowest demand 980 MW at 12:40. Units at minimum exceed demand: stop one, or frequency rises until the roofs back off.');
+  assert.equal(c0.text, 'Low-demand notice cancelled. Lowest demand 1,712 MW at 12:40.');
+  // MSL1 is information; MSL2 and MSL3 ring
+  assert.deepEqual([c1.sev, c2.sev, c3.sev, c0.sev], ['info', 'warn', 'warn', 'info']);
+  assert.deepEqual([c1.button.target, c2.button.target, c3.button.target, c0.button.target], ['dial-battery', 'stack', 'stack', 'stack']);
+  for (const c of [c1, c2, c3, c0]) {
+    assert.equal(c.from, T.SENDERS.market);
+    assert.equal(c.from, 'MARKET NOTICE');
+    assert.ok(c.text.split(/\s+/).length <= T.MAX_WORDS, c.text);
+    assert.deepEqual(Object.keys(c.button).sort(), ['label', 'target'], 'a button only focuses a control');
+    assert.ok(ids.has(c.button.target), c.button.target);
+    assert.doesNotMatch(c.text, /below|soak|backstop|MSL\d/i, 'no threshold, no jargon, nothing this desk does not have: ' + c.text);
+  }
+  // the minimum is the present second (a potline trip, or demand rising as the level clears): a measured value, said as one
+  const now = T.cardOf(rec(1, nowS));
+  assert.equal(now.text, 'Demand is at its lowest now, 1,540 MW. Charge the battery if it has room.');
+  assert.equal(T.cardOf(rec(0, nowS, 1712)).text, 'Low-demand notice cancelled. Demand is at its lowest now, 1,712 MW.');
+  // a minimum that is not at midday (the small hours of a mild night) does not say noon
+  assert.equal(T.cardOf(rec(1, (27.5 - V.DAY_START_H) * V.S_PER_H)).text, 'Lowest demand 1,540 MW at 03:30. Keep battery room for then.');
+  // in the tray: one card per change of level, the warnings ring twice, and the keys differ
+  const tr = T.createTray();
+  assert.deepEqual(T.trayRecords(tr, [rec(1, noonS)]), ['tick'], 'MSL1 is information: a tick, no ring');
+  assert.deepEqual(T.trayRecords(tr, [Object.assign(rec(2, noonS, 1262), {tick: (nowS + 300) * TPS})]), ['ring2']);
+  assert.equal(T.trayView(tr).cards.length, 2);
+});
+
+test('MSL cards from a real belly: every MSL record the sim logs on a mild weekend makes a card with the minimum it names', () => {
+  // DESK_WEEKEND seed 8: MSL1 at 12:25 (the minimum is then the present: 1,471 MW), cancelled at 13:20
+  const st = createState(8, DESK_WEEKEND), recs = [];
+  const until = (13.5 - V.DAY_START_H) * V.S_PER_H * TPS;
+  while (st.tick < until) for (const r of step(st)) if (r.kind === 'log' && /^MSL/.test(r.code)) recs.push(r);
+  assert.deepEqual(recs.map(r => r.code), ['MSL1', 'MSL_CLEAR'], 'a mild weekend raises an MSL1 notice by 13:30 and cancels it');
+  assert.match(T.cardOf(recs[0]).text, /^(Lowest demand [\d,]+ MW at 1\d:\d\d\. Keep battery room for noon\.|Demand is at its lowest now, [\d,]+ MW\. Charge the battery if it has room\.)$/);
+  assert.match(T.cardOf(recs[1]).text, /^Low-demand notice cancelled\. /);
+  for (const r of recs) {
+    const c = T.cardOf(r);
+    assert.ok(c, r.code);
+    assert.equal(c.from, 'MARKET NOTICE');
+    assert.ok(c.text.includes(Math.round(r.minMW).toLocaleString('en-US') + ' MW'), c.text + ' <- ' + r.msg);
+    assert.ok(c.text.split(/\s+/).length <= T.MAX_WORDS, c.text);
+  }
 });

@@ -21,7 +21,7 @@ import * as physics from '../sim/physics.js';
 import * as grid from '../sim/grid.js';
 import * as fleet from '../sim/fleet.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
-import {objective} from './objective.js';
+import {objective, consequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
 import {createRecorder, onTick, startTrace, traceOf, needleF, secondsWindow} from './record.js';
@@ -42,6 +42,13 @@ export const HIST_FREQ_S = 180;
 export const HIST_COL_S = V.FC_STEP_S, HIST_COLS = 6;
 /** The standing objective is recomputed this often (grid seconds). */
 export const OBJECTIVE_EVERY_S = 30;
+/**
+ * Inputs after which the dispatch is re-run in the same call (Phase 2a, desk/README.md §21.4): the
+ * commitment and the battery are the player's, and a plan that has not seen the input yet would
+ * read as a shortfall (or a surplus) on the stack and in the objective until the system's next
+ * look. tests/lib/follow.js mirrors this set for the hint-following player: keep the two in step.
+ */
+export const REDISPATCH_AFTER = Object.freeze(['start', 'stop', 'abortStop', 'battery', 'guard']);
 /** K-12 offers: at most this many a day (K-12 accept). */
 export const MAX_OFFERS = 3;
 /** Storage keys (C-8: every access is wrapped; the game plays with storage blocked). */
@@ -159,7 +166,7 @@ export function createGame(o) {
     // SPEC §9.1 Q-18: 'player' = the commitment is the player's (the real page); 'system' = the
     // Phase 1a system operator, which commits units itself. startPaused: the desk opens at 04:30
     // with the clock held, so the first decision is made before anything moves.
-    commit: o.commit === 'player' ? 'player' : 'system', startPaused: !!o.startPaused, objective: null, objectiveS: -1e9,
+    commit: o.commit === 'player' ? 'player' : 'system', startPaused: !!o.startPaused, objective: null, objectiveS: -1e9, objectiveHeld: null, consider: null,
     beforeTick: o.beforeTick || null,
     state: null, director: null, pacer: createPacer({cap: o.cap, budgetMs: o.budgetMs}),
     sys: null, sysError: '',
@@ -186,7 +193,7 @@ export function resetDay(game, seed) {
   if (game.scenarioOf) game.scenario = game.scenarioOf(game.seed);
   game.state = createState(game.seed, game.scenario);
   game.suburbs = null;
-  game.objective = null; game.objectiveS = -1e9; game.objectiveMode = '';
+  game.objective = null; game.objectiveS = -1e9; game.objectiveMode = ''; game.objectiveHeld = null; game.consider = null;
   game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
   game.director = D.createDirector({game: true, paused: true, seen});
@@ -403,8 +410,24 @@ export function sendInput(game, x) {
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
     if (x.type === 'restore') D.focusRestore(game.director, state);
+    if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
   }
   return r.ok ? '' : r.reason;
+}
+
+// §21.4: in 'player' mode with the levers not held by hand, an accepted commitment or battery
+// input is followed at once by the system's re-dispatch (a logged planLoad, so replay() still
+// reproduces the day): the next objective line is read off a plan that already knows about it.
+// A refusal here (the watch, no plan before 04:30) is nothing to tell the player about.
+function redispatchAfter(game) {
+  if (game.commit !== 'player' || !game.sysMod || !game.sys || game.sys.edited) return;
+  let r;
+  try { r = game.sysMod.redispatch(game.sys, game.state); } catch { return; }
+  if (r && typeof r === 'object' && !Array.isArray(r) && 'reason' in r && !('type' in r)) r = r.input;
+  if (!r || typeof r === 'string') return;
+  const out = [];
+  for (const x of Array.isArray(r) ? r : [r]) applyInput(game.state, x, out);
+  if (out.length) handleRecords(game, out, 'system');
 }
 
 /** A-1 RE-DISPATCH through app/system.js. Returns '' or the reason it was refused. */
@@ -620,10 +643,21 @@ export function buildVm(game, f) {
       game.objectiveS = obs.s; game.objectiveMode = mode.mode;
       // dayAhead: the forecast to 04:00 (Phase 2a, C-10: the objective looks past the 4.5-h window).
       const dayAhead = observe(state, {dayAhead: true}).dayAhead;
-      try { game.objective = objective(obs, {edited: !!(game.sys && game.sys.edited), planview: game.planview, dayAhead}); } catch { game.objective = null; }
+      // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
+      try {
+        game.objectiveHeld = steady(game.objectiveHeld, objective(obs, {edited: !!(game.sys && game.sys.edited), planview: game.planview, dayAhead}), obs.s);
+        game.objective = game.objectiveHeld.line;
+      } catch { game.objective = null; game.objectiveHeld = null; }
+      // C-10 (§19.5): what the guard under the player's hand would do, on the same cadence (the
+      // 'consider' command and every accepted input reset objectiveS, so it is fresh at once).
+      game.consider = null;
+      if (game.ui.consider && !mode.locked) {
+        try { game.consider = consequence(obs, game.ui.consider, {dayAhead, planview: game.planview}); } catch { game.consider = null; }
+      }
     }
+    if (!game.ui.consider || mode.locked) game.consider = null;
     if (game.objective && mode.mode !== 'WATCH') for (const g of game.objective.targets) glow.add(g);
-  } else game.objective = null;
+  } else { game.objective = null; game.objectiveHeld = null; game.consider = null; }
   if (offers.length) glow.add('bay-sync');
 
   let watch = null;
@@ -659,7 +693,9 @@ export function buildVm(game, f) {
     phase: game.phase, watch, needleHz: needleF(game.rec, mode.rate, game.pacer.alpha), cues, refusal,
     trayOpen: game.ui.trayOpen, drawer: game.ui.drawer, settingsOpen: game.ui.settingsOpen, end: game.end, seed: game.seed,
     sysError: game.sysError, objective: game.objective, commit: game.commit,
-    consider: null, // C-10 stub: the app job computes consequence(obs, game.ui.consider, ...) here
+    // C-10 (§19.5): {target, text, level} for the guard being hovered, focused or lifted, or null;
+    // the shell shows it in #objective with the word '? IF PRESSED', in place of the objective.
+    consider: game.consider,
   };
 }
 

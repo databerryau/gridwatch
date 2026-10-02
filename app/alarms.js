@@ -2,7 +2,8 @@
 // desk/README.md §11 B-1, B-2, B-3). Pure and DOM-free; desk/annunciator.js draws
 // `alarmsView()` (vm.alarms).
 //
-// Twelve tiles (4 x 3; MSL arrives in Phase 2 with P-4). Each has one BASE priority and a
+// Twelve tiles (4 x 3). Phase 2a (desk/README.md C-9): MIN GEN is real (the dispatch is spilling
+// wind and sun now); the MSL levels are tray cards (app/tray.js), not a thirteenth tile. Each has one BASE priority and a
 // target control id (a click or Enter focuses it). Analogue tiles have separate set and clear
 // thresholds (K-8), event tiles are set by what happened (a contingency, a UFLS stage, news).
 //
@@ -59,6 +60,14 @@ export const AGC_LIMIT_REAL_S = 5;
 export const HYDRO_LOW = 0.30, HYDRO_OK = 0.35, BATT_LOW = 0.10, BATT_OK = 0.20;
 /** PEAK: inside 17:00-20:00 (hours of day) and not SECURE (with the N-1 hold). */
 export const PEAK_H = Object.freeze([17, 20]);
+/**
+ * MIN GEN (Phase 2a, desk/README.md §21.4): sets when the dispatch has been holding back more than
+ * MINGEN_SET_MW of wind and utility solar for MINGEN_SET_S grid-s (spillMW: obs.wind.autoMW +
+ * obs.solar.autoMW, exactly 0 outside a floor surplus), and clears only after it has been under
+ * MINGEN_CLEAR_MW for MINGEN_CLEAR_S grid-s (the N-1 tile's clear window: a cloud over the belly
+ * must not chime the tile again; K-8 allows 8 audible alarms a day).
+ */
+export const MINGEN_SET_MW = V.SURPLUS_MIN_MW, MINGEN_SET_S = 60, MINGEN_CLEAR_MW = 10, MINGEN_CLEAR_S = 1800;
 /** WEATHER stays set this long after the news if it names no end (grid-s). */
 export const WEATHER_HOLD_S = 3600;
 /** Real seconds: no tile sounds twice within this (K-8). */
@@ -117,6 +126,7 @@ export function createAlarms() {
     // trackers
     samp: {fMin: Infinity, fMax: -Infinity, rocofMax: 0, n: 0},
     notSecureSinceS: -1, secureSinceS: 0, agcRealS: 0,
+    spillSinceS: -1, drySinceS: -1,   // MIN GEN: since when spillMW has been above the set level / under the clear level
     contSeen: 0, uflsSeen: 0, newsSeen: 0,
     eventUntilS: {unitTrip: -1, linkTrip: -1, ufls: -1, weather: -1},
     prevInWatch: false,
@@ -147,6 +157,8 @@ export function alarmInput(obs) {
     contCount: obs.contingencies.length,
     cont: c ? {n: c.n, cause: c.cause, id: c.id, uflsStages: c.uflsStages, watchEndS: Math.floor(c.watchEndTick / TPS)} : null,
     newsCount: obs.news.length, news: last ? {atS: last.atS, fromS: last.fromS, toS: last.toS, kind: last.kind} : null,
+    // Phase 2a (C-9): MW of wind and utility solar the dispatch is holding back now (MIN GEN)
+    spillMW: obs.wind.autoMW + obs.solar.autoMW,
   };
 }
 
@@ -164,6 +176,7 @@ export function alarmInputFromState(state) {
     contCount: state.conts.length,
     cont: c ? {n: c.n, cause: c.cause, id: c.id, uflsStages: c.uflsStages, watchEndS: Math.floor(c.watchEndTick / TPS)} : null,
     newsCount: n, news: last ? {atS: last.atS, fromS: last.fromS, toS: last.toS, kind: last.kind} : null,
+    spillMW: state.ren.windAutoMW + state.ren.solarAutoMW,
   };
 }
 
@@ -215,6 +228,12 @@ export function updateAlarms(a, x, ctx) {
   const insecureLong = !secure && s - a.notSecureSinceS >= N1_SET_S;
   const secureLong = secure && s - a.secureSinceS >= N1_CLEAR_S;
   a.agcRealS = x.agcAtLimitS > 0 ? a.agcRealS + Math.max(0, ctx.realDtS || 0) : 0;
+  // MIN GEN timers (grid seconds; a snapshot without spillMW, e.g. a CLASSIC fixture, never spills).
+  const spill = x.spillMW > 0 ? x.spillMW : 0;
+  if (spill > MINGEN_SET_MW) { if (a.spillSinceS < 0) a.spillSinceS = s; } else a.spillSinceS = -1;
+  if (spill < MINGEN_CLEAR_MW) { if (a.drySinceS < 0) a.drySinceS = s; } else a.drySinceS = -1;
+  const spilling = a.spillSinceS >= 0 && s - a.spillSinceS >= MINGEN_SET_S;
+  const dry = a.drySinceS >= 0 && s - a.drySinceS >= MINGEN_CLEAR_S;
 
   const cond = {
     underFreq: hyst(T.underFreq.cond, fMin < UNDER_SET_HZ, fMin > UNDER_CLEAR_HZ),
@@ -226,7 +245,7 @@ export function updateAlarms(a, x, ctx) {
     ufls: s < a.eventUntilS.ufls,
     agcLimit: a.agcRealS > AGC_LIMIT_REAL_S,
     storageLow: hyst(T.storageLow.cond, x.hydroFrac < HYDRO_LOW || x.battFrac < BATT_LOW, x.hydroFrac >= HYDRO_OK && x.battFrac >= BATT_OK),
-    minGen: false, // Phase 2 (P-4): no minimum-generation state before rooftop PV
+    minGen: hyst(T.minGen.cond, spilling, dry),
     weather: s < a.eventUntilS.weather,
     peak: x.h >= PEAK_H[0] && x.h < PEAK_H[1] && hyst(T.peak.cond, insecureLong, secureLong),
   };
