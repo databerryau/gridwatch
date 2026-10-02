@@ -17,7 +17,12 @@
 //        focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
 //        target}); vm.hover rings the plant back.
 //   G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
-//        west; long warm light and long shadows at sunset; lit windows at night.
+//        west and down at the scenario's 19:48; long warm light and long shadows at sunset;
+//        lit windows at night, as many as the city is using (underlying demand). Rooftop PV
+//        (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
+//        layer, cached) and a glint on them each frame: per suburb, as bright as its output
+//        over its capacity (cloud dims it) and as the light; never on a dark district, on a
+//        relit one only as its inverters ramp back; a static pattern under reduced motion.
 //   G-4  weatherOf(obs): heat = haze on the horizon + a bleached warm palette + shimmer;
 //        storm = two layers of dark cloud, slanted rain and rain sheets, a darker ground,
 //        turbines feathered at cut-out; cloud front = grey cloud and soft shadows drifting
@@ -29,13 +34,15 @@
 // Keys (map focused; tabindex 0): ←/→ cycle the plants then the suburbs (sets the hover and
 // shows the label), Home the first, Esc leaves.
 //
-// Cost: the sky, the terrain (with the plants), the city and the cloud strips are cached on
-// their own canvases and redrawn only when the light bucket, the weather bucket or a
-// district's dark blocks change; a frame is a few blits plus the moving parts.
+// Cost: the sky, the terrain (with the plants), the city (with its rooftop panels) and the
+// cloud strips are cached on their own canvases and redrawn only when the light bucket, the
+// weather bucket or a district's dark blocks change; a frame is a few blits plus the moving
+// parts. The glint is one path and one fill per suburb from typed arrays laid out once.
 
 import {V} from '../sim/params.js';
 import {BASE_W, BASE_H, HORIZON_Y, COLOURS, UI, SUBURBS, SUBSTATIONS, TRUNKS, PLANTS, PLANT_PARTS, WIND_TURBINES, TURBINE_H,
-  SOLAR_ROWS, SOLAR_ROW_W, RIDGE, LAKE, RIVER, BAY, ROADS, FIELDS, TREES, districtBlocks, hash01, scaleFor} from './mapdata.js';
+  SOLAR_ROWS, SOLAR_ROW_W, RIDGE, LAKE, RIVER, BAY, ROADS, FIELDS, TREES, ROOF_PV, districtBlocks, roofPanels, hash01, scaleFor} from './mapdata.js';
+import {mw as fmtMW} from './format.js';
 
 export const MAX_REST_LABELS = 3;
 const BLOCK_MS = 90;          // G-5: one block goes dark (or relights) every 90 ms
@@ -43,7 +50,15 @@ const STROBE_MS = 500;        // half period: 1 Hz
 const STROBE_RM_MS = 1000;    // reduced motion: 0.5 Hz (§13.5: <= 1 Hz)
 const SPOT_MS = 600;          // B-5: the watch spotlight eases in over 0.6 s
 const SPOT_R = 44;            // its radius, base px
-const SUNRISE_H = 6.3, SUNSET_H = 18.8; // 18:48 is sunset (G-3 accept)
+// The light (G-3): it eases over two hours around each of these, so the sky is half way down
+// at 18:48 (G-3 accept: in sunset) and dark at 19:48, as the P-2 rooftop curve's tail is.
+const SUNRISE_H = 6.3, SUNSET_H = 18.8;
+// The sun disc and the shadows follow the scenario's sun (content/scenarios.js sun: riseH 6.2,
+// setH 19.8, the hours of the P-2 curve): on the horizon at 19:48, when the light is gone and
+// the last panel stops. The map reads no scenario; until Y-9 every daily is this late-summer day.
+const SUN_RISE_H = 6.2, SUN_SET_H = 19.8;
+/** Rooftop MW in the text alternative, to this step (it is re-read at most once a second, K-23). */
+const ROOF_SAY_MW = 50;
 const LABEL_FONT = '600 10px system-ui, -apple-system, "Segoe UI", sans-serif';
 const TAU = Math.PI * 2;
 const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
@@ -122,6 +137,9 @@ const CONCRETE = '#d3cfc4', CONCRETE_D = '#9d998f', STEEL = '#30363d', WATER = '
 const SMOKE_D = alphas(34, 32, 34, 0.75), SMOKE_L = alphas(236, 238, 240, 0.5), STEAM = alphas(246, 248, 250, 0.6);
 const SHEEN = alphas(170, 205, 255), RAIN = alphas(196, 214, 236), SHADOW = alphas(10, 16, 30), SPOT = alphas(4, 6, 12);
 const GLOW_RING = alphas(210, 153, 34), FLASH = alphas(235, 240, 255), SHIMMER = alphas(255, 244, 214);
+const GLINT = alphas(255, 248, 220); // the sun on a rooftop panel (G-3)
+/** The guards whose glow lights a plant (L-9, C-10): a START or a STOP of one of its machines. */
+const GUARD_IDS = PLANTS.map(p => p.machines.map(mc => ['guard-start-' + mc.unit, 'guard-stop-' + mc.unit]));
 
 // G-3 light: [hour, sky top, sky at the horizon, ground tint r, g, b, a], linear in between.
 const NIGHT = [[10, 14, 36], [26, 34, 70], [8, 12, 34, 0.60]];
@@ -143,6 +161,7 @@ function lightAt(h, L) {
   const t = q / 8;
   lerp3(a[1], b[1], t, L.top); lerp3(a[2], b[2], t, L.bot); lerp3(a[3], b[3], t, L.tint);
   L.tint[3] = a[3][3] + (b[3][3] - a[3][3]) * t;
+  L.hq = flat ? h : a[0] + (b[0] - a[0]) * t; // the hour this bucket stands for (the clock's, where the light is steady)
   return i * 16 + q;
 }
 
@@ -245,6 +264,12 @@ export function mapSummary(vm, hoverId) {
   for (const sb of SUBURBS) { const n = (obs.districts || []).filter(d => d.dark && d.suburb === sb.id).length; if (n) dark.push(sb.name + ' ' + n); }
   if (dark.length) parts.push('Districts dark: ' + dark.join(', ') + '.');
   if (wx.cutOut) parts.push('Wind turbines shut down in the storm.');
+  // G-3 (Phase 2a): what the roofs are making, to the nearest 50 MW, and what is off with dark or reconnecting districts
+  const roof = obs.rooftop;
+  if (roof && roof.capMW > 0) {
+    const mw = Math.round(roof.mw / ROOF_SAY_MW) * ROOF_SAY_MW, off = Math.round((roof.offMW || 0) / ROOF_SAY_MW) * ROOF_SAY_MW;
+    if (mw > 0 || off > 0) parts.push('Rooftop solar about ' + fmtMW(mw) + ' MW' + (off > 0 ? ', ' + fmtMW(off) + ' MW off with dark districts' : '') + '.');
+  }
   const p = PLANTS.find(q => q.id === hoverId), sb = SUBURBS.find(q => 'sub:' + q.id === hoverId);
   if (p) {
     const us = obs.units.filter(u => u.station === p.id), on = us.filter(u => u.sync).length;
@@ -285,7 +310,7 @@ export function createMap(doc, root, actions) {
   let lastMs = 0, drawMs = 0, labels = [], labelsAt = -1e9, labelsKey = '', ariaAt = -1e9, ariaText = '';
   let lightKey = '', cityKey = '', watchSinceMs = -1, watchEndMs = -1e9, spotX = 0, spotY = 0, boltUntil = 0, boltNext = 0, boltX = 0;
   let skyCss = '#6a9fd0', groundCss = '#3f6b3a', hasClouds = false;
-  const L = {top: [0, 0, 0], bot: [0, 0, 0], tint: [0, 0, 0, 0]};
+  const L = {top: [0, 0, 0], bot: [0, 0, 0], tint: [0, 0, 0, 0], hq: 12};
   const darkState = new Map();   // district id -> {dark, sinceMs, off}
   const rotor = new Map();       // machine id / 'wT<i>' -> {a, v}
   // particles (smoke, steam): a fixed pool, no allocation per frame
@@ -296,8 +321,13 @@ export function createMap(doc, root, actions) {
   for (let i = 0; i < NR * 2; i++) rSeed[i] = hash01('rain', i);
   const SHADOWS = [0, 1, 2, 3, 4, 5, 6].map(i => ({x: i * 114 + hash01('cs', i) * 60, y: 74 + (i * 37) % 92 + hash01('cs', i + 9) * 8, rx: 46 + hash01('cs', i + 20) * 26, ry: 10 + hash01('cs', i + 30) * 5}));
   const fx = {sky: 'day', heat: false, storm: 0, cloud: 0, rain: 0, sheets: 0, bolt: false, shadows: 0, shadowX: 0, clouds: 0, haze: false, shimmer: 0,
-    feathered: false, sunUp: false, sunX: 0, sunY: 0, spot: 0, spotX: 0, spotY: 0, hatch: 0, cross: 0, strobe: false, strobeMs: STROBE_MS, phase: 0, battery: ''};
-  const debug = {districts: {}, scale: 0, layout: null, draws: 0, fx, rebuilds: {sky: 0, terrain: 0, city: 0}};
+    feathered: false, sunUp: false, sunX: 0, sunY: 0, spot: 0, spotX: 0, spotY: 0, hatch: 0, cross: 0, strobe: false, strobeMs: STROBE_MS, phase: 0, battery: '', rings: 0, glint: 0};
+  // rooftop PV (G-3, Phase 2a): each suburb's panels as typed arrays, laid out when the
+  // capacities or the district list change (syncRoof); alpha / on: this frame's glint per suburb
+  const NSUB = SUBURBS.length;
+  const roof = {key: -1, blocks: null, n: 0, idx: new Int16Array(NSUB).fill(-1), alpha: new Float32Array(NSUB), on: new Uint16Array(NSUB), conn: new Float32Array(0),
+    subs: SUBURBS.map(() => ({n: 0, x: new Int16Array(0), y: new Int16Array(0), w: new Uint8Array(0), ph: new Float32Array(0), blk: new Uint16Array(0)}))};
+  const debug = {districts: {}, scale: 0, layout: null, draws: 0, fx, rebuilds: {sky: 0, terrain: 0, city: 0, roof: 0}};
 
   const parts = []; // every plant part, back to front
   for (const [id, ps] of Object.entries(PLANT_PARTS)) ps.forEach((p, i) => parts.push({id, p, i, y: p.y2 === undefined ? p.y : Math.max(p.y, p.y2)}));
@@ -587,8 +617,9 @@ export function createMap(doc, root, actions) {
         G.strokeStyle = 'rgba(24,36,60,0.30)'; G.lineWidth = 1; G.beginPath();
         for (let k = 3; k < b.h; k += 3) { G.moveTo(b.x - b.d, b.y - b.d / 2 - k); G.lineTo(b.x, b.y - k); G.lineTo(b.x + b.w, b.y - b.w / 2 - k); }
         G.stroke();
-      } else if (c.style === 'estate') { G.fillStyle = '#2b4a80'; G.fillRect(b.x, b.y - b.h - 3, 2, 1); } // rooftop PV on Solstice Rise
-      else if (c.style === 'old') { G.fillStyle = '#6e4a38'; G.fillRect(b.x + 1, b.y - b.h - 4, 1, 2); }  // chimney pots
+      } else if (c.style === 'old') { G.fillStyle = '#6e4a38'; G.fillRect(b.x + 1, b.y - b.h - 4, 1, 2); }  // chimney pots
+      // rooftop PV: this roof's share of its suburb's panels (G-3; none on a scenario without rooftop)
+      if (c.pv) { G.fillStyle = ROOF_PV.colour; for (const q of c.pv) G.fillRect(q.x, q.y, q.w, 1); }
     }
     grade(G, wx);
     for (const blk of blocks) debug.districts[blk.id].windows = 0;
@@ -630,6 +661,75 @@ export function createMap(doc, root, actions) {
     }
     cityList.sort((a, c) => a.b.y - c.b.y || a.b.x - c.b.x);
     lightKey = ''; cityKey = '';
+  }
+
+  /**
+   * Lay the rooftop panels out (G-3) when the suburbs' rooftop capacity or the block layout
+   * changes: a new scenario or a new district list, never during a day. No allocation otherwise.
+   */
+  function syncRoof(obs) {
+    const rs = obs.rooftop && obs.rooftop.suburbs;
+    let key = 0;
+    if (rs) for (let j = 0; j < rs.length; j++) key += (j + 1) * Math.round(rs[j].capMW > 0 ? rs[j].capMW : 0);
+    if (key === roof.key && roof.blocks === blocks) {
+      if (!key) return;
+      let same = true;
+      for (let j = 0; j < NSUB && same; j++) { const r = rs[roof.idx[j]]; same = roof.idx[j] < 0 ? true : !!r && r.id === SUBURBS[j].id; }
+      if (same) return;
+    }
+    roof.key = key; roof.blocks = blocks;
+    const cap = {};
+    if (rs) for (const r of rs) cap[r.id] = r.capMW;
+    const panels = roofPanels(blocks, cap);
+    for (const c of cityList) c.pv = null;
+    const at = new Map(cityList.map(c => [c.id + ':' + c.i, c]));
+    roof.n = panels.length;
+    roof.conn = new Float32Array(obs.districts.length);
+    SUBURBS.forEach((sb, j) => {
+      const mine = panels.filter(q => q.suburb === sb.id), sub = roof.subs[j];
+      roof.idx[j] = rs ? rs.findIndex(r => r.id === sb.id) : -1;
+      sub.n = mine.length;
+      sub.x = Int16Array.from(mine, q => q.x); sub.y = Int16Array.from(mine, q => q.y); sub.w = Uint8Array.from(mine, q => q.w);
+      sub.ph = Float32Array.from(mine, q => q.ph); sub.blk = Uint16Array.from(mine, q => q.blk);
+      for (const q of mine) { const c = at.get(q.id + ':' + q.b); (c.pv ||= []).push(q); }
+    });
+    cityKey = '';
+    debug.rebuilds.roof++;
+  }
+
+  /**
+   * G-3: the rooftop glint. Per suburb, ONE path of the panels that catch the sun this frame and
+   * ONE fill, at an alpha of the suburb's output over its capacity (obs.rooftop.suburbs[]: mw is
+   * as if every inverter were connected, so cloud dims it) graded by the light. A panel catches
+   * the sun for glintDuty of every 1 / glintHz s, in its own phase. Connection is per district:
+   * a dark district's panels never glint; a relit one's wait until its inverters start back
+   * (districts[].reconnectS), then a share of them that grows over ROOF_RAMP_S. t is frozen at 0
+   * under reduced motion: a still pattern. Typed arrays and the GLINT table: no allocation, no string.
+   */
+  function roofFrame(obs, t, light) {
+    fx.glint = 0;
+    const rs = obs.rooftop && obs.rooftop.suburbs;
+    if (!rs || !roof.n || !(light > 0)) { roof.alpha.fill(0); roof.on.fill(0); return; }
+    const ds = obs.districts, s = obs.s, conn = roof.conn, cyc = t * ROOF_PV.glintHz, duty = ROOF_PV.glintDuty;
+    for (let i = 0; i < conn.length; i++) {
+      const d = ds[i];
+      conn[i] = d.dark ? 0 : !(d.reconnectS >= 0) ? 1 : s < d.reconnectS ? 0 : Math.min(1, (s - d.reconnectS) / V.ROOF_RAMP_S);
+    }
+    for (let j = 0; j < NSUB; j++) {
+      const sub = roof.subs[j], r = rs[roof.idx[j]];
+      let a = sub.n && r && r.capMW > 0 ? clamp01(ROOF_PV.glintGain * r.mw / r.capMW) * light : 0, n = 0;
+      if (a < 0.025) a = 0; // under one step of the alpha table: nothing to draw
+      if (a > 0) {
+        g.fillStyle = step(GLINT, a);
+        g.beginPath();
+        for (let i = 0; i < sub.n; i++) {
+          const c = conn[blocks[sub.blk[i]].di], p = cyc + sub.ph[i];
+          if (c > 0 && p - Math.floor(p) < duty * c) { g.rect(sub.x[i], sub.y[i], sub.w[i], 1); n++; }
+        }
+        g.fill();
+      }
+      roof.alpha[j] = a; roof.on[j] = n; fx.glint += n;
+    }
   }
 
   /** Advance each district's block-by-block state (G-5); returns a signature of what is dark. */
@@ -902,12 +1002,15 @@ export function createMap(doc, root, actions) {
       ctx.beginPath(); ctx.moveTo(bx, by + d * 6); ctx.lineTo(bx - 5, by - d * 3); ctx.lineTo(bx + 5, by - d * 3); ctx.closePath(); ctx.fill(); ctx.stroke();
     }
     // glow rings (L-9 / K-16), hover rings, labels (G-2)
+    fx.rings = 0;
     const glow = vm.glow && typeof vm.glow.has === 'function' ? vm.glow : null;
-    for (const p of PLANTS) {
+    for (let pi = 0; pi < PLANTS.length; pi++) {
+      const p = PLANTS[pi];
       if (glow && glow.size) {
+        // a plant lights for its lever or for a START or STOP guard of one of its machines (C-10)
         let lit = !!p.target && glow.has(p.target);
-        if (!lit) for (const mc of p.machines) if (glow.has('guard-start-' + mc.unit)) { lit = true; break; }
-        if (lit) ring(ctx, p.box, step(GLOW_RING, rm ? 1 : 0.6 + 0.4 * Math.abs(Math.sin(nowMs / 500))), 2); // <= 1 Hz
+        if (!lit) for (const ids of GUARD_IDS[pi]) if (glow.has(ids[0]) || glow.has(ids[1])) { lit = true; break; }
+        if (lit) { ring(ctx, p.box, step(GLOW_RING, rm ? 1 : 0.6 + 0.4 * Math.abs(Math.sin(nowMs / 500))), 2); fx.rings++; } // <= 1 Hz
       }
       if ((vm.hover && p.target === vm.hover) || hoverId === p.id) ring(ctx, p.box, UI.bright, 1.5);
     }
@@ -938,20 +1041,27 @@ export function createMap(doc, root, actions) {
     lastMs = nowMs;
     const rm = !!(vm.settings && vm.settings.reducedMotion);
     syncBlocks(obs);
+    syncRoof(obs);
     const h = hour(obs.clock ? obs.clock.h : 12);
     const sun = sunAmount(h), night = 1 - sun, wx = weatherOf(obs);
     fx.sky = skyState(h); fx.heat = wx.heat; fx.storm = wx.storm; fx.cloud = wx.cloud;
     // the sun: east (right) at dawn to west (left) at sunset; shadows fall away from it
-    const st = (h - SUNRISE_H) / (SUNSET_H - SUNRISE_H), elev = Math.sin(Math.PI * clamp01(st));
+    const st = (h - SUN_RISE_H) / (SUN_SET_H - SUN_RISE_H), elev = Math.sin(Math.PI * clamp01(st));
     const sunUp = st > -0.03 && st < 1.03;
     fx.sunUp = sunUp; fx.sunX = 612 - 584 * st; fx.sunY = HORIZON_Y - 6 - elev * 5;
-    const shLen = sunUp ? Math.max(0.3, Math.min(1.7, 0.3 / Math.max(elev, 0.12))) : 0;
-    const shQ = sunUp ? Math.round(shLen * 3) * (st < 0.5 ? -1 : 1) : 0;
+    // Shadows lengthen as the sun sinks. Through dawn and dusk they take the sun's height at the
+    // light bucket's hour, so they move when the light does and cost no layer redraw of their own.
+    const lb = lightAt(h, L);
+    const stS = (L.hq - SUN_RISE_H) / (SUN_SET_H - SUN_RISE_H), elevS = Math.sin(Math.PI * clamp01(stS));
+    const shLen = sunUp ? Math.max(0.3, Math.min(1.7, 0.3 / Math.max(elevS, 0.12))) : 0;
+    const shQ = sunUp ? Math.round(shLen * 3) * (stS < 0.5 ? -1 : 1) : 0;
     WX.heat = wx.heat; WX.stormB = Math.round(wx.storm * 4); WX.cloudB = Math.round(wx.cloud * 3);
-    const lk = lightAt(h, L) + '|' + shQ + '|' + (WX.heat ? 1 : 0) + WX.stormB + WX.cloudB;
+    const lk = lb + '|' + shQ + '|' + (WX.heat ? 1 : 0) + WX.stormB + WX.cloudB;
     SH.x = shQ / 3 * 0.9; SH.y = Math.abs(shQ) / 3 * 0.28; SH.a = sunUp ? 0.26 * sun * (1 - 0.25 * WX.stormB) * (1 - 0.2 * WX.cloudB) : 0;
     const sig = districtsFrame(obs, nowMs);
-    const demandFrac = clamp01((obs.demand ? obs.demand.nowMW : 5000) / 8000);
+    // night windows follow what the city is using: underlying demand, not the grid's net of rooftop (Phase 2a)
+    const dm = obs.demand, usingMW = dm ? (Number.isFinite(dm.underlyingMW) ? dm.underlyingMW : dm.nowMW) : 5000;
+    const demandFrac = clamp01(usingMW / 8000);
     const ck = lk + '|' + sig + '|' + (night > 0.05 ? Math.round(demandFrac * 10) + ':' + Math.round(night * 4) : '');
     if (lk !== lightKey) { drawSky(WX); drawClouds(WX); drawTerrain(WX, SH); lightKey = lk; }
     if (ck !== cityKey) { drawCity(WX, SH, 0.25 + 0.7 * demandFrac, night); cityKey = ck; }
@@ -974,6 +1084,7 @@ export function createMap(doc, root, actions) {
     }
     g.drawImage(terrL, 0, 0);
     g.drawImage(cityL, 0, 0);
+    roofFrame(obs, t, sun * (1 - 0.6 * wx.storm));
     plantsFrame(obs, dt, freqFactor(vm), wx, rm);
     weatherFrame(wx, t, nowMs, rm, sunUp);
     emissive(obs, night, nowMs, rm);
@@ -1068,6 +1179,7 @@ export function createMap(doc, root, actions) {
     debug: Object.defineProperties(debug, {
       labels: {get: () => labels}, drawMs: {get: () => drawMs}, hoverId: {get: () => hoverId}, blocks: {get: () => blocks},
       pick: {value: (x, y) => pick({x, y})}, rotorSpeed: {value: id => (rotor.get(id) || {v: 0}).v},
+      roof: {get: () => ({panels: roof.subs.map(q => q.n), alpha: roof.alpha, on: roof.on, conn: roof.conn})},
     }),
   };
 }

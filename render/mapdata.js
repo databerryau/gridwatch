@@ -1,7 +1,8 @@
 // render/mapdata.js: the map's fixed geometry and the colours the stack, the map (and the
 // levers, desk/README §7 L-3) share. Pure data plus pure helpers; no DOM. Tested by
 // tests/map.test.js (G-1: integer scale, terrain to the frame edges, no building off the
-// terrain; G-2: the silhouette parts of each technology; X-37, X-38).
+// terrain; G-2: the silhouette parts of each technology; X-37, X-38; G-3: the rooftop panels
+// of each suburb in proportion to its rooftop MW, ROOF_PV and roofPanels).
 //
 // The map is drawn on a fixed offscreen BASE_W x BASE_H canvas and blitted at an INTEGER
 // scale (G-1). scaleFor() picks the scale from the map area: the largest integer with the
@@ -199,6 +200,19 @@ const STYLE = {
 };
 
 /**
+ * Rooftop PV on the suburbs' roofs (G-3; Phase 2a, desk/README.md §21.5). One drawn panel per
+ * `mwPerPanel` of a suburb's rooftop capacity (obs.rooftop.suburbs[].capMW), at most
+ * `maxPerRoof` on a building, so the six suburbs read in proportion: U-1's 1,250 / 450 / 1,000 /
+ * 250 / 1,150 / 900 MW (SOL HAZ RED HAR TAL SAL) give 50 / 18 / 40 / 10 / 46 / 36 panels on 30 /
+ * 30 / 42 / 20 / 25 / 30 roofs. A panel is a dark strip on the roof's top face (`colour`, the
+ * solar farm's blue). The map's glint lights `glintDuty` of a suburb's connected panels at a
+ * time, each once every 1 / `glintHz` s in its own phase (0.4 Hz: nothing flashes fast, K-22),
+ * at an alpha of `glintGain` x output / capacity, so a clear noon (about 0.7 of nameplate) is
+ * full brightness and cloud dims it.
+ */
+export const ROOF_PV = Object.freeze({mwPerPanel: 25, maxPerRoof: 2, colour: '#22386a', glintHz: 0.4, glintDuty: 0.35, glintGain: 1.3});
+
+/**
  * District blocks for obs.districts (grouped by suburb, in list order): each district gets
  * one cell of its suburb's box and a few buildings in it (deterministic from its id), two
  * staggered rows per cell.
@@ -230,6 +244,39 @@ export function districtBlocks(districts) {
       buildings.sort((a, c) => a.y - c.y || a.x - c.x);
       out.push({id: d.id, suburb: sb.id, style: sb.style, cell: [cx, cy, cw, ch], buildings});
     });
+  }
+  return out;
+}
+
+/**
+ * G-3: the rooftop panels of a city (pure; layout only, the same every day for the same
+ * capacities). Each suburb gets round(capMW / ROOF_PV.mwPerPanel) panels, dealt one to a roof in
+ * a fixed shuffled order of its buildings (a hash of the district id), then a second round,
+ * never more than ROOF_PV.maxPerRoof on a roof. A panel is a w x 1 strip of base px on the
+ * building's top face (the front half, then the back half); `ph` is its glint phase in [0, 1).
+ * @param {Array} blocks districtBlocks() output
+ * @param {Object<string, number>} capBySuburb rooftop nameplate MW by suburb id (0 or missing: none)
+ * @returns {Array<{id:string, suburb:string, blk:number, b:number, k:number, x:number, y:number, w:number, ph:number}>}
+ *   blk: index into `blocks`; b: the building's index in its block; k: 0 or 1 on that roof
+ */
+export function roofPanels(blocks, capBySuburb) {
+  const out = [];
+  for (const sb of SUBURBS) {
+    const want = Math.round((capBySuburb && capBySuburb[sb.id] > 0 ? capBySuburb[sb.id] : 0) / ROOF_PV.mwPerPanel);
+    if (!want) continue;
+    const roofs = [];
+    blocks.forEach((blk, bi) => { if (blk.suburb === sb.id) blk.buildings.forEach((bd, b) => roofs.push({blk: bi, id: blk.id, b, bd, r: hash01(blk.id, 900 + b)})); });
+    if (!roofs.length) continue;
+    roofs.sort((p, q) => p.r - q.r || p.blk - q.blk || p.b - q.b);
+    const n = Math.min(want, roofs.length * ROOF_PV.maxPerRoof);
+    for (let i = 0; i < n; i++) {
+      const rf = roofs[i % roofs.length], k = Math.floor(i / roofs.length), bd = rf.bd;
+      // the top face is the parallelogram from the front corner (x, y - h) along +w and -d;
+      // the strip sits half way along w, 0.3 (front) or 0.7 (back) of the way along d
+      const v = k ? 0.7 : 0.3, w = bd.w >= 6 ? 3 : 2;
+      const cx = bd.x + bd.w / 2 - v * bd.d, cy = bd.y - bd.h - bd.w / 4 - v * bd.d / 2;
+      out.push({id: rf.id, suburb: sb.id, blk: rf.blk, b: rf.b, k, x: Math.round(cx - w / 2), y: Math.floor(cy), w, ph: hash01(rf.id, 700 + rf.b * 3 + k)});
+    }
   }
   return out;
 }

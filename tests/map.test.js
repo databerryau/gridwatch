@@ -2,11 +2,18 @@
 // integer scale with terrain to the frame edges at the three layouts, no building off the
 // terrain, dark districts block by block, the tripped plant, rotors in the watch, <= 3 labels
 // at rest, hover to the desk, no NaN.
+// Phase 2a (desk/README §21.5; G-3): rooftop panels in proportion to each suburb's rooftop MW,
+// the per-suburb glint on a real mild noon of the game's scenario (tests/lib/desk-vm.js), dark
+// and reconnecting districts, the sun down at the scenario's 19:48, night windows by underlying
+// demand, the text alternative's rooftop MW, a plant lit for a STOP guard.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {makeDocument} from './lib/dom.js';
 import {dayVm, baseVm} from './lib/vm-fixture.js';
+import {deskDayVm} from './lib/desk-vm.js';
+import {V} from '../sim/params.js';
+import {DESK_WEEKEND} from '../content/scenarios.js';
 import {tokenize, importSpecifiers} from './lib/js-tokens.js';
 import * as D from '../render/mapdata.js';
 import {createMap, mapLabels, mapSummary, mapKeyOrder, skyState, weatherOf, MAX_REST_LABELS} from '../render/map.js';
@@ -113,11 +120,16 @@ test('G-5: a tripped machine is labelled and its rotor spins down; rotors slow i
   const vm = await vmOf({}, true);
   const u = vm.obs.units.find(q => q.mode === 'tripped');
   assert.ok(u);
+  // Cruise is measured at 50 Hz. The fixture is 2 s into a trip (49.5 Hz, wherever that seed's
+  // day puts it): measured there, cruise was already slowed by the frequency and "half of
+  // cruise" sat within 1% of the watch speed, so 8 mHz of drift in the sim flipped the test.
+  vm.obs.f.hz = 50;
   for (let i = 0; i < 60; i++) { vm.frame.nowMs = 1000 + i * 50; map.update(vm); }
   assert.ok(map.debug.rotorSpeed(u.id) < 0.1, 'spun down: ' + map.debug.rotorSpeed(u.id));
   assert.ok(map.debug.labels.some(l => /TRIPPED/.test(l.text)));
   const on = vm.obs.units.find(q => q.mode === 'on' && q.station === 'ccgt');
   const cruise = map.debug.rotorSpeed(on.id), windC = map.debug.rotorSpeed('wT0');
+  assert.ok(Math.abs(cruise - 1) < 0.03, 'full speed at 50 Hz: ' + cruise);
   vm.mode = {mode: 'WATCH', rate: 0.15, watchS: 3, locked: true, watchVersion: 'full'};
   vm.obs.f.hz = 49.6;
   for (let i = 0; i < 60; i++) { vm.frame.nowMs = 5000 + i * 50; map.update(vm); }
@@ -186,15 +198,25 @@ test('G-3: skyState is night, dawn, day, sunset, dusk by the hour, and 18:48 is 
   assert.deepEqual(seq, ['night', 'dawn', 'day', 'sunset', 'dusk', 'night']);
 });
 
-test('G-3: the sun crosses the sky east to west, sits on the western horizon at sunset, and the light is cached in buckets', async () => {
+test('G-3: the sun crosses the sky east to west, is low in the west at 18:48 and on the horizon at the scenario\'s sunset (19:48), and the light is cached in buckets', async () => {
   const {map, doc} = mount(1280, 268);
   const at = async h => { const vm = await wxVm({h}); map.update(vm); return {...map.debug.fx}; };
-  const am = await at(8), noon = await at(12.5), pm = await at(17), set = await at(18.8), night = await at(23);
-  assert.ok(am.sunUp && noon.sunUp && pm.sunUp && set.sunUp && !night.sunUp);
-  assert.ok(am.sunX > noon.sunX && noon.sunX > pm.sunX && pm.sunX > set.sunX, 'east (right) to west (left)');
-  assert.ok(noon.sunY < am.sunY && noon.sunY < pm.sunY, 'highest at midday');
-  assert.ok(set.sunX < 60 && set.sunY <= D.HORIZON_Y && set.sunY >= D.SAFE.y, 'on the western horizon, inside the rows the floor shows');
-  assert.equal(set.sky, 'sunset');
+  const am = await at(8), noon = await at(12.5), pm = await at(17), set = await at(18.8), down = await at(19.75), gone = await at(20.3), night = await at(23);
+  assert.ok(am.sunUp && noon.sunUp && pm.sunUp && set.sunUp && down.sunUp && !gone.sunUp && !night.sunUp);
+  assert.ok(am.sunX > noon.sunX && noon.sunX > pm.sunX && pm.sunX > set.sunX && set.sunX > down.sunX, 'east (right) to west (left)');
+  assert.ok(noon.sunY < am.sunY && noon.sunY < pm.sunY && pm.sunY < set.sunY && set.sunY < down.sunY, 'highest at midday, sinking through the evening');
+  // Phase 2a: the disc keeps the scenario's sun hours (06:12 to 19:48, the P-2 rooftop curve), so
+  // it is still up while the panels still make power; before, it sat on the horizon at 18:48 and
+  // was gone by 19:12 with the solar farm at a seventh of its noon output.
+  assert.equal(set.sky, 'sunset', 'G-3 accept: at 18:48 the sky is in sunset');
+  assert.ok(set.sunX < 100, 'low in the west at 18:48: x ' + set.sunX.toFixed(0));
+  assert.ok(down.sunX < 60 && down.sunY <= D.HORIZON_Y && down.sunY >= D.SAFE.y, 'on the western horizon at 19:45, inside the rows the floor shows');
+  const {DESK, CLASSIC} = await import('../content/scenarios.js');
+  for (const scn of [DESK, CLASSIC]) {
+    assert.equal(scn.sun.setH, 19.8, 'the scenario\'s sunset the map\'s disc is set to');
+    assert.equal(scn.sun.riseH, 6.2);
+  }
+  assert.ok(Math.abs(down.sunX - (612 - 584 * (19.75 - 6.2) / (19.8 - 6.2))) < 1e-9, 'the disc\'s path spans the scenario\'s sun hours');
   assert.ok(D.HORIZON_Y - D.SAFE.y >= 10, 'the 1280x600 floor still shows a strip of sky');
   // a still scene costs no layer redraws; an hour of daylight costs none either
   const vm = await wxVm({h: 11});
@@ -544,4 +566,219 @@ test('render/map*.js import only sim/params.js and their own render modules', ()
     const src = readFileSync(new URL('../render/' + f, import.meta.url), 'utf8');
     for (const s of importSpecifiers(tokenize(src))) assert.ok(['../sim/params.js', './mapdata.js', './format.js', '../app/planview.js'].includes(s), f + ' imports ' + s);
   }
+});
+
+// ------------------------------------------------------------------ Phase 2a: rooftop PV (desk/README §21.5; G-3)
+
+let NOON = null;
+/** A real mild weekend at 12:30 on the game's scenario, nobody at the desk: every suburb's roofs near their peak. */
+function noonVm(over) {
+  NOON ||= deskDayVm({seed: 5, untilH: 12.5, scenario: DESK_WEEKEND, follow: false}).obs;
+  return baseVm(structuredClone(NOON), over);
+}
+
+/**
+ * A map whose offscreen frame canvas (the one the scene and the glint are drawn on) is watched:
+ * counts of beginPath, fill and rect on it since the last reset, and each rect's place.
+ */
+function mountWatched(w = 1280, h = 268) {
+  const doc = makeDocument();
+  const root = doc.createElement('div');
+  doc.body.appendChild(root);
+  const made = [], create = doc.createElement;
+  doc.createElement = t => { const e = create(t); if (t === 'canvas') made.push(e); return e; };
+  const map = createMap(doc, root, {ui: () => {}});
+  map.el.clientWidth = w; map.el.clientHeight = h;
+  const frame = made[1].getContext('2d'); // made[0] is the screen canvas, then frame, sky, terrain, city, two cloud strips
+  const seen = {paths: 0, fills: 0, rects: [], reset() { this.paths = 0; this.fills = 0; this.rects.length = 0; }};
+  frame.beginPath = () => { seen.paths++; };
+  frame.fill = () => { seen.fills++; };
+  frame.rect = (x, y, rw) => { seen.rects.push(x + ',' + y + ',' + rw); };
+  return {doc, map, seen};
+}
+
+test('G-3 (2a): panels on every suburb\'s roofs in proportion to its rooftop MW, each inside its roof, the same every day', () => {
+  const vm = noonVm();
+  const rs = vm.obs.rooftop.suburbs, cap = Object.fromEntries(rs.map(r => [r.id, r.capMW]));
+  assert.deepEqual(rs.map(r => r.id + ' ' + r.capMW), ['SOL 1250', 'HAZ 450', 'RED 1000', 'HAR 250', 'TAL 1150', 'SAL 900']);
+  const blocks = D.districtBlocks(vm.obs.districts), panels = D.roofPanels(blocks, cap);
+  assert.deepEqual(D.roofPanels(blocks, cap), panels, 'layout only: no randomness');
+  const perRoof = new Map();
+  for (const sb of D.SUBURBS) {
+    const mine = panels.filter(q => q.suburb === sb.id), roofs = blocks.filter(b => b.suburb === sb.id).reduce((a, b) => a + b.buildings.length, 0);
+    assert.equal(mine.length, Math.round(cap[sb.id] / D.ROOF_PV.mwPerPanel), sb.id + ': one panel per ' + D.ROOF_PV.mwPerPanel + ' MW');
+    assert.ok(mine.length >= 1 && mine.length <= roofs * D.ROOF_PV.maxPerRoof, sb.id + ': ' + mine.length + ' panels on ' + roofs + ' roofs');
+    assert.ok(Math.abs(mine.length / panels.length - cap[sb.id] / 5000) < 0.01, sb.id + ' share');
+  }
+  for (const q of panels) {
+    const blk = blocks[q.blk], b = blk.buildings[q.b], key = blk.id + ':' + q.b;
+    assert.equal(blk.id, q.id);
+    perRoof.set(key, (perRoof.get(key) || 0) + 1);
+    // inside the roof's top face rows and the building's drawn width
+    const box = D.cuboidBounds(b.x, b.y, b.w, b.d, b.h);
+    assert.ok(q.x >= box.x && q.x + q.w <= box.x + box.w && q.y >= box.y && q.y + 1 <= b.y - b.h, 'panel off its roof: ' + JSON.stringify(q) + ' on ' + JSON.stringify(b));
+    assert.ok(q.ph >= 0 && q.ph < 1 && (q.k === 0 || q.k === 1));
+  }
+  assert.ok(Math.max(...perRoof.values()) <= D.ROOF_PV.maxPerRoof);
+  // the denser suburbs fill every roof before any roof gets a second panel
+  assert.ok([...perRoof].filter(([k]) => k.startsWith('HAR')).every(([, n]) => n === 1), 'Harbourside: half its roofs, one each');
+  assert.equal(new Set([...perRoof.keys()].filter(k => k.startsWith('SOL'))).size, 30, 'Solstice Rise: every roof');
+  // no rooftop (the CLASSIC scenario, or a view without the key): no panels
+  assert.deepEqual(D.roofPanels(blocks, Object.fromEntries(rs.map(r => [r.id, 0]))), []);
+  assert.deepEqual(D.roofPanels(blocks, undefined), []);
+  assert.ok(D.ROOF_PV.glintHz <= 3 && D.ROOF_PV.glintDuty > 0 && D.ROOF_PV.glintDuty < 1, 'nothing flashes above 3 Hz (K-22)');
+});
+
+test('G-3 (2a): the glint is one path and one fill per suburb, as bright as its output over its capacity and as the light; none at night; no cached layer is rebuilt for it', () => {
+  const {map, seen, doc} = mountWatched();
+  const vm = noonVm({settings: {reducedMotion: true}});
+  vm.frame.nowMs = 1000; map.update(vm);
+  const roof = map.debug.roof, order = D.SUBURBS.map(sb => vm.obs.rooftop.suburbs.find(r => r.id === sb.id));
+  assert.deepEqual(roof.panels, D.SUBURBS.map(sb => Math.round(order[D.SUBURBS.indexOf(sb)].capMW / D.ROOF_PV.mwPerPanel)));
+  order.forEach((r, j) => {
+    assert.ok(r.mw / r.capMW > 0.4, r.id + ' near its peak: ' + r.mw / r.capMW);
+    assert.ok(Math.abs(roof.alpha[j] - Math.min(1, D.ROOF_PV.glintGain * r.mw / r.capMW)) < 1e-6, r.id + ' alpha ' + roof.alpha[j]);
+    assert.ok(roof.on[j] >= 1 && roof.on[j] < roof.panels[j], r.id + ': ' + roof.on[j] + ' of ' + roof.panels[j] + ' panels catch the sun at once');
+  });
+  // against the same frame with no rooftop in the view: six more paths, six more fills, one rect per glinting panel
+  seen.reset(); vm.frame.nowMs += 16; map.update(vm);
+  const withRoof = {paths: seen.paths, fills: seen.fills, rects: seen.rects.length};
+  assert.equal(withRoof.rects, map.debug.fx.glint);
+  assert.equal(map.debug.fx.glint, roof.on.reduce((a, b) => a + b, 0));
+  const none = noonVm({settings: {reducedMotion: true}});
+  delete none.obs.rooftop;
+  const m0 = mountWatched();
+  none.frame.nowMs = 1000; m0.map.update(none);
+  m0.seen.reset(); none.frame.nowMs += 16; m0.map.update(none);
+  assert.deepEqual([withRoof.paths - m0.seen.paths, withRoof.fills - m0.seen.fills, m0.seen.rects.length], [D.SUBURBS.length, D.SUBURBS.length, 0], 'one path and one fill per suburb');
+  assert.equal(m0.map.debug.fx.glint, 0);
+  // cloud over one suburb dims that suburb alone
+  const j = D.SUBURBS.findIndex(sb => sb.id === 'TAL'), a0 = roof.alpha[j], others = Array.from(roof.alpha);
+  vm.obs.rooftop.suburbs.find(r => r.id === 'TAL').mw /= 2;
+  vm.frame.nowMs += 16; map.update(vm);
+  assert.ok(Math.abs(roof.alpha[j] - a0 / 2) < 1e-6, 'half the output, half the glint');
+  others.forEach((a, i) => { if (i !== j) assert.equal(roof.alpha[i], a); });
+  // graded by the light: half at 18:48 (the sky in sunset), gone when the light is
+  const sol = D.SUBURBS.findIndex(sb => sb.id === 'SOL'), aNoon = roof.alpha[sol];
+  vm.obs.clock.h = 18.8; vm.frame.nowMs += 16; map.update(vm);
+  assert.ok(Math.abs(roof.alpha[sol] - aNoon / 2) < 1e-6, 'the same output in half the light: ' + roof.alpha[sol] + ' of ' + aNoon);
+  vm.obs.clock.h = 21; vm.frame.nowMs += 16; map.update(vm);
+  assert.deepEqual([Array.from(roof.alpha), Array.from(roof.on), map.debug.fx.glint], [[0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0], 0]);
+  // mid-day: output, cloud and the clock move; nothing cached is redrawn and nothing is searched
+  vm.obs.clock.h = 11; vm.frame.nowMs += 16; map.update(vm);
+  const r0 = {...map.debug.rebuilds};
+  assert.equal(r0.roof, 1, 'the panels were laid out once');
+  let calls = 0;
+  for (const k of ['find', 'findIndex', 'filter', 'map']) vm.obs.rooftop.suburbs[k] = function (f) { calls++; return Array.prototype[k].call(this, f); };
+  for (let i = 0; i < 120; i++) {
+    vm.frame.nowMs += 16; vm.obs.clock.h = 11 + i / 480; vm.obs.s += 2;
+    for (const r of vm.obs.rooftop.suburbs) r.mw *= 0.999;
+    map.update(vm);
+  }
+  assert.deepEqual(map.debug.rebuilds, r0, 'no cached-layer rebuild at mid-day');
+  assert.equal(calls, 0, 'no search of obs.rooftop.suburbs in the frame loop');
+  assert.deepEqual([...doc.canvasStats.bad, ...m0.doc.canvasStats.bad], []);
+});
+
+test('P-12 / G-3: a dark district\'s panels do not glint; a relit one waits for its inverters (reconnectS), then joins as they ramp', () => {
+  const {map, seen} = mountWatched();
+  const vm = noonVm({settings: {reducedMotion: true}}); // a still pattern: the same panels every frame
+  const frame = () => { seen.reset(); vm.frame.nowMs += 16; map.update(vm); return new Set(seen.rects); };
+  vm.frame.nowMs = 1000; map.update(vm);
+  const all = frame(), j = D.SUBURBS.findIndex(sb => sb.id === 'SAL'), lit = map.debug.roof.on[j];
+  const sal = vm.obs.districts.filter(d => d.suburb === 'SAL'), di = vm.obs.districts.indexOf(sal[0]);
+  assert.ok(sal.length === 6 && lit >= 6);
+  // one district dark: only its panels stop
+  sal[0].dark = true;
+  const one = frame();
+  assert.ok(one.size < all.size && [...one].every(r => all.has(r)), 'a subset: ' + one.size + ' of ' + all.size);
+  assert.equal(map.debug.roof.conn[di], 0);
+  const lost = all.size - one.size;
+  assert.ok(lost >= 1 && map.debug.roof.on[j] === lit - lost);
+  // relit: 60 s of waiting (ROOF_RECONNECT_S), nothing yet
+  sal[0].dark = false; sal[0].reconnectS = vm.obs.s + 30;
+  assert.deepEqual(frame(), one, 'waiting to reconnect');
+  // ramping: a share of them, growing with the ramp; all of them when it ends and when reconnectS is back at -1
+  const sizes = [];
+  for (const frac of [0.25, 0.5, 0.75, 1]) {
+    sal[0].reconnectS = vm.obs.s - frac * V.ROOF_RAMP_S;
+    sizes.push(frame().size);
+    assert.ok(Math.abs(map.debug.roof.conn[di] - frac) < 1e-6);
+  }
+  assert.ok(sizes[0] >= one.size && sizes[0] <= sizes[1] && sizes[1] <= sizes[2] && sizes[2] <= sizes[3] && sizes[3] === all.size, sizes.join(' <= ') + ' of ' + all.size);
+  assert.ok(sizes[1] < all.size || lost < 2, 'half way up the ramp not every panel is back');
+  sal[0].reconnectS = -1;
+  assert.deepEqual(frame(), all);
+  // the whole suburb dark: its path is empty (its alpha is its sky, not its connection)
+  for (const d of sal) d.dark = true;
+  frame();
+  assert.equal(map.debug.roof.on[j], 0);
+  // a view from before Phase 2a (no reconnectS on a district) counts as connected
+  for (const d of vm.obs.districts) { d.dark = false; delete d.reconnectS; }
+  assert.deepEqual(frame(), all);
+});
+
+test('K-22 reduced motion: the rooftop glint is a still pattern; in motion each panel catches the sun at 0.4 Hz', () => {
+  const run = rm => {
+    const {map, seen} = mountWatched();
+    const vm = noonVm({settings: {reducedMotion: rm}});
+    const frames = [];
+    for (let i = 0; i < 24; i++) { seen.reset(); vm.frame.nowMs = 30000 + i * 250; map.update(vm); frames.push(seen.rects.slice().sort().join(' ')); }
+    return {frames, panels: map.debug.roof.panels.reduce((a, b) => a + b, 0)};
+  };
+  const still = run(true), moving = run(false);
+  assert.equal(new Set(still.frames).size, 1, 'static under reduced motion');
+  assert.ok(still.frames[0].length > 0, 'and still drawn');
+  assert.equal(new Set(moving.frames).size, 10, 'moving otherwise: a different set of panels each quarter second of the cycle');
+  // one cycle is 1 / glintHz = 2.5 s = 10 of these frames: the pattern repeats, and a panel is lit glintDuty of the time
+  assert.equal(moving.frames[0], moving.frames[10]);
+  const lit = moving.frames.slice(0, 10).reduce((a, f) => a + f.split(' ').length, 0) / 10;
+  assert.ok(Math.abs(lit / moving.panels - D.ROOF_PV.glintDuty) < 0.08, (lit / moving.panels).toFixed(2) + ' of the panels at a time');
+});
+
+test('K-23 (2a): the map\'s text alternative says the rooftop MW; G-3: night windows follow underlying demand', async () => {
+  const vm = noonVm();
+  const mw = Math.round(vm.obs.rooftop.mw / 50) * 50;
+  assert.ok(mw > 2500);
+  assert.match(mapSummary(vm, null), new RegExp('Rooftop solar about ' + mw.toLocaleString('en-AU') + ' MW\\. '));
+  vm.obs.rooftop.offMW = 149; vm.obs.rooftop.mw -= 149;
+  assert.match(mapSummary(vm, null), /Rooftop solar about [\d,]+ MW, 150 MW off with dark districts\./);
+  vm.obs.rooftop.mw = 0; vm.obs.rooftop.offMW = 0;
+  assert.ok(!/Rooftop/.test(mapSummary(vm, null)), 'nothing to say at night');
+  const classic = await vmOf();
+  assert.equal(classic.obs.rooftop.capMW, 0);
+  assert.ok(!/Rooftop/.test(mapSummary(classic, null)), 'nor on a scenario without rooftop');
+  delete classic.obs.rooftop;
+  assert.ok(!/Rooftop/.test(mapSummary(classic, null)));
+  // windows: the same operational demand, more of the city awake behind it
+  const windows = (underlying, now) => {
+    const {map} = mount(1280, 268);
+    const v = noonVm();
+    v.obs.clock.h = 22; v.obs.demand.nowMW = now;
+    if (underlying === undefined) delete v.obs.demand.underlyingMW; else v.obs.demand.underlyingMW = underlying;
+    map.update(v);
+    return Object.values(map.debug.districts).reduce((a, d) => a + d.windows, 0);
+  };
+  const low = windows(3000, 5000), high = windows(7500, 5000);
+  assert.ok(low > 0 && high > low * 1.5, 'windows ' + low + ' at 3,000 MW, ' + high + ' at 7,500 MW underlying');
+  assert.equal(windows(undefined, 7500), high, 'a view without underlyingMW falls back on demand.nowMW');
+  // by day the windows are not drawn, so the underlying demand moving redraws nothing
+  const {map} = mount(1280, 268);
+  const day = noonVm();
+  map.update(day);
+  const r0 = {...map.debug.rebuilds};
+  for (let i = 0; i < 20; i++) { day.frame.nowMs += 16; day.obs.demand.underlyingMW += 200; map.update(day); }
+  assert.deepEqual(map.debug.rebuilds, r0);
+});
+
+test('L-9 / C-10: a plant lights for guard-stop-<unit> as for guard-start-<unit>, and for its lever', async () => {
+  const {map} = mount(1280, 268);
+  const rings = glow => { const vm = noonVm({glow: new Set(glow)}); map.update(vm); return map.debug.fx.rings; };
+  assert.equal(rings([]), 0);
+  assert.equal(rings(['guard-start-ccgt2']), 1);
+  assert.equal(rings(['guard-stop-ccgt2']), 1, 'a STOP hint lights its plant');
+  assert.equal(rings(['guard-stop-ccgt1', 'guard-stop-ccgt2', 'lever-ccgt']), 1, 'one ring per plant');
+  assert.equal(rings(['guard-stop-hydro3', 'guard-stop-gta1']), 2);
+  assert.equal(rings(['lever-coal', 'dial-battery', 'key-rert', 'stack']), 2, 'targets that are not on the map light nothing');
+  for (const m of V.MACHINES) assert.equal(rings(['guard-stop-' + m.id]), 1, m.id);
 });
