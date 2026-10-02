@@ -1358,3 +1358,90 @@ margin, leaning on 270 MW a machine of hydro from 04:00, and the line started ei
 eight minutes. `desk-weekend` now opens with **both CCGTs on** (CCGT 2 at 300 MW) and coal 4 off:
 hydro balances at 75 to 120 MW a machine, nothing is asked for before 06:00, and the no-input
 weekend still fails on 11 of 11 seeds.
+
+## 26. Wave 2 record (par and the view; merged 2026-10-02)
+
+`par` and `view` were each built in a worktree, reviewed by two readers (with mutation testing:
+79 and 114 mutants, none surviving after the fix pass) and fixed. Both merged without conflict;
+the golden was re-recorded (par's battery orders now sit in its plan for their energy, which
+moves 198 of 200 CLASSIC rows). Wave 3 (`app`) builds on this.
+
+**Par on the game's day** (`node tools/par.js --scenario desk | desk-weekend --seeds 1-200`):
+
+| | `desk` | `desk-weekend` | Target |
+|---|---|---|---|
+| Zero unserved (S-12, S-14) | 192 of 200 (96.0%): MILD 99/101, HOT 67/70, HEATWAVE 26/29 | 197 of 200 (98.5%) | ≥ 85% |
+| Forced heat, zero unserved | 86 of 100 | 98 of 100 | ≥ 75% |
+| RERT armed | 13 of 200 (6.5%) | 1 of 200 | ≤ 25% |
+| Commit-all dearer than par (S-11) | 198 of 200 | 200 of 200 | ≥ 70% |
+| Black days | 0 | 0 | 0 |
+| Negative-price hours, MILD (P-9: 2–6 h) | median 1.68 h (in band on 39 of 101) | median 2.62 h (80 of 101) | weekday misses |
+| Negative-price hours, HOT (≤ 1 h) | 70 of 70 | 69 of 70 | |
+| Spilled MWh a day, MILD (the automatic cut) | 299 mean, 870 max | 778 mean, 1,673 max | |
+| SECURE states holding 49.5 Hz (H-8) | 6,470 of 6,471 (worst 49.491 Hz, a cached preview) | 6,436 of 6,438 | all |
+| Rule 4 coal stops | 0 | 0 | expected 0 |
+| A par day's runtime | 1.79 s | 1.71 s | 1.6 s (D-9), unchanged by 2a |
+
+CLASSIC after the merge (golden): zero unserved 183 of 200, forced heat 77 of 100, RERT 44, the
+competent proxy's A 72 of 100 (now over its 70), battery average charge price $198.
+
+**The view, measured.** Blue against the sim's cut with the truth in place of the forecast:
+median 0.1 MW, 1 MW worst once a spill has settled; with its own forecast, within about 50 MW at
++5 to +15 minutes (the rest is forecast error). Live Stack full redraw p95 1.2–1.5 ms of 4; map
+frame p95 0.06 ms at a mild noon; first visit 345.6 KB gzip of 400. The agent looked at real
+pixels (`next.html?seed=1&debug`, PNGs through `tools/shot-receiver.mjs`).
+
+Decisions at the merge (integrator):
+
+| # | Question | Decision |
+|---|---|---|
+| N-1 | C-11 left out demand response and a battery DISCHARGE order, which the sim's cut counts (350 and 200 MW low in exactly those cases). | Both terms added to `proj.surplusMW` (`app/planview.js`), with test rows. |
+| N-2 | Par's own battery orders counted to the end of their window, so the night recharge was never in its plan (AGC asked for over 150 MW on 12,496 of 12,529 charging seconds). | **Every battery order counts for the energy behind it** (the par agent's fix). CLASSIC moves; S-12 holds on all three scenarios; golden re-recorded. |
+| N-3 | The map's sun disc sets at 18:48; the scenario's sunset is 19:48. | **Not moved** (the view agent tried it: a sun on the horizon under a starry sky, because the light table is dark by 19:54). The light, and so the glint, reaches zero at 19:48; stage C says so under G-3. |
+| N-4 | Left for stage C. | After a trip in a surplus, par's rule 1 starts a GT and imports while the dispatch is still spilling (37–81 MWh on the seeds looked at). P-9's mild-weekday band (median 1.7 h against 2–6 h). The price alone starts no charge order outside par's window when nothing is spilled (104 s in 16 days). |
+
+Facts wave 3 builds on:
+
+* **Lighting a control.** Put `guard-stop-<unit>` or `guard-start-<unit>` in `vm.glow` and the
+  guard on the desk, the plant on the map and the station's layer on the stack all light.
+  `dial-battery`, `key-rert` and `stack` light too.
+* **`consider`.** The desk sends `actions.ui({do: 'consider', target})` only when the resolved
+  target changes and never an initial null. "Focused" is the **keyboard's** focus (a guard
+  clicked with the mouse is not focused for this; a later-focused guard ends a key-lift hold).
+  Losing hover or focus clears on the next desk frame. After `S` / `X` on a lever the target
+  stays for the 2-s cover plus 6 s; after a commit by key it clears at once; after a mouse commit
+  it stays while the pointer is on the guard. After a new day the present target is sent again.
+  In this shell Tab does not move between guards, so a keyboard player reaches a guard's
+  consequence through `S` / `X` on its lever. The desk sends targets for guards whose press would
+  open the scope, abort a stop or be refused: `consequence()` returns null or the block reason.
+* **`proj.surplusMW`** assumes the tie exports at its limit (0 while tripped), counts a CHARGE
+  order, DR and a DISCHARGE order, and is not capped at wind + solar (in a deep belly it
+  overstates what can be spilled). For "is power being spilled now" read `obs.wind.autoMW +
+  obs.solar.autoMW`. `vm.objective.long = blueRuns(proj)[0]`; its `atS` is the END of the first
+  blue column.
+* **The dispatch** reads the present from `obs.demand.litMW`. A player's battery order counts
+  for its energy (discharge to 20%, charge to full, within the inverter less the GUARD) and is
+  re-dispatched at the system's next look (≤ 60 grid-s; `commitSig` carries the battery). The
+  sim keeps discharging below 20%: the objective's idle-at-the-reserve line closes that.
+* **`tools/follow.mjs`** (`node tools/follow.mjs --scenario desk --seeds 1-11 --lines`) runs the
+  hint-following player with par beside it, cost by key, the battery at 16:30, and for each
+  accepted STOP line the quoted saving against the realised difference. The saving is read from
+  `line.saving`, `action.saving`, or the first dollar amount after "save" in the text. It skips a
+  STOP by setting that unit's `stopBlock` in a copy of the observation: this relies on §21.4's
+  rule that a candidate not `on` with `stopBlock === ''` gets **no STOP line** (the objective
+  falls through to its lower branches; it does not name the next unit).
+* MSL2 and MSL3 never occur on par days (MSL1 on 11 of 101 mild weekends): those objective
+  branches are tested on poked observations only.
+* The stack's header already says SPILL beside a negative price and its text alternative lists
+  the surplus runs and the rooftop MW: the objective says the action, not the number again.
+* `calc.coldLoad(d, nowS)`, `calc.nextShed(districts)`, `dial.shedMarkMW(obs)`,
+  `emergency.shedText(obs)` and `desk.makeConsider` are exported if the app wants the same
+  answers. `CAUGHT_WORD.inverterMW` is INVERTERS (positive parts only on the gauge).
+* Screenshots: start the `gridwatch` preview (it serves the main checkout), open
+  `next.html?seed=1&debug`, set the viewport to 1280×720, tick with `gridwatch.frame`, POST
+  `canvas.toDataURL()` to `node tools/shot-receiver.mjs`. The browser caches modules between
+  reloads: `fetch(file, {cache: 'reload'})` each edited file first.
+
+Still red on purpose (wave 3's): `tests/objective.test.js` "the DESK scenario is the classic
+day…" and "a day with no input runs short by mid-morning…", and its slow whole-day case.
+`app/boot.js` still passes `DESK` (wave 3 passes `scenarioForSeed`); `vm.consider` is still null.
