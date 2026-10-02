@@ -21,7 +21,11 @@
 // 1a.0: Phase 1a (desk/README.md §3): the plan in state and its executor, the new plan, scope and
 // sync inputs, the K-12 synchroscope outcomes, DIRECT SHED gated on SHORT/SHEDDING, and N-1 over
 // both credible contingencies (A-2); par and the L-0 plan act through planLoad inputs.
-export const SIM_VERSION = 'v4-core-1a.1';
+// 2a.0: Phase 2a stage A (desk/README.md §19): the state shape for rooftop PV, day types, MSL
+// notices, automatic curtailment, the inverters' over-frequency response and unserved / spilled
+// energy, all with neutral values: on the classic scenario every number is unchanged (only state
+// hashes move, because state gains fields).
+export const SIM_VERSION = 'v4-core-2a.0';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);
@@ -428,6 +432,34 @@ export const P = {
   SYNC_AUTO_SLIP_HZ: simp(0.1, 'Hz', 'K-12 AUTO: the auto-synchroniser trims the slip to +0.10 Hz (machine slightly fast, so it picks up load, not motor) and closes on the next pass through 0 degrees.'),
   SYNC_ROUGH_MW: simp(40, 'MW', 'K-12: a rough close (10-20 degrees) adds a one-second MW swing of this size to the unit\'s schedule on top of the clean block: the power surge that pulls the rotor into step. Game abstraction of an electromechanical transient that really lasts ~1 s and oscillates; kept below the 50-MW FOS event threshold so it is felt, not a contingency.'),
   // ---- phase 1a "sim" block: end
+  // ================================================================ Phase 2a additions (desk/README.md §19.4)
+  // The "shared" block is stage A's and is frozen in stage B (more than one job reads it). Each sim
+  // job adds its own records ONLY between its own two marker lines below (merge-safe).
+  // ---- phase 2a "shared" block: begin
+  MSL1_MW: simp(1600, 'MW', 'P-4 / desk/README.md C-9: an MSL1 notice when the minimum forecast operational demand (P50, now and over the 4.5-h window) is at or below this: two credible load contingencies (about 300 MW each: the 256-MW potline, or the 300-MW midday export) above the security floor MSL3. AEMO\'s structure (AEMC MSL paper, Table 2.1) with our steps; real floors vary with the network and the synchronous units online.'),
+  MSL2_MW: simp(1300, 'MW', 'P-4 / desk/README.md C-9: MSL2, one credible load contingency above MSL3; also about this fleet\'s coal + CCGT minimums (1,310 MW). See MSL1_MW.'),
+  MSL3_MW: simp(1000, 'MW', 'P-4 / desk/README.md C-9: MSL3, the security floor. Above Victoria\'s ~790 MW because this region is an electrical island and must keep its own synchronous plant on; a floor for a region like ours is unverified (§8.3).', UNVERIFIED),
+  MSL_TIE_OUT_MW: simp(300, 'MW', 'desk/README.md C-9: every MSL threshold is raised by this while the tie is out of service (no export sink: the 300-MW midday export is gone). AEMO\'s floors vary with the network; this is one step of ours.'),
+  MSL_CHECK_S: simp(300, 's', 'desk/README.md C-9 / §21.1: the MSL level is re-checked every 5 grid-minutes (one forecast per check, the forecast\'s own column step). A notice cadence and performance budget, not a grid value.'),
+  MSL_CLEAR_MW: simp(100, 'MW', 'desk/README.md C-9 / §21.1: hysteresis. A level is left only once the forecast minimum is this far above its threshold, so a notice does not chatter (K-8). Not a grid value.'),
+  ROOF_RECONNECT_S: src(60, 's', 'AS/NZS 4777.2:2020: an inverter reconnects no sooner than 60 s after the grid is back within its voltage and frequency limits (P-12, desk/README.md C-8: a restored district picks up its full underlying load first)'),
+  ROOF_RAMP_S: simp(360, 's', 'P-12 / desk/README.md C-8: after the reconnection delay a district\'s rooftop output returns linearly over this time; also the release of the held over-frequency back-off (C-7). AS/NZS 4777.2:2020 limits the power ramp after reconnection to 16.67% of rating per minute (6 minutes to full output); the 6-minute ramp is unverified (§8.3).', UNVERIFIED),
+  ROOF_FW_START_HZ: src(50.25, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: the over-frequency response starts at fULCO = 50.25 Hz (desk/README.md C-7)'),
+  ROOF_FW_ZERO_HZ: src(52, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: output falls linearly from fULCO to zero at fPmin = 52 Hz (desk/README.md C-7)'),
+  ROOF_FW_HYST_HZ: src(0.1, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: hysteresis 0.1 Hz. The lowest output reached is held until frequency is back under fULCO - 0.1 Hz = 50.15 Hz (desk/README.md C-7)'),
+  REN_PFR_ON: simp(false, 'flag', 'desk/README.md C-7: wind and utility solar lower their output on over-frequency (GOV_DROOP on rating beyond GOV_DEADBAND_HZ, capped by present output). Lowering only: real semi-scheduled plant under mandatory PFR also raises from curtailed headroom. A simplified flag: false at stage A (no behaviour change on any scenario); the Phase 2a grid job turns it on.'),
+  ROOF_FW_ON: simp(false, 'flag', 'desk/README.md C-7: rooftop inverters back off between ROOF_FW_START_HZ and ROOF_FW_ZERO_HZ and hold the lowest value reached (the AS/NZS 4777.2 response, modelled as one aggregate inverter). A simplified flag: false at stage A (no behaviour change on any scenario); the Phase 2a grid job turns it on.'),
+  SURPLUS_MIN_MW: simp(50, 'MW', 'desk/README.md C-11 / §21.3: projected or present spill at or below this is not shown as SURPLUS on the Live Stack and does not fire par rule 2 or the objective\'s CHARGE. A display and rule threshold, not a grid value.'),
+  // ---- phase 2a "shared" block: end
+  //
+  // ---- phase 2a "world" block: begin
+  // ---- phase 2a "world" block: end
+  //
+  // ---- phase 2a "grid" block: begin
+  // ---- phase 2a "grid" block: end
+  //
+  // ---- phase 2a "par" block: begin
+  // ---- phase 2a "par" block: end
 };
 
 // ------------------------------------------------------------------ plain values

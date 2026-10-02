@@ -60,12 +60,19 @@ export function buildStations(units) {
   }));
 }
 
-/** Districts from the scenario's suburbs (U-1), UFLS stages (H-6) and rotation (H-11). */
+/**
+ * Districts from the scenario's suburbs (U-1), UFLS stages (H-6) and rotation (H-11). Phase 2a
+ * (desk/README.md §19.2): each district also carries `sub` (the index of its suburb in
+ * scn.city.suburbs), `roofFrac` (its part of that suburb's rooftop PV: 1 / the suburb's district
+ * count) and `reconnectS` (-1, or the grid second its inverters start ramping back after a
+ * relight); the city carries roofDarkMW and roofOffMW (fleet.refreshRoof).
+ */
 export function buildCity(scn) {
   const c = scn.city;
   const total = c.suburbs.reduce((a, s) => a + s.households, 0);
   const districts = [];
-  for (const sub of c.suburbs) {
+  for (let k = 0; k < c.suburbs.length; k++) {
+    const sub = c.suburbs[k];
     for (let j = 1; j <= sub.districts; j++) {
       const id = sub.id + j;
       const stage = c.uflsStages.findIndex(pair => pair.includes(id));
@@ -73,16 +80,17 @@ export function buildCity(scn) {
         id, suburb: sub.id, share: sub.households / total / sub.districts,
         uflsStage: stage + 1, rot: c.rotation.indexOf(id),
         dark: false, shedBy: null, darkSinceS: -1, restoredAtS: -1, surgeMW: 0,
+        sub: k, roofFrac: 1 / sub.districts, reconnectS: -1,
       });
     }
   }
-  return {districts, shedFrac: 0, coldLoadMW: 0, lastRestoreS: -V.DAY_S};
+  return {districts, shedFrac: 0, coldLoadMW: 0, lastRestoreS: -V.DAY_S, roofDarkMW: 0, roofOffMW: 0};
 }
 
 /** A fresh per-second accumulator (README §5 "acc"). */
 export function newAcc() {
   return resetAcc({unitMWs: new Array(M.length).fill(0), battOutMWs: 0, battChargeMWs: 0, battAbsMWs: 0, shedMWs: 0,
-    servedMWs: 0, loadReliefMWs: 0, fMinHz: 0, fMaxHz: 0, fSumHz: 0, ticks: 0, startCost: 0});
+    servedMWs: 0, loadReliefMWs: 0, fMinHz: 0, fMaxHz: 0, fSumHz: 0, ticks: 0, startCost: 0, unservedMWs: 0, spillMWs: 0});
 }
 
 /**
@@ -94,6 +102,7 @@ export function resetAcc(acc) {
   for (let i = 0; i < acc.unitMWs.length; i++) acc.unitMWs[i] = 0;
   acc.battOutMWs = 0; acc.battChargeMWs = 0; acc.battAbsMWs = 0; acc.shedMWs = 0; acc.servedMWs = 0;
   acc.loadReliefMWs = 0; acc.fMinHz = V.F0_HZ; acc.fMaxHz = V.F0_HZ; acc.fSumHz = 0; acc.ticks = 0; acc.startCost = 0;
+  acc.unservedMWs = 0; acc.spillMWs = 0; // Phase 2a (desk/README.md §19.2): the dark customers' underlying load; over-frequency spill
   return acc;
 }
 
@@ -210,12 +219,14 @@ export function stopBlock(state, i) {
  * The imbalance-bar readouts of the last physics tick, i.e. just before a trip. The
  * contingency's `caught` values (and previewTrip's) are the change from these (README §5
  * "conts[]"): batteryMW = PFR plus the charge suspension (battery.outMW - battery.ffrMW),
- * guardMW = battery.ffrMW, uflsMW = phys.shedMW.
+ * guardMW = battery.ffrMW, uflsMW = phys.shedMW. inverterMW (Phase 2a, desk/README.md §19.2,
+ * last key): the inverters' over-frequency back-off, -(phys.renPfrMW + phys.roofPfrMW); 0 at
+ * stage A, where nothing writes either readout yet (the grid job fills it in).
  */
 export function preTrip(state) {
   const p = state.phys, b = state.battery;
   return {inertiaMW: p.inertiaMW, batteryMW: b.outMW - b.ffrMW, guardMW: b.ffrMW, governorsMW: p.govTotalMW,
-    loadReliefMW: p.loadReliefMW, uflsMW: p.shedMW};
+    loadReliefMW: p.loadReliefMW, uflsMW: p.shedMW, inverterMW: 0};
 }
 
 /**
@@ -230,7 +241,7 @@ export function startContingency(state, cause, id, lostMW, ekBeforeMWs, out) {
     fStartHz: state.phys.fHz, ekBeforeMWs, ekAfterMWs: state.phys.ekMWs,
     rocofHzS: 0, extremeHz: state.phys.fHz, extremeTick: tick,
     pre: preTrip(state),
-    caught: {inertiaMW: 0, batteryMW: 0, guardMW: 0, governorsMW: 0, loadReliefMW: 0, uflsMW: 0},
+    caught: {inertiaMW: 0, batteryMW: 0, guardMW: 0, governorsMW: 0, loadReliefMW: 0, uflsMW: 0, inverterMW: 0},
     uflsStages: 0, contained: true, backInBandTick: -1,
     watchEndTick: tick + V.WATCH_S * TPS, secureByTick: tick + V.SECURE_AGAIN_S * TPS,
   };
@@ -308,6 +319,33 @@ export function setDistrictDark(state, d, dark, why) {
   for (const x of city.districts) if (x.dark) f += x.share;
   city.shedFrac = f;
   return dist.share;
+}
+
+/**
+ * Lit operational demand (Phase 2a; desk/README.md §19.2): the market demand's first term and
+ * obs.demand.litMW. G = env.demandMW + env.rooftopMW is the total before rooftop; the lit
+ * customers draw G x (1 - shedFrac) and the rooftop still connected (env.rooftopMW -
+ * city.roofOffMW) comes off it. With rooftop zero it is env.demandMW x (1 - shedFrac) exactly.
+ * Keep the operation order: sim/physics.js and sim/market.js share this formula.
+ */
+export function litDemandMW(state) {
+  const env = state.env, city = state.city;
+  const g = env.demandMW + env.rooftopMW;
+  return g * (1 - city.shedFrac) - (env.rooftopMW - city.roofOffMW);
+}
+
+/**
+ * Recompute city.roofDarkMW (rooftop MW off because its district is dark) and city.roofOffMW
+ * (off in total: dark, or relit and still waiting or ramping back) over all districts from
+ * env.roofSubMW, and reset a district's reconnectS to -1 once its ramp has finished at
+ * reconnectS + ROOF_RAMP_S (Phase 2a; desk/README.md §19.2). A district's off fraction: dark 1;
+ * reconnectS < 0 -> 0; s < reconnectS -> 1; else 1 - (s - reconnectS) / ROOF_RAMP_S.
+ * setDistrictDark and grid.fosSecond (beside refreshColdLoad) are its callers.
+ *
+ * STAGE A STUB: writes nothing (both MW stay 0, as they are with no rooftop). The Phase 2a grid
+ * job implements it.
+ */
+export function refreshRoof(state) { // eslint-disable-line no-unused-vars
 }
 
 /** grid.restorePermissive's reason for a district that is not dark (observe() uses it too). */

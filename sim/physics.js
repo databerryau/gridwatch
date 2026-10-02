@@ -400,7 +400,8 @@ export function tick(state, out) {
 
 const zeros = n => new Array(n).fill(0);
 const falses = n => new Array(n).fill(false);
-const newCaught = () => ({inertiaMW: 0, batteryMW: 0, guardMW: 0, governorsMW: 0, loadReliefMW: 0, uflsMW: 0});
+// inverterMW (Phase 2a, desk/README.md §19.2, last key): 0 until the grid job traces the C-7 response.
+const newCaught = () => ({inertiaMW: 0, batteryMW: 0, guardMW: 0, governorsMW: 0, loadReliefMW: 0, uflsMW: 0, inverterMW: 0});
 
 // The backup: state's names, every field advance() or previewTrip() may write.
 const BK = {
@@ -430,6 +431,7 @@ function copyAcc(from, to) {
   to.shedMWs = from.shedMWs; to.servedMWs = from.servedMWs; to.loadReliefMWs = from.loadReliefMWs;
   to.fMinHz = from.fMinHz; to.fMaxHz = from.fMaxHz; to.fSumHz = from.fSumHz; to.ticks = from.ticks;
   to.startCost = from.startCost;
+  to.unservedMWs = from.unservedMWs; to.spillMWs = from.spillMWs; // Phase 2a (desk/README.md §19.2)
 }
 
 function save(state) {
@@ -516,10 +518,12 @@ function restore(state) {
  *   'none' (as fleet.largestContingency returns with nothing online) removes nothing.
  * @param {{guardMW?:number}} [opts]
  * @returns {{nadirHz:number, nadirS:number, lostMW:number, uflsStages:number, black:boolean,
- *   caught:{inertiaMW:number, batteryMW:number, guardMW:number, governorsMW:number, loadReliefMW:number, uflsMW:number}}}
+ *   caught:{inertiaMW:number, batteryMW:number, guardMW:number, governorsMW:number, loadReliefMW:number, uflsMW:number,
+ *   inverterMW:number}}}
  *   caught = each source's MW at the nadir MINUS its value before the trip (the state's
  *   readouts, fleet.preTrip): batteryMW is PFR plus the charge suspension
- *   (outMW - ffrMW), guardMW the FFR layer, uflsMW the load shed. With frozen schedules
+ *   (outMW - ffrMW), guardMW the FFR layer, uflsMW the load shed, inverterMW (Phase 2a, last
+ *   key) the inverters' over-frequency back-off: 0 until the grid job traces it. With frozen schedules
  *   their sum is lostMW minus the tripped unit's pre-trip govMW (0 at 50 Hz). For target
  *   'load' or 'district', nadirHz is the extreme (the PEAK for 'load'); for 'district' the
  *   relit district's share of demand is part of the event, so pre.uflsMW leaves it out and
@@ -624,5 +628,5 @@ function run(state, kind, ui, di, target, guardMW) {
   return {nadirHz: SREC.extremeHz, nadirS: (SREC.extremeTick - t0) * DT, lostMW: lost + 0, uflsStages: SREC.uflsStages,
     black: state.black,
     caught: {inertiaMW: cg.inertiaMW, batteryMW: cg.batteryMW, guardMW: cg.guardMW, governorsMW: cg.governorsMW,
-      loadReliefMW: cg.loadReliefMW, uflsMW: cg.uflsMW}};
+      loadReliefMW: cg.loadReliefMW, uflsMW: cg.uflsMW, inverterMW: 0}};
 }

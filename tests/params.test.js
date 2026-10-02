@@ -55,7 +55,7 @@ test('V mirrors P: plain values, derived tables present, frozen', () => {
 
 test('§8.3: constants still unverified are flagged', () => {
   for (const k of ['GUARD_TRIGGER_HZ', 'GUARD_SUSTAIN_S', 'AUTO_SYNC_S', 'FC_SIGMA_NEAR', 'FC_SIGMA_FAR', 'RERT_RAMP_MW_MIN',
-    'BATT_DISPATCH_RAMP_MW_S', 'BATT_CHARGE_EFF'])
+    'BATT_DISPATCH_RAMP_MW_S', 'BATT_CHARGE_EFF', 'MSL3_MW', 'ROOF_RAMP_S'])
     assert.equal(P[k].unverified, true, k);
   for (const st of P.FLEET) for (const f of ['t1Min', 't2Min', 't4Min']) assert.equal(st[f].unverified, true, st.id + '.' + f);
 });

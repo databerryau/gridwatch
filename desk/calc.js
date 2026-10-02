@@ -127,14 +127,18 @@ export function agcBandMW(obs, sid) {
  * imbalance (supply - load); inertia supplies exactly the rest (inertiaMW = -imbalance), so the
  * BORROWED stack (inertia, battery, governors, load relief) covers the scheduled gap. SHED is the
  * demand shed (already outside servedMW), shown beside the bar.
+ * Phase 2a (desk/README.md §19.2, C-7): the inverters' over-frequency back-off (balance.renPfrMW +
+ * roofPfrMW, both >= 0) comes off the sum, as it does in the sim's identity; keys that are
+ * missing (older fixtures) count as 0. The view job gives it its own segment.
  */
 export function imbalanceSegments(b) {
   const schedMW = fin(b.schedSupplyMW) - fin(b.servedMW);
   const governorsMW = fin(b.governorsMW), batteryMW = fin(b.batteryPfrMW) + fin(b.guardMW), loadReliefMW = fin(b.loadReliefMW);
   const inertiaMW = fin(b.inertiaMW);
+  const inverterMW = fin(b.renPfrMW) + fin(b.roofPfrMW);
   return {schedMW, governorsMW, batteryMW, loadReliefMW, inertiaMW, shedMW: fin(b.shedMW),
-    imbalanceMW: fin(b.imbalanceMW), sumMW: schedMW + governorsMW + batteryMW + loadReliefMW,
-    borrowedMW: governorsMW + batteryMW + loadReliefMW + inertiaMW};
+    imbalanceMW: fin(b.imbalanceMW), sumMW: schedMW + governorsMW + batteryMW + loadReliefMW - inverterMW,
+    borrowedMW: governorsMW + batteryMW + loadReliefMW + inertiaMW - inverterMW};
 }
 
 // ---------------------------------------------------------------- K-12 synchroscope

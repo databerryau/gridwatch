@@ -13,6 +13,19 @@ import {P} from '../sim/params.js';
 
 const LEG = 'legacy index.html';
 
+// P-2 rooftop shape (Phase 2a; desk/README.md §19.1, C-4): sin(pi (h - 6.2) / 13.6)^1.5 between
+// sunrise 06:12 and sunset 19:48, tabulated every 15 min as integer per-mille of the 13:00 peak
+// (generated once offline with Node; linear between points, 0 outside the sun hours), so sim/
+// needs no transcendental function (risk 5). Each scenario gets its own copy (roofShape()).
+const ROOF_SHAPE_PM = [[6.2, 0], [6.25, 1], [6.5, 18], [6.75, 45], [7, 79], [7.25, 118], [7.5, 161], [7.75, 207], [8, 257],
+  [8.25, 308], [8.5, 361], [8.75, 414], [9, 468], [9.25, 521], [9.5, 574], [9.75, 625], [10, 675], [10.25, 722],
+  [10.5, 767], [10.75, 809], [11, 847], [11.25, 882], [11.5, 912], [11.75, 939], [12, 960], [12.25, 978], [12.5, 990],
+  [12.75, 998], [13, 1000], [13.25, 998], [13.5, 990], [13.75, 978], [14, 960], [14.25, 939], [14.5, 912],
+  [14.75, 882], [15, 847], [15.25, 809], [15.5, 767], [15.75, 722], [16, 675], [16.25, 625], [16.5, 574],
+  [16.75, 521], [17, 468], [17.25, 414], [17.5, 361], [17.75, 308], [18, 257], [18.25, 207], [18.5, 161],
+  [18.75, 118], [19, 79], [19.25, 45], [19.5, 18], [19.75, 1], [19.8, 0]];
+const roofShape = () => ROOF_SHAPE_PM.map(p => p.slice());
+
 // U-1 suburbs; districts are ~3% of demand each (K-13), sized by households.
 const SUBURBS = [
   {id: 'SOL', name: 'Solstice Rise', households: 280000, districts: 5},
@@ -66,6 +79,20 @@ export const CLASSIC = {
       [18.5, 270], [18.75, 204], [19, 142], [19.25, 86], [19.5, 38], [19.75, 3], [19.8, 0]],
   },
 
+  // Rooftop PV (P-1, P-2; Phase 2a, desk/README.md §19.1). The classic day has NONE (capacityMW 0,
+  // decision C-1): every rooftop term is then exactly zero, so this scenario is the regression
+  // anchor of the bench, the tests and the golden. This block is final; the game's days (DESK,
+  // DESK_WEEKEND) carry their own.
+  rooftop: {
+    simplified: true,
+    note: 'SPEC P-2 rooftop model with capacity 0 on this scenario (desk/README.md C-1). clearFactor 0.70 is the clear-sky output factor (unverified, SPEC §8.3); cloudBite 0.7 gives the rooftop factor 1 - 0.7 (1 - k) at clearness k; heatFactor 0.92 is the hot-panel derate in a heatwave. share is each suburb\'s part of the capacity, in city.suburbs order (U-1: 1,250 / 450 / 1,000 / 250 / 1,150 / 900 MW of 5,000). shapePm is P-2\'s sin^1.5 curve as a 15-min table of integer per-mille of the 13:00 peak (C-4). cloud is the per-suburb clearness process of C-5 (one shared regional sky plus a small local term, 5-min steps): unused while the capacity is 0.',
+    capacityMW: 0, clearFactor: 0.70, cloudBite: 0.7, heatFactor: 0.92,
+    share: [0.25, 0.09, 0.20, 0.05, 0.23, 0.18],
+    shapePm: roofShape(),
+    cloud: {stepS: 300, startFrac: 0.95, mu: 0.95, min: 0.15, max: 1,
+      regional: {revertPerStep: 0.08, sigmaPerStep: 0.02}, local: {revertPerStep: 0.2222, sigmaPerStep: 0.02}},
+  },
+
   wind: {
     src: LEG + ' L306 (start 0.52, mu 0.55) and L452 (wind += (mu - wind)*0.004 + N*0.006 per 0.2-min tick, clamp 0.04-0.98), converted to 1-min steps',
     startFrac: 0.52, mu: 0.55, revertPerMin: 0.01984, sigmaPerMin: 0.01331, min: 0.04, max: 0.98,
@@ -84,11 +111,18 @@ export const CLASSIC = {
   },
 
   // Weather class of the day: one uniform draw u; u < heat -> heat; u < heat + storm -> storm; else calm.
+  // mildShare (P-3; Phase 2a, desk/README.md C-2): the share of ALL days that are MILD, drawn among
+  // the days that are not heatwaves (a second draw). 0 here: the classic day is never MILD (C-1).
   weather: {
-    src: 'S-10 / ' + LEG + ' L334-335 (HEAT 0.15, STORM 0.45 cumulative); values from params HEAT_SHARE and STORM_SHARE',
+    src: 'S-10 / ' + LEG + ' L334-335 (HEAT 0.15, STORM 0.45 cumulative); values from params HEAT_SHARE and STORM_SHARE. mildShare 0: no MILD days on the classic scenario (desk/README.md C-1, C-2)',
     heatShare: P.HEAT_SHARE.value,
     stormShare: P.STORM_SHARE.value,
+    mildShare: 0,
   },
+
+  // The kind of day (P-3; Phase 2a, desk/README.md C-2): a weekday. Weekends are scenario data
+  // (DESK_WEEKEND); the sim never reads a date.
+  day: {weekend: false},
 
   // The legacy event menu (L331-370), timings unchanged. Windows are [from, to) in hours.
   events: {
@@ -171,7 +205,8 @@ function deepFreeze(x) {
  * The game's day (SPEC §9.1 Q-18): the classic day with a leaner 04:00 commitment, so that which
  * units run is the player's plan from the first minute. CCGT 2 is off overnight
  * (as two-shifting plant is) and the morning ramp needs the CCGT back, about fifty minutes after
- * its START. Everything else is the classic day.
+ * its START. From Phase 2a it is also the day with the belly (desk/README.md C-1): rooftop PV
+ * (P-2), MILD days (P-3) and their display temperatures. Everything else is the classic day.
  */
 export const DESK = Object.assign({}, CLASSIC, {
   id: 'desk',
@@ -180,12 +215,54 @@ export const DESK = Object.assign({}, CLASSIC, {
     src: 'The classic 04:00 commitment (2,920 MW of plant, 250 MW import) with CCGT 2 off overnight (§9.1 Q-18): simplified.',
     units: {coal1: 540, coal2: 540, coal3: 540, coal4: 540, ccgt1: 480, hydro1: 140, hydro2: 140},
   }),
+
+  // Phase 2a (desk/README.md §18 C-1, §19.1): the game's day has the belly. Its rooftop, weather,
+  // day and temperatureC objects are its own (DESK_WEEKEND reuses them; CLASSIC's are never touched).
+  rooftop: {
+    simplified: true,
+    note: 'SPEC P-2: 5,000 MW of rooftop PV (0.65 x the 7.7-GW underlying peak; penetration by state unverified, SPEC §8.3); clear-sky output factor 0.70 (unverified, SPEC §8.3); rooftop factor 1 - 0.7 (1 - k) at clearness k (cloudBite); x 0.92 in a heatwave (heatFactor). share is each suburb\'s part of the capacity, in city.suburbs order SOL HAZ RED HAR TAL SAL (U-1: 1,250 / 450 / 1,000 / 250 / 1,150 / 900 MW). shapePm is P-2\'s sin^1.5 curve between 06:12 and 19:48 as a 15-min table of integer per-mille of the 13:00 peak (desk/README.md C-4). cloud is the per-suburb clearness process of desk/README.md C-5, in 5-min steps: one shared regional sky (slow) plus a small local term per suburb; its values are STARTING VALUES for the Phase 2a world job to tune against P-4 (game tuning, not measured).',
+    capacityMW: 5000, clearFactor: 0.70, cloudBite: 0.7, heatFactor: 0.92,
+    share: [0.25, 0.09, 0.20, 0.05, 0.23, 0.18],
+    shapePm: roofShape(),
+    cloud: {stepS: 300, startFrac: 0.95, mu: 0.95, min: 0.15, max: 1,
+      regional: {revertPerStep: 0.08, sigmaPerStep: 0.02}, local: {revertPerStep: 0.2222, sigmaPerStep: 0.02}},
+  },
+  weather: {
+    src: 'S-10 heat and storm shares as the classic day (params HEAT_SHARE, STORM_SHARE). mildShare: SPEC J-13 / P-3 day types, heat 15 / hot 30 / mild 55 (a starting value; desk/README.md C-2: drawn among the days that are not heatwaves)',
+    heatShare: P.HEAT_SHARE.value,
+    stormShare: P.STORM_SHARE.value,
+    mildShare: 0.55,
+  },
+  day: {weekend: false},
+  temperatureC: {
+    simplified: true,
+    note: 'table: the classic (hot-day) temperatures (' + LEG + ' L286), which also drive P-3\'s cooling load on MILD days. mildTable: what a MILD day displays (desk/README.md C-3): game values, display only.',
+    table: [[0, 26], [4, 23], [6, 22], [9, 27], [12, 32], [15, 35], [17, 36], [19, 33], [22, 29], [24, 26]],
+    mildTable: [[0, 19], [4, 16], [6, 15], [9, 19], [12, 23], [15, 25], [17, 25], [19, 23], [22, 20], [24, 19]],
+  },
+});
+
+/**
+ * The game's weekend day (Phase 2a; desk/README.md C-2, C-14): DESK on a Saturday or Sunday
+ * (P-3: demand x 0.92), with its own, leaner 04:00 commitment: coal 4 has been off since Friday
+ * night, so a do-nothing weekend cannot pass. The app picks it when the seed reads as a weekend
+ * date; the sim never reads a date.
+ */
+export const DESK_WEEKEND = Object.assign({}, DESK, {
+  id: 'desk-weekend',
+  name: 'Late-summer weekend, coal 4 off since Friday night',
+  day: {weekend: true},
+  commitment: Object.assign({}, DESK.commitment, {
+    src: 'The DESK 04:00 commitment with coal 4 off since Friday night (desk/README.md C-14: three coal at 540 MW, CCGT 1 at 480 MW, hydro balancing): simplified; stage C tunes it.',
+    units: {coal1: 540, coal2: 540, coal3: 540, ccgt1: 480, hydro1: 140, hydro2: 140},
+  }),
 });
 
 deepFreeze(CLASSIC);
 deepFreeze(DESK);
+deepFreeze(DESK_WEEKEND);
 
-export const SCENARIOS = Object.freeze({classic: CLASSIC, desk: DESK});
+export const SCENARIOS = Object.freeze({classic: CLASSIC, desk: DESK, 'desk-weekend': DESK_WEEKEND});
 
 /** Scenario by id; throws on an unknown id. */
 export function getScenario(id) {

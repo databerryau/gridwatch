@@ -29,7 +29,7 @@ export const DAY_MIN = DAY_S / S_PER_MIN;
  */
 export const TRACE_TICKS = 2 * V.WATCH_S * TPS;
 /** The watch's catch sources, in physical order (K-15, J-25), as keys of conts[].caught. */
-export const CAUGHT_KEYS = Object.freeze(['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW']);
+export const CAUGHT_KEYS = Object.freeze(['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW', 'inverterMW']);
 /** Minute fields recorded from observe() (see commitMinute). */
 export const MINUTE_FIELDS = Object.freeze(['fMin', 'fMax', 'fMean', 'demand', 'served', 'shed', 'supply', 'renew',
   'price', 'level', 'r5', 'L', 'battery', 'tie']);
@@ -115,6 +115,8 @@ export function onTick(r, state) {
       tr.caught.governorsMW[i] = ph.govTotalMW - p.governorsMW;
       tr.caught.loadReliefMW[i] = ph.loadReliefMW - p.loadReliefMW;
       tr.caught.uflsMW[i] = ph.shedMW - p.uflsMW;
+      // Phase 2a (desk/README.md §19.2): the inverters' over-frequency back-off, as the sim's record counts it.
+      tr.caught.inverterMW[i] = 0 - ((ph.renPfrMW || 0) + (ph.roofPfrMW || 0)) - (p.inverterMW || 0);
       tr.len = k + 1;
     }
   }

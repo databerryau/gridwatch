@@ -92,14 +92,19 @@ export function heatMultAt(heat, s) {
 // ------------------------------------------------------------------ pre-roll (stage A)
 
 /**
- * The day's weather class, from one ext draw: 'heat' | 'storm' | 'calm'.
- * Hidden from the player until announced (never in observe()).
+ * The day's weather class, from one ext draw: 'heat' | 'storm' | 'calm', and (Phase 2a, P-3;
+ * desk/README.md C-2) its temperature type from a second draw on the same stream (a = 1):
+ * 'HEATWAVE' iff cls is 'heat', else 'MILD' with probability mildShare / (1 - heatShare) (so
+ * mildShare is a share of ALL days), else 'HOT'. With mildShare 0 (or absent) no day is MILD.
+ * Hidden from the player until announced (never in observe()): createState reads temp once, to
+ * set the public state.day (a heatwave day reads 'HOT' there); nothing else reads it.
  */
 export function prerollRegime(seed, scn) {
   const u = uniform(seed, STREAM.EXT_REGIME, 0);
   const w = scn.weather;
   const cls = u < w.heatShare ? 'heat' : u < w.heatShare + w.stormShare ? 'storm' : 'calm';
-  return {cls};
+  const mild = uniform(seed, STREAM.EXT_REGIME, 1) < (w.mildShare || 0) / (1 - w.heatShare);
+  return {cls, temp: cls === 'heat' ? 'HEATWAVE' : mild ? 'MILD' : 'HOT'};
 }
 
 // Mean-reverting series at 1-min spacing. `changes` is a time-sorted list of
@@ -167,7 +172,8 @@ function seriesAt(arr, s) {
 /**
  * Set state.env for the current grid second (called by step() at every second boundary,
  * after events.applyDue, so a smelter trip shows in demand in the same second).
- * Reads: tick, seed, scn, ext, smelter.loadMW. Writes: env.* only.
+ * Reads: tick, seed, scn, ext, smelter.loadMW. Writes: env.* only (env.roofSubMW and
+ * env.roofClearFrac in place: no allocation).
  */
 export function sampleSecond(state) {
   const s = Math.floor(state.tick / TPS);
@@ -187,6 +193,12 @@ export function sampleSecond(state) {
   env.tempC = tableLinear(scn.temperatureC.table, h) + (env.heatActive ? V.HEAT_TEMP_UPLIFT_C : 0);
   env.neighbourPrice = neighbourPrice(scn, h);
   env.exportLimitMW = exportLimitMW(h);
+  // Rooftop PV (P-1, P-2; Phase 2a, desk/README.md §19.2). Stage A writes the neutral values on
+  // every scenario (no rooftop, clear suburbs) into the existing arrays; the world job fills in
+  // the model, and the identity demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW).
+  env.rooftopMW = 0;
+  const sub = env.roofSubMW, clr = env.roofClearFrac;
+  for (let j = 0; j < sub.length; j++) { sub[j] = 0; clr[j] = 1; }
 }
 
 // ------------------------------------------------------------------ forecast (stage B: events)
@@ -269,9 +281,13 @@ function smelterLoadAt(sm, pending, t) {
  * (state.news). Never reads state.ext.
  *
  * Returns {fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[],
- * neighbourPrice[], exportLimitMW[]}, column k (0-based) at grid second fromS + (k + 1) *
- * stepS. The last two are the public daily shapes (P-6, F-13), exact, for the tie's merit
- * order in the L-0 plan. horizonS may run to the end of the sim day (observe's dayAhead).
+ * neighbourPrice[], exportLimitMW[], underlyingP50[], rooftopMW[]}, column k (0-based) at grid
+ * second fromS + (k + 1) * stepS. neighbourPrice and exportLimitMW are the public daily shapes
+ * (P-6, F-13), exact, for the tie's merit order in the L-0 plan. Phase 2a (desk/README.md §19.3):
+ * demandP50 / P10 / P90 stay OPERATIONAL; underlyingP50 = demandP50 + rooftopMW + the smelter's
+ * expected missing load at that column; rooftopMW is the rooftop forecast as if every inverter
+ * were connected (0 in every column at stage A). horizonS may run to the end of the sim day
+ * (observe's dayAhead).
  *
  * Integrated minute by minute (so the result does not depend on stepS):
  *   demand P50 = DEM(h) x announced heat multiplier + the present deviation decaying at
@@ -299,7 +315,7 @@ export function forecast(state, horizonS, stepS) {
   const sm = state.smelter;
   const smPending = !sm.returning && sm.returnS > s0 && sm.loadMW < V.SMELTER_MW - V.MW_EPS;
   const out = {fromS: s0, stepS, n, demandP50: [], demandP10: [], demandP90: [], windMW: [], solarMW: [],
-    neighbourPrice: [], exportLimitMW: []};
+    neighbourPrice: [], exportLimitMW: [], underlyingP50: [], rooftopMW: []};
   let dev = env.underlyingMW - demandBaseMW(scn, env.h) * heatMultAt(heat, s0);
   let wind = env.windFrac, clear = env.clearness, varOU = 0, decay = 1, t = s0;
   for (let k = 0; k < n; k++) {
@@ -316,7 +332,8 @@ export function forecast(state, horizonS, stepS) {
       clear += (muAt(clearMu, cPlan, t) - clear) * g;
     }
     const h = hourOfDay(scn, s);
-    const p50 = demandBaseMW(scn, h) * heatMultAt(heat, s) + dev - (V.SMELTER_MW - smelterLoadAt(sm, smPending, s));
+    const under = demandBaseMW(scn, h) * heatMultAt(heat, s) + dev; // before the smelter term (and, from the world job, rooftop)
+    const p50 = under - (V.SMELTER_MW - smelterLoadAt(sm, smPending, s));
     const band = V.Z_P90 * Math.sqrt(varOU + fine2 * (1 + decay * decay));
     out.demandP50.push(p50);
     out.demandP10.push(p50 - band);
@@ -325,6 +342,8 @@ export function forecast(state, horizonS, stepS) {
     out.solarMW.push(clearSkySolarMW(scn, h) * clear);
     out.neighbourPrice.push(neighbourPrice(scn, h));
     out.exportLimitMW.push(exportLimitMW(h));
+    out.underlyingP50.push(under);
+    out.rooftopMW.push(0); // stage A: no rooftop in the forecast yet (Phase 2a world job)
   }
   return out;
 }
