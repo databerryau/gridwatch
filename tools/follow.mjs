@@ -126,11 +126,20 @@ function summaryOf(r) {
     planCost: planCost(sc.cost), totalCost: totalCost(sc.cost), spillMWh: sc.spillMWh || 0};
 }
 
-/** One seed: the followed day, par's day beside it, and each STOP's quoted saving against the realised difference. */
-function runOne(scenario, seed, o) {
+/**
+ * One seed: the followed day, par's day beside it, and each STOP's quoted saving against the
+ * realised difference.
+ * @param {object} scenario
+ * @param {number} seed
+ * @param {{follow?:boolean, untilH?:number, stops?:boolean, par?:boolean, lines?:boolean, objective?:function}} o
+ *   objective: the line to follow instead of app/objective.js's (tests; the STOP re-runs wrap the same one)
+ * @returns {object} the row the report prints (see report())
+ */
+export function followSeed(scenario, seed, o) {
   const t0 = process.hrtime.bigint();
   let batt = null; // the battery at 16:30 (§21.4 accept: on hot days at or above par's level)
-  const day = followDay(seed, scenario, {follow: o.follow, untilH: o.untilH, onMinute: (st, obs) => { if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh; }});
+  const day = followDay(seed, scenario, {follow: o.follow, untilH: o.untilH, objective: o.objective,
+    onMinute: (st, obs) => { if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh; }});
   const row = Object.assign({seed, day: dayType(day.st)}, summaryOf(day));
   const kinds = {};
   for (const x of day.said) {
@@ -144,9 +153,9 @@ function runOne(scenario, seed, o) {
   row.battAt1630 = batt;
   if (o.lines) row.lines = day.said.map(x => hhmm(x.s) + ' [' + x.level + ' ' + x.kind + (x.accepted ? '' : ' REFUSED') + '] ' + JSON.stringify(x.action) + '  ' + x.text);
   row.stops = [];
-  if (o.stops && o.follow) {
+  if (o.stops !== false && o.follow !== false) {
     for (const {line, untilS} of stopLines(day.said)) {
-      const alt = summaryOf(followDay(seed, scenario, {untilH: o.untilH, objective: skipping(line, untilS)}));
+      const alt = summaryOf(followDay(seed, scenario, {untilH: o.untilH, objective: skipping(line, untilS, o.objective)}));
       row.stops.push({atS: line.s, at: hhmm(line.s), unit: line.action.unit, until: hhmm(untilS), quoted: quotedSaving(line), realised: alt.planCost - row.planCost,
         realisedTotal: alt.totalCost - row.totalCost, unservedSkipped: alt.unservedMWh, blackSkipped: alt.black});
     }
@@ -179,7 +188,7 @@ function runWorkers(o, seeds) {
 function workerMain() {
   process.on('message', m => {
     const scenario = getScenario(m.o.scenario);
-    for (const seed of m.seeds) process.send({row: runOne(scenario, seed, m.o)});
+    for (const seed of m.seeds) process.send({row: followSeed(scenario, seed, m.o)});
     process.disconnect();
   });
 }
@@ -239,11 +248,11 @@ async function main() {
   const t0 = Date.now();
   let rows;
   if (o.workers > 1 && seeds.length > 1) rows = await runWorkers(o, seeds);
-  else rows = seeds.map(seed => runOne(scenario, seed, o));
+  else rows = seeds.map(seed => followSeed(scenario, seed, o));
   rows.sort((a, b) => seeds.indexOf(a.seed) - seeds.indexOf(b.seed));
   if (o.json) { for (const r of rows) console.log(JSON.stringify(r)); return; }
   report(o, scenario, rows, (Date.now() - t0) / 1000);
 }
 
-// Run as a script (or as one of its own workers); tests import quotedSaving, skipping and stopLines.
+// Run as a script (or as one of its own workers); tests import followSeed, quotedSaving, skipping and stopLines.
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main().catch(e => { console.error(e); process.exit(1); });

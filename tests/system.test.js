@@ -7,9 +7,10 @@ import {runPar} from '../sim/autopilot.js';
 import {createSystem, systemInputs, redispatch, commitSig, DISPATCH_S} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {SLOW, ticksAt, injectTrip} from './lib/sim-helpers.js';
+import {SLOW, slowOnly, ticksAt, injectTrip} from './lib/sim-helpers.js';
 import {followDay} from './lib/follow.js';
-import {quotedSaving, stopLines, skipping, planCost, PLAN_COST_KEYS} from '../tools/follow.mjs';
+import {objective} from '../app/objective.js';
+import {followSeed, quotedSaving, stopLines, skipping, planCost, PLAN_COST_KEYS} from '../tools/follow.mjs';
 
 const TPS = V.TICKS_PER_S;
 const SEEDS = n => Array.from({length: n}, (_, i) => i + 1);
@@ -218,4 +219,31 @@ test('tools/follow.mjs: a STOP line\'s quoted saving is read from the line; the 
   // followDay takes it as its objective: a day with every action dropped is the day with no input.
   const none = followDay(7, DESK, {untilH: 6, objective: () => null}), idle = followDay(7, DESK, {untilH: 6, follow: false});
   assert.equal(hashState(none.st), hashState(idle.st));
+});
+
+test('tools/follow.mjs end to end: a followed STOP is re-run skipped, and its quoted saving is set against the realised difference', slowOnly(), () => {
+  // The objective has no STOP branch until wave 3, so the line is synthetic: the standing objective,
+  // plus one STOP of CCGT 1 at 10:30 on a mild weekday (at its floor in the belly), quoting $20,000.
+  const stopAt = ticksAt(10, 30) / TPS;
+  const line = (obs, ctx) => {
+    const x = objective(obs, ctx), u = obs.units.find(q => q.id === 'ccgt1');
+    if ((!x || !x.action) && obs.s >= stopAt && u.mode === 'on' && u.stopBlock === '') {
+      return {level: 'plan', kind: 'stop', text: 'RIVERTON CCGT 1 is not needed before the evening. Stop it: saves about $20,000.', targets: ['guard-stop-ccgt1'],
+        action: {type: 'stop', unit: 'ccgt1'}, startBy: -1, short: null, long: null};
+    }
+    return x;
+  };
+  const row = followSeed(DESK, 1, {untilH: 14, par: false, objective: line});
+  assert.equal(row.day, 'MILD');
+  assert.equal(row.stops.length, 1, JSON.stringify(row.kinds));
+  const s = row.stops[0];
+  assert.equal(s.unit, 'ccgt1');
+  assert.equal(s.at, '10:30');
+  assert.equal(s.quoted, 20000);
+  // Skipped, CCGT 1 sits at its 175-MW floor to 14:00 burning gas at $74 and $3,000 an hour of
+  // no-load while solar is spilled: the day with the STOP is the cheaper one.
+  assert.ok(s.realised > 20000 && s.realised < 120000, 'realised ' + Math.round(s.realised));
+  assert.equal(s.unservedSkipped, 0);
+  // And with no STOP followed the table is empty.
+  assert.deepEqual(followSeed(DESK, 1, {untilH: 6, par: false}).stops, []);
 });

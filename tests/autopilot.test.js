@@ -333,6 +333,16 @@ test('S-14 rule 2 (C-12): par charges whenever the price is at or below $0 or po
   assert.equal(r.memo.lastOrigin, '', 'a price below $0 with nothing spilled and no window: nothing to order, ' + JSON.stringify(r.d));
   r = early(() => {});
   assert.notEqual(r.memo.lastOrigin, 'rule6');
+  // The threshold is SURPLUS_MIN_MW exactly: 50 MW spilled at a positive price is not a surplus, 51 MW is.
+  r = early(obs => { obs.solar.autoMW = V.SURPLUS_MIN_MW; });
+  assert.notEqual(r.memo.lastOrigin, 'rule6');
+  r = early(obs => { obs.solar.autoMW = V.SURPLUS_MIN_MW + 1; });
+  assert.deepEqual(r.d, [{type: 'battery', mode: 'charge', mw: V.SURPLUS_MIN_MW + 1}]);
+  // The price alone keeps a charge order going (at $0, 30 MW spilled); at a positive price it is ended.
+  r = early(obs => { Object.assign(obs.battery, {mode: 'charge', orderMW: 100}); obs.solar.autoMW = 30; obs.price.mwh = 0; });
+  assert.notEqual(r.memo.lastOrigin, 'rule6', 'kept at $0: ' + JSON.stringify(r.d));
+  r = early(obs => { Object.assign(obs.battery, {mode: 'charge', orderMW: 100}); obs.solar.autoMW = 30; obs.price.mwh = 26; });
+  assert.deepEqual(r.d, [{type: 'battery', mode: 'idle', mw: 0}]);
   // In the evening window a price at or below $0 turns a discharge into a charge (never sell at a negative price).
   r = at(obs => { obs.s = ticksAt(17, 0) / TPS; obs.tick = ticksAt(17, 0) + 1; obs.dayAhead = null; Object.assign(obs.battery, {mode: 'discharge', orderMW: 140});
     obs.solar.autoMW = 90; obs.price.mwh = V.RENEWABLE_OFFER; });
@@ -458,6 +468,56 @@ test('P-12: the dispatch is for the LIT operational demand: a dark suburb takes 
   assert.ok(Math.abs(dark.obs.demand.nowMW * (1 - lit.share) - dark.obs.demand.litMW) > 40, 'not nowMW x (1 - shed)');
 });
 
+test('rule 8\'s adequacy walk reads wind and solar as AVAILABLE: what the dispatch holds back in a surplus is not a shortage (C-6)', () => {
+  // The mild noon with the tie out and the coal machines poked nearly unavailable, so firm capacity
+  // is small: the present is covered only because the sun and the wind are there. With 1,800 MW of
+  // them held back by the dispatch (their OUTPUT is low), reading output would call DR at once.
+  const at = poke => {
+    const obs = quiet(observe(parDayAt(1, DESK, 12, 30)));
+    Object.assign(obs.battery, {mode: 'idle', orderMW: 0, socMWh: 975});
+    Object.assign(obs.tie, {tripped: true, lockoutS: 7200, flowMW: 0, setMW: 0});
+    for (const u of thermalOn(obs)) { u.availMW = 100; u.outMW = 100; u.schedMW = 100; u.basePointMW = 100; }
+    poke(obs);
+    const memo = createAutopilot({proxy: 'lean'}); // rules 1, 2, 7, 8, 9: no commitment rule in front of rule 8
+    return {d: decide(obs, memo), memo, obs};
+  };
+  let r = at(() => {});
+  const avail = r.obs.wind.availMW + r.obs.solar.availMW;
+  assert.ok(avail > 1500 && r.obs.demand.litMW - avail < 700, 'the fixture: ' + avail.toFixed(0) + ' MW of wind and sun for ' + r.obs.demand.litMW.toFixed(0) + ' MW of demand');
+  assert.ok(!r.d.some(x => x.type === 'callDR' || x.type === 'armRERT'), 'nothing held back: ' + JSON.stringify(r.d));
+  const heldBack = obs => { // the dispatch is spilling all but 200 MW (wind after OFGS; autoMW is stored before it)
+    obs.wind.autoMW = obs.wind.availMW - 100; obs.wind.outMW = 100;
+    obs.solar.autoMW = obs.solar.availMW - 100; obs.solar.outMW = 100;
+  };
+  r = at(heldBack);
+  assert.ok(!r.d.some(x => x.type === 'callDR' || x.type === 'armRERT'), 'held back by the dispatch: ' + JSON.stringify(r.d));
+  // The same low output with nothing held back (a still, dark noon) IS a shortage: DR at once.
+  r = at(obs => { heldBack(obs); obs.wind.autoMW = 0; obs.solar.autoMW = 0; obs.wind.availMW = 100; obs.solar.availMW = 100;
+    obs.forecast.windMW = obs.forecast.windMW.map(() => 100); obs.forecast.solarMW = obs.forecast.solarMW.map(() => 100); });
+  assert.deepEqual(r.d, [{type: 'callDR'}]);
+  assert.equal(r.memo.lastOrigin, 'rule8');
+});
+
+test('replan() (the game\'s re-dispatch): the first column, reached in less than a whole column, gets only the ramp its time allows', () => {
+  // A mild afternoon, coal climbing for the evening at 3 MW/min a machine. The plan's grid is the
+  // 15:30 one; the re-dispatch comes at 15:33:20, 100 s before the 15:35 column: the first key is
+  // within 100 s of ramp from where the machines are.
+  const s = parDayAt(1, DESK, 15, 30), memo = createAutopilot({proxy: 'planOnly'});
+  planUpdates(observe(s, {dayAhead: true}), memo);
+  for (let k = 0; k < 200 * TPS; k++) step(s);
+  const obs = observe(s), load = replan(obs, memo);
+  const coal = obs.units.filter(u => u.station === 'coal' && u.mode === 'on');
+  const now = coal.reduce((a, u) => a + u.schedMW, 0), rampS = coal.reduce((a, u) => a + u.rampMWMin / 60, 0);
+  // The dispatcher's working copy (the planLoad writes a key only for a lever move of 5 MW or more).
+  const P = memo.plan, j = V.STATION_IDS.indexOf('coal'), k0 = Math.floor((obs.s - P.madeAtS) / P.stepS);
+  assert.equal(P.t0 + k0 * P.stepS, ticksAt(15, 35) / TPS, 'the first column is 15:35');
+  assert.equal(P.t0 + k0 * P.stepS - obs.s, 100);
+  const first = P.lever[j][k0], second = P.lever[j][k0 + 1];
+  assert.ok(Math.abs(first - (now + rampS * 100)) < 0.5, 'coal at 15:35: ' + first.toFixed(1) + ' MW from ' + now.toFixed(1) + ' MW in 100 s (' + (rampS * 100).toFixed(1) + ' MW of ramp)');
+  assert.ok(Math.abs(second - first - rampS * P.stepS) < 0.5, 'and a whole column of ramp to 15:40: +' + (second - first).toFixed(1) + ' MW');
+  assert.ok(load.stations.coal.every(([t, mw], i, a) => i === 0 || mw - a[i - 1][1] <= rampS * (t - a[i - 1][0]) + 1), 'every key reachable from the one before');
+});
+
 test('the battery in the plan (desk/README.md §21.3): the player\'s order counts for the energy behind it; par\'s window orders end with their window', () => {
   // A HOT morning at 10:00, re-dispatched as the game does it (replan on the system's planOnly memory).
   const supply = (battery, proxy = 'planOnly', memoPoke = {}) => {
@@ -520,8 +580,11 @@ test('S-12: par sheds zero on >= 75% of 100 forced-heatwave seeds', slowOnly(), 
 });
 
 // Phase 2a (S-14 accept; desk/README.md §21.3): S-12 is measured on the game's days too. The
-// classic cases above stay the regression anchor (C-1). Measured at this change (tools/par.js,
-// seeds 1-200 and the first 100 heat seeds): see the wave 2 record in desk/README.md.
+// classic cases above stay the regression anchor (C-1: par's 200 classic days are unchanged by
+// the belly rules, row for row). Measured at this change (tools/par.js, v4-core-2a.0 with the
+// wave 2 par): desk clean on 193/200 raw and 85/100 forced-heat seeds, RERT on 14/200, never
+// black, commitAll dearer on 197/200; desk-weekend clean on 199/200 and 99/100, RERT on 1/200,
+// never black, commitAll dearer on 200/200; rule 4's coal branch fired on none of the 600 days.
 for (const scn of [DESK, DESK_WEEKEND]) {
   test('S-12 on ' + scn.id + ' (the belly, S-14): par sheds zero on >= 85% of 200 raw seeds, arms RERT on <= 25%, and is never black', slowOnly(), () => {
     let clean = 0, rert = 0;
