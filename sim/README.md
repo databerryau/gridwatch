@@ -308,7 +308,11 @@ it; nothing else reads `ext.regime.temp`.
 `msl = {level, minMW, atS, sinceS}` (writer: `events.mslSecond`, every `MSL_CHECK_S` = 300 s).
 `minMW` is the minimum forecast operational demand: the least of `env.demandMW` now and
 `forecast.demandP50` over the 4.5-h window; `atS` its grid second (now, when the present is the
-minimum). Both are refreshed at every check, unrounded. `level` 0..3: a level is **reached**
+minimum). Both are refreshed at every check, unrounded. In the last 4.5 h of the sim day the
+window runs past 04:00, as the forecast's own columns do (tomorrow morning, on the same day
+type), so `atS` may be up to `FC_HORIZON_S` past `DAY_S`: a consumer that maps it onto the day
+(a `dayAhead` column, a plan position) clamps it. No level is reached at night (no rooftop), so
+no record carries such a time. `level` 0..3: a level is **reached**
 when `minMW` is at or below its threshold (`MSL1_MW` 1,600, `MSL2_MW` 1,300, `MSL3_MW` 1,000,
 each raised by `MSL_TIE_OUT_MW` while `tie.tripped`) and **left** only once `minMW` is more than
 `MSL_CLEAR_MW` above it. `sinceS` is the grid second of the last change of level (-1: none yet
@@ -579,7 +583,11 @@ a lower level, the clear), named for the level reached. These records carry thre
 levels 1 / 2 / 3 and `good` for the clear, `minMW` rounded to 1 MW and `atS` the grid second of
 that minimum. `msg` is complete on its own in at most 25 words and names the level's threshold
 as it stands, e.g. "MSL1 notice: lowest forecast demand 1,850 MW at 12:40. MSL1 is 1,900 MW (tie
-out): two load trips above the security floor." Never a news item (news is weather). The `DUCK`
+out): two load trips above the security floor." When the minimum is the present second (`atS`
+equals the record's own second: a potline trip, or a clear while demand is rising) the value is
+measured, not forecast, and the message says so: "MSL1 notice: demand is at its lowest now,
+1,471 MW. MSL1 is 1,600 MW: two load trips above the security floor." Never a news item (news is
+weather). The `DUCK`
 notice has its own wording on a scenario with rooftop PV (the sun leaving the rooftops).
 
 Message text lives in these records for the bench; Phase 1a moves wording to `content/text.js`.

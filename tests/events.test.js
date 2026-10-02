@@ -329,9 +329,38 @@ test('P-2 forecast: rooftop follows the capacity-weighted clearness now toward t
   const x = FC(heat), y = FC(quiet);
   const k12 = colAt(x, secOf(12, 30)), k14 = colAt(x, secOf(14, 30));
   assert.equal(x.rooftopMW[k12], y.rooftopMW[k12], 'no derate before the ramp');
+  // Along the ramp (12:30-13:30) the derate is r(s) of the full 8%, as heatMultAt ramps the uplift;
+  // the clear skies start at the onset, so until then the ratio is the derate alone.
+  for (const [m, want] of [[45, 0.98], [60, 0.96], [75, 0.94]]) {
+    const k = colAt(x, secOf(12, m));
+    assert.ok(Math.abs(x.rooftopMW[k] / y.rooftopMW[k] - want) < 1e-12, '12:30 + ' + (m - 30) + ' min: ' + x.rooftopMW[k] / y.rooftopMW[k]);
+    assert.ok(Math.abs(x.underlyingP50[k] / y.underlyingP50[k] - (1 + V.HEAT_DEMAND_UPLIFT * (m - 30) / 60)) < 0.002, 'the uplift on the same ramp');
+  }
   const ratio = x.rooftopMW[k14] / y.rooftopMW[k14];
   assert.ok(ratio > 0.92 && ratio < 0.95, 'x 0.92 hot panels, a little back from the clear skies: ' + ratio);
   assert.ok(Math.abs(x.underlyingP50[k14] / y.underlyingP50[k14] - 1.065) < 0.002, 'and the +6.5% uplift on the underlying demand');
+});
+
+test('C-5 forecast: a cloud front is over the solar precinct only: its news moves the utility-solar forecast and nothing of the rooftop or demand forecast', () => {
+  for (const seed of [7, 4]) { // 7: HOT, cloud warned 11:29; 4: a heatwave announced 10:30, cloud warned 10:32
+    const s = createState(seed, DESK);
+    const warn = s.ext.events.find(e => e.type === 'cloudWarn');
+    assert.ok(warn.atS > secOf(9) && warn.atS < secOf(13), 'seed ' + seed + ': a front warned in the sunny morning');
+    goTo(s, warn.atS + 60);
+    assert.equal(s.news.filter(n => n.kind === 'cloud').length, 1);
+    assert.equal(s.news.some(n => n.kind === 'heat'), seed === 4);
+    const quiet = clone(s);
+    quiet.news = quiet.news.filter(n => n.kind !== 'cloud');
+    for (const horizon of [V.FC_HORIZON_S, V.DAY_S - s.env.s]) { // the 4.5-h forecast and dayAhead
+      const a = forecast(s, horizon, V.FC_STEP_S), b = forecast(quiet, horizon, V.FC_STEP_S);
+      assert.ok(a.rooftopMW[0] > 2000, 'the roofs are in play: ' + a.rooftopMW[0]);
+      for (const key of ['rooftopMW', 'underlyingP50', 'demandP50', 'demandP10', 'demandP90', 'windMW']) {
+        assert.deepEqual(a[key], b[key], 'seed ' + seed + ' ' + key);
+      }
+      assert.notDeepEqual(a.solarMW, b.solarMW, 'the front is in the utility-solar forecast');
+      assert.ok(Math.max(...a.solarMW.map((x, k) => b.solarMW[k] - x)) > 200, 'by hundreds of MW');
+    }
+  }
 });
 
 test('L-2: the band carries the rooftop cloud process\'s own forecast error (regional sky + local terms), in MW at that hour\'s sun; none in the dark', () => {
@@ -444,9 +473,81 @@ test('P-4 / C-9: every threshold is 300 MW higher while the tie is out; demand n
   mslSecond(s, fcMin(s, 5000), out);
   assert.deepEqual(s.msl, {level: 1, minMW: 1500, atS: s.env.s, sinceS: s.env.s});
   assert.equal(out[4].atS, s.env.s);
+  // A measured present value is never called a forecast (atS is the record's own second).
+  assert.equal(out[4].msg, 'MSL1 notice: demand is at its lowest now, 1,500 MW. MSL1 is 1,600 MW: two load trips above the security floor.');
+  s.tie.tripped = true;
+  s.env.demandMW = 1450;
+  mslSecond(s, fcMin(s, 5000), out);
+  assert.equal(out[5].msg, 'MSL2 notice: demand is at its lowest now, 1,450 MW. MSL2 is 1,600 MW (tie out): one load trip above the security floor.');
+  s.tie.tripped = false;
+  s.env.demandMW = 1800;
+  mslSecond(s, fcMin(s, 5000), out);
+  assert.equal(out[6].msg, 'MSL notice cancelled: demand is at its lowest now, 1,800 MW. MSL1 is 1,600 MW.');
+  for (const r of out) {
+    assert.ok(words(r.msg) <= 25, words(r.msg) + ' words: ' + r.msg);
+    assert.equal(/ now, /.test(r.msg), r.atS === s.env.s, r.msg);
+    assert.equal(/forecast demand .* at \d\d:\d\d\./.test(r.msg), r.atS !== s.env.s, r.msg);
+  }
 });
 
-test('P-4: step() checks the MSL level every MSL_CHECK_S, straight after the weather, with the 4.5-h forecast of that second', () => {
+test('P-4 / C-9: msl.sinceS is the second of the last change of level, the clear included; minMW and atS move at every check', () => {
+  const s = createState(1, DESK_WEEKEND), out = [];
+  const t0 = secOf(9), check = min => { mslSecond(s, fcMin(s, min), out); return clone(s.msl); };
+  goTo(s, t0);
+  assert.deepEqual(check(1700), {level: 0, minMW: 1700, atS: t0 + 600, sinceS: -1}, 'no change yet today');
+  goTo(s, t0 + 300);
+  assert.deepEqual(check(1550), {level: 1, minMW: 1550, atS: t0 + 900, sinceS: t0 + 300}, 'the rise');
+  goTo(s, t0 + 600);
+  assert.deepEqual(check(1650), {level: 1, minMW: 1650, atS: t0 + 1200, sinceS: t0 + 300}, 'held: sinceS stays');
+  goTo(s, t0 + 900);
+  assert.deepEqual(check(1250), {level: 2, minMW: 1250, atS: t0 + 1500, sinceS: t0 + 900}, 'a further rise');
+  goTo(s, t0 + 1200);
+  assert.deepEqual(check(1500), {level: 1, minMW: 1500, atS: t0 + 1800, sinceS: t0 + 1200}, 'a fall');
+  goTo(s, t0 + 1500);
+  assert.deepEqual(check(1800), {level: 0, minMW: 1800, atS: t0 + 2100, sinceS: t0 + 1500}, 'the clear moves sinceS too');
+  goTo(s, t0 + 1800);
+  assert.deepEqual(check(1900), {level: 0, minMW: 1900, atS: t0 + 2400, sinceS: t0 + 1500}, 'and it stays at the clear\'s second');
+  assert.deepEqual(out.map(r => [r.code, r.tick / TPS]), [['MSL1', t0 + 300], ['MSL2', t0 + 900], ['MSL1', t0 + 1200], ['MSL_CLEAR', t0 + 1500]]);
+});
+
+test('P-4 / C-9: the window is the whole 4.5 h: a minimum in the last of the 54 columns counts, at its own second', () => {
+  const s = createState(1, DESK_WEEKEND); // MILD weekend: at 08:30 the belly (13:00) is the window's last column
+  goTo(s, secOf(8, 30));
+  const fc = FC(s), out = [];
+  assert.equal(fc.n, 54);
+  assert.equal(fc.n * fc.stepS, 4.5 * H);
+  const last = fc.demandP50[53];
+  assert.ok(fc.demandP50.slice(0, 53).every(x => x > last) && s.env.demandMW > last, 'the minimum is the last column');
+  assert.ok(last > V.MSL1_MW && last <= V.MSL1_MW + V.MSL_TIE_OUT_MW, 'between MSL1 and MSL1 with the tie out: ' + last);
+  mslSecond(s, fc, out);
+  assert.deepEqual(s.msl, {level: 0, minMW: last, atS: secOf(13), sinceS: -1});
+  // A synthetic forecast with only its 54th column low: the notice names that column's second.
+  const flat = {fromS: s.env.s, stepS: fc.stepS, n: 54, demandP50: new Array(54).fill(5000)};
+  flat.demandP50[53] = 1580;
+  mslSecond(s, flat, out);
+  assert.deepEqual(s.msl, {level: 1, minMW: 1580, atS: secOf(13), sinceS: s.env.s});
+  assert.deepEqual(out.map(r => [r.code, r.minMW, r.atS]), [['MSL1', 1580, secOf(13)]]);
+  assert.equal(out[0].msg, 'MSL1 notice: lowest forecast demand 1,580 MW at 13:00. MSL1 is 1,600 MW: two load trips above the security floor.');
+});
+
+test('P-4: late in the day the window runs past 04:00, as the forecast\'s columns do: msl.atS may be up to FC_HORIZON_S past DAY_S (level 0, no record)', () => {
+  for (const scn of [DESK, DESK_WEEKEND]) {
+    const s = createState(4, scn), out = [];
+    let past = 0;
+    for (let sec = secOf(22); sec < V.DAY_S; sec += V.MSL_CHECK_S) {
+      goTo(s, sec);
+      mslSecond(s, FC(s), out);
+      assert.ok(s.msl.atS >= sec && s.msl.atS <= sec + V.FC_HORIZON_S, 'second ' + sec + ': atS ' + s.msl.atS);
+      if (s.msl.atS > V.DAY_S) past++;
+    }
+    assert.ok(past > 0, 'documented (sim/README.md §5): tomorrow morning, on the same day type');
+    assert.equal(s.msl.level, 0);
+    assert.equal(out.filter(r => /^MSL/.test(r.code || '')).length, 0, 'never a notice at night');
+  }
+});
+
+// (The window's length, the returned record and the place in the second are the three cases after this one.)
+test('P-4: step() checks the MSL level on every MSL_CHECK_S-th grid second, with that second\'s forecast, and not between checks', () => {
   const s = createState(1, DESK_WEEKEND);
   step(s);
   const want = () => Math.min(s.env.demandMW, ...FC(s).demandP50);
@@ -459,6 +560,69 @@ test('P-4: step() checks the MSL level every MSL_CHECK_S, straight after the wea
   assert.equal(s.env.s, V.MSL_CHECK_S);
   assert.equal(s.msl.minMW, want());
   assert.notEqual(s.msl.minMW, first.minMW);
+});
+
+/** The MSL records among step()'s returned events. */
+const mslRecs = evs => evs.filter(r => r.kind === 'log' && /^MSL/.test(r.code));
+const REC_KEYS = ['tick', 'kind', 'sev', 'code', 'msg', 'level', 'minMW', 'atS'];
+
+test('P-4: step() hands mslSecond the 4.5-h forecast (FC_HORIZON_S): a minimum 4.5 h ahead is the one it keeps', () => {
+  const s = createState(1, DESK_WEEKEND);
+  s.tick = secOf(8, 30) * TPS; // a test poke: straight to 08:30, a check second, with the belly 4.5 h ahead
+  const evs = step(s);
+  const fc = FC(s);
+  assert.equal(s.env.s, secOf(8, 30));
+  assert.equal(s.msl.minMW, Math.min(s.env.demandMW, ...fc.demandP50));
+  assert.equal(s.msl.atS, secOf(13), 'the last column: 13:00');
+  assert.ok(s.msl.atS - s.env.s > 2 * H, 'a lead of ' + (s.msl.atS - s.env.s) / H + ' h');
+  assert.ok(s.msl.minMW < Math.min(...fc.demandP50.slice(0, 24)) - 500, 'two hours of forecast would miss it by ' +
+    (Math.min(...fc.demandP50.slice(0, 24)) - s.msl.minMW) + ' MW');
+  assert.ok(s.msl.minMW < Math.min(...forecast(s, H, V.FC_STEP_S).demandP50) - 1000, 'and one hour by far more');
+  assert.equal(s.msl.level, 0);
+  assert.deepEqual(mslRecs(evs), [], 'no change of level, no record');
+});
+
+test('P-4: step() returns the §19.3 record on a change of level (a rise with the tie out, 4.5 h ahead; the clear)', () => {
+  // The clear: a level left over from an earlier check, on a morning far above MSL1.
+  const a = createState(1, DESK_WEEKEND);
+  a.msl.level = 1;
+  const cleared = mslRecs(step(a));
+  assert.equal(cleared.length, 1);
+  assert.deepEqual(Object.keys(cleared[0]), REC_KEYS);
+  assert.deepEqual({...cleared[0], msg: ''}, {tick: 0, kind: 'log', sev: 'good', code: 'MSL_CLEAR', msg: '', level: 0,
+    minMW: Math.round(a.msl.minMW), atS: a.msl.atS});
+  assert.deepEqual(a.msl, {level: 0, minMW: a.env.demandMW, atS: 0, sinceS: 0}, 'at 04:00 demand only rises: the minimum is now');
+  assert.match(cleared[0].msg, /^MSL notice cancelled: demand is at its lowest now, [\d,]+ MW\. MSL1 is 1,600 MW\.$/);
+  // The rise: 08:30 with the tie out; the 13:00 minimum is under MSL1 + 300 MW.
+  const b = createState(1, DESK_WEEKEND);
+  b.tick = secOf(8, 30) * TPS;
+  b.tie.tripped = true; b.tie.lockoutS = 3 * H;
+  const evs = step(b), up = mslRecs(evs);
+  assert.equal(up.length, 1);
+  assert.deepEqual(Object.keys(up[0]), REC_KEYS);
+  assert.deepEqual({...up[0], msg: ''}, {tick: secOf(8, 30) * TPS, kind: 'log', sev: 'info', code: 'MSL1', msg: '', level: 1,
+    minMW: Math.round(b.msl.minMW), atS: secOf(13)});
+  assert.match(up[0].msg, /^MSL1 notice: lowest forecast demand 1,8\d\d MW at 13:00\. MSL1 is 1,900 MW \(tie out\): two load trips above the security floor\.$/);
+  assert.deepEqual(b.msl, {level: 1, minMW: Math.min(...FC(b).demandP50), atS: secOf(13), sinceS: secOf(8, 30)});
+  assert.ok(up[0].atS - up[0].tick / TPS >= 2 * H, 'a notice with 4.5 h of lead');
+  assert.equal(b.news.length, a.news.length, 'never a news item');
+});
+
+test('P-4: the check runs straight after the weather, before grid.unitsSecond counts the tie\'s lockout: the second the tie returns still tests with the tie out', () => {
+  const s = createState(1, DESK_WEEKEND);
+  s.tick = secOf(8, 30) * TPS;
+  s.tie.tripped = true; s.tie.lockoutS = 1; // back in service this very second (grid.unitsSecond, later in it)
+  const evs = step(s);
+  assert.equal(s.tie.tripped, false, 'the tie came back in this second');
+  const codes = evs.filter(r => r.kind === 'log').map(r => r.code);
+  assert.ok(codes.includes('MSL1') && codes.includes('LINK_BACK'), codes.join(' '));
+  assert.ok(codes.indexOf('MSL1') < codes.indexOf('LINK_BACK'), 'the notice comes before the tie is back: ' + codes.join(' '));
+  assert.deepEqual([s.msl.level, s.msl.sinceS], [1, secOf(8, 30)], 'tested with the tie still out (1,870 MW against 1,900)');
+  // The next check sees the tie back: 1,870 MW is clear of MSL1 (1,600) and of its hysteresis (1,700).
+  s.tick = (secOf(8, 30) + V.MSL_CHECK_S) * TPS;
+  const next = mslRecs(step(s));
+  assert.deepEqual(next.map(r => r.code), ['MSL_CLEAR']);
+  assert.deepEqual([s.msl.level, s.msl.sinceS], [0, secOf(8, 30) + V.MSL_CHECK_S]);
 });
 
 test('P-4: on a mild weekend a potline trip at noon brings MSL1 at the next check, as a log record; it is cancelled once the potline is back', () => {
@@ -475,6 +639,12 @@ test('P-4: on a mild weekend a potline trip at noon brings MSL1 at the next chec
   assert.ok(up.minMW <= V.MSL1_MW && up.minMW > V.MSL2_MW && up.level === 1 && up.kind === 'log');
   assert.ok(up.atS >= up.tick / TPS && up.atS <= up.tick / TPS + V.FC_HORIZON_S);
   assert.ok(clear.tick / TPS > trip + 45 * 60 && clear.minMW > V.MSL1_MW + V.MSL_CLEAR_MW);
+  // The trip is the news: the minimum is the present second, and the message says so (not "forecast").
+  assert.equal(up.atS, up.tick / TPS);
+  assert.match(up.msg, /^MSL1 notice: demand is at its lowest now, 1,4\d\d MW\. MSL1 is 1,600 MW: two load trips above the security floor\.$/);
+  assert.doesNotMatch(up.msg, /forecast/);
+  assert.notEqual(clear.tick, up.tick);
+  assert.equal(s.msl.sinceS, clear.tick / TPS, 'sinceS is the clear\'s second, not the rise\'s');
   assert.ok(!out.some(r => r.kind === 'announce' && /MSL/.test(r.news.text)));
 });
 

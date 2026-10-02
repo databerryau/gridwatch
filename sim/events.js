@@ -375,9 +375,12 @@ const mwText = mw => String(Math.round(mw) + 0).replace(/\B(?=(\d{3})+$)/g, ',')
  * and msl.sinceS (the grid second of the last change of level) move only on a change, and every
  * change pushes one record {tick, kind: 'log', sev, code, msg, level, minMW, atS}: code
  * 'MSL' + level or 'MSL_CLEAR' at 0, sev info / warn / crit for levels 1 / 2 / 3 and good for
- * the clear, minMW rounded to 1 MW, msg complete on its own in at most 25 words. Never a news
- * item (news is weather). On a scenario with no rooftop it returns at once: state.msl keeps its
- * createState value.
+ * the clear, minMW rounded to 1 MW, msg complete on its own in at most 25 words ("lowest
+ * forecast demand X MW at HH:MM", or "demand is at its lowest now, X MW" when the minimum is
+ * the present second: a measured value is never called a forecast). Never a news item (news is
+ * weather). On a scenario with no rooftop it returns at once: state.msl keeps its createState
+ * value. Late in the day the window runs past the end of the sim day, as the forecast's columns
+ * do, so msl.atS may be up to FC_HORIZON_S past DAY_S (tomorrow morning on the same day type).
  * Reads: scn.rooftop.capacityMW, scn.clock, env.{s, demandMW}, tie.tripped, msl, tick, fc.
  * Writes: msl.*.
  * @param {object} state
@@ -403,11 +406,14 @@ export function mslSecond(state, fc, out) {
   msl.level = level;
   msl.sinceS = env.s;
   // The message names the level's own threshold as it stands (a level held by the hysteresis is
-  // up to MSL_CLEAR_MW above it), so it is true on a rise, on a fall and on the clear.
+  // up to MSL_CLEAR_MW above it), so it is true on a rise, on a fall and on the clear. When the
+  // minimum is the present second (a potline trip; a clear with demand rising) it is a measured
+  // value, not a forecast, and the message says so.
   const name = 'MSL' + Math.max(1, level);
-  const msg = (level === 0 ? 'MSL notice cancelled' : name + ' notice') + ': lowest forecast demand ' + mwText(minMW) +
-    ' MW at ' + hhmm(state.scn, atS) + '. ' + name + ' is ' + mwText(MSL_MW[Math.max(1, level) - 1] + lift) + ' MW' +
-    (lift > 0 ? ' (tie out)' : '') + MSL_SAYS[level];
+  const low = atS === env.s ? 'demand is at its lowest now, ' + mwText(minMW) + ' MW' :
+    'lowest forecast demand ' + mwText(minMW) + ' MW at ' + hhmm(state.scn, atS);
+  const msg = (level === 0 ? 'MSL notice cancelled' : name + ' notice') + ': ' + low + '. ' + name + ' is ' +
+    mwText(MSL_MW[Math.max(1, level) - 1] + lift) + ' MW' + (lift > 0 ? ' (tie out)' : '') + MSL_SAYS[level];
   out.push({tick: state.tick, kind: 'log', sev: MSL_SEV[level], code: level === 0 ? 'MSL_CLEAR' : 'MSL' + level, msg,
     level, minMW: Math.round(minMW) + 0, atS});
 }
