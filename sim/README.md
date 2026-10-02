@@ -553,7 +553,7 @@ Every record has `tick` and `kind`; `cue` (optional) names a sound for `audio/`.
 | `log` | `sev: 'info'\|'good'\|'warn'\|'crit'`, `code`, `msg` | any module |
 | `contingency` | `cause`, `id`, `lostMW`, `fHz`, `ekBeforeGWs`, `ekAfterGWs`, `cue: 'horn'` | fleet (trips > 50 MW) - the watch starts on it |
 | `breaker` | `unit` (machine id or `'tie'`), `closed`, `why: 'sync'\|'stop'\|'trip'`, `cue: 'breaker'` | fleet, grid |
-| `ufls` | `stage`, `districts[]`, `mw` (the stage's NET load, Phase 2a P-12: its two districts' underlying load less the rooftop that went with their feeders; near zero or negative at a sunny noon), `cue: 'clack'` | physics |
+| `ufls` | `stage`, `districts[]`, `mw` (the stage's NET load, Phase 2a P-12: its two districts' underlying load less the rooftop they had CONNECTED, which went with their feeders; near zero or negative at a sunny noon; exactly the fall of `phys.servedMW` on that tick), `cue: 'clack'` | physics |
 | `ofgs` | `stage`, `mw` | physics |
 | `shed` | `district`, `why: 'directed'`, `mw` (the district's NET load when it was shed, `fleet.districtColdLoadMW` of a lit district), `cue: 'clack'` | grid |
 | `restore` | `district`, `mw` (its cold-load MW: the undelayed UNDERLYING pickup, x `COLD_LOAD_FACTOR` after 10 min dark; its rooftop returns `ROOF_RECONNECT_S` later, over `ROOF_RAMP_S`) | grid |
@@ -565,6 +565,17 @@ Every record has `tick` and `kind`; `cue` (optional) names a sound for `audio/`.
 
 Phase 1a log codes (kind `log`): `PLAN` (a booked START or STOP refused when due, dropped),
 `SYNC_ROUGH`, `SYNC_REVERSE`, `SYNC_REVERSE_TRIP`.
+
+`ufls`, `shed` and a district that is still reconnecting (Phase 2a; labelled). Both records net
+the rooftop the district had connected when it was shed: all of it normally, none or part of it
+for a district relit less than `ROOF_RECONNECT_S` + `ROOF_RAMP_S` (7 min) ago. `phys.shedMW`
+keeps the §5 formula, `G x shedFrac - city.roofDarkMW`, which takes ALL of a dark district's
+rooftop off, so after a stage has shed a reconnecting district `phys.shedMW` (and the contingency
+record's `caught.uflsMW`, which is its change) is below the stage's record by the rooftop that
+was still off, and `caught` then sums to that much less than `lostMW` (measured: 99.0 MW with
+RED1 relit and waiting when stage 1 operates; 0.000 with every district fully connected). An
+exact figure needs the connected rooftop remembered per district, a state field (desk/README.md
+§19.2); reported for stage C with the K-15 wording.
 
 Message text lives in these records for the bench; Phase 1a moves wording to `content/text.js`.
 
@@ -808,7 +819,9 @@ uflsStages, black, caught}` (JSDoc in the file). Order inside `tick`:
    response (C-7): `renPfrMW` and, through the held `roofHoldFrac`, `roofPfrMW` (§5 phys);
    `loadMW = servedMW - loadReliefMW + roofPfrMW`. No district loop: `fleet.refreshRoof` keeps
    `city.roofDarkMW` / `roofOffMW` (also when a UFLS stage operates in step 6, so the same tick's
-   load already has the stage's rooftop off). The `ufls` record's `mw` is the stage's net load.
+   load already has the stage's rooftop off). The `ufls` record's `mw` is the stage's net load:
+   `G x` the change of `shedFrac` less the change of `city.roofOffMW` across `fleet.operateUfls`
+   (the rooftop its districts had connected; §7 for a district still reconnecting).
 8. `supplyMW` = outputs + tie + wind after OFGS + solar + RERT + battery - `renPfrMW`;
    `imbalanceMW = supplyMW - loadMW`; `fHz += F0 x imbalanceMW x DT / (2 x ekMWs)`; clamp
    [46.5, 53.5]; `ekMWs <= 0` -> black ('inertia').
@@ -924,7 +937,14 @@ rules:
   units or moves base points, 0 in HAND; `agc.atLimitS` counts grid seconds the request
   exceeded all bands. A unit's raise band stops at `HOT_LOADING_FRAC` x availMW (the
   overload gate is its high regulating limit), so AGC never makes a unit run hot (H-2); only
-  a lever moved past the gate does.
+  a lever moved past the gate does. Phase 2a (C-6): while the dispatch is spilling wind or solar
+  (`ren.windAutoMW` or `solarAutoMW` > 0) a LOWERING request goes to the units first, pro rata
+  by their room above MIN and as far as MIN (beyond the regulating band: thermal energy is out
+  of merit while renewables are spilled, and the feed-forward cut assumes every unit at its
+  floor), and only what they cannot take goes to the battery's band. A raising request, and
+  every request on a second with nothing spilled, is shared pro rata within the bands as before,
+  so a day that never spills (the classic day) is unchanged (48 of 48 par days end on the same
+  hash, flags on and off).
 * Battery: `schedMW` toward clamp(signed order + trim, +-(BATT_MW - guardMW)) at the dispatch
   ramp (K-5: guard MW are never available to orders). Near empty / full the schedule (and
   the AGC band "within SoC") is held to P <= sqrt((r/2)^2 + 2 r E) - r/2, the most the
@@ -942,21 +962,49 @@ rules:
   diesel on line (`rert.outMW`: out of the market, but as real; an extension of the contract's
   wording). The battery term is `schedMW - agcTrimMW`, kept between the schedule and the order's
   own target: the dispatch counts the player's order, never AGC's trim, or a trim once given
-  would be matched by less curtailment and stay (an idle battery would fill by itself). While
+  would be matched by less curtailment and stay (an idle battery would fill by itself with the
+  plan at MIN). While
   `surplusMW` > 0 the cut = min(that wind and solar, `surplusMW` + AGC's unmet lowering
-  request), else 0. The request is `-agc.unmetMW` when negative: the ACE left with every lowering
-  band of the units and the battery spent and the frequency still high (so AGC LIMIT is lit
-  while it acts, and it fades as the frequency returns). It is added only in a surplus: outside
+  request), else 0. The request: while `agc.unmetMW` is negative (at AGC's last cycle every
+  lowering band of the units and the battery was spent and the frequency was still high, so AGC
+  LIMIT is lit while it acts), `AGC_BIAS_MW_PER_HZ` x (`last.fMeanHz` - F0) beyond AGC's
+  deadband: the ACE of the second just completed, read every second, so it fades as the frequency
+  returns. (Held for the 4-s AGC cycle it overshot inside the governors' deadband and hunted
+  against AGC's own raise; measured with the units at MIN and the battery charging on its whole
+  inverter, a 12-s cycle of 49.970-50.022 Hz held, 49.994-50.014 Hz read every second. It is
+  smaller, not gone: `agc.unmetMW` still flickers negative there for about a third of the
+  seconds, 4 s at a time, and a few MW more than the surplus are spilled.) It is added only in a
+  surplus: outside
   one, AGC at its lowering limit means the plan holds units above what is needed; they have
   governor room and the remedy is the plan, not spilling wind while gas runs above minimum
   (measured with the request added unconditionally: 4 of 48 classic par days spilled wind with
   no surplus, seed 17 for 908 s around midnight with thirteen units 1,400 MW above their
   minimums; the contract review had found AGC's lower limit reached on 0 of 86,400 s, on seeds
-  1-5). `windAutoMW` and `solarAutoMW` move toward their pro-rata
+  1-5). Outside a floor surplus a stale plan is therefore held by the units' AGC bands, their
+  governors and the inverters' droop alone (measured, AGC on, battery full, floor blocks 50 MW
+  short of a surplus, 30 min: a plan 300 MW above MIN parks at 50.02 Hz, 600 MW at 50.13 Hz,
+  1,000 MW at 50.28 Hz, 1,500 MW at 50.70 Hz with the governors at their cap; never an OFGS
+  stage; reported for stage C). `windAutoMW` and `solarAutoMW` move toward their pro-rata
   share (by present output; wind after OFGS) at `CURTAIL_RAMP_FRAC_MIN`, never above what the
-  manual LIMIT leaves, and back to 0 as the surplus goes. The cut is a cap on output: MW the
-  weather takes from a plant that is held back come out of the held MW first. The tie and the
-  battery are never moved. In HAND the feed-forward term works unchanged (AGC's term is 0);
+  manual LIMIT leaves, and back to 0 as the surplus goes. While a cut is active it is a cap on
+  OUTPUT, as the semi-dispatch cap is: a change of availability lands on the held MW first, in
+  either direction (MW the weather takes from a plant that is held back come out of the held MW;
+  MW it gives back are held too, then released at the ramp if the surplus has room: 350 MW of
+  solar back in one second peaks at 50.03 Hz, 50.32 Hz when they went straight to output). The
+  tie and the battery are never moved by the dispatch. While it is spilling, AGC lowers the
+  units to MIN before it uses the battery (the AGC rule above), so a plan above MIN in a surplus
+  comes down to the floor the cut assumes: falling into a 510-MW surplus on a plan 300 MW above
+  MIN ends with every unit at MIN, 510 MW held back and 50.000 Hz, and an idle battery at 50% in
+  a standing 500-MW surplus gains under 1 MWh in 30 min with the plan 60 to 600 MW above MIN
+  (22.7 to 167.8 MWh when the request was shared pro rata). Coal comes down at 3 MW a minute a
+  machine, so after a step AGC's request is unmet until the units arrive and that is spilled
+  meanwhile (a 510-MW step on a plan 300 MW above MIN: peak 50.41 Hz, up to 72 MW more than the
+  surplus spilled for about 15 min, then the surplus alone). **Not held:** once every unit is at
+  MIN and every MW of wind and solar is held back (must-run above demand, MSL3), AGC's lowering
+  band on the battery is all that is left and an idle battery with room does charge (210 MW in
+  a 210-MW deep belly, 89 MWh in 30 min at the floor price): the contract's order, "after the
+  units' and the battery's bands"; whether AGC should keep that band while the battery is idle
+  is stage C's call. In HAND the feed-forward term works unchanged (AGC's term is 0);
   levers held above MIN are not lowered for the player: the excess is carried by governors and
   the inverters' droop at a raised frequency (measured: 300 MW above MIN parks at 50.13 Hz with
   the C-7 droop on, 50.21 Hz without it) until a lever moves. With the surplus exactly cut and every unit at its floor the second is balanced

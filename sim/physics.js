@@ -49,6 +49,10 @@
 //     city.roofDarkMW (near zero or negative at a sunny noon); the unserved RATE is their
 //     underlying load, G x shedFrac, into acc.unservedMWs. fleet.refreshRoof keeps the two city
 //     sums, so the tick has no district loop. With rooftop zero every term is today's value.
+//     One labelled case: a stage that sheds a district relit under ROOF_RECONNECT_S + ROOF_RAMP_S
+//     ago. Its `ufls` record nets only the rooftop the district had connected (what the relays
+//     took off); phys.shedMW keeps the formula above (all of its rooftop), so for that stage
+//     caught.uflsMW is short of the relief by the rooftop that was still off (README §7).
 //   - C-7, lowering only: wind and utility solar back off on over-frequency (REN_PFR_ON: droop on
 //     rating beyond the governor deadband, capped by present output, no lag); rooftop inverters
 //     back off between ROOF_FW_START_HZ and ROOF_FW_ZERO_HZ and HOLD the lowest value reached
@@ -288,12 +292,14 @@ function advance(S, out, emit) {
       if (f < UFLS_HZ[k]) {
         const n = Math.round(timer[k] / DT) + 1;
         if (n >= UFLS_TICKS) {
-          const before = S.city.shedFrac, darkBefore = S.city.roofDarkMW;
+          const before = S.city.shedFrac, offBefore = S.city.roofOffMW;
           const ids = fleet.operateUfls(S, k);
           stagesNow++;
-          // the record's MW is the stage's NET load (P-12): its districts' rooftop went with them
+          // the record's MW is the stage's NET load (P-12): the rooftop its districts had CONNECTED
+          // went with them (the change of roofOffMW: a district relit under ROOF_RECONNECT_S +
+          // ROOF_RAMP_S ago had part or all of its rooftop off already, as the `shed` record nets it)
           if (emit) out.push({tick: t, kind: 'ufls', stage: k + 1, districts: ids,
-            mw: (S.env.demandMW + S.env.rooftopMW) * (S.city.shedFrac - before) - (S.city.roofDarkMW - darkBefore) + 0, cue: 'clack'});
+            mw: (S.env.demandMW + S.env.rooftopMW) * (S.city.shedFrac - before) - (S.city.roofOffMW - offBefore) + 0, cue: 'clack'});
         } else timer[k] = n * DT;
       } else if (timer[k] !== 0) timer[k] = 0;
     }

@@ -34,7 +34,8 @@
 //     (as a dispatch interval would), never as a step.
 //
 // Phase 2a wave 1 (desk/README.md §21.2; owner "grid"): automatic curtailment in dispatchSecond
-// with AGC's unmet lowering request (C-6; the section before dispatchSecond), the roof refresh
+// with AGC's unmet lowering request (C-6; the section before dispatchSecond), AGC lowering the
+// units to MIN before the battery while the dispatch is spilling (agcCycle), the roof refresh
 // in fosSecond and the restore surge on the total before rooftop (P-12, C-8).
 
 import {V} from './params.js';
@@ -624,25 +625,37 @@ export function unitsSecond(state, out) {
 
 // ------------------------------------------------------------------ agcSecond
 
-/** One AGC cycle: integral on ACE, shared over the participants in proportion to their bands. */
+/**
+ * One AGC cycle: integral on ACE, shared over the participants in proportion to their bands.
+ * C-6 (Phase 2a): while the dispatch is spilling wind or solar (ren.windAutoMW or solarAutoMW > 0)
+ * a LOWERING request goes to the units first, each as far as its MIN (thermal energy is out of
+ * merit while renewables are spilled: NEMDE would dispatch it down to its minimum-load block), and
+ * only what they cannot take goes to the battery's band. So a plan that sits above MIN in a surplus
+ * is lowered to the floor the feed-forward cut assumes, and an idle battery does not fill while a
+ * unit still has room above MIN. On a day that never spills (the classic day) this is the pre-2a
+ * cycle exactly.
+ */
 function agcCycle(state) {
   const agc = state.agc, units = state.units, b = state.battery;
   const dev = state.last.fMeanHz - F0;
   const ace = dev <= AGC_DB && dev >= -AGC_DB ? 0 : -AGC_BIAS * dev + 0;
   agc.aceMW = ace;
+  const spilling = state.ren.windAutoMW > 0 || state.ren.solarAutoMW > 0;
   // Bands: +-agcBandMW for 'on' units, kept inside [minMW, HOT_LOADING_FRAC x availMW]
   // around the base point: the overload gate is the unit's high regulating limit, so AGC
-  // never pushes a unit into the H-2 hot zone (only a lever past the gate does, K-1).
+  // never pushes a unit into the H-2 hot zone (only a lever past the gate does, K-1). While
+  // the dispatch is spilling, the lowering band is the whole way down to MIN (C-6).
   let upSum = 0, dnSum = 0;
   for (let i = 0; i < N; i++) {
     const u = units[i];
     if (u.mode !== 'on') { UP[i] = 0; DN[i] = 0; continue; }
-    const band = M[i].agcBandMW;
+    const band = M[i].agcBandMW, room = u.basePointMW - M[i].minMW;
     UP[i] = Math.max(0, Math.min(band, HOT_FRAC * u.availMW - u.basePointMW));
-    DN[i] = Math.max(0, Math.min(band, u.basePointMW - M[i].minMW));
+    DN[i] = Math.max(0, spilling ? room : Math.min(band, room));
     upSum += UP[i];
     dnSum += DN[i];
   }
+  const unitDn = dnSum;
   // Battery: +-(BATT_MW - guardMW) around its order (K-5: guard MW are never AGC's), within
   // the SoC taper; no lowering band while under-frequency suspends charging (H-10).
   const lim = Math.max(0, BATT_MW - b.guardMW);
@@ -656,6 +669,14 @@ function agcCycle(state) {
   const atLimit = (raw > upSum + EPS && ace > 0) || (raw < -dnSum - EPS && ace < 0);
   agc.requestMW = req;
   agc.unmetMW = atLimit ? ace : 0;
+  if (spilling && req < 0) {
+    // C-6: the units first (pro rata by their room above MIN), the battery only for the rest.
+    const toUnits = req < -unitDn ? -unitDn : req;
+    const unitShare = unitDn > 0 ? toUnits / unitDn : 0;
+    for (let i = 0; i < N; i++) units[i].agcTrimMW = DN[i] * unitShare + 0;
+    b.agcTrimMW = Math.max(-bDn, Math.min(0, req - toUnits)) + 0;
+    return;
+  }
   const share = req >= 0 ? (upSum > 0 ? req / upSum : 0) : (dnSum > 0 ? req / dnSum : 0);
   for (let i = 0; i < N; i++) units[i].agcTrimMW = (req >= 0 ? UP[i] : DN[i]) * share + 0;
   b.agcTrimMW = (req >= 0 ? bUp : bDn) * share + 0;
@@ -672,8 +693,13 @@ function agcCycle(state) {
  * request could not cover (0 when inside the bands); agc.atLimitS counts consecutive grid
  * seconds at the limit (the app lights AGC LIMIT after 5 REAL s). In HAND mode every trim is
  * 0 (ACE is still shown). AGC never starts or stops a unit and never moves a base point.
- * C-6 (Phase 2a): a NEGATIVE agc.unmetMW (the lowering bands of the units and the battery are
- * spent and the frequency is still high) is spilled as wind and solar by dispatchSecond.
+ * C-6 (Phase 2a): while the dispatch is spilling wind or solar (ren.windAutoMW or solarAutoMW >
+ * 0) a lowering request goes to the units first, each as far as its MIN (beyond its regulating
+ * band), and only the rest to the battery's band (agcCycle); a raising request, and every request
+ * on a second with nothing spilled, is shared pro rata within the bands as before. While
+ * agc.unmetMW is NEGATIVE (the lowering bands of the units and the battery are spent and the
+ * frequency is still high) dispatchSecond spills that request as wind and solar, in a surplus.
+ * Reads (Phase 2a, besides README §11): ren.{windAutoMW, solarAutoMW}.
  */
 export function agcSecond(state, out) { // eslint-disable-line no-unused-vars
   const s = secondOf(state), agc = state.agc;
@@ -703,8 +729,13 @@ export function agcSecond(state, out) { // eslint-disable-line no-unused-vars
 // feed-forward from the second's own numbers (so it needs no AGC and works in HAND), plus, in
 // a surplus, AGC's unmet lowering request (what the units' and the battery's bands could not
 // carry while the frequency is still high), so a stale plan cannot push the grid to 52 Hz. It
-// never moves the tie (the plan's) or the battery (the player's): an idle battery does not fill
-// by itself. Labelled in SPEC §8.2 "The dispatch spills wind and solar automatically, pro rata."
+// never moves the tie (the plan's) or the battery (the player's). The feed-forward cut assumes
+// every unit at its floor, so while it is spilling AGC brings the units there before it uses the
+// battery (agcCycle): an idle battery does not fill while a unit has room above MIN. Once every
+// unit is at MIN and every MW of wind and solar is held back (must-run above demand: MSL3), AGC's
+// lowering band on the battery is all that is left and it does charge it (the contract's order:
+// "after the units' and the battery's bands"; measured 210 MW in a 210-MW deep belly).
+// Labelled in SPEC §8.2 "The dispatch spills wind and solar automatically, pro rata."
 
 /** Wind (after the manual LIMIT and OFGS) and utility solar (after the manual LIMIT) this second, before the automatic cut. */
 function renOutMW(state) {
@@ -736,7 +767,8 @@ function surplusMW(state) {
  * schedule and where the order alone would take it (exact while either the order or the trim is
  * steady). The feed-forward counts the player's order only: if it counted the trim too, a trim
  * AGC once gave the battery would be matched by less curtailment and never come back, and an
- * idle battery would fill by itself (charging at a negative price is the player's decision).
+ * idle battery would fill by itself with the plan at MIN (charging at a negative price is the
+ * player's decision).
  */
 function battOnOrderMW(b) {
   const lim = Math.max(0, BATT_MW - b.guardMW);
@@ -746,10 +778,17 @@ function battOnOrderMW(b) {
 }
 
 /**
- * AGC's unmet lowering request (C-6), MW >= 0: agc.unmetMW when it is negative, i.e. the ACE the
- * request could not cover with every lowering band of the units and the battery spent and the
- * frequency still high (800 MW per Hz, held between AGC cycles). It goes away as the frequency
- * comes back, and AGC LIMIT stays lit meanwhile: the plan is stale. 0 in HAND (no AGC).
+ * AGC's unmet lowering request (C-6), MW >= 0: while agc.unmetMW is negative (at AGC's last cycle
+ * every lowering band of the units and the battery was spent and the frequency was still high),
+ * the ACE of the second just completed, AGC_BIAS_MW_PER_HZ x (last.fMeanHz - F0) beyond AGC's
+ * deadband. It is read every second, not held for the 4-s AGC cycle: held, the term overshoots
+ * inside the governors' deadband, where nothing else damps it, and hunts against AGC's own
+ * raise (measured with the six units at MIN and the battery charging on its whole inverter, so
+ * AGC has no lowering band: a 12-s cycle of 49.970-50.022 Hz held, 49.994-50.014 Hz read every
+ * second; it is smaller, not gone: agc.unmetMW still flickers negative there for about a third
+ * of the seconds, 4 s at a time). It goes away as the frequency comes back,
+ * and AGC LIMIT stays lit meanwhile: the plan is stale, or the units AGC has asked to come down
+ * are still ramping. 0 in HAND (no AGC).
  * dispatchSecond adds it to the cut only while there is a surplus by the floor blocks: outside
  * one, AGC at its lowering limit means the plan holds units above what is needed, they have
  * governor room, and the remedy is the plan, not spilling wind while gas runs above minimum
@@ -757,8 +796,9 @@ function battOnOrderMW(b) {
  * midnight with thirteen units 1,400 MW above their minimums).
  */
 function agcSpillMW(state) {
-  const unmet = state.agc.unmetMW;
-  return unmet < 0 ? -unmet : 0;
+  if (!(state.agc.unmetMW < 0)) return 0;
+  const dev = state.last.fMeanHz - F0;
+  return dev > AGC_DB ? AGC_BIAS * dev : 0;
 }
 
 // ------------------------------------------------------------------ dispatchSecond
@@ -787,9 +827,11 @@ function agcSpillMW(state) {
  *     surplusMW = must-run (the stack's floor blocks, and reserve diesel on line) + that wind and
  *     solar - (lit operational demand + cold load - DR - tie flow - the battery's schedule). The
  *     tie and the battery are never moved to make room. Works in HAND (the feed-forward term
- *     needs no AGC; levers held above MIN are the player's to lower).
+ *     needs no AGC; levers held above MIN are the player's to lower). While a cut is active it
+ *     is a cap on OUTPUT: a change of availability lands on the held MW first, either way.
  * Reads (Phase 2a, besides README §11): env.rooftopMW, city.{roofOffMW, coldLoadMW}, agc.unmetMW,
- * ofgs.trippedFrac. Writes: ren.{windAutoMW, solarAutoMW} (and windMW, solarMW after the cut).
+ * last.fMeanHz, ofgs.trippedFrac. Writes: ren.{windAutoMW, solarAutoMW} (and windMW, solarMW
+ * after the cut).
  */
 export function dispatchSecond(state, out) {
   const units = state.units, env = state.env;
@@ -856,9 +898,10 @@ export function dispatchSecond(state, out) {
   // output (wind after OFGS; windAutoMW itself is stored before OFGS, as windCurtMW is), each
   // part moving at the manual LIMIT's ramp and never above what its LIMIT leaves. With no
   // surplus both go to 0 (and stay exactly 0 on a day that never has one).
-  // The cut is a cap on output, as the semi-dispatch cap is: when the weather takes MW away
-  // from a plant that is held back, they come out of what is held back first (heldMW), so a
-  // cloud over a curtailed solar farm is not a loss of supply.
+  // The cut is a cap on output, as the semi-dispatch cap is, in both directions (heldMW): MW the
+  // weather takes away from a plant that is held back come out of what is held back first (a
+  // cloud over a curtailed solar farm is not a loss of supply), and MW the weather gives it are
+  // held back too until the cut releases them at its ramp (a gust is not a step of supply).
   const windLeft = env.windAvailMW - ren.windCurtMW, solarLeft = env.solarAvailMW - ren.solarCurtMW;
   const connected = 1 - state.ofgs.trippedFrac, renOut = windLeft * connected + solarLeft;
   const surplus = surplusMW(state);
@@ -870,9 +913,14 @@ export function dispatchSecond(state, out) {
   ren.solarMW = solarLeft - ren.solarAutoMW + 0;
 }
 
-/** MW still held back by the automatic cut when `leftMW` is available now and the plant put out `outMW` last second: never more than before. */
+/**
+ * MW held back by the automatic cut when `leftMW` is available now (after the manual LIMIT) and
+ * the plant put out `outMW` last second: while a cut is active the plant's OUTPUT is what is held
+ * (the cap is on output), so a change of availability lands on the held MW, in either direction,
+ * and the cut then moves from there at its ramp. 0 when no cut is active.
+ */
 function heldMW(autoMW, leftMW, outMW) {
-  return autoMW > 0 ? clamp(leftMW - outMW, 0, autoMW) : 0;
+  return autoMW > 0 ? clamp(leftMW - outMW, 0, leftMW) : 0;
 }
 
 // ------------------------------------------------------------------ fosSecond

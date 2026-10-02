@@ -13,6 +13,7 @@
 // are skipped while the flags are off (the grid job's first commit) and run once they are on.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {getHeapSpaceStatistics} from 'node:v8';
 import * as grid from '../sim/grid.js';
 import * as market from '../sim/market.js';
 import * as physics from '../sim/physics.js';
@@ -140,6 +141,33 @@ const aboveMinMW = s => s.units.reduce((a, u) => a + (u.sync ? u.schedMW - V.MAC
 const inBand = r => r.fMin >= V.NORMAL_LO_HZ && r.fMax <= V.NORMAL_HI_HZ;
 const hz = r => r.fMin.toFixed(3) + '..' + r.fMax.toFixed(3) + ' Hz';
 
+// The contract's arithmetic written out here, never through the sim's own functions, so a test
+// that compares the two fails when a term goes missing (desk/README.md §18 C-6, §19.2).
+/** A district's rooftop off fraction at grid second sec: dark 1; nothing pending 0; waiting 1; then the ramp. */
+const offFrac = (d, sec) => (d.dark ? 1 : d.reconnectS < 0 ? 0 : sec < d.reconnectS ? 1 : Math.max(0, 1 - (sec - d.reconnectS) / V.ROOF_RAMP_S));
+/** Lit operational demand: every lit district's underlying load less the rooftop it has connected now. */
+function litMW(s) {
+  const sec = Math.floor(s.tick / TPS);
+  let sum = 0;
+  for (const d of s.city.districts) if (!d.dark) sum += totalMW(s) * d.share - s.env.roofSubMW[d.sub] * d.roofFrac * (1 - offFrac(d, sec));
+  return sum;
+}
+/**
+ * The C-6 surplus: must-run (MIN of every unit 'on', the present output of any other synchronised
+ * unit, reserve diesel on line) + wind after the LIMIT and OFGS + solar after the LIMIT - (lit
+ * operational demand + cold load - DR - tie flow). For a battery with no order (idle or full).
+ */
+function surplusWant(s) {
+  let floor = s.rert.outMW;
+  for (const u of s.units) if (u.mode === 'on') floor += V.MACHINES[u.k].minMW; else if (u.sync) floor += u.schedMW;
+  const ren = (s.env.windAvailMW - s.ren.windCurtMW) * (1 - s.ofgs.trippedFrac) + (s.env.solarAvailMW - s.ren.solarCurtMW);
+  return floor + ren - (litMW(s) + s.city.coldLoadMW - s.dr.mw - s.tie.flowMW);
+}
+/** The automatic cut as output MW: wind's part is stored before OFGS. */
+const cutOutMW = s => s.ren.windAutoMW * (1 - s.ofgs.trippedFrac) + s.ren.solarAutoMW;
+/** The belly fleet x MW above MIN in total, spread evenly over its six units. */
+const aboveMin = x => Object.fromEntries(Object.entries(AT_MIN).map(([id, mw]) => [id, mw + x / 6]));
+
 /** The curtailing state of the C-6 accept: the 2,110-MW noon after demand has fallen to 1,600 MW (510 MW held back). */
 function curtailing(o) {
   const s = noon(o);
@@ -202,14 +230,25 @@ test('P-12 / C-8: fleet.setDistrictDark and refreshRoof keep roofDarkMW, roofOff
   assert.equal(dist.reconnectS, at + V.ROOF_RECONNECT_S);
   near(city.roofDarkMW, other, 1e-9, 'only the other district is dark');
   near(city.roofOffMW, mine + other, 1e-9, 'relit, but its rooftop is still off');
+  const underlying = totalMW(s) * dist.share;
+  near(fleet.districtColdLoadMW(s, d), underlying, 1e-9, 'relit and waiting: its net load is its whole underlying load');
   s.tick += V.ROOF_RECONNECT_S * TPS; fleet.refreshRoof(s);
   near(city.roofOffMW, mine + other, 1e-9, 'the ramp starts at reconnectS');
   s.tick += V.ROOF_RAMP_S / 2 * TPS; fleet.refreshRoof(s);
   near(city.roofOffMW, mine / 2 + other, 1e-9, 'half way up the ramp');
   assert.equal(dist.reconnectS, at + V.ROOF_RECONNECT_S, 'still ramping');
+  near(fleet.districtColdLoadMW(s, d), underlying - mine / 2, 1e-9, 'half way up: a relay or DIRECT SHED would take off its load less HALF its rooftop');
+  near(fleet.litDemandMW(s), litMW(s), 1e-6, 'and the lit demand agrees, district by district');
+  // Shed again while it is still reconnecting: nothing is pending any more and all of it is off.
+  const again = clone(s);
+  fleet.setDistrictDark(again, d, true, 'ufls');
+  assert.equal(again.city.districts[d].reconnectS, -1, 'dark: reconnectS is cleared');
+  near(again.city.roofOffMW, mine + other, 1e-9);
+  near(again.city.roofDarkMW, mine + other, 1e-9);
   s.tick += V.ROOF_RAMP_S / 2 * TPS; fleet.refreshRoof(s);
   near(city.roofOffMW, other, 1e-9, 'all of it back');
   assert.equal(dist.reconnectS, -1, 'the refresh resets reconnectS when the ramp has finished');
+  near(fleet.districtColdLoadMW(s, d), underlying - mine, 1e-9, 'reconnected: its net load');
   // No rooftop (the classic day): both sums stay exactly 0 whatever is dark.
   const c = noon();
   fleet.setDistrictDark(c, d, true, 'directed');
@@ -245,6 +284,54 @@ test('P-12: a UFLS stage sheds the NET load of its two districts: less at a sunn
   near(s.score.unservedMWh, midday.underlying * darkS / V.S_PER_H, 1e-9, 'score.unservedMWh');
   near(s.score.uflsMWh, s.score.unservedMWh, 1e-12, 'all of it UFLS');
   near(s.last.shedMW, midday.mw * darkS, 1e-6, 'last.shedMW stays the relay MW (the mean over the second)');
+});
+
+test('P-12: a stage that sheds a district still reconnecting nets only the rooftop it had connected: the ufls record is the load the relays took off', () => {
+  const stage1 = CLASSIC.city.uflsStages[0];
+  const s = noon({roofSubMW: roofAt(12.5)});
+  s.env.demandMW = 2400; // test poke: the frequency is held, so the balance does not matter
+  const d = district(s, stage1[0]), dist = s.city.districts[d];
+  const mine = s.env.roofSubMW[dist.sub] * dist.roofFrac;
+  // Shed and relit by hand (the stage itself has not operated); a third of the way up its ramp.
+  fleet.setDistrictDark(s, d, true, 'directed');
+  s.tick += 30 * TPS;
+  fleet.setDistrictDark(s, d, false, null);
+  s.tick += (V.ROOF_RECONNECT_S + V.ROOF_RAMP_S / 3) * TPS;
+  fleet.refreshRoof(s);
+  near(s.city.roofOffMW, mine * 2 / 3, 1e-9, 'two thirds of its rooftop are still off');
+  hold(s, 1, F0);
+  const served0 = s.phys.servedMW;
+  const want = stage1.reduce((a, id) => a + netMW(s, id), 0) + mine * 2 / 3; // netMW nets a district's WHOLE rooftop
+  const recs = hold(s, TPS, V.UFLS_FIRST_HZ - 0.05).filter(x => x.kind === 'ufls');
+  assert.deepEqual(recs.map(x => x.stage), [1]);
+  near(recs[0].mw, want, 1e-6, 'the record nets the rooftop that was connected, as a `shed` record does');
+  near(served0 - s.phys.servedMW, recs[0].mw, 1e-6, 'and it is exactly the load the grid lost');
+  assert.ok(mine > 90, 'the case bites: ' + mine.toFixed(0) + ' MW of rooftop on that district');
+  // Labelled (sim/README.md §7): phys.shedMW keeps §19.2's formula (the dark districts' net load
+  // with ALL their rooftop), so here it is below the record by the rooftop that was still off.
+  near(s.phys.shedMW, recs[0].mw - mine * 2 / 3, 1e-6, 'phys.shedMW (§19.2)');
+});
+
+test('P-9 / P-12: the price clears on the lit OPERATIONAL demand: rooftop behind a dark district is not demand the stack must meet', () => {
+  const s = noon({roofSubMW: roofAt(12.5)});
+  const d = district(s, 'SOL3'), dist = s.city.districts[d];
+  fleet.setDistrictDark(s, d, true, 'ufls'); // by a relay: no administered cap (that is for directed shedding)
+  const mine = s.env.roofSubMW[dist.sub] * dist.roofFrac, roof = s.env.rooftopMW;
+  // The floor blocks and the available wind and solar offer 2,410 MW at or below the renewable
+  // offer; the tie exports 300 MW. Poke the operational demand so the lit demand is 30 MW more
+  // than they cover: the first coal range block sets the price.
+  const cheap = MUST_RUN_MW + NOON_WIND_MW + NOON_SOLAR_MW, litWant = cheap - V.TIE_EXPORT_CAP_MW + 30;
+  s.env.demandMW = (litWant + roof - mine) / (1 - dist.share) - roof;
+  near(litMW(s), litWant, 1e-6, 'the poke');
+  near(fleet.litDemandMW(s), litWant, 1e-6, 'fleet.litDemandMW');
+  assert.ok(s.env.demandMW * (1 - s.city.shedFrac) < litWant - 60, 'the pre-2a expression would be over 60 MW lower (the dark district\'s rooftop is off)');
+  const p = market.clearPrice(s);
+  assert.equal(p.marginalId, 'coal1', 'a coal range block is marginal');
+  assert.ok(p.mwh >= V.MACHINES[fleet.unitIndex('coal1')].offer, 'price $' + p.mwh);
+  s.env.demandMW -= 60; // now 30 MW inside what wind and solar offer
+  const q = market.clearPrice(s);
+  assert.ok(q.marginalId === 'wind' || q.marginalId === 'solar', 'the renewable offer is marginal: ' + q.marginalId);
+  assert.ok(q.mwh < p.mwh);
 });
 
 test('P-12: Solstice Rise at noon is net negative: DIRECT SHED of it takes off about nothing, and LIGHTS ON still counts its customers', () => {
@@ -333,6 +420,15 @@ test('K-11 / C-8: the imbalance identity holds on every tick with rooftop, a dar
   s.tick += 30 * TPS;
   fleet.setDistrictDark(s, district(s, 'HAR3'), false, null);
   rebalance(s);
+  // The §19.2 readouts on a tick with a dark district and a reconnecting one, against the
+  // scenario's arithmetic: the relay MW are the dark district's net load; the served load is every
+  // lit district's load less the rooftop it has connected (the relit one has none yet).
+  hold(s, 1, F0);
+  const dark = s.city.districts[district(s, 'TAL3')];
+  near(s.phys.shedMW, totalMW(s) * dark.share - s.env.roofSubMW[dark.sub] * dark.roofFrac, 1e-9, 'phys.shedMW');
+  near(s.phys.servedMW, litMW(s) + s.city.coldLoadMW - s.dr.mw, 1e-6, 'phys.servedMW');
+  assert.ok(s.city.roofOffMW - s.city.roofDarkMW > 20 && s.city.roofDarkMW > 100, 'both cases bite: ' + s.city.roofOffMW.toFixed(0) + ' MW off, ' + s.city.roofDarkMW.toFixed(0) + ' MW of it dark');
+  assert.ok(Math.abs(s.phys.servedMW - s.env.demandMW * (1 - s.city.shedFrac)) > 20, 'the pre-2a expression is a different number');
   let responded = false;
   const r = run(s, 120, (x, i) => { if (i === 20) x.env.demandMW -= V.SMELTER_MW; }, x => { if (x.phys.renPfrMW > 0 || x.phys.roofPfrMW > 0) responded = true; });
   assert.ok(r.fMax > F0 + 0.1, 'the load loss shows: ' + hz(r));
@@ -340,7 +436,7 @@ test('K-11 / C-8: the imbalance identity holds on every tick with rooftop, a dar
   assert.equal(responded, C7, 'the inverters respond exactly when the C-7 flags are on');
 });
 
-test('H-7 (rebuilt on net-load blocks): the desk-lab midday trip on a mild 12:30 with rooftop: the relays shed more customers for fewer MW', t => {
+test('H-7 (rebuilt on net-load blocks): the desk-lab midday trip on a mild 12:30 with rooftop: the relays darken over twice the customers per MW shed', t => {
   // The H-7 desk-lab case (tools/baseline-v4.js: two coal machines at 650 MW are the only spinning
   // plant, 6.5 GW.s; coal1 trips; physics only for 60 s; "no battery" holds its energy at empty
   // below 50 Hz and full above) moved to the poked mild noon: operational demand 2,400 MW, 3,465 MW
@@ -358,12 +454,17 @@ test('H-7 (rebuilt on net-load blocks): the desk-lab midday trip on a mild 12:30
       fMin = Math.min(fMin, s.phys.fHz); fMax = Math.max(fMax, s.phys.fHz);
     }
     const ufls = out.filter(e => e.kind === 'ufls');
+    const blackAt = s.black ? (s.tick - t0) * DT : -1, fEnd = s.phys.fHz;
+    // one more tick for the rates the accumulators take (S-1: unserved; the relay MW)
+    const unserved0 = s.acc.unservedMWs, relay0 = s.acc.shedMWs;
+    physics.tick(s, out); s.tick++;
     return {s, lost, fMin, fMax, stages: ufls.length, relayMW: ufls.reduce((a, e) => a + e.mw, 0), darkMW: totalMW(s) * s.city.shedFrac,
-      ofgs: s.ofgs.tripped.filter(Boolean).length, blackAt: s.black ? (s.tick - t0) * DT : -1};
+      unservedRateMW: (s.acc.unservedMWs - unserved0) / DT, relayRateMW: (s.acc.shedMWs - relay0) / DT,
+      ofgs: s.ofgs.tripped.filter(Boolean).length, blackAt, fEnd};
   };
   const say = m => 'nadir ' + m.fMin.toFixed(3) + ' Hz, UFLS ' + m.stages + ' stages (' + Math.round(m.relayMW) + ' MW net shed for ' + Math.round(m.lost) +
     ' MW lost; ' + Math.round(m.darkMW) + ' MW of customers dark), peak ' + m.fMax.toFixed(3) + ' Hz, OFGS ' + m.ofgs + ', ' +
-    (m.blackAt >= 0 ? 'BLACK at ' + m.blackAt.toFixed(2) + ' s' : 'not black, ' + m.s.phys.fHz.toFixed(3) + ' Hz after 60 s');
+    (m.blackAt >= 0 ? 'BLACK at ' + m.blackAt.toFixed(2) + ' s' : 'not black, ' + m.fEnd.toFixed(3) + ' Hz after 60 s');
   const a = midday(true, roofAt(12.5)), b = midday(false, roofAt(12.5)), c = midday(true, NO_ROOF), d = midday(false, NO_ROOF);
   t.diagnostic('H-7 midday, mild 12:30, operational 2,400 MW, rooftop 3,465 MW, flags ' + (C7 ? 'on' : 'off'));
   t.diagnostic('  no battery:   ' + say(a));
@@ -372,8 +473,19 @@ test('H-7 (rebuilt on net-load blocks): the desk-lab midday trip on a mild 12:30
   t.diagnostic('  the same supply with no rooftop, with battery: ' + say(d));
   near(a.s.env.demandMW, 2400, 1e-9, 'operational demand');
   assert.ok(netMW(noon({roofSubMW: roofAt(12.5), units: {coal1: 650, coal2: 650}, tieMW: 0}), 'SOL1') < 0, 'Solstice Rise is net negative at that noon');
+  // P-12 / C-8, on the sim's own outputs: the stages' records add up to the relay MW, which is the
+  // dark districts' net load (the scenario's arithmetic); the relay MW x s and the unserved energy
+  // accrue at those two different rates.
+  for (const m of [a, b, c, d]) {
+    const netDark = m.s.city.districts.reduce((sum, x) => sum + (x.dark ? netMW(m.s, x.id) : 0), 0);
+    near(m.relayMW, netDark, 1e-6, 'the ufls records add up to the dark districts\' net load');
+    near(m.s.phys.shedMW, netDark, 1e-6, 'phys.shedMW');
+    near(m.relayRateMW, netDark, 1e-6, 'acc.shedMWs accrues at the relay MW');
+    near(m.unservedRateMW, m.darkMW, 1e-6, 'acc.unservedMWs accrues at the customers dark');
+  }
   for (const m of [a, b]) assert.ok(m.darkMW > 2 * m.relayMW, 'with rooftop the customers dark are over twice the MW shed: ' + say(m));
   for (const m of [c, d]) near(m.darkMW, m.relayMW, 1e-6, 'with no rooftop they are the same MW');
+  assert.ok(Math.abs(a.relayMW - c.relayMW) > 50 && a.stages === c.stages, 'the same eight stages are a different MW with rooftop behind them: ' + Math.round(a.relayMW) + ' vs ' + Math.round(c.relayMW));
   assert.equal(a.stages, V.UFLS_STAGES, 'no battery: every stage operates');
   assert.ok(b.stages >= d.stages && b.darkMW > 2 * d.darkMW, 'with the battery: as many stages, over twice the customers dark');
   if (C7) assert.equal(a.blackAt, -1, 'C-7: the over-shed no longer overshoots to 52 Hz');
@@ -462,7 +574,7 @@ test('C-6: the same noon with the tie at 0 MW never reaches 51 Hz: curtailment s
   assert.equal(s.price.mwh, V.PRICE_FLOOR, 'and the minimum-load blocks set the floor price');
 });
 
-test('C-6: a stale plan (base points 300 MW above MIN at that noon, AGC on) stays under 50.5 Hz: AGC\'s unmet lowering request is spilled', () => {
+test('C-6: a stale plan (base points 300 MW above MIN at that noon, AGC on) stays under 50.5 Hz; once the dispatch is spilling AGC takes the units to MIN first', () => {
   const stale = s => {
     assert.equal(grid.applyCommand(s, {type: 'basePoint', station: 'coal', mw: 4 * 290}, []), '');
     assert.equal(grid.applyCommand(s, {type: 'basePoint', station: 'ccgt', mw: 2 * 225}, []), '');
@@ -477,20 +589,193 @@ test('C-6: a stale plan (base points 300 MW above MIN at that noon, AGC on) stay
   const lowerBandMW = 4 * V.CLASSES.coal.agcBandFrac * V.STATIONS.coal.ratingMW + 2 * 50; // coal's bands and the CCGTs' 50 MW above MIN
   near(s.agc.requestMW, -lowerBandMW, 1e-6, 'AGC at its lowering limit');
   assert.ok(r.limitS > 600 && s.agc.atLimitS > 0, 'and it says so (AGC LIMIT): unmet for ' + r.limitS + ' s');
+  // The grid job's reported deviation from §21.2 (which reads as an unconditional sum): AGC's
+  // unmet request is added to the cut only in a surplus by the floor blocks. Stage C decides.
   assert.equal(r.cutMax, 0, 'no surplus, no cut');
   near(aboveMinMW(s), 300 - lowerBandMW, 1, 'the units sit 70 MW above MIN, on their governors');
-  // With demand falling into the belly on that plan the feed-forward cut works from the floor
-  // blocks, and what AGC still cannot lower is added to it.
+  // With demand falling into the belly on that plan the dispatch starts spilling, and AGC may then
+  // lower every unit as far as its MIN: the plan is brought to the floor the feed-forward cut
+  // assumes, no more than the surplus is spilled, and AGC LIMIT clears.
   const u = stale(noon());
   const v = run(u, 2040 + 600, ramp(-0.25, 1600));
-  assert.ok(v.fMax < V.CONTAIN_HI_HZ && v.ofgs === 0 && !u.black, 'frequency ' + hz(v));
-  assert.ok(v.cutMax > 510 + 10 && v.cutMax < 510 + 300, 'the feed-forward 510 MW and part of the stale 300: up to ' + v.cutMax.toFixed(1) + ' MW');
-  assert.ok(autoMW(u) >= 510 - 1e-6, 'never less than the surplus');
-  // A battery with room takes its share of AGC's request: no unmet request, only the surplus is spilled.
+  assert.ok(inBand(v) && v.ofgs === 0 && !u.black, 'frequency ' + hz(v));
+  near(autoMW(u), 510, 1, 'the cut is the surplus, and no more');
+  assert.ok(aboveMinMW(u) < 1, 'every unit is at MIN: ' + aboveMinMW(u).toFixed(1) + ' MW above');
+  near(u.agc.requestMW, -300, 1, 'AGC carries the stale 300 MW (par\'s rule 7 sees it)');
+  assert.deepEqual([u.agc.unmetMW, u.agc.atLimitS], [0, 0], 'AGC LIMIT is clear');
+  near(u.phys.fHz, F0, 0.005, 'and the frequency is back at 50 Hz');
+  assert.equal(u.battery.socMWh, V.BATT_MWH);
+  // A battery with room is not used for it: the units take the whole request.
   const w = stale(noon({battery: {socMWh: V.BATT_MWH / 2}}));
-  const x = run(w, 2040 + 600, ramp(-0.25, 1600));
-  assert.ok(inBand(x) && x.limitS === 0, 'frequency ' + hz(x));
-  near(autoMW(w), 510, 1, 'the cut with the battery in AGC\'s band');
+  const x = run(w, 2040 + 600, ramp(-0.25, 1600)), y = run(w, 1800);
+  assert.ok(inBand(x) && inBand(y) && x.limitS === 0, 'frequency ' + hz(x) + ', ' + hz(y));
+  near(autoMW(w), 510, 1, 'the cut with a battery that has room');
+  assert.ok(aboveMinMW(w) < 1, 'every unit is at MIN');
+  assert.ok(Math.abs(w.battery.socMWh - V.BATT_MWH / 2) < 5, 'state of charge moved ' + (w.battery.socMWh - V.BATT_MWH / 2).toFixed(2) + ' MWh');
+});
+
+test('C-6: one AGC cycle: while the dispatch is spilling a lowering request goes to the units, each as far as its MIN, and only the rest to the battery; otherwise pro rata within the bands', () => {
+  const plan = aboveMin(300); // each of the six units 50 MW above its MIN
+  const coalBand = V.CLASSES.coal.agcBandFrac * V.STATIONS.coal.ratingMW, ccgtBand = 50; // 32.5 MW; the CCGTs' 65-MW band reaches MIN first
+  const cycle = (spill, fMeanHz, requestMW, battery) => {
+    const s = noon({units: plan, battery: {socMWh: V.BATT_MWH / 2, ...battery}});
+    s.ren.solarAutoMW = spill ? 10 : 0; // test pokes: the dispatch is spilling (or not), last second's mean frequency, AGC's integral so far
+    s.last.fMeanHz = fMeanHz;
+    s.agc.requestMW = requestMW;
+    grid.agcSecond(s, []);
+    return s;
+  };
+  const trims = s => ['coal1', 'coal4', 'ccgt1', 'ccgt2'].map(id => s.units[fleet.unitIndex(id)].agcTrimMW);
+  const step = hzAbove => V.AGC_KI_PER_S * V.AGC_CYCLE_S * -V.AGC_BIAS_MW_PER_HZ * hzAbove; // the integral's step for that error
+  // Not spilling (K-2, K-5 as before): pro rata over the units' bands and the battery's 500 MW.
+  const a = cycle(false, 50.05, -200), reqA = -200 + step(0.05), bandsA = 4 * coalBand + 2 * ccgtBand + V.BATT_MW;
+  near(a.agc.requestMW, reqA, 1e-9);
+  trims(a).forEach((t, i) => near(t, (i < 2 ? coalBand : ccgtBand) * reqA / bandsA, 1e-9, 'pro rata, unit ' + i));
+  near(a.battery.agcTrimMW, V.BATT_MW * reqA / bandsA, 1e-9, 'the battery takes its share: ' + a.battery.agcTrimMW.toFixed(1) + ' MW');
+  // Spilling: the same request goes to the units alone, pro rata by their room above MIN.
+  const b = cycle(true, 50.05, -200);
+  near(b.agc.requestMW, reqA, 1e-9, 'the same request');
+  trims(b).forEach(t => near(t, reqA / 6, 1e-9, 'each unit a sixth'));
+  assert.equal(b.battery.agcTrimMW, 0, 'the battery is not used while a unit has room above MIN');
+  // More than the units can take: they go to MIN (beyond their regulating band) and the battery takes the rest.
+  const c = cycle(true, 50.05, -400), reqC = -400 + step(0.05);
+  trims(c).forEach(t => near(t, -50, 1e-9, 'to MIN'));
+  near(c.battery.agcTrimMW, reqC + 300, 1e-9, 'the rest');
+  assert.equal(c.agc.unmetMW, 0);
+  // Battery full: the request stops at the units' room and the rest is unmet (dispatchSecond spills it).
+  const d = cycle(true, 50.2, -290, {socMWh: V.BATT_MWH});
+  near(d.agc.requestMW, -300, 1e-9, 'clipped at the units\' room above MIN');
+  near(d.agc.unmetMW, -V.AGC_BIAS_MW_PER_HZ * 0.2, 1e-6, 'unmet: the ACE');
+  assert.equal(d.battery.agcTrimMW, 0);
+  trims(d).forEach(t => near(t, -50, 1e-9));
+  // Every unit at MIN already and spilling: only the battery's band is left (the contract's order:
+  // "after the units' and the battery's bands"), so in a deep belly AGC does charge an idle battery.
+  const e = noon({battery: {socMWh: V.BATT_MWH / 2}});
+  e.ren.windAutoMW = 10; e.last.fMeanHz = 50.05; e.agc.requestMW = -100;
+  grid.agcSecond(e, []);
+  near(e.battery.agcTrimMW, -100 + step(0.05), 1e-9, 'the battery\'s band');
+  assert.ok(e.units.every(z => z.agcTrimMW === 0));
+  // A raising request is shared pro rata as before, spilling or not.
+  const up = [cycle(false, 49.9, 0), cycle(true, 49.9, 0)];
+  assert.deepEqual(trims(up[1]), trims(up[0]));
+  assert.equal(up[1].battery.agcTrimMW, up[0].battery.agcTrimMW);
+  assert.ok(up[0].battery.agcTrimMW > 0 && trims(up[0]).every(t => t > 0));
+});
+
+test('C-6: AGC\'s unmet lowering request in the cut: the ACE of the second just completed while AGC is at its lowering limit, in a surplus only', () => {
+  const s = curtailing(); // 510 MW held back, six units at MIN, battery full: AGC has no lowering band left
+  near(autoMW(s), 510, 1e-6);
+  const dispatch = (unmetMW, fMeanHz, n) => {
+    const x = clone(s);
+    x.agc.unmetMW = unmetMW; x.last.fMeanHz = fMeanHz; // test pokes: AGC's last cycle, the second just completed
+    for (let k = 0; k < n; k++) grid.dispatchSecond(x, []);
+    return autoMW(x);
+  };
+  const bias = V.AGC_BIAS_MW_PER_HZ, perS = V.CURTAIL_RAMP_FRAC_MIN * (V.WIND_MW + V.SOLAR_MW) / 60;
+  near(dispatch(0, 50.05, 30), 510, 1e-6, 'AGC not at its limit: the feed-forward cut alone');
+  near(dispatch(-40, 50.05, 30), 510 + bias * 0.05, 1e-6, 'at its limit, 0.05 Hz high: 40 MW more is spilled');
+  const one = dispatch(-40, 50.05, 1) - 510;
+  assert.ok(one > 1 && one <= perS + 1e-9, 'moving at the curtailment ramp: ' + one.toFixed(2) + ' MW in the first second');
+  near(dispatch(-40, 50.1, 30), 510 + bias * 0.1, 1e-6, 'it follows the frequency of the second just completed, not the ACE AGC held');
+  near(dispatch(-40, F0, 30), 510, 1e-6, 'and is gone as soon as the frequency is back, though AGC\'s next cycle has not run');
+  near(dispatch(-40, F0 + V.AGC_DEADBAND_HZ / 2, 30), 510, 1e-6, 'nothing inside AGC\'s deadband');
+  near(dispatch(40, 49.95, 30), 510, 1e-6, 'a raising limit spills nothing');
+  // Outside a surplus by the floor blocks the term is not used (the reported deviation, as above).
+  const dry = noon();
+  dry.agc.unmetMW = -40; dry.last.fMeanHz = 50.05;
+  for (let k = 0; k < 30; k++) grid.dispatchSecond(dry, []);
+  assert.equal(autoMW(dry), 0);
+});
+
+test('C-6: an idle battery does not fill in a standing surplus while the plan sits above MIN (60 to 600 MW, or one machine): the units come down first', () => {
+  const plans = [['60 MW over six units', aboveMin(60)], ['150 MW', aboveMin(150)], ['300 MW', aboveMin(300)], ['600 MW', aboveMin(600)],
+    ['100 MW on one coal machine', {...AT_MIN, coal1: AT_MIN.coal1 + 100}]];
+  for (const [tag, units] of plans) {
+    const s = noon({units, battery: {socMWh: V.BATT_MWH / 2}}); // balanced on that plan, above the 2,110-MW noon
+    // Demand falls to 1,610 MW: a 500-MW surplus by the floor blocks; ten minutes to settle, then 30 grid-min.
+    run(s, Math.ceil((s.env.demandMW - 1610) / 0.25) + 600, ramp(-0.25, 1610));
+    const soc0 = s.battery.socMWh;
+    const r = run(s, 1800);
+    assert.ok(s.battery.socMWh - soc0 < 2, tag + ': state of charge rose ' + (s.battery.socMWh - soc0).toFixed(2) + ' MWh in 30 min');
+    assert.ok(aboveMinMW(s) < 5, tag + ': units ' + aboveMinMW(s).toFixed(1) + ' MW above MIN');
+    near(autoMW(s), 500, 5, tag + ': the cut is the surplus');
+    assert.ok(inBand(r), tag + ': frequency ' + hz(r));
+  }
+});
+
+test('C-6: every term of the surplus moves the cut: a dark district and a reconnecting one, the cold-load surge, DR, a unit loading, reserve diesel, OFGS', () => {
+  const base = curtailing({roofSubMW: roofAt(12.5)});
+  near(cutOutMW(base), 510, 10, 'the curtailing state');
+  near(cutOutMW(base), surplusWant(base), 1, 'the cut is the surplus, by the contract\'s arithmetic');
+  /** n more seconds; the cut must then equal the surplus and the last 20 s lie in the normal band. */
+  const settle = (s, n, tag) => {
+    run(s, n - 20);
+    const r = run(s, 20);
+    near(cutOutMW(s), surplusWant(s), 2, tag + ': the cut against the surplus');
+    assert.ok(inBand(r) && r.ofgs === 0 && r.ufls.length === 0, tag + ': frequency ' + hz(r));
+    return s;
+  };
+  // (1) A district dark (its net load is gone: more surplus) and one relit and still waiting (its
+  // rooftop is off: more lit demand, less surplus); then the same half way up its ramp.
+  const a = clone(base);
+  const sol = district(a, 'SOL4'), solRoof = a.env.roofSubMW[a.city.districts[sol].sub] * a.city.districts[sol].roofFrac;
+  const hazNet = netMW(a, 'HAZ4');
+  fleet.setDistrictDark(a, sol, true, 'ufls');
+  run(a, 5);
+  fleet.setDistrictDark(a, sol, false, null);
+  fleet.setDistrictDark(a, district(a, 'HAZ4'), true, 'ufls');
+  settle(a, 50, 'HAZ4 dark, SOL4 waiting');
+  near(cutOutMW(a), 510 + hazNet - solRoof, 5, 'the dark district\'s net load more, the waiting district\'s rooftop less');
+  assert.ok(hazNet > 80 && solRoof > 150, 'both bite: ' + hazNet.toFixed(0) + ' and ' + solRoof.toFixed(0) + ' MW');
+  assert.equal(a.price.mwh, V.RENEWABLE_OFFER, 'P-9: still the renewable offer');
+  settle(a, 15 + V.ROOF_RAMP_S / 2, 'SOL4 half way up its ramp');
+  near(cutOutMW(a), 510 + hazNet - solRoof / 2, 5, 'half of its rooftop back');
+  // (2) A restore after ten minutes dark: the cold-load surge is demand too.
+  const b = clone(base), red = district(b, 'RED5');
+  fleet.setDistrictDark(b, red, true, 'ufls');
+  b.tick += (V.COLD_LOAD_AFTER_S + 60) * TPS; // test poke: dark long enough for cold-load pickup
+  settle(b, 120, 'RED5 dark');
+  assert.equal(grid.applyCommand(b, {type: 'restore', district: 'RED5'}, []), '');
+  const picked = run(b, 40);
+  assert.ok(picked.ufls.length === 0 && picked.fMin > V.CONTAIN_LO_HZ, 'the pickup: ' + hz(picked));
+  assert.ok(b.city.coldLoadMW > 50, 'a surge of ' + b.city.coldLoadMW.toFixed(0) + ' MW is decaying');
+  settle(b, 20, 'RED5 restored, surge decaying, its rooftop waiting');
+  // (3) A DR call: 350 MW of load gone at its ramp.
+  const c = clone(base);
+  assert.equal(grid.applyCommand(c, {type: 'callDR'}, []), '');
+  const dr = run(c, Math.ceil(V.DR_MW / (V.DR_RAMP_MW_MIN / 60)) + 10);
+  assert.ok(inBand(dr), 'DR ramping in: ' + hz(dr));
+  near(c.dr.mw, V.DR_MW, 1e-9);
+  settle(c, 20, 'DR delivered');
+  near(cutOutMW(c), 510 + V.DR_MW, 10, 'the cut with 350 MW of DR');
+  // (4) A machine loading to MIN is must-run at its present output (H-1), then at its MIN.
+  const d = clone(base), gt = fleet.unitIndex('gta1'), m = V.MACHINES[gt];
+  Object.assign(d.units[gt], {mode: 'loading', schedMW: m.syncBlockMW, outMW: m.syncBlockMW}); // test poke: its breaker just closed
+  fleet.setSync(d, gt, true);
+  settle(d, 60, 'gta1 loading');
+  assert.equal(d.units[gt].mode, 'loading');
+  assert.ok(d.units[gt].schedMW > 100 && d.units[gt].schedMW < m.minMW, 'at ' + d.units[gt].schedMW.toFixed(0) + ' MW on its way to MIN');
+  near(cutOutMW(d), 510 + d.units[gt].schedMW, 10, 'its present output is spilled too');
+  settle(d, 120, 'gta1 on at MIN');
+  assert.equal(d.units[gt].mode, 'on');
+  near(cutOutMW(d), 510 + m.minMW, 10);
+  // (5) OFGS stages tripped: the cut is shared over the wind still connected, and still equals the surplus.
+  const e = clone(base);
+  fleet.setOfgsStage(e, 0, true);
+  settle(e, 120, 'one OFGS stage');
+  near(cutOutMW(e), 510 - NOON_WIND_MW * V.OFGS_STAGE_FRAC, 10, 'a quarter of the wind is disconnected, not spilled');
+  fleet.setOfgsStage(e, 1, true);
+  settle(e, 120, 'two OFGS stages');
+  near(cutOutMW(e), 510 - 2 * NOON_WIND_MW * V.OFGS_STAGE_FRAC, 10);
+  near(e.ren.windAutoMW / e.ren.solarAutoMW, NOON_WIND_MW / NOON_SOLAR_MW, 1e-6, 'pro rata by present output (each plant the same fraction)');
+  // (6) Reserve diesel on line is must-run too (out of the market, but as real).
+  const g = clone(base);
+  Object.assign(g.rert, {armed: true, armedEver: true, leadS: 0}); // test poke: armed, and its lead time over
+  const diesel = run(g, Math.ceil(V.RERT_MW / (V.RERT_RAMP_MW_MIN / 60)) + 10);
+  assert.ok(inBand(diesel), 'diesel loading: ' + hz(diesel));
+  near(g.rert.outMW, V.RERT_MW, 1e-9);
+  settle(g, 20, 'reserve diesel on line');
+  near(cutOutMW(g), 510 + V.RERT_MW, 10);
 });
 
 test('C-6 in HAND: the feed-forward cut needs no AGC; levers held above MIN are the player\'s to lower', () => {
@@ -522,6 +807,16 @@ test('C-6: a cloud over a curtailed solar farm comes out of what is held back fi
   const q = run(s, 300);
   assert.ok(inBand(q), 'frequency ' + hz(q));
   near(autoMW(s), 310, 1, 'the cut settles at the smaller surplus');
+  // And the other way (the cap is on output): MW the weather gives back to a plant that is held
+  // back are held back too, so the sun coming out or a gust is not a step of supply.
+  const z = clone(s), solarOut = z.ren.solarMW, windOut = z.ren.windMW;
+  z.env.solarAvailMW += 350; z.env.windAvailMW += 300; // test pokes: back in one second
+  const back = run(z, 1);
+  near(z.ren.solarMW, solarOut, V.CURTAIL_RAMP_FRAC_MIN * V.SOLAR_MW / 60 + 1e-9, 'solar output held within one ramp step');
+  near(z.ren.windMW, windOut, V.CURTAIL_RAMP_FRAC_MIN * V.WIND_MW / 60 + 1e-9, 'wind output held within one ramp step');
+  const after = run(z, 300);
+  assert.ok(inBand(back) && inBand(after) && after.ofgs === 0, 'frequency ' + hz(back) + ', ' + hz(after));
+  near(autoMW(z), 310 + 650, 1, 'all 650 MW of it joins the cut');
   // The manual LIMIT stacks under the automatic cut: output = available - LIMIT's MW - automatic MW.
   assert.equal(grid.applyCommand(s, {type: 'curtail', kind: 'wind', limitPct: 50}, []), '');
   const m = run(s, 600);
@@ -590,6 +885,11 @@ test('C-7: readouts at a held frequency: wind and solar droop on rating, capped 
   fleet.setDistrictDark(d, district(d, 'SOL3'), true, 'directed');
   hold(d, 1, 50.6);
   near(d.phys.roofPfrMW, (d.env.rooftopMW - d.city.roofOffMW) * 0.2, 1e-6);
+  // Rooftop that backs off is energy the grid serves: acc.servedMWs is of loadMW (-> score.servedMWh).
+  const e = noon({roofSubMW: roofAt(12.5)});
+  hold(e, 1, 50.6);
+  near(e.acc.servedMWs, e.phys.loadMW * DT, 1e-9, 'acc.servedMWs');
+  assert.ok(e.phys.loadMW > e.phys.servedMW + 500, 'loadMW ' + e.phys.loadMW.toFixed(0) + ' against servedMW ' + e.phys.servedMW.toFixed(0));
 });
 
 test('C-7: the wind and solar backed off is spilled energy: off genMWh, onto score.spillMWh', needsC7(), () => {
@@ -647,19 +947,80 @@ test('C-7 / K-15: caught.inverterMW keeps caught summing to the MW lost: the pre
 });
 
 test('C-7: a stale plan as a step, a HAND desk with levers too high, and the deep belly all stay under 50.5 Hz', needsC7(), () => {
-  // A 510-MW step down on a plan 300 MW above MIN, battery full.
-  const s = noon({units: {coal1: 290, coal2: 290, coal3: 290, coal4: 290, ccgt1: 225, ccgt2: 225}});
+  // A 510-MW step down on a plan 300 MW above MIN, battery full: a 210-MW surplus by the floor blocks.
+  const s = noon({units: aboveMin(300)});
   s.env.demandMW -= 510;
-  const r = run(s, 1800);
+  const r = run(s, 600);
   assert.ok(r.fMax <= V.CONTAIN_HI_HZ && r.ofgs === 0, 'stale plan, step: ' + hz(r));
+  // AGC asks the units for all 300 MW within a few cycles, but coal comes down at 3 MW a minute a
+  // machine: until they arrive its request is unmet, and that is spilled on top of the surplus.
+  assert.ok(r.limitS > 300 && r.cutMax > 210 + 30, 'AGC\'s unmet lowering request was spilled: unmet for ' + r.limitS + ' s, cut up to ' + r.cutMax.toFixed(1) + ' MW');
+  const q = run(s, 3000);
+  assert.ok(q.fMax <= V.NORMAL_HI_HZ && q.fMin >= V.NORMAL_LO_HZ && q.ofgs === 0, 'then: ' + hz(q));
+  near(autoMW(s), 210, 1, 'with the units at MIN only the surplus is spilled');
+  assert.ok(aboveMinMW(s) < 1, 'units ' + aboveMinMW(s).toFixed(1) + ' MW above MIN');
+  assert.equal(s.agc.unmetMW, 0, 'AGC LIMIT is clear');
+  near(s.phys.fHz, F0, 0.005);
   // HAND, levers 300 MW above MIN: parked inside the normal band by the droop.
-  const u = noon({mode: 'HAND', units: {coal1: 290, coal2: 290, coal3: 290, coal4: 290, ccgt1: 225, ccgt2: 225}});
+  const u = noon({mode: 'HAND', units: aboveMin(300)});
   const v = run(u, 2040 + 300, ramp(-0.25, 1900));
   assert.ok(v.fMax < V.NORMAL_HI_HZ, 'HAND: ' + hz(v));
   assert.ok(u.phys.renPfrMW > 50, 'the droop spills ' + u.phys.renPfrMW.toFixed(0) + ' MW until a lever moves');
   // Must-run above demand with every MW of wind and solar already held back: the roofs back off.
   const d = noon({tieMW: 0, roofSubMW: roofAt(12.5)});
   const w = run(d, 4 * 3600, ramp(-0.25, 1100));
-  assert.ok(w.fMax <= V.CONTAIN_HI_HZ + 0.1 && !d.black && w.ofgs === 0, 'deep belly: ' + hz(w));
+  assert.ok(w.fMax <= V.CONTAIN_HI_HZ && !d.black && w.ofgs === 0, 'deep belly: ' + hz(w));
   assert.ok(d.phys.roofPfrMW > 100, 'rooftop backed off ' + d.phys.roofPfrMW.toFixed(0) + ' MW');
+});
+
+test('C-6 / C-7: a plan far above MIN with no surplus by the floor blocks (AGC on, battery full) cannot push the grid to an OFGS stage: 600 MW stays in the normal band, 1,000 MW under 50.5 Hz', needsC7(), t => {
+  // The contract's purpose clause ("so a stale plan cannot push the grid to 52 Hz") outside a floor
+  // surplus, where AGC's unmet request is NOT spilled (the grid job's reported deviation): the
+  // governors and the inverters' droop carry what AGC's bands cannot. Upper bounds only: a
+  // stronger AGC term at stage C can only lower these.
+  for (const [x, limitHz] of [[600, V.NORMAL_HI_HZ], [1000, V.CONTAIN_HI_HZ], [1500, V.OFGS_STAGES_HZ[0]]]) {
+    const s = noon({units: aboveMin(x)}); // balanced on that plan: operational demand 2,110 + x
+    // Demand falls until the floor blocks are 50 MW short of a surplus, then stands for 30 grid-min.
+    const r = run(s, (x - 50) / 0.25 + 1800, ramp(-0.25, 2160));
+    t.diagnostic('plan ' + x + ' MW above MIN, no floor surplus: ' + hz(r) + ', parked at ' + s.phys.fHz.toFixed(3) + ' Hz, AGC unmet ' + s.agc.unmetMW.toFixed(0) +
+      ' MW, governors ' + s.phys.govTotalMW.toFixed(0) + ' MW, droop ' + s.phys.renPfrMW.toFixed(0) + ' MW, cut ' + autoMW(s).toFixed(0) + ' MW');
+    assert.ok(r.fMax <= limitHz && r.ofgs === 0 && !s.black, x + ' MW above MIN: ' + hz(r) + ' against ' + limitHz + ' Hz');
+  }
+});
+
+test('README §2 rule 6: physics.tick allocates nothing on the belly\'s paths: rooftop, a dark and a reconnecting district, the droop, the rooftop hold and its release', () => {
+  const s = curtailing({roofSubMW: roofAt(12.5), battery: {socMWh: V.BATT_MWH / 2}});
+  fleet.setDistrictDark(s, district(s, 'SOL3'), true, 'directed');
+  fleet.setDistrictDark(s, district(s, 'RED5'), true, 'directed');
+  s.tick += 30 * TPS;
+  fleet.setDistrictDark(s, district(s, 'RED5'), false, null); // relit: its rooftop is waiting
+  assert.ok(s.city.roofDarkMW > 100 && s.city.roofOffMW > s.city.roofDarkMW + 50 && autoMW(s) > 400, 'the belly state');
+  // One pass holds the frequency at each step for n ticks (schedules frozen), so every C-7 branch
+  // runs: inside the deadband, the droop alone, the droop capped by output, the rooftop backing
+  // off, held, and released.
+  const HZ = [50, 50.1, 50.2, 50.4, 50.6, 50.2, 50.1, 50], out = [];
+  let heldMax = 0;
+  const pass = n => {
+    for (let j = 0; j < HZ.length; j++) for (let k = 0; k < n; k++) {
+      s.phys.fHz = HZ[j]; physics.tick(s, out); s.tick++;
+      if (s.phys.roofHoldFrac > heldMax) heldMax = s.phys.roofHoldFrac;
+    }
+  };
+  for (let c = 0; c < 4; c++) pass(2500); // warm: every branch far past the optimiser's thresholds
+  if (C7) assert.ok(heldMax > 0.19 && s.phys.roofHoldFrac === 0 && s.acc.spillMWs > 0, 'the response ran: backed off, held and released');
+  const used = () => getHeapSpaceStatistics().find(x => x.space_name === 'new_space').space_used_size;
+  const perTick = [], CHUNK = 8 * 250;
+  for (let c = 0; c < 40; c++) {
+    const a = used();
+    pass(250);
+    const d = used() - a;
+    if (d >= 0) perTick.push(d / CHUNK); // d < 0: a scavenge ran inside the chunk, nothing to read
+  }
+  assert.equal(out.length, 0, 'no relay operated');
+  assert.ok(perTick.length >= 20, perTick.length + ' chunks without a scavenge');
+  perTick.sort((x, y) => x - y);
+  // A source allocation shows in every chunk (>= 16 B a tick); the engine re-tiering after a new
+  // branch shows in one or two. So the median is judged, and the worst chunk is reported.
+  const median = perTick[perTick.length >> 1], worst = perTick[perTick.length - 1];
+  assert.ok(median < 8, 'physics.tick allocates ' + median.toFixed(1) + ' B per tick (median; worst chunk ' + worst.toFixed(1) + ')');
 });
