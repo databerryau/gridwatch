@@ -920,12 +920,15 @@ test('S-12: par sheds zero on >= 75% of 100 forced-heatwave seeds', slowOnly(), 
   assert.ok(clean >= 75, 'par clean on ' + clean + '/100 heat seeds');
 });
 
-// Phase 2a (S-14 accept; desk/README.md §21.3): S-12 is measured on the game's days too. The
-// classic cases above stay the regression anchor (C-1: par's 200 classic days are unchanged by
-// the belly rules, row for row). Measured at this change (tools/par.js, v4-core-2a.0 with the
-// wave 2 par): desk clean on 193/200 raw and 85/100 forced-heat seeds, RERT on 14/200, never
-// black, commitAll dearer on 197/200; desk-weekend clean on 199/200 and 99/100, RERT on 1/200,
-// never black, commitAll dearer on 200/200; rule 4's coal branch fired on none of the 600 days.
+// Phase 2a (S-14 accept; desk/README.md §21.3): S-12 is measured on the game's days too. The belly
+// rules themselves cannot fire on the classic day (nothing is spilled there, the price never
+// reaches $0); what moves par there is the battery order counted for its energy (the night's
+// recharge is in the plan): 198 of 200 classic rows, clean 183 -> 183, RERT 45 -> 44, forced heat
+// 76 -> 77 of 100. Measured at the review-fix pass (tools/par.js, v4-core-2a.0, the weekend
+// opening with both CCGTs): desk clean on 192/200 raw and 86/100 forced-heat seeds, RERT on
+// 13/200, never black, commitAll dearer on 198/200; desk-weekend clean on 197/200 and 98/100,
+// RERT on 1/200, never black, commitAll dearer on 200/200; rule 4's coal branch fired on none
+// of the 600 days.
 for (const scn of [DESK, DESK_WEEKEND]) {
   test('S-12 on ' + scn.id + ' (the belly, S-14): par sheds zero on >= 85% of 200 raw seeds, arms RERT on <= 25%, and is never black', slowOnly(), () => {
     let clean = 0, rert = 0;
