@@ -63,7 +63,7 @@ function parseArgs(argv) {
     else if (a === '-j' || a === '--workers') o.workers = Math.max(1, parseInt(next(), 10) || 1);
     else if (a === '--json') o.json = true;
     else if (a === '--worker') o.worker = true;
-    else if (a === '-h' || a === '--help') { console.log(readFileSync(FILE, 'utf8').split('\n').slice(0, 28).join('\n')); process.exit(0); }
+    else if (a === '-h' || a === '--help') { const src = readFileSync(FILE, 'utf8').split('\n'); console.log(src.slice(0, src.findIndex(l => !l.startsWith('//'))).join('\n')); process.exit(0); }
     else throw new Error('unknown flag ' + a + ' (see --help)');
   }
   return o;

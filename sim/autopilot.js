@@ -1155,7 +1155,8 @@ function n1Without(obs, u) {
 // open to the next START order), then its start: a 10:00 stop is back at MIN at 21:14.
 // Expected never to fire on the game's days (MSL2 for three hours does not occur there).
 function coalStop(obs, memo) {
-  if (!memo.plan || memo.coalStops >= COAL_STOPS_DAY) return null;
+  const stopped = memo.coalStops || 0; // (a memo saved before Phase 2a has no count)
+  if (!memo.plan || stopped >= COAL_STOPS_DAY) return null;
   for (let i = 0; i < NU; i++) if (M[i].thermal && M[i].cls !== 'coal' && committedMode(obs.units[i].mode)) return null;
   if (msl2S(obs) < COAL_MSL2_S) return null;
   for (const i of MERIT_DESC) {
@@ -1164,7 +1165,7 @@ function coalStop(obs, memo) {
     if (!n1Without(obs, u)) continue;
     const backS = obs.s + Math.max(0, u.outMW - m.minMW) / m.rampMWs + m.t4S + m.minDownS + u.startToMinS;
     if (!eveningHolds(obs, memo, i, backS)) continue;
-    memo.coalStops += 1;
+    memo.coalStops = stopped + 1;
     return {type: 'stop', unit: u.id};
   }
   return null;

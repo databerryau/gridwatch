@@ -519,6 +519,44 @@ test('S-12: par sheds zero on >= 75% of 100 forced-heatwave seeds', slowOnly(), 
   assert.ok(clean >= 75, 'par clean on ' + clean + '/100 heat seeds');
 });
 
+// Phase 2a (S-14 accept; desk/README.md §21.3): S-12 is measured on the game's days too. The
+// classic cases above stay the regression anchor (C-1). Measured at this change (tools/par.js,
+// seeds 1-200 and the first 100 heat seeds): see the wave 2 record in desk/README.md.
+for (const scn of [DESK, DESK_WEEKEND]) {
+  test('S-12 on ' + scn.id + ' (the belly, S-14): par sheds zero on >= 85% of 200 raw seeds, arms RERT on <= 25%, and is never black', slowOnly(), () => {
+    let clean = 0, rert = 0;
+    const black = [];
+    for (const seed of SEEDS(200)) {
+      const r = runPar(seed, scn);
+      if (r.black) black.push(seed);
+      if (r.score.unservedMWh === 0 && !r.black) clean++;
+      if (r.log.some(x => x.type === 'armRERT')) rert++;
+      // S-14 rule 4's coal branch is expected never to fire on the game's days (MSL2 for 3 h does not occur).
+      assert.equal(r.memo.coalStops, 0, 'seed ' + seed + ': par stopped a coal machine');
+    }
+    assert.deepEqual(black, [], 'black days');
+    assert.ok(clean >= 170, 'par clean on ' + clean + '/200');
+    assert.ok(rert <= 50, 'par armed RERT on ' + rert + '/200');
+  });
+
+  test('S-12 on ' + scn.id + ': par sheds zero on >= 75% of 100 forced-heatwave seeds', slowOnly(), () => {
+    const heatSeeds = [];
+    for (let seed = 1; heatSeeds.length < 100; seed++) if (createState(seed, scn).ext.regime.cls === 'heat') heatSeeds.push(seed);
+    const clean = heatSeeds.filter(seed => { const r = runPar(seed, scn); return r.score.unservedMWh === 0 && !r.black; }).length;
+    assert.ok(clean >= 75, 'par clean on ' + clean + '/100 heat seeds');
+  });
+
+  test('S-11 on ' + scn.id + ': "commit everything at 04:00" costs more than par on >= 70% of seeds', slowOnly(), () => {
+    let dearer = 0;
+    for (const seed of SEEDS(30)) {
+      const par = runPar(seed, scn).summary.costDollars;
+      const all = runPar(seed, scn, {proxy: 'commitAll'}).summary.costDollars;
+      if (all > par) dearer++;
+    }
+    assert.ok(dearer >= 21, dearer + '/30');
+  });
+}
+
 test('P-6: par\'s tie flow is not pinned at one limit all day on >= 50% of seeds (importing is a decision)', slowOnly(), () => {
   let varied = 0;
   for (const seed of SEEDS(40)) {

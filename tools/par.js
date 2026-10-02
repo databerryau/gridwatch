@@ -51,7 +51,7 @@ function parseArgs(argv) {
     else if (a === '--probe') o.probe = true;
     else if (a === '--rows') o.rows = next();
     else if (a === '--worker') o.worker = true;
-    else if (a === '-h' || a === '--help') { console.log(require('fs').readFileSync(__filename, 'utf8').split('\n').slice(0, 28).join('\n')); process.exit(0); }
+    else if (a === '-h' || a === '--help') { const src = require('fs').readFileSync(__filename, 'utf8').split('\n'); console.log(src.slice(0, src.findIndex(l => !l.startsWith('//'))).join('\n')); process.exit(0); }
     else throw new Error('unknown flag ' + a + ' (see --help)');
   }
   return o;
@@ -97,7 +97,8 @@ function runOne(S, scenario, seed, proxy, withActions, probe) {
   const V = S.V, TPS = V.TICKS_PER_S;
   let firstShed = -1, minDemandMW = Infinity, minDemandTick = 0, negS = 0, autoMWs = 0, msl = 0;
   let nextProbe = V.PLAYER_START_S;
-  const P = {n: 0, fails: 0, worst: Infinity, unitN: 0, unitFails: 0, unitWorst: Infinity, linkN: 0, linkFails: 0, linkWorst: Infinity};
+  const P = {n: 0, fails: 0, worst: Infinity, unitN: 0, unitFails: 0, unitWorst: Infinity, linkN: 0, linkFails: 0, linkWorst: Infinity,
+    fresh: 0, live: 0, freshFails: 0, failed: []};
   const noPreview = {previewNadirHz: V.F0_HZ};
   const t0 = process.hrtime.bigint();
   const r = S.runPar(seed, scenario, {proxy, onStep: st => {
@@ -120,7 +121,15 @@ function runOne(S, scenario, seed, proxy, withActions, probe) {
     const hz = {unit: probeTrip(S, st, sec, 'unit'), link: importing ? probeTrip(S, st, sec, 'link') : Infinity};
     const low = Math.min(hz.unit, hz.link);
     P.n++;
-    if (low < V.CONTAIN_LO_HZ) P.fails++;
+    if (fresh) P.fresh++;
+    if (live) P.live++;
+    if (low < V.CONTAIN_LO_HZ) {
+      // A state the desk showed SECURE on a cached preview may no longer be SECURE on a fresh one.
+      P.fails++;
+      if (fresh) P.freshFails++;
+      P.failed.push(hhmm(V, t) + ' ' + (hz.unit < V.CONTAIN_LO_HZ ? 'unit ' + hz.unit.toFixed(3) : 'link ' + hz.link.toFixed(3)) + ' Hz (' +
+        (fresh ? 'SECURE on a fresh preview' : 'SECURE only on the cached preview') + ')');
+    }
     if (low < P.worst) P.worst = low;
     for (const k of ['unit', 'link']) {
       if (hz[k] === Infinity) continue;
@@ -267,8 +276,9 @@ function summary(title, rows) {
     console.log('\nH-8: a credible trip from a SECURE state (at most one state per ' + PROBE_EVERY_S / 60 + ' grid-min, tripped in a copy)');
     table([line('either credible contingency', 'n', 'fails', 'worst'), line('losing the largest unit', 'unitN', 'unitFails', 'unitWorst'),
       line('losing the tie import (> 50 MW)', 'linkN', 'linkFails', 'linkWorst')], [['trip', r => r.what], ['nadir', r => r.v]]);
+    console.log(tot('fresh') + ' of the ' + tot('n') + ' states were SECURE on a fresh preview (' + tot('freshFails') + ' of them below 49.5 Hz), ' + tot('live') + ' as the desk showed it');
     const bad = rows.filter(r => r.probe && r.probe.fails > 0);
-    if (bad.length) console.log('states below 49.5 Hz on seeds ' + bad.map(r => r.seed + ' (' + r.probe.fails + ')').join(', '));
+    if (bad.length) console.log('states below 49.5 Hz: ' + bad.map(r => 'seed ' + r.seed + ' ' + r.probe.failed.join(', ')).join('; '));
   }
 }
 

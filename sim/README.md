@@ -1260,6 +1260,48 @@ state, memo}`. JSDoc has the details. The contract:
   22:00 or at the 20% reserve) is asked right after rule 1 (origin 'rule6'); rule 2 raises the
   GUARD only as far as the battery sustains it for `GUARD_SUSTAIN_S`. The file header lists
   each extension.
+* **The belly** (Phase 2a: SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §25). On a
+  scenario with no rooftop, a price that never reaches $0 and nothing spilled (the classic day)
+  every line here is exactly the pre-2a behaviour.
+  * *Lit operational demand.* A dark district takes its roofs off with its feeder, so the lit
+    load is not a proportional slice of operational demand. The dispatch (`context`), the
+    lit-load re-flow and the adequacy walk read the present from `obs.demand.litMW` and a
+    forecast column as `(demandP50 + rooftopMW) x (1 - dark customers) - rooftopMW x (1 - dark
+    rooftop)` (`litMW`, `darkShare`: a district holds an equal part of its suburb's nameplate,
+    from `obs.rooftop.suburbs`). Wind and solar are read as AVAILABLE (`obs.wind.availMW`, the
+    forecast; the walk adds back `autoMW`), so what the dispatch is holding back in a surplus
+    (C-6) is never a shortfall. The plan's day-ahead columns carry the rooftop (`plan.fc.roof`).
+  * *The plan in a surplus.* Units to their floor, the tie to the export limit (par exports only
+    to absorb must-run), the rest left to the sim's cut: the column's `gap` is negative.
+  * *Rule 6 gains S-14 rule 2*, a union with its window: charge whenever `obs.price.mwh <= 0` or
+    `obs.wind.autoMW + obs.solar.autoMW > SURPLUS_MIN_MW`, while the battery is below
+    `PAR_BATT_CHARGE_TO`. The order is the charge already ordered plus what is still spilled
+    (the sim's cut is net of the order), never less than the window's rate, at most
+    `PAR_BATT_CHARGE_MAX_MW`, and no more than reaches `PAR_BATT_CHARGE_TO` by par's next
+    possible action. A belly order (`memo.belly`) is held while the surplus still feeds it and
+    comes down by what the thermal units carry above their floor (else it flapped at every
+    decision: the order takes the whole spill, so the price turns positive and nothing is spilled).
+  * *Rule 4 gains S-14 rule 4*: after the gas units, and only once none is committed, ONE coal
+    machine a day (`PAR_COAL_STOPS_DAY`, `memo.coalStops`) is stopped if the forecast is at or
+    below MSL2 (per column `+ MSL_TIE_OUT_MW` before the tie's return) for `PAR_COAL_MSL2_H` and
+    `eveningHolds`: in every plan column until the machine could be back at MIN (unload, T4,
+    minimum down from breaker open to the next START, `startToMinS`), the other machines on,
+    coming or free to start at `PAR_MAX_LOADING`, hydro at rule 5's release rate and the tie at
+    its secure import, less the largest single loss, cover the lit net demand plus
+    `PAR_COMMIT_MARGIN_MW`. Expected never to fire on the game's days; `tools/par.js` counts it.
+  * *S-14 rule 3* (as reworded: export to the cap, charge, the dispatch curtails the rest) needs
+    no input from par. *Rules 1 and 5* wait for the city levers (2b).
+  * *A battery order in the dispatch* (`batteryOrder`) counts for the energy behind it: a
+    discharge until `PAR_BATT_RESERVE_FRAC`, a charge until full, at most the inverter less the
+    GUARD. That is the player's order (through `replan()`, whose memory runs no rule 6) and par's
+    belly charge (until `PAR_BATT_CHARGE_TO`); par's window orders still end with their window.
+  * *Rule 7* reads `agc.requestMW` net of the units' lowering trims while the dispatch is spilling
+    (AGC then takes them to MIN beyond their bands, C-6: the dispatch at work, not drift), and a
+    surplus the plan itself shows for the coming column is not a miss of the forecast.
+  * *`replan()`* gives the first plan column, which arrives in less than a whole column unless
+    the re-dispatch falls on the 5-min grid, only the ramp its remaining time allows (the
+    player's levers ran up to 45 MW behind a whole-column first key while coal climbed). Par's
+    own amendments keep the whole-column window (unchanged; a stage C candidate).
 * **Proxies** (`opts.proxy`): `par`; `planOnly` (the plan, nothing else: the L-0 accept);
   `doNothing` (no input at all: F-3); `lean` (plan + rules 1, 2, 7, 8, 9); `competent` (plan +
   rules 1-9 at `PROXY_COMPETENT_GAP_REAL_S`: H-1(b), F-3, K-8); `commitAll` (S-11: START every
@@ -1276,7 +1318,14 @@ state, memo}`. JSDoc has the details. The contract:
 * `tools/par.js` (Exit Phase 0) prints par for any seed. `tools/` is CommonJS
   (`tools/package.json`), so it loads the ES modules with `await import('../sim/step.js')`
   (Node >= 20), never `require`. It exports `grade()` (S-5) for `tools/baseline-v4.js`, and
-  runs `main()` only when executed.
+  runs `main()` only when executed. Phase 2a: `--scenario desk | desk-weekend`, a summary by day
+  type (MILD / HOT / HEATWAVE, weekend) with the minimum operational demand, the hours at a
+  negative price, the MWh spilled (the score's, and the automatic cut alone), the peak frequency,
+  the highest MSL level and rule 4's coal stops; `--probe` trips both credible contingencies in a
+  copy of each SECURE state (H-8, as `tools/baseline-v4.js` does on the classic day); `--rows FILE`.
+  `tools/follow.mjs` runs the hint-following player (`tests/lib/follow.js`) over seeds: unserved
+  energy, `score.cost` by key with par's beside it, and each STOP line's quoted saving against the
+  realised difference (the same day with that STOP skipped).
 
 ### step.js (A, kept by "integration")
 
