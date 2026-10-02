@@ -3,14 +3,22 @@
 // a trip, drags and the keyboard route sending exactly what planview.snapDrop predicts, the
 // earliest-arrival ghost, the L-9 hover glow, read-only in the watch, no NaN on the canvas,
 // 24-px hit areas and the render budget.
+// Phase 2a (desk/README §21.5), on a real mild weekend of the game's scenario
+// (tests/lib/desk-vm.js): the rooftop silhouette and its hatch (L-2), the blue SURPLUS columns
+// (C-11, K-22), the signed price with SPILL (P-9), the text alternative's new clauses (K-23),
+// the redraw key and the budget with all of it drawn.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {V} from '../sim/params.js';
 import * as PV from '../app/planview.js';
 import {makeDocument} from './lib/dom.js';
 import {dayVm, baseVm} from './lib/vm-fixture.js';
+import {deskDayVm} from './lib/desk-vm.js';
+import {DESK_WEEKEND} from '../content/scenarios.js';
+import {UI, COLOURS} from '../render/mapdata.js';
+import {clockText} from '../render/format.js';
 import {yardstickNs, OWNER_YARD_NS} from './lib/speed.js';
-import {createLiveStack, AXIS_MAX_MW, HIT_PX, GAP_MARK, gapRuns, stackSummary} from '../render/livestack.js';
+import {createLiveStack, AXIS_MAX_MW, HIT_PX, GAP_MARK, SURPLUS_MIN_PX, gapRuns, stackSummary} from '../render/livestack.js';
 
 const DAYS = {};
 async function vmOf(key, o, over) {
@@ -320,4 +328,247 @@ test('L-1: render <= 4 ms at 1280 px (stand-in canvas: the JS cost), projection 
   }
   assert.ok(best <= 4 * scale, 'p95 ' + best.toFixed(2) + ' ms (budget ' + (4 * scale).toFixed(2) + ' ms here)');
   assert.ok(stack.debug.stats.recomputes <= 20, stack.debug.stats.recomputes + ' recomputes');
+});
+
+// ------------------------------------------------------------------ Phase 2a: the belly (desk/README §21.5)
+
+let BELLY = null;
+/**
+ * A real mild weekend at 12:30 with nobody at the desk (desk-weekend, seed 1): rooftop near its
+ * peak, the dispatch spilling, the price negative, the evening short. Six past columns in
+ * app/game.js's form (column means), the rooftop among them.
+ */
+function bellyVm(over) {
+  BELLY ||= deskDayVm({seed: 1, untilH: 12.5, scenario: DESK_WEEKEND, follow: false}).obs;
+  const c = structuredClone(BELLY), from = c.forecast.fromS;
+  const hist = {colFromS: from - 6 * 300, colS: 300, freq: [], demand: [2150, 2120, 2090, 2060, 2030, 2000], rooftop: [3050, 3080, 3110, 3140, 3170, 3200],
+    stations: {coal: [720, 720, 720, 720, 720, 720], wind: [500, 500, 500, 500, 500, 500], tie: [-300, -300, -300, -300, -300, -300]}};
+  return baseVm(c, Object.assign({hist}, over));
+}
+
+/** Record every fillText on a canvas from now on: [{text, fill}]. */
+function spyText(cv) {
+  const ctx = cv.getContext('2d'), seen = [];
+  ctx.fillText = text => { seen.push({text: String(text), fill: ctx.fillStyle}); };
+  return seen;
+}
+
+test('L-2 (2a): the silhouette and the hatched rooftop bite sit above the skyline, past columns included; ROOFTOP in the big layout; nothing at night or on CLASSIC', async () => {
+  const {stack, doc, cv} = mount();
+  const vm = bellyVm();
+  assert.deepEqual(vm.obs.day, {temp: 'MILD', weekend: true});
+  let clips = 0;
+  cv.getContext('2d').clip = () => { clips++; };
+  const text = spyText(cv);
+  stack.update(vm);
+  const P = stack.debug.proj, R = stack.debug.stats.rooftop;
+  assert.ok(P.rooftop[0] > 2500, 'a mild noon: ' + P.rooftop[0]);
+  assert.deepEqual({future: R.future, past: R.past, word: R.word}, {future: true, past: 6, word: false});
+  assert.equal(R.mw, Math.max(...P.rooftop));
+  assert.equal(clips, 1, 'one clip for the whole bite');
+  assert.ok(!text.some(t => t.text === 'ROOFTOP'), 'no word at the floor');
+  // the same view without rooftop draws less: the hatch and the silhouette are real strokes
+  const bare = bellyVm({hist: undefined});
+  bare.obs.forecast.rooftopMW = bare.obs.forecast.rooftopMW.map(() => 0);
+  const a = mount(), b = mount();
+  a.stack.update(bellyVm({hist: undefined}));
+  b.stack.update(bare);
+  assert.ok(a.doc.canvasStats.calls > b.doc.canvasStats.calls + 100, a.doc.canvasStats.calls + ' calls with the bite, ' + b.doc.canvasStats.calls + ' without');
+  assert.deepEqual(b.stack.debug.stats.rooftop, {mw: 0, future: false, past: 0, word: false});
+  assert.equal(a.stack.debug.stats.rooftop.past, 0, 'no history: no past bite');
+  // the big layout says the word, in the sun's colour, inside the bite
+  const big = mount(1248, 420);
+  const words = spyText(big.cv);
+  big.stack.update(bellyVm({stackExpanded: true}));
+  assert.equal(big.stack.debug.stats.rooftop.word, true);
+  assert.deepEqual(words.filter(t => t.text === 'ROOFTOP'), [{text: 'ROOFTOP', fill: COLOURS.solar}]);
+  // a hover in the bite says what it is (K-23: the same is in the text alternative)
+  const G = big.stack.debug.geom, Q = big.stack.debug.proj, k = 40;
+  assert.ok(Q.rooftop[k] > 1000 && !Q.blue[k]);
+  at(big.cv, 'pointermove', G.x(Q.times[k]) - 2, G.y(Q.p50[k] + Q.rooftop[k] * 0.8));
+  const tip = big.stack.el.querySelector('.livestack-tip');
+  assert.ok(!tip.hidden);
+  assert.match(tip.textContent, /^ROOFTOP SOLAR [\d,]+ MW at \d\d:\d\d\n/);
+  assert.equal(big.stack.debug.hitTest(G.x(Q.times[k]) - 2, G.y(Q.p50[k] + Q.rooftop[k] * 0.8)).kind, 'empty', 'a press there grabs nothing');
+  // night, and the scenario with no rooftop: nothing of it is drawn
+  const night = bellyVm();
+  night.obs.forecast.rooftopMW = night.obs.forecast.rooftopMW.map(() => 0);
+  night.hist.rooftop = night.hist.rooftop.map(() => 0);
+  const n = mount();
+  n.stack.update(night);
+  assert.deepEqual(n.stack.debug.stats.rooftop, {mw: 0, future: false, past: 0, word: false});
+  const c = mount();
+  c.stack.update(await morning());
+  assert.deepEqual(c.stack.debug.stats.rooftop, {mw: 0, future: false, past: 0, word: false});
+  for (const m of [doc, a.doc, b.doc, big.doc, n.doc, c.doc]) assert.deepEqual(m.canvasStats.bad, []);
+});
+
+test('C-11 / K-22: blue SURPLUS columns carry bars, a glyph and the word, never colour alone; a minimum height; the hover line; never a gap kind', async () => {
+  const {stack, cv, ui, sent, doc} = mount();
+  const text = spyText(cv);
+  const vm = bellyVm();
+  stack.update(vm);
+  const P = stack.debug.proj, S = stack.debug.stats.surplus, runs = PV.blueRuns(P);
+  assert.equal(runs.length, 1);
+  assert.ok(runs[0].mw > 400 && runs[0].k1 - runs[0].k0 >= 12, JSON.stringify(runs));
+  assert.equal(S.cols, P.blue.reduce((x, v) => x + v, 0));
+  assert.ok(S.minPx >= SURPLUS_MIN_PX);
+  // blue is its own thing: no gap column is 'blue', and its run is marked beside the red and amber ones
+  assert.ok(P.gap.every(g => g === '' || g === 'red' || g === 'amber'));
+  const gaps = gapRuns(P), marks = stack.debug.stats.gapMarks;
+  assert.ok(gaps.some(r => r.kind === 'red') && gaps.some(r => r.kind === 'amber'), 'the fixture: the evening is short');
+  assert.equal(marks.length, gaps.length + runs.length, 'one mark per run');
+  assert.deepEqual(marks.filter(m => m.startsWith('blue')), ['blue:bars:+']);
+  assert.equal(S.word, 1);
+  assert.ok(text.some(t => t.text === GAP_MARK.blue.glyph + ' ' + GAP_MARK.blue.word), 'the word is drawn on a wide run: ' + text.map(t => t.text).join('|'));
+  // the hover line, inside a column: what will be spilled and the two things that save it
+  const G = stack.debug.geom, k = 6;
+  const base = P.p50[k] + P.exports[k] + P.charging[k];
+  const x = (G.x(P.times[k]) + G.x(P.times[k] - 300)) / 2, y = (G.y(base) + Math.min(G.y(base + P.surplusMW[k]), G.y(base) - SURPLUS_MIN_PX)) / 2;
+  at(cv, 'pointermove', x, y);
+  const tip = stack.el.querySelector('.livestack-tip');
+  assert.ok(!tip.hidden);
+  assert.equal(tip.textContent, 'SURPLUS at ' + clockText(P.times[k], false) + '\n' +
+    Math.round(P.surplusMW[k]).toLocaleString('en-AU') + ' MW will be spilled: stop a unit, or charge the battery');
+  assert.match(tip.textContent, /\n\d+ MW will be spilled: stop a unit, or charge the battery$/);
+  assert.ok(parseFloat(tip.style.left) + tip.textContent.split('\n')[1].length * 5 <= G.W, 'the line stays inside the box');
+  assert.deepEqual(ui[ui.length - 1], {do: 'hover', target: null});
+  // a press in the same place never grabs the blue (it takes the handle or the edge under it, or nothing)
+  assert.notEqual(stack.debug.hitTest(x, y).kind, 'surplus');
+  assert.equal(stack.debug.hitTest(x, y, true).kind, 'surplus');
+  at(cv, 'pointerleave', 0, 0);
+  // a small spill is still seen: 60 MW is under 1 px of this axis and is drawn SURPLUS_MIN_PX tall, the glyph alone over a narrow run
+  const small = bellyVm();
+  const fc = small.obs.forecast, lift = runs[0].mw - 60;
+  for (const key of ['demandP50', 'demandP10', 'demandP90']) fc[key] = fc[key].map(v => v + lift);
+  const m2 = mount();
+  const t2 = spyText(m2.cv);
+  m2.stack.update(small);
+  const P2 = m2.stack.debug.proj, S2 = m2.stack.debug.stats.surplus;
+  assert.ok(S2.cols >= 1 && S2.cols < 12 && Math.max(...P2.surplusMW) <= 60 + 1e-6, S2.cols + ' columns up to ' + Math.max(...P2.surplusMW));
+  assert.equal(S2.minPx, SURPLUS_MIN_PX);
+  assert.ok((G.y(0) - G.y(60)) < 1, 'unseen without the minimum');
+  assert.equal(S2.word, 0);
+  assert.ok(t2.some(t => t.text === GAP_MARK.blue.glyph) && !t2.some(t => t.text.includes(GAP_MARK.blue.word)));
+  // no surplus, nothing blue (the classic day)
+  const c = mount();
+  c.stack.update(await morning());
+  assert.deepEqual(c.stack.debug.stats.surplus, {cols: 0, minPx: 0, word: 0});
+  assert.equal(sent.length, 0);
+  for (const m of [doc, m2.doc, c.doc]) assert.deepEqual(m.canvasStats.bad, []);
+});
+
+test('P-9: the price goes through priceText; a negative price is in its own colour with the word SPILL; a price change redraws the stack', async () => {
+  const {stack, cv} = mount();
+  const text = spyText(cv);
+  const vm = bellyVm();
+  assert.equal(vm.obs.price.mwh, -20, 'the fixture: wind and solar are setting the price');
+  stack.update(vm);
+  assert.deepEqual(stack.debug.stats.price, {text: 'SPILL \u2212$20/MWh', spill: true});
+  assert.deepEqual(text.filter(t => /MWh$/.test(t.text)), [{text: 'SPILL \u2212$20/MWh', fill: UI.blue}]);
+  // an unchanged frame is skipped; the price alone changing is drawn at once
+  const d0 = stack.debug.stats.draws;
+  stack.update(vm);
+  assert.equal(stack.debug.stats.draws, d0);
+  text.length = 0;
+  vm.obs.price.mwh = 26.4;
+  stack.update(vm);
+  assert.equal(stack.debug.stats.draws, d0 + 1);
+  assert.deepEqual(text.filter(t => /MWh$/.test(t.text)), [{text: '$26/MWh', fill: UI.text}]);
+  text.length = 0;
+  vm.obs.price.mwh = 1400;
+  stack.update(vm);
+  assert.deepEqual(text.filter(t => /MWh$/.test(t.text)), [{text: '$1,400/MWh', fill: UI.amber}]);
+  // a layer's tooltip prices its offer the same way (wind and solar bid below zero)
+  const G = stack.debug.geom, P = stack.debug.proj;
+  at(cv, 'pointermove', G.x(P.times[30]) - 2, G.y(P.layers[0].mw[30] / 2));
+  assert.match(stack.el.querySelector('.livestack-tip').textContent, /cost \u2212\$20\/MWh\nprice now \$1,400\/MWh$/);
+  // no price at all (an older view): no text, no throw
+  const bare = bellyVm();
+  delete bare.obs.price;
+  const m = mount();
+  m.stack.update(bare);
+  assert.deepEqual(m.stack.debug.stats.price, {text: '', spill: false});
+});
+
+test('K-23 (2a): the text alternative says the surplus runs and the rooftop, after its present sentences', async () => {
+  const {stack, cv} = mount();
+  const vm = bellyVm();
+  stack.update(vm);
+  const P = stack.debug.proj, a = cv.getAttribute('aria-label');
+  assert.equal(a, stackSummary(P, vm.obs, false));
+  assert.match(a, /^Live Stack at \d\d:\d\d: the plan for the next 4\.5 hours\. Planned supply [\d,]+ MW against a forecast of [\d,]+ MW/);
+  assert.match(a, / SURPLUS \d\d:\d\d to \d\d:\d\d, up to [\d,]+ MW will be spilled\. Rooftop solar meets [\d,]+ MW of demand now, [\d,]+ MW by \d\d:\d\d\.$/);
+  const run = PV.blueRuns(P)[0];
+  assert.ok(a.includes('up to ' + Math.round(run.mw).toLocaleString('en-AU') + ' MW will be spilled.'));
+  assert.ok(a.includes('Rooftop solar meets ' + Math.round(P.rooftop[0]).toLocaleString('en-AU') + ' MW of demand now'));
+  // after everything it said before: the gaps, and the watch's sentence
+  const locked = stackSummary(P, vm.obs, true);
+  const last = Math.max(locked.lastIndexOf('below the forecast.'), locked.lastIndexOf('below the top of the likely range.'), locked.indexOf('Read-only during the watch.'));
+  assert.ok(last > 0 && locked.indexOf('SURPLUS') > last && locked.indexOf('Rooftop solar') > locked.indexOf('SURPLUS'), locked);
+  // the classic day says neither, word for word as before
+  const calm = await morning();
+  const m = mount();
+  m.stack.update(calm);
+  const c = m.cv.getAttribute('aria-label');
+  assert.ok(!/SURPLUS|Rooftop/.test(c), c);
+  assert.match(c, /(below the forecast|below the top of the likely range|No gaps)\.$/);
+});
+
+test('F-11 / §21.5: what the belly adds is in the redraw key; the projection tolerates the new keys missing', async () => {
+  const {stack, doc} = mount();
+  const vm = bellyVm();
+  stack.update(vm);
+  const st = stack.debug.stats, d0 = st.draws;
+  for (let i = 0; i < 5; i++) stack.update(vm);
+  assert.equal(st.draws, d0, 'at rest the belly costs no redraw');
+  assert.equal(st.skips, 5);
+  // the past rooftop moves with the now line: a new history is on the next 15-grid-s step
+  vm.hist.rooftop = vm.hist.rooftop.map((v, i) => (i < 3 ? NaN : v));
+  vm.obs.s += 15;
+  stack.update(vm);
+  assert.equal(st.draws, d0 + 1);
+  assert.equal(st.rooftop.past, 3);
+  // the forecast rooftop and the surplus come with the projection: a new plan revision redraws them
+  vm.obs.forecast.rooftopMW = vm.obs.forecast.rooftopMW.map(v => v / 2);
+  vm.obs.forecast.demandP50 = vm.obs.forecast.demandP50.map(v => v + 5000);
+  vm.obs.plan.rev++;
+  stack.update(vm);
+  assert.equal(st.draws, d0 + 2);
+  assert.ok(Math.abs(st.rooftop.mw - Math.max(...BELLY.forecast.rooftopMW) / 2) < 1e-6);
+  assert.equal(st.surplus.cols, 0, 'demand took the surplus');
+  // views from before Phase 2a: no rooftop in the forecast or the view, no export limit, a history without rooftop
+  const old = bellyVm();
+  delete old.obs.forecast.rooftopMW; delete old.obs.forecast.exportLimitMW; delete old.obs.forecast.underlyingP50; delete old.obs.rooftop; delete old.obs.msl; delete old.obs.day;
+  delete old.hist.rooftop;
+  const m = mount();
+  m.stack.update(old);
+  assert.deepEqual(m.stack.debug.stats.rooftop, {mw: 0, future: false, past: 0, word: false});
+  assert.deepEqual([...doc.canvasStats.bad, ...m.doc.canvasStats.bad], []);
+});
+
+test('L-1 (2a): render <= 4 ms with the belly drawn (rooftop bite, past columns, blue surplus), floor and expanded', async () => {
+  const scale = Math.max(1, yardstickNs(5) / OWNER_YARD_NS);
+  for (const [w, h] of [[336, 164], [1248, 420]]) {
+    const {stack} = mount(w, h);
+    const vm = bellyVm({stackExpanded: w > 600});
+    let best = Infinity, worst = Infinity, f = 0;
+    for (let run = 0; run < 3 && best > 4 * scale; run++) {
+      const ms = [];
+      for (let i = 0; i < 150; i++, f++) {
+        vm.frame = {nowMs: 1000 + f * 16, dtS: 1 / 60, alpha: 0};
+        if (i % 30 === 0) vm.obs.plan.rev++;   // a recompute and a full draw
+        const t0 = performance.now();
+        stack.update(vm);
+        if (i >= 30) ms.push(performance.now() - t0);
+      }
+      ms.sort((x, y) => x - y);
+      best = Math.min(best, ms[Math.floor(ms.length * 0.95)]);
+      worst = Math.min(worst, ms[ms.length - 1]);
+    }
+    assert.ok(stack.debug.stats.rooftop.future && stack.debug.stats.surplus.cols > 0, 'the belly was drawn');
+    assert.ok(best <= 4 * scale, w + ' px: p95 ' + best.toFixed(2) + ' ms (budget ' + (4 * scale).toFixed(2) + ' ms here)');
+    // the frame that recomputes and redraws everything is inside the budget too
+    assert.ok(worst <= 4 * scale, w + ' px: the full redraw took ' + worst.toFixed(2) + ' ms (budget ' + (4 * scale).toFixed(2) + ' ms here)');
+  }
 });

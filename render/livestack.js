@@ -10,8 +10,20 @@
 //
 // View-model inputs: vm.obs (with obs.plan), vm.mode.locked (read-only during the watch, L-7),
 // vm.stackExpanded (L-4 overlay over the map), vm.hover / vm.glow (cross-highlight, L-9),
-// vm.hist (past columns: {demand: [{s, mw}], stations: {<layer id>: [{s, mw}]}}, layer ids =
-// station ids + wind, solar, tie (signed), battery (signed), rert, dr; absent: no past drawn).
+// vm.hist (past columns: {demand: [{s, mw}], rooftop: [{s, mw}], stations: {<layer id>: [{s, mw}]}},
+// layer ids = station ids + wind, solar, tie (signed), battery (signed), rert, dr; absent: no past
+// drawn; app/game.js sends column means with colFromS / colS instead: planview.pastFromHist reads both).
+//
+// Phase 2a, the belly (desk/README.md §21.5; shown always until the first-shift face of L-2, 2e):
+//   L-2  the silhouette: a faint line at operational + rooftop above the operational skyline,
+//        past columns included, and the rooftop bite between the two hatched sun-yellow (sparse
+//        "\\\", no fill), with the word ROOFTOP in the big layout. Nothing is drawn while the
+//        rooftop is under 1 MW (night; the CLASSIC scenario).
+//   C-11 blue SURPLUS columns where proj.surplusMW > SURPLUS_MIN_MW (planview.blueRuns): what
+//        will be spilled, standing on the demand line (over exports and charging) with a minimum
+//        height, GAP_MARK.blue's pattern, glyph and word, and a hover line that says what to do.
+//        Blue is never a kind in proj.gap.
+//   P-9  the price through format.priceText; a negative price in its own colour with the word SPILL.
 //
 // Pointer: drag a key handle or a layer's top edge (a new key there) to (time, MW); drag an off
 // unit's ghost sideways to book its START; drag a booked start below the axis to unbook it.
@@ -22,14 +34,16 @@
 // own keys and stops them, so the handle needs no key() for the shell to forward (§13.3).
 //
 // K-22 (status is never colour only): a red gap (short of P50) is hatched "\\\" and carries a
-// "!" over each run; an amber gap (inside the likely range) is hatched "///" and carries a "~"
-// (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture says
-// (stackSummary), refreshed at most once per real second.
+// "!" over each run; an amber gap (inside the likely range) is hatched "///" and carries a "~";
+// a blue surplus is barred "|||" and carries a "+" and, where the run is wide enough, the word
+// SURPLUS (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture
+// says (stackSummary: the gaps, then the surplus runs and the rooftop), refreshed at most once
+// per real second.
 
 import {V} from '../sim/params.js';
 import * as PV from '../app/planview.js';
 import {COLOURS, UI} from './mapdata.js';
-import {clockText, mw as fmtMW} from './format.js';
+import {clockText, mw as fmtMW, priceText} from './format.js';
 
 export const AXIS_MAX_MW = 9000;
 export const HIT_PX = 24;
@@ -41,6 +55,12 @@ const GHOST_MS = 6000, MSG_MS = 4000;
 const NOW_STEP_S = 15;
 const FLOOR_FONT = '9px system-ui, -apple-system, "Segoe UI", sans-serif';
 const BIG_FONT = '11px system-ui, -apple-system, "Segoe UI", sans-serif';
+/** C-11: a blue column is drawn at least this tall (a 60-MW spill is under 1 px of the 9,000-MW axis at the floor). */
+export const SURPLUS_MIN_PX = 4;
+/** L-2: rooftop under this many MW is not drawn (night; the CLASSIC scenario has none). */
+const ROOF_MIN_MW = 1;
+const ROOF_HATCH_PX = 7;
+const ROOF_HATCH = 'rgba(241,211,92,0.55)', SILHOUETTE = 'rgba(230,237,243,0.45)';
 const NAMES = {coal: 'COAL', ccgt: 'CCGT', gta: 'GT·A', gtb: 'GT·B', gtc: 'GT·C', hydro: 'HYDRO', wind: 'WIND', solar: 'SOLAR',
   tie: 'TIE', battery: 'BATTERY', rert: 'DIESEL', dr: 'DR'};
 
@@ -48,7 +68,7 @@ const NAMES = {coal: 'COAL', ccgt: 'CCGT', gta: 'GT·A', gtb: 'GT·B', gtc: 'GT�
 export const GAP_MARK = Object.freeze({
   red: Object.freeze({hatch: 'back', glyph: '!', word: 'SHORT'}),
   amber: Object.freeze({hatch: 'forward', glyph: '~', word: 'TIGHT'}),
-  blue: Object.freeze({hatch: 'bars', glyph: '+', word: 'SURPLUS'}), // for Phase 2, when the blue gap is drawn (L-5)
+  blue: Object.freeze({hatch: 'bars', glyph: '+', word: 'SURPLUS'}), // Phase 2a (C-11): projected spill; its own runs (planview.blueRuns), never a gap kind
 });
 
 /** Runs of one gap kind ahead (pure): [{kind, k0, k1, mw}]; mw: the largest shortfall, against P50 (red) or P90 (amber). */
@@ -65,7 +85,11 @@ export function gapRuns(proj) {
   return out;
 }
 
-/** K-23: the stack's text alternative (pure): the clock, supply against the forecast, each gap ahead in words. */
+/**
+ * K-23: the stack's text alternative (pure): the clock, supply against the forecast, each gap
+ * ahead in words; then (Phase 2a) the surplus runs ahead and what rooftop solar is taking off
+ * demand. A projection without surplusMW or rooftop (older fixtures) says neither.
+ */
 export function stackSummary(proj, obs, locked) {
   const runs = gapRuns(proj), far = proj.n - 1, say = [];
   say.push('Live Stack at ' + clockText(obs.s, false) + ': the plan for the next 4.5 hours.');
@@ -77,6 +101,14 @@ export function stackSummary(proj, obs, locked) {
   }
   if (!runs.length) say.push('No gaps.');
   if (locked) say.push('Read-only during the watch.');
+  for (const r of PV.blueRuns(proj).slice(0, 2)) {
+    say.push(GAP_MARK.blue.word + ' ' + clockText(proj.times[r.k0] - STEP, false) + ' to ' + clockText(proj.times[r.k1], false) + ', up to ' +
+      fmtMW(Math.round(r.mw)) + ' MW will be spilled.');
+  }
+  const roof = proj.rooftop;
+  if (roof && (roof[0] > ROOF_MIN_MW || roof[far] > ROOF_MIN_MW)) {
+    say.push('Rooftop solar meets ' + fmtMW(Math.round(roof[0])) + ' MW of demand now, ' + fmtMW(Math.round(roof[far])) + ' MW by ' + clockText(proj.times[far], false) + '.');
+  }
   return say.join(' ');
 }
 
@@ -138,16 +170,18 @@ export function createLiveStack(doc, root, actions) {
   root.appendChild(el);
 
   let vm = null, proj = null, sig = '', G = null, handles = [], ghosts = [];
-  let drag = null, sel = null, pending = null, message = null, hoverLayer = null, hoverGap = null, sentHover = undefined, glowLocal = new Set();
-  let expanded = false, drawMs = 0, lastDrop = null, nowMs = 0, curB = null, runs = [], ariaAt = -1e9, ariaText = '';
-  const stats = {draws: 0, skips: 0, recomputes: 0, tear: null, gapMarks: []};
+  let drag = null, sel = null, pending = null, message = null, hoverLayer = null, hoverGap = null, hoverBlue = null, sentHover = undefined, glowLocal = new Set();
+  let expanded = false, drawMs = 0, lastDrop = null, nowMs = 0, curB = null, runs = [], blues = [], ariaAt = -1e9, ariaText = '';
+  // gapMarks: one 'kind:hatch:glyph' per red, amber and blue run drawn; rooftop, surplus, price: what Phase 2a drew
+  const stats = {draws: 0, skips: 0, recomputes: 0, tear: null, gapMarks: [],
+    rooftop: {mw: 0, future: false, past: 0, word: false}, surplus: {cols: 0, minPx: 0, word: 0}, price: {text: '', spill: false}};
   let drawnKey = '';
 
   const say = text => { message = text ? {text, until: nowMs + MSG_MS} : null; msg.textContent = text || ''; };
 
   function ensureProj() {
     const obs = vm.obs, k = signature(obs);
-    if (!proj || k !== sig) { proj = PV.project(obs, {hist: vm.hist}); sig = k; stats.recomputes++; runs = gapRuns(proj); }
+    if (!proj || k !== sig) { proj = PV.project(obs, {hist: vm.hist}); sig = k; stats.recomputes++; runs = gapRuns(proj); blues = PV.blueRuns(proj); }
     else if (vm.hist) proj.past = PV.pastFromHist(vm.hist, proj.pastTimes);
     return proj;
   }
@@ -278,6 +312,126 @@ export function createLiveStack(doc, root, actions) {
     ctx.stroke();
   }
 
+  /** Upright bars ("|||") on a 3-px grid: the blue surplus, told from both diagonals by pattern (K-22). */
+  function hatchBars(ctx, xa, xb, yt, yb) {
+    for (let x = Math.ceil(xa / 3) * 3 + 0.5; x < xb; x += 3) { ctx.moveTo(x, yt); ctx.lineTo(x, yb); }
+  }
+
+  /**
+   * L-2 (Phase 2a): the silhouette of what the city is using (operational + rooftop, a faint
+   * line) above the skyline, and the rooftop bite between the two hatched sun-yellow. Past
+   * columns from the history (proj.past.demand + proj.past.rooftop), future ones from the
+   * forecast (proj.p50 + proj.rooftop). One clip and one path of hatch lines for the lot.
+   */
+  function drawRooftop(ctx, xs) {
+    const n = proj.n, roof = proj.rooftop, past = proj.past, R = stats.rooftop;
+    R.mw = 0; R.future = false; R.past = 0; R.word = false;
+    if (!roof) return;
+    let top = 0, kTop = 0;
+    for (let k = 0; k < n; k++) if (roof[k] > top) { top = roof[k]; kTop = k; }
+    const future = top > ROOF_MIN_MW;
+    let nPast = 0;
+    if (past && past.rooftop) for (let p = 0; p < PV.N_PAST; p++) if (past.rooftop[p] > ROOF_MIN_MW && Number.isFinite(past.demand[p])) nPast++;
+    if (!future && !nPast) return;
+    R.mw = top; R.future = future; R.past = nPast;
+    let yt = Infinity, yb = -Infinity, xa = Infinity, xb = -Infinity;
+    ctx.save();
+    ctx.beginPath();
+    if (nPast) for (let p = 0; p < PV.N_PAST; p++) {
+      const r = past.rooftop[p], d = past.demand[p];
+      if (!(r > ROOF_MIN_MW) || !Number.isFinite(d)) continue;
+      const x0 = G.x(proj.pastTimes[p] - STEP), x1 = G.x(proj.pastTimes[p]), y1 = G.y(d), y0 = G.y(d + r);
+      ctx.rect(x0, y0, x1 - x0, y1 - y0);
+      if (y0 < yt) yt = y0;
+      if (y1 > yb) yb = y1;
+      if (x0 < xa) xa = x0;
+      if (x1 > xb) xb = x1;
+    }
+    if (future) {
+      ctx.moveTo(xs[0], G.y(proj.p50[0] + roof[0]));
+      for (let k = 0; k < n; k++) { const y = G.y(proj.p50[k] + roof[k]); ctx.lineTo(xs[k + 1], y); if (y < yt) yt = y; }
+      for (let k = n - 1; k >= 0; k--) { const y = G.y(proj.p50[k]); ctx.lineTo(xs[k + 1], y); if (y > yb) yb = y; }
+      ctx.lineTo(xs[0], G.y(proj.p50[0]));
+      ctx.closePath();
+      if (xs[0] < xa) xa = xs[0];
+      if (xs[n] > xb) xb = xs[n];
+    }
+    ctx.clip();
+    ctx.strokeStyle = ROOF_HATCH; ctx.lineWidth = 1;
+    ctx.beginPath();
+    const h = yb - yt;
+    for (let x = xa - h; x < xb; x += ROOF_HATCH_PX) { ctx.moveTo(x, yt); ctx.lineTo(x + h, yb); }
+    ctx.stroke();
+    ctx.restore();
+    // the silhouette: steps over the past columns (as the past skyline is), a line ahead
+    ctx.strokeStyle = SILHOUETTE; ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (nPast) for (let p = 0; p < PV.N_PAST; p++) {
+      const r = past.rooftop[p], d = past.demand[p];
+      if (!(r > ROOF_MIN_MW) || !Number.isFinite(d)) continue;
+      const y = G.y(d + r);
+      ctx.moveTo(G.x(proj.pastTimes[p] - STEP), y); ctx.lineTo(G.x(proj.pastTimes[p]), y);
+    }
+    if (future) {
+      ctx.moveTo(xs[0], G.y(proj.p50[0] + roof[0]));
+      for (let k = 0; k < n; k++) ctx.lineTo(xs[k + 1], G.y(proj.p50[k] + roof[k]));
+    }
+    ctx.stroke();
+    // the word, in the big layout, where the bite is deepest
+    if (G.big && future) {
+      const ya = G.y(proj.p50[kTop] + top), yc = G.y(proj.p50[kTop]);
+      if (yc - ya >= 14) {
+        const x = Math.max(G.x0 + 32, Math.min(G.x1 - 32, (xs[kTop] + xs[kTop + 1]) / 2)), y = (ya + yc) / 2;
+        ctx.fillStyle = 'rgba(13,17,23,0.7)'; ctx.fillRect(x - 28, y - 7, 56, 14);
+        ctx.fillStyle = COLOURS.solar; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('ROOFTOP', x, y);
+        R.word = true;
+      }
+    }
+  }
+
+  /** Top (px) of the blue column at future column k: its MW above the demand line, or SURPLUS_MIN_PX. */
+  function surplusTop(k) {
+    const base = proj.p50[k] + proj.exports[k] + proj.charging[k];
+    return Math.min(G.y(base + proj.surplusMW[k]), G.y(base) - SURPLUS_MIN_PX);
+  }
+
+  /**
+   * C-11: the blue SURPLUS columns (planview.blueRuns): what will be spilled, standing on the
+   * demand line (above the exports and the charging the plan already has). Fill, upright bars,
+   * a "+" over each run and the word where the run is wide enough: never colour alone (K-22).
+   */
+  function drawSurplus(ctx, xs) {
+    const S = stats.surplus;
+    S.cols = 0; S.minPx = 0; S.word = 0;
+    if (!blues.length) return;
+    let least = Infinity;
+    for (const r of blues) {
+      ctx.fillStyle = hoverBlue === r ? 'rgba(88,166,255,0.75)' : 'rgba(88,166,255,0.5)';
+      for (let k = r.k0; k <= r.k1; k++) {
+        const yb = G.y(proj.p50[k] + proj.exports[k] + proj.charging[k]), yt = surplusTop(k);
+        ctx.fillRect(xs[k], yt, Math.max(1, xs[k + 1] - xs[k]), yb - yt);
+        if (yb - yt < least) least = yb - yt;
+        S.cols++;
+      }
+    }
+    ctx.strokeStyle = 'rgba(13,17,23,0.6)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const r of blues) for (let k = r.k0; k <= r.k1; k++) hatchBars(ctx, xs[k], xs[k + 1], surplusTop(k), G.y(proj.p50[k] + proj.exports[k] + proj.charging[k]));
+    ctx.stroke();
+    S.minPx = least;
+    const m = GAP_MARK.blue, long = m.glyph + ' ' + m.word;
+    ctx.fillStyle = '#cfe6ff'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    for (const r of blues) {
+      let yTop = Infinity;
+      for (let k = r.k0; k <= r.k1; k++) { const y = surplusTop(k); if (y < yTop) yTop = y; }
+      const wide = xs[r.k1 + 1] - xs[r.k0] >= ctx.measureText(long).width + 2;
+      ctx.fillText(wide ? long : m.glyph, (xs[r.k0] + xs[r.k1 + 1]) / 2, Math.max(G.y1 + 9, yTop - 1));
+      if (wide) S.word++;
+      stats.gapMarks.push('blue:' + m.hatch + ':' + m.glyph);
+    }
+  }
+
   function draw() {
     const t0 = globalThis.performance ? performance.now() : Date.now();
     const obs = vm.obs;
@@ -345,6 +499,8 @@ export function createLiveStack(doc, root, actions) {
     });
     // exports and battery charging: extra load above the skyline (L-3)
     drawExtraLoad(ctx, xs);
+    // the rooftop bite and the silhouette above the skyline (L-2, Phase 2a)
+    drawRooftop(ctx, xs);
     // gaps (L-5): red below P50, amber below P90
     for (let k = 0; k < n; k++) {
       const g = proj.gap[k];
@@ -369,6 +525,8 @@ export function createLiveStack(doc, root, actions) {
       ctx.fillText(m.glyph, (xs[r.k0] + xs[r.k1 + 1]) / 2, Math.max(G.y1 + 9, yTop - 1));
       stats.gapMarks.push(r.kind + ':' + m.hatch + ':' + m.glyph);
     }
+    // C-11: what will be spilled, by fill, bars, glyph and word
+    drawSurplus(ctx, xs);
     // skyline: P50 (L-2)
     ctx.strokeStyle = UI.skyline; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(xs[0], G.y(proj.p50[0]));
@@ -399,9 +557,12 @@ export function createLiveStack(doc, root, actions) {
     ctx.textBaseline = 'top'; ctx.textAlign = 'left'; ctx.fillStyle = UI.text;
     ctx.fillText('LIVE STACK', 2, 1);
     ctx.textAlign = 'right';
-    const price = obs.price && Number.isFinite(obs.price.mwh) ? '$' + fmtMW(obs.price.mwh) + '/MWh' : '';
-    ctx.fillStyle = obs.price && obs.price.mwh > 300 ? UI.amber : UI.text;
+    // the price (P-9): a negative one in its own colour and with the word SPILL (never colour alone)
+    const pm = priceNow(obs), spill = Math.round(pm) < 0;
+    const price = Number.isFinite(pm) ? (spill ? 'SPILL ' : '') + priceText(pm) + '/MWh' : '';
+    ctx.fillStyle = spill ? UI.blue : pm > 300 ? UI.amber : UI.text;
     ctx.fillText(price, G.x1, 1);
+    stats.price.text = price; stats.price.spill = spill;
     if (vm.mode && vm.mode.locked) { ctx.fillStyle = UI.red; ctx.textAlign = 'center'; ctx.fillText('READ-ONLY: WATCH', (G.x0 + G.x1) / 2, 1); }
     if (message && nowMs > message.until) say('');
     if (pending && nowMs > pending.until) pending = null;
@@ -413,6 +574,8 @@ export function createLiveStack(doc, root, actions) {
     stats.draws++;
     drawMs = (globalThis.performance ? performance.now() : Date.now()) - t0;
   }
+
+  const priceNow = obs => (obs.price && Number.isFinite(obs.price.mwh) ? obs.price.mwh : NaN);
 
   function drawPast(ctx) {
     const past = proj.past;
@@ -539,7 +702,10 @@ export function createLiveStack(doc, root, actions) {
     return {x: (ev.clientX - r.left) * W / (r.width || W), y: (ev.clientY - r.top) * H / (r.height || H)};
   }
 
-  /** What is under (x, y): a handle, a ghost, a layer edge, a layer body or a gap. */
+  /**
+   * What is under (x, y): a handle, a ghost, a layer edge, a layer body or a gap; for a hover
+   * (forHover) also a blue surplus column or the rooftop bite, which a press never grabs.
+   */
   function hitTest(x, y, forHover) {
     if (!G || !proj) return null;
     const half = HIT_PX / 2;
@@ -548,13 +714,21 @@ export function createLiveStack(doc, root, actions) {
       const gx = G.x(pending.result.unit ? gg.onAtS : gg.atS);
       if (Math.abs(x - gx) <= half) return {kind: 'pending'};
     }
+    const ahead = !(x < G.x(vm.obs.s) - 2 || x > G.x1 + 2);
+    // A hover inside a blue column says what will be spilled (C-11), whatever lies under it: the
+    // column stands on the top of the stack, where the top layer's key handles and its edge are.
+    // A press there still takes the handle or the edge (forHover false): blue is never dragged.
+    if (forHover && ahead && proj.blue) {
+      const kb = colOf(G.t(x));
+      if (proj.blue[kb] && y >= surplusTop(kb) && y <= G.y(proj.p50[kb] + proj.exports[kb] + proj.charging[kb])) return {kind: 'surplus', k: kb};
+    }
     let best = null, bd = Infinity;
     for (const h of handles) {
       const d = Math.max(Math.abs(x - h.x), Math.abs(y - h.y));
       if (d <= half && d < bd) { best = h; bd = d; }
     }
     if (best) return best;
-    if (x < G.x(vm.obs.s) - 2 || x > G.x1 + 2) return y >= G.y1 && y <= G.y0 ? {kind: 'past'} : null;
+    if (!ahead) return y >= G.y1 && y <= G.y0 ? {kind: 'past'} : null;
     const k = colOf(G.t(x));
     const B = curB || stackBases();
     // layer top edges (a new key there), nearest within the hit half-height
@@ -586,6 +760,8 @@ export function createLiveStack(doc, root, actions) {
       const L = proj.layers[li], b = B.base[li][k];
       if (L.mw[k] > 0.5 && mwAt >= b && mwAt <= b + L.mw[k]) return {kind: 'layer', id: L.id, k};
     }
+    // the rooftop bite above the skyline (hover only)
+    if (forHover && proj.rooftop && proj.rooftop[k] > ROOF_MIN_MW && mwAt >= proj.p50[k] && mwAt <= proj.p50[k] + proj.rooftop[k]) return {kind: 'rooftop', k};
     return {kind: 'empty', k};
   }
 
@@ -686,7 +862,7 @@ export function createLiveStack(doc, root, actions) {
   });
 
   cv.addEventListener('pointerleave', () => {
-    hoverLayer = null; hoverGap = null; glowLocal = new Set(); tip.hidden = true;
+    hoverLayer = null; hoverGap = null; hoverBlue = null; glowLocal = new Set(); tip.hidden = true;
     sendHover(null);
   });
 
@@ -699,11 +875,19 @@ export function createLiveStack(doc, root, actions) {
 
   function hover(p) {
     const h = hitTest(p.x, p.y, true);
-    hoverLayer = null; hoverGap = null; glowLocal = new Set();
+    hoverLayer = null; hoverGap = null; hoverBlue = null; glowLocal = new Set();
     if (!h || h.kind === 'empty' || h.kind === 'past') { tip.hidden = true; sendHover(null); return; }
     const obs = vm.obs;
     let text = '';
-    if (h.kind === 'gap') {
+    if (h.kind === 'surplus') {
+      // C-11: what the blue means and the two things that save it
+      hoverBlue = blues.find(r => h.k >= r.k0 && h.k <= r.k1) || null;
+      text = GAP_MARK.blue.word + ' at ' + clockText(proj.times[h.k], false) + '\n' + fmtMW(Math.round(proj.surplusMW[h.k])) + ' MW will be spilled: stop a unit, or charge the battery';
+      sendHover(null);
+    } else if (h.kind === 'rooftop') {
+      text = 'ROOFTOP SOLAR ' + fmtMW(Math.round(proj.rooftop[h.k])) + ' MW at ' + clockText(proj.times[h.k], false) + '\non the city\'s roofs: demand the grid does not see';
+      sendHover(null);
+    } else if (h.kind === 'gap') {
       const t = proj.times[h.k];
       if (h.color === 'red') {
         const gap = PV.gapAt(proj, h.k);
@@ -729,15 +913,18 @@ export function createLiveStack(doc, root, actions) {
       else if (f) {
         text = (f.name || NAMES[id]) + '  ' + Math.round(mwv) + ' MW at ' + clockText(proj.times[k], false) +
           '\nramp ' + (f.rampMWMin ? Math.round(f.rampMWMin) + ' MW/min' : 'weather') + '  start ' + (f.startMin ? Math.round(f.startMin) + ' min' : '-') +
-          '  cost ' + (f.offer === null || f.offer === undefined ? '-' : '$' + Math.round(f.offer) + '/MWh');
+          '  cost ' + (f.offer === null || f.offer === undefined ? '-' : priceText(f.offer) + '/MWh');
       }
-      text += '\nprice now $' + Math.round(obs.price ? obs.price.mwh : 0) + '/MWh';
+      text += '\nprice now ' + priceText(obs.price ? obs.price.mwh : 0) + '/MWh';
       const target = PV.STATION_CONTROL[id] || PV.OTHER_CONTROL[id] || null;
       sendHover(target ? {do: 'hover', target} : null);
     }
     tip.textContent = text;
     tip.hidden = !text;
-    tip.style.left = Math.round(Math.min(p.x + 8, (G.W || 300) - 150)) + 'px';
+    // kept inside the box: the longest line at about 5 px a character in the 9-px face
+    let chars = 0;
+    for (const line of text.split('\n')) if (line.length > chars) chars = line.length;
+    tip.style.left = Math.round(Math.max(0, Math.min(p.x + 8, (G.W || 300) - Math.max(150, chars * 5 + 12)))) + 'px';
     tip.style.top = Math.round(Math.max(0, p.y - 34)) + 'px';
   }
 
@@ -825,16 +1012,17 @@ export function createLiveStack(doc, root, actions) {
     if (readOnly()) { drag = null; sel = null; pending = null; }
     if (sel) refreshSel();
     // F-11: the canvas is redrawn only when something it shows has changed. At rest that is the
-    // projection (its signature), the now line (one step per NOW_STEP_S grid-s, under 0.3 px at
-    // the floor), the size and the cross-highlights; anything live (a drag, a selection, a
-    // ghost, a message, a hover, the watch's tear) draws every frame.
-    const live = drag || sel || pending || message || hoverLayer || hoverGap || readOnly();
+    // projection (its signature: with it the gaps, the surplus and the forecast rooftop), the now
+    // line (one step per NOW_STEP_S grid-s, under 0.3 px at the floor; the past columns and their
+    // rooftop move with it), the price to the dollar, the size and the cross-highlights; anything
+    // live (a drag, a selection, a ghost, a message, a hover, the watch's tear) draws every frame.
+    const live = drag || sel || pending || message || hoverLayer || hoverGap || hoverBlue || readOnly();
     let key = '';
     if (!live) {
       let glow = '';
       if (v.glow && typeof v.glow.forEach === 'function') v.glow.forEach(id => { glow += id + ','; });
       key = signature(v.obs) + '|' + Math.floor(v.obs.s / NOW_STEP_S) + '|' + (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' +
-        expanded + '|' + (v.hover || '') + '|' + glow + '|' + (globalThis.devicePixelRatio || 1);
+        expanded + '|' + (v.hover || '') + '|' + glow + '|' + (globalThis.devicePixelRatio || 1) + '|' + Math.round(priceNow(v.obs));
     }
     if (live || key !== drawnKey) { drawnKey = key; draw(); } else stats.skips++;
   }
@@ -845,7 +1033,7 @@ export function createLiveStack(doc, root, actions) {
     debug: {
       get geom() { return G; }, get proj() { return proj; }, get handles() { return handles; }, get ghosts() { return ghosts; },
       get lastDrop() { return lastDrop; }, get pending() { return pending; }, get sel() { return sel; }, get drawMs() { return drawMs; },
-      get message() { return msg.textContent; }, stats, hitTest: (x, y) => hitTest(x, y),
+      get message() { return msg.textContent; }, get blues() { return blues; }, stats, hitTest: (x, y, forHover) => hitTest(x, y, forHover),
     },
   };
 }
