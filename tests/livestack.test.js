@@ -353,20 +353,98 @@ function spyText(cv) {
   return seen;
 }
 
+/**
+ * Record what reaches a canvas from now on, in order (the counters in debug.stats say what the
+ * code meant to draw; this is what it drew): every fill, stroke and clip with the path it was
+ * given ([['M', x, y] | ['L', x, y] | ['R', x, y, w, h] | ['Z']]) and the style in force, every
+ * fillRect and fillText. The stand-in context still counts the calls and rejects NaN.
+ */
+function spyCanvas(cv) {
+  const ctx = cv.getContext('2d'), log = [];
+  let path = [];
+  ctx.beginPath = () => { path = []; };
+  ctx.moveTo = (x, y) => { path.push(['M', x, y]); };
+  ctx.lineTo = (x, y) => { path.push(['L', x, y]); };
+  ctx.rect = (x, y, w, h) => { path.push(['R', x, y, w, h]); };
+  ctx.closePath = () => { path.push(['Z']); };
+  ctx.stroke = () => { log.push({op: 'stroke', style: ctx.strokeStyle, path: path.slice()}); };
+  ctx.fill = () => { log.push({op: 'fill', style: ctx.fillStyle, path: path.slice()}); };
+  ctx.clip = () => { log.push({op: 'clip', path: path.slice()}); };
+  ctx.fillRect = (x, y, w, h) => { log.push({op: 'fillRect', style: ctx.fillStyle, x, y, w, h}); };
+  ctx.fillText = (text, x, y) => { log.push({op: 'fillText', style: ctx.fillStyle, text: String(text), x, y}); };
+  return log;
+}
+/** '#f1d35c' -> 'rgba(241,211,92,': the start of any translucent form of a palette colour. */
+const rgbaOf = hex => 'rgba(' + [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16)).join(',') + ',';
+const alphaOf = style => Number(/,([\d.]+)\)$/.exec(style)[1]);
+const near = (a, b) => Math.abs(a - b) < 1e-6;
+/** x of the left and right edge of future column k as the stack draws it (the first one starts at the now line). */
+const colX = (G, P, s, k) => [k === 0 ? G.x(s) : G.x(P.times[k - 1]), G.x(P.times[k])];
+
 test('L-2 (2a): the silhouette and the hatched rooftop bite sit above the skyline, past columns included; ROOFTOP in the big layout; nothing at night or on CLASSIC', async () => {
   const {stack, doc, cv} = mount();
   const vm = bellyVm();
   assert.deepEqual(vm.obs.day, {temp: 'MILD', weekend: true});
-  let clips = 0;
-  cv.getContext('2d').clip = () => { clips++; };
-  const text = spyText(cv);
+  const log = spyCanvas(cv);
   stack.update(vm);
   const P = stack.debug.proj, R = stack.debug.stats.rooftop;
+  const clips = log.filter(e => e.op === 'clip').length, text = log.filter(e => e.op === 'fillText');
   assert.ok(P.rooftop[0] > 2500, 'a mild noon: ' + P.rooftop[0]);
   assert.deepEqual({future: R.future, past: R.past, word: R.word}, {future: true, past: 6, word: false});
   assert.equal(R.mw, Math.max(...P.rooftop));
   assert.equal(clips, 1, 'one clip for the whole bite');
   assert.ok(!text.some(t => t.text === 'ROOFTOP'), 'no word at the floor');
+  // What reached the canvas. (1) The bite, as the clip: one rectangle per past column from the
+  // history's demand up to demand + rooftop, then the polygon between the skyline (P50) and the
+  // silhouette (P50 + rooftop) over the 54 columns ahead.
+  {
+    const G = stack.debug.geom, n = P.n;
+    const ci = log.findIndex(e => e.op === 'clip'), bite = log[ci].path;
+    const rects = bite.filter(c => c[0] === 'R');
+    assert.equal(rects.length, 6, 'the six past columns');
+    rects.forEach((c, p) => {
+      const d = vm.hist.demand[p], r = vm.hist.rooftop[p], x0 = G.x(P.pastTimes[p] - 300);
+      assert.ok(near(c[1], x0) && near(c[2], G.y(d + r)) && near(c[3], G.x(P.pastTimes[p]) - x0) && near(c[4], G.y(d) - G.y(d + r)), 'past column ' + p + ': ' + c);
+      assert.ok(c[4] > 30, 'about 3,100 MW of rooftop is ' + c[4].toFixed(1) + ' px tall');
+    });
+    const poly = bite.filter(c => c[0] === 'M' || c[0] === 'L');
+    assert.equal(poly.length, 2 * n + 2);
+    assert.ok(poly[0][0] === 'M' && near(poly[0][1], G.x(vm.obs.s)) && near(poly[0][2], G.y(P.p50[0] + P.rooftop[0])), 'it starts on the now line');
+    const skyline = log.findLast(e => e.op === 'stroke' && e.style === UI.skyline && e.path.length === n + 1);
+    assert.ok(skyline, 'the P50 skyline is drawn');
+    for (let k = 0; k < n; k++) {
+      const top = poly[1 + k], bottom = poly[2 * n - k];
+      assert.ok(near(top[1], G.x(P.times[k])) && near(top[2], G.y(P.p50[k] + P.rooftop[k])), 'the top edge at column ' + k);
+      assert.ok(near(bottom[1], G.x(P.times[k])) && near(bottom[2], G.y(P.p50[k])), 'the bottom edge at column ' + k);
+      assert.ok(near(bottom[2], skyline.path[k + 1][2]), 'the bite stands on the skyline');
+      if (P.rooftop[k] > 1) assert.ok(top[2] < bottom[2], 'above the skyline at column ' + k + ' (y grows downward)');
+    }
+    assert.ok(near(poly[2 * n + 1][1], G.x(vm.obs.s)) && near(poly[2 * n + 1][2], G.y(P.p50[0])));
+    // (2) the hatch, inside that clip: sun-yellow "\\\" lines 9 px apart, from one side of the bite to the other
+    const hatch = log[ci + 1];
+    assert.equal(hatch.op, 'stroke');
+    assert.ok(hatch.style.startsWith(rgbaOf(COLOURS.solar)) && alphaOf(hatch.style) > 0.2 && alphaOf(hatch.style) < 0.6, 'sun-yellow, and light: ' + hatch.style);
+    assert.equal(hatch.path.length % 2, 0);
+    const xa = G.x(P.pastTimes[0] - 300), xb = G.x(P.times[n - 1]);
+    assert.ok(hatch.path.length / 2 >= (xb - xa) / 9, hatch.path.length / 2 + ' lines over ' + (xb - xa).toFixed(0) + ' px');
+    for (let i = 0; i < hatch.path.length; i += 2) {
+      const a = hatch.path[i], b = hatch.path[i + 1];
+      assert.ok(a[0] === 'M' && b[0] === 'L' && b[1] - a[1] > 30 && near(b[1] - a[1], b[2] - a[2]), 'a line down to the right: ' + a + ' -> ' + b);
+      if (i) assert.ok(near(a[1] - hatch.path[i - 2][1], 9), 'sparse: 9 px apart');
+    }
+    assert.ok(hatch.path[0][1] <= xa && hatch.path[hatch.path.length - 1][1] >= xb - 9, 'from the first past column to the last column ahead');
+    // (3) the silhouette, drawn after the clip is gone: a faint line, stepped over the past columns, then the top edge of the bite
+    const sil = log[ci + 2];
+    assert.equal(sil.op, 'stroke');
+    assert.ok(sil.style.startsWith(rgbaOf(UI.skyline)) && alphaOf(sil.style) <= 0.6, 'the skyline\'s colour, fainter: ' + sil.style);
+    assert.equal(sil.path.length, 2 * 6 + 1 + n);
+    for (let p = 0; p < 6; p++) {
+      const a = sil.path[2 * p], b = sil.path[2 * p + 1], y = G.y(vm.hist.demand[p] + vm.hist.rooftop[p]);
+      assert.ok(a[0] === 'M' && b[0] === 'L' && near(a[1], G.x(P.pastTimes[p] - 300)) && near(b[1], G.x(P.pastTimes[p])) && near(a[2], y) && near(b[2], y), 'past step ' + p);
+      assert.ok(y < G.y(vm.hist.demand[p]), 'above the past skyline');
+    }
+    assert.deepEqual(sil.path.slice(12), poly.slice(0, n + 1), 'ahead: the top edge of the bite, point for point');
+  }
   // the same view without rooftop draws less: the hatch and the silhouette are real strokes
   const bare = bellyVm({hist: undefined});
   bare.obs.forecast.rooftopMW = bare.obs.forecast.rooftopMW.map(() => 0);
@@ -405,9 +483,10 @@ test('L-2 (2a): the silhouette and the hatched rooftop bite sit above the skylin
 
 test('C-11 / K-22: blue SURPLUS columns carry bars, a glyph and the word, never colour alone; a minimum height; the hover line; never a gap kind', async () => {
   const {stack, cv, ui, sent, doc} = mount();
-  const text = spyText(cv);
+  const log = spyCanvas(cv);
   const vm = bellyVm();
   stack.update(vm);
+  const text = log.filter(e => e.op === 'fillText').map(e => ({text: e.text, fill: e.style}));
   const P = stack.debug.proj, S = stack.debug.stats.surplus, runs = PV.blueRuns(P);
   assert.equal(runs.length, 1);
   assert.ok(runs[0].mw > 400 && runs[0].k1 - runs[0].k0 >= 12, JSON.stringify(runs));
@@ -421,11 +500,49 @@ test('C-11 / K-22: blue SURPLUS columns carry bars, a glyph and the word, never 
   assert.deepEqual(marks.filter(m => m.startsWith('blue')), ['blue:bars:+']);
   assert.equal(S.word, 1);
   assert.ok(text.some(t => t.text === GAP_MARK.blue.glyph + ' ' + GAP_MARK.blue.word), 'the word is drawn on a wide run: ' + text.map(t => t.text).join('|'));
-  // the hover line, inside a column: what will be spilled and the two things that save it
+  // What reached the canvas. (1) Every blue column is filled in blue, from its MW above the demand
+  // line (P50 + exports + charging) down to that line, across its own five minutes.
   const G = stack.debug.geom, k = 6;
+  const cols = [];
+  for (let q = 0; q < P.n; q++) if (P.blue[q]) cols.push(q);
+  const edges = q => {
+    const [x0, x1] = colX(G, P, vm.obs.s, q), yb = G.y(P.p50[q] + P.exports[q] + P.charging[q]);
+    return {x0, x1, yb, yt: Math.min(G.y(P.p50[q] + P.exports[q] + P.charging[q] + P.surplusMW[q]), yb - SURPLUS_MIN_PX)};
+  };
+  const blueFills = l => l.filter(e => e.op === 'fillRect' && typeof e.style === 'string' && e.style.startsWith(rgbaOf(UI.blue)));
+  const fills = blueFills(log);
+  assert.equal(fills.length, cols.length, 'one blue rectangle per blue column');
+  cols.forEach((q, i) => {
+    const e = edges(q), f = fills[i];
+    assert.ok(near(f.x, e.x0) && near(f.w, e.x1 - e.x0) && near(f.y, e.yt) && near(f.h, e.yb - e.yt), 'column ' + q + ': ' + JSON.stringify(f) + ' against ' + JSON.stringify(e));
+    assert.ok(f.w > 3 && f.h >= SURPLUS_MIN_PX);
+  });
+  assert.ok(P.exports[k] > 100 && near(fills[cols.indexOf(k)].y + fills[cols.indexOf(k)].h, G.y(P.p50[k] + P.exports[k])), 'the fixture: the tie is exporting, and the blue stands above that');
+  // (2) ... and barred, never colour alone: the very next stroke is upright lines on a 3-px grid, inside
+  // those columns, each from the column's top to the demand line
+  const bars = log[log.indexOf(fills[fills.length - 1]) + 1];
+  assert.equal(bars.op, 'stroke');
+  assert.ok(!bars.style.startsWith(rgbaOf(UI.blue)), 'not in the fill\'s colour: ' + bars.style);
+  let wantBars = 0;
+  for (const q of cols) { const e = edges(q); for (let bx = Math.ceil(e.x0 / 3) * 3 + 0.5; bx < e.x1; bx += 3) wantBars++; }
+  assert.equal(bars.path.length, 2 * wantBars, 'a bar on every third pixel of every blue column');
+  assert.ok(wantBars >= cols.length, 'at least one a column');
+  for (let i = 0; i < bars.path.length; i += 2) {
+    const m = bars.path[i], l = bars.path[i + 1];
+    assert.ok(m[0] === 'M' && l[0] === 'L' && m[1] === l[1] && near((m[1] - 0.5) % 3, 0), 'upright, on the grid: ' + m + ' -> ' + l);
+    const q = cols.find(c => m[1] >= edges(c).x0 && m[1] < edges(c).x1);
+    assert.ok(q !== undefined && near(m[2], edges(q).yt) && near(l[2], edges(q).yb), 'inside a blue column, top to base: ' + m + ' -> ' + l);
+  }
+  // the hover line, inside a column: what will be spilled and the two things that save it
   const base = P.p50[k] + P.exports[k] + P.charging[k];
   const x = (G.x(P.times[k]) + G.x(P.times[k] - 300)) / 2, y = (G.y(base) + Math.min(G.y(base + P.surplusMW[k]), G.y(base) - SURPLUS_MIN_PX)) / 2;
   at(cv, 'pointermove', x, y);
+  // the hovered run is drawn brighter on the next frame, and as it was once the pointer has gone
+  const rest = alphaOf(fills[0].style);
+  log.length = 0;
+  stack.update(vm);
+  assert.equal(blueFills(log).length, cols.length, 'a hover redraws the stack');
+  assert.ok(blueFills(log).every(f => alphaOf(f.style) > rest), 'brighter under the pointer');
   const tip = stack.el.querySelector('.livestack-tip');
   assert.ok(!tip.hidden);
   assert.equal(tip.textContent, 'SURPLUS at ' + clockText(P.times[k], false) + '\n' +
@@ -437,13 +554,18 @@ test('C-11 / K-22: blue SURPLUS columns carry bars, a glyph and the word, never 
   assert.notEqual(stack.debug.hitTest(x, y).kind, 'surplus');
   assert.equal(stack.debug.hitTest(x, y, true).kind, 'surplus');
   at(cv, 'pointerleave', 0, 0);
+  log.length = 0;
+  stack.update(vm);
+  assert.ok(blueFills(log).length === cols.length && blueFills(log).every(f => alphaOf(f.style) === rest), 'at rest again');
   // a small spill is still seen: 60 MW is under 1 px of this axis and is drawn SURPLUS_MIN_PX tall, the glyph alone over a narrow run
   const small = bellyVm();
   const fc = small.obs.forecast, lift = runs[0].mw - 60;
   for (const key of ['demandP50', 'demandP10', 'demandP90']) fc[key] = fc[key].map(v => v + lift);
   const m2 = mount();
-  const t2 = spyText(m2.cv);
+  const log2 = spyCanvas(m2.cv);
   m2.stack.update(small);
+  const t2 = log2.filter(e => e.op === 'fillText');
+  assert.ok(blueFills(log2).length >= 1 && blueFills(log2).every(f => near(f.h, SURPLUS_MIN_PX)), 'every blue rectangle of the small spill is ' + SURPLUS_MIN_PX + ' px tall');
   const P2 = m2.stack.debug.proj, S2 = m2.stack.debug.stats.surplus;
   assert.ok(S2.cols >= 1 && S2.cols < 12 && Math.max(...P2.surplusMW) <= 60 + 1e-6, S2.cols + ' columns up to ' + Math.max(...P2.surplusMW));
   assert.equal(S2.minPx, SURPLUS_MIN_PX);
@@ -506,6 +628,19 @@ test('K-23 (2a): the text alternative says the surplus runs and the rooftop, aft
   const locked = stackSummary(P, vm.obs, true);
   const last = Math.max(locked.lastIndexOf('below the forecast.'), locked.lastIndexOf('below the top of the likely range.'), locked.indexOf('Read-only during the watch.'));
   assert.ok(last > 0 && locked.indexOf('SURPLUS') > last && locked.indexOf('Rooftop solar') > locked.indexOf('SURPLUS'), locked);
+  // the sentences themselves, on a made-up projection: the first two surplus runs (each from the start of
+  // its first column to the end of its last, with its largest MW), never a third; the rooftop now and at the far end
+  const times = Float64Array.from({length: 8}, (_, q) => 28800 + 300 * (q + 1));   // 12:05 ... 12:40
+  const made = {n: 8, times, gap: new Array(8).fill(''), p50: new Array(8).fill(3000), p90: new Array(8).fill(3200), supply: new Array(8).fill(3300),
+    surplusMW: Float64Array.from([0, 120, 300, 60, 0, 51, 0, 80]), rooftop: Float64Array.from([3000, 2900, 2800, 2700, 2600, 2500, 2400, 1234.4])};
+  assert.equal(clockText(28800, false), '12:00');
+  assert.equal(stackSummary(made, {s: 28800}, false), 'Live Stack at 12:00: the plan for the next 4.5 hours. Planned supply 3,300 MW against a forecast of 3,000 MW; ' +
+    '3,300 against 3,000 MW by 12:40. No gaps. SURPLUS 12:05 to 12:20, up to 300 MW will be spilled. SURPLUS 12:25 to 12:30, up to 51 MW will be spilled. ' +
+    'Rooftop solar meets 3,000 MW of demand now, 1,234 MW by 12:40.');
+  made.rooftop = Float64Array.from([0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.match(stackSummary(made, {s: 28800}, false), /up to 51 MW will be spilled\.$/, 'no rooftop, no rooftop sentence');
+  made.rooftop = Float64Array.from([0, 0, 0, 0, 0, 0, 0, 800]);
+  assert.match(stackSummary(made, {s: 28800}, false), / Rooftop solar meets 0 MW of demand now, 800 MW by 12:40\.$/, 'before sunrise, with the sun coming');
   // the classic day says neither, word for word as before
   const calm = await morning();
   const m = mount();
@@ -547,14 +682,35 @@ test('F-11 / §21.5: what the belly adds is in the redraw key; the projection to
   assert.deepEqual([...doc.canvasStats.bad, ...m.doc.canvasStats.bad], []);
 });
 
-test('L-1 (2a): render <= 4 ms with the belly drawn (rooftop bite, past columns, blue surplus), floor and expanded', async () => {
+/**
+ * The p95 of a frame's cost over a fixed sequence of frames, with the machine's noise taken out:
+ * the sequence is run `reps` times after a warm-up pass and each frame keeps its fastest time.
+ * Another process taking the CPU (node --test runs every file at once) or a collection lands on
+ * different frames each pass; the work a frame does is the same every pass. So this is the
+ * stack's own p95, where a single pass's p95 on a loaded machine is the scheduler's.
+ */
+function quietP95(frames, frame, reps = 4) {
+  const best = new Float64Array(frames).fill(Infinity);
+  for (let r = 0; r <= reps; r++) {
+    for (let i = 0; i < frames; i++) {
+      const t0 = performance.now();
+      frame(i);
+      const dt = performance.now() - t0;
+      if (r > 0 && dt < best[i]) best[i] = dt;
+    }
+  }
+  return Array.from(best).sort((x, y) => x - y)[Math.floor(frames * 0.95)];
+}
+
+test('L-1 (2a): render <= 4 ms with the belly drawn (rooftop bite, past columns, blue surplus), floor and expanded', async t => {
   // The same measure as the L-1 test above (p95 of the update over 120 frames, a plan change every
-  // 30), on the real mild noon; then the frame that recomputes and redraws everything, as the
-  // median of 30 of them (one slow frame under a loaded machine is not the stack's cost).
+  // 30), on the real mild noon; then the p95 with the clock moving, as in play; then the p95 of
+  // the frame that recomputes and redraws everything.
   const scale = Math.max(1, yardstickNs(5) / OWNER_YARD_NS);
   for (const [w, h] of [[336, 164], [1248, 420]]) {
     const {stack} = mount(w, h);
     const vm = bellyVm({stackExpanded: w > 600});
+    const st = stack.debug.stats;
     let best = Infinity, f = 0;
     for (let run = 0; run < 3 && best > 4 * scale; run++) {
       const ms = [];
@@ -568,22 +724,38 @@ test('L-1 (2a): render <= 4 ms with the belly drawn (rooftop bite, past columns,
       ms.sort((x, y) => x - y);
       best = Math.min(best, ms[Math.floor(ms.length * 0.95)]);
     }
-    assert.ok(stack.debug.stats.rooftop.future && stack.debug.stats.surplus.cols > 0, 'the belly was drawn');
+    assert.ok(st.rooftop.future && st.surplus.cols > 0, 'the belly was drawn');
     assert.ok(best <= 4 * scale, w + ' px: p95 ' + best.toFixed(2) + ' ms (budget ' + (4 * scale).toFixed(2) + ' ms here)');
-    let full = Infinity;
-    for (let run = 0; run < 3 && full > 4 * scale; run++) {
-      const ms = [], d0 = stack.debug.stats.draws;
-      for (let i = 0; i < 30; i++, f++) {
-        vm.frame = {nowMs: 1000 + f * 16, dtS: 1 / 60, alpha: 0};
-        vm.obs.plan.rev++;
-        const t0 = performance.now();
+    // With the clock frozen, as above, 4 frames of 120 draw and that p95 is a skipped frame. In
+    // play the clock moves: the now line steps every 15 grid-s (a redraw) and the projection is
+    // recomputed every 30. 2 grid-s a frame is the 120x day at 60 fps; at 6 grid-s a frame (fast
+    // forward) two frames in five redraw and one in five recomputes, so the p95 IS such a frame.
+    const s0 = vm.obs.s, N = 150;
+    const said = [];
+    for (const stepS of [2, 6]) {
+      let d0 = 0, r0 = 0;
+      const p95 = quietP95(N, i => {
+        if (i === 0) { d0 = st.draws; r0 = st.recomputes; }
+        vm.frame = {nowMs: 1000 + f++ * 16, dtS: 1 / 60, alpha: 0};
+        vm.obs.s = s0 + i * stepS;
         stack.update(vm);
-        ms.push(performance.now() - t0);
-      }
-      assert.equal(stack.debug.stats.draws, d0 + 30, 'every one of these frames recomputed and redrew');
-      ms.sort((x, y) => x - y);
-      full = Math.min(full, ms[15]);
+      });
+      const draws = st.draws - d0, recomputes = st.recomputes - r0;
+      assert.ok(draws >= N * stepS / 15 - 1 && draws <= N * stepS / 15 + 2 && recomputes >= N * stepS / 30 - 1, stepS + ' grid-s a frame: ' + draws + ' redraws and ' + recomputes + ' recomputes in ' + N + ' frames');
+      if (stepS === 6) assert.ok(recomputes > 0.05 * N, 'more than one frame in twenty recomputes and redraws: the p95 frame is one of them');
+      assert.ok(p95 <= 4 * scale, w + ' px, the clock moving ' + stepS + ' grid-s a frame: p95 ' + p95.toFixed(2) + ' ms (budget ' + (4 * scale).toFixed(2) + ' ms here)');
+      said.push(stepS + ' grid-s a frame ' + p95.toFixed(2) + ' ms');
     }
-    assert.ok(full <= 4 * scale, w + ' px: a full recompute and redraw takes ' + full.toFixed(2) + ' ms (budget ' + (4 * scale).toFixed(2) + ' ms here)');
+    vm.obs.s = s0;
+    // and every frame recomputing and redrawing everything (a plan edited every frame)
+    const d1 = st.draws, r1 = st.recomputes;
+    const full = quietP95(40, () => {
+      vm.frame = {nowMs: 1000 + f++ * 16, dtS: 1 / 60, alpha: 0};
+      vm.obs.plan.rev++;
+      stack.update(vm);
+    });
+    assert.deepEqual([st.draws - d1, st.recomputes - r1], [200, 200], 'every one of these frames recomputed and redrew');
+    assert.ok(full <= 4 * scale, w + ' px: a full recompute and redraw, p95 ' + full.toFixed(2) + ' ms (budget ' + (4 * scale).toFixed(2) + ' ms here)');
+    t.diagnostic(w + ' px, p95 of update: clock frozen ' + best.toFixed(3) + ' ms, ' + said.join(', ') + ', every frame a full redraw ' + full.toFixed(2) + ' ms (budget ' + (4 * scale).toFixed(2) + ' ms at yardstick x' + scale.toFixed(2) + ')');
   }
 });
