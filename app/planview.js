@@ -327,11 +327,15 @@ export function project(obs, opts = {}) {
   layers.forEach((L, r) => { L.rank = r; });
   // supply, load and gaps (L-5)
   const supply = new Float64Array(n), load = new Float64Array(n), deficit = new Float64Array(n), gap = new Array(n), blue = new Uint8Array(n);
+  // Phase 2a (desk/README.md §19.5, C-11): the rooftop bite per column and the projected spill.
+  // A stub until the view job: rooftop from the forecast where it has the column; surplusMW zero.
+  const rooftop = new Float64Array(n), surplusMW = new Float64Array(n);
   for (let q = 0; q < n; q++) {
     let sup = 0;
     for (const L of layers) sup += L.mw[q];
     supply[q] = sup - tieExp[q] - battChg[q]; // net of exports and charging (drawn as extra load)
     load[q] = fc.demandP50[q];
+    rooftop[q] = fc.rooftopMW && Number.isFinite(fc.rooftopMW[q]) ? fc.rooftopMW[q] : 0;
     deficit[q] = fc.demandP50[q] - supply[q];
     gap[q] = supply[q] < fc.demandP50[q] - 0.5 ? 'red' : supply[q] < fc.demandP90[q] - 0.5 ? 'amber' : '';
     // blue (Phase 2 display): committed minimum + uncurtailed renewables + imports above P10
@@ -346,7 +350,7 @@ export function project(obs, opts = {}) {
     s, fromS: fc.fromS, times, pastTimes, past, n,
     p50: fc.demandP50, p10: fc.demandP10, p90: fc.demandP90,
     layers, stations: stationsOut, units: unitsOut, tie: tieOut, battery: battOut,
-    exports: tieExp, charging: battChg, supply, load, deficit, gap, blue,
+    exports: tieExp, charging: battChg, supply, load, deficit, gap, blue, rooftop, surplusMW,
     earliest: earliestLines(obs),
     now: nowEdge(obs),
   };
@@ -368,7 +372,7 @@ export function nowEdge(obs) {
  * last record at or before its end time and after its start; NaN where there is none.
  */
 export function pastFromHist(hist, pastTimes) {
-  const out = {demand: new Float64Array(N_PAST).fill(NaN), layers: {}};
+  const out = {demand: new Float64Array(N_PAST).fill(NaN), rooftop: new Float64Array(N_PAST).fill(NaN), layers: {}};
   if (!hist) return out;
   // app/game.js's form: per id, an array of column means; column c covers
   // [colFromS + c * colS, colFromS + (c + 1) * colS) and lands on the past column ending there.
@@ -393,6 +397,7 @@ export function pastFromHist(hist, pastTimes) {
     }
   };
   pick(hist.demand, out.demand);
+  pick(hist.rooftop, out.rooftop);
   for (const id of Object.keys(hist.stations || {})) {
     const dst = new Float64Array(N_PAST).fill(NaN);
     pick(hist.stations[id], dst);
@@ -510,6 +515,23 @@ export function redRuns(proj) {
     while (k < proj.n && proj.gap[k] === 'red') { mw = Math.max(mw, proj.deficit[k]); k++; }
     // atS: the first moment the plan is measured short (a column's value is at its end time),
     // so a gap a trip opens now starts one column ahead and the fast units still glow (K-16)
+    out.push({atS: proj.times[k0], endS: proj.times[k - 1], k0, k1: k - 1, mw});
+  }
+  return out;
+}
+
+/**
+ * Blue runs ahead (C-11: projected spill above SURPLUS_MIN_MW), in the shape of redRuns:
+ * [{atS, endS, k0, k1, mw (largest spill)}]. Reads proj.surplusMW only, never proj.gap.
+ */
+export function blueRuns(proj) {
+  const out = [], sp = proj.surplusMW;
+  if (!sp) return out;
+  for (let k = 0; k < proj.n; k++) {
+    if (!(sp[k] > V.SURPLUS_MIN_MW)) continue;
+    const k0 = k;
+    let mw = 0;
+    while (k < proj.n && sp[k] > V.SURPLUS_MIN_MW) { mw = Math.max(mw, sp[k]); k++; }
     out.push({atS: proj.times[k0], endS: proj.times[k - 1], k0, k1: k - 1, mw});
   }
   return out;

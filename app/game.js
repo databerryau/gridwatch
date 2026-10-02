@@ -123,11 +123,25 @@ export function seedFrom(search, date) {
   return q.has('seed') && Number.isFinite(n) && q.get('seed') !== '' ? n >>> 0 : todaySeed(date);
 }
 
+/**
+ * The game's scenario for a seed (desk/README.md C-2): 'desk-weekend' when the seed reads as a
+ * valid YYYYMMDD date that falls on a Saturday or Sunday, else 'desk' (any other seed is a weekday).
+ */
+export function scenarioForSeed(seed) {
+  const n = seed >>> 0, y = Math.floor(n / 10000), m = Math.floor(n / 100) % 100, d = n % 100;
+  if (y >= 1900 && y <= 9999 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+    const t = new Date(Date.UTC(y, m - 1, d));
+    if (t.getUTCMonth() === m - 1 && t.getUTCDate() === d && (t.getUTCDay() === 0 || t.getUTCDay() === 6)) return SCENARIOS['desk-weekend'];
+  }
+  return SCENARIOS.desk;
+}
+
 // ------------------------------------------------------------------ the session
 
 /**
- * @param {{seed:number, scenario?:object, system?:object, planview?:object, storage?:object|null,
+ * @param {{seed:number, scenario?:object|function(number):object, system?:object, planview?:object, storage?:object|null,
  *   beforeTick?:function(object):void, cap?:number, budgetMs?:number, reducedMotion?:boolean|function():boolean}} o
+ *   scenario: a scenario, or a function of the seed (scenarioForSeed), asked again at every reset;
  *   system: the app/system.js module (or a test stand-in); planview: app/planview.js;
  *   storage: a localStorage-like object or null; beforeTick(game): called before every tick
  *   (scripted players and tests; it may call sendInput); reducedMotion: the system's
@@ -135,12 +149,13 @@ export function seedFrom(search, date) {
  *   player has made no choice of their own.
  */
 export function createGame(o) {
-  const scenario = o.scenario || CLASSIC;
+  const scenarioOf = typeof o.scenario === 'function' ? o.scenario : null;
+  const scenario = scenarioOf ? scenarioOf(o.seed >>> 0) : o.scenario || CLASSIC;
   const storage = o.storage === undefined ? null : o.storage;
   const seen = readJson(storage, SEEN_KEY) || {};
   const settings = cleanSettings(readJson(storage, SETTINGS_KEY));
   const game = {
-    seed: o.seed >>> 0, scenario, storage, sysMod: o.system || null, planview: o.planview || null,
+    seed: o.seed >>> 0, scenario, scenarioOf, storage, sysMod: o.system || null, planview: o.planview || null,
     // SPEC §9.1 Q-18: 'player' = the commitment is the player's (the real page); 'system' = the
     // Phase 1a system operator, which commits units itself. startPaused: the desk opens at 04:30
     // with the clock held, so the first decision is made before anything moves.
@@ -151,7 +166,7 @@ export function createGame(o) {
     rec: null, alarms: null, tray: null, watchMem: null,
     phase: 'briefing', agc: true,
     ui: {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null, trayOpen: false,
-      drawer: false, settingsOpen: false},
+      drawer: false, settingsOpen: false, consider: null},
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
     seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof},
@@ -168,6 +183,7 @@ export function createGame(o) {
 /** In-page reset (C-3): a new day (the same seed by default) on the same game object. */
 export function resetDay(game, seed) {
   if (seed !== undefined) game.seed = seed >>> 0;
+  if (game.scenarioOf) game.scenario = game.scenarioOf(game.seed);
   game.state = createState(game.seed, game.scenario);
   game.suburbs = null;
   game.objective = null; game.objectiveS = -1e9; game.objectiveMode = '';
@@ -187,7 +203,7 @@ export function resetDay(game, seed) {
   game.phase = 'briefing';
   game.agc = true;
   Object.assign(game.ui, {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null,
-    trayOpen: false});
+    trayOpen: false, consider: null});
   game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = [];
   game.offers = []; game.offered = {}; game.offersToday = 0;
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
@@ -210,7 +226,7 @@ const ST_IDX = V.MACHINES.map(m => V.STATION_IDS.indexOf(m.station));
 function createHist() {
   const n = HIST_IDS.length, ring = HIST_COLS + 1;
   return {
-    colSum: HIST_IDS.map(() => new Float64Array(ring)), demSum: new Float64Array(ring), colN: new Float64Array(ring),
+    colSum: HIST_IDS.map(() => new Float64Array(ring)), demSum: new Float64Array(ring), roofSum: new Float64Array(ring), colN: new Float64Array(ring),
     colIdx: new Float64Array(ring).fill(-1), n,
   };
 }
@@ -222,7 +238,7 @@ function histSecond(game) {
   if (s < 0) return;
   const col = Math.floor(s / HIST_COL_S), j = col % (HIST_COLS + 1);
   if (h.colIdx[j] !== col) {
-    h.colIdx[j] = col; h.colN[j] = 0; h.demSum[j] = 0;
+    h.colIdx[j] = col; h.colN[j] = 0; h.demSum[j] = 0; h.roofSum[j] = 0;
     for (let i = 0; i < h.n; i++) h.colSum[i][j] = 0;
   }
   const units = st.units;
@@ -235,12 +251,14 @@ function histSecond(game) {
   x[NST + 4][j] += st.rert.outMW;
   x[NST + 5][j] += st.dr.mw;
   h.demSum[j] += st.env.demandMW;
+  h.roofSum[j] += st.env.rooftopMW || 0; // Phase 2a: the rooftop bite (as if connected), for the stack's silhouette
   h.colN[j] += 1;
 }
 
 /**
  * vm.hist: {freq, freqMin, freqMax (HIST_FREQ_S per-second values, oldest first, NaN before
- * the day), freqFromS, stations {id: [HIST_COLS mean MW]}, demand [HIST_COLS mean MW],
+ * the day), freqFromS, stations {id: [HIST_COLS mean MW]}, demand [HIST_COLS mean MW] (operational),
+ * rooftop [HIST_COLS mean MW],
  * colFromS, colS} for the HIST_COLS completed 5-min columns before the current one
  * (colFromS = the first column's start; NaN where the day had not started).
  */
@@ -249,16 +267,17 @@ export function histView(game) {
   if (game.histView && game.histViewS === s) return game.histView;
   const w = secondsWindow(game.rec, s - HIST_FREQ_S, s);
   const h = game.hist, cur = Math.floor(s / HIST_COL_S);
-  const stations = {}, demand = [];
+  const stations = {}, demand = [], rooftop = [];
   HIST_IDS.forEach(id => { stations[id] = []; });
   for (let c = cur - HIST_COLS; c < cur; c++) {
     const j = ((c % (HIST_COLS + 1)) + HIST_COLS + 1) % (HIST_COLS + 1);
     const ok = c >= 0 && h.colIdx[j] === c && h.colN[j] > 0;
     HIST_IDS.forEach((id, i) => stations[id].push(ok ? h.colSum[i][j] / h.colN[j] : NaN));
     demand.push(ok ? h.demSum[j] / h.colN[j] : NaN);
+    rooftop.push(ok ? h.roofSum[j] / h.colN[j] : NaN);
   }
   game.histView = {freq: Array.from(w.mean), freqMin: Array.from(w.min), freqMax: Array.from(w.max), freqFromS: s - HIST_FREQ_S,
-    stations, demand, colFromS: (cur - HIST_COLS) * HIST_COL_S, colS: HIST_COL_S};
+    stations, demand, rooftop, colFromS: (cur - HIST_COLS) * HIST_COL_S, colS: HIST_COL_S};
   game.histViewS = s;
   return game.histView;
 }
@@ -440,6 +459,12 @@ export function ui(game, cmd) {
     case 'skipWatch': return D.skipWatch(d, state) ? '' : 'nothing to skip';
     case 'drawer': u.drawer = cmd.on === undefined ? !u.drawer : !!cmd.on; return '';
     case 'tray': u.trayOpen = !u.trayOpen; u.focus = 'tray'; return '';
+    // C-10 (desk/README.md §19.5): the guard the player is hovering, focusing or has lifted.
+    case 'consider': {
+      const t = typeof cmd.target === 'string' && /^guard-(start|stop)-/.test(cmd.target) ? cmd.target : null;
+      if (t !== u.consider) { u.consider = t; game.objectiveS = -1e9; }
+      return '';
+    }
     // Settings (K-22, §13.1, B-7): the popover never pauses the game.
     case 'mute': return setSetting(game, 'muted', !game.settings.muted);
     case 'volume': return setSetting(game, 'volume', cmd.volume); // the 1a form of {do: 'set', key: 'volume'}
@@ -593,7 +618,9 @@ export function buildVm(game, f) {
   if (game.phase === 'play' && game.commit === 'player' && game.planview) {
     if (obs.s - game.objectiveS >= OBJECTIVE_EVERY_S || obs.s < game.objectiveS || game.objectiveMode !== mode.mode) {
       game.objectiveS = obs.s; game.objectiveMode = mode.mode;
-      try { game.objective = objective(obs, {edited: !!(game.sys && game.sys.edited), planview: game.planview}); } catch { game.objective = null; }
+      // dayAhead: the forecast to 04:00 (Phase 2a, C-10: the objective looks past the 4.5-h window).
+      const dayAhead = observe(state, {dayAhead: true}).dayAhead;
+      try { game.objective = objective(obs, {edited: !!(game.sys && game.sys.edited), planview: game.planview, dayAhead}); } catch { game.objective = null; }
     }
     if (game.objective && mode.mode !== 'WATCH') for (const g of game.objective.targets) glow.add(g);
   } else game.objective = null;
@@ -632,6 +659,7 @@ export function buildVm(game, f) {
     phase: game.phase, watch, needleHz: needleF(game.rec, mode.rate, game.pacer.alpha), cues, refusal,
     trayOpen: game.ui.trayOpen, drawer: game.ui.drawer, settingsOpen: game.ui.settingsOpen, end: game.end, seed: game.seed,
     sysError: game.sysError, objective: game.objective, commit: game.commit,
+    consider: null, // C-10 stub: the app job computes consequence(obs, game.ui.consider, ...) here
   };
 }
 

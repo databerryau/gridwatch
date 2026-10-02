@@ -13,13 +13,16 @@
 // demand plus a margin. The plan's red columns move with every 5-minute dispatch; whether
 // enough plant is committed does not.
 //
-//   objective(obs, {edited, planview, proj?}) -> {level, text, targets, action, startBy, short}
+//   objective(obs, {edited, planview, proj?, dayAhead?}) -> {level, kind, text, targets, action, startBy, short, long}
 //     level   'ok' | 'plan' (act later) | 'act' (act now) | 'crit' (short already)
+//     kind    which line it is (desk/README.md §19.5): 'watch' | 'held' | 'short' | 'commit' | 'restore' |
+//             'spare' | 'stop' | 'battery' | 'quiet'
 //     targets control ids to light (desk/README.md §5)
 //     action  the sim input (or {redispatch: true}) that answers it now, or null. The game never
 //             sends it: the hint-following proxy in tests does, to prove that a player who does
 //             only what this line says gets through the day (tests/objective.test.js).
 //     short   the capacity shortfall ahead {atS, endS, mw} or null (the stack marks it)
+//     long    the spill ahead {atS, endS, mw} or null (Phase 2a: planview's first blue run)
 
 import {V} from '../sim/params.js';
 import {clockText} from '../render/format.js';
@@ -46,11 +49,13 @@ const unitName = id => { const m = M.find(x => x.id === id); return m ? m.name.t
 /**
  * The first run of forecast columns where the committed fleet's capacity is under the forecast
  * demand plus MARGIN_MW, or null. Pure; reads obs only.
+ * @param {object} obs observe(state)
+ * @param {object} [fc] any forecast-shaped object (obs.forecast by default; obs.dayAhead for the whole day)
  * @returns {{atS:number, endS:number, mw:number}|null} atS: the first short column's time; mw:
  *   the largest shortfall in the run (margin included)
  */
-export function capacityShort(obs) {
-  const fc = obs.forecast, s = obs.s;
+export function capacityShort(obs, fc = obs.forecast) {
+  const s = obs.s;
   const starts = new Map(obs.plan.starts.map(e => [e.unit, e.atS])), stops = new Map(obs.plan.stops.map(e => [e.unit, e.atS]));
   const water = Math.max(0, obs.hydro.storageMWh - V.PAR_WATER_RESERVE_MWH) / HYDRO_SUSTAIN_H;
   let run = null;
@@ -100,13 +105,14 @@ function startable(obs, byS) {
  */
 export function objective(obs, ctx) {
   const PV = ctx.planview;
-  const none = {level: 'ok', text: '', targets: [], action: null, startBy: -1, short: null};
+  const none = {level: 'ok', kind: 'quiet', text: '', targets: [], action: null, startBy: -1, short: null, long: null};
   if (obs.over) return none;
-  if (obs.inWatch) return Object.assign({}, none, {level: 'act', text: 'A unit has tripped. The desk is locked while the grid catches itself: watch.'});
+  if (obs.inWatch) return Object.assign({}, none, {level: 'act', kind: 'watch', text: 'A unit has tripped. The desk is locked while the grid catches itself: watch.'});
   const s = obs.s;
   const proj = ctx.proj || PV.project(obs);
   const short = capacityShort(obs);
   const reds = PV.redRuns(proj);
+  const long = (PV.blueRuns ? PV.blueRuns(proj)[0] : null) || null;
   const red = reds.find(r => r.atS - s <= NOW_S && r.mw >= CRIT_MW) || null;
   const dark = obs.districts.filter(d => d.dark);
   const shedding = obs.sec.level === 'SHEDDING' || obs.sec.level === 'SHORT';
@@ -114,7 +120,7 @@ export function objective(obs, ctx) {
   // 1. The levers are held by hand and the plan is short: hand them back.
   const heldRed = ctx.edited ? red || reds.find(r => r.mw >= SHORT_MIN_MW) || null : null;
   if (heldRed) {
-    return {level: 'crit', text: 'Short ' + mwText(heldRed.mw) + (heldRed.atS - s <= NOW_S ? ' now' : ' from ' + at(heldRed.atS)) +
+    return {level: 'crit', kind: 'held', long, text: 'Short ' + mwText(heldRed.mw) + (heldRed.atS - s <= NOW_S ? ' now' : ' from ' + at(heldRed.atS)) +
       ' with levers held by hand. RE-DISPATCH (N) hands every lever back to the plan.', targets: ['btn-redispatch'], action: {redispatch: true}, startBy: s, short};
   }
 
@@ -126,7 +132,7 @@ export function objective(obs, ctx) {
     const quick = startable(obs, s).sort((a, b) => a.lead - b.lead)[0] || null;
     if (quick) fast.push({id: quick.id, say: 'start ' + unitName(quick.unit) + ' (' + minText(quick.lead) + ')', action: {type: 'start', unit: quick.unit}});
     if (!fast.length && !obs.rert.armed) fast.push({id: 'key-rert', say: 'break the glass on the reserve diesel (hold E)', action: {type: 'armRERT'}});
-    return {level: 'crit', text: 'Short ' + mwText(mw) + ' now. ' + (fast.length ? 'Too late to plan for it: ' + fast.map(f => f.say).join(', or ') + '.'
+    return {level: 'crit', kind: 'short', long, text: 'Short ' + mwText(mw) + ' now. ' + (fast.length ? 'Too late to plan for it: ' + fast.map(f => f.say).join(', or ') + '.'
       : 'Everything that can help is already on its way.'), targets: fast.map(f => f.id), action: fast.length ? fast[0].action : null, startBy: s, short};
   }
 
@@ -138,11 +144,11 @@ export function objective(obs, ctx) {
     const c = inTime[0] || all.slice().sort((a, b) => a.lead - b.lead)[0];
     if (c) {
       const now = c.startBy - s <= ACT_WITHIN_S;
-      return {level: now ? 'act' : 'plan', text: head + 'Start ' + unitName(c.unit) + (now ? ' now' : ' by ' + at(c.startBy)) + ': it takes ' + minText(c.lead) +
+      return {level: now ? 'act' : 'plan', kind: 'commit', long, text: head + 'Start ' + unitName(c.unit) + (now ? ' now' : ' by ' + at(c.startBy)) + ': it takes ' + minText(c.lead) +
         ' to reach the grid.', targets: [c.id], action: now ? {type: 'start', unit: c.unit} : null, startBy: Math.max(s, c.startBy), short};
     }
     const rert = !obs.rert.armed;
-    return {level: 'crit', text: head + 'Every unit is committed. ' + (rert ? 'The reserve diesel (hold E) takes 20 min and costs dearly.' : 'The reserve diesel is on its way.'),
+    return {level: 'crit', kind: 'commit', long, text: head + 'Every unit is committed. ' + (rert ? 'The reserve diesel (hold E) takes 20 min and costs dearly.' : 'The reserve diesel is on its way.'),
       targets: rert ? ['key-rert'] : [], action: rert && short.atS - s <= V.RERT_LEAD_S + ACT_WITHIN_S ? {type: 'armRERT'} : null, startBy: s, short};
   }
 
@@ -150,13 +156,13 @@ export function objective(obs, ctx) {
   if (dark.length) {
     const n = dark.length + (dark.length === 1 ? ' district is' : ' districts are') + ' dark';
     const ok = dark.find(d => d.restoreBlock === '');
-    if (ok) return {level: 'act', text: n + ' and the permissive lamp is lit. Close a feeder: R, then Enter.', targets: ['bay-restore'], action: {type: 'restore', district: ok.id}, startBy: s, short};
-    return {level: 'plan', text: n + '. A feeder closes once frequency is steady and there is spare reserve to carry it.', targets: ['bay-restore', 'gauge-n1'], action: null, startBy: -1, short};
+    if (ok) return {level: 'act', kind: 'restore', long, text: n + ' and the permissive lamp is lit. Close a feeder: R, then Enter.', targets: ['bay-restore'], action: {type: 'restore', district: ok.id}, startBy: s, short};
+    return {level: 'plan', kind: 'restore', long, text: n + '. A feeder closes once frequency is steady and there is spare reserve to carry it.', targets: ['bay-restore', 'gauge-n1'], action: null, startBy: -1, short};
   }
 
   // 5. Enough power, not enough spare.
   if (obs.sec.level !== 'SECURE') {
-    return {level: 'plan', text: 'Demand is covered, but losing ' + (obs.sec.lKind === 'link' ? 'the tie line' : 'your biggest unit') +
+    return {level: 'plan', kind: 'spare', long, text: 'Demand is covered, but losing ' + (obs.sec.lKind === 'link' ? 'the tie line' : 'your biggest unit') +
       ' would not be caught. Add spare: start a gas turbine, or raise the battery GUARD.', targets: ['gauge-n1', 'ring-guard'], action: null, startBy: -1, short};
   }
 
@@ -164,6 +170,6 @@ export function objective(obs, ctx) {
   let peakK = 0;
   for (let k = 1; k < proj.n; k++) if (proj.p50[k] > proj.p50[peakK]) peakK = k;
   const rising = peakK === proj.n - 1 && proj.p50[peakK] > proj.p50[0] + 100;
-  return Object.assign({}, none, {text: 'Enough plant is committed for the next 4½ hours. ' + (rising ? 'Demand is still climbing: more will be needed.'
+  return Object.assign({}, none, {long, text: 'Enough plant is committed for the next 4½ hours. ' + (rising ? 'Demand is still climbing: more will be needed.'
     : 'Highest demand ahead: ' + mwText(proj.p50[peakK]) + ' at ' + at(proj.times[peakK]) + '.')});
 }
