@@ -53,15 +53,21 @@ export function createSystem(opts) {
 }
 
 // 'player' mode: what the dispatch is made over. It changes when a unit starts, synchronises,
-// stops or trips, a start or stop is booked or unbooked, or the dark share of the city moves.
-function commitSig(obs) {
+// stops or trips, a start or stop is booked or unbooked, the dark share of the city moves, or
+// (Phase 2a, desk/README.md §21.3) the battery's order or GUARD changes: the battery is the
+// player's, and an order the dispatch has not seen is a shortfall or a surplus on the stack until
+// the next 5-minute dispatch (the review measured "Short 400 MW ... call DR" for two grid-minutes
+// after a CHARGE 350). FULL-HOLD is in it too: a charge order paused on a full battery is no
+// longer a load. The dispatch counts the order for the energy behind it (autopilot batteryOrder).
+export function commitSig(obs) {
   let s = '';
   for (const u of obs.units) s += u.mode === 'on' || u.mode === 'loading' ? '1' : u.mode === 'off' || u.mode === 'tripped' ? '0' : '2';
   for (const e of obs.plan.starts) s += '+' + e.unit + e.atS;
   for (const e of obs.plan.stops) s += '-' + e.unit + e.atS;
   let dark = 0;
   for (const d of obs.districts) if (d.dark) dark++;
-  return s + '|' + dark + (obs.tie.tripped ? 'T' : '');
+  const b = obs.battery;
+  return s + '|' + dark + (obs.tie.tripped ? 'T' : '') + '|' + b.mode + b.orderMW + (b.fullHold ? 'F' : '') + 'g' + b.guardMW;
 }
 
 function playerInputs(sys, state, s) {
