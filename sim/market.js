@@ -16,7 +16,7 @@
 //     multiplied by unserved energy (H-12).
 
 import {V} from './params.js';
-import {startBlock, resetAcc} from './fleet.js';
+import {startBlock, resetAcc, litDemandMW} from './fleet.js';
 import {tableLinear} from './weather.js';
 
 const M = V.MACHINES, NU = M.length;
@@ -179,8 +179,12 @@ function clearInto(state, p) {
   // included, net of the SCHEDULED tie and battery flows (H-5: imports are supply). Load shed
   // and still dark is not dispatched for (NEM dispatch targets metered demand; par's reflow
   // does the same). RERT MW are not subtracted (P-8: as if absent); DR is a stack block.
+  // Phase 2a (P-12): the lit demand is OPERATIONAL, net of the rooftop PV still connected
+  // (fleet.litDemandMW; with rooftop zero it is env.demandMW x (1 - shedFrac) exactly). In the
+  // belly the floor blocks and the renewables' offers cover it, so the price is their offer or
+  // the floor (P-9); the automatic cut (C-6) leaves the stack alone (available MW, P-5).
   const city = state.city;
-  const demand = state.env.demandMW * (1 - city.shedFrac) + city.coldLoadMW - state.tie.flowMW - state.battery.schedMW;
+  const demand = litDemandMW(state) + city.coldLoadMW - state.tie.flowMW - state.battery.schedMW;
   const sec = state.sec;
   const x = sec.lMW > 0 ? sec.r5MW / sec.lMW : FREE_X;
   const adder = scarcityAdder(x);
@@ -211,8 +215,10 @@ function clearInto(state, p) {
 }
 
 /**
- * P-5..P-8 price for the current second. Market demand = the lit demand env.demandMW x
- * (1 - city.shedFrac) + city.coldLoadMW, minus tie.flowMW and battery.schedMW (the scheduled
+ * P-5..P-8 price for the current second. Market demand = the lit operational demand
+ * fleet.litDemandMW(state) (Phase 2a: G x (1 - city.shedFrac) less the rooftop PV connected, G =
+ * env.demandMW + env.rooftopMW; env.demandMW x (1 - city.shedFrac) with no rooftop) +
+ * city.coldLoadMW, minus tie.flowMW and battery.schedMW (the scheduled
  * flows, P-5; RERT MW are NOT subtracted, P-8). Price = offer of the block where the running
  * total first covers market demand, plus scarcityAdder(sec.r5MW / sec.lMW) (x =
  * SCARCITY_FREE_X when lMW is 0), clamped by clampPrice; the cap when the stack is exhausted
@@ -264,7 +270,9 @@ export function priceSecond(state, out) { // eslint-disable-line no-unused-vars
  * fMaxHz, servedMW, shedMW}: AGC and FOS read it), then fleet.resetAcc(state.acc). Called
  * by step() at the start of every grid second after the first, and once more when the day
  * ends (black or 04:00), when acc may hold fewer than 50 ticks (use acc.ticks, never 50).
- * S-1: unserved = integral of shed MW (acc.shedMWs: UFLS + directed + restore task), split
+ * S-1: unserved = integral of the dark customers' UNDERLYING load (acc.unservedMWs: UFLS +
+ * directed + restore task; Phase 2a, C-8: G x shedFrac, not the relay MW acc.shedMWs, which is
+ * net of their rooftop and stays the source of last.shedMW; equal with no rooftop), split
  * into uflsMWh / directedMWh / taskMWh by the dark districts' shedBy. S-2: fuel (offer x
  * MWh; hydro HYDRO_VAR_COST), no-load (sync units), starts (acc.startCost), tie (import x
  * neighbour price, export credited), battery wear, DR, RERT; never unserved x price (H-12).
@@ -274,6 +282,12 @@ export function priceSecond(state, out) { // eslint-disable-line no-unused-vars
  * spark[] (worst |f - F0| per SPARK_BLOCK_S block),
  * marketBill (info only). Tie, wind (x (1 - ofgs.trippedFrac)), solar, RERT and DR MW are
  * constant within a second, so they are integrated here as MW x acc.ticks x PHYS_DT.
+ * Phase 2a: spillMWh (C-6, C-7) adds the second's curtailment, (windCurtMW + windAutoMW) x
+ * (1 - ofgs.trippedFrac) + solarCurtMW + solarAutoMW, and the wind and solar backed off by
+ * their over-frequency response (acc.spillMWs, per tick), which also comes off genMWh. Spilled
+ * energy is counted, never charged for.
+ * Reads: acc, units, ren, ofgs.trippedFrac, tie, env.neighbourPrice, rert, dr, price, city.
+ * Writes: score.*, last.*, acc (reset).
  *
  * Runs before events and the grid update of the new second, so env, tie, rert, dr and
  * price still describe the second being settled. Emits nothing.
@@ -284,10 +298,13 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
     const sc = state.score, cost = sc.cost, last = state.last, units = state.units;
     const secs = ticks / TPS, h = secs / S_PER_H;
 
-    // S-1: LIGHTS ON. Unserved energy in MWh only; it never meets a price (H-12).
-    const shedMWh = acc.shedMWs / S_PER_H;
-    if (shedMWh > 0) splitShed(state, sc, shedMWh);
-    sc.unservedMWh += shedMWh;
+    // S-1: LIGHTS ON. Unserved energy in MWh only; it never meets a price (H-12). Phase 2a
+    // (C-8): it is the dark customers' UNDERLYING load (acc.unservedMWs), not the relay MW
+    // (acc.shedMWs: net of their rooftop, near zero at a sunny noon), so LIGHTS ON does not
+    // depend on the sun. With no rooftop the two are equal.
+    const unservedMWh = acc.unservedMWs / S_PER_H;
+    if (unservedMWh > 0) splitShed(state, sc, unservedMWh);
+    sc.unservedMWh += unservedMWh;
     const servedMWh = acc.servedMWs / S_PER_H;
     sc.servedMWh += servedMWh;
 
@@ -305,9 +322,18 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
     // AEMO's CDEII divides emissions by generation. Imports carry the neighbour's emissions and
     // count in neither term; the battery stores energy counted when it was generated (review
     // fix: per MWh SERVED, importing lowered the graded intensity with no change in the mix).
-    let gen = rertMWh + (state.ren.windMW * (1 - state.ofgs.trippedFrac) + state.ren.solarMW) * h;
+    // Phase 2a (C-7): wind and solar are integrated as scheduled (constant in the second); what
+    // their over-frequency response backed off inside it (acc.spillMWs, per tick) was not
+    // generated: it comes off the generation and is spilled energy.
+    const ren = state.ren, connected = 1 - state.ofgs.trippedFrac;
+    const backedOffMWh = acc.spillMWs / S_PER_H;
+    let gen = rertMWh + (ren.windMW * connected + ren.solarMW) * h;
     for (let i = 0; i < NU; i++) gen += acc.unitMWs[i] / S_PER_H;
-    sc.genMWh += gen;
+    sc.genMWh += gen - backedOffMWh;
+    // Spilled energy (C-6): what the manual LIMIT and the dispatch's automatic cut held back this
+    // second (wind net of OFGS: tripped wind is disconnected, not spilled), plus the back-off.
+    // Counted and shown, never charged for (S-2: its cost is the fuel burned later).
+    sc.spillMWh += backedOffMWh + ((ren.windCurtMW + ren.windAutoMW) * connected + ren.solarCurtMW + ren.solarAutoMW) * h;
     cost.fuel += fuel;
     cost.noLoad += noLoad;
     cost.starts += acc.startCost;

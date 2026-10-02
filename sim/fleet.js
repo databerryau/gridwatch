@@ -8,6 +8,9 @@
 //   - stations[st].basePointMW === sum of units[].basePointMW over that station's machines
 //     in mode 'on'; every other unit has basePointMW 0 (K-1: units carry the base points)
 //   - city.shedFrac === sum of district.share over dark districts
+//   - city.roofDarkMW / roofOffMW === the rooftop PV off with dark districts / off in total (dark,
+//     or relit and still waiting or ramping back), from env.roofSubMW (Phase 2a: P-12, C-8;
+//     refreshRoof, called by setDistrictDark and once a grid second by grid.fosSecond)
 //   - ufls.operated[k] is true iff stage k's districts were shed by UFLS and not re-armed
 //   - ofgs.trippedFrac === (number of tripped OFGS stages) x OFGS_STAGE_FRAC
 //   - a contingency record is opened for every trip larger than EVENT_THRESHOLD_MW (K-15)
@@ -16,6 +19,7 @@
 import {V} from './params.js';
 
 const TPS = V.TICKS_PER_S, M = V.MACHINES, MW_EPS = V.MW_EPS;
+const ROOF_RECONNECT_S = V.ROOF_RECONNECT_S, ROOF_RAMP_S = V.ROOF_RAMP_S;
 
 /** Whole grid seconds elapsed (0 = 04:00:00). */
 export function gridSecond(state) {
@@ -219,14 +223,15 @@ export function stopBlock(state, i) {
  * The imbalance-bar readouts of the last physics tick, i.e. just before a trip. The
  * contingency's `caught` values (and previewTrip's) are the change from these (README §5
  * "conts[]"): batteryMW = PFR plus the charge suspension (battery.outMW - battery.ffrMW),
- * guardMW = battery.ffrMW, uflsMW = phys.shedMW. inverterMW (Phase 2a, desk/README.md §19.2,
- * last key): the inverters' over-frequency back-off, -(phys.renPfrMW + phys.roofPfrMW); 0 at
- * stage A, where nothing writes either readout yet (the grid job fills it in).
+ * guardMW = battery.ffrMW, uflsMW = phys.shedMW (the relay MW: net load since Phase 2a).
+ * inverterMW (Phase 2a, desk/README.md §19.2, C-7; last key): the inverters' over-frequency
+ * back-off, -(phys.renPfrMW + phys.roofPfrMW): wind and solar backed off and rooftop load
+ * uncovered both count against the event, so caught still sums to the MW lost.
  */
 export function preTrip(state) {
   const p = state.phys, b = state.battery;
   return {inertiaMW: p.inertiaMW, batteryMW: b.outMW - b.ffrMW, guardMW: b.ffrMW, governorsMW: p.govTotalMW,
-    loadReliefMW: p.loadReliefMW, uflsMW: p.shedMW, inverterMW: 0};
+    loadReliefMW: p.loadReliefMW, uflsMW: p.shedMW, inverterMW: 0 - (p.renPfrMW + p.roofPfrMW)};
 }
 
 /**
@@ -307,17 +312,25 @@ export function tripSmelter(state, offS, out) {
 /**
  * Darken or relight district d. why: 'ufls' | 'directed' | 'task' (Phase 2 restore task).
  * Keeps city.shedFrac exact. Returns the district's share of demand (0 if unchanged).
- * Callers emit their own event records.
+ * Callers emit their own event records. Phase 2a (P-12, C-8; desk/README.md §19.2): the
+ * district's rooftop PV goes with its feeder. Darkening clears reconnectS (-1: nothing pending);
+ * a relight sets it to that second + ROOF_RECONNECT_S, the second its inverters START ramping
+ * back, so a restore picks up the full underlying load first. Then refreshRoof, also when
+ * physics calls mid-second (a UFLS stage).
+ * Reads: tick, city, env.roofSubMW. Writes: districts[d].{dark, shedBy, darkSinceS, restoredAtS,
+ * reconnectS}, city.shedFrac, and what refreshRoof writes.
  */
 export function setDistrictDark(state, d, dark, why) {
   const city = state.city, dist = city.districts[d];
   if (dist.dark === dark) return 0;
   const s = gridSecond(state);
   dist.dark = dark;
-  if (dark) { dist.shedBy = why; dist.darkSinceS = s; } else { dist.shedBy = null; dist.restoredAtS = s; }
+  if (dark) { dist.shedBy = why; dist.darkSinceS = s; dist.reconnectS = -1; }
+  else { dist.shedBy = null; dist.restoredAtS = s; dist.reconnectS = s + ROOF_RECONNECT_S; }
   let f = 0;
   for (const x of city.districts) if (x.dark) f += x.share;
   city.shedFrac = f;
+  refreshRoof(state);
   return dist.share;
 }
 
@@ -334,34 +347,61 @@ export function litDemandMW(state) {
   return g * (1 - city.shedFrac) - (env.rooftopMW - city.roofOffMW);
 }
 
+// The part of a district's rooftop PV that is off at grid second s (desk/README.md §19.2): dark
+// 1; nothing pending (reconnectS < 0) 0; relit and still inside the reconnection delay 1; then
+// falling linearly to 0 over ROOF_RAMP_S.
+function roofOffFrac(dist, s) {
+  if (dist.dark) return 1;
+  const r = dist.reconnectS;
+  if (r < 0) return 0;
+  const since = s - r;
+  return since < 0 ? 1 : since >= ROOF_RAMP_S ? 0 : 1 - since / ROOF_RAMP_S;
+}
+
 /**
  * Recompute city.roofDarkMW (rooftop MW off because its district is dark) and city.roofOffMW
  * (off in total: dark, or relit and still waiting or ramping back) over all districts from
- * env.roofSubMW, and reset a district's reconnectS to -1 once its ramp has finished at
- * reconnectS + ROOF_RAMP_S (Phase 2a; desk/README.md §19.2). A district's off fraction: dark 1;
- * reconnectS < 0 -> 0; s < reconnectS -> 1; else 1 - (s - reconnectS) / ROOF_RAMP_S.
- * setDistrictDark and grid.fosSecond (beside refreshColdLoad) are its callers.
- *
- * STAGE A STUB: writes nothing (both MW stay 0, as they are with no rooftop). The Phase 2a grid
- * job implements it.
+ * env.roofSubMW (a district holds roofFrac of its suburb's rooftop), and reset a district's
+ * reconnectS to -1 once its ramp has finished at reconnectS + ROOF_RAMP_S (Phase 2a: P-12, C-8;
+ * desk/README.md §19.2). A district's off fraction: dark 1; reconnectS < 0 -> 0; s < reconnectS
+ * -> 1; else 1 - (s - reconnectS) / ROOF_RAMP_S. setDistrictDark and grid.fosSecond (beside the
+ * cold-load refresh) are its callers; physics and the market read the two sums, so the tick has
+ * no district loop. With no rooftop both stay exactly 0.
+ * Reads: tick, env.roofSubMW, city.districts. Writes: city.roofDarkMW, city.roofOffMW,
+ * districts[].reconnectS (the reset only).
  */
-export function refreshRoof(state) { // eslint-disable-line no-unused-vars
+export function refreshRoof(state) {
+  const city = state.city, ds = city.districts, sub = state.env.roofSubMW, s = gridSecond(state);
+  let dark = 0, off = 0;
+  for (let d = 0; d < ds.length; d++) {
+    const x = ds[d];
+    if (!x.dark && x.reconnectS >= 0 && s - x.reconnectS >= ROOF_RAMP_S) x.reconnectS = -1;
+    const mw = sub[x.sub] * x.roofFrac;
+    if (x.dark) dark += mw;
+    off += mw * roofOffFrac(x, s);
+  }
+  city.roofDarkMW = dark + 0;
+  city.roofOffMW = off + 0;
 }
 
 /** grid.restorePermissive's reason for a district that is not dark (observe() uses it too). */
 export const DISTRICT_LIT = 'district is lit';
 
 /**
- * K-13 cold-load MW of district d: what it would draw if closed now. env.demandMW x share,
- * x COLD_LOAD_FACTOR if it has been dark longer than COLD_LOAD_AFTER_S. For a lit district,
- * its present share of demand. Used by the restore permissive, observe() and the restore
- * surge, so all three agree.
+ * K-13 cold-load MW of district d: what it would draw if closed now. Phase 2a (P-12, C-8;
+ * desk/README.md §19.2), with G = env.demandMW + env.rooftopMW the total before rooftop: for a
+ * DARK district the undelayed underlying pickup, G x share (x COLD_LOAD_FACTOR if it has been
+ * dark longer than COLD_LOAD_AFTER_S), with no rooftop netted off: its inverters wait
+ * ROOF_RECONNECT_S and then ramp. For a LIT district its net load now: G x share less the
+ * rooftop it has connected (what a relay or DIRECT SHED would take off: near zero or negative at
+ * a sunny noon). With rooftop zero both are env.demandMW x share (x the factor), as before.
+ * Used by the restore permissive, observe(), the restore surge and the `shed` record, so all agree.
  */
 export function districtColdLoadMW(state, d) {
-  const dist = state.city.districts[d];
-  const base = state.env.demandMW * dist.share;
-  const cold = dist.dark && gridSecond(state) - dist.darkSinceS > V.COLD_LOAD_AFTER_S;
-  return cold ? base * V.COLD_LOAD_FACTOR : base;
+  const dist = state.city.districts[d], env = state.env, s = gridSecond(state);
+  const base = (env.demandMW + env.rooftopMW) * dist.share;
+  if (!dist.dark) return base - env.roofSubMW[dist.sub] * dist.roofFrac * (1 - roofOffFrac(dist, s));
+  return s - dist.darkSinceS > V.COLD_LOAD_AFTER_S ? base * V.COLD_LOAD_FACTOR : base;
 }
 
 // ------------------------------------------------------------------ relays (H-6, H-7)

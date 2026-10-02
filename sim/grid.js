@@ -32,6 +32,10 @@
 //     just restored is not the next one shed. On a fresh day that is the lowest rot.
 //   * The tie's export cap limits the target; the flow reaches a lower cap at the tie ramp
 //     (as a dispatch interval would), never as a step.
+//
+// Phase 2a wave 1 (desk/README.md §21.2; owner "grid"): automatic curtailment in dispatchSecond
+// with AGC's unmet lowering request (C-6; the section before dispatchSecond), the roof refresh
+// in fosSecond and the restore surge on the total before rooftop (P-12, C-8).
 
 import {V} from './params.js';
 import * as fleet from './fleet.js';
@@ -325,8 +329,10 @@ function shedNextRotation(state, out) {
  *     already standing down (before it arrives it simply cancels).
  *   restore {district}: restorePermissive(state, d, {preview: true}) must be '' (the K-13
  *     restore preview runs here, on the input only); fleet.setDistrictDark(..., false);
- *     district.surgeMW = coldLoad - its present share of demand (>= 0); city.lastRestoreS =
- *     s; fleet.rearmUfls for its stage; emit {kind:'restore', district, mw: coldLoad}.
+ *     district.surgeMW = coldLoad - its present share of the total before rooftop (>= 0; P-12:
+ *     coldLoad is the undelayed underlying pickup, the district's rooftop waits ROOF_RECONNECT_S
+ *     and then ramps back over ROOF_RAMP_S); city.lastRestoreS = s; fleet.rearmUfls for its
+ *     stage; emit {kind:'restore', district, mw: coldLoad}.
  *   directShed: only while sec.level is SHORT or SHEDDING (A-3); darken the next lit rotation
  *     district ('directed'), emit 'shed'.
  * @param {object} state
@@ -492,7 +498,8 @@ export function applyCommand(state, cmd, out) {
       if (why) return why;
       const dist = state.city.districts[d];
       const coldMW = fleet.districtColdLoadMW(state, d);
-      const surge = Math.max(0, coldMW - state.env.demandMW * dist.share) + 0;
+      // the surge is the pickup beyond its underlying share (P-12: its rooftop is still off, fleet.setDistrictDark)
+      const surge = Math.max(0, coldMW - (state.env.demandMW + state.env.rooftopMW) * dist.share) + 0;
       fleet.setDistrictDark(state, d, false, null);
       dist.surgeMW = surge;
       state.city.lastRestoreS = s;
@@ -665,6 +672,8 @@ function agcCycle(state) {
  * request could not cover (0 when inside the bands); agc.atLimitS counts consecutive grid
  * seconds at the limit (the app lights AGC LIMIT after 5 REAL s). In HAND mode every trim is
  * 0 (ACE is still shown). AGC never starts or stops a unit and never moves a base point.
+ * C-6 (Phase 2a): a NEGATIVE agc.unmetMW (the lowering bands of the units and the battery are
+ * spent and the frequency is still high) is spilled as wind and solar by dispatchSecond.
  */
 export function agcSecond(state, out) { // eslint-disable-line no-unused-vars
   const s = secondOf(state), agc = state.agc;
@@ -686,6 +695,72 @@ export function agcSecond(state, out) { // eslint-disable-line no-unused-vars
   agc.atLimitS = agc.unmetMW !== 0 ? agc.atLimitS + 1 : 0;
 }
 
+// ------------------------------------------------------------------ automatic curtailment (C-6)
+//
+// Phase 2a (desk/README.md §18 C-6): in the belly the must-run fleet, wind and utility solar can
+// exceed what the city, the tie and the battery take. The dispatch then holds wind and solar
+// back by itself, as NEMDE dispatches semi-scheduled plant down through the semi-dispatch cap:
+// feed-forward from the second's own numbers (so it needs no AGC and works in HAND), plus, in
+// a surplus, AGC's unmet lowering request (what the units' and the battery's bands could not
+// carry while the frequency is still high), so a stale plan cannot push the grid to 52 Hz. It
+// never moves the tie (the plan's) or the battery (the player's): an idle battery does not fill
+// by itself. Labelled in SPEC §8.2 "The dispatch spills wind and solar automatically, pro rata."
+
+/** Wind (after the manual LIMIT and OFGS) and utility solar (after the manual LIMIT) this second, before the automatic cut. */
+function renOutMW(state) {
+  const env = state.env, ren = state.ren;
+  return (env.windAvailMW - ren.windCurtMW) * (1 - state.ofgs.trippedFrac) + (env.solarAvailMW - ren.solarCurtMW);
+}
+
+/**
+ * The feed-forward surplus (C-6), MW: must-run + wind and utility solar (renOutMW) - what takes
+ * it. Must-run is the price stack's floor blocks (MIN of every unit 'on': 0 for hydro; the
+ * present output of a unit loading, unloading or shutting down, H-1) plus reserve diesel on
+ * line (out of market, but as real). What takes it is the market demand with the tie and the
+ * battery order as they are: lit operational demand + cold load - DR - tie flow - the battery's
+ * scheduled output on its ORDER (battOnOrderMW). Positive: that much must be spilled even with
+ * every unit at its floor.
+ */
+function surplusMW(state) {
+  const units = state.units, city = state.city;
+  let floor = state.rert.outMW;
+  for (let i = 0; i < N; i++) {
+    const u = units[i];
+    if (u.mode === 'on') floor += M[i].minMW; else if (u.sync) floor += u.schedMW;
+  }
+  return floor + renOutMW(state) - (fleet.litDemandMW(state) + city.coldLoadMW - state.dr.mw - state.tie.flowMW - battOnOrderMW(state.battery));
+}
+
+/**
+ * The battery's scheduled output without AGC's trim (C-6): schedMW - agcTrimMW, kept between the
+ * schedule and where the order alone would take it (exact while either the order or the trim is
+ * steady). The feed-forward counts the player's order only: if it counted the trim too, a trim
+ * AGC once gave the battery would be matched by less curtailment and never come back, and an
+ * idle battery would fill by itself (charging at a negative price is the player's decision).
+ */
+function battOnOrderMW(b) {
+  const lim = Math.max(0, BATT_MW - b.guardMW);
+  const onOrder = clamp(battOrderMW(b, lim), -Math.min(lim, chargeCapMW(b)), Math.min(lim, dischargeCapMW(b)));
+  const s = b.schedMW;
+  return clamp(s - b.agcTrimMW, Math.min(onOrder, s), Math.max(onOrder, s));
+}
+
+/**
+ * AGC's unmet lowering request (C-6), MW >= 0: agc.unmetMW when it is negative, i.e. the ACE the
+ * request could not cover with every lowering band of the units and the battery spent and the
+ * frequency still high (800 MW per Hz, held between AGC cycles). It goes away as the frequency
+ * comes back, and AGC LIMIT stays lit meanwhile: the plan is stale. 0 in HAND (no AGC).
+ * dispatchSecond adds it to the cut only while there is a surplus by the floor blocks: outside
+ * one, AGC at its lowering limit means the plan holds units above what is needed, they have
+ * governor room, and the remedy is the plan, not spilling wind while gas runs above minimum
+ * (measured on classic par days, added unconditionally: seed 17 spilled wind for 908 s around
+ * midnight with thirteen units 1,400 MW above their minimums).
+ */
+function agcSpillMW(state) {
+  const unmet = state.agc.unmetMW;
+  return unmet < 0 ? -unmet : 0;
+}
+
 // ------------------------------------------------------------------ dispatchSecond
 
 /**
@@ -699,9 +774,22 @@ export function agcSecond(state, out) { // eslint-disable-line no-unused-vars
  *     to orders or AGC).
  *   tie: flowMW toward clamp(setMW, -env.exportLimitMW, TIE_MAX_MW) at TIE_RAMP_MW_MIN / 60
  *     per second (0 while tripped).
- *   ren: windMW = env.windAvailMW x windLimitPct / 100; solarMW likewise (physics applies
- *     OFGS to wind). rert.outMW ramps at RERT_RAMP_MW_MIN once the lead is over (and out when
- *     standing down, then disarms); dr.mw = DR_MW for DR_DURATION_S from the call.
+ *   ren: windCurtMW moves toward env.windAvailMW x (100 - windLimitPct) / 100 at the curtailment
+ *     ramp, solarCurtMW likewise (the manual LIMIT). rert.outMW ramps at RERT_RAMP_MW_MIN once
+ *     the lead is over (and out when standing down, then disarms); dr.mw = DR_MW for
+ *     DR_DURATION_S from the call.
+ *   automatic curtailment (C-6, Phase 2a; last, on this second's schedules): while surplusMW > 0
+ *     the cut = min(wind after the LIMIT and OFGS + solar after the LIMIT, surplusMW + AGC's
+ *     unmet lowering request), else 0; windAutoMW and solarAutoMW move toward their pro-rata
+ *     share of it (by present output) at CURTAIL_RAMP_FRAC_MIN, and back to 0 as the surplus
+ *     goes; then windMW = available - windCurtMW - windAutoMW, solarMW likewise (physics applies
+ *     OFGS to wind).
+ *     surplusMW = must-run (the stack's floor blocks, and reserve diesel on line) + that wind and
+ *     solar - (lit operational demand + cold load - DR - tie flow - the battery's schedule). The
+ *     tie and the battery are never moved to make room. Works in HAND (the feed-forward term
+ *     needs no AGC; levers held above MIN are the player's to lower).
+ * Reads (Phase 2a, besides README §11): env.rooftopMW, city.{roofOffMW, coldLoadMW}, agc.unmetMW,
+ * ofgs.trippedFrac. Writes: ren.{windAutoMW, solarAutoMW} (and windMW, solarMW after the cut).
  */
 export function dispatchSecond(state, out) {
   const units = state.units, env = state.env;
@@ -733,13 +821,12 @@ export function dispatchSecond(state, out) {
   const t = state.tie;
   t.flowMW = t.tripped ? 0 : toward(t.flowMW, clamp(t.setMW, -env.exportLimitMW, TIE_MAX), TIE_STEP);
 
-  // Renewables: the curtailed MW (available minus the LIMIT) move at the curtailment ramp
-  // (integration, CURTAIL_RAMP_FRAC_MIN); the weather passes straight through.
+  // Renewables, the manual LIMIT: the curtailed MW (available minus the LIMIT) move at the
+  // curtailment ramp (integration, CURTAIL_RAMP_FRAC_MIN); the weather passes straight through.
+  // ren.windMW and ren.solarMW are set at the end, after the automatic cut (C-6).
   const ren = state.ren;
   ren.windCurtMW = curtailedMW(ren.windCurtMW, env.windAvailMW, ren.windLimitPct, WIND_CURT_STEP);
-  ren.windMW = env.windAvailMW - ren.windCurtMW + 0;
   ren.solarCurtMW = curtailedMW(ren.solarCurtMW, env.solarAvailMW, ren.solarLimitPct, SOLAR_CURT_STEP);
-  ren.solarMW = env.solarAvailMW - ren.solarCurtMW + 0;
 
   const r = state.rert;
   if (r.standingDown) {
@@ -763,6 +850,29 @@ export function dispatchSecond(state, out) {
     dr.activeS -= 1;
     if (dr.activeS === 0) log(state, out, 'info', 'DR_END', 'Industrial DR call ended: load returning.');
   }
+
+  // C-6, last, on this second's schedules: in a surplus the cut is the feed-forward surplus plus
+  // AGC's unmet lowering request, never more than is generating; shared pro rata by present
+  // output (wind after OFGS; windAutoMW itself is stored before OFGS, as windCurtMW is), each
+  // part moving at the manual LIMIT's ramp and never above what its LIMIT leaves. With no
+  // surplus both go to 0 (and stay exactly 0 on a day that never has one).
+  // The cut is a cap on output, as the semi-dispatch cap is: when the weather takes MW away
+  // from a plant that is held back, they come out of what is held back first (heldMW), so a
+  // cloud over a curtailed solar farm is not a loss of supply.
+  const windLeft = env.windAvailMW - ren.windCurtMW, solarLeft = env.solarAvailMW - ren.solarCurtMW;
+  const connected = 1 - state.ofgs.trippedFrac, renOut = windLeft * connected + solarLeft;
+  const surplus = surplusMW(state);
+  const cut = surplus > 0 ? Math.min(renOut, surplus + agcSpillMW(state)) : 0;
+  const cutFrac = cut > 0 ? cut / renOut : 0;
+  ren.windAutoMW = clamp(toward(heldMW(ren.windAutoMW, windLeft, ren.windMW), connected > 0 ? windLeft * cutFrac : 0, WIND_CURT_STEP), 0, windLeft) + 0;
+  ren.solarAutoMW = clamp(toward(heldMW(ren.solarAutoMW, solarLeft, ren.solarMW), solarLeft * cutFrac, SOLAR_CURT_STEP), 0, solarLeft) + 0;
+  ren.windMW = windLeft - ren.windAutoMW + 0;
+  ren.solarMW = solarLeft - ren.solarAutoMW + 0;
+}
+
+/** MW still held back by the automatic cut when `leftMW` is available now and the plant put out `outMW` last second: never more than before. */
+function heldMW(autoMW, leftMW, outMW) {
+  return autoMW > 0 ? clamp(leftMW - outMW, 0, autoMW) : 0;
 }
 
 // ------------------------------------------------------------------ fosSecond
@@ -788,9 +898,11 @@ function refreshColdLoad(state, s) {
  * NORMAL_LO_HZ or f < CONTAIN_LO_HZ for > DIRECTED_BELOW_CONTAIN_S; it stops when frequency
  * RECOVERS, defined as last.fMeanHz >= NORMAL_LO_HZ. Nothing is ever restored automatically
  * (H-6). Also: the cold-load surge (K-13) city.coldLoadMW = sum over lit districts of surgeMW
- * x max(0, 1 - (s - restoredAtS) / COLD_LOAD_DECAY_S) (surgeMW set to 0 once decayed), and the
- * active contingency's backInBandTick: the first tick of the first completed second after
- * the trip whose fMinHz and fMaxHz both lie inside the normal band.
+ * x max(0, 1 - (s - restoredAtS) / COLD_LOAD_DECAY_S) (surgeMW set to 0 once decayed), the
+ * rooftop off with dark or reconnecting districts (P-12, Phase 2a: fleet.refreshRoof, on this
+ * second's env.roofSubMW) and the active contingency's backInBandTick: the first tick of the
+ * first completed second after the trip whose fMinHz and fMaxHz both lie inside the normal band.
+ * A `shed` record's mw is the district's NET load (fleet.districtColdLoadMW of a lit district).
  */
 export function fosSecond(state, out) {
   const s = secondOf(state), fos = state.fos, last = state.last, f = last.fMeanHz;
@@ -821,6 +933,7 @@ export function fosSecond(state, out) {
   }
 
   refreshColdLoad(state, s);
+  fleet.refreshRoof(state); // P-12 (Phase 2a): the rooftop off with dark or reconnecting districts, on this second's env
 
   if (state.contIdx >= 0) {
     const c = state.conts[state.contIdx];
