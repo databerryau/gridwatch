@@ -1232,3 +1232,26 @@ rows per the §19.5 table, §8.3 additions (the 6-minute ramp stays unverified),
 Q-19 onward, the Q-18 "still to do", the release checklist. Deferred and said so in SPEC: P-1's
 debrief plot (2d), S-14 rules 1 and 5 and the lean proxy (2b / 2d), fronts over suburbs and the
 briefing-time heatwave (2c).
+
+## 24. Stage A record (2026-10-02)
+
+Stage A is commits `5e4e076` (shapes, `v4-core-2a.0`) and `2f8dc74` (golden). CLASSIC is
+unchanged: the quick baseline and the full golden differ from the old ones only in hashes, the
+Build line and machine lines (439 of 439 lines identical once hashes are masked). Two independent
+checks found no defect. Settled while building it:
+
+* `obs.wind.autoMW` / `obs.solar.autoMW` pass `ren.windAutoMW` / `ren.solarAutoMW` through as
+  stored (before OFGS). Only the spill energy applies `(1 - ofgs.trippedFrac)` to the wind term.
+* An MSL level is reached when the tested minimum is **at or below** its threshold.
+* `ext.rooftop` is null on every scenario until `world` lands its pre-roll: nothing may infer
+  "no rooftop" from it; use `scn.rooftop.capacityMW`.
+* `inverterMW` is a literal 0 in four places for `grid` to wire: `fleet.preTrip`,
+  `fleet.startContingency`'s `caught`, physics `newCaught` (and the trace and reset around it) and
+  previewTrip's returned `caught`. `app/record.js` already traces it from `phys.renPfrMW +
+  phys.roofPfrMW`, and `desk/calc.js imbalanceSegments` already subtracts both in `sumMW` and
+  `borrowedMW` (the K-11 identity closes once they are non-zero).
+* `desk-weekend` opens about 210 MW short at stage A (coal 4 is off and the weekend factor is
+  not applied yet). With `world`'s ×0.92 the estimate is hydro at about 269 MW each on a HOT
+  weekend: balanced, but drawing water from 04:00. Stage C tunes the commitment (C-14).
+* DESK_WEEKEND shares DESK's `rooftop`, `weather` and `temperatureC` objects (none is shared
+  with CLASSIC). First-visit transfer is 312.4 KB gzip of 400.
