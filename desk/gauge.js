@@ -13,7 +13,10 @@ const LEVEL_GLYPH = {SECURE: '✓', TIGHT: '!', SHORT: '✕', SHEDDING: '✕✕'
 const HELP = 'SPARE IN 5 MIN is R5: headroom that can be delivered within 5 minutes. BIGGEST RISK is L: the largest ' +
   'credible contingency (the biggest unit online, or the tie import). SECURE needs R5 ≥ ' + V.SECURE_RATIO + ' × L and a TRIP ' +
   'PREVIEW nadir ≥ ' + V.SECURE_NADIR_HZ + ' Hz for both; TIGHT is LOR1-like, SHORT is LOR2-like (R5 < L), SHEDDING is LOR3.';
-const CAUGHT_WORD = {inertiaMW: 'SPIN', batteryMW: 'BATT', guardMW: 'GUARD', governorsMW: 'GOV', loadReliefMW: 'RELIEF', uflsMW: 'UFLS'};
+// inverterMW (Phase 2a, C-7): wind and solar inverters. Positive when a loss of supply began above
+// 50.015 Hz and they gave back what the droop was holding; negative (not listed) for a loss of load.
+const CAUGHT_WORD = {inertiaMW: 'SPIN', batteryMW: 'BATT', guardMW: 'GUARD', governorsMW: 'GOV', loadReliefMW: 'RELIEF', uflsMW: 'UFLS',
+  inverterMW: 'INVERTERS'};
 
 /** The caught MW of a preview result as short words, largest first. */
 export function caughtText(caught) {

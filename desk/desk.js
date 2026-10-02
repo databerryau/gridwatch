@@ -39,6 +39,15 @@
 //     tray         ←→ / ↑↓ move between the cards' buttons and LOG
 //   T, M, L, Tab, Space, Esc, F and ? stay the shell's (app/keys.js).
 // Foley (K-20): gestures emit actions.ui({do:'cue', name, pan}) on real changes only (ctx.cue).
+//
+// C-10 (Phase 2a, desk/README.md §19.5): the desk tells the shell which START / STOP guard the
+// player is considering, actions.ui({do: 'consider', target: 'guard-start-<unit>' |
+// 'guard-stop-<unit>' | null}), and only when the answer changes. A lifted guard wins, then the
+// focused one, then the hovered one; null when none. A commit counts as a drop. A lift made by
+// key (S / X on a lever: nothing is hovered and the lever, not the guard, has the focus) is held
+// CONSIDER_HOLD_MS after its cover drops, so a keyboard player has time to read what the press
+// would do (the cover itself still drops after 2 s). The shell shows vm.consider in the
+// objective line; the desk only names the guard.
 
 import {createLevers} from './levers.js';
 import {createHydroWheel, createBatteryDial, createTieKnob} from './rotary.js';
@@ -48,7 +57,7 @@ import {createTray} from './tray.js';
 import {createGauge} from './gauge.js';
 import {createFreqDial, createImbalanceBar} from './dial.js';
 import {createBay} from './bay.js';
-import {el, makeGuards, makeHolds, setCls, fin, clamp, feelOf, RATCHET_MS, LEVER_STATIONS} from './util.js';
+import {el, makeGuards, makeHolds, setCls, fin, clamp, feelOf, RATCHET_MS, LEVER_STATIONS, GUARD_MS} from './util.js';
 
 /** K-23 keys 1-8 focus these. */
 export const SLOT_IDS = Object.freeze(['lever-coal', 'lever-ccgt', 'lever-gta', 'lever-gtb', 'lever-gtc', 'wheel-hydro', 'dial-battery', 'knob-tie']);
@@ -73,6 +82,42 @@ export const LAYOUT = Object.freeze({
 });
 
 export const NOTE_MS = 2500;   // a refusal / hint stays on its control this long
+export const CONSIDER_HOLD_MS = 6000;   // C-10: a guard lifted by key stays the considered one this long after its cover drops
+
+/**
+ * C-10: which guard the player is considering (the header says the rule). hover / focus / lift /
+ * commit are told by the machine guards (desk/levers.js); tick() runs every frame for the covers
+ * that drop by themselves. `send(target)` is called only when the resolved target changes.
+ * @param {function():number} now the desk clock (ms) @param {{lifted:function(string):boolean}} guards
+ */
+export function makeConsider(now, guards, send) {
+  let hover = null, focus = null, sent = null;
+  const lifts = [];                    // [{id, at, byKey}], oldest first: the last one still up wins
+  const held = {id: null, until: -1};  // a key lift whose cover has dropped
+  function resolve() {
+    const t = now();
+    for (let i = lifts.length - 1; i >= 0; i--) {
+      const l = lifts[i];
+      if (guards.lifted(l.id)) continue;
+      lifts.splice(i, 1);              // its cover dropped unused, GUARD_MS after the lift
+      if (l.byKey && l.at + GUARD_MS + CONSIDER_HOLD_MS > held.until) { held.id = l.id; held.until = l.at + GUARD_MS + CONSIDER_HOLD_MS; }
+    }
+    if (held.id && t > held.until) held.id = null;
+    const target = lifts.length ? lifts[lifts.length - 1].id : held.id || focus || hover || null;
+    if (target !== sent) { sent = target; send(target); }
+  }
+  const drop = id => { for (let i = lifts.length - 1; i >= 0; i--) if (lifts[i].id === id) lifts.splice(i, 1); };
+  return {
+    hover(id, on) { if (on) hover = id; else if (hover === id) hover = null; resolve(); },
+    focus(id, on) { if (on) focus = id; else if (focus === id) focus = null; resolve(); },
+    /** The guard's cover went up (the first press). byKey: by S / X on its lever. */
+    lift(id, byKey) { drop(id); lifts.push({id, at: now(), byKey: !!byKey}); if (held.id === id) held.id = null; resolve(); },
+    /** The second press: the input was sent. A commit counts as a drop, and ends a key hold on that guard. */
+    commit(id) { drop(id); if (held.id === id) held.id = null; resolve(); },
+    tick: resolve,
+    get target() { return sent; },
+  };
+}
 export const SHAKE_MS = 600;   // K-12: a rough close shakes the unit's lever this long
 
 const cueName = c => (typeof c === 'string' ? c : c && typeof c.name === 'string' ? c.name : '');
@@ -142,6 +187,7 @@ export function createDesk(doc, root, actions, opts = {}) {
   };
   ctx.guards = makeGuards(ctx.now);
   ctx.holds = makeHolds(ctx.now);
+  ctx.consider = makeConsider(ctx.now, ctx.guards, target => ctx.ui({do: 'consider', target}));
 
   // ---- layout
   const desk = el(doc, 'div', 'dk');
@@ -207,6 +253,7 @@ export function createDesk(doc, root, actions, opts = {}) {
       desk.style.setProperty('--dk-k', k.toFixed(3));
     }
     ctx.guards.expire();
+    ctx.consider.tick();   // C-10: a cover that dropped by itself changes what is being considered
     ctx.holds.tick();
     for (const [host, n] of notes) if (nowFn() > n.until && !n.span.hidden) n.span.hidden = true;
     setCls(desk, 'dk-locked', locked());

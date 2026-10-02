@@ -128,17 +128,20 @@ export function agcBandMW(obs, sid) {
  * BORROWED stack (inertia, battery, governors, load relief) covers the scheduled gap. SHED is the
  * demand shed (already outside servedMW), shown beside the bar.
  * Phase 2a (desk/README.md §19.2, C-7): the inverters' over-frequency back-off (balance.renPfrMW +
- * roofPfrMW, both >= 0) comes off the sum, as it does in the sim's identity; keys that are
- * missing (older fixtures) count as 0. The view job gives it its own segment.
+ * roofPfrMW, both >= 0: wind, utility solar and rooftop solar lowering their output) is its own
+ * segment, inverterMW = -(renPfrMW + roofPfrMW), so it is <= 0 and stacks left of zero; it is in
+ * the sum and in BORROWED as it is in the sim's identity. Keys that are missing (older fixtures)
+ * count as 0. shedMW is the relay MW (net load: <= 0 when a district that was feeding back is
+ * dark); the dial's SHED mark reads obs.demand.unservedMW instead (the customers' load).
  */
 export function imbalanceSegments(b) {
   const schedMW = fin(b.schedSupplyMW) - fin(b.servedMW);
   const governorsMW = fin(b.governorsMW), batteryMW = fin(b.batteryPfrMW) + fin(b.guardMW), loadReliefMW = fin(b.loadReliefMW);
   const inertiaMW = fin(b.inertiaMW);
-  const inverterMW = fin(b.renPfrMW) + fin(b.roofPfrMW);
-  return {schedMW, governorsMW, batteryMW, loadReliefMW, inertiaMW, shedMW: fin(b.shedMW),
-    imbalanceMW: fin(b.imbalanceMW), sumMW: schedMW + governorsMW + batteryMW + loadReliefMW - inverterMW,
-    borrowedMW: governorsMW + batteryMW + loadReliefMW + inertiaMW - inverterMW};
+  const inverterMW = 0 - (fin(b.renPfrMW) + fin(b.roofPfrMW));
+  return {schedMW, governorsMW, batteryMW, loadReliefMW, inertiaMW, inverterMW, shedMW: fin(b.shedMW),
+    imbalanceMW: fin(b.imbalanceMW), sumMW: schedMW + governorsMW + batteryMW + loadReliefMW + inverterMW,
+    borrowedMW: governorsMW + batteryMW + loadReliefMW + inertiaMW + inverterMW};
 }
 
 // ---------------------------------------------------------------- K-12 synchroscope
@@ -172,15 +175,36 @@ export const turnS = slipHz => (Math.abs(fin(slipHz)) > 1e-9 ? 1 / Math.abs(slip
 // ---------------------------------------------------------------- K-13 restore
 
 /**
- * K-13 cold-load MW of a dark district: demand x share, x COLD_LOAD_FACTOR once dark for more
- * than COLD_LOAD_AFTER_S (the same rule as fleet.districtColdLoadMW, which obs.coldLoadMW
- * carries). coldInS: grid seconds until the factor applies (0 once it does).
+ * K-13 cold load of a district row of obs.districts. mw is the sim's own number
+ * (obs.districts[].coldLoadMW = fleet.districtColdLoadMW: a dark district's underlying pickup,
+ * its rooftop still off, x COLD_LOAD_FACTOR once it has been dark for COLD_LOAD_AFTER_S; a lit
+ * one's net load now, which is negative while it feeds back): the desk keeps no second copy of
+ * that rule (Phase 2a). factor and coldInS only say when the factor applies, for the countdown
+ * on the feeder row: coldInS is the grid seconds until it does (0 once it does, or when lit).
  */
-export function coldLoad(d, nowS, demandMW) {
+export function coldLoad(d, nowS) {
   const darkFor = d.dark ? fin(nowS) - fin(d.darkSinceS) : 0;
   const cold = d.dark && darkFor > V.COLD_LOAD_AFTER_S;
-  const factor = cold ? V.COLD_LOAD_FACTOR : 1;
-  return {mw: fin(demandMW) * fin(d.share) * factor, factor, coldInS: d.dark && !cold ? Math.max(0, V.COLD_LOAD_AFTER_S - darkFor) : 0};
+  return {mw: fin(d.coldLoadMW), factor: cold ? V.COLD_LOAD_FACTOR : 1, coldInS: d.dark && !cold ? Math.max(0, V.COLD_LOAD_AFTER_S - darkFor) : 0};
+}
+
+/**
+ * K-7: the district DIRECT SHED (and automatic directed shedding) will take next, as
+ * sim/grid.js shedNextRotation picks it (desk/README.md §25 M-2): among the lit rotation
+ * districts (rot >= 0) whose net load is above zero, the one restored longest ago (never shed
+ * first), ties by rotation index; when none of them has load to give, the same choice among all
+ * the lit rotation districts. null when no lit rotation district is left.
+ * @param {Array} districts obs.districts
+ */
+export function nextShed(districts) {
+  let best = null, any = null;
+  const before = (x, y) => !y || fin(x.restoredAtS, -1) < fin(y.restoredAtS, -1) || (fin(x.restoredAtS, -1) === fin(y.restoredAtS, -1) && x.rot < y.rot);
+  for (const x of districts || []) {
+    if (!(x.rot >= 0) || x.dark) continue;
+    if (before(x, any)) any = x;
+    if (x.coldLoadMW > 0 && before(x, best)) best = x;
+  }
+  return best || any;
 }
 
 // ---------------------------------------------------------------- rotary geometry
