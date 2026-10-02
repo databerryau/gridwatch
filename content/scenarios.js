@@ -244,8 +244,8 @@ export const DESK = Object.assign({}, CLASSIC, {
 
 /**
  * The game's weekend day (Phase 2a; desk/README.md C-2, C-14): DESK on a Saturday or Sunday
- * (P-3: demand x 0.92), with its own, leaner 04:00 commitment: coal 4 has been off since Friday
- * night, so a do-nothing weekend cannot pass. The app picks it when the seed reads as a weekend
+ * (P-3: demand x 0.92), with its own 04:00 commitment: coal 4 has been off since Friday night (both
+ * CCGTs are on), so a do-nothing weekend cannot pass and bringing coal back is a decision. The app picks it when the seed reads as a weekend
  * date; the sim never reads a date.
  */
 export const DESK_WEEKEND = Object.assign({}, DESK, {
@@ -253,8 +253,8 @@ export const DESK_WEEKEND = Object.assign({}, DESK, {
   name: 'Late-summer weekend, coal 4 off since Friday night',
   day: {weekend: true},
   commitment: Object.assign({}, DESK.commitment, {
-    src: 'The DESK 04:00 commitment with coal 4 off since Friday night (desk/README.md C-14: three coal at 540 MW, CCGT 1 at 480 MW, hydro balancing): simplified; stage C tunes it.',
-    units: {coal1: 540, coal2: 540, coal3: 540, ccgt1: 480, hydro1: 140, hydro2: 140},
+    src: 'The DESK 04:00 commitment with coal 4 off since Friday night and both CCGTs on (desk/README.md C-14: three coal at 540 MW, CCGT 1 at 480 MW, CCGT 2 at 300 MW, hydro balancing at about 75-120 MW a machine): simplified. With one CCGT the hot weekend opened 170 MW under the capacity margin, leaning on 270 MW a machine of hydro from 04:00.',
+    units: {coal1: 540, coal2: 540, coal3: 540, ccgt1: 480, ccgt2: 300, hydro1: 140, hydro2: 140},
   }),
 });
 
