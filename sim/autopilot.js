@@ -409,7 +409,7 @@ function fcAt(arr, present, fcn, lead) {
 /**
  * Everything a dispatch needs about the next columns [k0, n): unit on/off times, the MW
  * the stations and the tie must cover, prices and limits. par = par's rules apply
- * (battery, RERT, DR, the no-export and tie caps, rule 5, PAR_MAX_LOADING).
+ * (battery, RERT, DR, a unit still loading, the no-export and tie caps, rule 5, PAR_MAX_LOADING).
  */
 function context(obs, P, k0, par, memo, keepStops) {
   const n = P.n, now = obs.s, auto = obs.mode === 'AGC';
@@ -459,6 +459,14 @@ function context(obs, P, k0, par, memo, keepStops) {
   const order = par ? batteryOrder(obs, memo) : NO_ORDER;
   const tieBack = obs.tie.tripped ? now + obs.tie.lockoutS : now;
   const rert = obs.rert, dr = obs.dr;
+  // A unit still loading (breaker closed, on its T2 slope to MIN) is no station's until it is on
+  // at cx.on[i], but its output is real: the sim's cut counts it as must-run (grid.js surplusMW)
+  // and so does the stack's floor (app/planview.js). Par's dispatch, and the game's (replan), count
+  // it along its slope until then, so a plan never imports what that unit is already supplying
+  // while the sim spills the same MW (final review of Phase 2a: 256 MWh imported while spilling
+  // on desk-weekend seed 20261017 as coal 4 came back in the belly).
+  const loading = [];
+  if (par) for (let i = 0; i < NU; i++) if (obs.units[i].mode === 'loading') loading.push(i);
   for (let k = k0; k < n; k++) {
     const t = colTime(P, k), lead = t - now;
     let lit = fcAt(fcLit, obs.demand.litMW, fn, lead);
@@ -476,6 +484,10 @@ function context(obs, P, k0, par, memo, keepStops) {
       if (rert.armed && !rert.standingDown) other += lead >= rert.leadS ? RERT_MW : rert.outMW;
       if (dr.activeS > 0 && lead < dr.activeS) other += DR_MW;
       other -= coldNow * Math.max(0, 1 - lead / V.COLD_LOAD_DECAY_S);
+      for (const i of loading) {
+        const u = obs.units[i];
+        if (t < cx.on[i] && t < cx.off[i]) other += u.schedMW + (M[i].minMW - u.schedMW) * clamp(lead / Math.max(1, cx.on[i] - now), 0, 1);
+      }
     }
     cx.cover[k] = lit - wind * (1 - ofgs) - solar - other;
     cx.price[k] = price;

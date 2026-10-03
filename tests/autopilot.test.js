@@ -898,6 +898,50 @@ test('the battery in the plan (desk/README.md §21.3): an order counts for the e
   assert.ok(near(x(fullAt + 1), lateIdle(fullAt + 1)), 'and no longer once it is at 97%');
 });
 
+test('a unit still loading in the belly (final review of Phase 2a): the dispatch counts its output on its T2 slope and never imports what it supplies', () => {
+  // The mild noon of par's day, poked: coal 4 is back on the grid and loading (100 MW of its 240-MW
+  // floor), the other three coal machines at their floor, hydro spinning empty, the battery idle.
+  // Flat forecast: wind and sun as now; lit demand 50 MW above the three machines' floor plus the
+  // wind and the sun, so it is the loading machine's output that keeps the grid in a surplus. The
+  // sim's cut counts that output as must-run (grid.js surplusMW), so the plan must not buy it from
+  // the neighbour at its $6 (before the fix: 50 MW imported in every column while it loads, and the
+  // sim's cut spilling about what the machine supplies).
+  const i4 = V.MACHINE_IDS.indexOf('coal4'), m4 = V.MACHINES[i4];
+  const loadRate = (m4.minMW - Math.min(m4.syncBlockMW, m4.minMW)) / m4.t2S, out0 = 100;
+  const plan = proxy => {
+    const s = parDayAt(1, DESK, 12, 30);
+    Object.assign(s.battery, {mode: 'idle', orderMW: 0, socMWh: 700, fullHold: false});
+    const obs = observe(s, {dayAhead: true}), memo = createAutopilot({proxy});
+    planUpdates(obs, memo); // the day's plan (the L-0 pre-dispatch) in the memo
+    const u = obs.units[i4];
+    Object.assign(u, {mode: 'loading', schedMW: out0, outMW: out0, basePointMW: 0, timerS: Math.ceil((m4.minMW - out0) / loadRate)});
+    const floorMW = obs.units.reduce((a, x) => a + (x.mode === 'on' ? x.minMW : 0), 0);
+    const renMW = obs.wind.availMW + obs.solar.availMW, litMW = floorMW + renMW + 50, fc = obs.forecast;
+    Object.assign(obs.demand, {litMW, nowMW: litMW});
+    Object.assign(obs.wind, {autoMW: 0, ofgsTrippedFrac: 0}); obs.solar.autoMW = 0;
+    fc.demandP50 = fc.demandP50.map(() => litMW); // no district dark: the lit forecast is P50
+    fc.windMW = fc.windMW.map(() => obs.wind.availMW); fc.solarMW = fc.solarMW.map(() => obs.solar.availMW);
+    replan(obs, memo);
+    return {obs, P: memo.plan, k0: Math.floor((obs.s - memo.plan.madeAtS) / memo.plan.stepS), onS: obs.s + u.timerS, floorMW, renMW, litMW};
+  };
+  for (const proxy of ['planOnly', 'par']) { // the game's dispatch (app/system.js, replan) and par's amend
+    const {obs, P, k0, onS, floorMW, renMW, litMW} = plan(proxy);
+    assert.equal(floorMW, 3 * m4.minMW, 'the fixture: three coal machines on, hydro at 0 MW');
+    assert.ok(obs.tie.neighbourPrice < V.STATIONS.coal.offer, 'the fixture: importing is cheaper than raising coal');
+    let cols = 0;
+    for (let k = k0; P.t0 + k * P.stepS < onS; k++) {
+      const t = P.t0 + k * P.stepS, loadingMW = Math.min(m4.minMW, out0 + loadRate * (t - obs.s));
+      assert.ok(floorMW + renMW < litMW && floorMW + loadingMW + renMW >= litMW, 'the fixture at column ' + k);
+      assert.ok(P.tie[k] <= 0, proxy + ': the plan imports ' + P.tie[k].toFixed(0) + ' MW at +' + (t - obs.s) + ' s with ' + loadingMW.toFixed(0) + ' MW loading');
+      cols++;
+    }
+    assert.ok(cols >= 8, 'the machine loads for ' + cols + ' plan columns');
+    // From its floor on it is the coal station's (its MIN in the lever), not counted twice: the plan exports.
+    const kOn = Math.ceil((onS - P.t0) / P.stepS) + 1;
+    assert.ok(P.lever[0][kOn] >= 4 * m4.minMW - 1 && P.tie[kOn] <= 0, proxy + ': after it is on, coal ' + P.lever[0][kOn].toFixed(0) + ' MW, tie ' + P.tie[kOn].toFixed(0));
+  }
+});
+
 test('S-12: par sheds zero on >= 85% of 200 raw seeds; arms RERT on <= 25%; the lean proxy earns A on <= 40%', slowOnly(), () => {
   let clean = 0, rert = 0, leanA = 0;
   const LEAN_SEEDS = 50;
