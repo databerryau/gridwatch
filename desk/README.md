@@ -1445,3 +1445,51 @@ Facts wave 3 builds on:
 Still red on purpose (wave 3's): `tests/objective.test.js` "the DESK scenario is the classic
 day…" and "a day with no input runs short by mid-morning…", and its slow whole-day case.
 `app/boot.js` still passes `DESK` (wave 3 passes `scenarioForSeed`); `vm.consider` is still null.
+
+## 27. Wave 3 record (the objective line; merged 2026-10-03) and stage C
+
+`app` was built in a worktree, reviewed by three readers (the contract, an adversary, and a
+first-time player who read every line of six whole days as a stranger would) and fixed: 34
+findings, all resolved in the row (the player's one blocker: "You are 650 MW short" at 50 Hz
+with nothing unserved, now "Within the hour you will be up to 650 MW short of a safe margin").
+Mutation check: 25 of 26 mutants of `app/objective.js` killed, the survivor equivalent.
+
+**The hint-following player, measured** (`tests/lib/follow.js`, 11 seeds on each of `desk` and
+`desk-weekend`, par on the same seed; `tests/objective.test.js` slow accepts):
+
+| Accept (§21.4) | `desk` | `desk-weekend` |
+|---|---|---|
+| a. never black, nothing unserved on ≥ 9 of 11 | 11 of 11 | 11 of 11 |
+| b. reserve diesel on ≤ 3, none left armed; DR ≤ 1.5 a day | 1 (stood down); DR 0.73 | 0; DR 0.18 |
+| c. cost ≤ 1.3 × par's on ≥ 8 of 11 | 10 (the miss: the diesel day, where par leaves 1,063 MWh dark and the follower none) | 11 |
+| d. a gas unit stopped before noon and restarted, ≥ 8 of 10 non-heatwave | 10 of 10 | 10 of 10 |
+| e. plan cost lower with STOP and BATTERY followed, unserved never higher | 11 of 11 | 11 of 11 |
+| f. each quoted STOP saving within ±30% or $10,000 | **not met**: 38 of 140 as `tools/follow.mjs` skips; 116 of 140 stop by stop | (both scenarios together) |
+| g. battery at or above par's at 16:30 on hot days | 5 of 6 (all seeds: 7 of 11) | 5 of 6 (7 of 11) |
+| h. the no-input day fails on every seed | 11 of 11 | 11 of 11 |
+| i. no line over 170 chars, no NaN, no "short" after a followed hint | 0 violations | 0 violations |
+
+Before wave 3 the same player armed the diesel on 19 of 22 days and paid 15 to 114 c/kWh.
+
+Rulings at stage C (integrator):
+
+| # | Question | Ruling |
+|---|---|---|
+| P-1 | f is not met as written. | **Recorded as not met.** The tool's skip blocks a unit until its next start, so it forgoes a whole queue of later STOPs: the realised figure is the queue's. Stop by stop, 116 of 140 agree (evening and night 99 of 107; mornings 17 of 33, the misses mostly from trips). The line now says "saves about $N if nothing trips before then". The test stays a todo with these figures. |
+| P-2 | g: "on hot days, ≥ 9 of 11" cannot be met when 6 of 11 seeds are hot. | **Read as hot and heatwave days, hot − 1** (5 of 6 on each). Every miss is 0.2–2.1% under a par battery at or near full: AGC regulation draws 10–16 MWh from a full battery in the hour before 16:30 while the follower runs fewer units. |
+| P-3 | i widened to the shortfall branches' own DISCHARGE orders. | **Not part of i.** Four cases on `desk`, each a larger order or a DR call inside one growing evening shortfall; none follows a battery-branch hint. The battery branch's own orders hold "one per 900 grid-s" on all 22 days; a literal rule over every battery input would need the time of the last order in `observe()` (a sim change; not made). |
+| P-4 | A STOP on a hot morning can lose money if something trips in the afternoon (3 of 10: −$49k to −$90k against a quoted +$31k to +$36k). | **Kept as a stated bet** (SPEC §9.1 Q-38): on a HOT morning the line waits until 10:30 (a heatwave can no longer be announced), checks the afternoon with the heat added, and says "if nothing trips before then". |
+
+Deviations from §21.4 accepted as built: branch selection ranks lines that carry an action (or
+are critical) before passive ones, so a STOP or BATTERY line shows over "Start X by 14:05"; an
+extra `shortAhead` branch between commit-now and restore; the commit margin is 650 MW (one trip
+covered), counting water at any hour, while STOP's condition 1 holds water until 15:30 as
+written; a spilled-power raise of an existing charge; a charge into the evening continues while
+coal sets the price; the GUARD line asks once for 400 MW; the quiet line's thin-spare band;
+`steady()` holds a line's words while only its figures move; STOP text "if nothing trips before
+then" and, for gas turbines, "Spare holds without it now:"; the MSL card texts as reworded.
+
+**Stage C.** SPEC §8.2 gained the five rows of the §19.5 table (one renamed) and the
+`content/text.js` entries left `specPending`; SPEC's "in progress" markers are closed, Q-18's
+"still to do" is closed with the measurement above, and Q-38 records P-4. `SIM_VERSION`
+`v4-core-2a.1`; the golden re-recorded.

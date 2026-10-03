@@ -25,7 +25,11 @@
 // notices, automatic curtailment, the inverters' over-frequency response and unserved / spilled
 // energy, all with neutral values: on the classic scenario every number is unchanged (only state
 // hashes move, because state gains fields).
-export const SIM_VERSION = 'v4-core-2a.0';
+// 2a.1: Phase 2a waves 1-3 and stage C (desk/README.md §25-§27): rooftop PV, day types and MSL
+// notices; UFLS on net load; automatic curtailment; the inverters' over-frequency response (on);
+// directed shedding passing over a district feeding back; MSL's tie rise per column; par's belly
+// rules and every battery order counted for its energy.
+export const SIM_VERSION = 'v4-core-2a.1';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);

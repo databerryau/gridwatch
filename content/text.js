@@ -325,9 +325,9 @@ const ABSTRACTIONS = [
     params: ['BLACK_LO_HZ', 'BLACK_HI_HZ', 'COLLAPSE_BANDS'],
   },
   {
-    // Phase 2a (C-7; desk/README.md §19.5): the row is renamed. §8.2 still has the old title until stage C.
-    id: 'wind-solar-pfr', row: 'Wind, utility solar and rooftop solar respond to over-frequency only.', specPending: true,
-    replaces: 'Wind and utility solar give no primary frequency response.', anchorId: 'ofgs-lamps', game: 'dial-freq',
+    // Phase 2a (C-7; desk/README.md §19.5): the row was renamed at stage C (it was 'Wind and utility solar give no primary frequency response.').
+    id: 'wind-solar-pfr', row: 'Wind, utility solar and rooftop solar respond to over-frequency only.',
+    anchorId: 'ofgs-lamps', game: 'dial-freq',
     real: 'Under the NEM\'s mandatory primary frequency response rule (2020), wind and solar farms respond outside ±0.015 Hz ' +
       'with a droop of 5% or less: they always lower output when frequency is high, and raise it only from output they ' +
       'hold back (curtailment). Rooftop inverters follow AS/NZS 4777.2: output falls from 50.25 Hz to zero at 52 Hz, and ' +
@@ -350,7 +350,7 @@ const ABSTRACTIONS = [
   },
   {
     // Phase 2a (P-2; desk/README.md C-4, C-5).
-    id: 'rooftop-model', row: 'Rooftop solar: one curve, six skies.', specPending: true, anchorId: 'rooftop-model', ui: 'drawer',
+    id: 'rooftop-model', row: 'Rooftop solar: one curve, six skies.', anchorId: 'rooftop-model', ui: 'drawer',
     game: 'map',
     real: 'Each roof has its own tilt, direction, shading and temperature; AEMO estimates rooftop output from a sample of ' +
       'systems, and a cloud band crosses a city street by street.',
@@ -366,7 +366,7 @@ const ABSTRACTIONS = [
   },
   {
     // Phase 2a (P-3; desk/README.md C-2, C-3).
-    id: 'mild-days', row: 'A mild day is the hot day with its cooling load removed.', specPending: true, anchorId: 'mild-days',
+    id: 'mild-days', row: 'A mild day is the hot day with its cooling load removed.', anchorId: 'mild-days',
     ui: 'drawer', game: 'stack',
     real: 'Demand follows temperature, the day of the week, the season and holidays, each with its own hourly shape, and ' +
       'heatwave warnings come days ahead.',
@@ -381,7 +381,7 @@ const ABSTRACTIONS = [
   },
   {
     // Phase 2a (desk/README.md C-6, C-11).
-    id: 'auto-curtailment', row: 'The dispatch spills wind and solar automatically, pro rata.', specPending: true,
+    id: 'auto-curtailment', row: 'The dispatch spills wind and solar automatically, pro rata.',
     anchorId: 'auto-curtailment', ui: 'drawer', game: 'stack',
     real: 'NEMDE dispatches by offer price: wind and solar farms are held back through the semi-dispatch cap, the dearest ' +
       'offers first. Rooftop solar is curtailed last, by the emergency backstop.',
@@ -395,7 +395,7 @@ const ABSTRACTIONS = [
   },
   {
     // Phase 2a (desk/README.md C-12).
-    id: 'min-down-time', row: 'Minimum down time runs from breaker open to the next START.', specPending: true,
+    id: 'min-down-time', row: 'Minimum down time runs from breaker open to the next START.',
     anchorId: 'min-down-time', ui: 'drawer', game: 'lever-coal',
     real: 'A unit\'s minimum down time is the shortest time it must stay off line: from breaker open to the next breaker close.',
     ours: 'After a planned stop a machine cannot be started for its minimum down time (coal ' + num(coal.minDownH) + ' h, CCGT ' +
