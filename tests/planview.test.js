@@ -523,6 +523,53 @@ test('C-11 on a real mild weekend (no input, 11:00): the projected spill is the 
   assert.ok(Math.abs(mwh(P.surplusMW) - mwh(cut)) <= 0.25 * mwh(cut), 'the hour: forecast ' + mwh(P.surplusMW).toFixed(0) + ' MWh, spilled ' + mwh(cut).toFixed(0) + ' MWh');
 });
 
+// The C-6 spill arithmetic is written twice, with no shared function: the sim's cut (sim/grid.js
+// surplusMW) and the projection's blue (app/planview.js proj.surplusMW, which also feeds STOP's
+// free replacement and the battery line). The row above compares them with no input, where every
+// term the player sets is zero; this one turns those terms on (the wave-2 merge, N-1: DR and a
+// DISCHARGE order were missing from the projection, 350 and 200 MW low, and no test saw it).
+// THE RULE: any new C-6 term (2b's hot-water soak, air-con cycling, ...) goes into sim/grid.js
+// surplusMW, into app/planview.js proj.surplusMW, and into this row.
+test('C-11 with the player\'s terms on (DR and a DISCHARGE order; a CHARGE order): the projected spill is still the cut the sim then makes', async () => {
+  const {step, observe, applyInput} = await import('../sim/step.js');
+  const SYS = await import('../app/system.js');
+  const TPS = V.TICKS_PER_S, NK = 6, SETTLE_S = 60;
+  const runs = [['DR and DISCHARGE 150', [{type: 'callDR'}, {type: 'battery', mode: 'discharge', mw: 150}]],
+    ['CHARGE 150', [{type: 'battery', mode: 'charge', mw: 150}]]];
+  for (const [what, inputs] of runs) {
+    // The mild weekend at 11:00: the orders, then a minute (the system's next look re-dispatches
+    // around them: commitSig), then the projection and the half hour the sim then plays. Measured:
+    // within 0.4 MW in every column, the orders moving the projection by 500 and 150 MW.
+    const {st, sys} = await mildWeekend();
+    for (const x of inputs) assert.ok(applyInput(st, x, []).ok, what + ': ' + x.type + ' accepted');
+    const settled = st.tick + SETTLE_S * TPS;
+    while (st.tick < settled) step(st, SYS.systemInputs(sys, st));
+    const obs = observe(st), P = PV.project(obs);
+    const cut = new Float64Array(NK), wind = new Float64Array(NK), solar = new Float64Array(NK), lit = new Float64Array(NK), cnt = new Float64Array(NK);
+    while (st.tick <= (P.times[NK - 1] + 30) * TPS) {
+      step(st, SYS.systemInputs(sys, st));
+      if (st.tick % TPS) continue;
+      const s = st.tick / TPS, k = Math.round((s - P.fromS) / PV.COL_S) - 1;
+      if (k < 0 || k >= NK || Math.abs(s - P.times[k]) > 30) continue;
+      const o = observe(st);
+      cut[k] += o.wind.autoMW + o.solar.autoMW; wind[k] += o.wind.availMW; solar[k] += o.solar.availMW; lit[k] += o.demand.litMW; cnt[k]++;
+    }
+    assert.equal(st.conts.length, 0, what + ': the fixture: no contingency inside the half hour');
+    for (let k = 0; k < NK; k++) { cut[k] /= cnt[k]; wind[k] /= cnt[k]; solar[k] /= cnt[k]; lit[k] /= cnt[k]; }
+    // the projection given the wind, the sun and the lit demand that then happened (as in the row above)
+    const told = structuredClone(obs);
+    for (let k = 0; k < NK; k++) { told.forecast.windMW[k] = wind[k]; told.forecast.solarMW[k] = solar[k]; told.forecast.demandP50[k] = lit[k]; }
+    const T = PV.project(told);
+    for (let k = 0; k < NK; k++) assert.ok(Math.abs(T.surplusMW[k] - cut[k]) <= 2, what + ', +' + (k + 1) * 5 + ' min: projected ' + T.surplusMW[k].toFixed(1) + ' MW, the sim cut ' + cut[k].toFixed(1) + ' MW');
+    // ... and the terms are live: the same projection without the orders differs by about what they are
+    const none = structuredClone(told);
+    Object.assign(none.battery, {mode: 'idle', orderMW: 0, schedMW: 0, outMW: 0, agcTrimMW: 0});
+    Object.assign(none.dr, {mw: 0, activeS: 0});
+    const N0 = PV.project(none), moved = Math.max(...T.surplusMW.map((v, k) => Math.abs(v - N0.surplusMW[k])));
+    assert.ok(Math.min(...cut) > V.SURPLUS_MIN_MW && moved >= 140, what + ': the sim spills through the half hour (' + Math.min(...cut).toFixed(0) + ' MW at least) and the orders move the projection by up to ' + moved.toFixed(0) + ' MW');
+  }
+});
+
 test('C-11 over mild weekends (slow): seeds 1, 5, 8, 9, 13 and 20261004 projected at 10:30, 11:00, 12:00 and 13:00', {skip: !process.env.GRIDWATCH_SLOW}, async () => {
   const {followDay} = await import('./lib/follow.js');
   const {step, observe} = await import('../sim/step.js');
