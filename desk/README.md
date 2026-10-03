@@ -1356,7 +1356,7 @@ brief). The no-input day leaves 11,000 to 37,000 MWh unserved on every seed of b
 **C-14 tuned at the merge.** With one CCGT the hot weekend opened 170 MW under the capacity
 margin, leaning on 270 MW a machine of hydro from 04:00, and the line started eight units in
 eight minutes. `desk-weekend` now opens with **both CCGTs on** (CCGT 2 at 300 MW) and coal 4 off:
-hydro balances at 75 to 120 MW a machine, nothing is asked for before 06:00, and the no-input
+hydro balances at 67 to 126 MW a machine (seeds 1-200), nothing is asked for before 06:00, and the no-input
 weekend still fails on 11 of 11 seeds.
 
 ## 26. Wave 2 record (par and the view; merged 2026-10-02)
@@ -1478,7 +1478,7 @@ Rulings at stage C (integrator):
 | P-1 | f is not met as written. | **Recorded as not met.** The tool's skip blocks a unit until its next start, so it forgoes a whole queue of later STOPs: the realised figure is the queue's. Stop by stop, 116 of 140 agree (evening and night 99 of 107; mornings 17 of 33, the misses mostly from trips). The line now says "saves about $N if nothing trips before then". The test stays a todo with these figures. |
 | P-2 | g: "on hot days, ≥ 9 of 11" cannot be met when 6 of 11 seeds are hot. | **Read as hot and heatwave days, hot − 1** (5 of 6 on each). Every miss is 0.2–2.1% under a par battery at or near full: AGC regulation draws 10–16 MWh from a full battery in the hour before 16:30 while the follower runs fewer units. |
 | P-3 | i widened to the shortfall branches' own DISCHARGE orders. | **Not part of i.** Four cases on `desk`, each a larger order or a DR call inside one growing evening shortfall; none follows a battery-branch hint. The battery branch's own orders hold "one per 900 grid-s" on all 22 days; a literal rule over every battery input would need the time of the last order in `observe()` (a sim change; not made). |
-| P-4 | A STOP on a hot morning can lose money if something trips in the afternoon (3 of 10: −$49k to −$90k against a quoted +$31k to +$36k). | **Kept as a stated bet** (SPEC §9.1 Q-38): on a HOT morning the line waits until 10:30 (a heatwave can no longer be announced), checks the afternoon with the heat added, and says "if nothing trips before then". |
+| P-4 | A STOP on a hot morning can lose money if something trips in the afternoon (3 of 10: −$49k to −$90k against a quoted +$31k to +$36k). | **Kept as a stated bet** (SPEC §9.1 Q-38): on a HOT morning, until 10:30 (while a heatwave may still be announced) the STOP must also hold with the heat added; from 10:30 it is checked as forecast (CCGT 2 passes from 10:30, gas turbines from about 09:30); the line says "if nothing trips before then". |
 
 Deviations from §21.4 accepted as built: branch selection ranks lines that carry an action (or
 are critical) before passive ones, so a STOP or BATTERY line shows over "Start X by 14:05"; an
@@ -1492,7 +1492,7 @@ then" and, for gas turbines, "Spare holds without it now:"; the MSL card texts a
 **Stage C.** SPEC §8.2 gained the five rows of the §19.5 table (one renamed) and the
 `content/text.js` entries left `specPending`; SPEC's "in progress" markers are closed, Q-18's
 "still to do" is closed with the measurement above, and Q-38 records P-4. `SIM_VERSION`
-`v4-core-2a.1`; the golden re-recorded.
+`v4-core-2a.1`; the golden re-recorded. No value was tuned at stage C: C-14's tuning was conditional and the no-input day fails on 11 of 11 seeds on both scenarios. P-9's weekday band, M-4 and N-4 stay open.
 
 **Size, at the end of stage C.** First visit 376.5 KB gzip of the 400-KB budget (F-11; was 345.6
 after wave 2): `app/objective.js` is 85 KB raw, 27 KB gzip. Slices 2b–2e have 23.5 KB of

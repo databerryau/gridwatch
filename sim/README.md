@@ -1132,7 +1132,7 @@ rules:
   band on the battery is all that is left and an idle battery with room does charge (210 MW in
   a 210-MW deep belly, 89 MWh in 30 min at the floor price): the contract's order, "after the
   units' and the battery's bands"; whether AGC should keep that band while the battery is idle
-  is stage C's call. In HAND the feed-forward term works unchanged (AGC's term is 0);
+  was not decided at stage C and stays open. In HAND the feed-forward term works unchanged (AGC's term is 0);
   levers held above MIN are not lowered for the player: the excess is carried by governors and
   the inverters' droop at a raised frequency (measured: 300 MW above MIN parks at 50.13 Hz with
   the C-7 droop on, 50.21 Hz without it) until a lever moves. With the surplus exactly cut and every unit at its floor the second is balanced
@@ -1358,9 +1358,9 @@ samples second 0 and balances the opening second with the online hydro machines 
 the MSL check after the weather (§3); `observe()` carries the desk/README.md §19.3 values (§8).
 `balanceOpening` is unchanged: with the weekend factor and the MILD shape in `env.demandMW` the
 04:00 second balances within 1 MW on `desk` and `desk-weekend` on MILD and HOT days alike
-(tested; over seeds 1-200 the two hydro machines open at 96-159 MW each on `desk` and 217-276 MW
-on `desk-weekend`, inside their 0-317 MW range: the weekend draws water from 04:00, which stage
-C's commitment tuning, C-14, may change). Integration also builds `next.html`,
+(tested; over seeds 1-200 the two hydro machines open at 96-159 MW each on `desk` and 67-126 MW
+on `desk-weekend` since the C-14 tuning at the wave-1 merge put both CCGTs on, inside their 0-317 MW
+range). Integration also builds `next.html`,
 `app/loop.js` (F-5: rAF, `min(frameDt, 0.1) x rate` accumulator, whole ticks, per-frame cap),
 `content/text.js` (H-14: one entry per §8.2 row, `{id, row, anchorId, real, ours, why,
 params}`, `ours` built from params values; `tests/text.test.js`) and `tools/baseline-v4.js`

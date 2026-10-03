@@ -253,7 +253,7 @@ export const DESK_WEEKEND = Object.assign({}, DESK, {
   name: 'Late-summer weekend, coal 4 off since Friday night',
   day: {weekend: true},
   commitment: Object.assign({}, DESK.commitment, {
-    src: 'The DESK 04:00 commitment with coal 4 off since Friday night and both CCGTs on (desk/README.md C-14: three coal at 540 MW, CCGT 1 at 480 MW, CCGT 2 at 300 MW, hydro balancing at about 75-120 MW a machine): simplified. With one CCGT the hot weekend opened 170 MW under the capacity margin, leaning on 270 MW a machine of hydro from 04:00.',
+    src: 'The DESK 04:00 commitment with coal 4 off since Friday night and both CCGTs on (desk/README.md C-14: three coal at 540 MW, CCGT 1 at 480 MW, CCGT 2 at 300 MW, hydro balancing at about 67-126 MW a machine, seeds 1-200): simplified. With one CCGT the hot weekend opened 170 MW under the capacity margin, leaning on 270 MW a machine of hydro from 04:00.',
     units: {coal1: 540, coal2: 540, coal3: 540, ccgt1: 480, ccgt2: 300, hydro1: 140, hydro2: 140},
   }),
 });

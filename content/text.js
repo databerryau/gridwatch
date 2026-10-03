@@ -236,7 +236,7 @@ const ABSTRACTIONS = [
     ours: 'A market notice when the lowest demand our own forecast sees, now and over the next ' + num(V.FC_HORIZON_S / V.S_PER_H) +
       ' h, is at or below ' + num(V.MSL1_MW) + ' MW (MSL1), ' + num(V.MSL2_MW) + ' MW (MSL2) or ' + num(V.MSL3_MW) +
       ' MW (MSL3): steps of ' + mslStep(V.MSL2_MW, V.MSL3_MW) + ' MW, and every level ' + num(V.MSL_TIE_OUT_MW) + ' MW higher ' +
-      'while the tie is out of service. It is checked every ' + minutes(V.MSL_CHECK_S) + ' grid-minutes, and a level is left ' +
+      'for the hours the tie is out of service (an hour after its announced return is tested at the normal level). It is checked every ' + minutes(V.MSL_CHECK_S) + ' grid-minutes, and a level is left ' +
       'only once the forecast is ' + num(V.MSL_CLEAR_MW) + ' MW above it. The notices say what this desk can do: keep battery ' +
       'room, stop a gas unit. The backstop is not on this desk yet: frequency rises until the roofs back off by themselves.',
     why: 'Our region is an island whose largest load risk is the ' + num(V.SMELTER_MW) + '-MW smelter potline (or the ' +
@@ -311,8 +311,8 @@ const ABSTRACTIONS = [
     ours: num(V.UFLS_STAGES) + ' stages of about ' + pct(V.UFLS_BLOCK_FRAC) + '% of load, two districts each, from ' +
       V.UFLS_FIRST_HZ.toFixed(3) + ' Hz down to ' + uflsLastHz.toFixed(3) + ' Hz in ' + num(V.UFLS_STEP_HZ) + '-Hz steps, ' +
       num(V.UFLS_DELAY_S) + ' s from crossing to load off. Nothing restores them automatically. The blocks are static: a ' +
-      'district trips with its stage even when its rooftop solar is feeding back, so at a sunny noon a stage sheds little or ' +
-      'nothing. Unserved energy counts the dark customers\' own load (their rooftop is off with the feeder), not that net figure.',
+      'district trips with its stage even when its rooftop solar is feeding back, so at a sunny noon a stage sheds about half of what its ' +
+      'customers use, and a district whose roofs are feeding back sheds next to nothing. Unserved energy counts the dark customers\' own load (their rooftop is off with the feeder), not that net figure.',
     why: 'Districts are the blocks, so you see who went dark.',
     params: ['UFLS_STAGES', 'UFLS_BLOCK_FRAC', 'UFLS_FIRST_HZ', 'UFLS_STEP_HZ', 'UFLS_DELAY_S'],
   },
@@ -359,7 +359,8 @@ const ABSTRACTIONS = [
       ' that peaks at ' + hhmm(roofPeak[0]) + ' at ' + pct(roof.clearFactor) + '% of capacity. Each suburb has its own sky: one ' +
       'regional clearness plus a small local term, in ' + minutes(roof.cloud.stepS) + '-minute steps; at clearness k a roof gives ' +
       '1 − ' + num(roof.cloudBite) + ' × (1 − k) of its clear-day output. Hot panels give ' + pct(1 - roof.heatFactor) +
-      '% less, only inside a heatwave\'s window (' + hhmm(heat.onsetH) + '–' + hhmm(heat.endH) + '). No cloud front crosses ' +
+      '% less in a heatwave (' + hhmm(heat.onsetH) + '–' + hhmm(heat.endH) + '), ramping in over the hour before it as the heat ' +
+      'itself does. No cloud front crosses ' +
       'the suburbs yet: that waits for the Phase 2c event director.',
     why: 'The belly needs the right size and shape, and six skies make the midday forecast honestly uncertain.',
     params: [],
