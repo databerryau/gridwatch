@@ -150,7 +150,7 @@ test('H-14, Phase 2a (desk/README.md §19.5): the belly\'s rows, with their exac
   const msl = byId.get('msl-tiers');
   assert.equal(msl.game, 'tray');
   for (const k of ['MSL1_MW', 'MSL2_MW', 'MSL3_MW']) assert.ok(msl.ours.includes(V[k].toLocaleString('en-US') + ' MW'), k + ': ' + msl.ours);
-  assert.ok(msl.ours.includes(V.MSL_TIE_OUT_MW + ' MW higher while the tie is out') && /backstop is not on this desk yet/.test(msl.ours), msl.ours);
+  assert.ok(msl.ours.includes(V.MSL_TIE_OUT_MW + ' MW higher for the hours the tie is out') && /backstop is not on this desk yet/.test(msl.ours), msl.ours);
   assert.ok(/static/.test(byId.get('ufls-blocks').ours) && /own load/.test(byId.get('ufls-blocks').ours));
   for (const id of ['cold-load', 'restore-permissive']) {
     assert.ok(byId.get(id).ours.includes(V.ROOF_RECONNECT_S + ' s') && byId.get(id).ours.includes(V.ROOF_RAMP_S / V.S_PER_MIN + ' min'), id + ': ' + byId.get(id).ours);
