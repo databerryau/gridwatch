@@ -71,6 +71,8 @@ import {V} from '../sim/params.js';
 import {SCENARIOS} from '../content/scenarios.js';
 import {clockText, priceText} from '../render/format.js';
 
+/** The objective line and the consequence line are one line each: at most this many characters (§21.4). */
+export const LINE_MAX_CHARS = 170;
 /** A start is "now" when its latest moment is within this many grid seconds. */
 export const ACT_WITHIN_S = 600;
 /** Capacity under the forecast plus this (MW) is a shortfall: the forecast's own error at an hour or two. */
@@ -111,6 +113,12 @@ export const RERT_STANDDOWN_FRAC = 0.5;
 // is worth less the higher the ring already is. Measured at 04:31 on the 11 seeds of both day
 // scenarios: the first 100 MW 0.025 to 0.104 Hz on the trip preview, then 0.021 to 0.062, 0.014 to
 // 0.041, 0.011 to 0.030. A line sized on a step's worth asked twice: 300 MW, then 400.)
+// (After a trip the fired GUARD gives its whole ring for GUARD_SUSTAIN_S; a belly trip is smaller
+// than the ring, so while it is still giving and frequency is above the normal band the line turns it
+// down to 0 (par's rule 2 does the same), raises no ring while it is fired, holds the battery
+// branch's charge orders out of the MW it gave up, and raises it back once it has re-armed, within
+// the hour of the trip. Measured on desk-weekend seed 20261017, coal 1 at minimum, 240 MW, tripping
+// at 14:08:40 under a 400-MW GUARD: 478 s above 50.15 Hz in the next 900 s before, 49 s after.)
 /** The look-ahead counts what a unit can reach within this long of a column (grid seconds); see capacityGap. */
 export const RAMP_HEAD_S = 1800;
 
@@ -217,8 +225,10 @@ export function capacityGap(obs, fc, o = {}) {
   // over minutes, and the N-1 gauge watches those); the real check counts the ramp from now.
   const headS = real ? 0 : RAMP_HEAD_S;
   const starts = new Map(obs.plan.starts.map(e => [e.unit, e.atS])), stops = new Map(obs.plan.stops.map(e => [e.unit, e.atS]));
-  // the water above the reserve, spread over what is left of the evening (the dispatch releases it to PAR_WATER_EMPTY_BY_H)
-  const water = Math.max(0, obs.hydro.storageMWh - V.PAR_WATER_RESERVE_MWH) / clamp((EMPTY_BY_S - Math.max(s, HOLD_UNTIL_S)) / S_PER_H, HYDRO_SUSTAIN_MIN_H, HYDRO_SUSTAIN_H);
+  // the water above the reserve, spread over what is left of the evening (the dispatch releases it to
+  // PAR_WATER_EMPTY_BY_H); the reserve sits above HYDRO_STOP_MWH, where the station unloads, as par
+  // and the plan view count it
+  const water = Math.max(0, obs.hydro.storageMWh - V.HYDRO_STOP_MWH - V.PAR_WATER_RESERVE_MWH) / clamp((EMPTY_BY_S - Math.max(s, HOLD_UNTIL_S)) / S_PER_H, HYDRO_SUSTAIN_MIN_H, HYDRO_SUSTAIN_H);
   const news = heatNews(obs), worst = o.heat || null;
   // when each unit is at minimum load, the MW it climbs from there, and when it leaves
   const onS = new Float64Array(obs.units.length), offS = new Float64Array(obs.units.length), fromMW = new Float64Array(obs.units.length);
@@ -340,14 +350,6 @@ export function largestLoss(obs, without) {
 
 // ------------------------------------------------------------------ what a stop saves
 
-// Water value at a storage fraction (P-6), as the plan view has it.
-function waterValue(frac) {
-  const T = V.HYDRO_WATER_VALUE;
-  if (!(frac > T[0][0])) return T[0][1];
-  for (let i = 1; i < T.length; i++) if (frac <= T[i][0]) return T[i - 1][1] + (T[i][1] - T[i - 1][1]) * (frac - T[i - 1][0]) / (T[i][0] - T[i - 1][0]);
-  return T[T.length - 1][1];
-}
-
 // The cost ($/h) of supplying x MW from the flexible blocks [{mw, offer}], cheapest first; what
 // the blocks cannot give is charged at the last block's offer (the stop check keeps that from happening).
 function stackCost(blocks, x) {
@@ -367,14 +369,15 @@ function stackCost(blocks, x) {
  * comes back today. The replacement is free in columns where power would be spilled (the plan
  * view's surplusMW inside the 4.5-h window; the same arithmetic on the day-ahead beyond it),
  * otherwise it comes from the cheapest committed sources with room: the merit order of the other
- * machines above their minimums, hydro at its water value and the tie at the neighbour's price.
+ * machines above their minimums, hydro at its water value (the plan view's waterValue, P-6) and
+ * the tie at the neighbour's price. planview: app/planview.js (ctx.planview).
  */
-export function stopSaving(obs, u, backS, fc, proj) {
+export function stopSaving(obs, u, backS, fc, proj, planview) {
   const s = obs.s, m = M.find(x => x.id === u.id), h = fc.stepS / S_PER_H;
   const unloadS = Math.max(0, u.outMW - u.minMW) / m.rampMWs;
   // off line from half-way down the T4 slope until half-way up the T2 slope of its return
   const offS = s + unloadS + m.t4S / 2, onS = Number.isFinite(backS) ? backS + m.t1S + AUTO + m.t2S / 2 : DAY_S;
-  const wv = waterValue(obs.hydro.frac);
+  const wv = planview.waterValue(obs.hydro.frac);
   let saving = 0;
   for (let k = 0; k < fc.n; k++) {
     const t = fc.fromS + (k + 1) * fc.stepS;
@@ -430,7 +433,7 @@ export function objective(obs, ctx) {
   const day = ctx.dayAhead || obs.forecast;
   const reds = PV.redRuns(proj);
   const long = (PV.blueRuns ? PV.blueRuns(proj)[0] : null) || null;
-  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited};
+  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV};
   // the plan's largest deficit in the columns within NOW_S (never a later column of the same red run)
   X.redNowMW = 0;
   for (let k = 0; k < proj.n && proj.times[k] - s <= NOW_S; k++) if (proj.gap[k] === 'red' && proj.deficit[k] > X.redNowMW) X.redNowMW = proj.deficit[k];
@@ -489,7 +492,7 @@ function quiet(X, line, dayAhead) {
   let thinS = -1;
   for (let k = 0; k < G.n && thinS < 0; k++) if (G.gap[k] >= THIN_MW) thinS = G.fromS + (k + 1) * G.stepS;
   if (thinS < 0) return line({text: 'Enough plant is committed for ' + (dayAhead ? 'the rest of the day. ' : 'the next 4½ hours. ') + peak});
-  const fits = t => (t.length + 1 + peak.length <= 170 ? t + ' ' + peak : t);
+  const fits = t => (t.length + 1 + peak.length <= LINE_MAX_CHARS ? t + ' ' + peak : t);
   if (startable(obs).length) {
     return line({text: fits('Committed plant covers the forecast, but with little spare for a trip' + (thinS - X.s > S_PER_H ? ' from about ' + at(Math.ceil(thinS / QUARTER_S) * QUARTER_S) : '') + '.')});
   }
@@ -845,6 +848,15 @@ function restore(X, line) {
 // (par's rule 2, sim/autopilot.js). And the reserve diesel stood down once the desk holds without it.
 function spare(X, line) {
   const obs = X.obs, s = X.s, sec = obs.sec, b = obs.battery, r = obs.rert;
+  // After a trip the fired GUARD gives its whole ring for GUARD_SUSTAIN_S whatever the frequency
+  // does. A belly trip is smaller than the ring (a coal machine at minimum is 240 MW), so the
+  // frequency overshoots and stays above the normal band: the ring comes down (par's rule 2 gives
+  // it up the same way), and is not raised again while the fired GUARD is still sustaining (a ring
+  // raised then delivers again at once).
+  if (b.guardFired && b.guardMW > 0 && b.ffrMW > 0 && obs.f.hz > V.NORMAL_HI_HZ) {
+    return line({level: 'act', kind: 'spare', text: 'Frequency is high: the battery GUARD is still giving its ' + mwText(b.ffrMW) + ' after the trip. Turn it down to 0 MW; ' +
+      'it can go back up once the GUARD has re-armed.', targets: ['ring-guard'], action: {type: 'guard', mw: 0}, startBy: s});
+  }
   if (r.armed && !r.standingDown) {
     // Clean without it for PAR_RERT_STANDDOWN_MIN ahead (nothing in that time that the battery and
     // demand response could not carry): at $16,000 a MWh it goes first.
@@ -856,19 +868,36 @@ function spare(X, line) {
         usdText(V.RERT_MW * V.RERT_COST / S_PER_MIN) + ' a minute.', targets: ['key-rert'], action: {type: 'standDownRERT'}, startBy: s});
     }
   }
+  // The GUARD at its most: as far as the battery can sustain it, and never into MW an order is using
+  // (the ring takes from what the dial may ask for). Never while the plant is short within the hour
+  // (the MW are wanted as power), nor while the GUARD is fired (a ring raised during its sustain
+  // delivers at once), nor on a stale preview (sec.dirty: an input since it was made; with the clock
+  // held it stays stale until Space).
+  const guardTo = () => {
+    if (sec.lKind === 'none' || sec.dirty || b.guardFired || !(realShort(X).hourMW < BATT_MIN_MW)) return -1;
+    const order = b.mode === 'idle' || b.fullHold ? 0 : b.orderMW;
+    let mw = V.PAR_GUARD_MAX_MW;
+    while (mw > b.guardMW && (b.socMWh < mw * GUARD_SUSTAIN_H || mw > b.ratedMW - order)) mw -= V.PAR_GUARD_STEP_MW;
+    return mw > b.guardMW ? mw : -1;
+  };
+  // Back up once it has re-armed, within the hour of a loss of supply that took the ring to 0 (the
+  // release above): the next trip should find it, not wait for the gauge to go insecure first.
+  const last = obs.contingencies.length ? obs.contingencies[obs.contingencies.length - 1] : null;
+  if (b.guardMW === 0 && last && last.cause !== 'load' && s - last.startS < S_PER_H) {
+    const mw = guardTo();
+    if (mw > 0) {
+      return line({level: 'plan', kind: 'spare', text: 'The battery GUARD has re-armed after the trip. Raise it back to ' + mw + ' MW: it catches the fall in the first second if another unit trips.',
+        targets: ['ring-guard'], action: {type: 'guard', mw}, startBy: s});
+    }
+  }
   if (sec.level === 'SECURE') return null;
   const what = sec.lKind === 'link' ? 'the tie line' : 'your biggest unit';
   // Seconds: the trip preview dips under the secure line. The GUARD is the answer, as far as the
   // battery can sustain it: one line, for the most it can hold (each step is worth less than the one
-  // before, so a line sized on one step's worth asks again a minute later). Not on a stale preview
-  // (sec.dirty: an input since it was made; with the clock held it stays stale until Space).
-  if (sec.lKind !== 'none' && sec.previewNadirHz < SECURE_HZ && !sec.dirty && realShort(X).hourMW < BATT_MIN_MW) {
-    // (never while the plant is short within the hour: the MW are wanted as power; and never into
-    // MW an order is using: the ring takes from what the dial may ask for)
-    const order = b.mode === 'idle' || b.fullHold ? 0 : b.orderMW;
-    let mw = V.PAR_GUARD_MAX_MW;
-    while (mw > b.guardMW && (b.socMWh < mw * GUARD_SUSTAIN_H || mw > b.ratedMW - order)) mw -= V.PAR_GUARD_STEP_MW;
-    if (mw > b.guardMW) {
+  // before, so a line sized on one step's worth asks again a minute later).
+  if (sec.previewNadirHz < SECURE_HZ) {
+    const mw = guardTo();
+    if (mw > 0) {
       return line({level: 'act', kind: 'spare', text: 'If ' + what + ' tripped now, frequency would fall to ' + sec.previewNadirHz.toFixed(2) + ' Hz: too low to be secure. Raise the battery GUARD to ' + mw +
         ' MW: it catches the fall in the first second.', targets: ['gauge-n1', 'ring-guard'], action: {type: 'guard', mw}, startBy: s});
     }
@@ -881,7 +910,7 @@ function spare(X, line) {
   const needMW = Math.max(V.PAR_TIGHT_RATIO * sec.lMW, pickup) - sec.r5MW;
   if (!(needMW > 0) && !(sec.lKind !== 'none' && sec.previewNadirHz < V.PAR_NADIR_MIN_HZ)) return null;
   // (one at a time: not while a machine is within a quarter of an hour of the grid)
-  const coming = obs.units.some((u, i) => { const d = u.mode === 'loading' ? u.timerS : onInS(u, M[i]); return d > 0 && d <= 900; });
+  const coming = obs.units.some((u, i) => { const d = u.mode === 'loading' ? u.timerS : onInS(u, M[i]); return d > 0 && d <= QUARTER_S; });
   if (!coming) {
     const fastOnes = startable(obs).filter(c => c.lead <= V.STACK_START_WITHIN_S + AUTO).map(c => {
       const u = obs.units.find(x => x.id === c.unit);
@@ -946,7 +975,7 @@ function stop(X, line) {
   // when the line will ask for it back: the first shortfall at the commit margin without it
   const need = firstRun(tripGap(obs, X.day, COMMIT_TRIP_MW, {without: u.id}));
   const backS = need ? Math.max(s + unloadS + m.t4S + m.minDownS, need.atS - u.startToMinS) : Infinity;
-  const saving = stopSaving(obs, u, backS, X.day, X.proj);
+  const saving = stopSaving(obs, u, backS, X.day, X.proj, X.PV);
   // (4) worth it; at MSL2 and MSL3 the unit at minimum is in the way and the saving is not the point
   const msl = obs.msl && obs.msl.level >= 2;
   if (!msl && saving < STOP_MIN_SAVING) return null;
@@ -1012,7 +1041,9 @@ function battery(X, line) {
     // from idle, not within 1% of full (a band: a full battery AGC has nibbled is not ordered again)
     const room = b.socMWh < b.capMWh * (charging ? 1 : 1 - BATT_BAND / 5) - V.BATT_FULL_EPS_MWH;
     const spilled = spillNow > V.SURPLUS_MIN_MW || spillAhead > V.SURPLUS_MIN_MW, cheap = obs.price.mwh <= 0;
-    if (room && (spilled || (cheap && !charging))) {
+    // (not while the GUARD is fired: the MW its ring gave up after the trip are the GUARD's again
+    // once it re-arms, and a charge made in them is raised minute after minute on a cut that lags)
+    if (room && !b.guardFired && (spilled || (cheap && !charging))) {
       // the order already made plus what is still being spilled (the cut is net of the order); at a
       // price of $0 or less with nothing spilled, what the GUARD leaves and the plant can carry
       const free = spilled ? have + Math.max(spillNow, charging ? 0 : spillAhead) : plantSpareMW(X);
@@ -1152,7 +1183,7 @@ export function consequence(obs, target, ctx = {}) {
     const nextAfter = next ? firstRun(P, onAt) : null;
     const helps = run => (!nextAfter || nextAfter.atS > run.atS ? 'it covers the one from ' : 'it helps with the one from ') + from(run) + '.';
     // (one line: past midnight "tomorrow" lengthens the head, so the two gaps are said shortly)
-    const both = run => (head.length + 30 + helps(run).length <= 170 ? 'Too late for the gap from ' + from(before) + '; ' + helps(run) : 'Too late for ' + from(before) + '; it is for ' + from(run) + '.');
+    const both = run => (head.length + 30 + helps(run).length <= LINE_MAX_CHARS ? 'Too late for the gap from ' + from(before) + '; ' + helps(run) : 'Too late for ' + from(before) + '; it is for ' + from(run) + '.');
     const tail = !before ? 'Nothing ahead needs it yet.' : next ? both(next)
       : before.atS < onAt ? 'It is too late for ' + from(before) + (before.endS < onAt ? ', and nothing after needs it.' : ', but it helps from ' + at(onAt) + '.')
         : !after || after.atS > before.atS ? 'It covers the shortfall from ' + from(before) + '.' : 'It helps with the shortfall from ' + from(before) + '.';

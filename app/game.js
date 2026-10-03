@@ -20,6 +20,7 @@ import {createState, step, observe, applyInput, hashState, replay, SIM_VERSION} 
 import * as physics from '../sim/physics.js';
 import * as grid from '../sim/grid.js';
 import * as fleet from '../sim/fleet.js';
+import * as weather from '../sim/weather.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
 import {objective, consequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
@@ -167,6 +168,9 @@ export function createGame(o) {
     // Phase 1a system operator, which commits units itself. startPaused: the desk opens at 04:30
     // with the clock held, so the first decision is made before anything moves.
     commit: o.commit === 'player' ? 'player' : 'system', startPaused: !!o.startPaused, objective: null, objectiveS: -1e9, objectiveHeld: null, consider: null,
+    // objectiveError: why the line (or the consequence) is blank, '' when it is not; dayAhead: the
+    // line's day-ahead forecast (consequence() reuses it); considerDirty: the consider target changed
+    objectiveError: '', dayAhead: null, considerDirty: false,
     beforeTick: o.beforeTick || null,
     state: null, director: null, pacer: createPacer({cap: o.cap, budgetMs: o.budgetMs}),
     sys: null, sysError: '',
@@ -194,6 +198,7 @@ export function resetDay(game, seed) {
   game.state = createState(game.seed, game.scenario);
   game.suburbs = null;
   game.objective = null; game.objectiveS = -1e9; game.objectiveMode = ''; game.objectiveHeld = null; game.consider = null;
+  game.objectiveError = ''; game.dayAhead = null; game.considerDirty = false;
   game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
   game.director = D.createDirector({game: true, paused: true, seen});
@@ -415,12 +420,20 @@ export function sendInput(game, x) {
   return r.ok ? '' : r.reason;
 }
 
+// Are the levers held by hand? app/system.js heldByHand scans the log at once (a lever moved a
+// moment ago counts now, not at the system's next 60-s look); a stand-in without it: sys.edited.
+function heldByHand(game) {
+  if (!game.sys) return false;
+  const f = game.sysMod && game.sysMod.heldByHand;
+  return typeof f === 'function' ? !!f(game.sys, game.state) : !!game.sys.edited;
+}
+
 // §21.4: in 'player' mode with the levers not held by hand, an accepted commitment or battery
 // input is followed at once by the system's re-dispatch (a logged planLoad, so replay() still
 // reproduces the day): the next objective line is read off a plan that already knows about it.
 // A refusal here (the watch, no plan before 04:30) is nothing to tell the player about.
 function redispatchAfter(game) {
-  if (game.commit !== 'player' || !game.sysMod || !game.sys || game.sys.edited) return;
+  if (game.commit !== 'player' || !game.sysMod || !game.sys || heldByHand(game)) return;
   let r;
   try { r = game.sysMod.redispatch(game.sys, game.state); } catch { return; }
   if (r && typeof r === 'object' && !Array.isArray(r) && 'reason' in r && !('type' in r)) r = r.input;
@@ -485,7 +498,7 @@ export function ui(game, cmd) {
     // C-10 (desk/README.md §19.5): the guard the player is hovering, focusing or has lifted.
     case 'consider': {
       const t = typeof cmd.target === 'string' && /^guard-(start|stop)-/.test(cmd.target) ? cmd.target : null;
-      if (t !== u.consider) { u.consider = t; game.objectiveS = -1e9; }
+      if (t !== u.consider) { u.consider = t; game.considerDirty = true; }
       return '';
     }
     // Settings (K-22, §13.1, B-7): the popover never pauses the game.
@@ -637,22 +650,39 @@ export function buildVm(game, f) {
   const glow = new Set(game.respondGlow);
   for (const g of game.ui.hoverGlow) glow.add(g);
   // The standing objective (app/objective.js; Q-18): once per OBJECTIVE_EVERY_S grid seconds, and
-  // at once when the mode changes or an input lands (objectiveS is reset there).
+  // at once when the mode changes or an input lands (objectiveS is reset there). An exception in
+  // objective(), steady() or consequence() blanks only its line; it is kept in objectiveError
+  // (vm.objectiveError; the ?debug handle shows it) as the system operator's is in sysError.
   if (game.phase === 'play' && game.commit === 'player' && game.planview) {
     if (obs.s - game.objectiveS >= OBJECTIVE_EVERY_S || obs.s < game.objectiveS || game.objectiveMode !== mode.mode) {
       game.objectiveS = obs.s; game.objectiveMode = mode.mode;
-      // dayAhead: the forecast to 04:00 (Phase 2a, C-10: the objective looks past the 4.5-h window).
-      const dayAhead = observe(state, {dayAhead: true}).dayAhead;
-      // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
+      game.objectiveError = '';
+      let stage = 'objective';
       try {
-        game.objectiveHeld = steady(game.objectiveHeld, objective(obs, {edited: !!(game.sys && game.sys.edited), planview: game.planview, dayAhead}), obs.s);
+        // dayAhead: the forecast to 04:00 (Phase 2a, C-10: the objective looks past the 4.5-h
+        // window), the one weather.forecast call observe(state, {dayAhead: true}) would make; the
+        // projection once per line (F-11: the objective and its STOP saving read the same one).
+        game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
+        const proj = game.planview.project(obs);
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead});
+        // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
+        stage = 'steady';
+        game.objectiveHeld = steady(game.objectiveHeld, next, obs.s);
         game.objective = game.objectiveHeld.line;
-      } catch { game.objective = null; game.objectiveHeld = null; }
-      // C-10 (§19.5): what the guard under the player's hand would do, on the same cadence (the
-      // 'consider' command and every accepted input reset objectiveS, so it is fresh at once).
+      } catch (e) { game.objective = null; game.objectiveHeld = null; game.objectiveError = stage + ': ' + errText(e); }
+      game.considerDirty = true;
+    }
+    // C-10 (§19.5): what the guard under the player's hand would do, on the same cadence and at once
+    // when the target changes ('consider' marks it; only consequence() is recomputed then, on the
+    // line's own day-ahead forecast) or an input lands.
+    if (game.considerDirty) {
+      game.considerDirty = false;
       game.consider = null;
       if (game.ui.consider && !mode.locked) {
-        try { game.consider = consequence(obs, game.ui.consider, {dayAhead, planview: game.planview}); } catch { game.consider = null; }
+        try {
+          if (!game.dayAhead) game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
+          game.consider = consequence(obs, game.ui.consider, {dayAhead: game.dayAhead, planview: game.planview});
+        } catch (e) { game.consider = null; game.objectiveError = 'consequence: ' + errText(e); }
       }
     }
     if (!game.ui.consider || mode.locked) game.consider = null;
@@ -692,7 +722,7 @@ export function buildVm(game, f) {
     // frame's sounds, each a name or {name, pan?, gain?, delayS?} (§13.2).
     phase: game.phase, watch, needleHz: needleF(game.rec, mode.rate, game.pacer.alpha), cues, refusal,
     trayOpen: game.ui.trayOpen, drawer: game.ui.drawer, settingsOpen: game.ui.settingsOpen, end: game.end, seed: game.seed,
-    sysError: game.sysError, objective: game.objective, commit: game.commit,
+    sysError: game.sysError, objective: game.objective, commit: game.commit, objectiveError: game.objectiveError,
     // C-10 (§19.5): {target, text, level} for the guard being hovered, focused or lifted, or null;
     // the shell shows it in #objective with the word '? IF PRESSED', in place of the objective.
     consider: game.consider,
