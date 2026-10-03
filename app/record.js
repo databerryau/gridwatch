@@ -32,7 +32,10 @@ export const TRACE_TICKS = 2 * V.WATCH_S * TPS;
 export const CAUGHT_KEYS = Object.freeze(['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW', 'inverterMW']);
 /** Minute fields recorded from observe() (see commitMinute). */
 export const MINUTE_FIELDS = Object.freeze(['fMin', 'fMax', 'fMean', 'demand', 'served', 'shed', 'supply', 'renew',
-  'price', 'level', 'r5', 'L', 'battery', 'tie']);
+  'price', 'level', 'r5', 'L', 'battery', 'tie',
+  // Phase 2a (P-1; desk/README.md §21.4): the load before rooftop solar, and the rooftop output
+  // as if every inverter were connected: demand = underlying - rooftop - the smelter's missing load
+  'underlying', 'rooftop']);
 export const LEVELS = Object.freeze(['SECURE', 'TIGHT', 'SHORT', 'SHEDDING']);
 const MAX_TRACES = 40;
 
@@ -155,6 +158,9 @@ export function commitMinute(r, obs) {
   x.L[m] = obs.sec.lMW;
   x.battery[m] = obs.battery.outMW;
   x.tie[m] = obs.tie.flowMW;
+  // (an observation from before Phase 2a has neither key: the load is then all underlying)
+  x.underlying[m] = obs.demand.underlyingMW === undefined ? obs.demand.nowMW : obs.demand.underlyingMW;
+  x.rooftop[m] = obs.demand.rooftopMW === undefined ? 0 : obs.demand.rooftopMW;
   r.lastMinute = m;
   a.min = Infinity; a.max = -Infinity; a.sum = 0; a.n = 0;
 }

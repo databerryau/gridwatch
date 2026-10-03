@@ -1,6 +1,7 @@
 // H-14, the honest-abstractions panel. content/text.js holds one entry per SPEC.md §8.2 row:
 // {id, row, anchorId, game, real, ours, why, params}. `row` is the row's bold title exactly as
-// in §8.2 (an entry for a row stage C still has to add carries specPending: true); `ours` is
+// in §8.2 (an entry for a row stage C still has to add carries specPending: true, and one that
+// renames a row carries `replaces`, the title §8.2 still has, until stage C renames it); `ours` is
 // BUILT from sim/params.js values (never a copied number), and `params` lists the P keys it
 // reads (dotted for nested ones, e.g. 'FLEET.coal.rampMWMin'). `anchorId` is the id of the
 // element the bench's "?" sits beside in bench.html (ui: 'drawer' = only in the bench's
@@ -50,6 +51,8 @@ test('H-14: every §8.2 abstraction has a text entry with a UI anchor id, the re
   const {TEXT} = await import('../content/text.js');
   const rows = abstractionRows();
   const byRow = new Map(TEXT.abstractions.map(e => [e.row, e]));
+  // (a renamed row, Phase 2a: the entry carries the new title and `replaces` the one §8.2 still has)
+  for (const e of TEXT.abstractions) if (e.specPending && e.replaces && !byRow.has(e.replaces)) byRow.set(e.replaces, e);
   for (const row of rows) assert.ok(byRow.has(row), 'no text entry for §8.2 "' + row + '"');
   const ids = new Set(), anchors = new Set();
   for (const e of TEXT.abstractions) {
@@ -72,6 +75,11 @@ test('H-14: no stale entries: every text entry names a §8.2 row that exists, on
   for (const e of TEXT.abstractions) {
     if (e.specPending) assert.ok(!rows.has(e.row), e.id + ': §8.2 now has "' + e.row + '": drop specPending');
     else assert.ok(rows.has(e.row), e.id + ': §8.2 has no row "' + e.row + '"');
+    if (e.replaces !== undefined) {
+      assert.ok(e.specPending && rows.has(e.replaces), e.id + ': §8.2 no longer has "' + e.replaces + '": drop replaces');
+      assert.ok(!seen.has(e.replaces), 'two entries for "' + e.replaces + '"');
+      seen.add(e.replaces);
+    }
     assert.ok(!seen.has(e.row), 'two entries for "' + e.row + '"');
     seen.add(e.row);
   }
@@ -100,6 +108,54 @@ test('H-14: every game anchor is a §5 control id or a next.html element (or the
   for (const g of ['bay-sync', 'bay-restore', 'lever-coal', 'btn-redispatch', 'gauge-n1', 'dial-freq', 'btn-mute', 'wheel-hydro']) {
     assert.ok(TEXT.abstractions.some(e => e.game === g), 'no "?" beside #' + g);
   }
+});
+
+test('H-14, Phase 2a (desk/README.md §19.5): the belly\'s rows, with their exact titles, anchors and live values', async () => {
+  const {TEXT} = await import('../content/text.js');
+  const {V} = await import('../sim/params.js');
+  const {DESK} = await import('../content/scenarios.js');
+  const byId = new Map(TEXT.abstractions.map(e => [e.id, e]));
+  const rows = new Set(abstractionRows());
+  // the §19.5 table: id, the exact §8.2 title, the game anchor
+  const table = [
+    ['wind-solar-pfr', 'Wind, utility solar and rooftop solar respond to over-frequency only.', 'dial-freq'],
+    ['rooftop-model', 'Rooftop solar: one curve, six skies.', 'map'],
+    ['mild-days', 'A mild day is the hot day with its cooling load removed.', 'stack'],
+    ['auto-curtailment', 'The dispatch spills wind and solar automatically, pro rata.', 'stack'],
+    ['min-down-time', 'Minimum down time runs from breaker open to the next START.', 'lever-coal'],
+  ];
+  for (const [id, row, game] of table) {
+    const e = byId.get(id);
+    assert.ok(e, 'no entry ' + id);
+    assert.equal(e.row, row, id);
+    assert.equal(e.game, game, id);
+    assert.equal(e.specPending === true, !rows.has(row), id + ': specPending exactly while §8.2 lacks the row');
+  }
+  const pfr = byId.get('wind-solar-pfr');
+  if (pfr.replaces !== undefined) assert.equal(pfr.replaces, 'Wind and utility solar give no primary frequency response.');
+  assert.ok(pfr.ours.includes(V.ROOF_FW_START_HZ + ' Hz') && pfr.ours.includes(String(V.ROOF_FW_ZERO_HZ)), pfr.ours);
+  assert.ok(/None of them raises output/.test(pfr.ours), 'over-frequency only');
+  const roof = byId.get('rooftop-model');
+  assert.ok(roof.ours.startsWith(DESK.rooftop.capacityMW.toLocaleString('en-US') + ' MW') && roof.ours.includes(DESK.rooftop.clearFactor * 100 + '% of capacity'), roof.ours);
+  assert.ok(roof.ours.includes(DESK.rooftop.share.length + ' suburbs') && /No cloud front/.test(roof.ours), roof.ours);
+  const mild = byId.get('mild-days');
+  assert.ok(mild.ours.includes('by ' + V.WEEKEND_DEMAND_FACTOR + ' all day') && mild.ours.includes(V.COOLING_MAX_MW.toLocaleString('en-US') + ' MW at'), mild.ours);
+  assert.ok(mild.ours.includes('announced at 10:30'), mild.ours);
+  assert.ok(byId.get('auto-curtailment').ours.includes('from ' + V.SURPLUS_MIN_MW + ' MW') && /backstop is not on this desk yet/.test(byId.get('auto-curtailment').ours));
+  // 54 and 39 min: the run-up plus the auto-sync delay, from the fleet (never copied)
+  const down = byId.get('min-down-time'), sync = id => V.STATIONS[id].t1Min + V.AUTO_SYNC_S / V.S_PER_MIN;
+  assert.ok(down.ours.includes(sync('coal') + ' min for coal') && down.ours.includes(sync('ccgt') + ' min for a CCGT'), down.ours);
+  assert.deepEqual([sync('coal'), sync('ccgt')], [54, 39], 'the README\'s figures');
+  // the rows that gain a sentence, and MSL rebuilt from its params beside the tray
+  const msl = byId.get('msl-tiers');
+  assert.equal(msl.game, 'tray');
+  for (const k of ['MSL1_MW', 'MSL2_MW', 'MSL3_MW']) assert.ok(msl.ours.includes(V[k].toLocaleString('en-US') + ' MW'), k + ': ' + msl.ours);
+  assert.ok(msl.ours.includes(V.MSL_TIE_OUT_MW + ' MW higher while the tie is out') && /backstop is not on this desk yet/.test(msl.ours), msl.ours);
+  assert.ok(/static/.test(byId.get('ufls-blocks').ours) && /own load/.test(byId.get('ufls-blocks').ours));
+  for (const id of ['cold-load', 'restore-permissive']) {
+    assert.ok(byId.get(id).ours.includes(V.ROOF_RECONNECT_S + ' s') && byId.get(id).ours.includes(V.ROOF_RAMP_S / V.S_PER_MIN + ' min'), id + ': ' + byId.get(id).ours);
+  }
+  assert.ok(/loss of supply, not of load/.test(byId.get('lor-states').ours));
 });
 
 test('H-14: "ours" is built from the live values, and says nothing the params contradict', async () => {
