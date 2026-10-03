@@ -4,7 +4,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createState, step, applyInput, observe, hashState, replay} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
-import {createSystem, systemInputs, redispatch, commitSig, DISPATCH_S} from '../app/system.js';
+import {createSystem, systemInputs, redispatch, commitSig, heldByHand, DISPATCH_S} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {SLOW, slowOnly, ticksAt, injectTrip} from './lib/sim-helpers.js';
@@ -92,6 +92,28 @@ test('L-0 re-flow: while districts are dark the system re-dispatches for the lit
   const n1 = s.log.filter(x => x.type === 'planLoad').length;
   while (s.tick < ticksAt(5, 2) + (2 * V.PLAN_REFLOW_S + 240) * TPS) step(s, systemInputs(sys, s));
   assert.ok(s.log.filter(x => x.type === 'planLoad').length > n1, 'the periodic re-flow resumed');
+});
+
+test('heldByHand: a lever or plan key moved by hand counts at once, not at the system\'s next look; a commitment input is not one', () => {
+  const s = createState(7, DESK), sys = createSystem({commit: 'player'});
+  // 04:32:10 and a half: the system looked at 04:32:00 and looks again at 04:33:00
+  while (s.tick < V.PLAYER_START_TICK + 130 * TPS + 25) step(s, systemInputs(sys, s));
+  assert.equal(heldByHand(sys, s), false);
+  assert.equal(applyInput(s, {type: 'start', unit: 'ccgt2'}).ok, true);
+  assert.equal(heldByHand(sys, s), false, 'a START is the player\'s commitment, not a hand edit of the levers');
+  const coal = observe(s).stations.find(x => x.id === 'coal');
+  assert.equal(applyInput(s, {type: 'basePoint', station: 'coal', mw: coal.basePointMW + 120}).ok, true);
+  assert.equal(sys.edited, false, 'the system has not looked yet');
+  assert.equal(heldByHand(sys, s), true);
+  assert.equal(sys.edited, true, 'the flag the system reads is the fresh one');
+  // the system's own look agrees, and leaves the plan to the player (no planLoad over the hand edit)
+  const n = s.log.length;
+  while (s.tick < V.PLAYER_START_TICK + 200 * TPS) step(s, systemInputs(sys, s));
+  assert.equal(sys.edited, true);
+  assert.deepEqual(s.log.slice(n).filter(r => r.type === 'planLoad'), []);
+  // RE-DISPATCH hands the levers back
+  assert.equal(applyInput(s, redispatch(sys, s).input).ok, true);
+  assert.equal(heldByHand(sys, s), false);
 });
 
 test('F-6: a game day (system, RE-DISPATCH, desk inputs) replays from its log; the system resumes from a JSON copy', () => {

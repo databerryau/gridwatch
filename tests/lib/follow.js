@@ -38,17 +38,19 @@ export function followDay(seed, scenario, o = {}) {
   const end = o.untilH === undefined ? Infinity : tickAt(o.untilH);
   const redispatch = () => { const r = SYS.redispatch(sys, st); if (r && r.input) applyInput(st, r.input, []); };
   while (!st.over && st.tick < end) {
-    if (st.tick > V.PLAYER_START_TICK && st.tick % (V.S_PER_MIN * TPS) === 2) {
+    // (a day with no input and no hook reads nothing: observe() is pure, so the day is the same)
+    if ((follow || o.onMinute) && st.tick > V.PLAYER_START_TICK && st.tick % (V.S_PER_MIN * TPS) === 2) {
       const obs = observe(st, {dayAhead: true});
       if (o.onMinute) o.onMinute(st, obs);
       if (follow && !obs.inWatch) {
-        const x = line(obs, {edited: sys.edited, planview: PV, dayAhead: obs.dayAhead});
+        // (held by hand as the game reads it: app/system.js heldByHand, a fresh scan of the log)
+        const x = line(obs, {edited: SYS.heldByHand(sys, st), planview: PV, dayAhead: obs.dayAhead});
         if (x && x.action) {
           let accepted = true;
           if (x.action.redispatch) redispatch();
           else {
             accepted = applyInput(st, x.action, []).ok;
-            if (accepted && REDISPATCH_AFTER.has(x.action.type) && !sys.edited) redispatch();
+            if (accepted && REDISPATCH_AFTER.has(x.action.type) && !SYS.heldByHand(sys, st)) redispatch();
           }
           said.push({s: obs.s, kind: x.kind, level: x.level, text: x.text, action: x.action, accepted});
         }

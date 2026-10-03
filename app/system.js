@@ -108,6 +108,21 @@ function scanEdits(sys, state) {
   sys.logIdx = log.length;
 }
 
+/**
+ * Are the levers held by hand right now? The same scan as the system's own, made at once: the
+ * system looks only every PAR_DECIDE_EVERY_S (and not at all while the clock is held), so a lever
+ * or plan key moved a moment ago would otherwise not count yet, and the re-dispatch that follows a
+ * START or a battery order (app/game.js) would load the system's plan over it. Scanning early
+ * changes nothing else: every path that clears `edited` (loaded) scans first.
+ * @param {object} sys from createSystem
+ * @param {object} state
+ * @returns {boolean} sys.edited, fresh
+ */
+export function heldByHand(sys, state) {
+  scanEdits(sys, state);
+  return sys.edited;
+}
+
 function loaded(sys, state, n) {
   if (n === 0) return;
   sys.loadTick = state.tick;

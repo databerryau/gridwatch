@@ -23,7 +23,8 @@
 //        will be spilled, standing on the demand line (over exports and charging) with a minimum
 //        height, GAP_MARK.blue's pattern, glyph and word, and a hover line that says what to do.
 //        Blue is never a kind in proj.gap.
-//   P-9  the price through format.priceText; a negative price in its own colour with the word SPILL.
+//   P-9  the price through format.priceText; a negative price in its own colour, with the word SPILL
+//        while power is being spilled now (wind.autoMW + solar.autoMW > SURPLUS_MIN_MW).
 //
 // Pointer: drag a key handle or a layer's top edge (a new key there) to (time, MW); drag an off
 // unit's ghost sideways to book its START; drag a booked start below the axis to unbook it.
@@ -557,10 +558,12 @@ export function createLiveStack(doc, root, actions) {
     ctx.textBaseline = 'top'; ctx.textAlign = 'left'; ctx.fillStyle = UI.text;
     ctx.fillText('LIVE STACK', 2, 1);
     ctx.textAlign = 'right';
-    // the price (P-9): a negative one in its own colour and with the word SPILL (never colour alone)
-    const pm = priceNow(obs), spill = Math.round(pm) < 0;
+    // the price (P-9): a negative one in its own colour, with the word SPILL when power is being
+    // spilled now (MIN GEN's input: the dispatch's automatic cut), never for the price alone (the
+    // renewables' offer can set a negative price with nothing cut)
+    const pm = priceNow(obs), neg = Math.round(pm) < 0, spill = neg && spillingNow(obs);
     const price = Number.isFinite(pm) ? (spill ? 'SPILL ' : '') + priceText(pm) + '/MWh' : '';
-    ctx.fillStyle = spill ? UI.blue : pm > 300 ? UI.amber : UI.text;
+    ctx.fillStyle = neg ? UI.blue : pm > 300 ? UI.amber : UI.text;
     ctx.fillText(price, G.x1, 1);
     stats.price.text = price; stats.price.spill = spill;
     if (vm.mode && vm.mode.locked) { ctx.fillStyle = UI.red; ctx.textAlign = 'center'; ctx.fillText('READ-ONLY: WATCH', (G.x0 + G.x1) / 2, 1); }
@@ -576,6 +579,8 @@ export function createLiveStack(doc, root, actions) {
   }
 
   const priceNow = obs => (obs.price && Number.isFinite(obs.price.mwh) ? obs.price.mwh : NaN);
+  // power being spilled now: the automatic cut over SURPLUS_MIN_MW (MIN GEN's input; 0 or absent on older views)
+  const spillingNow = obs => ((obs.wind && obs.wind.autoMW) || 0) + ((obs.solar && obs.solar.autoMW) || 0) > V.SURPLUS_MIN_MW;
 
   function drawPast(ctx) {
     const past = proj.past;
@@ -1022,7 +1027,8 @@ export function createLiveStack(doc, root, actions) {
       let glow = '';
       if (v.glow && typeof v.glow.forEach === 'function') v.glow.forEach(id => { glow += id + ','; });
       key = signature(v.obs) + '|' + Math.floor(v.obs.s / NOW_STEP_S) + '|' + (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' +
-        expanded + '|' + (v.hover || '') + '|' + glow + '|' + (globalThis.devicePixelRatio || 1) + '|' + Math.round(priceNow(v.obs));
+        expanded + '|' + (v.hover || '') + '|' + glow + '|' + (globalThis.devicePixelRatio || 1) + '|' + Math.round(priceNow(v.obs)) + (spillingNow(v.obs) ? 'S' : '');
+    // (the S: the word SPILL comes and goes with the spill at the same price)
     }
     if (live || key !== drawnKey) { drawnKey = key; draw(); } else stats.skips++;
   }

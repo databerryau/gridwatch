@@ -11,6 +11,12 @@ import * as SYS from '../app/system.js';
 import {objective, capacityShort} from '../app/objective.js';
 import {followDay} from './lib/follow.js';
 import {deskDayVm} from './lib/desk-vm.js';
+import {createState, observe} from '../sim/step.js';
+import {makeDocument} from './lib/dom.js';
+import {baseVm} from './lib/vm-fixture.js';
+import {createLiveStack} from '../render/livestack.js';
+import {UI} from '../render/mapdata.js';
+import * as A from '../app/alarms.js';
 
 test('§19.5 priceText: the sign goes before the dollar (U+2212), thousands separated', () => {
   assert.equal(priceText(74.2), '$74');
@@ -76,6 +82,39 @@ test('C-10 consider: a presentation command that names a guard, or clears it', (
   const vm = G.buildVm(game, {nowMs: 0, dtS: 0});
   assert.ok('consider' in vm);
   assert.ok(Array.isArray(vm.hist.rooftop) && vm.hist.rooftop.length === vm.hist.demand.length);
+});
+
+test('P-9 x C-9: the stack\'s word SPILL is MIN GEN\'s spill now, not the price alone; a negative price keeps its own colour either way', () => {
+  const doc = makeDocument(), root = doc.createElement('div');
+  doc.body.appendChild(root);
+  const stack = createLiveStack(doc, root, {input: () => '', ui: () => ''});
+  stack.el.clientWidth = 336; stack.el.clientHeight = 164;
+  const ctx = stack.el.querySelector('canvas').getContext('2d'), said = [];
+  ctx.fillText = text => { said.push({text: String(text), fill: ctx.fillStyle}); };
+  const price = () => said.filter(t => /MWh$/.test(t.text));
+  const obs = observe(createState(1, DESK_WEEKEND));
+  Object.assign(obs.price, {mwh: -20});
+  // the renewables' offer sets a negative price with nothing cut: no SPILL (MIN GEN, blue and the cut all say no)
+  Object.assign(obs.wind, {autoMW: 0}); Object.assign(obs.solar, {autoMW: 0});
+  stack.update(baseVm(obs));
+  assert.deepEqual(price(), [{text: '−$20/MWh', fill: UI.blue}]);
+  assert.equal(stack.debug.stats.price.spill, false);
+  // the dispatch cutting more than SURPLUS_MIN_MW at the same price: SPILL, drawn at once
+  said.length = 0;
+  const draws = stack.debug.stats.draws;
+  const spill = structuredClone(obs);
+  Object.assign(spill.wind, {autoMW: 30}); Object.assign(spill.solar, {autoMW: V.SURPLUS_MIN_MW - 20});
+  assert.ok(A.alarmInput(spill).spillMW > V.SURPLUS_MIN_MW, 'MIN GEN\'s input');
+  stack.update(baseVm(spill));
+  assert.equal(stack.debug.stats.draws, draws + 1);
+  assert.deepEqual(price(), [{text: 'SPILL −$20/MWh', fill: UI.blue}]);
+  assert.equal(stack.debug.stats.price.spill, true);
+  // at SURPLUS_MIN_MW or under, nothing is said to be spilled
+  said.length = 0;
+  Object.assign(spill.solar, {autoMW: V.SURPLUS_MIN_MW - 30});
+  stack.update(baseVm(spill));
+  assert.deepEqual(price(), [{text: '−$20/MWh', fill: UI.blue}]);
+  assert.deepEqual(doc.canvasStats.bad, []);
 });
 
 test('tests/lib/follow.js: the hint-following player acts only on the line, and the no-input player never acts', () => {

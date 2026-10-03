@@ -69,7 +69,7 @@ function morning() {
 // Accept (i) on a list of lines read once a grid minute and the actions followed (§21.4).
 function lineChecks(lines, said, tag) {
   for (const x of lines) {
-    assert.ok(x.text.length <= 170, tag + ': one line (' + x.text.length + '): ' + x.text);
+    assert.ok(x.text.length <= O.LINE_MAX_CHARS, tag + ': one line (' + x.text.length + '): ' + x.text);
     assert.doesNotMatch(x.text, /undefined|NaN|Infinity/, tag);
     assert.doesNotMatch(x.text, /-\d{1,2}:\d{2}/, tag + ': a negative clock time: ' + x.text);
   }
@@ -175,12 +175,14 @@ test('a MILD morning to 13:00 (seed 8): the follower starts the CCGT for the mor
   for (let i = 1; i < orders.length; i++) assert.ok(orders[i].s - orders[i - 1].s >= 900, 'battery orders ' + at(orders[i - 1].s) + ' and ' + at(orders[i].s));
   // every line carries a kind the shell knows, and (i) holds on the morning
   for (const x of lines) assert.ok(['watch', 'held', 'short', 'commit', 'restore', 'spare', 'stop', 'battery', 'quiet'].includes(x.kind), x.kind);
+  assert.equal(O.LINE_MAX_CHARS, 170, '§21.4: one line, at most 170 characters (the objective\'s own checks and these tests read the one constant)');
   lineChecks(lines, day.said, 'seed ' + MILD_SEED);
   // (what the STOP and BATTERY lines are worth over the whole day is accept e, slow)
 });
 
 test('a day with no input fails: the evening is short without the units only the player can start (seed 8)', () => {
-  const idle = followDay(MILD_SEED, DESK, {follow: false});
+  // to 21:00 (6,800 MWh unserved by then; the whole day, on every seed, is slow accept h)
+  const idle = followDay(MILD_SEED, DESK, {follow: false, untilH: 21});
   assert.ok(idle.st.black || idle.score.unservedMWh > 5000, 'no input: ' + idle.score.unservedMWh.toFixed(0) + ' MWh unserved');
   assert.equal(idle.st.log.filter(r => r.type === 'start').length, 0, 'nothing started by itself');
 });
@@ -317,7 +319,7 @@ test('STOP condition 4: not for a saving under $10,000; at MSL2 and MSL3 the sav
   assert.notEqual(lineOf(one).kind, 'stop', 'MSL1 is information: the saving still decides');
   // the saving itself: more idle hours save more, and a stop for the rest of the day pays no start
   const u = unit(base, 'ccgt2'), proj = PV.project(base);
-  const short = O.stopSaving(base, u, base.s + 4 * S_PER_H, base.dayAhead, proj), long = O.stopSaving(base, u, base.s + 6 * S_PER_H, base.dayAhead, proj);
+  const short = O.stopSaving(base, u, base.s + 4 * S_PER_H, base.dayAhead, proj, PV), long = O.stopSaving(base, u, base.s + 6 * S_PER_H, base.dayAhead, proj, PV);
   assert.ok(long > short, 'six idle hours save more than four: ' + Math.round(long) + ' vs ' + Math.round(short));
   const m = machine('ccgt2'), perH = u.minMW * u.offer + m.noLoadPerS * S_PER_H;
   assert.ok(long - short < 2 * perH + 1 && long - short > 0, 'never more than its own fuel and no-load for the two hours ($' + Math.round(perH) + ' an hour)');
@@ -422,7 +424,7 @@ test('short now outranks everything else: the battery first, sized to what is sh
   assert.doesNotMatch(x.text, /too late to plan/i, 'a trip nobody could foresee is nobody\'s fault');
   assert.ok(x.action.type === 'battery' || x.action.type === 'guard', 'the battery is there in seconds: ' + JSON.stringify(x.action));
   if (x.action.type === 'battery') assert.equal(x.action.mode, 'discharge');
-  assert.ok(x.text.length <= 170, x.text);
+  assert.ok(x.text.length <= O.LINE_MAX_CHARS, x.text);
   // while the battery or a start can answer, demand response is neither named nor lit
   assert.doesNotMatch(x.text, /demand response|\bDR\b/);
   assert.ok(!x.targets.includes('btn-dr'), x.targets.join());
@@ -560,7 +562,7 @@ test('the quiet line: "Enough plant" only with nothing short of a trip\'s worth 
   assert.match(lineOf(peak).text, /Highest demand ahead: about [\d,]+ MW at 19:\d\d\.$/);
   for (let k = 0; k < fc.n; k++) { const t = fc.fromS + (k + 1) * fc.stepS; if (t >= secOfH(19) && t < secOfH(19.25)) fc.demandP50[k] = peak.demand.nowMW + 50; }
   assert.match(lineOf(peak).text, /No higher demand is ahead today\.$/, 'within the figure\'s own rounding of now');
-  for (const o of [ok, thin, all, peak]) assert.ok(lineOf(o).text.length <= 170, lineOf(o).text);
+  for (const o of [ok, thin, all, peak]) assert.ok(lineOf(o).text.length <= O.LINE_MAX_CHARS, lineOf(o).text);
 });
 
 test('short now: the plan\'s red within five minutes is an emergency only when the desk at its limits is short there too', () => {
@@ -582,7 +584,7 @@ test('STOP saving: the energy that replaces the unit is free in columns where po
   const proj = PV.project(base), backS = base.s + 3 * S_PER_H;
   const none = Object.assign({}, proj, {surplusMW: new Float64Array(proj.n)});
   const all = Object.assign({}, proj, {surplusMW: new Float64Array(proj.n).fill(500)});
-  const paid = O.stopSaving(base, u, backS, base.dayAhead, none), free = O.stopSaving(base, u, backS, base.dayAhead, all);
+  const paid = O.stopSaving(base, u, backS, base.dayAhead, none, PV), free = O.stopSaving(base, u, backS, base.dayAhead, all, PV);
   assert.ok(free > paid + 1000, 'free replacement saves more: ' + Math.round(free) + ' vs ' + Math.round(paid));
   // its idle columns all inside the plan view and all spilled: the saving is exactly the unit's own
   // fuel and no-load for them, less one start
@@ -595,6 +597,40 @@ test('STOP saving: the energy that replaces the unit is free in columns where po
   assert.ok(inside && n > 20, n + ' idle columns, all inside the plan view');
   const own = (u.minMW * u.offer + m.noLoadPerS * S_PER_H) * h;
   assert.ok(Math.abs(free - (n * own - m.startCost)) < 1, Math.round(free) + ' vs ' + Math.round(n * own - m.startCost));
+});
+
+test('the water as par and the plan view count it: the reserve sits above HYDRO_STOP_MWH, and the water value is the plan view\'s', () => {
+  const base = morning().keep.stop;
+  assert.ok(base.units.some(u => u.station === 'hydro' && u.mode === 'on'), 'the gorge is spinning');
+  const gap = storageMWh => { const o = copy(base); o.hydro.storageMWh = storageMWh; return O.capacityGap(o, o.dayAhead, {real: true}).gap; };
+  const dry = gap(0), floor = gap(V.HYDRO_STOP_MWH + V.PAR_WATER_RESERVE_MWH), wet = gap(V.HYDRO_STOP_MWH + V.PAR_WATER_RESERVE_MWH + 500);
+  assert.deepEqual(Array.from(floor), Array.from(dry), 'no firm water down to the reserve above the stop level');
+  assert.ok(dry.some((g, k) => g - wet[k] > 50), 'the water above it counts');
+  // the STOP saving prices hydro with ctx.planview's waterValue (no copy of its own)
+  let asked = 0;
+  const spy = Object.assign({}, PV, {waterValue: f => { asked++; return PV.waterValue(f); }});
+  const x = objective(base, {edited: false, planview: spy, dayAhead: base.dayAhead});
+  assert.equal(x.kind, 'stop');
+  assert.ok(asked > 0, 'asked the plan view for the water value');
+  assert.equal(x.saving, lineOf(base).saving);
+});
+
+test('the HOT-morning STOP guard reads the heatwave the sim has pre-rolled: its window, and none from the announcement on (desk heat seeds)', () => {
+  // (hardening for D-8, slice 2c: the guard reads the scenario's event menu; if the director moves the
+  // announcement or the window, this fails instead of the guard holding STOPs for a heatwave that cannot come)
+  let n = 0;
+  for (let seed = 1; seed <= 120; seed++) {
+    const st = createState(seed, DESK), ev = st.ext.events.filter(e => e.type === 'heatAnnounce');
+    if (!ev.length) continue;
+    n++;
+    const obs = observe(st), w = O.heatWorstCase(obs);
+    assert.equal(obs.day.temp, 'HOT', 'seed ' + seed + ': a heatwave day reads HOT until it is announced');
+    assert.ok(w && w.fromS === ev[0].args.onsetS && w.toS === ev[0].args.endS, 'seed ' + seed + ': ' + JSON.stringify(w) + ' vs ' + JSON.stringify(ev[0].args));
+    obs.s = ev[0].atS - 1;
+    assert.ok(O.heatWorstCase(obs), 'seed ' + seed + ': still possible a second before');
+    for (const s of [ev[0].atS, ev[0].atS + 1, ev[0].args.onsetS]) { obs.s = s; assert.equal(O.heatWorstCase(obs), null, 'seed ' + seed + ' at ' + at(s)); }
+  }
+  assert.ok(n >= 10, n + ' heat seeds');
 });
 
 test('the reserve diesel is stood down only when HALF of the battery\'s and demand response\'s energy would carry what is left (a band, so the two never chase each other)', () => {
@@ -697,6 +733,84 @@ test('spare: the GUARD for the first second, asked once for all the battery can 
   assert.notDeepEqual(lineOf(armed).action, {type: 'standDownRERT'}, 'not twice');
 });
 
+test('spare after a trip: a fired GUARD still giving while frequency is high is turned down; a fired GUARD is never raised; once re-armed it goes back up', () => {
+  const {keep} = morning();
+  // a belly trip smaller than the ring: the GUARD gives its 400 MW for its whole sustain whatever the frequency does
+  const hi = copy(keep.stop);
+  Object.assign(hi.battery, {guardMW: 400, ffrMW: 400, guardFired: true});
+  hi.f.hz = 50.2;
+  const x = lineOf(hi);
+  assert.deepEqual(x.action, {type: 'guard', mw: 0});
+  assert.equal(x.kind, 'spare');
+  assert.equal(x.level, 'act');
+  assert.deepEqual(x.targets, ['ring-guard']);
+  assert.equal(x.text, 'Frequency is high: the battery GUARD is still giving its 400 MW after the trip. Turn it down to 0 MW; it can go back up once the GUARD has re-armed.');
+  assert.ok(x.text.length <= O.LINE_MAX_CHARS);
+  // in band, nothing delivered, the ring already down, or not fired: no such line
+  for (const [k, v] of [['f', {hz: V.NORMAL_HI_HZ}], ['battery', {ffrMW: 0}], ['battery', {guardMW: 0, ffrMW: 120}], ['battery', {guardFired: false}]]) {
+    const o = copy(hi);
+    Object.assign(o[k], v);
+    assert.notDeepEqual(lineOf(o).action, {type: 'guard', mw: 0}, k + ' ' + JSON.stringify(v) + ': ' + lineOf(o).text);
+  }
+  // the trip preview under the secure line asks for the GUARD (the line above) only while it is armed: a
+  // ring raised while the fired GUARD is still sustaining delivers again at once
+  const room = copy(keep.guard);
+  Object.assign(room.battery, {guardMW: 0, mode: 'idle', orderMW: 0, socMWh: 900});
+  assert.deepEqual(lineOf(room).action, {type: 'guard', mw: V.PAR_GUARD_MAX_MW}, 'armed');
+  for (const b of [{guardFired: true}, {guardFired: true, guardMW: 200, ffrMW: 200}]) {
+    const o = copy(room);
+    Object.assign(o.battery, b);
+    assert.ok(o.f.hz <= V.NORMAL_HI_HZ && o.sec.previewNadirHz < V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ);
+    const y = lineOf(o);
+    assert.ok(!(y.action && y.action.type === 'guard'), JSON.stringify(b) + ': ' + y.text);
+  }
+  // re-armed within the hour of the trip that took it to 0: back to its most at once, while the desk
+  // is still SECURE (not after the N-1 gauge has gone insecure and chimed)
+  const back = copy(keep.stop);
+  Object.assign(back.battery, {guardMW: 0, ffrMW: 0, guardFired: false, mode: 'idle', orderMW: 0, socMWh: 900});
+  back.contingencies.push({n: back.contingencies.length, startS: back.s - 900, cause: 'unit', id: 'coal1'});
+  assert.equal(back.sec.level, 'SECURE');
+  const y = lineOf(back);
+  assert.deepEqual(y.action, {type: 'guard', mw: V.PAR_GUARD_MAX_MW});
+  assert.equal(y.kind, 'spare');
+  assert.equal(y.level, 'plan');
+  assert.deepEqual(y.targets, ['ring-guard']);
+  assert.equal(y.text, 'The battery GUARD has re-armed after the trip. Raise it back to 400 MW: it catches the fall in the first second if another unit trips.');
+  // not while it is still fired, not an hour after the trip, not after a loss of load (the GUARD never fired for it), not into an order
+  const not = (tag, f) => { const o = copy(back); f(o); const z = lineOf(o); assert.ok(!(z.action && z.action.type === 'guard'), tag + ': ' + z.text); };
+  not('fired', o => { o.battery.guardFired = true; });
+  not('an hour on', o => { o.contingencies.at(-1).startS = o.s - S_PER_H; });
+  not('a potline', o => { o.contingencies.at(-1).cause = 'load'; });
+  const busy = copy(back);
+  Object.assign(busy.battery, {mode: 'charge', orderMW: 300});
+  assert.deepEqual(lineOf(busy).action, {type: 'guard', mw: 200}, 'the ring takes only what the charge order leaves');
+});
+
+test('GUARD after a belly trip (slow, desk-weekend 20261017): the follower is back in the normal band within FOS_RECOVER_S', slowOnly(), t => {
+  // coal 1 trips at 14:08:40 with 240 MW (at minimum) under a GUARD of 400 MW raised at 04:31; before the
+  // release line frequency stayed above 50.15 Hz for 478 s of the next 900 (fos.outsideS reached 404 s)
+  const SEED = 20261017, day = followDay(SEED, DESK_WEEKEND, {untilH: 14.5});
+  const trip = day.st.conts.find(c => c.cause === 'unit' && c.id === 'coal1' && at(Math.floor(c.startTick / TPS)) === '14:08');
+  assert.ok(trip && Math.round(trip.lostMW) === 240, 'the trip: ' + JSON.stringify(trip && {id: trip.id, lostMW: trip.lostMW}));
+  // the day again a tick at a time from the follower's own log (F-6), counting the seconds above the band
+  const st = createState(SEED, DESK_WEEKEND), log = day.st.log;
+  let j = 0, hiS = 0, guardAtTrip = -1;
+  while (st.tick < day.st.tick) {
+    const batch = [];
+    while (j < log.length && log[j].tick <= st.tick) { batch.push(Object.assign({type: log[j].type}, log[j].args)); j++; }
+    if (st.tick === trip.startTick) guardAtTrip = st.battery.guardMW;
+    step(st, batch);
+    if (st.tick % TPS === 0 && st.tick > trip.startTick && st.tick <= trip.startTick + 900 * TPS && st.last.fMeanHz > V.NORMAL_HI_HZ) hiS++;
+  }
+  assert.equal(hashState(st), hashState(day.st), 'the same day');
+  assert.equal(guardAtTrip, V.PAR_GUARD_MAX_MW, 'the GUARD was at its most when coal 1 tripped');
+  t.diagnostic(hiS + ' s above ' + V.NORMAL_HI_HZ + ' Hz in the 900 s after the trip (478 before the release line)');
+  assert.ok(hiS <= V.FOS_RECOVER_S, hiS + ' s above ' + V.NORMAL_HI_HZ + ' Hz in the 900 s after the trip');
+  const down = day.said.find(x => x.s > trip.startTick / TPS && x.accepted && x.action.type === 'guard' && x.action.mw === 0);
+  assert.ok(down, 'the line turned the GUARD down');
+  assert.ok(day.said.some(x => x.s > down.s && x.accepted && x.action.type === 'guard' && x.action.mw === V.PAR_GUARD_MAX_MW), 'and back up once it re-armed, by 14:30');
+});
+
 // ------------------------------------------------------------------ the battery (§21.4)
 
 test('battery: charge before the evening when the evening needs it, on what is spilled, and never an order on top of an order', () => {
@@ -753,6 +867,15 @@ test('battery: charge before the evening when the evening needs it, on what is s
   assert.match(z.text, /^Power is being spilled\. Charge the battery at \d+ MW: it takes what would be wasted, and tonight that is worth gas prices\.$/);
   const lim = spill.battery.ratedMW - spill.battery.guardMW;
   assert.equal(z.action.mw, Math.floor(Math.min(lim, V.PAR_BATT_CHARGE_MAX_MW, 240) / V.GUARD_STEP_MW) * V.GUARD_STEP_MW);
+  // ...but not in the MW a fired GUARD gave up after a trip (they are the GUARD's again once it re-arms;
+  // a charge made in them was raised minute after minute on a cut that lags: desk-weekend seed 5, 12:37 and 12:38)
+  for (const b of [{guardFired: true, guardMW: 0}, {guardFired: true, guardMW: 0, mode: 'charge', orderMW: 100}]) {
+    const o = copy(spill);
+    Object.assign(o.battery, b);
+    o.contingencies.push({n: o.contingencies.length, startS: o.s - 300, cause: 'unit', id: 'coal1'}); // (a GUARD fires on a trip)
+    const q = lineOf(o);
+    assert.ok(!(q.action && q.action.type === 'battery' && q.action.mode === 'charge'), JSON.stringify(b) + ': ' + q.text);
+  }
   // short while it charges: the short-now line outranks the battery's own, and asks for the battery the other way
   const tight = copy(made);
   for (const fc of [tight.forecast, tight.dayAhead]) for (let k = 0; k < 12; k++) fc.demandP50[k] += 2500;
@@ -927,7 +1050,7 @@ test('C-10 consequence: START says when the unit is at minimum load and how long
     const head = 'START ' + m.name.toUpperCase() + ': at minimum load (' + m.minMW + ' MW) by ' + at(o.s + startToMinS(id)) + ', ' + span(startToMinS(id)) + ' from now, and it must then run ' + span(m.minUpS) + '. ';
     assert.ok(c.text.startsWith(head), c.text + '\n  expected: ' + head);
     assert.match(c.text.slice(head.length), /^(Nothing ahead needs it yet\.|It covers the shortfall from \d\d:\d\d\.|It helps with the shortfall from \d\d:\d\d\.|It is too late for \d\d:\d\d, but it helps from \d\d:\d\d\.)$/);
-    assert.ok(c.text.length <= 170, c.text);
+    assert.ok(c.text.length <= O.LINE_MAX_CHARS, c.text);
   }
   // coal: 50 min to full speed, 4 to sync, 70 to minimum load; then 8 hours on
   assert.equal(span(startToMinS('coal4')), '2 h 04');
@@ -943,7 +1066,7 @@ test('C-10 consequence: START says when the unit is at minimum load and how long
   const tm = /Too late for the gap from (\d\d):(\d\d); it (?:covers|helps with) the one from (\d\d):(\d\d)\.$/.exec(tc.text);
   assert.ok(tm, tc.text);
   assert.ok(secOfH(Number(tm[1]) + Number(tm[2]) / 60) < two.s + 1500 && secOfH(Number(tm[3]) + Number(tm[4]) / 60) >= two.s + 3 * S_PER_H - 900, tc.text);
-  assert.ok(tc.text.length <= 170, tc.text);
+  assert.ok(tc.text.length <= O.LINE_MAX_CHARS, tc.text);
   // hydro has no minimum load and no minimum run
   const h = copy(obs);
   Object.assign(unit(h, 'hydro3'), {mode: 'off', startBlock: ''});
@@ -961,7 +1084,7 @@ test('C-10 consequence: STOP says when the unit leaves the grid and the earliest
   assert.equal(coal.level, 'crit', 'the press opens a shortfall the unit cannot be back for');
   assert.match(coal.text, /( From \d\d:\d\d you would need [\d,]+ MW more than the line asks for| [A-Z][a-z' ]+ would be [\d,]+ MW short from \d\d:\d\d|one trip would then leave you short)\.$/);
   assert.ok(cb.backS - obs.s > machine('coal1').minDownS + machine('coal1').t4S, 'more than the 8 h of minimum down time');
-  assert.ok(coal.text.length <= 170, coal.text);
+  assert.ok(coal.text.length <= O.LINE_MAX_CHARS, coal.text);
   // A coal machine well above its floor is still on the grid for hours after the press: the shortfall
   // is said from when it begins, never "at once" (the unit counted down its ramp and the T4 slope).
   const high = copy(obs);
@@ -1115,7 +1238,7 @@ for (const scn of [DESK, DESK_WEEKEND]) {
         if (obs.s % 1800 < 60) {
           for (const u of obs.units) for (const g of ['guard-start-', 'guard-stop-']) {
             const c = consequence(obs, g + u.id, {dayAhead: obs.dayAhead, planview: PV});
-            if (c) { assert.ok(c.text.length <= 170, tag0 + ' ' + at(obs.s) + ' ' + c.text); assert.doesNotMatch(c.text, /undefined|NaN|Infinity|-\d{1,2}:\d{2}/, c.text); }
+            if (c) { assert.ok(c.text.length <= O.LINE_MAX_CHARS, tag0 + ' ' + at(obs.s) + ' ' + c.text); assert.doesNotMatch(c.text, /undefined|NaN|Infinity|-\d{1,2}:\d{2}/, c.text); }
           }
         }
       }});

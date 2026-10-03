@@ -5,13 +5,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {V} from '../sim/params.js';
-import {createState, step, observe} from '../sim/step.js';
+import {createState, step, observe, hashState} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
 import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
 import {followDay} from './lib/follow.js';
 import * as A from '../app/alarms.js';
 import * as T from '../app/tray.js';
-import {SLOW} from './lib/sim-helpers.js';
+import {SLOW, slowOnly} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S;
 
@@ -412,6 +412,44 @@ test('K-8 accept: the competent proxy triggers <= 8 audible alarms in a day', ()
     return a.audible;
   });
   assert.ok(counts.every(n => n >= 1), 'a day is not silent: ' + counts);
+});
+
+/**
+ * The hint-following player's audible alarms over a day on the game's scenario (K-8 on the belly:
+ * MIN GEN is a real P2 tile there, and a belly trip can chime OVER FREQ). The follower's day
+ * (tests/lib/follow.js) is played again a tick at a time from its own log (F-6), sampled and
+ * ACKed as competentDay does.
+ */
+function followerDay(seed, scenario) {
+  const day = followDay(seed, scenario), log = day.st.log;
+  const st = createState(seed, scenario), a = A.createAlarms();
+  let j = 0, realMs = 0, lastS = -1, ackAt = Infinity;
+  const stationOf = id => id.replace(/\d+$/, '');
+  while (!st.over) {
+    const batch = [];
+    while (j < log.length && log[j].tick <= st.tick) { batch.push(Object.assign({type: log[j].type}, log[j].args)); j++; }
+    step(st, batch);
+    A.sampleTick(a, st);
+    if (st.tick % TPS !== 0 || st.tick < V.PLAYER_START_TICK) continue;
+    const x = A.alarmInputFromState(st);
+    realMs += (lastS < 0 ? 0 : x.s - lastS) * 1000 / (x.inWatch ? 1 : 120);
+    lastS = x.s;
+    const r = A.updateAlarms(a, x, {nowMs: realMs, realDtS: 1 / (x.inWatch ? 1 : 120), stationOf});
+    if (r.cues.length || r.newAlarm) ackAt = Math.min(ackAt, realMs + 3000);
+    if (realMs >= ackAt) { A.ackAll(a); ackAt = Infinity; }
+  }
+  assert.equal(hashState(st), hashState(day.st), 'seed ' + seed + ': the follower\'s day, replayed');
+  return a;
+}
+
+test('K-8 on the belly (slow): the hint-following player hears <= 8 audible alarms a day on mild weekends', slowOnly(), t => {
+  // (the competent proxy plays CLASSIC only until 2b / 2d; on the game's day the proxy is the line's own player)
+  for (const seed of [1, 5, 8, 13, 20261001, 20261004, 20261017]) {
+    assert.equal(createState(seed, DESK_WEEKEND).day.temp, 'MILD', 'seed ' + seed);
+    const a = followerDay(seed, DESK_WEEKEND);
+    t.diagnostic('desk-weekend seed ' + seed + ': ' + a.audible + ' audible alarms');
+    assert.ok(a.audible <= 8, 'seed ' + seed + ': ' + a.audible + ' audible alarms');
+  }
 });
 
 // ------------------------------------------------------------------ the tray (K-9)
