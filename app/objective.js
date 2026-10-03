@@ -13,10 +13,14 @@
 // loading; hydro for the water it has; the tie; the wind and sun forecast) against the forecast
 // demand plus a margin. The plan's red columns move with every 5-minute dispatch; whether
 // enough plant is committed does not. Three margins (MW above the P50 forecast):
-//   MARGIN_MW         the forecast's own error: under it the desk IS short
+//   MARGIN_MW         the forecast's own error: under it the desk is short of a safe margin
 //   COMMIT_MARGIN_MW  what the evening needs to ride through one trip: under it a unit is asked for
-//   MARGIN_MW + the largest single loss   what must remain before a unit may be stopped
-// so a unit the line asked for is never one it then asks to stop.
+//                     (the trip's part counts the water at any hour: a trip is what the gorge is kept for)
+//   MARGIN_MW + the largest single loss   what must remain before a unit may be stopped, with the
+//                     water held until 15:30 as for any plan (§21.4 STOP condition 1)
+// so a unit the line asked for is never one it then asks to stop. What the desk can really give
+// (every unit at its limits from where it is, the water, the tie at its limit; capacityGap real)
+// says whether it is short NOW.
 //
 //   objective(obs, {edited, planview, proj?, dayAhead?}) -> {level, kind, text, targets, action, startBy, short, long}
 //     level   'ok' | 'plan' (act later, or worth doing) | 'act' (act now) | 'crit' (short already)
@@ -33,25 +37,35 @@
 //
 // Branch order (§21.4): watch, held, short-now, commit-now, restore, spare, stop, battery,
 // commit-later, quiet. A line that asks for nothing yet (a start more than ACT_WITHIN_S away, a
-// feeder that cannot close yet, spare that nothing can add) gives way to a lower branch that has
-// something to do now; among lines that ask for something, and among those that do not, the
-// order above decides. Between commit-now and restore sits the shortfall no start can reach
-// (shortAhead): what every committed MW cannot give within the hour is the battery's to carry,
-// and demand response's when it is more than the battery holds; the reserve diesel only beyond both.
+// feeder that cannot close yet, spare that nothing can add, the reserve diesel on its way) gives
+// way to a lower branch that has something to do now; among lines that ask for something, the
+// order above decides; then a critical line; then the first that has something to say. Between
+// commit-now and restore sits the shortfall no start can reach (shortAhead): what every committed
+// MW cannot give within the hour is the battery's to carry, and demand response's when it is more
+// than the battery holds; the reserve diesel only beyond both.
+//
+// The line says what is true (the wave-3 review): a shortfall is in the present tense only when the
+// desk at its limits (the real check) is short in the next minutes, otherwise it is what the hour
+// lacks against a safe margin; "Enough plant is committed" only with no column short of a trip's
+// worth of spare by THIN_MW; a STOP's saving says it rests on nothing tripping before the unit is
+// back; a unit on its way off counts down its ramp and the T4 slope until its breaker opens.
 //
 // The line is pure, so "never thrash" is kept by state, not by a clock: a STOP is not proposed
 // while another unit is on its way down or has been down under STOP_GAP_S; a battery order is
 // proposed only from idle (or to raise a charge by what is still being spilled, or to end one at
-// the reserve or at the window's end), with bands between the levels that start and end it.
+// the reserve or at the window's end), with bands between the levels that start and end it, and
+// none in the quarter hour before the evening's own order. (The shortfall branches raise a
+// discharge as an evening gap grows: each order is sized for the gap 20 min ahead.)
 //
 //   consequence(obs, target, {planview, dayAhead}) -> {target, text, level} | null
 //     what a guarded press would do, said before it is made (C-10): target is
 //     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'plan' | 'crit'.
 //
-//   steady(held, next, s) -> {line, seenS}
+//   steady(held, next, s) -> {line, seenS, sinceS}
 //     the line as the desk shows it: a line whose deadline or figure moves with each forecast while
-//     what it asks for stays the same is kept as it was said (the game holds `held`; the objective
-//     itself stays pure, and the action a line carries is never held back or changed).
+//     what it asks for and its other words stay the same is kept as it was said, and a quiet line
+//     for STEADY_QUIET_S against another quiet line (the game holds `held`; the objective itself
+//     stays pure, and the action a line carries is never held back or changed).
 
 import {V} from '../sim/params.js';
 import {SCENARIOS} from '../content/scenarios.js';
@@ -747,17 +761,16 @@ function shortAhead(X, line) {
   const above = b.socMWh - RESERVE_MWH, soon = R.soonMW >= BATT_MIN_MW, have = b.mode === 'discharge' ? b.orderMW : 0;
   const drFree = obs.dr.callsLeft > 0 && !(obs.dr.activeS > 0);
   const fromAt = at(Math.floor(R.hourAtS / AHEAD_MARK_S) * AHEAD_MARK_S);
-  // The battery's order already covers what the hour lacks: say so, the same line whether the gap
-  // is open now or later in the hour (never "demand is covered" and "more than ... can give" in turn).
-  const carrying = () => line({level: 'plan', kind: 'battery', targets: ['dial-battery'], text: R.hourAtS <= s + NOW_S
-    ? 'Demand is more than every committed unit can give until about ' + at(Math.ceil(R.untilS / AHEAD_MARK_S) * AHEAD_MARK_S) + '. The battery is carrying the rest: leave it discharging.'
-    : 'From about ' + fromAt + ' demand is more than every committed unit can give. The battery\'s order covers it: leave it discharging.'});
+  // While the battery is discharging and no larger order is due yet: one line, the same words
+  // whether the gap is open now or later in the hour, so the desk can keep it (never "demand is
+  // covered" and "more than ... can give" in turn, never "be ready to discharge" while it is).
+  const carrying = () => line({level: 'plan', kind: 'battery', targets: ['dial-battery'], text: 'From about ' + fromAt + ' to about ' + at(Math.ceil(R.untilS / AHEAD_MARK_S) * AHEAD_MARK_S) +
+    ' demand is more than every committed unit can give. The battery is carrying it: leave it discharging.'});
   if (!soon) {
     // ahead: what is coming and what will carry it (no MW: the figure moves with every forecast)
-    if (carryMW(b, R.hourMW) <= have) return carrying();
+    if (have > 0) return carrying();
     const more = drFree && (R.mwh > above || R.hourMW > b.ratedMW);
-    const what = more ? 'The battery and demand response carry it: be ready to call demand response (hold D) then.'
-      : have > 0 ? 'Keep the battery discharging; this line will say when to raise it.' : 'The battery carries it: be ready to discharge it then.';
+    const what = more ? 'The battery and demand response carry it: be ready to call demand response (hold D) then.' : 'The battery carries it: be ready to discharge it then.';
     return line({level: 'plan', kind: 'commit', text: 'From about ' + fromAt + ' demand is more than every committed unit can give. ' + what,
       targets: more ? ['btn-dr', 'dial-battery'] : ['dial-battery'], startBy: R.hourAtS - ACT_WITHIN_S});
   }
@@ -876,13 +889,22 @@ function spare(X, line) {
     }).sort((a, c) => a.offer - c.offer || a.lead - c.lead);
     const c = fastOnes.find(x => x.headMW >= needMW) || fastOnes[0];
     if (c) {
-      const free = c.cls === 'hydro';
+      const free = c.cls === 'hydro', A = lookAhead(X);
+      // the unit the commit line was about to ask for anyway: both reasons in one line, so "now" and
+      // "by 17:45" for the same machine do not take turns
+      if (A && A.unit && A.unit.unit === c.unit && A.reach.atS - s <= V.FC_HORIZON_S) {
+        return line({level: 'act', kind: 'spare', text: 'Start ' + unitName(c.unit) + ' now (' + minText(c.lead) + '): spare is short already, and ' +
+          (A.thin.real ? 'you will be ' + mwText(A.thin.mw) + ' short from ' + needAt(A.thin, A.reach.crossS) + '.' : 'from about ' + needAt(A.thin, A.reach.crossS) + ' one trip would leave you short.'),
+        targets: ['gauge-n1', c.id], action: {type: 'start', unit: c.unit}, startBy: s});
+      }
       return line({level: 'act', kind: 'spare', text: 'Demand is covered, but if ' + what + ' tripped the rest could not make it up in time. Start ' + unitName(c.unit) + ' (' + minText(c.lead) + ')' +
         (free ? ': it spins for free and adds spare.' : ' for the spare.'), targets: ['gauge-n1', c.id], action: {type: 'start', unit: c.unit}, startBy: s});
     }
   }
   const a = coming ? arriving(obs) : null;
-  return line({level: 'plan', kind: 'spare', text: 'Demand is covered, but losing ' + what + ' would not be caught' + (a ? ' until ' + a.name + ' arrives at ' + at(a.atS) + '.' : '. Nothing more can add spare now.'),
+  // (with the battery discharging into a gap, demand is covered because it is)
+  const covered = b.mode === 'discharge' && b.orderMW > 0 ? 'With the battery discharging, demand is covered' : 'Demand is covered';
+  return line({level: 'plan', kind: 'spare', text: covered + ', but losing ' + what + ' would not be caught' + (a ? ' until ' + a.name + ' arrives at ' + at(a.atS) + '.' : '. Nothing more can add spare now.'),
     targets: ['gauge-n1', 'ring-guard']});
 }
 
@@ -1129,7 +1151,9 @@ export function consequence(obs, target, ctx = {}) {
     const next = before && before.atS < onAt && before.endS < onAt ? firstRun(G, onAt) : null;
     const nextAfter = next ? firstRun(P, onAt) : null;
     const helps = run => (!nextAfter || nextAfter.atS > run.atS ? 'it covers the one from ' : 'it helps with the one from ') + from(run) + '.';
-    const tail = !before ? 'Nothing ahead needs it yet.' : next ? 'Too late for the gap from ' + from(before) + '; ' + helps(next)
+    // (one line: past midnight "tomorrow" lengthens the head, so the two gaps are said shortly)
+    const both = run => (head.length + 30 + helps(run).length <= 170 ? 'Too late for the gap from ' + from(before) + '; ' + helps(run) : 'Too late for ' + from(before) + '; it is for ' + from(run) + '.');
+    const tail = !before ? 'Nothing ahead needs it yet.' : next ? both(next)
       : before.atS < onAt ? 'It is too late for ' + from(before) + (before.endS < onAt ? ', and nothing after needs it.' : ', but it helps from ' + at(onAt) + '.')
         : !after || after.atS > before.atS ? 'It covers the shortfall from ' + from(before) + '.' : 'It helps with the shortfall from ' + from(before) + '.';
     return out(head + tail);

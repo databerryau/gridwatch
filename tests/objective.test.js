@@ -617,6 +617,32 @@ test('the reserve diesel is stood down only when HALF of the battery\'s and dema
   assert.deepEqual(lineOf(shallow).action, {type: 'standDownRERT'});
 });
 
+test('a gap no start can reach, while the battery is discharging into it: one line that says so, never "be ready to discharge"', () => {
+  const o = plain();
+  for (const u of o.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
+  const R = O.capacityGap(o, o.forecast, {real: true});
+  // the plant at its limits 120 MW short from half an hour ahead for half an hour, with room before and after
+  for (const fc of [o.forecast, o.dayAhead]) { const Rf = O.capacityGap(o, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, Rf, k => (tk(k) >= o.s + 1800 && tk(k) < o.s + 3600 ? 120 : -400)); }
+  const idle = copy(o);
+  Object.assign(idle.battery, {mode: 'idle', orderMW: 0, socMWh: 800, guardMW: 0});
+  const plan0 = PV.project(plain()), on = obs => objective(obs, {edited: false, planview: PV, dayAhead: obs.dayAhead, proj: plan0}); // (the plan as it was: this is the shortAhead branch, not the plan's red)
+  const x = on(idle);
+  assert.match(x.text, /^From about \d\d:\d\d demand is more than every committed unit can give\. The battery carries it: be ready to discharge it then\.$/);
+  const going = copy(o);
+  Object.assign(going.battery, {mode: 'discharge', orderMW: 100, socMWh: 800, guardMW: 0});
+  const y = on(going);
+  assert.equal(y.kind, 'battery');
+  assert.match(y.text, /^From about \d\d:\d\d to about \d\d:\d\d demand is more than every committed unit can give\. The battery is carrying it: leave it discharging\.$/);
+  // the same words a quarter of an hour on, the gap now open: the desk can keep the line as it was said
+  const later = copy(going);
+  for (const fc of [later.forecast, later.dayAhead]) { const R2 = O.capacityGap(later, fc, {real: true}); setGap(fc, R2, 120, -Infinity, later.s + 600); }
+  Object.assign(later.battery, {orderMW: 200});
+  const z = on(later);
+  assert.equal(z.kind, 'battery');
+  assert.equal(z.text.replace(/\d\d:\d\d/g, '#'), y.text.replace(/\d\d:\d\d/g, '#'));
+  for (const l of [x, y, z]) assert.doesNotMatch(l.text, /Demand is covered/);
+});
+
 test('the watch line names what tripped: a unit, the tie line or a smelter potline', () => {
   const o = copy(morning().keep.stop);
   o.inWatch = true;
@@ -906,6 +932,18 @@ test('C-10 consequence: START says when the unit is at minimum load and how long
   // coal: 50 min to full speed, 4 to sync, 70 to minimum load; then 8 hours on
   assert.equal(span(startToMinS('coal4')), '2 h 04');
   assert.equal(span(machine('coal4').minUpS), '8 h');
+  // too late for a short gap that is over before the unit arrives: both gaps named, at the times the
+  // objective line says them (the hover never contradicts the line)
+  const two = copy(obs);
+  Object.assign(unit(two, 'coal4'), {mode: 'off', outMW: 0, schedMW: 0, startBlock: '', stopBlock: 'unit is off'});
+  const G = O.tripGap(two, two.dayAhead, O.COMMIT_MARGIN_MW - O.MARGIN_MW);
+  const tAt = k => two.dayAhead.fromS + (k + 1) * two.dayAhead.stepS;
+  setGap(two.dayAhead, G, k => (tAt(k) >= two.s + 600 && tAt(k) < two.s + 1500 ? 200 : tAt(k) >= two.s + 3 * S_PER_H && tAt(k) < two.s + 4 * S_PER_H ? 150 : -1000));
+  const tc = consequence(two, 'guard-start-coal4', {dayAhead: two.dayAhead, planview: PV});
+  const tm = /Too late for the gap from (\d\d):(\d\d); it (?:covers|helps with) the one from (\d\d):(\d\d)\.$/.exec(tc.text);
+  assert.ok(tm, tc.text);
+  assert.ok(secOfH(Number(tm[1]) + Number(tm[2]) / 60) < two.s + 1500 && secOfH(Number(tm[3]) + Number(tm[4]) / 60) >= two.s + 3 * S_PER_H - 900, tc.text);
+  assert.ok(tc.text.length <= 170, tc.text);
   // hydro has no minimum load and no minimum run
   const h = copy(obs);
   Object.assign(unit(h, 'hydro3'), {mode: 'off', startBlock: ''});
@@ -1071,7 +1109,16 @@ for (const scn of [DESK, DESK_WEEKEND]) {
         if (/^You are [\d,]+ MW short now/.test(x.text)) assert.ok(maxGap(O.capacityGap(obs, obs.forecast, {real: true}), -Infinity, obs.s + 301) > 0, tag0 + ' ' + at(obs.s) + ': ' + x.text);
         return x;
       };
-      const day = followDay(seed, scn, {objective: rec, onMinute: (st, obs) => { if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh; }});
+      const day = followDay(seed, scn, {objective: rec, onMinute: (st, obs) => {
+        if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh;
+        // C-10: what every guarded press would do, every half hour, is one line of plain words
+        if (obs.s % 1800 < 60) {
+          for (const u of obs.units) for (const g of ['guard-start-', 'guard-stop-']) {
+            const c = consequence(obs, g + u.id, {dayAhead: obs.dayAhead, planview: PV});
+            if (c) { assert.ok(c.text.length <= 170, tag0 + ' ' + at(obs.s) + ' ' + c.text); assert.doesNotMatch(c.text, /undefined|NaN|Infinity|-\d{1,2}:\d{2}/, c.text); }
+          }
+        }
+      }});
       const tag = scn.id + ' seed ' + seed + ' (' + type + ')';
       assert.equal(observe(createState(seed, scn)).day.temp, type === 'HEAT' ? 'HOT' : type, tag + ': the day type the seed list says (a heatwave reads HOT until it is announced)');
       // (a) never black; nothing unserved on >= 9 of 11
@@ -1115,8 +1162,8 @@ for (const scn of [DESK, DESK_WEEKEND]) {
         const w = starts.filter(b => b.s >= starts[i].s && b.s - starts[i].s <= 300);
         if (w.length > 2 && !(i > 0 && starts[i].s - starts[i - 1].s <= 300)) {
           cascades++;
-          const trip = day.st.conts.some(c => { const cs = Math.floor(c.startTick / TPS); return cs <= starts[i].s && starts[i].s - cs <= 1800; });
-          t.diagnostic(tag + ': start cascade ' + w.map(b => at(b.s) + ' ' + b.action.unit).join(', ') + (trip ? ' (a trip in the half hour before)' : ' (NO trip before it)'));
+          const trip = day.st.conts.find(c => { const cs = Math.floor(c.startTick / TPS); return cs <= w.at(-1).s && w[0].s - cs <= 1800; });
+          t.diagnostic(tag + ': start cascade ' + w.map(b => at(b.s) + ' ' + b.action.unit).join(', ') + (trip ? ' (' + trip.cause + ' ' + trip.id + ' tripped at ' + at(Math.floor(trip.startTick / TPS)) + ')' : ' (NO trip in or before it)'));
         }
       }
       t.diagnostic(tag + ': unserved ' + day.score.unservedMWh.toFixed(0) + ' MWh, RERT ' + (day.st.rert.armedEver ? 'armed' : '-') + ', DR ' + (V.DR_CALLS - day.st.dr.callsLeft) + ', ' +
