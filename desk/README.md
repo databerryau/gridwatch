@@ -1185,7 +1185,8 @@ CLASSIC ticks).
   skyline with the gap hatched sun-yellow and the word ROOFTOP in the big layout, past columns
   included; blue SURPLUS columns per C-11 with `GAP_MARK.blue` (pattern, glyph and word, never
   colour alone), a minimum drawn height, a hover line ("N MW will be spilled: stop a unit, or
-  charge"); the price through `priceText`, negative in its own colour with the word SPILL;
+  charge"); the price through `priceText`, negative in its own colour, with the word SPILL
+  while the dispatch is cutting more than `SURPLUS_MIN_MW` (MIN GEN's input; final review);
   `stackSummary` gains the surplus runs and a rooftop clause after its present sentences; the
   redraw key covers what is new; L-1's 4 ms holds. Shown always in 2a (the first-shift face of
   L-2 arrives with onboarding, 2e).
@@ -1385,6 +1386,10 @@ moves 198 of 200 CLASSIC rows). Wave 3 (`app`) builds on this.
 CLASSIC after the merge (golden): zero unserved 183 of 200, forced heat 77 of 100, RERT 44, the
 competent proxy's A 72 of 100 (now over its 70), battery average charge price $198.
 
+This table and the CLASSIC line are as measured at wave 2. The final review moved par on every
+scenario (the dispatch counts a unit still loading); §28 has the figures since, and SPEC S-12
+carries them.
+
 **The view, measured.** Blue against the sim's cut with the truth in place of the forecast:
 median 0.1 MW, 1 MW worst once a spill has settled; with its own forecast, within about 50 MW at
 +5 to +15 minutes (the rest is forecast error). Live Stack full redraw p95 1.2–1.5 ms of 4; map
@@ -1432,7 +1437,8 @@ Facts wave 3 builds on:
   falls through to its lower branches; it does not name the next unit).
 * MSL2 and MSL3 never occur on par days (MSL1 on 11 of 101 mild weekends): those objective
   branches are tested on poked observations only.
-* The stack's header already says SPILL beside a negative price and its text alternative lists
+* The stack's header already says SPILL beside a negative price (since the final review, only
+  while the dispatch is cutting more than `SURPLUS_MIN_MW`) and its text alternative lists
   the surplus runs and the rooftop MW: the objective says the action, not the number again.
 * `calc.coldLoad(d, nowS)`, `calc.nextShed(districts)`, `dial.shedMarkMW(obs)`,
   `emergency.shedText(obs)` and `desk.makeConsider` are exported if the app wants the same
@@ -1461,11 +1467,11 @@ Mutation check: 25 of 26 mutants of `app/objective.js` killed, the survivor equi
 |---|---|---|
 | a. never black, nothing unserved on ≥ 9 of 11 | 11 of 11 | 11 of 11 |
 | b. reserve diesel on ≤ 3, none left armed; DR ≤ 1.5 a day | 1 (stood down); DR 0.73 | 0; DR 0.18 |
-| c. cost ≤ 1.3 × par's on ≥ 8 of 11 | 10 (the miss: the diesel day, where par leaves 1,063 MWh dark and the follower none) | 11 |
+| c. cost ≤ 1.3 × par's on ≥ 8 of 11 | 10 (the miss: the diesel day, where par leaves 1,063 MWh dark and the follower none; since §28 par is clean there) | 11 |
 | d. a gas unit stopped before noon and restarted, ≥ 8 of 10 non-heatwave | 10 of 10 | 10 of 10 |
 | e. plan cost lower with STOP and BATTERY followed, unserved never higher | 11 of 11 | 11 of 11 |
 | f. each quoted STOP saving within ±30% or $10,000 | **not met**: 38 of 140 as `tools/follow.mjs` skips; 116 of 140 stop by stop | (both scenarios together) |
-| g. battery at or above par's at 16:30 on hot days | 5 of 6 (all seeds: 7 of 11) | 5 of 6 (7 of 11) |
+| g. battery at or above par's at 16:30 on hot days | 5 of 6 (all seeds: 7 of 11); 6 of 6 (10 of 11) since §28 | 5 of 6 (7 of 11); 6 of 6 (10 of 11) since §28 |
 | h. the no-input day fails on every seed | 11 of 11 | 11 of 11 |
 | i. no line over 170 chars, no NaN, no "short" after a followed hint | 0 violations | 0 violations |
 
@@ -1476,8 +1482,8 @@ Rulings at stage C (integrator):
 | # | Question | Ruling |
 |---|---|---|
 | P-1 | f is not met as written. | **Recorded as not met.** The tool's skip blocks a unit until its next start, so it forgoes a whole queue of later STOPs: the realised figure is the queue's. Stop by stop, 116 of 140 agree (evening and night 99 of 107; mornings 17 of 33, the misses mostly from trips). The line now says "saves about $N if nothing trips before then". The test stays a todo with these figures. |
-| P-2 | g: "on hot days, ≥ 9 of 11" cannot be met when 6 of 11 seeds are hot. | **Read as hot and heatwave days, hot − 1** (5 of 6 on each). Every miss is 0.2–2.1% under a par battery at or near full: AGC regulation draws 10–16 MWh from a full battery in the hour before 16:30 while the follower runs fewer units. |
-| P-3 | i widened to the shortfall branches' own DISCHARGE orders. | **Not part of i.** Four cases on `desk`, each a larger order or a DR call inside one growing evening shortfall; none follows a battery-branch hint. The battery branch's own orders hold "one per 900 grid-s" on all 22 days; a literal rule over every battery input would need the time of the last order in `observe()` (a sim change; not made). |
+| P-2 | g: "on hot days, ≥ 9 of 11" cannot be met when 6 of 11 seeds are hot. | **Read as hot and heatwave days, hot − 1** (5 of 6 on each). Every miss is 0.2–2.1% under a par battery at or near full: AGC regulation draws 10–16 MWh from a full battery in the hour before 16:30 while the follower runs fewer units. Since the final review (§28): 6 of 6 on each, 10 of 11 over all seeds. |
+| P-3 | i widened to the shortfall branches' own DISCHARGE orders. | **Not part of i.** Four cases on `desk` (five since §28: 20260930, 500 MW at 18:51 then a DR call at 18:54), each a larger order or a DR call inside one growing evening shortfall; none follows a battery-branch hint. The battery branch's own orders hold "one per 900 grid-s" on all 22 days; a literal rule over every battery input would need the time of the last order in `observe()` (a sim change; not made). |
 | P-4 | A STOP on a hot morning can lose money if something trips in the afternoon (3 of 10: −$49k to −$90k against a quoted +$31k to +$36k). | **Kept as a stated bet** (SPEC §9.1 Q-38): on a HOT morning, until 10:30 (while a heatwave may still be announced) the STOP must also hold with the heat added; from 10:30 it is checked as forecast (CCGT 2 passes from 10:30, gas turbines from about 09:30); the line says "if nothing trips before then". |
 
 Deviations from §21.4 accepted as built: branch selection ranks lines that carry an action (or
@@ -1494,7 +1500,92 @@ then" and, for gas turbines, "Spare holds without it now:"; the MSL card texts a
 "still to do" is closed with the measurement above, and Q-38 records P-4. `SIM_VERSION`
 `v4-core-2a.1`; the golden re-recorded. No value was tuned at stage C: C-14's tuning was conditional and the no-input day fails on 11 of 11 seeds on both scenarios. P-9's weekday band, M-4 and N-4 stay open.
 
-**Size, at the end of stage C.** First visit 376.5 KB gzip of the 400-KB budget (F-11; was 345.6
-after wave 2): `app/objective.js` is 85 KB raw, 27 KB gzip. Slices 2b–2e have 23.5 KB of
-headroom between them, so the next slice should budget its first-visit bytes up front. The
+**Size, at the end of stage C.** First visit 382.2 KB gzip of the 400-KB budget (F-11; was 345.6
+after wave 2; first recorded here as 376.5, a figure from `tools/baseline-v4.js`, which leaves out
+`desk/desk.css`): `app/objective.js` is 85 KB raw, 27 KB gzip. §28 has the size after the final
+review; the next slice should budget its first-visit bytes up front. The
 default suite runs in 50 s of F-10's 60.
+
+## 28. Final review (2026-10-03)
+
+Before the branch went for review the whole of 2a was read again, by three readers (the seams
+between the waves, the docs against the code, code health), each finding reproduced or refuted by
+a second agent. Three findings were real and major; the rest were minor or docs. Two fix jobs
+(`sim`, `app`), each reviewed again, then merged by hand.
+
+**Fixed, the sim** (`sim/autopilot.js`, `tests/autopilot.test.js`, `tests/planview.test.js`):
+
+* **The dispatch imported while it spilled.** A unit still loading was not in the plan until it
+  reached MIN, so the plan bought its MW on the tie while the dispatch cut wind and solar for
+  them. Now, under `par` (`amend`: par, RE-DISPATCH and the game's dispatch), its output counts
+  along its T2 slope (sim/README.md, autopilot.js). On the follower's days: `desk-weekend`
+  20261017 imported 256 MWh while spilling, now 0 (no-blue minutes with a cut over 100 MW 37 → 2);
+  seed 1, 153 → 0; `desk` 13, 82 → 54 (the rest is the 5-minute dispatch behind fast solar). A
+  test pokes a belly at 12:30 with coal 4 loading and fails without the fix.
+* **Blue with the player's terms on** is a default-suite row now (DR and a DISCHARGE order, then a
+  CHARGE order, against the cut the sim then makes: within 0.4 MW in every column). Any new C-6
+  term (2b's soak, air-con cycling) goes into `sim/grid.js` `surplusMW`, `app/planview.js` and
+  this row.
+
+**Fixed, the app** (`app/objective.js`, `app/system.js`, `app/game.js`, `render/livestack.js`,
+`tools/perf.mjs`, tests):
+
+* **The GUARD after a belly trip.** The line raised the GUARD to 400 MW and never lowered it, so
+  after a trip at minimum (240 MW) the GUARD kept giving 400 MW and frequency sat above 50.15 Hz for
+  up to 590 s. The line now (a) asks for the GUARD at 0 MW while it has fired and frequency is
+  high, (b) never raises it while fired, (c) asks for it back within the hour after a loss of
+  supply ("After the trip the battery GUARD is at 0 MW. Raise it to 400 MW: …"), and (d) orders
+  no spill charge while the GUARD has fired. (c) and (d) go beyond the review's list: without (c)
+  `desk-weekend` 20261001 heard 9 audible alarms (K-8 is ≤ 8), and without (d) seed 5 ordered two
+  charges a minute apart into the released MW (accept i). On the 22 accept days the seconds above
+  50.15 Hz in the 900 s after each trip went from 3,655 to 312 in all (the worst trip 590 s before, the worst 67 s after);
+  days with a trip over `FOS_RECOVER_S` 7 → 0. The slow test runs `desk-weekend` 20261017 and 5;
+  without (a) the first still fails (on "the line turned the GUARD down", 157 s above the band,
+  since (d) alone removes the charge that kept it high) and the second fails the 300-s bound
+  itself (526 s).
+* **Hand edits held at once.** The game asked `sys.edited`, which the system only rescans at its
+  60-grid-s look, so a lever moved by hand and then a START re-dispatched over the hand's keys.
+  `app/system.js heldByHand(sys, state)` scans the log fresh; `app/game.js` and
+  `tests/lib/follow.js` use it.
+* **The line's cost per frame.** One projection and one day-ahead forecast per line (the
+  day-ahead from `weather.forecast`, not a second `observe`); a new consider target recomputes
+  only the consequence (1.6 → 0.09 ms). `tools/perf.mjs` now measures the page's own day: the
+  seed's scenario, the player's commitment and a player following the line.
+* Smaller: SPILL on the stack only while the dispatch cuts more than `SURPLUS_MIN_MW` (and the
+  price is negative); `LINE_MAX_CHARS` exported; the water as par counts it
+  (`planview.waterValue`); the line's errors kept in `vm.objectiveError` (not yet shown);
+  `tests/lib/follow.js` observes only when it acts or measures; a check that the HOT-morning STOP
+  guard reads the heatwave the sim has pre-rolled; a slow K-8 case for the follower on mild
+  weekends (4–7 audible alarms a day).
+
+**Par, after the final review** (`node tools/par.js --scenario … --seeds 1-200 --probe --vs commitAll`,
+and `--heat 100`; wave 2's figure in brackets):
+
+| | `desk` | `desk-weekend` | Target |
+|---|---|---|---|
+| Zero unserved | 191 of 200 (192): MILD 98/101, HOT 68/70, HEATWAVE 25/29 | 195 of 200 (197): MILD 98/101, HOT 68/70, HEATWAVE 29/29 | ≥ 85% |
+| Forced heat, zero unserved | 85 of 100 (86) | 98 of 100 (98) | ≥ 75% |
+| RERT armed | 15 of 200 (13) | 1 of 200 (1) | ≤ 25% |
+| Commit-all dearer than par | 197 of 200 (198) | 200 of 200 (200) | ≥ 70% |
+| Black days | 0 | 0 | 0 |
+| SECURE states holding 49.5 Hz | 6,495 of 6,495 | 6,684 of 6,685 (worst 49.497 Hz) | all |
+
+The seeds par newly leaves unclean (`desk` 10 and 68, `desk-weekend` 29, 36 and 51) shed after
+trips with nothing loading, or on 51 after a trip that is larger because the plan no longer
+over-imports; the S-12 targets hold. CLASSIC (golden re-recorded, `v4-core-2a.1` kept: unreleased):
+zero unserved 181 of 200, forced heat 77, RERT 43, the competent proxy's A 71 of 100, battery
+average charge price $197.
+
+**The follower's accepts** (§21.4, slow, 11 seeds a scenario): a, b, d, e, h unchanged. c: still
+10 of 11 on `desk`, but its miss is now a day par gets through clean (`desk` seed 3: the
+follower arms the reserve diesel and pays 2.0 × par's 7.4 c/kWh). g: 10 of 11, 6 of 6 hot and
+heatwave days, on both scenarios (5 of 6 at stage C). i: 0 violations; widened to the shortfall
+branches' DISCHARGE orders, 5 on `desk` (one more, P-3). f stays not met (P-1).
+
+**Size.** First visit 384.3 KB gzip (`node tools/perf.mjs`, 45 files, 1,108 KB raw):
+15.7 KB of headroom for slices 2b–2e. `app/objective.js` is 85.4 KB raw, 27.6 KB gzip.
+
+Left open: N-4 (par's own import while spilling after a trip: 9,129 MWh over 200 weekend seeds,
+210 of it while a unit loads); `vm.objectiveError` is not rendered; the Live Stack still projects
+on its own cache on the frames the line projects (about 1.2 ms p50); F-11 in a browser was not
+re-run after the final review.

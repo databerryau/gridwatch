@@ -1313,6 +1313,14 @@ state, memo}`. JSDoc has the details. The contract:
     end with its window, so little moves there; the night's recharge (ordered after 15:30) is now
     in par's plan, where before AGC carried the whole order for hours. This moves par on the
     classic day too (198 of 200 rows; S-12 measured again).
+  * *A unit still loading* (final review of 2a; desk/README.md §28). Under `par` (`amend`: par's
+    re-plans, the player's RE-DISPATCH and the game's player-mode dispatch) a unit in mode
+    `'loading'` counts in each plan column before it reaches MIN, along its T2 slope
+    (`schedMW + (minMW - schedMW) x lead / (on - now)`, clamped to 0..1, and not past a booked
+    STOP); from `cx.on` it is a committed unit as before. Without it the plan bought the loading
+    unit's MW on the tie while the dispatch spilled them (256 MWh on `desk-weekend` seed
+    20261017). `preDispatch` and `reflowLit` are unchanged. This moves par on the classic day
+    too (S-12 measured again; golden re-recorded).
   * *Rule 9 in the belly.* The cap "no pickup larger than L" is lifted while the dispatch is
     spilling at least the district's pickup (`obs.wind.autoMW + obs.solar.autoMW >=
     coldLoadMW`): there L is a machine at its 240-MW floor and every pickup (the underlying load,
