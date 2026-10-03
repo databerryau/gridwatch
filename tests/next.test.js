@@ -674,7 +674,7 @@ test('C-2 at boot: a seed that reads as a Saturday or Sunday plays desk-weekend;
   assert.match(readFileSync(join(ROOT, 'app/boot.js'), 'utf8'), /scenario: scenarioForSeed/, 'the real page passes the function');
   // dayText: plain words from the public obs.day only
   assert.equal(dayText({temp: 'HOT', weekend: false}), 'Today: a hot weekday. A heatwave warning, if one comes, comes mid-morning.');
-  assert.equal(dayText({temp: 'MILD', weekend: false}), 'Today: a mild weekday. Rooftop solar will hollow out the middle of the day; the evening still climbs.');
+  assert.equal(dayText({temp: 'MILD', weekend: false}), 'Today: a mild weekday. Rooftop solar will cut the demand your plant must meet around midday; the evening still climbs.');
   assert.match(dayText({temp: 'MILD', weekend: true}), /^Today: a mild weekend\. .* one coal unit has been off since Friday night\.$/);
   assert.match(dayText({temp: 'HOT', weekend: true}), /^Today: a hot weekend\. A heatwave warning, if one comes, comes mid-morning\. /);
   assert.equal(dayText(undefined), '');
@@ -713,7 +713,7 @@ test('the game shows the line through steady(): a line the player has not acted 
   assert.ok(seen.length >= 1 && seen.length <= 2 + Math.ceil(mins / 15) * 2, 'a calm line: ' + seen.length + ' texts in ' + mins + ' grid-min:\n' + seen.map(x => x.text).join('\n'));
   for (const x of seen) assert.ok(x.text.length <= 170);
   // the GUARD line stood with its first figure while the preview's hundredths moved under it
-  assert.match(seen[0].text, /^If your biggest unit tripped now, frequency would fall to 49\.\d\d Hz\. Raise the battery GUARD to \d+ MW/);
+  assert.match(seen[0].text, /^If your biggest unit tripped now, frequency would fall to 49\.\d\d Hz: too low to be secure\. Raise the battery GUARD to \d+ MW/);
   assert.deepEqual(h.vm().objective.action, game.objectiveHeld.line.action);
 });
 

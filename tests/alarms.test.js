@@ -469,10 +469,12 @@ test('MSL cards: MARKET NOTICE, the forecast minimum and its time and the one th
   const rec = (level, atS, minMW = 1540.4) => ({tick: nowS * TPS, kind: 'log', sev: ['good', 'info', 'warn', 'crit'][level], code: level ? 'MSL' + level : 'MSL_CLEAR',
     msg: 'MSL' + Math.max(1, level) + ' notice: lowest forecast demand 1,540 MW at 12:40. MSL1 is 1,600 MW.', level, minMW, atS});
   const c1 = T.cardOf(rec(1, noonS)), c2 = T.cardOf(rec(2, noonS, 1262)), c3 = T.cardOf(rec(3, noonS, 980)), c0 = T.cardOf(rec(0, noonS, 1712));
-  assert.equal(c1.text, 'Lowest demand 1,540 MW at 12:40. Keep battery room for noon.');
-  assert.equal(c2.text, 'Lowest demand 1,262 MW at 12:40. A gas unit at minimum is in the way: see the objective.');
-  assert.equal(c3.text, 'Lowest demand 980 MW at 12:40. Units at minimum exceed demand: stop one, or frequency rises until the roofs back off.');
-  assert.equal(c0.text, 'Low-demand notice cancelled. Lowest demand 1,712 MW at 12:40.');
+  // (made from the record alone: nothing that depends on the desk at that moment, such as whether a
+  // gas unit is running or the battery is already charging on the spill; the objective says that)
+  assert.equal(c1.text, 'Lowest demand 1,540 MW at 12:40. Power spilled then can go into the battery: charge it on the spill.');
+  assert.equal(c2.text, 'Lowest demand 1,262 MW at 12:40. Make room: charge the battery, and stop a gas unit if one is running.');
+  assert.equal(c3.text, 'Lowest demand 980 MW at 12:40. Units at minimum make more than the city uses: stop one, or frequency climbs until rooftop solar cuts back.');
+  assert.equal(c0.text, 'Low-demand notice cancelled: the lowest demand forecast is now 1,712 MW, at 12:40.');
   // MSL1 is information; MSL2 and MSL3 ring
   assert.deepEqual([c1.sev, c2.sev, c3.sev, c0.sev], ['info', 'warn', 'warn', 'info']);
   assert.deepEqual([c1.button.target, c2.button.target, c3.button.target, c0.button.target], ['dial-battery', 'stack', 'stack', 'stack']);
@@ -487,9 +489,12 @@ test('MSL cards: MARKET NOTICE, the forecast minimum and its time and the one th
   // the minimum is the present second (a potline trip, or demand rising as the level clears): a measured value, said as one
   const now = T.cardOf(rec(1, nowS));
   assert.equal(now.text, 'Demand is at its lowest now, 1,540 MW. Charge the battery if it has room.');
-  assert.equal(T.cardOf(rec(0, nowS, 1712)).text, 'Low-demand notice cancelled. Demand is at its lowest now, 1,712 MW.');
+  // cancelled with the minimum at the present second: the forecast does not go lower (never "at its
+  // lowest now" at a higher figure than an earlier card's)
+  assert.equal(T.cardOf(rec(0, nowS, 1712)).text, 'Low-demand notice cancelled: demand is 1,712 MW now, and the forecast does not go lower.');
   // a minimum that is not at midday (the small hours of a mild night) does not say noon
-  assert.equal(T.cardOf(rec(1, (27.5 - V.DAY_START_H) * V.S_PER_H)).text, 'Lowest demand 1,540 MW at 03:30. Keep battery room for then.');
+  assert.equal(T.cardOf(rec(1, (27.5 - V.DAY_START_H) * V.S_PER_H)).text, 'Lowest demand 1,540 MW at 03:30. Power spilled then can go into the battery: charge it on the spill.');
+  for (const c of [T.cardOf(rec(1, nowS)), T.cardOf(rec(0, nowS, 1712))]) assert.ok(c.text.split(/\s+/).length <= T.MAX_WORDS, c.text);
   // in the tray: one card per change of level, the warnings ring twice, and the keys differ
   const tr = T.createTray();
   assert.deepEqual(T.trayRecords(tr, [rec(1, noonS)]), ['tick'], 'MSL1 is information: a tick, no ring');
@@ -503,8 +508,8 @@ test('MSL cards from a real belly: every MSL record the sim logs on a mild weeke
   const until = (13.5 - V.DAY_START_H) * V.S_PER_H * TPS;
   while (st.tick < until) for (const r of step(st)) if (r.kind === 'log' && /^MSL/.test(r.code)) recs.push(r);
   assert.deepEqual(recs.map(r => r.code), ['MSL1', 'MSL_CLEAR'], 'a mild weekend raises an MSL1 notice by 13:30 and cancels it');
-  assert.match(T.cardOf(recs[0]).text, /^(Lowest demand [\d,]+ MW at 1\d:\d\d\. Keep battery room for noon\.|Demand is at its lowest now, [\d,]+ MW\. Charge the battery if it has room\.)$/);
-  assert.match(T.cardOf(recs[1]).text, /^Low-demand notice cancelled\. /);
+  assert.match(T.cardOf(recs[0]).text, /^(Lowest demand [\d,]+ MW at 1\d:\d\d\. Power spilled then can go into the battery: charge it on the spill\.|Demand is at its lowest now, [\d,]+ MW\. Charge the battery if it has room\.)$/);
+  assert.match(T.cardOf(recs[1]).text, /^Low-demand notice cancelled: (demand is [\d,]+ MW now, and the forecast does not go lower|the lowest demand forecast is now [\d,]+ MW, at \d\d:\d\d)\.$/);
   for (const r of recs) {
     const c = T.cardOf(r);
     assert.ok(c, r.code);

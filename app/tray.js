@@ -47,19 +47,22 @@ const mwc = x => String(Math.round(x)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
  * the forecast sees and its time (or that demand is at its lowest now), and the one thing this
  * desk can do at that level; never "below X" (a level held by its hysteresis can sit above its
  * threshold), and never the soak or the backstop (not on this desk yet). MSL1 is information; MSL2
- * and MSL3 ring. Its button only focuses a control, like every card's.
+ * and MSL3 ring. Its button only focuses a control, like every card's. The card is made from the
+ * record alone, so it says nothing that depends on the desk's state at that moment (whether a gas
+ * unit is running, whether the battery is already charging): the objective line says that.
  */
 function mslCard(r) {
   const key = 'msl:' + r.code + ':' + r.tick;
-  const nowS = Math.floor(r.tick / TPS), h = (V.DAY_START_H + r.atS / V.S_PER_H) % V.DAY_H, now = r.atS <= nowS;
+  const nowS = Math.floor(r.tick / TPS), now = r.atS <= nowS;
   const low = now ? 'Demand is at its lowest now, ' + mwc(r.minMW) + ' MW.' : 'Lowest demand ' + mwc(r.minMW) + ' MW at ' + hhmm(r.atS) + '.';
   const stack = {label: 'SEE THE STACK', target: 'stack'};
   switch (r.level) {
-    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (now ? ' Charge the battery if it has room.' : ' Keep battery room for ' + (h >= 10 && h < 15 ? 'noon.' : 'then.')),
+    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (now ? ' Charge the battery if it has room.' : ' Power spilled then can go into the battery: charge it on the spill.'),
       button: {label: 'TO THE BATTERY', target: 'dial-battery'}};
-    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + ' A gas unit at minimum is in the way: see the objective.', button: stack};
-    case 3: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Units at minimum exceed demand: stop one, or frequency rises until the roofs back off.', button: stack};
-    default: return {key, from: SENDERS.market, sev: 'info', text: 'Low-demand notice cancelled. ' + low, button: stack};
+    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Make room: charge the battery, and stop a gas unit if one is running.', button: stack};
+    case 3: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Units at minimum make more than the city uses: stop one, or frequency climbs until rooftop solar cuts back.', button: stack};
+    default: return {key, from: SENDERS.market, sev: 'info', text: 'Low-demand notice cancelled: ' + (now ? 'demand is ' + mwc(r.minMW) + ' MW now, and the forecast does not go lower.'
+      : 'the lowest demand forecast is now ' + mwc(r.minMW) + ' MW, at ' + hhmm(r.atS) + '.'), button: stack};
   }
 }
 

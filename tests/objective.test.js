@@ -167,10 +167,11 @@ test('a MILD morning to 13:00 (seed 8): the follower starts the CCGT for the mor
   assert.deepEqual(stops.map(x => x.action.unit), ['ccgt2', 'ccgt1'], 'the dearest gas unit first, then the next');
   assert.ok(stops.every(x => x.s < secOfH(12)), 'both before 12:00');
   assert.ok(stops[1].s - stops[0].s >= O.STOP_GAP_S, 'one STOP at a time');
-  for (const x of stops) assert.match(x.text, /^RIVERTON CCGT \d is not needed until \d\d:\d\d\. Stop it: saves about \$[\d,]+\. Start it again by \d\d:\d\d\.$/);
+  // (the saving rests on the day going as forecast until the unit is back: the line says so)
+  for (const x of stops) assert.match(x.text, /^RIVERTON CCGT \d is not needed until \d\d:\d\d\. Stop it: saves about \$[\d,]+ if nothing trips before then\. Start it again by \d\d:\d\d\.$/);
   assert.ok(did.includes('battery:battery:charge'), 'the battery charged before the evening');
-  // never thrash: the battery branch's own orders are at least a quarter of an hour apart
-  const orders = day.said.filter(x => x.accepted && x.kind === 'battery' && x.action.mode !== 'idle');
+  // never thrash: the battery branch's own orders, idle included, are at least a quarter of an hour apart
+  const orders = day.said.filter(x => x.accepted && x.kind === 'battery' && x.action.type === 'battery');
   for (let i = 1; i < orders.length; i++) assert.ok(orders[i].s - orders[i - 1].s >= 900, 'battery orders ' + at(orders[i - 1].s) + ' and ' + at(orders[i].s));
   // every line carries a kind the shell knows, and (i) holds on the morning
   for (const x of lines) assert.ok(['watch', 'held', 'short', 'commit', 'restore', 'spare', 'stop', 'battery', 'quiet'].includes(x.kind), x.kind);
@@ -240,6 +241,43 @@ test('STOP condition 1: no line when the desk would be short, one trip in, befor
     if (t >= worst.fromS && t < worst.toS) { assert.ok(harder.gap[k] > plain.gap[k] + V.HEAT_DEMAND_UPLIFT * hot.dayAhead.underlyingP50[k] - 1e-6, 'the uplift and the derate at ' + at(t)); more++; }
   }
   assert.ok(more > 50, 'the whole heat window');
+});
+
+test('STOP condition 1 as written: the largest remaining loss with the water held until 15:30, and on a HOT morning the unannounced heatwave too', () => {
+  const base = morning().keep.stop, m = machine('ccgt2'), u = unit(base, 'ccgt2');
+  const W = Math.max(0, u.outMW - u.minMW) / m.rampMWs + m.t4S + m.minDownS + startToMinS('ccgt2') + O.STOP_CLEAR_S;
+  const n1 = {marginMW: O.MARGIN_MW + O.largestLoss(base, 'ccgt2'), without: 'ccgt2'};
+  assert.ok(O.largestLoss(base, 'ccgt2') >= 500, 'the largest remaining loss: ' + Math.round(O.largestLoss(base, 'ccgt2')) + ' MW');
+  const cols = (fc, from, to) => { const ks = []; for (let k = 0; k < fc.n; k++) { const t = fc.fromS + (k + 1) * fc.stepS; if (t >= from && t < to) ks.push(k); } return ks; };
+  // (a) the water is held for the evening: a morning that holds one trip only on the gorge's water is no time to stop
+  const hold = secOfH(V.PAR_WATER_HOLD_UNTIL_H);
+  const wet = copy(base), ks = cols(wet.dayAhead, base.s, Math.min(hold, base.s + W));
+  const plain = O.capacityGap(wet, wet.dayAhead, n1), water = O.capacityGap(wet, wet.dayAhead, Object.assign({water: true}, n1));
+  const dry = Math.max(...ks.map(k => plain.gap[k])), soaked = Math.max(...ks.map(k => water.gap[k]));
+  assert.ok(dry - soaked > 400, 'the water before 15:30 is worth ' + Math.round(dry - soaked) + ' MW to the check');
+  for (const k of ks) wet.dayAhead.demandP50[k] += 200 - dry; // short by 200 MW with the water held, 200 MW or more to spare with it counted
+  const asWritten = O.capacityShort(wet, wet.dayAhead, n1), withWater = O.capacityShort(wet, wet.dayAhead, Object.assign({water: true}, n1));
+  assert.ok(asWritten && asWritten.atS < base.s + W, 'short as written, inside W');
+  assert.ok(!withWater || withWater.atS >= base.s + W, 'not short inside W if the water were counted for the trip');
+  assert.notEqual(lineOf(wet).kind, 'stop', 'no STOP on water the dispatch is keeping for the evening');
+  // (b) the heatwave that may still be announced: only on a HOT morning before the announcement, inside its window
+  const heat = DESK.events.heat;
+  const warm = copy(base);
+  warm.day.temp = 'HOT';
+  const worst = O.heatWorstCase(warm);
+  assert.ok(worst && warm.s < secOfH(heat.announceH));
+  const hk = cols(warm.dayAhead, Math.max(worst.fromS, base.s), base.s + W);
+  assert.ok(hk.length > 6, 'the heat window falls inside W');
+  const p0 = O.capacityGap(warm, warm.dayAhead, n1), h0 = O.capacityGap(warm, warm.dayAhead, Object.assign({heat: worst}, n1));
+  const top = Math.max(...hk.map(k => p0.gap[k]));
+  for (const k of hk) warm.dayAhead.demandP50[k] += -top; // exactly covered in the plain check
+  const hotLine = lineOf(warm), mildLine = lineOf(Object.assign(copy(warm), {day: {temp: 'MILD', weekend: false}}));
+  assert.ok(Math.max(...hk.map(k => h0.gap[k] - p0.gap[k])) >= O.SHORT_MIN_MW, 'the uplift and the derate are worth a run');
+  assert.notEqual(hotLine.kind, 'stop', 'HOT, unannounced: the heatwave may come, and the unit could not be back for it: ' + hotLine.text);
+  assert.equal(mildLine.kind, 'stop', 'the same morning on a MILD day: no heatwave is coming');
+  const told = copy(warm);
+  told.s = secOfH(heat.announceH); // past the announcement hour with none announced: none is coming
+  assert.equal(O.heatWorstCase(told), null);
 });
 
 test('STOP conditions 2 and 3: only while SECURE with the unit\'s own headroom to spare, and only from its floor', () => {
@@ -380,17 +418,24 @@ test('short now outranks everything else: the battery first, sized to what is sh
   const x = lineOf(short);
   assert.equal(x.kind, 'short');
   assert.equal(x.level, 'crit');
-  assert.match(x.text, /^Short [\d,]+ MW now\. Too late to plan for it: /);
+  assert.match(x.text, /^Short [\d,]+ MW now: /);
+  assert.doesNotMatch(x.text, /too late to plan/i, 'a trip nobody could foresee is nobody\'s fault');
   assert.ok(x.action.type === 'battery' || x.action.type === 'guard', 'the battery is there in seconds: ' + JSON.stringify(x.action));
   if (x.action.type === 'battery') assert.equal(x.action.mode, 'discharge');
   assert.ok(x.text.length <= 170, x.text);
-  // an empty battery, nothing left to start: demand response
+  // while the battery or a start can answer, demand response is neither named nor lit
+  assert.doesNotMatch(x.text, /demand response|\bDR\b/);
+  assert.ok(!x.targets.includes('btn-dr'), x.targets.join());
+  // an empty battery, nothing left to start: demand response, said in words
   const bare = copy(short);
   bare.battery.socMWh = V.PAR_BATT_RESERVE_FRAC * V.BATT_MWH;
   for (const u of bare.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
   const y = lineOf(bare);
   assert.equal(y.kind, 'short');
   assert.deepEqual(y.action, {type: 'callDR'});
+  assert.match(y.text, /call demand response \(hold D\): industry cuts 350 MW for 1 h\.$/);
+  assert.equal(V.DR_MW, 350);
+  assert.equal(V.DR_DURATION_S, 3600);
   // and with no calls left the line says what is already on its way, and asks for nothing
   bare.dr.callsLeft = 0;
   const z = lineOf(bare);
@@ -398,16 +443,221 @@ test('short now outranks everything else: the battery first, sized to what is sh
   assert.equal(z.action, null);
 });
 
-test('spare: the GUARD for the first second, sized in one line; the reserve diesel is stood down once the desk holds without it', () => {
+// ------------------------------------------------------------------ the line says what is true (wave-3 review)
+
+// The morning's STOP observation with no STOP to make and nothing to charge: the commit and quiet lines speak.
+function plain() {
+  const o = copy(morning().keep.stop);
+  for (const u of o.units) if (u.cls === 'ccgt') u.stopBlock = 'minimum up time: 100 min left';
+  o.battery.socMWh = o.battery.capMWh;
+  return o;
+}
+const shift = (fc, mw, from = -Infinity, to = Infinity) => { for (let k = 0; k < fc.n; k++) { const t = fc.fromS + (k + 1) * fc.stepS; if (t >= from && t < to) fc.demandP50[k] += mw; } };
+const maxGap = (G, from = -Infinity, to = Infinity) => { let m = -Infinity; for (let k = 0; k < G.n; k++) { const t = G.fromS + (k + 1) * G.stepS; if (t >= from && t < to) m = Math.max(m, G.gap[k]); } return m; };
+/** Demand set so that the check G (a gap of the same forecast) reads target(k) in every column from..to (MW; G moves one for one with demand). */
+const setGap = (fc, G, target, from = -Infinity, to = Infinity) => { for (let k = 0; k < fc.n; k++) { const t = fc.fromS + (k + 1) * fc.stepS; if (t >= from && t < to) fc.demandP50[k] += (typeof target === 'function' ? target(k) : target) - G.gap[k]; } };
+
+test('the commit line: "You are N MW short now" only when the desk really is; otherwise what the hour lacks against a safe margin', () => {
+  const base = plain();
+  // short of the planning margin from now (the water held for the evening), rising over the hour as an
+  // evening ramp does, with the gorge and the tie able to cover it
+  const both = (o, G, target, from, to) => { const d = o.dayAhead.demandP50.slice(); setGap(o.dayAhead, G, target, from, to); for (let k = 0; k < o.forecast.n; k++) o.forecast.demandP50[k] += o.dayAhead.demandP50[k] - d[k]; };
+  // the thermal units well up their range (as on an evening ramp), so their own ramp is not what limits them
+  for (const u of base.units) if (u.mode === 'on' && u.station !== 'hydro') u.outMW = Math.max(u.outMW, 0.9 * u.availMW);
+  const o = copy(base), T = O.capacityGap(o, o.dayAhead, {marginMW: O.MARGIN_MW});
+  both(o, T, k => 50 + 25 * k, -Infinity, o.s + S_PER_H);
+  const R = O.capacityGap(o, o.forecast, {real: true});
+  assert.ok(maxGap(R, -Infinity, o.s + 301) < 0, 'the real check (the gorge and the tie counted) covers the next minutes: ' + Math.round(maxGap(R, -Infinity, o.s + 301)));
+  const x = objective(o, {edited: false, planview: PV, dayAhead: o.dayAhead, proj: PV.project(base)});
+  assert.equal(x.kind, 'commit');
+  assert.equal(x.level, 'act');
+  assert.match(x.text, /^Within the hour you will be up to [\d,]+ MW short of a safe margin\. Start [A-Z·0-9 ]+ now: it takes /);
+  assert.doesNotMatch(x.text, /You are|until then/, 'not short now, and no gap for anything to carry: ' + x.text);
+  // the same with the desk really short in the next minutes (its plan as it was: the short-now line is the plan's)
+  const r = copy(o);
+  both(r, R, 150, -Infinity, o.s + 601);
+  Object.assign(r.battery, {mode: 'idle', orderMW: 0, fullHold: false});
+  const y = objective(r, {edited: false, planview: PV, dayAhead: r.dayAhead, proj: PV.project(base)});
+  assert.equal(y.kind, 'commit');
+  assert.match(y.text, /^You are [\d,]+ MW short now\. Start [A-Z·0-9 ]+ now: it takes [^;]+; until then the battery and the spare on the grid carry the gap\.$/);
+  // a charging battery is never said to carry it
+  const c = copy(r);
+  Object.assign(c.battery, {mode: 'charge', orderMW: 100, socMWh: 700});
+  assert.match(objective(c, {edited: false, planview: PV, dayAhead: c.dayAhead, proj: PV.project(base)}).text, /until then the spare on the grid carries the gap\.$/);
+});
+
+test('the commit line for a trip\'s worth of spare: "From about" on the quarter hour after it, never before the deadline plus the lead; "Another trip" just after one', () => {
+  // no water above the reserve: the trip check is the forecast plus 650 MW at any hour
+  const base = plain();
+  base.hydro.storageMWh = V.PAR_WATER_RESERVE_MWH;
+  const T = O.capacityGap(base, base.dayAhead, {marginMW: O.MARGIN_MW});
+  // covered by 100 MW in the planning check from 2 h ahead for an hour, and 400 MW short of a trip's worth of spare
+  const from = base.s + 2 * S_PER_H, o = copy(base);
+  shift(o.dayAhead, -2000, -Infinity, from); shift(o.dayAhead, -2000, from + S_PER_H);
+  shift(o.dayAhead, -100 - maxGap(T, from, from + S_PER_H), from, from + S_PER_H);
+  const G = O.tripGap(o, o.dayAhead, 500);
+  assert.ok(maxGap(G, from, from + S_PER_H) >= 300 && maxGap(O.capacityGap(o, o.dayAhead, {marginMW: O.MARGIN_MW})) < 0);
+  const x = lineOf(o);
+  assert.equal(x.kind, 'commit');
+  const m = /^From about (\d\d):(\d\d) one trip would leave you short\. Start ([A-Z·0-9 ]+) by (\d\d):(\d\d): it takes (\d+) min to reach the grid\.$/.exec(x.text);
+  assert.ok(m, x.text);
+  const needS = secOfH(Number(m[1]) + Number(m[2]) / 60), byS = secOfH(Number(m[4]) + Number(m[5]) / 60);
+  assert.equal(needS % 900, 0, 'on the quarter hour');
+  assert.ok(byS + Number(m[6]) * 60 <= needS, 'start by ' + m[4] + ':' + m[5] + ' + ' + m[6] + ' min is before ' + m[1] + ':' + m[2]);
+  // with the trip margin gone the same plant is enough: the margin is what asked for the unit
+  const noTrip = O.tripGap(o, o.dayAhead, 0);
+  assert.ok(maxGap(noTrip) < O.SHORT_MIN_MW);
+  // a trip's worth missing from now, a quarter of an hour after a trip: "Another trip"
+  const now = copy(base);
+  setGap(now.dayAhead, T, -100, -Infinity, now.s + S_PER_H); setGap(now.dayAhead, T, -2000, now.s + S_PER_H);
+  now.contingencies.push({n: 1, startS: now.s - 300, cause: 'link', id: 'tie', lostMW: 500, watchEndS: now.s - 260, backInBandS: -1});
+  assert.match(lineOf(now).text, /^Another trip now would leave you short\. Start [A-Z·0-9 ]+ now: /);
+  now.contingencies[0].startS = now.s - 900;
+  assert.match(lineOf(now).text, /^One trip now would leave you short\. /);
+});
+
+test('the commit line for a slow unit that cannot reach the shortfall: when it arrives, and what holds the desk until then', () => {
+  const base = plain();
+  // every fast machine committed or blocked: only coal 4, off since the small hours, can start
+  for (const u of base.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
+  Object.assign(unit(base, 'coal4'), {mode: 'off', outMW: 0, schedMW: 0, startBlock: '', stopBlock: 'unit is off'});
+  const T = O.capacityGap(base, base.dayAhead, {marginMW: O.MARGIN_MW}), from = base.s + 1800;
+  const o = copy(base);
+  setGap(o.dayAhead, T, 300, from, from + 5 * S_PER_H);
+  const x = lineOf(o), arrive = o.s + unit(o, 'coal4').startToMinS;
+  assert.equal(x.kind, 'commit');
+  assert.deepEqual(x.action, {type: 'start', unit: 'coal4'});
+  assert.match(x.text, /^Start MT HAZEL COAL 4 now: it reaches the grid at (\d\d:\d\d), too late for \d\d:\d\d\. Until then, (what the plant cannot give is the battery's to carry|the plant covers the forecast with less spare than it should have)\.$/);
+  assert.equal(/at (\d\d:\d\d), too late/.exec(x.text)[1], at(arrive));
+  assert.doesNotMatch(x.text, /You will be|short from/, 'no shortfall figure the desk will not see');
+});
+
+test('the quiet line: "Enough plant" only with nothing short of a trip\'s worth of spare; every unit committed and a gap ahead is said plainly', () => {
+  const base = plain();
+  const G = O.tripGap(base, base.dayAhead, 500), top = maxGap(G);
+  // nothing ahead within 40 MW of a trip's worth of spare: enough
+  const ok = copy(base);
+  shift(ok.dayAhead, 40 - O.THIN_MW - top);
+  assert.match(lineOf(ok).text, /^Enough plant is committed for the rest of the day\. /);
+  // a thin band (THIN_MW to SHORT_MIN_MW): covered, but with little spare for a trip; never "enough"
+  const thin = copy(base);
+  shift(thin.dayAhead, (O.THIN_MW + O.SHORT_MIN_MW) / 2 - top);
+  const t = lineOf(thin);
+  assert.equal(t.kind, 'quiet');
+  assert.match(t.text, /^Committed plant covers the forecast, but with little spare for a trip( from about \d\d:\d\d)?\./);
+  // every unit that can run committed, and the evening more than they can give: said, with what carries it
+  const all = copy(base);
+  for (const u of all.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
+  shift(all.dayAhead, 1500, secOfH(18), secOfH(20));
+  const a = lineOf(all);
+  assert.equal(a.kind, 'quiet');
+  assert.match(a.text, /^Every unit (that can run )?is committed\. From about 1[78]:\d\d demand is about [\d,]+ MW more than they can give: (the battery, then demand response, carry it|more than the battery and demand response can carry)\.$/);
+  // "no higher demand" only when none is ahead
+  const peak = copy(base);
+  const fc = peak.dayAhead;
+  for (let k = 0; k < fc.n; k++) fc.demandP50[k] = peak.demand.nowMW - 500;
+  for (let k = 0; k < fc.n; k++) { const t = fc.fromS + (k + 1) * fc.stepS; if (t >= secOfH(19) && t < secOfH(19.25)) fc.demandP50[k] = peak.demand.nowMW + 150; }
+  assert.match(lineOf(peak).text, /Highest demand ahead: about [\d,]+ MW at 19:\d\d\.$/);
+  for (let k = 0; k < fc.n; k++) { const t = fc.fromS + (k + 1) * fc.stepS; if (t >= secOfH(19) && t < secOfH(19.25)) fc.demandP50[k] = peak.demand.nowMW + 50; }
+  assert.match(lineOf(peak).text, /No higher demand is ahead today\.$/, 'within the figure\'s own rounding of now');
+  for (const o of [ok, thin, all, peak]) assert.ok(lineOf(o).text.length <= 170, lineOf(o).text);
+});
+
+test('short now: the plan\'s red within five minutes is an emergency only when the desk at its limits is short there too', () => {
+  const o = plain(), P = PV.project(o);
+  P.gap[0] = 'red'; P.deficit[0] = 500;
+  const ctx = {edited: false, planview: PV, dayAhead: o.dayAhead, proj: P};
+  assert.ok(maxGap(O.capacityGap(o, o.forecast, {real: true}), -Infinity, o.s + 301) < -O.SHORT_MIN_MW, 'the real check has room');
+  assert.notEqual(objective(o, ctx).kind, 'short', 'a plan still climbing to its keyframe is not "Short now"');
+  const r = copy(o);
+  const R = O.capacityGap(r, r.forecast, {real: true});
+  setGap(r.forecast, R, 200, -Infinity, r.s + 301);
+  const x = objective(r, Object.assign({}, ctx, {dayAhead: r.dayAhead}));
+  assert.equal(x.kind, 'short');
+  assert.match(x.text, /^Short [\d,]+ MW now: /);
+});
+
+test('STOP saving: the energy that replaces the unit is free in columns where power would be spilled', () => {
+  const base = morning().keep.stop, u = unit(base, 'ccgt2'), m = machine('ccgt2');
+  const proj = PV.project(base), backS = base.s + 3 * S_PER_H;
+  const none = Object.assign({}, proj, {surplusMW: new Float64Array(proj.n)});
+  const all = Object.assign({}, proj, {surplusMW: new Float64Array(proj.n).fill(500)});
+  const paid = O.stopSaving(base, u, backS, base.dayAhead, none), free = O.stopSaving(base, u, backS, base.dayAhead, all);
+  assert.ok(free > paid + 1000, 'free replacement saves more: ' + Math.round(free) + ' vs ' + Math.round(paid));
+  // its idle columns all inside the plan view and all spilled: the saving is exactly the unit's own
+  // fuel and no-load for them, less one start
+  const h = base.dayAhead.stepS / S_PER_H, offS = base.s + Math.max(0, u.outMW - u.minMW) / m.rampMWs + m.t4S / 2, onS = backS + m.t1S + V.AUTO_SYNC_S + m.t2S / 2;
+  let n = 0, inside = true;
+  for (let k = 0; k < base.dayAhead.n; k++) {
+    const t = base.dayAhead.fromS + (k + 1) * base.dayAhead.stepS;
+    if (t > offS && t <= onS) { n++; if (!(k < proj.n && Math.abs(proj.times[k] - t) < 1)) inside = false; }
+  }
+  assert.ok(inside && n > 20, n + ' idle columns, all inside the plan view');
+  const own = (u.minMW * u.offer + m.noLoadPerS * S_PER_H) * h;
+  assert.ok(Math.abs(free - (n * own - m.startCost)) < 1, Math.round(free) + ' vs ' + Math.round(n * own - m.startCost));
+});
+
+test('the reserve diesel is stood down only when HALF of the battery\'s and demand response\'s energy would carry what is left (a band, so the two never chase each other)', () => {
+  const o = plain();
+  for (const u of o.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
+  Object.assign(o.rert, {armed: true, leadS: 0, outMW: V.RERT_MW, standingDown: false, armedEver: true});
+  Object.assign(o.battery, {socMWh: 1000, mode: 'idle', orderMW: 0});
+  const R0 = O.capacityGap(o, o.dayAhead, {real: true, rert: false}), F0 = O.capacityGap(o, o.forecast, {real: true, rert: false});
+  const above = 1000 - V.PAR_BATT_RESERVE_FRAC * V.BATT_MWH, drE = V.DR_MW * V.DR_CALLS * V.DR_DURATION_S / S_PER_H;
+  // without the diesel, 4 h of a gap the battery and demand response could carry in full, but not on half their energy
+  const gapMW = Math.min(V.RERT_MW, Math.round(0.75 * (above + drE) / 4)) - V.PAR_RERT_MARGIN_MW;
+  const deep = copy(o);
+  setGap(deep.dayAhead, R0, gapMW, o.s + 600, o.s + 4 * S_PER_H + 600); setGap(deep.forecast, F0, gapMW, o.s + 600, o.s + 4 * S_PER_H + 600);
+  assert.ok((gapMW + V.PAR_RERT_MARGIN_MW) * 4 > (above + drE) / 2 && (gapMW + V.PAR_RERT_MARGIN_MW) * 4 < above + drE);
+  const x = lineOf(deep);
+  assert.ok(!(x.action && x.action.type === 'standDownRERT'), 'half would not carry it: the diesel stays: ' + x.text);
+  // a gap a quarter of their energy carries: stand it down
+  const shallow = copy(o);
+  setGap(shallow.dayAhead, R0, gapMW / 3, o.s + 600, o.s + 4 * S_PER_H + 600); setGap(shallow.forecast, F0, gapMW / 3, o.s + 600, o.s + 4 * S_PER_H + 600);
+  assert.deepEqual(lineOf(shallow).action, {type: 'standDownRERT'});
+});
+
+test('the watch line names what tripped: a unit, the tie line or a smelter potline', () => {
+  const o = copy(morning().keep.stop);
+  o.inWatch = true;
+  o.contingency = {n: 3, cause: 'unit', id: 'coal1', lostMW: 455};
+  assert.equal(lineOf(o).text, 'MT HAZEL COAL 1 has tripped. The desk is locked while the grid catches itself: watch.');
+  o.contingency = {n: 3, cause: 'link', id: 'tie', lostMW: 564};
+  assert.equal(lineOf(o).text, 'The tie line has tripped. The desk is locked while the grid catches itself: watch.');
+  o.contingency = {n: 3, cause: 'load', id: 'smelter', lostMW: -256};
+  assert.equal(lineOf(o).text, 'A smelter potline has tripped: 260 MW of load gone. The desk is locked while the grid catches itself: watch.');
+  o.contingency = null;
+  assert.equal(lineOf(o).text, 'A unit has tripped. The desk is locked while the grid catches itself: watch.');
+});
+
+test('spare: the GUARD for the first second, asked once for all the battery can hold; the reserve diesel is stood down once the desk holds without it', () => {
   const {keep} = morning();
   const g = lineOf(keep.guard);
   assert.equal(g.kind, 'spare');
   assert.equal(g.level, 'act');
   assert.equal(g.action.type, 'guard');
   assert.ok(g.action.mw > keep.guard.battery.guardMW && g.action.mw <= V.PAR_GUARD_MAX_MW && g.action.mw % V.PAR_GUARD_STEP_MW === 0);
-  assert.match(g.text, /^If (your biggest unit|the tie line) tripped now, frequency would fall to 4\d\.\d\d Hz\. Raise the battery GUARD to \d+ MW: it catches the fall in the first second\.$/);
+  assert.match(g.text, /^If (your biggest unit|the tie line) tripped now, frequency would fall to 4\d\.\d\d Hz: too low to be secure\. Raise the battery GUARD to \d+ MW: it catches the fall in the first second\.$/);
+  assert.ok(keep.guard.sec.previewNadirHz < V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ, '"too low to be secure": under the SECURE line');
   assert.deepEqual(g.targets, ['gauge-n1', 'ring-guard']);
   assert.doesNotMatch(g.text, /R5|N-1|LOR|\bL\b/, 'plain words');
+  // asked once: the most the battery can hold (each step is worth less than the one before, so a
+  // line sized on one step's worth asked again a minute later)
+  const room = copy(keep.guard);
+  Object.assign(room.battery, {guardMW: 0, mode: 'idle', orderMW: 0, socMWh: 900});
+  assert.deepEqual(lineOf(room).action, {type: 'guard', mw: V.PAR_GUARD_MAX_MW});
+  // ...as far as the battery can sustain it, and never into MW an order is using
+  const low = copy(room);
+  low.battery.socMWh = (V.PAR_GUARD_MAX_MW - 50) * V.GUARD_SUSTAIN_S / S_PER_H;
+  assert.deepEqual(lineOf(low).action, {type: 'guard', mw: V.PAR_GUARD_MAX_MW - V.PAR_GUARD_STEP_MW});
+  const busy = copy(room);
+  Object.assign(busy.battery, {mode: 'charge', orderMW: 250});
+  assert.deepEqual(lineOf(busy).action, {type: 'guard', mw: 200}, 'the ring takes only what the dial is not using: 500 - 250');
+  // the preview is stale after an input (with the clock held it stays so until Space): no second ask on it
+  const stale = copy(room);
+  Object.assign(stale.battery, {guardMW: 200});
+  stale.sec.dirty = true;
+  assert.ok(!(lineOf(stale).action && lineOf(stale).action.type === 'guard'), lineOf(stale).text);
   // armed for nothing: on a morning that holds without it, the reserve diesel goes first
   const armed = copy(keep.stop);
   Object.assign(armed.rert, {armed: true, leadS: 600, outMW: 0, standingDown: false, armedEver: true});
@@ -431,8 +681,35 @@ test('battery: charge before the evening when the evening needs it, on what is s
   assert.equal(x.action.type, 'battery');
   assert.equal(x.action.mode, 'charge');
   assert.deepEqual(x.targets, ['dial-battery']);
-  assert.match(x.text, /^The battery is at \d+%\. Charge it at \d+ MW before 15:30: tonight's peak will want it\.$/);
+  assert.match(x.text, /^The battery is at \d+%\. Charge it at \d+ MW now, to be full by 15:30: tonight's peak will want it\.$/);
   assert.ok(obs.s >= secOfH(V.PAR_BATT_CHARGE_H[0]) && obs.s < secOfH(V.PAR_BATT_CHARGE_H[1]), 'inside the charge window');
+  // not within a quarter of an hour of a trip (the desk is catching it); from a quarter of an hour on, yes
+  const trip = copy(obs);
+  trip.contingencies.push({n: 1, startS: obs.s - 600, cause: 'unit', id: 'coal2', lostMW: 500, watchEndS: obs.s - 560, backInBandS: -1});
+  assert.ok(!(lineOf(trip).action && lineOf(trip).action.type === 'battery'), 'ten minutes after a trip: ' + lineOf(trip).text);
+  trip.contingencies[0].startS = obs.s - 900;
+  assert.deepEqual(lineOf(trip).action, x.action, 'fifteen minutes after');
+  // never more than the committed plant can carry on top of demand in the coming hour (the 4.5-h
+  // forecast poked 40 MW under that; the plan as it was, so the plan's own columns stay clear)
+  const thin = copy(obs);
+  const G = O.capacityGap(thin, thin.forecast, {marginMW: O.MARGIN_MW});
+  let spare = Infinity;
+  for (let k = 0; k < G.n && (k + 1) * G.stepS <= S_PER_H; k++) spare = Math.min(spare, -G.gap[k]);
+  for (let k = 0; k < thin.forecast.n; k++) thin.forecast.demandP50[k] += spare - 40;
+  assert.ok(x.action.mw >= 50 && spare > 100, 'the order the line made with room: ' + x.action.mw + ' MW, ' + Math.round(spare) + ' MW spare');
+  const t = objective(thin, {edited: false, planview: PV, dayAhead: thin.dayAhead, proj: PV.project(obs)});
+  assert.ok(!(t.action && t.action.type === 'battery'), '40 MW of spare cannot carry a 50-MW charge: ' + t.text);
+  // a price of $0 or less with nothing spilled: free power too, sized to what the GUARD leaves and the plant can carry
+  const neg = copy(obs);
+  Object.assign(neg.price, {mwh: -20});
+  neg.wind.autoMW = 0; neg.solar.autoMW = 0;
+  const projNeg = PV.project(neg);
+  for (let k = 0; k < projNeg.n; k++) projNeg.surplusMW[k] = 0;
+  const p = objective(neg, {edited: false, planview: PV, dayAhead: neg.dayAhead, proj: projNeg});
+  assert.equal(p.kind, 'battery');
+  assert.equal(p.action.mode, 'charge');
+  assert.equal(p.action.mw, Math.floor(Math.min(neg.battery.ratedMW - neg.battery.guardMW, V.PAR_BATT_CHARGE_MAX_MW) / V.GUARD_STEP_MW) * V.GUARD_STEP_MW);
+  assert.match(p.text, /^The price is −\$20\. Charge the battery at \d+ MW: power costs nothing now and is worth gas prices tonight\.$/);
   // the order made: the same observation with the battery charging at it proposes no battery order
   const made = copy(obs);
   Object.assign(made.battery, {mode: 'charge', orderMW: x.action.mw});
@@ -447,7 +724,7 @@ test('battery: charge before the evening when the evening needs it, on what is s
   spill.wind.autoMW = 180; spill.solar.autoMW = 60;
   const z = lineOf(spill);
   assert.equal(z.kind, 'battery');
-  assert.match(z.text, /^Power is being spilled\. Charge the battery at \d+ MW: it is free now and worth gas prices tonight\.$/);
+  assert.match(z.text, /^Power is being spilled\. Charge the battery at \d+ MW: it takes what would be wasted, and tonight that is worth gas prices\.$/);
   const lim = spill.battery.ratedMW - spill.battery.guardMW;
   assert.equal(z.action.mw, Math.floor(Math.min(lim, V.PAR_BATT_CHARGE_MAX_MW, 240) / V.GUARD_STEP_MW) * V.GUARD_STEP_MW);
   // short while it charges: the short-now line outranks the battery's own, and asks for the battery the other way
@@ -479,7 +756,7 @@ test('battery in the evening: discharge while gas sets the price, at a rate that
   const ring = copy(eve);
   ring.battery.guardMW = 400;
   assert.deepEqual(lineOf(ring).action, {type: 'battery', mode: 'discharge', mw: 100});
-  assert.match(lineOf(ring).text, /it is what the GUARD leaves and keeps 20% for a trip\.$/);
+  assert.equal(lineOf(ring).text, 'Gas is setting the price ($137). Discharge the battery at 100 MW, all the GUARD leaves free, down to 20%: the rest is kept for a trip.');
   // coal at the margin: the charge is worth more later
   const coal = copy(eve);
   coal.price = {mwh: 26, marginalId: 'coal1', adder: 0, exhausted: false, x: 0};
@@ -498,11 +775,21 @@ test('battery in the evening: discharge while gas sets the price, at a rate that
   Object.assign(late.battery, {mode: 'discharge', orderMW: 100, socMWh: 400});
   assert.deepEqual(lineOf(late).action, idle);
   assert.match(lineOf(late).text, /^The evening is over\. /);
+  // A charge still running into the evening: while coal sets the price it tops the battery up (no
+  // order: idle now and discharge a few minutes later would be two orders for one); once gas sets
+  // it, the discharge is the one order, from the charge.
   const into = copy(coal);
-  Object.assign(into.battery, {mode: 'charge', orderMW: 100, socMWh: 500});
-  assert.deepEqual(lineOf(into).action, idle);
-  assert.equal(lineOf(into).text, 'The evening has begun. Set the battery to idle: charging now buys gas.');
-  for (const o of [eve, ring, low, late, into]) assert.equal(lineOf(o).kind, 'battery', 'a BATTERY line never reads SHORT');
+  Object.assign(into.battery, {mode: 'charge', orderMW: 100, socMWh: 950});
+  assert.ok(!(lineOf(into).action && lineOf(into).action.type === 'battery'), 'coal at the margin: the top-up runs on: ' + lineOf(into).text);
+  const gasInto = copy(eve);
+  Object.assign(gasInto.battery, {mode: 'charge', orderMW: 100, socMWh: 950});
+  assert.equal(lineOf(gasInto).action.mode, 'discharge', 'gas at the margin: straight to the discharge');
+  // a charge into the evening with the battery near its reserve (nothing to discharge): idle, and why
+  const lowInto = copy(eve);
+  Object.assign(lowInto.battery, {mode: 'charge', orderMW: 100, socMWh: reserve + 10});
+  assert.deepEqual(lineOf(lowInto).action, idle);
+  assert.equal(lineOf(lowInto).text, 'Gas is setting the price ($137). Set the battery to idle: charging now buys gas.');
+  for (const o of [eve, ring, low, late, gasInto, lowInto]) assert.equal(lineOf(o).kind, 'battery', 'a BATTERY line never reads SHORT');
 });
 
 // ------------------------------------------------------------------ the start cascade (§21.4)
@@ -566,6 +853,28 @@ test('steady: a line whose deadline or figure moves while it asks for the same t
   assert.equal(steady({line: a, seenS: 1000}, other, 1060).line, other);
   const quiet = {level: 'ok', kind: 'quiet', text: 'Enough plant is committed.', targets: [], action: null, startBy: -1, short: null, long: null};
   assert.equal(steady({line: a, seenS: 1000}, quiet, 1060).line, quiet);
+  // other words are other news, shown at once even with the same kind, controls and deadline: a real
+  // shortfall where there was only a deadline, another risk
+  const next = plan('Next: start GT·A by 15:05 for the afternoon.', 4500), real = plan('You will be 400 MW short from 15:15. Start GT·A by 15:05.', 4500);
+  assert.equal(steady({line: next, seenS: 1000}, real, 1060).line, real);
+  const tie = {level: 'plan', kind: 'spare', text: 'Demand is covered, but losing the tie line would not be caught.', targets: ['gauge-n1', 'ring-guard'], action: null, startBy: -1, short: null, long: null};
+  const big = Object.assign({}, tie, {text: 'Demand is covered, but losing your biggest unit would not be caught.'});
+  assert.equal(steady({line: tie, seenS: 1000}, big, 1060).line, big);
+  // a quiet line (nothing to do, no deadline) is shown for STEADY_QUIET_S against another quiet line:
+  // the forecast's noise crosses its band edges a minute at a time
+  const q2 = Object.assign({}, quiet, {text: 'Committed plant covers the forecast, but with little spare for a trip.'});
+  let qh = steady(null, quiet, 2000);
+  qh = steady(qh, q2, 2060);
+  assert.equal(qh.line.text, quiet.text, 'a minute later: still the first');
+  qh = steady(qh, quiet, 2120);
+  qh = steady(qh, q2, 2000 + O.STEADY_QUIET_S - 1);
+  assert.equal(qh.line.text, quiet.text);
+  qh = steady(qh, q2, 2000 + O.STEADY_QUIET_S);
+  assert.equal(qh.line.text, q2.text, 'after STEADY_QUIET_S the fresh one');
+  assert.equal(qh.sinceS, 2000 + O.STEADY_QUIET_S);
+  // ...and never over a line that asks for something
+  const ask = Object.assign({}, quiet, {kind: 'commit', level: 'act', text: 'One trip now would leave you short. Start GT·C 1 now.', action: {type: 'start', unit: 'gtc1'}});
+  assert.equal(steady(steady(null, quiet, 3000), ask, 3060).line, ask);
   // on the followed morning it changes no action and shows fewer distinct lines
   const {lines} = morning();
   let held = null, shown = 0, raw = 0, lastShown = '', lastRaw = '';
@@ -612,14 +921,47 @@ test('C-10 consequence: STOP says when the unit leaves the grid and the earliest
   const day = s => at(s) + (s >= V.DAY_S ? ' tomorrow' : '');
   assert.ok(coal.text.startsWith('STOP MT HAZEL COAL 1: off the grid in ' + span(cb.openS - obs.s) + ', and not back at minimum load before ' + day(cb.backS) + '.'), coal.text);
   assert.equal(coal.level, 'crit', 'the press opens a shortfall the unit cannot be back for');
-  assert.match(coal.text, /(you would be a further [\d,]+ MW short|would be [\d,]+ MW short from \d\d:\d\d|one trip would then leave you short)\.$/);
+  assert.match(coal.text, /( From \d\d:\d\d you would need [\d,]+ MW more than the line asks for| [A-Z][a-z' ]+ would be [\d,]+ MW short from \d\d:\d\d|one trip would then leave you short)\.$/);
   assert.ok(cb.backS - obs.s > machine('coal1').minDownS + machine('coal1').t4S, 'more than the 8 h of minimum down time');
   assert.ok(coal.text.length <= 170, coal.text);
+  // A coal machine well above its floor is still on the grid for hours after the press: the shortfall
+  // is said from when it begins, never "at once" (the unit counted down its ramp and the T4 slope).
+  const high = copy(obs);
+  Object.assign(unit(high, 'coal1'), {outMW: 560});
+  // the morning short at once if the unit were simply gone (100 MW over what the rest can give, the margin included)
+  const gone = O.capacityGap(high, high.dayAhead, {marginMW: O.MARGIN_MW, without: 'coal1'});
+  const lift = 100 - maxGap(gone, -Infinity, high.s + 3 * S_PER_H);
+  for (const fc of [high.forecast, high.dayAhead]) shift(fc, lift, -Infinity, high.s + 3 * S_PER_H);
+  const hc = consequence(high, 'guard-stop-coal1', {dayAhead: high.dayAhead, planview: PV}), hb = backOf(high, 'coal1');
+  assert.ok(hb.openS - high.s > 3 * S_PER_H - 600, 'off the grid in ' + span(hb.openS - high.s));
+  assert.equal(hc.level, 'crit');
+  assert.doesNotMatch(hc.text, /at once/i, 'it is still giving most of its 560 MW for an hour and more: ' + hc.text);
+  const from = /(?:From (\d\d):(\d\d) you would|would be [\d,]+ MW short from (\d\d):(\d\d))/.exec(hc.text);
+  assert.ok(from, hc.text);
+  const fromS = secOfH(Number(from[1] || from[3]) + Number(from[2] || from[4]) / 60);
+  assert.ok(fromS - high.s >= S_PER_H, 'the shortfall begins as its output falls, not at the press: ' + at(fromS));
+  const G1 = O.capacityGap(high, high.dayAhead, {marginMW: O.MARGIN_MW, leaving: 'coal1'}), Gw = O.capacityGap(high, high.dayAhead, {marginMW: O.MARGIN_MW, without: 'coal1'});
+  assert.ok(G1.gap[0] < Gw.gap[0] - 300, 'in the first column it is still giving most of its 560 MW');
+  for (let k = 0; k < G1.n; k++) assert.ok(G1.gap[k] <= Gw.gap[k] + 1e-6);
+  const brk = Math.floor((hb.openS - high.dayAhead.fromS) / high.dayAhead.stepS);
+  assert.ok(Math.abs(G1.gap[brk + 1] - Gw.gap[brk + 1]) < 1e-6, 'and nothing once the breaker is open');
+  // a unit already on its way down is counted the same way by every look-ahead
+  const going = copy(high);
+  Object.assign(unit(going, 'coal1'), {mode: 'unloading'});
+  assert.deepEqual(Array.from(O.capacityGap(going, going.dayAhead).gap), Array.from(O.capacityGap(high, high.dayAhead, {leaving: 'coal1'}).gap));
   // the CCGT the objective proposes to stop: back in time, and the line says by when to start it
   const gas = consequence(obs, 'guard-stop-ccgt2', ctx), gb = backOf(obs, 'ccgt2');
   assert.ok(gas.text.startsWith('STOP RIVERTON CCGT 2: off the grid in ' + span(gb.openS - obs.s) + ', and not back at minimum load before ' + at(gb.backS) + '.'), gas.text);
   assert.equal(gas.level, 'plan');
   assert.match(gas.text, /( It is needed again from \d\d:\d\d: start it by \d\d:\d\d\.| Nothing ahead needs it today\.)$/);
+  // a shortfall that begins after the unit could be back is the restart's business, not this press's:
+  // the level stays 'plan' and the line says by when to start it again
+  const later = copy(obs), Gl = O.capacityGap(later, later.dayAhead, {marginMW: O.MARGIN_MW, leaving: 'ccgt2'});
+  setGap(later.dayAhead, Gl, 300, gb.backS + 2 * S_PER_H, gb.backS + 3 * S_PER_H);
+  setGap(later.dayAhead, Gl, -2000, -Infinity, gb.backS + 2 * S_PER_H); setGap(later.dayAhead, Gl, -2000, gb.backS + 3 * S_PER_H);
+  const lc = consequence(later, 'guard-stop-ccgt2', {dayAhead: later.dayAhead, planview: PV});
+  assert.equal(lc.level, 'plan', lc.text);
+  assert.match(lc.text, / It is needed again from \d\d:\d\d: start it by \d\d:\d\d\.$/);
   // a stop that opens a shortfall at once
   const now = copy(obs);
   for (const fc of [now.forecast, now.dayAhead]) for (let k = 0; k < fc.n; k++) fc.demandP50[k] += 1700;
@@ -638,7 +980,21 @@ test('C-10 consequence: CANCEL START, a blocked press says why, and a press that
   const head = 'CANCEL START RIVERTON CCGT 2: it goes cold; a new start takes ' + Math.round(unit(going, 'ccgt2').startToMinS / S_PER_MIN) + ' min.';
   const c = consequence(going, 'guard-stop-ccgt2', {dayAhead: going.dayAhead, planview: PV});
   assert.ok(c.text.startsWith(head), c.text);
-  assert.match(c.text.slice(head.length), /^ (The morning would be [\d,]+ MW short from \d\d:\d\d|From \d\d:\d\d (you would be a further [\d,]+ MW short|one trip would then leave you short)|It is needed again from \d\d:\d\d: start it by \d\d:\d\d|One trip would then leave you short)\.$/);
+  assert.match(c.text.slice(head.length), /^ (The morning would be [\d,]+ MW short from \d\d:\d\d|From \d\d:\d\d (you would need [\d,]+ MW more than the line asks for|one trip would then leave you short)|It is needed again from \d\d:\d\d: start it (by \d\d:\d\d|again at once)|One trip would then leave you short)\.$/);
+  // A cancelled start never closed its breaker: no minimum down time before the next START (C-12).
+  // Its restart is the latest START that is back for the need, and never later than the need itself.
+  const again = /It is needed again from (\d\d):(\d\d): start it (?:by (\d\d):(\d\d)|again at once)\./.exec(c.text);
+  if (again) {
+    const needS = secOfH(Number(again[1]) + Number(again[2]) / 60), byS = again[3] ? secOfH(Number(again[3]) + Number(again[4]) / 60) : going.s;
+    assert.ok(byS + startToMinS('ccgt2') <= needS + 300, 'start it by ' + at(byS) + ' for ' + at(needS));
+    assert.ok(byS < going.s + machine('ccgt2').minDownS, 'not after a minimum down time it does not have');
+  }
+  // a need it cannot be back for, a new start being 49 min: critical
+  const soon = copy(going);
+  for (const fc of [soon.forecast, soon.dayAhead]) for (let k = 0; k < fc.n; k++) { const t = fc.fromS + (k + 1) * fc.stepS; if (t >= soon.s + 1800) fc.demandP50[k] += 900; }
+  const cs = consequence(soon, 'guard-stop-ccgt2', {dayAhead: soon.dayAhead, planview: PV});
+  assert.equal(cs.level, 'crit', cs.text);
+  assert.doesNotMatch(cs.text, /start it by/, cs.text);
   // with the morning 1,700 MW higher there is no doubt: the press opens a shortfall
   for (const fc of [going.forecast, going.dayAhead]) for (let k = 0; k < fc.n; k++) fc.demandP50[k] += 1700;
   const c2 = consequence(going, 'guard-stop-ccgt2', {dayAhead: going.dayAhead, planview: PV});
@@ -660,9 +1016,11 @@ test('C-10 consequence: CANCEL START, a blocked press says why, and a press that
   const ready = copy(obs);
   unit(ready, 'ccgt2').mode = 'ready';
   assert.equal(consequence(ready, 'guard-start-ccgt2', ctx), null, 'the press opens the synchroscope');
-  const unloading = copy(obs);
-  unit(unloading, 'ccgt1').mode = 'unloading';
-  assert.equal(consequence(unloading, 'guard-stop-ccgt1', ctx), null, 'the press aborts the stop');
+  for (const mode of ['unloading', 'shutdown']) {
+    const stopping = copy(obs);
+    unit(stopping, 'ccgt1').mode = mode;
+    assert.equal(consequence(stopping, 'guard-stop-ccgt1', ctx), null, mode + ': the press aborts the stop');
+  }
   assert.equal(consequence(obs, null, ctx), null);
   assert.equal(consequence(obs, 'guard-start-nothing9', ctx), null);
   assert.equal(consequence(obs, 'dial-battery', ctx), null);
@@ -682,13 +1040,37 @@ const SEEDS = [[1, 'MILD'], [5, 'MILD'], [8, 'MILD'], [13, 'MILD'], [20261001, '
 const EVENING_S = secOfH(V.PAR_BATT_DISCHARGE_H[0]);
 const k$ = x => Math.round(x / 1000);
 
+// (i) widened to every DISCHARGE the line orders, the short-now and shortAhead branches' too: the
+// orders inside one growing evening shortfall (a larger order, or demand response, as the gap grows).
+// Reported, not asserted: §21.4 names the STOP, CHARGE and DISCHARGE hints, and whether that covers
+// the shortfall branches' own orders is the integrator's to rule (desk/README.md, the wave-3 record).
+function escalations(lines, said) {
+  const out = [];
+  for (const a of said) {
+    if (!a.accepted || a.kind !== 'short' || a.action.type !== 'battery' || a.action.mode !== 'discharge') continue;
+    const x = lines.find(l => l.s > a.s && l.s <= a.s + 300 && (l.kind === 'short' || (l.action && (l.action.type === 'callDR' || l.action.type === 'armRERT'))));
+    if (x) out.push(at(a.s) + ' ' + a.action.mw + ' MW -> ' + at(x.s) + ' ' + x.text);
+  }
+  return out;
+}
+
 for (const scn of [DESK, DESK_WEEKEND]) {
   test('§21.4 accept on ' + scn.id + ' (slow): the hint-following player does well on the 11 seeds (a, b, c, d, e, g, h, i)', slowOnly(), t => {
-    let clean = 0, rert = 0, dr = 0, costOk = 0, stopOk = 0, cheaper = 0, battOk = 0, battHot = 0, hot = 0;
+    let clean = 0, rert = 0, dr = 0, costOk = 0, stopOk = 0, cheaper = 0, battOk = 0, battHot = 0, hot = 0, wide = 0, cascades = 0;
     for (const [seed, type] of SEEDS) {
       const lines = [];
       let batt = null, parBatt = null;
-      const rec = (obs, ctx) => { const x = objective(obs, ctx); lines.push({s: obs.s, kind: x.kind, level: x.level, text: x.text, action: x.action}); return x; };
+      const tag0 = scn.id + ' seed ' + seed;
+      const rec = (obs, ctx) => {
+        const x = objective(obs, ctx);
+        lines.push({s: obs.s, kind: x.kind, level: x.level, text: x.text, action: x.action});
+        // the line says what is true (wave-3 review): "Enough plant" only with no column a trip's worth
+        // of spare short by THIN_MW or more; "short now" in the present tense only when the desk at its
+        // limits is short in the next minutes
+        if (/^Enough plant/.test(x.text)) assert.ok(maxGap(O.tripGap(obs, ctx.dayAhead, O.COMMIT_MARGIN_MW - O.MARGIN_MW)) < O.THIN_MW, tag0 + ' ' + at(obs.s) + ': ' + x.text);
+        if (/^You are [\d,]+ MW short now/.test(x.text)) assert.ok(maxGap(O.capacityGap(obs, obs.forecast, {real: true}), -Infinity, obs.s + 301) > 0, tag0 + ' ' + at(obs.s) + ': ' + x.text);
+        return x;
+      };
       const day = followDay(seed, scn, {objective: rec, onMinute: (st, obs) => { if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh; }});
       const tag = scn.id + ' seed ' + seed + ' (' + type + ')';
       assert.equal(observe(createState(seed, scn)).day.temp, type === 'HEAT' ? 'HOT' : type, tag + ': the day type the seed list says (a heatwave reads HOT until it is announced)');
@@ -721,35 +1103,60 @@ for (const scn of [DESK, DESK_WEEKEND]) {
       assert.ok(idle.st.black || idle.score.unservedMWh > 5000, tag + ': the no-input day passes (' + idle.score.unservedMWh.toFixed(0) + ' MWh unserved)');
       // (i) the lines themselves
       lineChecks(lines, day.said, tag);
+      const esc = escalations(lines, day.said);
+      wide += esc.length;
+      for (const e of esc) t.diagnostic(tag + ': (i) widened: ' + e);
+      // never thrash (§21.4): the battery branch's own orders, idle included, a quarter of an hour apart
+      const own = day.said.filter(a => a.accepted && a.kind === 'battery' && a.action.type === 'battery');
+      for (let i = 1; i < own.length; i++) assert.ok(own[i].s - own[i - 1].s >= 900, tag + ': battery orders ' + at(own[i - 1].s) + ' ' + own[i - 1].action.mode + ' and ' + at(own[i].s) + ' ' + own[i].action.mode);
+      // start cascades: more than two starts within 5 grid-min (reported; on these days only after a trip)
+      const starts = day.said.filter(a => a.accepted && a.action.type === 'start');
+      for (let i = 0; i < starts.length; i++) {
+        const w = starts.filter(b => b.s >= starts[i].s && b.s - starts[i].s <= 300);
+        if (w.length > 2 && !(i > 0 && starts[i].s - starts[i - 1].s <= 300)) {
+          cascades++;
+          const trip = day.st.conts.some(c => { const cs = Math.floor(c.startTick / TPS); return cs <= starts[i].s && starts[i].s - cs <= 1800; });
+          t.diagnostic(tag + ': start cascade ' + w.map(b => at(b.s) + ' ' + b.action.unit).join(', ') + (trip ? ' (a trip in the half hour before)' : ' (NO trip before it)'));
+        }
+      }
       t.diagnostic(tag + ': unserved ' + day.score.unservedMWh.toFixed(0) + ' MWh, RERT ' + (day.st.rert.armedEver ? 'armed' : '-') + ', DR ' + (V.DR_CALLS - day.st.dr.callsLeft) + ', ' +
         day.score.centsPerKWh.toFixed(2) + ' c/kWh (par ' + par.score.centsPerKWh.toFixed(2) + ', x' + ratio.toFixed(2) + '), plan $' + k$(plan) + 'k (off $' + k$(planOff) + 'k), battery at 16:30 ' +
         Math.round(batt) + ' MWh (par ' + Math.round(parBatt) + '), stops before 12:00 ' + (stops.map(x => x.action.unit).join(' ') || '-') + ' (restarted: ' + (again.map(x => x.action.unit).join(' ') || '-') + '), no input ' +
         idle.score.unservedMWh.toFixed(0) + ' MWh');
     }
-    t.diagnostic(scn.id + ': a clean ' + clean + '/11; b RERT ' + rert + '/11, DR mean ' + (dr / 11).toFixed(2) + '; c ' + costOk + '/11; d ' + stopOk + '/10; e ' + cheaper + '/11; g ' + battOk + '/11 (hot and heatwave days ' + battHot + '/' + hot + ')');
+    t.diagnostic(scn.id + ': a clean ' + clean + '/11; b RERT ' + rert + '/11, DR mean ' + (dr / 11).toFixed(2) + '; c ' + costOk + '/11; d ' + stopOk + '/10; e ' + cheaper + '/11; g ' + battOk + '/11 (hot and heatwave days ' + battHot + '/' + hot + ')' +
+      '; (i) widened to the shortfall branches\' discharges: ' + wide + '; start cascades ' + cascades);
     assert.ok(clean >= 9, 'a: nothing unserved on ' + clean + ' of 11');
     assert.ok(rert <= 3, 'b: the reserve diesel armed on ' + rert + ' of 11');
     assert.ok(dr / 11 <= 1.5, 'b: ' + (dr / 11).toFixed(2) + ' DR calls a day');
     assert.ok(costOk >= 8, 'c: within 1.3 x par on ' + costOk + ' of 11');
-    if (scn === DESK) assert.ok(stopOk >= 8, 'd: a gas unit stopped before 12:00 and restarted on ' + stopOk + ' of the 10 non-heatwave seeds');
+    // (d) on both day scenarios: "on mild and hot days" holds for the weekend too
+    assert.ok(stopOk >= 8, 'd: a gas unit stopped before 12:00 and restarted on ' + stopOk + ' of the 10 non-heatwave seeds');
     assert.ok(cheaper >= 8, 'e: cheaper with the STOP and BATTERY lines on ' + cheaper + ' of 11');
     // (g) is asserted on the hot days it names; the MILD days are reported (par ends several exactly full: see desk/README.md)
     assert.ok(battHot >= hot - 1, 'g: the battery at or above par\'s at 16:30 on ' + battHot + ' of the ' + hot + ' hot and heatwave days');
   });
 }
 
-test('§21.4 accept f (slow): each quoted STOP saving against the same day with that one STOP skipped', {...slowOnly(), todo: 'f fails as written (45 of 155 at wave 3): skipping one STOP also forgoes every later STOP of its queue, so the realised figure is the queue\'s; and a morning STOP is worth +-$100k by where the day\'s trip lands. Stop by stop within a queue the quotes hold on 98 of 107 evening and night STOPs (desk/README.md, the wave-3 record)'}, t => {
-  let ok = 0, n = 0;
+test('§21.4 accept f (slow): each quoted STOP saving against the same day with that one STOP skipped', {...slowOnly(), todo: 'f fails as written: 38 of 140 after the wave-3 review (45 of 155 before). The skip of tools/follow.mjs blocks the unit until its next start, and the STOP candidate is the dearest committed gas unit (§21.4), so every later STOP of a cheaper unit in that window is forgone too: the realised figure is the queue\'s. Read stop by stop within a queue, 116 of 140. The rest: hot-morning STOPs a trip turned into a loss (the line says "if nothing trips before then"), and knock-on effects of keeping a unit on. The measure is the integrator\'s to settle (desk/README.md, the wave-3 record)'}, t => {
+  let ok = 0, okQueue = 0, n = 0;
+  const offers = new Map(observe(createState(1, DESK)).units.map(u => [u.id, u.offer])), offer = id => offers.get(id);
+  const within = (quoted, realised) => Math.abs(quoted - realised) <= 10000 || Math.abs(quoted - realised) <= 0.3 * Math.abs(realised);
   for (const scn of [DESK, DESK_WEEKEND]) for (const [seed, type] of SEEDS) {
-    const day = followDay(seed, scn);
+    const day = followDay(seed, scn), rows = [];
     for (const {line, untilS} of FOLLOW.stopLines(day.said)) {
       const alt = followDay(seed, scn, {objective: FOLLOW.skipping(line, untilS)});
-      const quoted = FOLLOW.quotedSaving(line), realised = FOLLOW.planCost(alt.score.cost) - FOLLOW.planCost(day.score.cost);
-      const within = Math.abs(quoted - realised) <= 10000 || Math.abs(quoted - realised) <= 0.3 * Math.abs(realised);
-      n++; if (within) ok++;
-      t.diagnostic(scn.id + ' seed ' + seed + ' (' + type + ') ' + at(line.s) + ' ' + line.action.unit + ': quoted $' + k$(quoted) + 'k, realised $' + k$(realised) + 'k' + (within ? '' : '  OUTSIDE'));
+      rows.push({line, untilS, quoted: FOLLOW.quotedSaving(line), realised: FOLLOW.planCost(alt.score.cost) - FOLLOW.planCost(day.score.cost)});
     }
+    rows.forEach((r, i) => {
+      // the queue reading: a later STOP of a unit no dearer, inside this one's skip window, was forgone with it
+      const j = rows.findIndex((q, jj) => jj > i && q.line.s < r.untilS && offer(q.line.action.unit) <= offer(r.line.action.unit));
+      const marginal = j >= 0 ? r.realised - rows[j].realised : r.realised;
+      n++; if (within(r.quoted, r.realised)) ok++; if (within(r.quoted, marginal)) okQueue++;
+      t.diagnostic(scn.id + ' seed ' + seed + ' (' + type + ') ' + at(r.line.s) + ' ' + r.line.action.unit + ': quoted $' + k$(r.quoted) + 'k, realised $' + k$(r.realised) + 'k' +
+        (within(r.quoted, r.realised) ? '' : '  OUTSIDE') + ', stop by stop $' + k$(marginal) + 'k' + (within(r.quoted, marginal) ? '' : '  OUTSIDE'));
+    });
   }
-  t.diagnostic('f: ' + ok + ' of ' + n + ' quoted savings within +-30% or $10,000 of the realised difference');
+  t.diagnostic('f: ' + ok + ' of ' + n + ' quoted savings within +-30% or $10,000 of the realised difference; stop by stop within a queue ' + okQueue + ' of ' + n);
   assert.equal(ok, n);
 });

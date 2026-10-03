@@ -71,7 +71,7 @@ export function dayText(day) {
   if (!day) return '';
   const when = day.weekend ? 'weekend' : 'weekday';
   const lean = day.weekend ? ' Demand is lower at the weekend, and one coal unit has been off since Friday night.' : '';
-  if (day.temp === 'MILD') return 'Today: a mild ' + when + '. Rooftop solar will hollow out the middle of the day; the evening still climbs.' + lean;
+  if (day.temp === 'MILD') return 'Today: a mild ' + when + '. Rooftop solar will cut the demand your plant must meet around midday; the evening still climbs.' + lean;
   return 'Today: a hot ' + when + '. A heatwave warning, if one comes, comes mid-morning.' + lean;
 }
 
