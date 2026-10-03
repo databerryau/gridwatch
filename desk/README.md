@@ -1493,3 +1493,8 @@ then" and, for gas turbines, "Spare holds without it now:"; the MSL card texts a
 `content/text.js` entries left `specPending`; SPEC's "in progress" markers are closed, Q-18's
 "still to do" is closed with the measurement above, and Q-38 records P-4. `SIM_VERSION`
 `v4-core-2a.1`; the golden re-recorded.
+
+**Size, at the end of stage C.** First visit 376.5 KB gzip of the 400-KB budget (F-11; was 345.6
+after wave 2): `app/objective.js` is 85 KB raw, 27 KB gzip. Slices 2b–2e have 23.5 KB of
+headroom between them, so the next slice should budget its first-visit bytes up front. The
+default suite runs in 50 s of F-10's 60.

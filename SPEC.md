@@ -2099,7 +2099,7 @@ Phase 3 extends these rules to the VPP, the hold, EV delay and the backstop.
 | Same seed, different play: same weather | diverges on 49/50 seeds; v4 core: 0/10 (par, doNothing, fuzzer); 0/100 in the slow integration test | 0/100 | F-3 |
 | Rate invariance | n/a; v4 core: identical hash at 0.25×/1×/60×/240× through `app/loop.js` | identical hash at 0.25×/1×/60×/240× | F-4 |
 | Frame rate / frame cost | 10 fps / 1.7 ms | 60 fps / p95 ≤8 ms | F-11 `?perf` |
-| First-visit transfer | 88.6 KB (32 KB compressed); v4 core: the `next.html` bench, 421 KB raw, 151 KB gzip; Phase 1b: 304 KB gzip; Phase 2a: 345.6 KB gzip (`node tools/perf.mjs`, 45 files) | ≤400 KB compressed | F-11 |
+| First-visit transfer | 88.6 KB (32 KB compressed); v4 core: the `next.html` bench, 421 KB raw, 151 KB gzip; Phase 1b: 304 KB gzip; Phase 2a: 345.6 KB gzip after the view (`node tools/perf.mjs`, 45 files), 376.5 KB with the objective line (`app/objective.js` alone is 27 KB gzip): 23.5 KB of headroom left for slices 2b–2e | ≤400 KB compressed | F-11 |
 | False CO₂ tip | 100% of runs | 0 | H-13 |
 | Minimum operational demand, mild weekend | ~4,290 MW (no rooftop); Phase 2a: median 1,746 MW on `desk-weekend` (p10 / p90: 1,620 / 1,880 MW; seeds 1–200). The other day types, on `desk`: MILD weekday 2,202 MW, HOT 3,242 MW, HEATWAVE 3,271 MW, all inside P-3's bands | 1,800 ± 10% | P-3 |
 | MSL notices on mild weekends | n/a; Phase 2a, weather and events alone, seeds 1–1,000: MSL1 on 16.7% of days, MSL2 on 1.3%, MSL3 never (the tie rise per column, as built; 21.0% / 1.3% / never with the rise over the whole window). On par's days, seeds 1–200: MSL1 on 11 of 101, MSL2 and MSL3 never | MSL1 10–30%, MSL2 ≤10% (lab minima: 15% / 6%) | P-4 |
