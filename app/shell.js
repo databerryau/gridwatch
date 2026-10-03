@@ -40,6 +40,41 @@ export function layoutSizes(width, height) {
 
 const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNORS', ufls: 'UFLS', settle: 'SETTLE'};
 
+// ------------------------------------------------------------------ the objective line's word (Q-18, C-10)
+
+// The level as a glyph and a word (K-22: never colour alone). By level; and by kind where the
+// level's own word would say the wrong thing: a STOP or a BATTERY line is advice about cost, never
+// SHORT, and a line about spare or a dark district names what it is about.
+const LEVEL_WORD = Object.freeze({ok: '✓ STEADY', plan: '◷ PLAN', act: '▶ ACT NOW', crit: '‼ SHORT'});
+const KIND_WORD = Object.freeze({
+  watch: {ok: '◉ WATCH', plan: '◉ WATCH', act: '◉ WATCH', crit: '◉ WATCH'},
+  stop: {plan: '◇ SAVING', act: '▶ ACT NOW', crit: '▶ ACT NOW'},
+  battery: {plan: '◇ BATTERY', act: '▶ BATTERY', crit: '▶ BATTERY'},
+  spare: {plan: '◷ SPARE', crit: '▶ ACT NOW'},
+  restore: {plan: '◷ DARK', crit: '▶ ACT NOW'},
+});
+/** The word beside a consequence line (C-10): what a guarded press would do. */
+export const CONSIDER_WORD = '? IF PRESSED';
+
+/** The glyph and word shown beside an objective line {kind, level} (app/objective.js). */
+export function objectiveWord(o) {
+  if (!o) return '';
+  const byKind = KIND_WORD[o.kind];
+  return (byKind && byKind[o.level]) || LEVEL_WORD[o.level] || '';
+}
+
+/**
+ * The briefing's line about the day (P-3; desk/README.md §21.4): its type and whether it is a
+ * weekday, from the public obs.day only (a heatwave day reads HOT until it is announced, C-2).
+ */
+export function dayText(day) {
+  if (!day) return '';
+  const when = day.weekend ? 'weekend' : 'weekday';
+  const lean = day.weekend ? ' Demand is lower at the weekend, and one coal unit has been off since Friday night.' : '';
+  if (day.temp === 'MILD') return 'Today: a mild ' + when + '. Rooftop solar will cut the demand your plant must meet around midday; the evening still climbs.' + lean;
+  return 'Today: a hot ' + when + '. A heatwave warning, if one comes, comes mid-morning.' + lean;
+}
+
 // ------------------------------------------------------------------ the live region (K-23, §13.3)
 
 /** #aria-live says at most one message per this many real ms. */
@@ -208,6 +243,8 @@ export function bootGame(doc, deps) {
     const b = $('briefing-card');
     if (!b) return;
     b.hidden = game.phase !== 'briefing';
+    const day = $('briefing-day');
+    if (day) day.textContent = dayText(game.state.day);
     const w = $('briefing-watch');
     if (w) {
       const news = game.state.news.map(n => n.text);
@@ -314,18 +351,20 @@ export function bootGame(doc, deps) {
   }
   const setText = (id, s) => { const el = $(id); if (el && el.textContent !== s) el.textContent = s; };
 
-  // The standing objective (Q-18): one line, with the level as a glyph and a word.
-  const LEVEL_WORD = {ok: '✓ STEADY', plan: '◷ PLAN', act: '▶ ACT NOW', crit: '‼ SHORT'};
+  // The standing objective (Q-18): one line, with the level as a glyph and a word. While the
+  // player is hovering, focusing or has lifted a START / STOP guard, the line says what that press
+  // would do instead (C-10, vm.consider), under the word '? IF PRESSED'.
   function drawObjective(v) {
     const box = $('objective');
     if (!box) return;
-    const o = v.objective;
+    const o = v.objective, c = v.consider || null;
     const paused = v.mode.mode === 'PAUSE' && v.phase === 'play' && !v.obs.over;
-    box.hidden = !o || v.phase !== 'play' || v.obs.over || !!v.respond;
+    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond;
     if (box.hidden) return;
-    if (box.className !== o.level) box.className = o.level;
-    setText('objective-level', LEVEL_WORD[o.level] || '');
-    setText('objective-text', (o.text || '') + (paused ? '  ·  Clock held: press Space to run.' : ''));
+    const cls = c ? c.level + ' consider' : o.level;
+    if (box.className !== cls) box.className = cls;
+    setText('objective-level', c ? CONSIDER_WORD : objectiveWord(o));
+    setText('objective-text', c ? c.text : (o.text || '') + (paused ? '  ·  Clock held: press Space to run.' : ''));
   }
 
   function drawHeader(v) {

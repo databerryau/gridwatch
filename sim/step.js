@@ -25,11 +25,12 @@ import {hash32} from './rng.js';
 export {SIM_VERSION};
 
 const TPS = V.TICKS_PER_S, DAY_TICKS = V.DAY_TICKS, DAY_S = V.DAY_S, F0 = V.F0_HZ;
-const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN;
+const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN, MSL_CHECK_S = V.MSL_CHECK_S;
 const EMPTY = Object.freeze([]);
 const buf = []; // step()'s event buffer, reused; step returns a copy only when non-empty
 
 const zeros = n => new Array(n).fill(0);
+const ones = n => new Array(n).fill(1);
 const falses = n => new Array(n).fill(false);
 const clone = x => JSON.parse(JSON.stringify(x));
 
@@ -50,7 +51,8 @@ function scenarioData(x) {
 function freshScore() {
   return {servedMWh: 0, unservedMWh: 0, uflsMWh: 0, directedMWh: 0, taskMWh: 0,
     cost: {fuel: 0, noLoad: 0, starts: 0, tie: 0, battWear: 0, dr: 0, rert: 0, flex: 0},
-    co2t: 0, genMWh: 0, marketBill: 0, minHz: F0, maxHz: F0, outsideNormalS: 0, spark: zeros(V.SPARK_BLOCKS), starts: 0};
+    co2t: 0, genMWh: 0, marketBill: 0, minHz: F0, maxHz: F0, outsideNormalS: 0, spark: zeros(V.SPARK_BLOCKS), starts: 0,
+    spillMWh: 0}; // Phase 2a (desk/README.md §19.2): wind and solar energy held back or backed off; counted, never charged for
 }
 
 // The opening second is balanced with the online hydro machines (within their range),
@@ -90,14 +92,21 @@ export function createState(seed, scenario) {
   const ha = evs.find(e => e.type === 'heatAnnounce');
   const c = scn.commitment;
   const units = fleet.buildUnits(scn);
+  const nSub = scn.city.suburbs.length;
   const state = {
     v: SIM_VERSION, seed, scenarioId: scn.id, tick: 0, over: false, black: false,
     scn, scnHash: canonicalHash(scn),
-    ext: {regime, events: evs, series, rooftop: null,
+    // ext.rooftop: the per-suburb clearness series (P-2, C-5), null when the scenario has no rooftop.
+    ext: {regime, events: evs, series, rooftop: weather.prerollRooftop(seed, scn, evs),
       heat: ha ? {announceS: ha.atS, onsetS: ha.args.onsetS, endS: ha.args.endS} : null},
     evNext: 0,
+    // Phase 2a (desk/README.md §19.2, C-2): the public kind of day. The hidden ext.regime.temp is
+    // read here once and nowhere else; a heatwave day reads 'HOT' (its heat is announced at 10:30).
+    day: {temp: regime.temp === 'MILD' ? 'MILD' : 'HOT', weekend: !!(scn.day && scn.day.weekend)},
     env: {s: 0, h: 0, demandMW: 0, underlyingMW: 0, windAvailMW: 0, solarAvailMW: 0, windFrac: 0, clearness: 0,
-      heatActive: false, heatMult: 1, tempC: 0, neighbourPrice: 0, exportLimitMW: 0},
+      heatActive: false, heatMult: 1, tempC: 0, neighbourPrice: 0, exportLimitMW: 0,
+      rooftopMW: 0, roofSubMW: zeros(nSub), roofClearFrac: ones(nSub)}, // Phase 2a: as if every inverter were connected
+    msl: {level: 0, minMW: 0, atS: -1, sinceS: -1}, // P-4 (Phase 2a, C-9): events.mslSecond, every MSL_CHECK_S; never written with no rooftop
     control: {mode: c.mode, modeLocked: false},
     stations: fleet.buildStations(units),
     units,
@@ -105,7 +114,8 @@ export function createState(seed, scenario) {
       pfrMW: 0, ffrMW: 0, ffrFiredTick: -1, outMW: 0, socMWh: c.battery.socMWh, fullHold: false, ufSuspend: false},
     tie: {setMW: c.tieMW, flowMW: c.tieMW, tripped: false, lockoutS: 0},
     ren: {windLimitPct: c.windLimitPct, solarLimitPct: c.solarLimitPct, windMW: 0, solarMW: 0,
-      windCurtMW: 0, solarCurtMW: 0}, // curtailed MW (grid: they move at CURTAIL_RAMP_FRAC_MIN)
+      windCurtMW: 0, solarCurtMW: 0, // curtailed MW (grid: they move at CURTAIL_RAMP_FRAC_MIN)
+      windAutoMW: 0, solarAutoMW: 0}, // Phase 2a (C-6): MW held back by the dispatch, on top of the manual LIMIT
     hydro: {storageMWh: V.HYDRO_ALLOCATION_MWH, warned: falses(V.HYDRO_WARN_FRACS.length)},
     rert: {armed: false, leadS: 0, outMW: 0, standingDown: false, armedEver: false},
     dr: {callsLeft: V.DR_CALLS, activeS: 0, mw: 0},
@@ -115,7 +125,8 @@ export function createState(seed, scenario) {
     ofgs: {timerS: zeros(V.OFGS_STAGES_HZ.length), tripped: falses(V.OFGS_STAGES_HZ.length), trippedFrac: 0, okS: 0},
     collapse: {bandS: zeros(V.COLLAPSE_BANDS.length)},
     phys: {fHz: F0, fHist: new Array(V.FHIST_LEN).fill(F0), rocofHzS: 0, ekMWs: 0, schedSupplyMW: 0, supplyMW: 0,
-      servedMW: 0, loadMW: 0, imbalanceMW: 0, inertiaMW: 0, govTotalMW: 0, loadReliefMW: 0, shedMW: 0},
+      servedMW: 0, loadMW: 0, imbalanceMW: 0, inertiaMW: 0, govTotalMW: 0, loadReliefMW: 0, shedMW: 0,
+      renPfrMW: 0, roofPfrMW: 0, roofHoldFrac: 0}, // Phase 2a (C-7): the inverters' over-frequency back-off (MW >= 0) and its hold
     agc: {nextCycleS: 0, requestMW: 0, unmetMW: 0, atLimitS: 0, aceMW: 0},
     fos: {outsideS: 0, belowContainS: 0, countdownS: V.FOS_RECOVER_S, directed: false, nextShedS: 0},
     sec: {r5MW: 0, lMW: 0, lKind: 'none', lId: '', ratio: 0, previewNadirHz: F0, previewAtS: -1, previewLId: '',
@@ -144,6 +155,9 @@ function gridSecond(state, out) {
   events.applyDue(state, out);                          // ext events due now (trips, weather, news)
   grid.planSecond(state, out);                          // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)
   weather.sampleSecond(state);                          // env for this second
+  if (state.env.s % MSL_CHECK_S === 0) {                // P-4 (Phase 2a): the MSL level, from one forecast per check
+    events.mslSecond(state, weather.forecast(state, V.FC_HORIZON_S, V.FC_STEP_S), out);
+  }
   grid.unitsSecond(state, out);                         // state machines, timers, hot trips
   grid.agcSecond(state, out);                           // AGC trims (every AGC_CYCLE_S)
   grid.dispatchSecond(state, out);                      // ramps, battery, tie, renewables, RERT, DR
@@ -371,9 +385,10 @@ const FOS_KEYS = ['outsideS', 'belowContainS', 'countdownS', 'directed', 'nextSh
 const AGC_KEYS = ['nextCycleS', 'requestMW', 'unmetMW', 'atLimitS', 'aceMW'];
 const PRICE_KEYS = ['mwh', 'marginalId', 'adder', 'exhausted', 'x'];
 const SCORE_KEYS = ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'cost', 'co2t', 'genMWh', 'marketBill', 'minHz',
-  'maxHz', 'outsideNormalS', 'spark', 'starts'];
+  'maxHz', 'outsideNormalS', 'spark', 'starts', 'spillMWh'];
 const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'];
-const CAUGHT_KEYS = ['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW'];
+const CAUGHT_KEYS = ['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW', 'inverterMW'];
+const MSL_KEYS = ['level', 'minMW', 'atS', 'sinceS'];
 const CONT_KEYS = ['n', 'startTick', 'cause', 'id', 'lostMW', 'fStartHz', 'ekBeforeMWs', 'ekAfterMWs', 'rocofHzS', 'extremeHz',
   'extremeTick', 'pre', 'caught', 'uflsStages', 'contained', 'backInBandTick', 'watchEndTick', 'secureByTick'];
 
@@ -420,6 +435,8 @@ export function observe(state, opts) {
   const s = Math.floor(state.tick / TPS), env = state.env, ph = state.phys, b = state.battery, t = state.tie;
   const cont = state.contIdx >= 0 ? state.conts[state.contIdx] : null;
   const windOut = state.ren.windMW * (1 - state.ofgs.trippedFrac);
+  // Phase 2a (desk/README.md §19.2, §19.3): G is the total before rooftop; roof the scenario's block.
+  const city = state.city, roof = state.scn.rooftop, totalMW = env.demandMW + env.rooftopMW;
   return {
     v: state.v, scenarioId: state.scenarioId, tick: state.tick, s, clock: clockOf(state.scn, s),
     over: state.over, black: state.black, mode: state.control.mode,
@@ -429,8 +446,11 @@ export function observe(state, opts) {
     f: {hz: ph.fHz, devHz: ph.fHz - F0, rocofHzS: ph.rocofHzS, ekGWs: ph.ekMWs / V.MW_PER_GW},
     balance: {schedSupplyMW: ph.schedSupplyMW, supplyMW: ph.supplyMW, servedMW: ph.servedMW, loadMW: ph.loadMW,
       imbalanceMW: ph.imbalanceMW, inertiaMW: ph.inertiaMW,
-      governorsMW: ph.govTotalMW, batteryPfrMW: b.pfrMW, guardMW: b.ffrMW, loadReliefMW: ph.loadReliefMW, shedMW: ph.shedMW},
-    demand: {nowMW: env.demandMW, servedMW: ph.servedMW, shedMW: ph.shedMW, heatActive: env.heatActive, tempC: env.tempC},
+      governorsMW: ph.govTotalMW, batteryPfrMW: b.pfrMW, guardMW: b.ffrMW, loadReliefMW: ph.loadReliefMW, shedMW: ph.shedMW,
+      renPfrMW: ph.renPfrMW, roofPfrMW: ph.roofPfrMW},
+    demand: {nowMW: env.demandMW, servedMW: ph.servedMW, shedMW: ph.shedMW, heatActive: env.heatActive, tempC: env.tempC,
+      underlyingMW: env.underlyingMW, rooftopMW: env.rooftopMW, litMW: fleet.litDemandMW(state),
+      unservedMW: totalMW * city.shedFrac},
     units: state.units.map(u => {
       const m = V.MACHINES[u.k];
       const r = {id: u.id, station: u.station, name: m.name, cls: m.cls, mode: u.mode, sync: u.sync, timerS: u.timerS,
@@ -453,8 +473,9 @@ export function observe(state, opts) {
       capMWh: V.BATT_MWH, ratedMW: V.BATT_MW, fullHold: b.fullHold, ufSuspend: b.ufSuspend},
     tie: {setMW: t.setMW, flowMW: t.flowMW, tripped: t.tripped, lockoutS: t.lockoutS, importLimitMW: V.TIE_MAX_MW,
       exportLimitMW: env.exportLimitMW, neighbourPrice: env.neighbourPrice},
-    wind: {availMW: env.windAvailMW, outMW: windOut, limitPct: state.ren.windLimitPct, ofgsTrippedFrac: state.ofgs.trippedFrac},
-    solar: {availMW: env.solarAvailMW, outMW: state.ren.solarMW, limitPct: state.ren.solarLimitPct},
+    wind: {availMW: env.windAvailMW, outMW: windOut, limitPct: state.ren.windLimitPct, ofgsTrippedFrac: state.ofgs.trippedFrac,
+      autoMW: state.ren.windAutoMW},
+    solar: {availMW: env.solarAvailMW, outMW: state.ren.solarMW, limitPct: state.ren.solarLimitPct, autoMW: state.ren.solarAutoMW},
     sky: {clearness: env.clearness, windFrac: env.windFrac},
     hydro: {storageMWh: state.hydro.storageMWh, allocationMWh: V.HYDRO_ALLOCATION_MWH,
       frac: state.hydro.storageMWh / V.HYDRO_ALLOCATION_MWH},
@@ -467,7 +488,7 @@ export function observe(state, opts) {
     districts: state.city.districts.map((d, i) => ({id: d.id, suburb: d.suburb, share: d.share, uflsStage: d.uflsStage,
       rot: d.rot, dark: d.dark, shedBy: d.shedBy, darkSinceS: d.darkSinceS, restoredAtS: d.restoredAtS,
       coldLoadMW: fleet.districtColdLoadMW(state, i),
-      restoreBlock: d.dark ? grid.restorePermissive(state, i) : fleet.DISTRICT_LIT})),
+      restoreBlock: d.dark ? grid.restorePermissive(state, i) : fleet.DISTRICT_LIT, reconnectS: d.reconnectS})),
     news: state.news.map(n => ({atS: n.atS, kind: n.kind, fromS: n.fromS, toS: n.toS, text: n.text})),
     contingency: cont ? contingencyView(cont) : null,
     contingencies: state.conts.map(c => ({n: c.n, startS: Math.floor(c.startTick / TPS), cause: c.cause, id: c.id,
@@ -477,6 +498,15 @@ export function observe(state, opts) {
     dayAhead: opts && opts.dayAhead ? weather.forecast(state, DAY_S - s, V.FC_STEP_S) : null,
     plan: planView(state.plan),
     scope: {unit: state.scope.unit, open: state.scope.unit !== ''},
+    // Phase 2a (desk/README.md §19.3). rooftop: availMW as if every inverter were connected, offMW
+    // off with dark or reconnecting districts, mw generating now, capMW nameplate; one row per
+    // suburb in scn.city.suburbs order, also at capacity 0.
+    rooftop: {mw: env.rooftopMW - city.roofOffMW - ph.roofPfrMW, availMW: env.rooftopMW, capMW: roof.capacityMW,
+      offMW: city.roofOffMW,
+      suburbs: state.scn.city.suburbs.map((sub, j) => ({id: sub.id, mw: env.roofSubMW[j], capMW: roof.capacityMW * roof.share[j],
+        clearness: env.roofClearFrac[j]}))},
+    msl: pick(state.msl, MSL_KEYS),
+    day: {temp: state.day.temp, weekend: state.day.weekend},
   };
 }
 

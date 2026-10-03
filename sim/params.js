@@ -21,7 +21,15 @@
 // 1a.0: Phase 1a (desk/README.md §3): the plan in state and its executor, the new plan, scope and
 // sync inputs, the K-12 synchroscope outcomes, DIRECT SHED gated on SHORT/SHEDDING, and N-1 over
 // both credible contingencies (A-2); par and the L-0 plan act through planLoad inputs.
-export const SIM_VERSION = 'v4-core-1a.1';
+// 2a.0: Phase 2a stage A (desk/README.md §19): the state shape for rooftop PV, day types, MSL
+// notices, automatic curtailment, the inverters' over-frequency response and unserved / spilled
+// energy, all with neutral values: on the classic scenario every number is unchanged (only state
+// hashes move, because state gains fields).
+// 2a.1: Phase 2a waves 1-3 and stage C (desk/README.md §25-§27): rooftop PV, day types and MSL
+// notices; UFLS on net load; automatic curtailment; the inverters' over-frequency response (on);
+// directed shedding passing over a district feeding back; MSL's tie rise per column; par's belly
+// rules and every battery order counted for its energy.
+export const SIM_VERSION = 'v4-core-2a.1';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);
@@ -106,7 +114,7 @@ export const P = {
   BLACK_HI_HZ: src(52, 'Hz', FOS + ' Table A.3 extreme limit'),
   COLLAPSE_BANDS: simp([{loHz: 47, hiHz: 47.5, holdS: 2}, {loHz: 47.5, hiHz: 48, holdS: 20}], 'Hz, s', '§8.2 / H-7: black after 2 s in 47.0-47.5 Hz or 20 s in 47.5-48.0 Hz; the 20-s window is compressed and labelled. Real collapse depends on protection settings.'),
   OFGS_STAGES_HZ: src([51, 51.25, 51.5, 51.75], 'Hz', 'AEMO 2025 frequency review Table 1: wind trips in stages between 51 and 52 Hz (stage spacing simplified)'),
-  OFGS_STAGE_FRAC: simp(0.25, 'pu of wind output', 'Each OFGS stage trips a quarter of the wind output (H-7). Apart from these trips wind and utility solar hold their output whatever the frequency: no droop response (§8.2 "Wind and utility solar give no primary frequency response."; real semi-scheduled plant has mandatory PFR).'),
+  OFGS_STAGE_FRAC: simp(0.25, 'pu of wind output', 'Each OFGS stage trips a quarter of the wind output (H-7). Since Phase 2a wind and utility solar also lower their output on over-frequency (REN_PFR_ON, desk/README.md C-7); before it they held their output whatever the frequency (§8.2 "Wind and utility solar give no primary frequency response."; real semi-scheduled plant has mandatory PFR).'),
   OFGS_DELAY_S: simp(0.3, 's', 'OFGS relay delay, taken equal to UFLS_DELAY_S.'),
   OFGS_RECONNECT_S: simp(600, 's', 'Tripped wind reconnects after 10 grid-minutes back in the normal band.'),
 
@@ -428,6 +436,40 @@ export const P = {
   SYNC_AUTO_SLIP_HZ: simp(0.1, 'Hz', 'K-12 AUTO: the auto-synchroniser trims the slip to +0.10 Hz (machine slightly fast, so it picks up load, not motor) and closes on the next pass through 0 degrees.'),
   SYNC_ROUGH_MW: simp(40, 'MW', 'K-12: a rough close (10-20 degrees) adds a one-second MW swing of this size to the unit\'s schedule on top of the clean block: the power surge that pulls the rotor into step. Game abstraction of an electromechanical transient that really lasts ~1 s and oscillates; kept below the 50-MW FOS event threshold so it is felt, not a contingency.'),
   // ---- phase 1a "sim" block: end
+  // ================================================================ Phase 2a additions (desk/README.md §19.4)
+  // The "shared" block is stage A's and is frozen in stage B (more than one job reads it). Each sim
+  // job adds its own records ONLY between its own two marker lines below (merge-safe).
+  // ---- phase 2a "shared" block: begin
+  MSL1_MW: simp(1600, 'MW', 'P-4 / desk/README.md C-9: an MSL1 notice when the minimum forecast operational demand (P50, now and over the 4.5-h window) is at or below this: two credible load contingencies (about 300 MW each: the 256-MW potline, or the 300-MW midday export) above the security floor MSL3. AEMO\'s structure (AEMC MSL paper, Table 2.1) with our steps; real floors vary with the network and the synchronous units online.'),
+  MSL2_MW: simp(1300, 'MW', 'P-4 / desk/README.md C-9: MSL2, one credible load contingency above MSL3; also about this fleet\'s coal + CCGT minimums (1,310 MW). See MSL1_MW.'),
+  MSL3_MW: simp(1000, 'MW', 'P-4 / desk/README.md C-9: MSL3, the security floor. Above Victoria\'s ~790 MW because this region is an electrical island and must keep its own synchronous plant on; a floor for a region like ours is unverified (§8.3).', UNVERIFIED),
+  MSL_TIE_OUT_MW: simp(300, 'MW', 'desk/README.md C-9: every MSL threshold is raised by this while the tie is out of service (no export sink: the 300-MW midday export is gone). AEMO\'s floors vary with the network; this is one step of ours.'),
+  MSL_CHECK_S: simp(300, 's', 'desk/README.md C-9 / §21.1: the MSL level is re-checked every 5 grid-minutes (one forecast per check, the forecast\'s own column step). A notice cadence and performance budget, not a grid value.'),
+  MSL_CLEAR_MW: simp(100, 'MW', 'desk/README.md C-9 / §21.1: hysteresis. A level is left only once the forecast minimum is this far above its threshold, so a notice does not chatter (K-8). Not a grid value.'),
+  ROOF_RECONNECT_S: src(60, 's', 'AS/NZS 4777.2:2020: an inverter reconnects no sooner than 60 s after the grid is back within its voltage and frequency limits (P-12, desk/README.md C-8: a restored district picks up its full underlying load first)'),
+  ROOF_RAMP_S: simp(360, 's', 'P-12 / desk/README.md C-8: after the reconnection delay a district\'s rooftop output returns linearly over this time; also the release of the held over-frequency back-off (C-7). AS/NZS 4777.2:2020 limits the power ramp after reconnection to 16.67% of rating per minute (6 minutes to full output); the 6-minute ramp is unverified (§8.3).', UNVERIFIED),
+  ROOF_FW_START_HZ: src(50.25, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: the over-frequency response starts at fULCO = 50.25 Hz (desk/README.md C-7)'),
+  ROOF_FW_ZERO_HZ: src(52, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: output falls linearly from fULCO to zero at fPmin = 52 Hz (desk/README.md C-7)'),
+  ROOF_FW_HYST_HZ: src(0.1, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: hysteresis 0.1 Hz. The lowest output reached is held until frequency is back under fULCO - 0.1 Hz = 50.15 Hz (desk/README.md C-7)'),
+  REN_PFR_ON: simp(true, 'flag', 'desk/README.md C-7: wind and utility solar lower their output on over-frequency (GOV_DROOP on rating beyond GOV_DEADBAND_HZ, capped by present output). Lowering only: real semi-scheduled plant under mandatory PFR also raises from curtailed headroom. A simplified flag: on since Phase 2a wave 1 (false reproduces the pre-2a physics exactly).'),
+  ROOF_FW_ON: simp(true, 'flag', 'desk/README.md C-7: rooftop inverters back off between ROOF_FW_START_HZ and ROOF_FW_ZERO_HZ and hold the lowest value reached (the AS/NZS 4777.2 response, modelled as one aggregate inverter). A simplified flag: on since Phase 2a wave 1 (false reproduces the pre-2a physics exactly).'),
+  SURPLUS_MIN_MW: simp(50, 'MW', 'desk/README.md C-11 / §21.3: projected or present spill at or below this is not shown as SURPLUS on the Live Stack and does not fire par rule 2 or the objective\'s CHARGE. A display and rule threshold, not a grid value.'),
+  // ---- phase 2a "shared" block: end
+  //
+  // ---- phase 2a "world" block: begin
+  COOLING_MAX_MW: simp(1400, 'MW', 'P-3 / desk/README.md C-3: the cooling load a MILD day does not have. cooling = COOLING_MAX_MW x clamp((T - COOLING_BASE_C) / COOLING_SPAN_C, 0, 1) with T from the scenario\'s hot-day temperature table: about 100 MW per degC above 22 degC, all 1,400 MW at 36 degC. The ~100 MW/degC is unverified (SPEC §8.3).', UNVERIFIED),
+  COOLING_BASE_C: simp(22, 'degC', 'P-3: no cooling load at or below this temperature (see COOLING_MAX_MW; unverified, SPEC §8.3).', UNVERIFIED),
+  COOLING_SPAN_C: simp(14, 'degC', 'P-3: the cooling load reaches COOLING_MAX_MW this far above COOLING_BASE_C (36 degC, the hot-day table\'s peak; see COOLING_MAX_MW; unverified, SPEC §8.3).', UNVERIFIED),
+  WEEKEND_DEMAND_FACTOR: simp(0.92, 'x underlying demand', 'P-3 / J-13 / desk/README.md C-3: a Saturday or Sunday multiplies the underlying demand shape of any day type by this (before the heat uplift and the noise). A game value: one factor for the whole day, where real weekend load shapes differ hour by hour; not checked against a region\'s data.', UNVERIFIED),
+  // ---- phase 2a "world" block: end
+  //
+  // ---- phase 2a "grid" block: begin
+  // ---- phase 2a "grid" block: end
+  //
+  // ---- phase 2a "par" block: begin
+  PAR_COAL_MSL2_H: src(3, 'h', 'S-14 rule 4 (desk/README.md C-12): par decommits a coal machine only if MSL2 is forecast for at least 3 h (and the evening holds N-1 without it). Counted over the 4.5-h forecast\'s 5-minute columns at or below MSL2_MW (+ MSL_TIE_OUT_MW in a column where the tie is still out, as the MSL notice counts it): 36 of the 54, not necessarily in one run; the present second is not a column and is not counted.'),
+  PAR_COAL_STOPS_DAY: simp(1, 'stops per day', 'S-14 rule 4 says "a coal machine": par stops at most this many coal machines in a day. A machine stopped at 10:00 is not back at minimum load before 21:14 (T4, the 8-h minimum down time from breaker open to the next START, then T1, auto-sync and T2), so a second stop is a different decision that the rule does not make.'),
+  // ---- phase 2a "par" block: end
 };
 
 // ------------------------------------------------------------------ plain values

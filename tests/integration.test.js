@@ -12,7 +12,7 @@ import {runPar} from '../sim/autopilot.js';
 import {previewTrip} from '../sim/physics.js';
 import {security} from '../sim/grid.js';
 import {V} from '../sim/params.js';
-import {CLASSIC} from '../content/scenarios.js';
+import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {createPacer, runFrame} from '../app/loop.js';
 import {tokenize, jsFiles} from './lib/js-tokens.js';
 import {ticksAt, SLOW, slowOnly, calmScenario, withoutContingencies, injectTrip, clone} from './lib/sim-helpers.js';
@@ -194,9 +194,9 @@ function feed(s, log, untilTick, onStep) {
   return s;
 }
 
-/** A fresh day (optionally with a trip injected at tripAtS) fed a log; hashes every everyS. */
-function play(seed, log, {untilTick = V.DAY_TICKS, everyS = 3600, tripAtS = -1, onStep} = {}) {
-  const s = createState(seed, CLASSIC), hashes = [];
+/** A fresh day (optionally with a trip injected at tripAtS) fed a log; hashes every everyS. `scenario`: the classic day unless given. */
+function play(seed, log, {untilTick = V.DAY_TICKS, everyS = 3600, tripAtS = -1, onStep, scenario = CLASSIC} = {}) {
+  const s = createState(seed, scenario), hashes = [];
   if (tripAtS >= 0) injectTrip(s, tripAtS);
   feed(s, log, untilTick, st => {
     if (st.tick % (everyS * TPS) === 0) hashes.push(hashState(st));
@@ -343,9 +343,9 @@ function scriptedOperator(obs) {
   return inputs;
 }
 
-/** A fresh day under a policy (obs -> inputs), asked every 5 grid-min (observe allocates). */
-function runPolicy(seed, policy, untilTick, onStep) {
-  const s = createState(seed, CLASSIC);
+/** A fresh day under a policy (obs -> inputs), asked every 5 grid-min (observe allocates). `scenario`: the classic day unless given. */
+function runPolicy(seed, policy, untilTick, onStep, scenario = CLASSIC) {
+  const s = createState(seed, scenario);
   let pending = [];
   while (!s.over && s.tick < untilTick) {
     step(s, pending);
@@ -374,6 +374,36 @@ test('F-3 (core, without the autopilot): doNothing, a scripted operator and a fu
     const longest = rows.reduce((a, b) => (b.length > a.length ? b : a));
     assert.equal(longest.length, Math.floor(until / (60 * TPS)), 'seed ' + seed + ': every run ended early');
     for (const r of rows) assert.deepEqual(r, longest.slice(0, r.length), 'seed ' + seed);
+  }
+});
+
+test('F-3 (Phase 2a, the game\'s day): the same three policies see identical underlying demand, rooftop PV (suburb by suburb), operational demand and events on DESK and DESK_WEEKEND', () => {
+  // 04:00 to 06:45: half an hour of sun (sunrise 06:12; budget, F-10). The no-input belly itself is
+  // the grid job's and stage C's to carry through noon; the ext timelines do not depend on it.
+  const until = ticksAt(6, 45);
+  for (const [scenario, seeds] of [[DESK, SLOW ? SEEDS(20) : [1]], [DESK_WEEKEND, SLOW ? SEEDS(20) : [2]]]) {
+    for (const seed of seeds) {
+      const rows = [], ends = [];
+      const row = st => [st.env.underlyingMW, st.env.rooftopMW, st.env.roofSubMW.join('/'), st.env.roofClearFrac.join('/'), st.env.demandMW,
+        st.env.tempC, st.env.windAvailMW, st.env.solarAvailMW, st.env.heatActive, st.evNext, st.news.length, st.smelter.returnS,
+        st.day.temp, st.day.weekend].join();
+      const trace = run => {
+        const out = [];
+        const s = run(st => { if (st.tick % (60 * TPS) === 0) out.push(row(st)); });
+        rows.push(out);
+        ends.push(hashState(s));
+        return s;
+      };
+      const quiet = trace(onStep => play(seed, [], {untilTick: until, onStep, scenario}).s);
+      trace(onStep => runPolicy(seed, scriptedOperator, until, onStep, scenario));
+      trace(onStep => play(seed, fuzzLog(seed, 50, until), {untilTick: until, onStep, scenario}).s);
+      const tag = scenario.id + ' seed ' + seed;
+      assert.equal(new Set(ends).size, ends.length, tag + ': the three policies must play differently');
+      const longest = rows.reduce((a, b) => (b.length > a.length ? b : a));
+      assert.equal(longest.length, Math.floor(until / (60 * TPS)), tag + ': every run ended early');
+      for (const r of rows) assert.deepEqual(r, longest.slice(0, r.length), tag);
+      if (!quiet.over) assert.ok(quiet.env.rooftopMW > 100, tag + ': the sun is on the roofs by 06:45 (' + quiet.env.rooftopMW + ' MW)');
+    }
   }
 });
 

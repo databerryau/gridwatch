@@ -57,6 +57,16 @@ export function dollars(x) {
   return sign + '$' + mw(a);
 }
 
+/**
+ * A spot price in $/MWh with the sign before the dollar (U+2212): '$74', '−$20', '−$1,000';
+ * '-' for a non-finite value. The belly's price goes negative (P-9).
+ */
+export function priceText(x) {
+  if (!Number.isFinite(x)) return '-';
+  const r = Math.round(x) + 0;
+  return (r < 0 ? '\u2212$' : '$') + mw(Math.abs(r));
+}
+
 // ------------------------------------------------------------------ the game's header (Phase 1a)
 
 /**

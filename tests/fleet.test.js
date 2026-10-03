@@ -34,7 +34,8 @@ test('H-9 / K-1: a trip removes exactly the machine\'s share of the lever and op
   assert.equal(lever(s, 'ccgt'), 260);
   assert.equal(s.units[idx('ccgt2')].basePointMW, 260);
   assert.equal(s.conts.length, 1);
-  assert.deepEqual(s.conts[0].pre, {inertiaMW: 0, batteryMW: 25, guardMW: 15, governorsMW: 12, loadReliefMW: 3, uflsMW: 0});
+  assert.deepEqual(s.conts[0].pre, {inertiaMW: 0, batteryMW: 25, guardMW: 15, governorsMW: 12, loadReliefMW: 3, uflsMW: 0, inverterMW: 0});
+  assert.deepEqual(Object.keys(s.conts[0].caught), Object.keys(s.conts[0].pre), 'caught has the same keys, inverterMW last (Phase 2a)');
   assert.ok(out.some(e => e.kind === 'contingency' && e.id === 'ccgt1'));
 });
 

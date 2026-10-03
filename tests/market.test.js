@@ -72,7 +72,7 @@ test('P-6: hydro water value is $130 at full storage and rises as storage falls'
 test('S-1 / H-12: unserved MWh is exactly the integral of shed MW, and never priced in the scorecard', () => {
   const a = opening(2), b = clone(a);
   for (const s of [a, b]) { s.tick = V.TICKS_PER_S; s.acc.ticks = V.TICKS_PER_S; s.acc.fSumHz = 50 * V.TICKS_PER_S; }
-  b.acc.shedMWs = 360 * 1; // 360 MW for one second
+  b.acc.unservedMWs = 360 * 1; // 360 MW for one second (Phase 2a, C-8: the dark customers' underlying load)
   market.settleSecond(a, []);
   market.settleSecond(b, []);
   assert.ok(Math.abs(b.score.unservedMWh - a.score.unservedMWh - 0.1) < 1e-12, 'unserved ' + b.score.unservedMWh);
@@ -141,7 +141,7 @@ test('S-3: shedding 100 MWh with no other change moves CO2 intensity by < 0.5%',
       const served = s.env.demandMW - shedMW, f = served / s.env.demandMW;
       s.units.forEach((u, i) => { s.acc.unitMWs[i] = u.outMW * f; });
       s.ren.windMW = w0 * f; s.ren.solarMW = so0 * f; // wind and solar are generators too
-      s.acc.servedMWs = served; s.acc.shedMWs = shedMW;
+      s.acc.servedMWs = served; s.acc.unservedMWs = shedMW;
       market.settleSecond(s, []);
     }
     return s.score;
@@ -317,7 +317,7 @@ test('S-1 / Y-4: unserved splits by why districts are dark; the frequency record
   fleet.setDistrictDark(s, iU, true, 'ufls');
   fleet.setDistrictDark(s, iD, true, 'directed');
   s.tick = (3 * V.SPARK_BLOCK_S + 10) * V.TICKS_PER_S; // settling a second in block 3
-  Object.assign(s.acc, {ticks: 50, fSumHz: 49.8 * 50, fMinHz: 49.7, fMaxHz: 49.9, shedMWs: 360});
+  Object.assign(s.acc, {ticks: 50, fSumHz: 49.8 * 50, fMinHz: 49.7, fMaxHz: 49.9, unservedMWs: 360});
   market.settleSecond(s, []);
   const sc = s.score;
   near(sc.unservedMWh, 0.1);

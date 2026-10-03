@@ -289,11 +289,11 @@ export function createBay(ctx, parent) {
     for (const d of list) {
       const R = rows.get(d.id);
       if (!R) continue;
-      const cl = coldLoad(d, o.s, o.demand.nowMW);
+      const cl = coldLoad(d, o.s);
       const why = previewOf(d);
       const ok = why === '';
       setText(R.name, (d.id === sel ? '▸ ' : '') + d.id + (d.shedBy ? ' · ' + d.shedBy.toUpperCase() : ''));
-      setText(R.load, mw(d.coldLoadMW) + ' MW' + (cl.factor > 1 ? ' ×' + cl.factor : cl.coldInS > 0 ? ' ×1.5 in ' + mmss(cl.coldInS) : ''));
+      setText(R.load, mw(cl.mw) + ' MW' + (cl.factor > 1 ? ' ×' + cl.factor : cl.coldInS > 0 ? ' ×' + V.COLD_LOAD_FACTOR + ' in ' + mmss(cl.coldInS) : ''));
       const pvCls = ok ? 'good' : d.restoreBlock ? 'warn' : 'crit';
       setText(R.pv, CLASS_GLYPH[pvCls]);
       setAttr(R.pv, 'class', 'dk-feeder-pv ' + pvCls);

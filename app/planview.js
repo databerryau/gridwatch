@@ -3,7 +3,9 @@
 // only sim/params.js. Nothing here changes the grid; the stack sends what snapDrop returns.
 //
 // project(obs, opts)            the next 4.5 h per 5-min column: each layer's MW as the sim's
-//                               plan executor will move it (desk/README §3.1), supply and gaps
+//                               plan executor will move it (desk/README §3.1), supply and gaps,
+//                               the rooftop bite and the projected spill (Phase 2a, C-11)
+// blueRuns(proj)                the runs of projected spill ahead (C-11), in the shape of redRuns
 // earliestArrival(obs, st, mw)  the earliest second a station can be at mw (L-4 ghost, L-6, L-9)
 // glowSet(obs, gap)             control ids that can arrive by the gap's start (L-9, K-16)
 // snapDrop(obs, st, atS, mw)    the inputs a drop sends, on the 15-min / 50-MW grid, or the
@@ -234,7 +236,10 @@ function colTimes(fc) {
  * @param {object} obs observe() output (with obs.plan)
  * @param {{hist?: object}} [opts]
  * @returns {object} {s, fromS, times, pastTimes, p50, p10, p90, layers[], stations{}, units{},
- *   supply, load, deficit, gap[], earliest{}, blue[]}; see the README-style notes inline.
+ *   supply, load, deficit, gap[], earliest{}, blue[], rooftop, surplusMW, past{demand, rooftop,
+ *   layers}}; see the README-style notes inline. Phase 2a (desk/README.md §19.5): `rooftop` is
+ *   the forecast's rooftop bite per column, `surplusMW` the projected spill (C-11) and
+ *   `blue[q]` = surplusMW[q] > SURPLUS_MIN_MW; blueRuns(proj) gives its runs.
  */
 export function project(obs, opts = {}) {
   const fc = obs.forecast, s = obs.s, times = colTimes(fc);
@@ -246,6 +251,9 @@ export function project(obs, opts = {}) {
   for (const id of SIDS) stationsOut[id] = {mw: new Float64Array(n), lever: new Float64Array(n), onCount: new Uint8Array(n), limited: new Uint8Array(n)};
   const tieOut = new Float64Array(n), battOut = new Float64Array(n), battLim = new Uint8Array(n);
   const rertOut = new Float64Array(n), drOut = new Float64Array(n);
+  // Phase 2a (C-11): what the sim's automatic cut counts as must-run (the floor blocks of
+  // sim/grid.js surplusMW) and whether the tie can export, sampled with the columns.
+  const floorOut = new Float64Array(n), tieDown = new Uint8Array(n);
   const hydroJ = SIDS.indexOf('hydro');
   let k = 0;
   const expLimAt = t => {
@@ -299,6 +307,11 @@ export function project(obs, opts = {}) {
         so.mw[k] = mw; so.lever[k] = lever; so.onCount[k] = c; so.limited[k] = st.limited ? 1 : 0;
       }
       tieOut[k] = T.flow; battOut[k] = B.out; battLim[k] = B.limited ? 1 : 0; rertOut[k] = Rr.out; drOut[k] = S.dr.mw;
+      // the floor blocks: MIN of every machine 'on' (0 for hydro), the projected output of one
+      // loading, unloading or shutting down (H-1); nothing off line has output
+      let fl = 0;
+      for (const x of S.mach) fl += x.mode === 'on' ? x.m.minMW : x.out;
+      floorOut[k] = fl; tieDown[k] = T.tripped ? 1 : 0;
       k++;
     }
   }
@@ -327,17 +340,31 @@ export function project(obs, opts = {}) {
   layers.forEach((L, r) => { L.rank = r; });
   // supply, load and gaps (L-5)
   const supply = new Float64Array(n), load = new Float64Array(n), deficit = new Float64Array(n), gap = new Array(n), blue = new Uint8Array(n);
+  // Phase 2a (desk/README.md §19.5): the rooftop bite per column (the forecast's, as if every
+  // inverter were connected; 0 where the forecast has no such column) and the projected spill.
+  //
+  // C-11: blue is the sim's own cut (sim/grid.js surplusMW, C-6) on the projection: must-run
+  // (the floor blocks above, and reserve diesel on line) + forecast wind and utility solar after
+  // the manual LIMIT, less what can take it: P50 demand, the tie exporting at its cap
+  // (fc.exportLimitMW; nothing while the tie is tripped) and the charge stepped from the present
+  // battery ORDER (AGC's trim is not room, as in the sim). So it is what will be wasted whatever
+  // the dispatch does with the tie: the part only a STOP or a CHARGE order can save. Its own
+  // array, never a kind in proj.gap; from P50, not P10, in 2a.
+  const rooftop = new Float64Array(n), surplusMW = new Float64Array(n);
   for (let q = 0; q < n; q++) {
     let sup = 0;
     for (const L of layers) sup += L.mw[q];
     supply[q] = sup - tieExp[q] - battChg[q]; // net of exports and charging (drawn as extra load)
     load[q] = fc.demandP50[q];
+    rooftop[q] = fc.rooftopMW && Number.isFinite(fc.rooftopMW[q]) ? fc.rooftopMW[q] : 0;
     deficit[q] = fc.demandP50[q] - supply[q];
     gap[q] = supply[q] < fc.demandP50[q] - 0.5 ? 'red' : supply[q] < fc.demandP90[q] - 0.5 ? 'amber' : '';
-    // blue (Phase 2 display): committed minimum + uncurtailed renewables + imports above P10
-    let floor = wind[q] + solar[q] + tieImp[q];
-    for (const id of SIDS) floor += stationsOut[id].onCount[q] * V.STATIONS[id].minMW;
-    blue[q] = floor > fc.demandP10[q] ? 1 : 0;
+    const room = tieDown[q] ? 0 : fc.exportLimitMW ? fc.exportLimitMW[q] : V.TIE_MAX_MW;
+    // DR called and a battery ordered to DISCHARGE both push supply onto a grid that is already
+    // full, and the sim's cut counts them (measured 350 and 200 MW low without these two terms).
+    const spill = floorOut[q] + rertOut[q] + wind[q] + solar[q] + drOut[q] + battDis[q] - (fc.demandP50[q] + room + battChg[q]);
+    surplusMW[q] = spill > 0 ? spill : 0;
+    blue[q] = surplusMW[q] > V.SURPLUS_MIN_MW ? 1 : 0;
   }
   const pastTimes = new Float64Array(N_PAST);
   for (let p = 0; p < N_PAST; p++) pastTimes[p] = fc.fromS - (N_PAST - 1 - p) * COL_S;
@@ -346,7 +373,7 @@ export function project(obs, opts = {}) {
     s, fromS: fc.fromS, times, pastTimes, past, n,
     p50: fc.demandP50, p10: fc.demandP10, p90: fc.demandP90,
     layers, stations: stationsOut, units: unitsOut, tie: tieOut, battery: battOut,
-    exports: tieExp, charging: battChg, supply, load, deficit, gap, blue,
+    exports: tieExp, charging: battChg, supply, load, deficit, gap, blue, rooftop, surplusMW,
     earliest: earliestLines(obs),
     now: nowEdge(obs),
   };
@@ -368,7 +395,7 @@ export function nowEdge(obs) {
  * last record at or before its end time and after its start; NaN where there is none.
  */
 export function pastFromHist(hist, pastTimes) {
-  const out = {demand: new Float64Array(N_PAST).fill(NaN), layers: {}};
+  const out = {demand: new Float64Array(N_PAST).fill(NaN), rooftop: new Float64Array(N_PAST).fill(NaN), layers: {}};
   if (!hist) return out;
   // app/game.js's form: per id, an array of column means; column c covers
   // [colFromS + c * colS, colFromS + (c + 1) * colS) and lands on the past column ending there.
@@ -393,6 +420,7 @@ export function pastFromHist(hist, pastTimes) {
     }
   };
   pick(hist.demand, out.demand);
+  pick(hist.rooftop, out.rooftop);
   for (const id of Object.keys(hist.stations || {})) {
     const dst = new Float64Array(N_PAST).fill(NaN);
     pick(hist.stations[id], dst);
@@ -510,6 +538,23 @@ export function redRuns(proj) {
     while (k < proj.n && proj.gap[k] === 'red') { mw = Math.max(mw, proj.deficit[k]); k++; }
     // atS: the first moment the plan is measured short (a column's value is at its end time),
     // so a gap a trip opens now starts one column ahead and the fast units still glow (K-16)
+    out.push({atS: proj.times[k0], endS: proj.times[k - 1], k0, k1: k - 1, mw});
+  }
+  return out;
+}
+
+/**
+ * Blue runs ahead (C-11: projected spill above SURPLUS_MIN_MW), in the shape of redRuns:
+ * [{atS, endS, k0, k1, mw (largest spill)}]. Reads proj.surplusMW only, never proj.gap.
+ */
+export function blueRuns(proj) {
+  const out = [], sp = proj.surplusMW;
+  if (!sp) return out;
+  for (let k = 0; k < proj.n; k++) {
+    if (!(sp[k] > V.SURPLUS_MIN_MW)) continue;
+    const k0 = k;
+    let mw = 0;
+    while (k < proj.n && sp[k] > V.SURPLUS_MIN_MW) { mw = Math.max(mw, sp[k]); k++; }
     out.push({atS: proj.times[k0], endS: proj.times[k - 1], k0, k1: k - 1, mw});
   }
   return out;

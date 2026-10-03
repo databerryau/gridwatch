@@ -5,17 +5,32 @@
 // cost and lead; then hold 0.6 s (or hold E) to arm. Armed, the same hold stands it down.
 // Industrial DR: a big button, hold 0.6 s (or hold D); lamps for the calls left.
 // DIRECT SHED: a guarded key (lift, then hold 0.6 s), shown only while the gauge reads SHORT or
-// SHEDDING (A-3). Nothing here commits on a single tap: clicks are ignored, only holds commit
+// SHEDDING (A-3). Its face names the district the sim will shed and that district's load
+// (calc.nextShed, obs.districts[].coldLoadMW: "about 0 MW" for one that is feeding back at noon,
+// Phase 2a). Nothing here commits on a single tap: clicks are ignored, only holds commit
 // (DIRECT SHED also takes the keyboard's guarded double: Enter lifts, Enter again within 2 s, §13.3).
 // Keys (K-23): E / D held; K focuses DIRECT SHED, V the AGC/HAND key, N presses RE-DISPATCH.
 // Foley (K-20): covers cue `cover` (lift and drop), key switches `key`, push buttons `button`.
 
 import {V} from '../sim/params.js';
+import {nextShed} from './calc.js';
 import {el, setText, setAttr, setCls, setHidden, setStyle, mw, mmss, fin, GUARD_MS, PAN} from './util.js';
 
 export const COVER_MS = 6000;   // a lifted cover drops again after this long untouched
 const RERT_TEXT = '$' + V.RERT_COST.toLocaleString('en-AU') + '/MWh · ' + V.RERT_MW + ' MW · ' + V.RERT_LEAD_S / 60 + '-min lead';
 const DR_TEXT = V.DR_MW + ' MW · ' + V.DR_DURATION_S / 60 + ' min · $' + V.DR_PRICE.toLocaleString('en-AU') + '/MWh';
+
+/**
+ * What DIRECT SHED will do now, in words: the district the sim sheds next (calc.nextShed) and its
+ * load, "about 0 MW" when that district has none to give (zero or negative net load).
+ * @returns {{id:string, text:string}} id '' when no lit rotation district is left
+ */
+export function shedText(obs) {
+  const d = nextShed(obs.districts);
+  if (!d) return {id: '', text: 'no lit district left in the rotation'};
+  const load = Math.round(fin(d.coldLoadMW));
+  return {id: d.id, text: d.id + ', about ' + (load > 0 ? load : 0) + ' MW'};
+}
 
 /**
  * A hold-to-commit key. o: {id, cls, covered, label, commit() -> '' | refusal, can() -> '' | reason,
@@ -135,7 +150,7 @@ export function createEmergency(ctx, keysParent, emergParent) {
   const shed = holdKey(ctx, box, {
     id: 'key-shed', cls: 'dk-shed', covered: true, label: 'DIRECT SHED', cue: 'key', shortcut: 'K', twice: true,
     can: () => '',
-    cost: () => 'sheds one district (~' + mw(fin(obs().demand.nowMW) * V.DISTRICT_SHARE) + ' MW) in rotation',
+    cost: () => { const next = shedText(obs()); return next.id ? 'sheds ' + next.text : 'sheds nothing, ' + next.text; },
     commit() { return ctx.send({type: 'directShed'}, shed.el); },
   });
 
@@ -175,9 +190,11 @@ export function createEmergency(ctx, keysParent, emergParent) {
     const short = o.sec.level === 'SHORT' || o.sec.level === 'SHEDDING';
     setHidden(shed.el, !short);
     setText(shed.face, shed.coverUp() ? '▶ HOLD: SHED' : '▣ DIRECT SHED');
-    setText(shed.sub, 'one district, ~' + mw(fin(o.demand.nowMW) * V.DISTRICT_SHARE) + ' MW');
+    const next = shedText(o);
+    setText(shed.sub, next.text);
     setAttr(shed.el, 'aria-label', 'DIRECT SHED key under a cover, cover ' + (shed.coverUp() ? 'lifted' : 'down') +
-      ': sheds one district in rotation. Press to lift, then hold 0.6 s, or press Enter again within 2 s.');
+      ': sheds ' + (next.id ? 'district ' + next.text + ', the next in rotation' : 'nothing: ' + next.text) +
+      '. Press to lift, then hold 0.6 s, or press Enter again within 2 s.');
     for (const k of [rert, dr, shed]) {
       k.render();
       setAttr(k.el, 'aria-disabled', ctx.locked() ? 'true' : 'false');

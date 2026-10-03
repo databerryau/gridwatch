@@ -132,6 +132,8 @@ step(state, inputs = []):
       events.applyDue(state, out)                            ext events with atS <= s (trips, weather, news)
       grid.planSecond(state, out)                            Phase 1a: the plan's booked stops, starts, keys, tie keys
       weather.sampleSecond(state)                            state.env for second s
+      if s % MSL_CHECK_S === 0:                              Phase 2a (P-4): the MSL level, from ONE forecast per check
+          events.mslSecond(state, weather.forecast(state, FC_HORIZON_S, FC_STEP_S), out)
       grid.unitsSecond(state, out)                           state machines, timers, derate, hot trips, lockouts
       grid.agcSecond(state, out)                             AGC trims (every AGC_CYCLE_S)
       grid.dispatchSecond(state, out)                        schedules move at ramps; battery, tie, renewables, RERT, DR
@@ -153,6 +155,12 @@ load relief, relays) on top. Trips from ext events therefore land on a second bo
 first physics tick after them sees the new state. A loop that steps must stop on
 `state.over` (step is a no-op after it).
 
+The MSL check (Phase 2a; desk/README.md §21.1) sits directly after the weather, so it tests the
+second's own demand and a tie or potline trip applied by `events.applyDue` in the same second;
+the tie coming back (`grid.unitsSecond`, later in the second) shows at the next check. step.js
+builds the forecast and hands it over, so `events.js` still imports nothing from `weather.js`.
+On a scenario with no rooftop `mslSecond` returns at once.
+
 ## 4. Random streams (F-3)
 
 `sim/rng.js`: counter-based `hash32(seed, stream, a, b = 0, c = 0)` (MurmurHash3 fmix32 chain),
@@ -161,20 +169,22 @@ first physics tick after them sees the new state. A loop that steps must stop on
 
 | Stream | Counters | Used for | When |
 |---|---|---|---|
-| `EXT_REGIME` | a = 0 | weather class (heat / storm / calm) | createState |
+| `EXT_REGIME` | a = 0; a = 1 | a = 0: weather class (heat / storm / calm). a = 1 (Phase 2a; desk/README.md §18 C-2): the day's temperature type, MILD when `uniform < mildShare / (1 - heatShare)` and the class is not heat, else HOT; hidden as `ext.regime.temp` | createState |
 | `EXT_EVENTS` | a = menu slot, b = draw number | event times, targets, lockouts | createState |
 | `EXT_DEMAND` | a = minute sample | demand noise series | createState |
 | `EXT_WIND` | a = minute sample | wind fraction series | createState |
 | `EXT_CLOUD` | a = minute sample | utility-solar clearness series | createState |
 | `EXT_FINE` | a = grid second | +-6 MW per-second demand wobble | on the fly in `sampleSecond` (a pure function of seed and second, so it is "pre-rolled" in effect) |
-| `EXT_ROOFTOP` | a = sample, b = suburb | **reserved** for Phase 2 rooftop PV (P-1, P-2) | - |
+| `EXT_ROOFTOP` | a = 5-min sample; b = suburb index, and b = the number of suburbs for the shared regional sky | the rooftop skies (Phase 2a, P-2; desk/README.md C-5): `ext.rooftop`, per-suburb clearness = one regional series + a local term each (`normal` draws). Not drawn when the scenario has no rooftop | createState |
 | `PLAY` | a = tick, b = unit index, c = draw | player-dependent outcomes: overheat trip (H-2: `uniform(seed, PLAY, tick, k)` at the grid second's tick, c = 0); K-12 sync slip (Phase 1a: at the tick the unit reaches 'ready' or is sent back there, c = 1 magnitude, 2 sign, 3 phase angle) | when the outcome is decided |
 
 Ext draws never depend on play (C-6): the same seed gives the same weather, demand, events and
 lockout times whatever anyone does. **Trip targets are rules, not dice**: "the largest online
 machine by output" (`fleet.largestContingency`; ties to the lower index), "the station's
 largest online machine", "the unit that ran hot". Ext series are quantised integers (MW,
-per-mille) at `SERIES_STEP_S` = 60 s; ext event args have at most 3 exact decimals (tested).
+per-mille) at `SERIES_STEP_S` = 60 s (the rooftop skies at `scn.rooftop.cloud.stepS` = 300 s:
+six of them at one minute would break the 64-KB state limit); ext event args have at most 3
+exact decimals (tested).
 `fx` (cosmetic) randomness lives in `render/` and `audio/` only.
 
 ## 5. State shape
@@ -196,7 +206,9 @@ modules named. "A" = set by createState only, never changed after. "-" = nobody 
 | `scnHash` | u32 | A | `canonicalHash(scn)`: tells scenario variants apart in `hashState` |
 | `ext` | object | A | the pre-rolled external world (below). Hidden; read-only |
 | `evNext` | int | events | index of the next `ext.events` entry to apply |
+| `day` | `{temp: 'MILD'\|'HOT', weekend: bool}` | A | the public kind of day (P-3): `temp` from the hidden `ext.regime.temp`, read once (a heatwave day reads `'HOT'`); `weekend` from `scn.day.weekend` (Phase 2a; desk/README.md §19.2) |
 | `env` | object | weather | this second's external conditions (below) |
+| `msl` | `{level, minMW, atS, sinceS}` | events (`mslSecond`) | P-4 notice level 0..3, the forecast minimum behind it and its time ("msl" below); `{0, 0, -1, -1}` for the whole day when the scenario has no rooftop (Phase 2a; desk/README.md §19.2) |
 | `control` | `{mode: 'AGC'\|'HAND', modeLocked: bool}` | step (applyInput) | K-2 / D-7 |
 | `stations` | array | fleet (derived) | one lever per station (below) |
 | `units` | array | grid, physics, fleet | one entry per machine, `V.MACHINES` order |
@@ -240,11 +252,11 @@ explicit keys without `clampOn` and `lastMW`.
 
 | Field | Meaning |
 |---|---|
-| `regime` | `{cls: 'heat'\|'storm'\|'calm'}` from `EXT_REGIME` (S-10: heat 15%, storm 30%) |
+| `regime` | `{cls: 'heat'\|'storm'\|'calm', temp: 'HEATWAVE'\|'MILD'\|'HOT'}` from `EXT_REGIME` (S-10: heat 15%, storm 30%). `temp` is `'HEATWAVE'` iff `cls` is `'heat'`; MILD needs `scn.weather.mildShare` > 0 (CLASSIC 0, DESK 0.55). Only createState reads `temp`, once, for `state.day`; code tolerates it missing (Phase 2a; desk/README.md §19.2) |
 | `events[]` | `{id: 'e7', atS, type, args, contingency: bool, warned: bool}`, sorted by `atS`, then type order, then menu slot; contingencies never share a second |
 | `heat` | `{announceS, onsetS, endS}` or `null` |
 | `series` | `{stepS: 60, demandNoiseMW: int[1441], windPm: int[1441], clearPm: int[1441]}` |
-| `rooftop` | `null` (Phase 2 hook: per-suburb clearness from `EXT_ROOFTOP`) |
+| `rooftop` | `{stepS: 300, clearPm: [[int x 289] x nSub]}`: each suburb's clearness (`scn.city.suburbs` order) as integer per-mille inside `cloud.min..max`, from `weather.prerollRooftop` on `EXT_ROOFTOP`; `null` when `scn.rooftop.capacityMW` is 0. One shared regional sky (reverts to `cloud.mu`; a heatwave's clear skies lift that mean from its onset) plus a small zero-mean local term per suburb, stored already combined; the 2a cloud front does not cross the suburbs. Read only by `sampleSecond`, for the present second; never by `forecast()` (Phase 2a; desk/README.md §19.2, C-5) |
 
 Event types (classic menu, legacy L331-370): `notice {code}`, `heatAnnounce {onsetS, endS,
 upliftPm, deratePm}` (integer per-mille), `heatOnset {clearMuAtLeast}`, `heatEnd`, `stormWarn
@@ -256,11 +268,58 @@ createState; `applyDue` only logs them.
 
 ### env (weather.sampleSecond, every grid second; public "present" values)
 
-`s` (grid second), `h` (hour of day), `demandMW` (operational demand = underlying minus the
-smelter's missing load; before Phase 2 operational = underlying), `underlyingMW` (DEM x heat
-multiplier + noise + wobble), `windAvailMW`, `solarAvailMW` (clear-sky table x clearness),
-`windFrac`, `clearness`, `heatActive` (onset <= s < end), `heatMult`, `tempC` (display),
-`neighbourPrice` ($/MWh, P-6), `exportLimitMW` (300 in 09:00-16:00, else 800).
+`s` (grid second), `h` (hour of day), `demandMW` (operational demand, P-1: underlying minus
+rooftop PV minus the smelter's missing load), `underlyingMW` (the day's shape x heat multiplier
++ noise + wobble), `windAvailMW`, `solarAvailMW` (clear-sky table x clearness), `windFrac`,
+`clearness`, `heatActive` (onset <= s < end), `heatMult`, `tempC` (display; a MILD day shows
+`scn.temperatureC.mildTable`), `neighbourPrice` ($/MWh, P-6), `exportLimitMW` (300 in
+09:00-16:00, else 800), `rooftopMW` (every suburb's rooftop PV as if every inverter were
+connected), `roofSubMW[nSub]` (per suburb, `scn.city.suburbs` order), `roofClearFrac[nSub]` (its
+clearness now). Phase 2a (desk/README.md §19.2, C-3, C-4):
+
+* **P-3.** `underlyingMW = weather.underlyingBaseMW(scn, state.day, h) x heatMult + noise +
+  wobble`. The shape is `DEM(h)` on a HOT weekday; a MILD day takes off its cooling load,
+  `COOLING_MAX_MW x clamp((T - COOLING_BASE_C) / COOLING_SPAN_C)` with T from the scenario's
+  hot-day temperature table; a weekend multiplies either by `WEEKEND_DEMAND_FACTOR`. MILD and
+  the weekend come from the public `state.day`, the heat from `ext.heat`.
+* **P-2.** `roofSubMW[j] = capacityMW x share[j] x clearFactor x shape(h) x (1 - cloudBite x
+  (1 - k_j)) x (1 - (1 - heatFactor) x r(s))`: `shape` is `scn.rooftop.shapePm` (integer
+  per-mille of the 13:00 peak, linear between its 15-min points; 0 outside 06:12-19:48), `k_j` =
+  `roofClearFrac[j]`, read from `ext.rooftop` (linear between its 5-min samples), and `r(s)` =
+  `weather.heatRampAt(ext.heat, s)`, the 0..1 ramp `heatMultAt` uses, so the hot-panel derate
+  starts with the heat window and never leaks a heatwave that has not been announced.
+  `rooftopMW` is the sum. Clear noon (13:00, k = 1) is 3,500 MW; 18:48 about 386 MW; k = 0.32
+  everywhere leaves 52.4% (tested).
+* **P-1.** `demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW)` on every grid
+  second (flex = 0 in 2a; tested over a whole DESK day through a potline trip). `demandMW`
+  stays THE operational total every consumer reads; what is off with dark or reconnecting
+  districts is `city.roofOffMW` (fleet), never taken out of `env`.
+* With no rooftop (`ext.rooftop` null) `rooftopMW` is 0, `roofSubMW` zeros and `roofClearFrac`
+  ones, written in place each second; with that and a HOT weekday (the classic day, C-1) every
+  `env` value is bit-identical to the pre-2a formula (tested, association order included).
+
+### day and msl (Phase 2a; desk/README.md C-2, C-9)
+
+`day = {temp: 'MILD' | 'HOT', weekend}` is the public kind of day, set once by createState
+(`temp` from the hidden `ext.regime.temp`, a heatwave reading `'HOT'`; `weekend` from
+`scn.day.weekend`) and never written again. `sampleSecond` and `forecast` take the day type from
+it; nothing else reads `ext.regime.temp`.
+
+`msl = {level, minMW, atS, sinceS}` (writer: `events.mslSecond`, every `MSL_CHECK_S` = 300 s).
+`minMW` is the minimum forecast operational demand: the least of `env.demandMW` now and
+`forecast.demandP50` over the 4.5-h window; `atS` its grid second (now, when the present is the
+minimum). Both are refreshed at every check, unrounded. In the last 4.5 h of the sim day the
+window runs past 04:00, as the forecast's own columns do (tomorrow morning, on the same day
+type), so `atS` may be up to `FC_HORIZON_S` past `DAY_S`: a consumer that maps it onto the day
+(a `dayAhead` column, a plan position) clamps it. No level is reached at night (no rooftop), so
+no record carries such a time. `level` 0..3: a level is **reached**
+when `minMW` is at or below its threshold (`MSL1_MW` 1,600, `MSL2_MW` 1,300, `MSL3_MW` 1,000,
+each raised by `MSL_TIE_OUT_MW` for the hours the tie is out: the present while `tie.tripped`, a
+forecast column only if it falls before the tie's public return, `env.s + tie.lockoutS`; the
+column tested is the one closest to its own threshold, and `minMW` / `atS` are that column's)
+and **left** only once `minMW` is more than `MSL_CLEAR_MW` above it. `sinceS` is the grid second of the last change of level (-1: none yet
+today). Every change of level emits one `log` record (§7). With no rooftop the object is never
+written: `{0, 0, -1, -1}` all day.
 
 ### stations[i] - `{id, basePointMW}` (K-1)
 
@@ -325,7 +384,7 @@ to 435).
 | Object | Fields (writer) |
 |---|---|
 | `tie` | `setMW` (grid, input), `flowMW` (grid; + import; ramps at `TIE_RAMP_MW_MIN`; clamp [-exportLimit, 800]), `tripped`, `lockoutS` (fleet.tripTie, grid) |
-| `ren` | `windLimitPct`, `solarLimitPct` (grid, input: output LIMIT %, 100 = no curtailment, as the legacy LIMIT slider), `windCurtMW`, `solarCurtMW` (grid, integration: the curtailed MW, moving toward available x (100 - limit)% at `CURTAIL_RAMP_FRAC_MIN`, so a LIMIT change is never a step; the weather passes straight through), `windMW`, `solarMW` (grid: available - curtailed; physics and settlement apply OFGS to wind; the market's stack offers the AVAILABLE MW, `env.windAvailMW` net of OFGS and `env.solarAvailMW`, P-5) |
+| `ren` | `windLimitPct`, `solarLimitPct` (grid, input: output LIMIT %, 100 = no curtailment, as the legacy LIMIT slider), `windCurtMW`, `solarCurtMW` (grid, integration: the curtailed MW, moving toward available x (100 - limit)% at `CURTAIL_RAMP_FRAC_MIN`, so a LIMIT change is never a step; the weather passes straight through), `windAutoMW`, `solarAutoMW` (grid, Phase 2a, C-6: MW held back by the dispatch in a surplus, on top of the manual LIMIT's `*CurtMW`: each moves toward its pro-rata share of the cut at `CURTAIL_RAMP_FRAC_MIN` and back to 0 as the surplus goes; `windAutoMW` is stored before OFGS, as `windCurtMW` is; 0 whenever there is no surplus, so always 0 on a day without one), `windMW`, `solarMW` (grid: available - `*CurtMW` - `*AutoMW`; physics and settlement apply OFGS to wind, and physics takes the over-frequency back-off `phys.renPfrMW` off both, C-7; the market's stack offers the AVAILABLE MW, `env.windAvailMW` net of OFGS and `env.solarAvailMW`, P-5, so neither cut moves the price) |
 | `hydro` | `storageMWh` (physics, per tick), `warned[]` (grid: 30%, 10% warnings) |
 | `rert` | `armed`, `leadS`, `outMW`, `standingDown`, `armedEver` (grid) |
 | `dr` | `callsLeft`, `activeS`, `mw` (grid; `mw` moves toward DR_MW while `activeS > 0`, else toward 0, at `DR_RAMP_MW_MIN`, integration) |
@@ -340,9 +399,28 @@ to 435).
   through `fleet.setDistrictDark`; `surgeMW` (grid) is the cold-load extra at its restore.
 * `city.shedFrac` (fleet, exact sum of dark shares), `city.coldLoadMW` (grid: the decaying sum
   of surges, K-13), `city.lastRestoreS` (grid).
-* A district's **cold-load MW** is `fleet.districtColdLoadMW(state, d)` = `env.demandMW x
-  share x (dark for > COLD_LOAD_AFTER_S ? COLD_LOAD_FACTOR : 1)`; permissive, observe and the
-  restore surge all use it.
+* A district's **cold-load MW** is `fleet.districtColdLoadMW(state, d)`. With `G = env.demandMW
+  + env.rooftopMW` (the total before rooftop; Phase 2a, P-12 / C-8): for a DARK district the
+  undelayed underlying pickup, `G x share x (dark for > COLD_LOAD_AFTER_S ? COLD_LOAD_FACTOR :
+  1)`, no rooftop netted off (its inverters wait and then ramp, below); for a LIT district its
+  NET load now, `G x share` less the rooftop it has connected (near zero or negative at a sunny
+  noon). With no rooftop both are `env.demandMW x share` (x the factor), as before. Permissive,
+  observe, the restore surge and the `shed` record all use it.
+* (Phase 2a; desk/README.md §19.2; P-12, C-8) `city.districts[d]` also carries `sub` (index into
+  `scn.city.suburbs`) and `roofFrac` (1 / its suburb's district count), both final at stage A,
+  and `reconnectS`: -1, or the grid second its inverters START ramping back. `fleet.
+  setDistrictDark` sets it to the relight second + `ROOF_RECONNECT_S` (and to -1 when the
+  district goes dark); `fleet.refreshRoof` resets it to -1 once the ramp has finished at
+  `reconnectS + ROOF_RAMP_S`. A district's rooftop **off fraction**: dark 1; `reconnectS < 0` 0;
+  `s < reconnectS` 1; else `1 - (s - reconnectS) / ROOF_RAMP_S`. `city.roofDarkMW` (rooftop MW
+  off because its district is dark) and `city.roofOffMW` (off in total: dark, or relit and
+  still waiting or ramping) are the sums of `env.roofSubMW[sub] x roofFrac` (x the off
+  fraction) over the districts, recomputed by `fleet.refreshRoof(state)`: called by
+  `setDistrictDark` (also mid-second, when physics operates a UFLS stage) and once a grid second
+  by `grid.fosSecond`, so physics and the market read two numbers and the tick has no district
+  loop. `fleet.litDemandMW(state)` = `G x (1 - shedFrac) - (env.rooftopMW - city.roofOffMW)`:
+  the lit operational demand (`obs.demand.litMW`, the market demand's first term); with rooftop
+  zero it is `env.demandMW x (1 - shedFrac)` exactly, and both sums are 0.
 * `ufls.timerS[8]`, `ufls.operated[8]`: physics (timers; `fleet.operateUfls` darkens both
   districts and marks the stage); grid re-arms with `fleet.rearmUfls` once both are lit.
   `ofgs.timerS[4]`, `ofgs.tripped[4]`, `ofgs.trippedFrac`: physics trips and grid reconnects
@@ -358,12 +436,38 @@ to 435).
 (fHist[t] - fHist[t - 25]) / 0.5 s, computed right after the push (K-11 FOS window);
 `ekMWs` (kept by `fleet.setSync`); readouts for the imbalance bar (K-11):
 `schedSupplyMW` (sum of sync schedMW + tie + wind after OFGS + solar + battery effective sched +
-RERT), `supplyMW` (the same with outputs: + governors + PFR + guard), `servedMW` (= demand x
-(1 - shedFrac) + coldLoad - DR), `loadReliefMW` (= servedMW x LOAD_RELIEF x (F0 - f) / F0,
-positive when f < F0), `loadMW` (= servedMW - loadReliefMW), `imbalanceMW` (= supply - load),
-`inertiaMW` (= -imbalance), `govTotalMW`, `shedMW` (= demand x shedFrac).
-**Identity** (tested): `(schedSupplyMW - servedMW) + inertiaMW + govTotalMW + battery.pfrMW +
-battery.ffrMW + loadReliefMW = 0` within 1 MW. At createState the readouts are 0.
+RERT), `supplyMW` (the same with outputs: + governors + PFR + guard - `renPfrMW`), `servedMW`,
+`loadReliefMW` (= servedMW x LOAD_RELIEF x (F0 - f) / F0, positive when f < F0), `loadMW` (=
+servedMW - loadReliefMW + `roofPfrMW`), `imbalanceMW` (= supply - load), `inertiaMW` (=
+-imbalance), `govTotalMW`, `shedMW`. At createState the readouts are 0.
+
+Load on net blocks (Phase 2a; desk/README.md §19.2; P-12, C-8), with `G = env.demandMW +
+env.rooftopMW` the total before rooftop (keep the operation order: physics, the market and
+observe share these, and with rooftop zero each is exactly the pre-2a value):
+
+```
+shedMW   = G x shedFrac - city.roofDarkMW                       the RELAY MW: the dark districts' net load
+servedMW = G x (1 - shedFrac) - (env.rooftopMW - city.roofOffMW) + city.coldLoadMW - dr.mw
+unserved = G x shedFrac                                         the dark customers' own load -> acc.unservedMWs
+```
+
+The inverters' over-frequency response (C-7; lowering only, labelled; flags `REN_PFR_ON`,
+`ROOF_FW_ON`), from the tick's START frequency f and this tick's state after the relays:
+
+```
+renPfrMW  = min(out, max(0, f - F0 - GOV_DEADBAND_HZ) / (GOV_DROOP x F0) x (WIND_MW x (1 - ofgs.trippedFrac) + SOLAR_MW))
+            out = ren.windMW x (1 - ofgs.trippedFrac) + ren.solarMW   (as scheduled; droop on rating, no lag)
+roofPfrMW = (env.rooftopMW - city.roofOffMW) x roofHoldFrac
+            roofHoldFrac: f > ROOF_FW_START_HZ -> max(held, min(1, (f - ROOF_FW_START_HZ) / (ROOF_FW_ZERO_HZ - ROOF_FW_START_HZ)));
+            f < ROOF_FW_START_HZ - ROOF_FW_HYST_HZ -> falls by PHYS_DT / ROOF_RAMP_S a tick to 0; between the two it is held
+```
+
+`roofHoldFrac` is the one piece of state here: the lowest rooftop output reached is held (AS/NZS
+4777.2) until the frequency is back under 50.15 Hz, then the back-off returns at 1 / `ROOF_RAMP_S`
+of the connected rooftop a second (so at most `ROOF_RAMP_S` from zero output).
+**Identity** (tested every tick): `(schedSupplyMW - servedMW) + inertiaMW + govTotalMW +
+battery.pfrMW + battery.ffrMW + loadReliefMW - renPfrMW - roofPfrMW = 0` within rounding.
+`servedMW` stays the load-relief base.
 
 ### acc (per-second accumulators) and last
 
@@ -374,6 +478,12 @@ drawn, >= 0), `battAbsMWs` (throughput |out|), `shedMWs`, `servedMWs` (of `loadM
 `startCost` ($, grid adds at START). Built by `fleet.newAcc()`; `market.settleSecond` folds it and calls
 `fleet.resetAcc(acc)`, and writes `last = {fMeanHz, fMinHz, fMaxHz, servedMW, shedMW}` (means
 over the completed second). AGC, FOS and the restore permissive read `last.fMeanHz`.
+(Phase 2a; desk/README.md §19.2) `acc.shedMWs` is the RELAY MW x s (net load; the source of
+`last.shedMW`); `acc.unservedMWs` adds the unserved rate `G x shedFrac` x `PHYS_DT` each tick (the
+dark customers' underlying load, C-8: it feeds `score.unservedMWh`); `acc.spillMWs` adds
+`phys.renPfrMW` x `PHYS_DT` (wind and solar backed off by over-frequency, C-7). All are carried
+by `newAcc`, `resetAcc` and the preview's `copyAcc`. `acc.servedMWs` is of `loadMW`, so rooftop
+that backs off shows as energy served by the grid.
 
 ### agc, fos, sec, price (grid / market)
 
@@ -394,10 +504,16 @@ over the completed second). AGC, FOS and the restore permissive read `last.fMean
 
 ### score (market; S-1..S-3)
 
-`servedMWh`, `unservedMWh` (= uflsMWh + directedMWh + taskMWh), `cost {fuel, noLoad, starts,
+`servedMWh`, `unservedMWh` (= uflsMWh + directedMWh + taskMWh; Phase 2a, C-8: the integral of
+the dark customers' UNDERLYING load, `acc.unservedMWs`, so LIGHTS ON does not depend on the sun;
+with no rooftop it equals the integral of the relay MW, as before), `cost {fuel, noLoad, starts,
 tie, battWear, dr, rert, flex}` ($), `co2t`, `genMWh` (generation in the region: units, wind after
-OFGS, solar, RERT; review fix), `marketBill` (info only), `minHz`, `maxHz`, `outsideNormalS`,
-`spark[12]` (worst |f - 50| per 2-h block from 04:00, Y-4), `starts`.
+OFGS, solar, RERT, less what wind and solar backed off inside the second, `acc.spillMWs`),
+`marketBill` (info only), `minHz`, `maxHz`, `outsideNormalS`,
+`spark[12]` (worst |f - 50| per 2-h block from 04:00, Y-4), `starts`, `spillMWh` (Phase 2a,
+C-6 / C-7: wind and solar energy held back or backed off; each settled second adds
+`(windCurtMW + windAutoMW) x (1 - ofgs.trippedFrac) + solarCurtMW + solarAutoMW` and
+`acc.spillMWs`; counted and shown, never charged for: its cost is the fuel burned later, S-2).
 `market.scoreSummary(score)` derives `{lightsMWh, costDollars, centsPerKWh, co2t, co2tPerMWh,
 servedMWh}` (`co2tPerMWh` = co2t / genMWh, AEMO's CDEII convention: imports count in neither term). **Never** unserved x a price (H-12; linted). VCR is for the debrief only.
 
@@ -414,6 +530,10 @@ loadReliefMW, uflsMW (= phys.shedMW)}`. `caught` has the same keys: the value at
 **minus** `pre`. With frozen schedules, Σ caught = lostMW - the tripped unit's pre-trip govMW
 (0 at 50 Hz), within 1 MW (tested). Physics fills the trace while `tick < watchEndTick`; grid
 fills `backInBandTick`.
+(Phase 2a; desk/README.md §19.2) `pre`, `caught` and `previewTrip`'s `caught` gain `inverterMW`
+as the last key: `-(renPfrMW + roofPfrMW)` at the extreme minus its pre-trip value (C-7: negative
+when the inverters caught a loss of load), so caught still sums to lostMW (tested on a load
+loss, preview and record). `uflsMW` is the relay MW (net load).
 
 ### news[] (public announcements; events)
 
@@ -455,7 +575,7 @@ An input is `{type, ...args}`. `applyInput(state, input, out)` (step.js) runs:
 | `standDownRERT` | - | armed and not already standing down | ramps out at `RERT_RAMP_MW_MIN`, then disarmed; before it arrives it simply cancels |
 | `mode` | `agc` bool | before 04:30 and `!control.modeLocked` | `control.mode` = AGC / HAND (D-7) |
 | `restore` | `district` | dark and `grid.restorePermissive(state, d, {preview: true})` is '' (the lamp's conditions plus the RESTORE PREVIEW, run on the input only) | **K-13 stub**: relit; `surgeMW` = cold load - its share of demand; `lastRestoreS`; UFLS stage re-armed if both its districts are lit |
-| `directShed` | - | `sec.level` is SHORT or SHEDDING (Phase 1a, A-3: R5 < L now, the LOR2-like state) and a lit district in rotation remains (K-7) | darkens the lit rotation district restored longest ago (never shed first; ties by the lowest `rot`: on a fresh day, the lowest `rot`), `shedBy 'directed'` (true rotation: a district just restored is not the next one shed) |
+| `directShed` | - | `sec.level` is SHORT or SHEDDING (Phase 1a, A-3: R5 < L now, the LOR2-like state) and a lit district in rotation remains (K-7) | darkens the lit rotation district restored longest ago (never shed first; ties by the lowest `rot`: on a fresh day, the lowest `rot`; Phase 2a: passing over a district with no net load to give), `shedBy 'directed'` (true rotation: a district just restored is not the next one shed) |
 | `planKey` | `station`, `atS` (whole s), `mw` >= 0 | `atS >= s`; something of the station on, booked, or free to start by then; before 04:00 | insert or replace the key at atS, **rewritten** (logged as applied): atS up to the earliest time the station's ramp reaches mw from the previous key after now (or the lever now), counting machines joining at MIN; mw into [Σmin, Σrating] of the machines on or booked on by then. None on or booked and mw > 0: books the START of the first machine free to start so it reaches MIN and climbs to mw by atS (a later booking of it moves earlier; atS moves later if the start would be past). mw 0: to MIN by atS, and a STOP of every machine on by then booked at atS. The rewrite is a fixed point: the logged key rewrites to itself on replay |
 | `planDel` | `station`, `atS` | a key at exactly atS, not in the past | removes it, and the STOPs of the station booked at that second |
 | `planStart` | `unit`, `atS` | `atS >= s`; unit off (or tripped) and free to start by atS (minimum down time, lockout, water) | books START at atS (replacing the unit's booking) |
@@ -485,10 +605,10 @@ Every record has `tick` and `kind`; `cue` (optional) names a sound for `audio/`.
 | `log` | `sev: 'info'\|'good'\|'warn'\|'crit'`, `code`, `msg` | any module |
 | `contingency` | `cause`, `id`, `lostMW`, `fHz`, `ekBeforeGWs`, `ekAfterGWs`, `cue: 'horn'` | fleet (trips > 50 MW) - the watch starts on it |
 | `breaker` | `unit` (machine id or `'tie'`), `closed`, `why: 'sync'\|'stop'\|'trip'`, `cue: 'breaker'` | fleet, grid |
-| `ufls` | `stage`, `districts[]`, `mw`, `cue: 'clack'` | physics |
+| `ufls` | `stage`, `districts[]`, `mw` (the stage's NET load, Phase 2a P-12: its two districts' underlying load less the rooftop they had CONNECTED, which went with their feeders; near zero or negative at a sunny noon; exactly the fall of `phys.servedMW` on that tick), `cue: 'clack'` | physics |
 | `ofgs` | `stage`, `mw` | physics |
-| `shed` | `district`, `why: 'directed'`, `mw`, `cue: 'clack'` | grid |
-| `restore` | `district`, `mw` (its cold-load MW) | grid |
+| `shed` | `district`, `why: 'directed'`, `mw` (the district's NET load when it was shed, `fleet.districtColdLoadMW` of a lit district), `cue: 'clack'` | grid |
+| `restore` | `district`, `mw` (its cold-load MW: the undelayed UNDERLYING pickup, x `COLD_LOAD_FACTOR` after 10 min dark; its rooftop returns `ROOF_RECONNECT_S` later, over `ROOF_RAMP_S`) | grid |
 | `announce` | `news` (the news record), `cue: 'warn'` | events |
 | `black` | `fHz`, `why: 'under'\|'over'\|'inertia'` | physics |
 | `input` | `ok: false`, `type` (string or null), `reason`; `cue: 'buzz'` when the sync-check relay blocked a `syncClose` | step.applyInput |
@@ -497,6 +617,31 @@ Every record has `tick` and `kind`; `cue` (optional) names a sound for `audio/`.
 
 Phase 1a log codes (kind `log`): `PLAN` (a booked START or STOP refused when due, dropped),
 `SYNC_ROUGH`, `SYNC_REVERSE`, `SYNC_REVERSE_TRIP`.
+
+Phase 2a MSL codes (kind `log`, from `events.mslSecond`; P-4, desk/README.md §19.3): `MSL1`,
+`MSL2`, `MSL3` and `MSL_CLEAR`, one record on **every** change of `msl.level` (a rise, a fall to
+a lower level, the clear), named for the level reached. These records carry three more fields:
+`{tick, kind: 'log', sev, code, msg, level, minMW, atS}`, with `sev` `info` / `warn` / `crit` for
+levels 1 / 2 / 3 and `good` for the clear, `minMW` rounded to 1 MW and `atS` the grid second of
+that minimum. `msg` is complete on its own in at most 25 words and names the level's threshold
+as it stands, e.g. "MSL1 notice: lowest forecast demand 1,850 MW at 12:40. MSL1 is 1,900 MW (tie
+out): two load trips above the security floor." When the minimum is the present second (`atS`
+equals the record's own second: a potline trip, or a clear while demand is rising) the value is
+measured, not forecast, and the message says so: "MSL1 notice: demand is at its lowest now,
+1,471 MW. MSL1 is 1,600 MW: two load trips above the security floor." Never a news item (news is
+weather). The `DUCK`
+notice has its own wording on a scenario with rooftop PV (the sun leaving the rooftops).
+
+`ufls`, `shed` and a district that is still reconnecting (Phase 2a; labelled). Both records net
+the rooftop the district had connected when it was shed: all of it normally, none or part of it
+for a district relit less than `ROOF_RECONNECT_S` + `ROOF_RAMP_S` (7 min) ago. `phys.shedMW`
+keeps the §5 formula, `G x shedFrac - city.roofDarkMW`, which takes ALL of a dark district's
+rooftop off, so after a stage has shed a reconnecting district `phys.shedMW` (and the contingency
+record's `caught.uflsMW`, which is its change) is below the stage's record by the rooftop that
+was still off, and `caught` then sums to that much less than `lostMW` (measured: 99.0 MW with
+RED1 relit and waiting when stage 1 operates; 0.000 with every district fully connected). An
+exact figure needs the connected rooftop remembered per district, a state field (desk/README.md
+§19.2); reported for stage C with the K-15 wording.
 
 Message text lives in these records for the bench; Phase 1a moves wording to `content/text.js`.
 
@@ -522,6 +667,22 @@ unless 'ready'); `sec` gains `previewUnitHz`, `previewLinkHz`; `plan` = {madeAtS
 {unit, atS}}; `scope` = {unit, open}. Phase 1b added `sky` = {clearness, windFrac}: the present
 `env` values (public, like `solar.availMW`), for the map's weather (G-3, G-4). It is not state:
 `hashState` and `SIM_VERSION` are unchanged.
+Phase 2a (desk/README.md §19.3; stage A wired every key, the world job filled in `env`, `day`,
+`msl` and the forecast, and the grid job fills in what it owns: `phys`, `city`, `ren`, `score`,
+`conts`): `balance` gains `renPfrMW`, `roofPfrMW` (after `shedMW`); `demand`
+gains `underlyingMW`, `rooftopMW` (as if connected, so `nowMW = underlyingMW - rooftopMW -
+(SMELTER_MW - smelter.loadMW)` holds in obs), `litMW` (`fleet.litDemandMW`), `unservedMW`
+(`G x shedFrac`, `G = env.demandMW + env.rooftopMW`) (after `tempC`); `wind` and `solar` gain
+`autoMW` (last: `ren.windAutoMW` / `solarAutoMW` as stored); `score` gains `spillMWh` (last of
+the state keys, before the summary); `districts[]` gains `reconnectS` (last); `contingency.pre`
+and `.caught` gain `inverterMW` (last); `forecast` and `dayAhead` gain `underlyingP50[]`,
+`rooftopMW[]` (after `exportLimitMW`; `demandP50/P10/P90` stay operational). Top level, after
+`scope`: `rooftop` = {mw (generating now: availMW - offMW - `phys.roofPfrMW`), availMW
+(`env.rooftopMW`), capMW (`scn.rooftop.capacityMW`), offMW (`city.roofOffMW`), suburbs[] {id, mw,
+capMW, clearness}: one per `scn.city.suburbs`, in order, also at capacity 0}; `msl` = {level,
+minMW, atS, sinceS}; `day` = {temp, weekend}. Never `ext.regime.temp` or `ext.rooftop`: on a
+heatwave day `day.temp` is `'HOT'` and the word HEATWAVE appears nowhere in `observe()` at any
+hour (the 10:30 warning is the news), and no key `clearPm` exists in it (`tests/state.test.js`).
 `restoreBlock` is `grid.restorePermissive(state, d)` for a dark district (the lamp: frequency and
 interval; the restore preview runs only on the restore input, never per district here) and
 `fleet.DISTRICT_LIT` for a lit one. The bench asks the preview itself for lit lamps
@@ -529,10 +690,16 @@ interval; the restore preview runs only on the restore input, never per district
 
 `forecast` = `weather.forecast(state, FC_HORIZON_S, FC_STEP_S)`: 54 five-minute columns
 `{fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[], neighbourPrice[],
-exportLimitMW[]}` built from the scenario's climatology, the present (`env`) and `news` only.
+exportLimitMW[], underlyingP50[], rooftopMW[]}` built from the scenario's climatology, the public
+kind of day (`state.day`), the present (`env`) and `news` only. (Phase 2a: `demandP50` / `P10` /
+`P90` are operational demand; `underlyingP50` = `demandP50` + `rooftopMW` + the smelter's
+expected missing load at that column; `rooftopMW` is the rooftop forecast as if every inverter
+were connected, after the heat derate of an ANNOUNCED heat window, and 0 in every column on a
+scenario with no rooftop; §11 weather.js.)
 `dayAhead` is `null` unless `observe(state, {dayAhead: true})`: then the same forecast to the
 end of the sim day (L-0 pre-dispatch). Neither may read `ext` (`tests/events.test.js`
-scrambles ext, including the series and the heat window, and expects an identical forecast).
+scrambles ext, including the series, the heat window and, on DESK, the rooftop skies and the
+hidden day type, and expects an identical forecast).
 
 ## 9. hashState(state)
 
@@ -609,18 +776,27 @@ Reads and writes per stage B module (a write through a `fleet.js` action counts 
 
 | Module | Reads | Writes |
 |---|---|---|
-| physics | `tick`, `phys`, `units[].{mode, sync, schedMW, availMW, govMW, k}`, `battery.{schedMW, guardMW, socMWh, ffrFiredTick, pfrMW, ufSuspend}`, `tie.flowMW`, `ren.{windMW, solarMW}`, `rert.outMW`, `dr.mw`, `env.demandMW`, `city.{shedFrac, coldLoadMW}`, `ufls`, `ofgs`, `collapse`, `conts[contIdx]`, `hydro.storageMWh` | `phys.*`, `units[].{govMW, outMW}`, `battery.{pfrMW, ffrMW, ffrFiredTick, outMW, socMWh, ufSuspend}`, `hydro.storageMWh`, `ufls.timerS`, `ofgs.timerS`, `collapse.bandS`, `black`, trace fields of `conts[contIdx]`, `acc.*` (adds); stages via `fleet.operateUfls` / `fleet.setOfgsStage` |
-| grid | everything above plus `env`, `last`, `control`, `sec`, `seed` (play stream) | `units[].{mode, timerS, agcTrimMW, schedMW, availMW, hotS, starts}`, base points via `fleet.setBasePoint`, `battery.{mode, orderMW, guardMW, schedMW, agcTrimMW, fullHold}`, `tie.{setMW, flowMW, tripped, lockoutS}`, `ren.*`, `hydro.warned`, `rert.*`, `dr.*`, `city.{coldLoadMW, lastRestoreS}`, `districts[].surgeMW`, `ofgs.okS`, `agc.*`, `fos.*`, `sec.*`, `acc.startCost`, `conts[contIdx].backInBandTick`; breakers via `fleet.setSync`, trips via `fleet.tripUnit`, districts via `fleet.setDistrictDark`, re-arm / reconnect via `fleet.rearmUfls` / `fleet.setOfgsStage` |
-| market | `env`, `units`, `battery`, `tie`, `ren`, `ofgs.trippedFrac`, `rert`, `dr`, `city`, `sec`, `acc`, `hydro.storageMWh` | `price.*`, `score.*`, `last.*`, `acc` (via `fleet.resetAcc`) |
-| events (`applyDue`) | `ext.events`, `evNext`, `units`, `tie`, `smelter`, `scn` (the storm and cloud text timings) | `evNext`, `news`, `smelter.{returning, loadMW, returnS}`; trips via `fleet.tripUnit`, `tripTie`, `tripSmelter` |
-| weather (`forecast`) | `scn` (incl. the public `scn.events` timings), `env`, `news`, `smelter.{loadMW, returning, returnS}` (the announced return) | nothing |
-| autopilot | `observe()` output only | its own memo |
-| step | everything (orchestration) | `tick`, `over`, `log`, `control`, `sec.dirty` |
+| physics | `tick`, `phys`, `units[].{mode, sync, schedMW, availMW, govMW, k}`, `battery.{schedMW, guardMW, socMWh, ffrFiredTick, pfrMW, ufSuspend}`, `tie.flowMW`, `ren.{windMW, solarMW}`, `rert.outMW`, `dr.mw`, `env.{demandMW, rooftopMW}`, `city.{shedFrac, coldLoadMW, roofDarkMW, roofOffMW}`, `ufls`, `ofgs`, `collapse`, `conts[contIdx]`, `hydro.storageMWh` | `phys.*` (incl. `renPfrMW`, `roofPfrMW`, `roofHoldFrac`), `units[].{govMW, outMW}`, `battery.{pfrMW, ffrMW, ffrFiredTick, outMW, socMWh, ufSuspend}`, `hydro.storageMWh`, `ufls.timerS`, `ofgs.timerS`, `collapse.bandS`, `black`, trace fields of `conts[contIdx]` (incl. `caught.inverterMW`), `acc.*` (adds, incl. `unservedMWs`, `spillMWs`); stages via `fleet.operateUfls` / `fleet.setOfgsStage` (through them `districts[].reconnectS`, `city.{roofDarkMW, roofOffMW}`) |
+| grid | everything above plus `env` (incl. `rooftopMW`, `roofSubMW`), `last` (`fMeanHz`: the AGC term of the automatic cut), `agc.unmetMW`, `ren.{windAutoMW, solarAutoMW}` (`agcSecond`: units first while spilling), `control`, `sec`, `seed` (play stream) | `units[].{mode, timerS, agcTrimMW, schedMW, availMW, hotS, starts}`, base points via `fleet.setBasePoint`, `battery.{mode, orderMW, guardMW, schedMW, agcTrimMW, fullHold}`, `tie.{setMW, flowMW, tripped, lockoutS}`, `ren.*` (incl. `windAutoMW`, `solarAutoMW`), `hydro.warned`, `rert.*`, `dr.*`, `city.{coldLoadMW, lastRestoreS}`, `districts[].surgeMW`, `ofgs.okS`, `agc.*`, `fos.*`, `sec.*`, `acc.startCost`, `conts[contIdx].backInBandTick`; breakers via `fleet.setSync`, trips via `fleet.tripUnit`, districts via `fleet.setDistrictDark` and the roofs via `fleet.refreshRoof` (`districts[].reconnectS`, `city.{roofDarkMW, roofOffMW}`), re-arm / reconnect via `fleet.rearmUfls` / `fleet.setOfgsStage` |
+| market | `env` (incl. `rooftopMW`, through `fleet.litDemandMW`), `units`, `battery`, `tie`, `ren` (incl. the manual and automatic curtailment), `ofgs.trippedFrac`, `rert`, `dr`, `city` (incl. `roofOffMW`), `sec`, `acc` (incl. `unservedMWs`, `spillMWs`), `hydro.storageMWh` | `price.*`, `score.*` (incl. `spillMWh`), `last.*`, `acc` (via `fleet.resetAcc`) |
+| events (`applyDue`) | `ext.events`, `evNext`, `units`, `tie`, `smelter`, `scn` (the storm and cloud text timings; `scn.rooftop.capacityMW` for the DUCK wording) | `evNext`, `news`, `smelter.{returning, loadMW, returnS}`; trips via `fleet.tripUnit`, `tripTie`, `tripSmelter` |
+| events (`mslSecond`) | `scn.rooftop.capacityMW`, `scn.clock`, `env.{s, demandMW}`, `tie.{tripped, lockoutS}`, `msl`, `tick`, the forecast passed in | `msl.*` |
+| weather (`sampleSecond`) | `tick`, `seed`, `scn` (incl. `scn.rooftop`, `scn.temperatureC`), `ext.{heat, series, rooftop}` for the present second, `day`, `smelter.loadMW` | `env.*` (`roofSubMW` and `roofClearFrac` in place) |
+| weather (`forecast`) | `scn` (incl. `scn.rooftop` and its cloud process, the public `scn.events` timings), `day`, `env` (incl. `roofClearFrac`), `news`, `smelter.{loadMW, returning, returnS}` (the announced return) | nothing |
+| autopilot | `observe()` output only (Phase 2a: also `demand.litMW`, `rooftop`, `districts[].suburb`, `forecast.rooftopMW`, `wind` / `solar` `.autoMW`, `units[].agcTrimMW`, `tie.exportLimitMW` and `.flowMW`, `msl`) | its own memo (incl. `belly`, `coalStops`) |
+| step | everything (orchestration) | `tick`, `over`, `log`, `control`, `sec.dirty`; `createState` also writes `ext.rooftop` (`weather.prerollRooftop`) and `day` (once, from `ext.regime.temp` and `scn.day`); `gridSecond` calls `events.mslSecond` |
 
-Only `weather.sampleSecond` and `events.applyDue` read `ext`, and only for the present second.
+Only `weather.sampleSecond` and `events.applyDue` read `ext`, and only for the present second;
+`ext.regime.temp` is read once, by `createState`.
 Nothing reads `ext` to anticipate the future.
 
-### fleet.js (A, done, frozen)
+### fleet.js (A, done, frozen; Phase 2a: the grid job's roof bookkeeping)
+
+Phase 2a wave 1 (desk/README.md §19.2, §21.2; P-12, C-8, C-7) changed four rows: `preTrip`
+(`inverterMW`), `setDistrictDark` (`reconnectS`, then `refreshRoof`), `districtColdLoadMW` (dark:
+underlying pickup; lit: net load) and the new `refreshRoof`; `litDemandMW` is stage A's. New
+invariant: `city.roofDarkMW` / `roofOffMW` are the rooftop off with dark districts / off in total,
+from `env.roofSubMW` as of the last refresh (every grid second, and at every district change).
 
 | Export | Does |
 |---|---|
@@ -633,12 +809,14 @@ Nothing reads `ext` to anticipate the future.
 | `refreshLever(state, stationId)`, `stationRange(state, stationId)`, `setBasePoint(state, i, mw)` | K-1 levers (§5 stations) |
 | `largestContingency(state) -> {kind, id, mw}` | H-4 L: largest sync machine output or tie import (ties to the lower index) |
 | `startBlock(state, i)`, `stopBlock(state, i) -> ''\|reason` | S-11 / H-1 command rules (desk and grid use the same); minimum down time only after a planned stop (D1) |
-| `preTrip(state)`, `startContingency(state, cause, id, lostMW, ekBeforeMWs, out)` | opens `conts[]` with `pre`, emits `contingency` |
+| `preTrip(state)`, `startContingency(state, cause, id, lostMW, ekBeforeMWs, out)` | opens `conts[]` with `pre` (Phase 2a: `inverterMW` = `-(phys.renPfrMW + phys.roofPfrMW)`, last key), emits `contingency` |
 | `tripUnit(state, i, cause, lockoutS, out) -> MW lost` | H-2/H-3/H-9: breaker open, lockout, base point to 0, contingency if > 50 MW |
 | `tripTie(state, cause, lockoutS, out) -> signed MW` | K-6 link trip |
 | `tripSmelter(state, offS, out) -> -MW` | load trip (over-frequency) |
-| `setDistrictDark(state, d, dark, why) -> share` | keeps `city.shedFrac` exact; callers emit records |
-| `districtColdLoadMW(state, d)`, `DISTRICT_LIT` | K-13 cold load; restorePermissive's reason for a lit district |
+| `setDistrictDark(state, d, dark, why) -> share` | keeps `city.shedFrac` exact; callers emit records. Phase 2a: dark -> `reconnectS = -1`; relit -> `reconnectS` = that second + `ROOF_RECONNECT_S`; then `refreshRoof` |
+| `refreshRoof(state)` | Phase 2a (P-12, C-8): `city.roofDarkMW`, `city.roofOffMW` over all districts from `env.roofSubMW` and each district's off fraction (§5 city); resets a finished `reconnectS` to -1. Callers: `setDistrictDark`, `grid.fosSecond` |
+| `litDemandMW(state)` | Phase 2a: `G x (1 - shedFrac) - (env.rooftopMW - city.roofOffMW)`, the lit operational demand (market, observe, the C-6 surplus) |
+| `districtColdLoadMW(state, d)`, `DISTRICT_LIT` | K-13 cold load (Phase 2a: dark = the undelayed underlying pickup `G x share` x the cold factor; lit = its net load now); restorePermissive's reason for a lit district |
 | `operateUfls(state, k) -> ids`, `rearmUfls(state, k) -> bool`, `setOfgsStage(state, k, tripped)` | relay stages with their invariants |
 
 ### weather.js
@@ -662,6 +840,36 @@ The stage A relative band (`FC_SIGMA_NEAR`..`FC_SIGMA_FAR`) covered 96% at 4 h a
 those params are kept only for the §8.3 register. `neighbourPrice[]` and `exportLimitMW[]`
 are the exact public shapes.
 
+**Phase 2a "world"** (desk/README.md §21.1): `heatRampAt(heat, s)` (the 0..1 ramp of
+`heatMultAt`, whose own expression is unchanged), `underlyingBaseMW(scn, day, h)` (P-3),
+`rooftopClearSkyMW(scn, h)` (P-2: capacity x clear-sky factor x the shape table),
+`prerollRooftop(seed, scn, events)` (C-5: `ext.rooftop`, or `null` at capacity 0; built on a
+step-and-length-generic copy of the mean-reverting series, `ouSeries` itself untouched), and
+`sampleSecond` and `forecast` with rooftop and day types (§5 env). `sampleSecond` also reads
+`state.day`.
+
+`forecast` on a day with rooftop. Underlying P50 = `underlyingBaseMW(day, h)` x announced heat
++ the decaying present deviation. Rooftop = the P-2 curve at ONE clearness, the suburbs'
+capacity-weighted `env.roofClearFrac` (the rooftop factor is affine in k, so this is exact),
+drifting from its present value toward `cloud.mu` (toward `events.heat.clearMu` from an
+announced onset) by `regional.revertPerStep` per `cloud.stepS`, x the heat derate inside the
+announced window. `demandP50` = underlying - rooftop - the smelter's expected missing load. The
+band adds the rooftop's own forecast error, in MW at that column's sun: `(clear-sky MW x
+cloudBite)^2 x [vR(n) + S2 x (vL(n) + sL^2 x (aR^n - aL^n)^2)]`, where vR and vL are the
+regional and local variances grown over the n steps of lead (`sigma^2 (1 - a^2n) / (1 - a^2)`),
+S2 the sum of squared shares (the local terms are independent), sL^2 the local term's stationary
+variance, and the last term the part of the present deviation that was local and fades faster
+than the forecast (which treats all of it as regional) assumes. It reads `scn`, `state.day`,
+`env`, `news` and the smelter; never `ext` (the DESK scramble cases).
+Measured on `desk`, seeds 1-200 (15-min intervals, the slow test's method): coverage of P10-P90
+80.7% at 1 h and 79.9% at 4 h (L-2: 80 +- 5%; heatwave days 73.9% at 4 h: the unannounced heat is
+the forecast's honest error). The aggregate rooftop forecast error is 2.9% of the forecast at
+1 h and 3.1% at 4 h (sigma, daylight columns; L-2's starting values were 5% and 15%): the cloud
+process forgets a deviation in about an hour and cannot be clearer than 1, so the error
+saturates. That clamp also puts the mean clearness (0.937) under `cloud.mu` (0.95), which the
+forecast drifts to: a bias of -0.6% of rooftop at 1 h and -1.1% at 4 h (+4 / +27 MW of
+operational demand in daylight), small against the band and left labelled.
+
 ### events.js
 
 Stage A (done): `prerollEvents(seed, scn, regime)`, `TYPE_ORDER`, `CONTINGENCY_TYPES`.
@@ -678,6 +886,28 @@ offS`; `smelterReturn` -> `smelter.returning = true`. While returning, `smelter.
 min(SMELTER_MW, max(loadMW, `SMELTER_RETURN_MW_MIN / 60` x (s - returnS + 1))): a function of
 time, so it is the same called every second or after a jump. Invariant: each event applies
 exactly once; nothing in ext is modified.
+
+**Phase 2a "world"** (P-4; desk/README.md C-9, §21.1): `mslSecond(state, fc, out)`. step()
+calls it straight after `weather.sampleSecond` on every `MSL_CHECK_S`-th grid second with that
+second's `weather.forecast(state, FC_HORIZON_S, FC_STEP_S)`. It keeps `state.msl` (§5 "day and
+msl") and pushes the §7 MSL record on every change of level; it returns at once on a scenario
+with no rooftop. Reads `scn.rooftop.capacityMW`, `scn.clock`, `env.{s, demandMW}`,
+`tie.{tripped, lockoutS}`, `msl`, `tick` and `fc`; writes `msl.*`. No new import.
+Measured by the world job under its first rule, which raised every threshold for the whole
+window while the tie was out NOW (weather and events only, no input; the tie's lockout counted
+as `grid.unitsSecond` does): on mild weekends (`desk-weekend`) MSL1 is reached on 14.9% of days in seeds 1-200 (15 of
+101) and 21.0% in seeds 1-1,000, MSL2 on 0% and 1.3%, MSL3 never (P-4: 10-30%, <= 10%); on
+mild weekdays MSL1 on 0.4%, on HOT and heatwave days never. The first notice of the day follows
+a tie outage on 59 of 113 days, a potline trip on 49 and neither on 5 (seeds 1-1,000). A potline
+notice has no lead (the trip is the news); a tie-out notice raised in the morning has up to
+4.5 h (median 175 min), but 35 of the 37 first notices with >= 2 h of lead were cancelled before
+their minimum arrived, because the tie came back first (C-9 raises every threshold for the whole
+window while the tie is out NOW); the 5 with no contingency are a clear sky with demand ~150 MW
+under its curve, seen only as it happens (lead 0). Stage C rewords P-4's lead clause (C-9). Not
+built, measured for it: raising the threshold only for the columns before the tie's public
+return time (`tie.lockoutS`) gives MSL1 16.7%, MSL2 1.3%, and 5 of 8 early notices standing.
+**The wave-1 merge adopted that per-column rule** (desk/README.md §25 M-1): the code and §5 "day
+and msl" describe it; the slow P-4 test (seeds 1-200) passes with it.
 
 ### physics.js (B "physics")
 
@@ -711,22 +941,66 @@ uflsStages, black, caught}` (JSDoc in the file). Order inside `tick`:
 6. UFLS (8 stages from 49.0 by 0.125, 0.3 s delay each, the stage timer resets if f recovers
    above its threshold before it operates; operate = `fleet.operateUfls(state, k)` and a `ufls`
    record); OFGS (4 stages 51.0-51.75, 0.3 s, 25% of wind each, `fleet.setOfgsStage`).
-7. Load: `servedMW`, `shedMW`, `loadReliefMW` (= served x LOAD_RELIEF x (F0 - f) / F0),
-   `loadMW` as in §5.
-8. `imbalanceMW = supplyMW - loadMW`; `fHz += F0 x imbalanceMW x DT / (2 x ekMWs)`; clamp
+7. Load on net blocks (Phase 2a: P-12, C-8; the §5 phys formulas on `G = env.demandMW +
+   env.rooftopMW`): `shedMW` (the relay MW: net), `servedMW`, the unserved rate (underlying),
+   `loadReliefMW` (= served x LOAD_RELIEF x (F0 - f) / F0). Then the inverters' over-frequency
+   response (C-7): `renPfrMW` and, through the held `roofHoldFrac`, `roofPfrMW` (§5 phys);
+   `loadMW = servedMW - loadReliefMW + roofPfrMW`. No district loop: `fleet.refreshRoof` keeps
+   `city.roofDarkMW` / `roofOffMW` (also when a UFLS stage operates in step 6, so the same tick's
+   load already has the stage's rooftop off). The `ufls` record's `mw` is the stage's net load:
+   `G x` the change of `shedFrac` less the change of `city.roofOffMW` across `fleet.operateUfls`
+   (the rooftop its districts had connected; §7 for a district still reconnecting).
+8. `supplyMW` = outputs + tie + wind after OFGS + solar + RERT + battery - `renPfrMW`;
+   `imbalanceMW = supplyMW - loadMW`; `fHz += F0 x imbalanceMW x DT / (2 x ekMWs)`; clamp
    [46.5, 53.5]; `ekMWs <= 0` -> black ('inertia').
 9. Collapse (H-7) -> `black = true`, `black` record.
-10. Readouts, contingency trace while `tick < watchEndTick` (`rocofHzS` of the first tick,
-    extreme, `caught` = readouts at the extreme minus `pre`, `uflsStages`, `contained`),
-    accumulators (when `acc.ticks === 0`, `fMinHz = fMaxHz = f` first).
+10. Readouts (`renPfrMW`, `roofPfrMW` too), contingency trace while `tick < watchEndTick`
+    (`rocofHzS` of the first tick, extreme, `caught` = readouts at the extreme minus `pre`,
+    `inverterMW` = `-(renPfrMW + roofPfrMW)` among them, `uflsStages`, `contained`),
+    accumulators (when `acc.ticks === 0`, `fMinHz = fMaxHz = f` first; `unservedMWs` adds the
+    unserved rate, `spillMWs` adds `renPfrMW`).
+
+Phase 2a measurements (the grid job, the owner's laptop with another job running; best of 9 x
+200,000 ticks on the seed-5 opening state, in yardstick units so the load cancels): the tick
+cost 1.78-1.87 units before (135-152 ns), 1.85-1.90 with the code and the flags off, 1.87-1.91
+with the flags on (138-160 ns): about 5 ns more, against a budget of 4.29 units (300 ns).
+The preview's backup, save and restore carry every field the engine or `fleet.setDistrictDark`
+now writes (`phys.renPfrMW`, `roofPfrMW`, `roofHoldFrac`; each district's `reconnectS`;
+`city.roofDarkMW`, `roofOffMW`; the two new accumulators), tested by hash for every preview
+kind with a Solstice Rise district dark and another reconnecting.
+
+C-7 measured with the flags on (hand-driven poked noon, `tests/belly.test.js`): from the
+curtailing state (510 MW held back, battery full, six units at MIN) a 256-MW load loss peaks at
+50.232 Hz and a trip of the tie at 300 MW export at 50.273 Hz (50.260 Hz with 3,465 MW of
+rooftop connected: the roofs start backing off at 50.25 Hz), with no OFGS stage; with the flags
+off the same two events reached 51.660 and 51.829 Hz with three and four OFGS stages. The droop
+is stateless and on rating, so it does not overshoot; the dispatch's feed-forward cut then takes
+the MW over at its ramp (about 30 s) and the frequency returns to 50 Hz. The H-7 desk-lab midday
+case (`tools/baseline-v4.js`: two coal machines, 6.5 GW.s, -650 MW, no battery) no longer
+overshoots to 52 Hz after its over-shed: peak 51.082 Hz, one OFGS stage, not black (was black at
+52.110 Hz after 1.10 s). Rebuilt on a mild 12:30 with net-load blocks (operational demand 2,400
+MW, 3,465 MW of rooftop, 700 MW solar, 400 MW wind, no tie flow; Solstice Rise net negative):
+no battery, nadir 47.435 Hz, all 8 stages for 1,295 MW of net load (2,942 MW of customers dark),
+peak 50.440 Hz, not black; with the battery, nadir 48.451 Hz, 3 stages for 396 MW net (1,093 MW
+of customers dark). The same supply with no rooftop sheds 447 MW of customers in 3 stages: with
+rooftop behind them the static blocks darken about 2.4 times the customers for the same relief
+(P-12; SPEC §8.2 "ufls-blocks"). On the classic day (no rooftop, never a surplus) the droop is
+the one thing of Phase 2a wave 1 that moves: it acts whenever the frequency is above 50.015 Hz
+with wind or solar generating, so par's days diverge after the first such second. Par, seeds
+1-48, before -> after: black 0 -> 0; days with nothing unserved 45 -> 44; highest frequency of
+any day 50.275 -> 50.152 Hz; energy backed off 15.5 MWh a day on average (18.8 at most), counted
+in `score.spillMWh`.
 
 `previewTrip` runs the same step function on state itself between a save and an exact
-restore (§10) with schedules, demand and renewables frozen (no grid seconds), for <=
+restore (§10) with schedules, demand and renewables frozen (no grid seconds; the inverters'
+over-frequency response, C-7, is in the engine, so the preview shows it and `caught.inverterMW`
+carries it), for <=
 `PREVIEW_HORIZON_S`, stopping once f has risen for `ROCOF_WINDOW_S` after the nadir (and only
 when the battery cannot run dry inside the horizon and no charge step is pending). State is
 unchanged on return (tested by hash, and by interleaving calls between two runs). Targets:
 `unit`, `link`, `load` (mw > 0: the extreme is the PEAK), `district` (a restore preview: its
-cold-load MW; `pre.uflsMW` leaves the relit district out) and `none` (removes nothing); an
+cold-load MW, the undelayed underlying pickup of P-12, since its rooftop waits `ROOF_RECONNECT_S`,
+longer than the horizon; `pre.uflsMW` leaves the relit district's net MW out) and `none` (removes nothing); an
 unknown kind, unit or district, or `guardMW` outside 0..BATT_MW throws before state is
 touched. `opts.guardMW` overrides the guard and clamps the battery schedule to
 +-(BATT_MW - guardMW); the clamped MW (effective, after the SoC and H-10 rules) are carried as
@@ -742,7 +1016,9 @@ that turns the fall is counted); the last frequency is judged too at black and a
 a preview.
 
 Spec IDs: H-8 (RoCoF 1%, inertia raises nadir >= 0.2 Hz, containment, 10-s run <= 5 ms), H-6
-(no shedding above 49.0; 0.30 +- 0.02 s; no automatic restore), H-7, H-10, K-5, K-10, K-11, F-4.
+(no shedding above 49.0; 0.30 +- 0.02 s; no automatic restore), H-7, H-10, K-5, K-10, K-11, F-4;
+Phase 2a: P-12, C-8 (net blocks, unserved on the underlying load), C-7 (H-8 / risk 10: the
+inverters' over-frequency response). `tests/belly.test.js` holds the Phase 2a cases.
 
 ### grid.js (B "grid")
 
@@ -789,7 +1065,14 @@ rules:
   units or moves base points, 0 in HAND; `agc.atLimitS` counts grid seconds the request
   exceeded all bands. A unit's raise band stops at `HOT_LOADING_FRAC` x availMW (the
   overload gate is its high regulating limit), so AGC never makes a unit run hot (H-2); only
-  a lever moved past the gate does.
+  a lever moved past the gate does. Phase 2a (C-6): while the dispatch is spilling wind or solar
+  (`ren.windAutoMW` or `solarAutoMW` > 0) a LOWERING request goes to the units first, pro rata
+  by their room above MIN and as far as MIN (beyond the regulating band: thermal energy is out
+  of merit while renewables are spilled, and the feed-forward cut assumes every unit at its
+  floor), and only what they cannot take goes to the battery's band. A raising request, and
+  every request on a second with nothing spilled, is shared pro rata within the bands as before,
+  so a day that never spills (the classic day) is unchanged (48 of 48 par days end on the same
+  hash, flags on and off).
 * Battery: `schedMW` toward clamp(signed order + trim, +-(BATT_MW - guardMW)) at the dispatch
   ramp (K-5: guard MW are never available to orders). Near empty / full the schedule (and
   the AGC band "within SoC") is held to P <= sqrt((r/2)^2 + 2 r E) - r/2, the most the
@@ -799,8 +1082,69 @@ rules:
 * Renewables (integration): the curtailed MW move at `CURTAIL_RAMP_FRAC_MIN` (§5 `ren`); DR at
   `DR_RAMP_MW_MIN` (§5 `dr`). Tripped wind reconnects one OFGS stage per
   `OFGS_RECONNECT_GAP_S`, the last to trip first.
+* **Automatic curtailment** (Phase 2a, C-6; `dispatchSecond`, last, on this second's schedules).
+  `surplusMW` = must-run + wind after the manual LIMIT and OFGS + utility solar after the manual
+  LIMIT - (`fleet.litDemandMW` + `city.coldLoadMW` - `dr.mw` - `tie.flowMW` - the battery's
+  schedule on its order). Must-run is the price stack's floor blocks (MIN of every unit 'on', 0
+  for hydro; the present output of a unit loading, unloading or shutting down) plus reserve
+  diesel on line (`rert.outMW`: out of the market, but as real; an extension of the contract's
+  wording). The battery term is `schedMW - agcTrimMW`, kept between the schedule and the order's
+  own target: the dispatch counts the player's order, never AGC's trim, or a trim once given
+  would be matched by less curtailment and stay (an idle battery would fill by itself with the
+  plan at MIN). While
+  `surplusMW` > 0 the cut = min(that wind and solar, `surplusMW` + AGC's unmet lowering
+  request), else 0. The request: while `agc.unmetMW` is negative (at AGC's last cycle every
+  lowering band of the units and the battery was spent and the frequency was still high, so AGC
+  LIMIT is lit while it acts), `AGC_BIAS_MW_PER_HZ` x (`last.fMeanHz` - F0) beyond AGC's
+  deadband: the ACE of the second just completed, read every second, so it fades as the frequency
+  returns. (Held for the 4-s AGC cycle it overshot inside the governors' deadband and hunted
+  against AGC's own raise; measured with the units at MIN and the battery charging on its whole
+  inverter, a 12-s cycle of 49.970-50.022 Hz held, 49.994-50.014 Hz read every second. It is
+  smaller, not gone: `agc.unmetMW` still flickers negative there for about a third of the
+  seconds, 4 s at a time, and a few MW more than the surplus are spilled.) It is added only in a
+  surplus: outside
+  one, AGC at its lowering limit means the plan holds units above what is needed; they have
+  governor room and the remedy is the plan, not spilling wind while gas runs above minimum
+  (measured with the request added unconditionally: 4 of 48 classic par days spilled wind with
+  no surplus, seed 17 for 908 s around midnight with thirteen units 1,400 MW above their
+  minimums; the contract review had found AGC's lower limit reached on 0 of 86,400 s, on seeds
+  1-5). Outside a floor surplus a stale plan is therefore held by the units' AGC bands, their
+  governors and the inverters' droop alone (measured, AGC on, battery full, floor blocks 50 MW
+  short of a surplus, 30 min: a plan 300 MW above MIN parks at 50.02 Hz, 600 MW at 50.13 Hz,
+  1,000 MW at 50.28 Hz, 1,500 MW at 50.70 Hz with the governors at their cap; never an OFGS
+  stage; reported for stage C). `windAutoMW` and `solarAutoMW` move toward their pro-rata
+  share (by present output; wind after OFGS) at `CURTAIL_RAMP_FRAC_MIN`, never above what the
+  manual LIMIT leaves, and back to 0 as the surplus goes. While a cut is active it is a cap on
+  OUTPUT, as the semi-dispatch cap is: a change of availability lands on the held MW first, in
+  either direction (MW the weather takes from a plant that is held back come out of the held MW;
+  MW it gives back are held too, then released at the ramp if the surplus has room: 350 MW of
+  solar back in one second peaks at 50.03 Hz, 50.32 Hz when they went straight to output). The
+  tie and the battery are never moved by the dispatch. While it is spilling, AGC lowers the
+  units to MIN before it uses the battery (the AGC rule above), so a plan above MIN in a surplus
+  comes down to the floor the cut assumes: falling into a 510-MW surplus on a plan 300 MW above
+  MIN ends with every unit at MIN, 510 MW held back and 50.000 Hz, and an idle battery at 50% in
+  a standing 500-MW surplus gains under 1 MWh in 30 min with the plan 60 to 600 MW above MIN
+  (22.7 to 167.8 MWh when the request was shared pro rata). Coal comes down at 3 MW a minute a
+  machine, so after a step AGC's request is unmet until the units arrive and that is spilled
+  meanwhile (a 510-MW step on a plan 300 MW above MIN: peak 50.41 Hz, up to 72 MW more than the
+  surplus spilled for about 15 min, then the surplus alone). **Not held:** once every unit is at
+  MIN and every MW of wind and solar is held back (must-run above demand, MSL3), AGC's lowering
+  band on the battery is all that is left and an idle battery with room does charge (210 MW in
+  a 210-MW deep belly, 89 MWh in 30 min at the floor price): the contract's order, "after the
+  units' and the battery's bands"; whether AGC should keep that band while the battery is idle
+  was not decided at stage C and stays open. In HAND the feed-forward term works unchanged (AGC's term is 0);
+  levers held above MIN are not lowered for the player: the excess is carried by governors and
+  the inverters' droop at a raised frequency (measured: 300 MW above MIN parks at 50.13 Hz with
+  the C-7 droop on, 50.21 Hz without it) until a lever moves. With the surplus exactly cut and every unit at its floor the second is balanced
+  to rounding, so AGC and an idle battery do nothing. Measured (hand-driven noon, `tests/
+  belly.test.js`): demand falling 0.25 MW/s under a 1,310-MW must-run fleet with the battery
+  full stays at 50.000 Hz with 510 MW held back (the stage A sim went black at 52 Hz).
+* The restore surge is the pickup beyond the district's share of the total before rooftop;
+  `fosSecond` calls `fleet.refreshRoof` beside the cold-load refresh (P-12, Phase 2a).
 * Directed shedding (FOS and DIRECT SHED): the lit rotation district restored longest ago
-  (never shed first), ties by rot (§6).
+  (never shed first), ties by rot (§6). Phase 2a (desk/README.md §25 M-2): a district whose net
+  load is zero or negative (feeding back at a sunny noon) is passed over while any other lit
+  rotation district has load to give; shedding it would take generation off.
 * **N-1 over both credible contingencies** (Phase 1a, A-2, `N1_PREVIEW_ALL`): the TRIP PREVIEW
   runs for the largest unit and for the tie import; SECURE needs R5 >= 1.25 L and **both**
   previews >= 49.5 Hz + margins; `lKind` / `lId` / `previewNadirHz` name the worse one (ties to
@@ -846,8 +1190,9 @@ rules:
 `buildStack(state) -> [{id, kind, offer, mw}]` (total order), `clearPrice(state) -> {mwh,
 marginalId, adder, exhausted, x}`, `scarcityAdder(x)`, `clampPrice(p)`, `waterValue(frac)`,
 `priceSecond(state, out)`, `settleSecond(state, out)`, `scoreSummary(score)` (A). Details in
-the JSDoc. Decisions: market demand = the LIT demand (env.demandMW x (1 - city.shedFrac) +
-city.coldLoadMW) - tie.flowMW - battery.schedMW (scheduled flows, P-5; review fix: load shed and
+the JSDoc. Decisions: market demand = the LIT operational demand (`fleet.litDemandMW`: Phase 2a,
+net of the rooftop still connected; env.demandMW x (1 - city.shedFrac) with no rooftop) +
+city.coldLoadMW - tie.flowMW - battery.schedMW (scheduled flows, P-5; review fix: load shed and
 still dark is not dispatched for); stack membership per unit mode (H-1: loading / unloading / shutdown units offer only
 their present output, at the floor; starting / ready units only if <= 10 min from MIN; off
 units only if `startBlock` is '' and T1 + T2 <= 10 min, auto-sync not counted); wind and solar
@@ -865,6 +1210,14 @@ districts' `shedBy` at the end of each second (booked as UFLS if nothing is dark
 `outsideNormalS` counts seconds whose MEAN frequency is outside the normal band; no-load uses
 `sync` at settle time; `marketBill` = price x served MWh (information only); `genMWh` is the
 region's generation (units, wind after OFGS, solar, RERT), S-3's denominator.
+Phase 2a (the grid job; P-9, P-12, C-6..C-8): unserved energy is settled from `acc.unservedMWs`
+(the dark customers' underlying load), split by `shedBy` with the same weights; `last.shedMW`
+stays the relay MW (`acc.shedMWs`). `spillMWh` adds each second's curtailment (the manual LIMIT's
+and the dispatch's, wind net of OFGS) and what wind and solar backed off by over-frequency
+response (`acc.spillMWs`), which also comes off `genMWh`; spilled energy is never a cost. The
+belly's price needs no rule of its own: the stack offers AVAILABLE wind and solar, so in a
+surplus the lit demand clears on their offer (`RENEWABLE_OFFER`, P-9) and, when the minimum-load
+blocks alone exceed it, on the floor; the automatic cut never moves it (P-5).
 
 ### autopilot.js (B "autopilot")
 
@@ -907,6 +1260,74 @@ state, memo}`. JSDoc has the details. The contract:
   22:00 or at the 20% reserve) is asked right after rule 1 (origin 'rule6'); rule 2 raises the
   GUARD only as far as the battery sustains it for `GUARD_SUSTAIN_S`. The file header lists
   each extension.
+* **The belly** (Phase 2a: SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §25). On a
+  scenario with no rooftop, a price that never reaches $0 and nothing spilled (the classic day)
+  every line here is exactly the pre-2a behaviour.
+  * *Lit operational demand.* A dark district takes its roofs off with its feeder, so the lit
+    load is not a proportional slice of operational demand. The dispatch (`context`), the
+    lit-load re-flow, the adequacy walk and rule 4's evening (`eveningHolds`) read the present
+    from `obs.demand.litMW` (the sim's own: each suburb's sky, relit roofs still waiting) and a
+    forecast column as `(demandP50 + rooftopMW) x (1 - dark customers) - rooftopMW x (1 - dark
+    rooftop)` (`litMW`, `darkShare`: a district holds an equal part of its suburb's nameplate,
+    from `obs.rooftop.suburbs`); a plan column inside the first forecast step lies between the
+    two. The cold-load term is `servedMW + dr.mw - demand.litMW`. Wind and solar are read as
+    AVAILABLE (`obs.wind.availMW`, the forecast; the walk adds back `autoMW`, the wind's less
+    its OFGS-tripped share), so what the dispatch is holding back in a surplus (C-6) is never a
+    shortfall. The plan's day-ahead columns carry the rooftop (`plan.fc.roof`); beyond the 4.5-h
+    forecast a heatwave announced after the plan was made lifts the underlying demand (P50 +
+    rooftop), and the roofs' own heat derate is left out (`litDayAhead`).
+  * *The plan in a surplus.* Units to their floor, the tie to the export limit (par exports only
+    to absorb must-run), the rest left to the sim's cut: the column's `gap` is negative.
+  * *Rule 6 gains S-14 rule 2*, a union with its window: charge whenever `obs.price.mwh <= 0` or
+    `obs.wind.autoMW + obs.solar.autoMW > SURPLUS_MIN_MW`, while the battery is below
+    `PAR_BATT_CHARGE_TO`. The order is the charge already ordered plus what is still spilled
+    (the sim's cut is net of the order), never less than the window's rate, at most
+    `PAR_BATT_CHARGE_MAX_MW`, and no more than reaches `PAR_BATT_CHARGE_TO` by par's next
+    possible action. A belly order (`memo.belly`) is held while the surplus still feeds it and
+    comes down by what it would be buying instead (`boughtMW`: the thermal units above their
+    floor, hydro, and the tie above its export limit; else it flapped at every decision: the
+    order takes the whole spill, so the price turns positive and nothing is spilled).
+    `memo.belly` follows the order in place at every look of rule 6: true only while the order
+    is above the window's own rate for the surplus's sake. Narrower than "fires on the price": outside the window, with
+    nothing spilled, a price at or below $0 starts no order (there is no free power to take: the
+    order would be `max(window rate, ordered + spill) = 0`); it keeps a running order going.
+    Measured on desk seeds 1-16: 105 s in all in that state.
+  * *Rule 4 gains S-14 rule 4*: after the gas units, and only once none is committed, ONE coal
+    machine a day (`PAR_COAL_STOPS_DAY`, `memo.coalStops`) is stopped if the forecast is at or
+    below MSL2 (per column `+ MSL_TIE_OUT_MW` before the tie's return) for `PAR_COAL_MSL2_H`
+    (counted over the 4.5-h forecast's 5-minute columns, not necessarily one run; the present
+    second is not a column), the machine has been on `PAR_DECOMMIT_MIN_ON_MIN`, N-1 in minutes
+    holds without it, and
+    `eveningHolds`: in every plan column until the machine could be back at MIN (unload, T4,
+    minimum down from breaker open to the next START, `startToMinS`), the other machines on,
+    coming or free to start at `PAR_MAX_LOADING`, hydro at rule 5's release rate and the tie at
+    its secure import, less the largest single loss, cover the lit net demand plus
+    `PAR_COMMIT_MARGIN_MW`. Expected never to fire on the game's days; `tools/par.js` counts it.
+  * *S-14 rule 3* (as reworded: export to the cap, charge, the dispatch curtails the rest) needs
+    no input from par. *Rules 1 and 5* wait for the city levers (2b).
+  * *A battery order in the dispatch* (`batteryOrder`) counts for the energy behind it: a
+    discharge until `PAR_BATT_RESERVE_FRAC`, a charge until full, at most the inverter less the
+    GUARD. That is the player's order (through `replan()`, whose memory runs no rule 6) and par's
+    own, with the ends rule 6 gives them: a charge until `PAR_BATT_CHARGE_TO`, a discharge until
+    the reserve and no later than the end of `PAR_BATT_DISCHARGE_H`. A window order is sized to
+    end with its window, so little moves there; the night's recharge (ordered after 15:30) is now
+    in par's plan, where before AGC carried the whole order for hours. This moves par on the
+    classic day too (198 of 200 rows; S-12 measured again).
+  * *A unit still loading* (final review of 2a; desk/README.md §28). Under `par` (`amend`: par's
+    re-plans, the player's RE-DISPATCH and the game's player-mode dispatch) a unit in mode
+    `'loading'` counts in each plan column before it reaches MIN, along its T2 slope
+    (`schedMW + (minMW - schedMW) x lead / (on - now)`, clamped to 0..1, and not past a booked
+    STOP); from `cx.on` it is a committed unit as before. Without it the plan bought the loading
+    unit's MW on the tie while the dispatch spilled them (256 MWh on `desk-weekend` seed
+    20261017). `preDispatch` and `reflowLit` are unchanged. This moves par on the classic day
+    too (S-12 measured again; golden re-recorded).
+  * *Rule 9 in the belly.* The cap "no pickup larger than L" is lifted while the dispatch is
+    spilling at least the district's pickup (`obs.wind.autoMW + obs.solar.autoMW >=
+    coldLoadMW`): there L is a machine at its 240-MW floor and every pickup (the underlying load,
+    roofs off) is larger. The scaled TRIP PREVIEW estimate and the sim's permissive still decide.
+  * *Rule 7* reads `agc.requestMW` net of the units' lowering trims while the dispatch is spilling
+    (AGC then takes them to MIN beyond their bands, C-6: the dispatch at work, not drift), and a
+    surplus the plan itself shows for the coming column is not a miss of the forecast.
 * **Proxies** (`opts.proxy`): `par`; `planOnly` (the plan, nothing else: the L-0 accept);
   `doNothing` (no input at all: F-3); `lean` (plan + rules 1, 2, 7, 8, 9); `competent` (plan +
   rules 1-9 at `PROXY_COMPETENT_GAP_REAL_S`: H-1(b), F-3, K-8); `commitAll` (S-11: START every
@@ -923,7 +1344,16 @@ state, memo}`. JSDoc has the details. The contract:
 * `tools/par.js` (Exit Phase 0) prints par for any seed. `tools/` is CommonJS
   (`tools/package.json`), so it loads the ES modules with `await import('../sim/step.js')`
   (Node >= 20), never `require`. It exports `grade()` (S-5) for `tools/baseline-v4.js`, and
-  runs `main()` only when executed.
+  runs `main()` only when executed. Phase 2a: `--scenario desk | desk-weekend`, a summary by day
+  type (MILD / HOT / HEATWAVE, weekend) with the minimum operational demand, the hours at a
+  negative price, the MWh spilled (the score's, and the automatic cut alone), the peak frequency,
+  the highest MSL level and rule 4's coal stops; `--probe` trips both credible contingencies in a
+  copy of each SECURE state (H-8, as `tools/baseline-v4.js` does on the classic day); `--rows FILE`.
+  `tools/follow.mjs` runs the hint-following player (`tests/lib/follow.js`) over seeds: unserved
+  energy, `score.cost` by key with par's beside it (black days are left out of "dearer than
+  par"), and each STOP line's quoted saving against the realised difference: the same day with
+  that STOP skipped, which is the line asked about an observation in which that unit is not free
+  to stop (its `stopBlock` set) until the day next started it, so every other branch is followed.
 
 ### step.js (A, kept by "integration")
 
@@ -931,7 +1361,14 @@ state, memo}`. JSDoc has the details. The contract:
 `inWatch(state)`, `observe(state, opts)`, `hashState(state)`, `canonicalHash(x)`,
 `replay(seed, scenario, log, opts)`, `INPUT_TYPES`, `SIM_VERSION`. createState pre-rolls ext,
 samples second 0 and balances the opening second with the online hydro machines (as
-`tools/baseline.js` did for the legacy build). Integration also builds `next.html`,
+`tools/baseline.js` did for the legacy build). Phase 2a "world": createState also pre-rolls
+`ext.rooftop` (`weather.prerollRooftop`) and sets the public `state.day`; the grid second runs
+the MSL check after the weather (§3); `observe()` carries the desk/README.md §19.3 values (§8).
+`balanceOpening` is unchanged: with the weekend factor and the MILD shape in `env.demandMW` the
+04:00 second balances within 1 MW on `desk` and `desk-weekend` on MILD and HOT days alike
+(tested; over seeds 1-200 the two hydro machines open at 96-159 MW each on `desk` and 67-126 MW
+on `desk-weekend` since the C-14 tuning at the wave-1 merge put both CCGTs on, inside their 0-317 MW
+range). Integration also builds `next.html`,
 `app/loop.js` (F-5: rAF, `min(frameDt, 0.1) x rate` accumulator, whole ticks, per-frame cap),
 `content/text.js` (H-14: one entry per §8.2 row, `{id, row, anchorId, real, ours, why,
 params}`, `ours` built from params values; `tests/text.test.js`) and `tools/baseline-v4.js`

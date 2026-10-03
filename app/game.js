@@ -20,8 +20,9 @@ import {createState, step, observe, applyInput, hashState, replay, SIM_VERSION} 
 import * as physics from '../sim/physics.js';
 import * as grid from '../sim/grid.js';
 import * as fleet from '../sim/fleet.js';
+import * as weather from '../sim/weather.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
-import {objective} from './objective.js';
+import {objective, consequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
 import {createRecorder, onTick, startTrace, traceOf, needleF, secondsWindow} from './record.js';
@@ -42,6 +43,13 @@ export const HIST_FREQ_S = 180;
 export const HIST_COL_S = V.FC_STEP_S, HIST_COLS = 6;
 /** The standing objective is recomputed this often (grid seconds). */
 export const OBJECTIVE_EVERY_S = 30;
+/**
+ * Inputs after which the dispatch is re-run in the same call (Phase 2a, desk/README.md §21.4): the
+ * commitment and the battery are the player's, and a plan that has not seen the input yet would
+ * read as a shortfall (or a surplus) on the stack and in the objective until the system's next
+ * look. tests/lib/follow.js mirrors this set for the hint-following player: keep the two in step.
+ */
+export const REDISPATCH_AFTER = Object.freeze(['start', 'stop', 'abortStop', 'battery', 'guard']);
 /** K-12 offers: at most this many a day (K-12 accept). */
 export const MAX_OFFERS = 3;
 /** Storage keys (C-8: every access is wrapped; the game plays with storage blocked). */
@@ -123,11 +131,25 @@ export function seedFrom(search, date) {
   return q.has('seed') && Number.isFinite(n) && q.get('seed') !== '' ? n >>> 0 : todaySeed(date);
 }
 
+/**
+ * The game's scenario for a seed (desk/README.md C-2): 'desk-weekend' when the seed reads as a
+ * valid YYYYMMDD date that falls on a Saturday or Sunday, else 'desk' (any other seed is a weekday).
+ */
+export function scenarioForSeed(seed) {
+  const n = seed >>> 0, y = Math.floor(n / 10000), m = Math.floor(n / 100) % 100, d = n % 100;
+  if (y >= 1900 && y <= 9999 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+    const t = new Date(Date.UTC(y, m - 1, d));
+    if (t.getUTCMonth() === m - 1 && t.getUTCDate() === d && (t.getUTCDay() === 0 || t.getUTCDay() === 6)) return SCENARIOS['desk-weekend'];
+  }
+  return SCENARIOS.desk;
+}
+
 // ------------------------------------------------------------------ the session
 
 /**
- * @param {{seed:number, scenario?:object, system?:object, planview?:object, storage?:object|null,
+ * @param {{seed:number, scenario?:object|function(number):object, system?:object, planview?:object, storage?:object|null,
  *   beforeTick?:function(object):void, cap?:number, budgetMs?:number, reducedMotion?:boolean|function():boolean}} o
+ *   scenario: a scenario, or a function of the seed (scenarioForSeed), asked again at every reset;
  *   system: the app/system.js module (or a test stand-in); planview: app/planview.js;
  *   storage: a localStorage-like object or null; beforeTick(game): called before every tick
  *   (scripted players and tests; it may call sendInput); reducedMotion: the system's
@@ -135,23 +157,27 @@ export function seedFrom(search, date) {
  *   player has made no choice of their own.
  */
 export function createGame(o) {
-  const scenario = o.scenario || CLASSIC;
+  const scenarioOf = typeof o.scenario === 'function' ? o.scenario : null;
+  const scenario = scenarioOf ? scenarioOf(o.seed >>> 0) : o.scenario || CLASSIC;
   const storage = o.storage === undefined ? null : o.storage;
   const seen = readJson(storage, SEEN_KEY) || {};
   const settings = cleanSettings(readJson(storage, SETTINGS_KEY));
   const game = {
-    seed: o.seed >>> 0, scenario, storage, sysMod: o.system || null, planview: o.planview || null,
+    seed: o.seed >>> 0, scenario, scenarioOf, storage, sysMod: o.system || null, planview: o.planview || null,
     // SPEC §9.1 Q-18: 'player' = the commitment is the player's (the real page); 'system' = the
     // Phase 1a system operator, which commits units itself. startPaused: the desk opens at 04:30
     // with the clock held, so the first decision is made before anything moves.
-    commit: o.commit === 'player' ? 'player' : 'system', startPaused: !!o.startPaused, objective: null, objectiveS: -1e9,
+    commit: o.commit === 'player' ? 'player' : 'system', startPaused: !!o.startPaused, objective: null, objectiveS: -1e9, objectiveHeld: null, consider: null,
+    // objectiveError: why the line (or the consequence) is blank, '' when it is not; dayAhead: the
+    // line's day-ahead forecast (consequence() reuses it); considerDirty: the consider target changed
+    objectiveError: '', dayAhead: null, considerDirty: false,
     beforeTick: o.beforeTick || null,
     state: null, director: null, pacer: createPacer({cap: o.cap, budgetMs: o.budgetMs}),
     sys: null, sysError: '',
     rec: null, alarms: null, tray: null, watchMem: null,
     phase: 'briefing', agc: true,
     ui: {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null, trayOpen: false,
-      drawer: false, settingsOpen: false},
+      drawer: false, settingsOpen: false, consider: null},
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
     seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof},
@@ -168,9 +194,11 @@ export function createGame(o) {
 /** In-page reset (C-3): a new day (the same seed by default) on the same game object. */
 export function resetDay(game, seed) {
   if (seed !== undefined) game.seed = seed >>> 0;
+  if (game.scenarioOf) game.scenario = game.scenarioOf(game.seed);
   game.state = createState(game.seed, game.scenario);
   game.suburbs = null;
-  game.objective = null; game.objectiveS = -1e9; game.objectiveMode = '';
+  game.objective = null; game.objectiveS = -1e9; game.objectiveMode = ''; game.objectiveHeld = null; game.consider = null;
+  game.objectiveError = ''; game.dayAhead = null; game.considerDirty = false;
   game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
   game.director = D.createDirector({game: true, paused: true, seen});
@@ -187,7 +215,7 @@ export function resetDay(game, seed) {
   game.phase = 'briefing';
   game.agc = true;
   Object.assign(game.ui, {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null,
-    trayOpen: false});
+    trayOpen: false, consider: null});
   game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = [];
   game.offers = []; game.offered = {}; game.offersToday = 0;
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
@@ -210,7 +238,7 @@ const ST_IDX = V.MACHINES.map(m => V.STATION_IDS.indexOf(m.station));
 function createHist() {
   const n = HIST_IDS.length, ring = HIST_COLS + 1;
   return {
-    colSum: HIST_IDS.map(() => new Float64Array(ring)), demSum: new Float64Array(ring), colN: new Float64Array(ring),
+    colSum: HIST_IDS.map(() => new Float64Array(ring)), demSum: new Float64Array(ring), roofSum: new Float64Array(ring), colN: new Float64Array(ring),
     colIdx: new Float64Array(ring).fill(-1), n,
   };
 }
@@ -222,7 +250,7 @@ function histSecond(game) {
   if (s < 0) return;
   const col = Math.floor(s / HIST_COL_S), j = col % (HIST_COLS + 1);
   if (h.colIdx[j] !== col) {
-    h.colIdx[j] = col; h.colN[j] = 0; h.demSum[j] = 0;
+    h.colIdx[j] = col; h.colN[j] = 0; h.demSum[j] = 0; h.roofSum[j] = 0;
     for (let i = 0; i < h.n; i++) h.colSum[i][j] = 0;
   }
   const units = st.units;
@@ -235,12 +263,14 @@ function histSecond(game) {
   x[NST + 4][j] += st.rert.outMW;
   x[NST + 5][j] += st.dr.mw;
   h.demSum[j] += st.env.demandMW;
+  h.roofSum[j] += st.env.rooftopMW || 0; // Phase 2a: the rooftop bite (as if connected), for the stack's silhouette
   h.colN[j] += 1;
 }
 
 /**
  * vm.hist: {freq, freqMin, freqMax (HIST_FREQ_S per-second values, oldest first, NaN before
- * the day), freqFromS, stations {id: [HIST_COLS mean MW]}, demand [HIST_COLS mean MW],
+ * the day), freqFromS, stations {id: [HIST_COLS mean MW]}, demand [HIST_COLS mean MW] (operational),
+ * rooftop [HIST_COLS mean MW],
  * colFromS, colS} for the HIST_COLS completed 5-min columns before the current one
  * (colFromS = the first column's start; NaN where the day had not started).
  */
@@ -249,16 +279,17 @@ export function histView(game) {
   if (game.histView && game.histViewS === s) return game.histView;
   const w = secondsWindow(game.rec, s - HIST_FREQ_S, s);
   const h = game.hist, cur = Math.floor(s / HIST_COL_S);
-  const stations = {}, demand = [];
+  const stations = {}, demand = [], rooftop = [];
   HIST_IDS.forEach(id => { stations[id] = []; });
   for (let c = cur - HIST_COLS; c < cur; c++) {
     const j = ((c % (HIST_COLS + 1)) + HIST_COLS + 1) % (HIST_COLS + 1);
     const ok = c >= 0 && h.colIdx[j] === c && h.colN[j] > 0;
     HIST_IDS.forEach((id, i) => stations[id].push(ok ? h.colSum[i][j] / h.colN[j] : NaN));
     demand.push(ok ? h.demSum[j] / h.colN[j] : NaN);
+    rooftop.push(ok ? h.roofSum[j] / h.colN[j] : NaN);
   }
   game.histView = {freq: Array.from(w.mean), freqMin: Array.from(w.min), freqMax: Array.from(w.max), freqFromS: s - HIST_FREQ_S,
-    stations, demand, colFromS: (cur - HIST_COLS) * HIST_COL_S, colS: HIST_COL_S};
+    stations, demand, rooftop, colFromS: (cur - HIST_COLS) * HIST_COL_S, colS: HIST_COL_S};
   game.histViewS = s;
   return game.histView;
 }
@@ -384,8 +415,32 @@ export function sendInput(game, x) {
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
     if (x.type === 'restore') D.focusRestore(game.director, state);
+    if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
   }
   return r.ok ? '' : r.reason;
+}
+
+// Are the levers held by hand? app/system.js heldByHand scans the log at once (a lever moved a
+// moment ago counts now, not at the system's next 60-s look); a stand-in without it: sys.edited.
+function heldByHand(game) {
+  if (!game.sys) return false;
+  const f = game.sysMod && game.sysMod.heldByHand;
+  return typeof f === 'function' ? !!f(game.sys, game.state) : !!game.sys.edited;
+}
+
+// §21.4: in 'player' mode with the levers not held by hand, an accepted commitment or battery
+// input is followed at once by the system's re-dispatch (a logged planLoad, so replay() still
+// reproduces the day): the next objective line is read off a plan that already knows about it.
+// A refusal here (the watch, no plan before 04:30) is nothing to tell the player about.
+function redispatchAfter(game) {
+  if (game.commit !== 'player' || !game.sysMod || !game.sys || heldByHand(game)) return;
+  let r;
+  try { r = game.sysMod.redispatch(game.sys, game.state); } catch { return; }
+  if (r && typeof r === 'object' && !Array.isArray(r) && 'reason' in r && !('type' in r)) r = r.input;
+  if (!r || typeof r === 'string') return;
+  const out = [];
+  for (const x of Array.isArray(r) ? r : [r]) applyInput(game.state, x, out);
+  if (out.length) handleRecords(game, out, 'system');
 }
 
 /** A-1 RE-DISPATCH through app/system.js. Returns '' or the reason it was refused. */
@@ -440,6 +495,12 @@ export function ui(game, cmd) {
     case 'skipWatch': return D.skipWatch(d, state) ? '' : 'nothing to skip';
     case 'drawer': u.drawer = cmd.on === undefined ? !u.drawer : !!cmd.on; return '';
     case 'tray': u.trayOpen = !u.trayOpen; u.focus = 'tray'; return '';
+    // C-10 (desk/README.md §19.5): the guard the player is hovering, focusing or has lifted.
+    case 'consider': {
+      const t = typeof cmd.target === 'string' && /^guard-(start|stop)-/.test(cmd.target) ? cmd.target : null;
+      if (t !== u.consider) { u.consider = t; game.considerDirty = true; }
+      return '';
+    }
     // Settings (K-22, §13.1, B-7): the popover never pauses the game.
     case 'mute': return setSetting(game, 'muted', !game.settings.muted);
     case 'volume': return setSetting(game, 'volume', cmd.volume); // the 1a form of {do: 'set', key: 'volume'}
@@ -589,14 +650,44 @@ export function buildVm(game, f) {
   const glow = new Set(game.respondGlow);
   for (const g of game.ui.hoverGlow) glow.add(g);
   // The standing objective (app/objective.js; Q-18): once per OBJECTIVE_EVERY_S grid seconds, and
-  // at once when the mode changes or an input lands (objectiveS is reset there).
+  // at once when the mode changes or an input lands (objectiveS is reset there). An exception in
+  // objective(), steady() or consequence() blanks only its line; it is kept in objectiveError
+  // (vm.objectiveError; the ?debug handle shows it) as the system operator's is in sysError.
   if (game.phase === 'play' && game.commit === 'player' && game.planview) {
     if (obs.s - game.objectiveS >= OBJECTIVE_EVERY_S || obs.s < game.objectiveS || game.objectiveMode !== mode.mode) {
       game.objectiveS = obs.s; game.objectiveMode = mode.mode;
-      try { game.objective = objective(obs, {edited: !!(game.sys && game.sys.edited), planview: game.planview}); } catch { game.objective = null; }
+      game.objectiveError = '';
+      let stage = 'objective';
+      try {
+        // dayAhead: the forecast to 04:00 (Phase 2a, C-10: the objective looks past the 4.5-h
+        // window), the one weather.forecast call observe(state, {dayAhead: true}) would make; the
+        // projection once per line (F-11: the objective and its STOP saving read the same one).
+        game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
+        const proj = game.planview.project(obs);
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead});
+        // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
+        stage = 'steady';
+        game.objectiveHeld = steady(game.objectiveHeld, next, obs.s);
+        game.objective = game.objectiveHeld.line;
+      } catch (e) { game.objective = null; game.objectiveHeld = null; game.objectiveError = stage + ': ' + errText(e); }
+      game.considerDirty = true;
     }
+    // C-10 (§19.5): what the guard under the player's hand would do, on the same cadence and at once
+    // when the target changes ('consider' marks it; only consequence() is recomputed then, on the
+    // line's own day-ahead forecast) or an input lands.
+    if (game.considerDirty) {
+      game.considerDirty = false;
+      game.consider = null;
+      if (game.ui.consider && !mode.locked) {
+        try {
+          if (!game.dayAhead) game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
+          game.consider = consequence(obs, game.ui.consider, {dayAhead: game.dayAhead, planview: game.planview});
+        } catch (e) { game.consider = null; game.objectiveError = 'consequence: ' + errText(e); }
+      }
+    }
+    if (!game.ui.consider || mode.locked) game.consider = null;
     if (game.objective && mode.mode !== 'WATCH') for (const g of game.objective.targets) glow.add(g);
-  } else game.objective = null;
+  } else { game.objective = null; game.objectiveHeld = null; game.consider = null; }
   if (offers.length) glow.add('bay-sync');
 
   let watch = null;
@@ -631,7 +722,10 @@ export function buildVm(game, f) {
     // frame's sounds, each a name or {name, pan?, gain?, delayS?} (§13.2).
     phase: game.phase, watch, needleHz: needleF(game.rec, mode.rate, game.pacer.alpha), cues, refusal,
     trayOpen: game.ui.trayOpen, drawer: game.ui.drawer, settingsOpen: game.ui.settingsOpen, end: game.end, seed: game.seed,
-    sysError: game.sysError, objective: game.objective, commit: game.commit,
+    sysError: game.sysError, objective: game.objective, commit: game.commit, objectiveError: game.objectiveError,
+    // C-10 (§19.5): {target, text, level} for the guard being hovered, focused or lifted, or null;
+    // the shell shows it in #objective with the word '? IF PRESSED', in place of the objective.
+    consider: game.consider,
   };
 }
 

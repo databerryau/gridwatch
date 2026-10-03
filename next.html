@@ -62,6 +62,8 @@
   #objective.plan b { border-color: var(--blue); color: var(--blue); }
   #objective.act { background: #3a2a00f0; } #objective.act b { border-color: var(--amber); color: var(--amber); }
   #objective.crit { background: #4a1210f0; } #objective.crit b { border-color: var(--red); color: var(--bright); background: #da3633; }
+  /* C-10: what a guarded press would do, in place of the objective while a guard is under the hand. */
+  #objective.consider { border-top-style: dashed; border-top-color: var(--dim); }
   /* B-4: the CRT overlay. Fixed 2-px scanlines over the map only (1 px dark, 1 px clear), very
      faint, never animated, never in the way of the pointer. Off with REDUCED EFFECTS. */
   body.crt #map::before { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0.06;
@@ -149,6 +151,7 @@
   <h2>Tonight's desk</h2>
   <p id="briefing-text">You decide which power stations run, and when. The dispatch system sets how hard each running unit works; you start more before the city needs them, and stop them when it does not. A coal unit takes two hours to reach the grid, a gas turbine ten minutes.</p>
   <p id="briefing-how" class="dim">The line above the desk says what is needed next. To start a unit: press its number on the lever bank, then START twice (or S S). The clock is held until you press Space.</p>
+  <p id="briefing-day"></p>
   <p id="briefing-watch" class="dim"></p>
   <div class="row" id="briefing-mode" role="radiogroup" aria-label="Regulation">
     <button id="btn-agc" class="on" role="radio" aria-checked="true" title="AGC trims every unit inside its band (the default)">AGC</button>
