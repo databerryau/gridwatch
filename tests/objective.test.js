@@ -775,7 +775,7 @@ test('spare after a trip: a fired GUARD still giving while frequency is high is 
   assert.equal(y.kind, 'spare');
   assert.equal(y.level, 'plan');
   assert.deepEqual(y.targets, ['ring-guard']);
-  assert.equal(y.text, 'The battery GUARD has re-armed after the trip. Raise it back to 400 MW: it catches the fall in the first second if another unit trips.');
+  assert.equal(y.text, 'After the trip the battery GUARD is at 0 MW. Raise it to 400 MW: it catches the fall in the first second if anything else trips.');
   // not while it is still fired, not an hour after the trip, not after a loss of load (the GUARD never fired for it), not into an order
   const not = (tag, f) => { const o = copy(back); f(o); const z = lineOf(o); assert.ok(!(z.action && z.action.type === 'guard'), tag + ': ' + z.text); };
   not('fired', o => { o.battery.guardFired = true; });
@@ -786,29 +786,33 @@ test('spare after a trip: a fired GUARD still giving while frequency is high is 
   assert.deepEqual(lineOf(busy).action, {type: 'guard', mw: 200}, 'the ring takes only what the charge order leaves');
 });
 
-test('GUARD after a belly trip (slow, desk-weekend 20261017): the follower is back in the normal band within FOS_RECOVER_S', slowOnly(), t => {
-  // coal 1 trips at 14:08:40 with 240 MW (at minimum) under a GUARD of 400 MW raised at 04:31; before the
-  // release line frequency stayed above 50.15 Hz for 478 s of the next 900 (fos.outsideS reached 404 s)
-  const SEED = 20261017, day = followDay(SEED, DESK_WEEKEND, {untilH: 14.5});
-  const trip = day.st.conts.find(c => c.cause === 'unit' && c.id === 'coal1' && at(Math.floor(c.startTick / TPS)) === '14:08');
-  assert.ok(trip && Math.round(trip.lostMW) === 240, 'the trip: ' + JSON.stringify(trip && {id: trip.id, lostMW: trip.lostMW}));
-  // the day again a tick at a time from the follower's own log (F-6), counting the seconds above the band
-  const st = createState(SEED, DESK_WEEKEND), log = day.st.log;
-  let j = 0, hiS = 0, guardAtTrip = -1;
-  while (st.tick < day.st.tick) {
-    const batch = [];
-    while (j < log.length && log[j].tick <= st.tick) { batch.push(Object.assign({type: log[j].type}, log[j].args)); j++; }
-    if (st.tick === trip.startTick) guardAtTrip = st.battery.guardMW;
-    step(st, batch);
-    if (st.tick % TPS === 0 && st.tick > trip.startTick && st.tick <= trip.startTick + 900 * TPS && st.last.fMeanHz > V.NORMAL_HI_HZ) hiS++;
+test('GUARD after a belly trip (slow, desk-weekend 20261017 and 5): the follower is back in the normal band within FOS_RECOVER_S', slowOnly(), t => {
+  // A unit at minimum trips under a GUARD of 400 MW raised at 04:31. Before the release line, frequency stayed
+  // above 50.15 Hz for 478 s (20261017: coal 1, 240 MW at 14:08) and 526 s (5: 245 MW at 12:33) of the next
+  // 900. On 20261017 the charge hold alone already brings it under the bound (157 s), so seed 5 is the case
+  // where the bound itself bites; on both the line must turn the GUARD down and raise it again once re-armed.
+  for (const c of [{seed: 20261017, untilH: 14.5, at: '14:08', mw: 240}, {seed: 5, untilH: 13.05, at: '12:33', mw: 245}]) {
+    const day = followDay(c.seed, DESK_WEEKEND, {untilH: c.untilH});
+    const trip = day.st.conts.find(x => x.cause === 'unit' && at(Math.floor(x.startTick / TPS)) === c.at);
+    assert.ok(trip && Math.abs(trip.lostMW - c.mw) < 3, c.seed + ': the trip: ' + JSON.stringify(trip && {id: trip.id, lostMW: trip.lostMW}));
+    // the day again a tick at a time from the follower's own log (F-6), counting the seconds above the band
+    const st = createState(c.seed, DESK_WEEKEND), log = day.st.log;
+    let j = 0, hiS = 0, guardAtTrip = -1;
+    while (st.tick < day.st.tick) {
+      const batch = [];
+      while (j < log.length && log[j].tick <= st.tick) { batch.push(Object.assign({type: log[j].type}, log[j].args)); j++; }
+      if (st.tick === trip.startTick) guardAtTrip = st.battery.guardMW;
+      step(st, batch);
+      if (st.tick % TPS === 0 && st.tick > trip.startTick && st.tick <= trip.startTick + 900 * TPS && st.last.fMeanHz > V.NORMAL_HI_HZ) hiS++;
+    }
+    assert.equal(hashState(st), hashState(day.st), c.seed + ': the same day');
+    assert.equal(guardAtTrip, V.PAR_GUARD_MAX_MW, c.seed + ': the GUARD was at its most when the unit tripped');
+    t.diagnostic(c.seed + ': ' + hiS + ' s above ' + V.NORMAL_HI_HZ + ' Hz in the 900 s after the trip');
+    assert.ok(hiS <= V.FOS_RECOVER_S, c.seed + ': ' + hiS + ' s above ' + V.NORMAL_HI_HZ + ' Hz in the 900 s after the trip');
+    const down = day.said.find(x => x.s > trip.startTick / TPS && x.accepted && x.action.type === 'guard' && x.action.mw === 0);
+    assert.ok(down, c.seed + ': the line turned the GUARD down');
+    assert.ok(day.said.some(x => x.s > down.s && x.accepted && x.action.type === 'guard' && x.action.mw === V.PAR_GUARD_MAX_MW), c.seed + ': and back up once it re-armed');
   }
-  assert.equal(hashState(st), hashState(day.st), 'the same day');
-  assert.equal(guardAtTrip, V.PAR_GUARD_MAX_MW, 'the GUARD was at its most when coal 1 tripped');
-  t.diagnostic(hiS + ' s above ' + V.NORMAL_HI_HZ + ' Hz in the 900 s after the trip (478 before the release line)');
-  assert.ok(hiS <= V.FOS_RECOVER_S, hiS + ' s above ' + V.NORMAL_HI_HZ + ' Hz in the 900 s after the trip');
-  const down = day.said.find(x => x.s > trip.startTick / TPS && x.accepted && x.action.type === 'guard' && x.action.mw === 0);
-  assert.ok(down, 'the line turned the GUARD down');
-  assert.ok(day.said.some(x => x.s > down.s && x.accepted && x.action.type === 'guard' && x.action.mw === V.PAR_GUARD_MAX_MW), 'and back up once it re-armed, by 14:30');
 });
 
 // ------------------------------------------------------------------ the battery (§21.4)

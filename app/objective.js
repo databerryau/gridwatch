@@ -886,7 +886,7 @@ function spare(X, line) {
   if (b.guardMW === 0 && last && last.cause !== 'load' && s - last.startS < S_PER_H) {
     const mw = guardTo();
     if (mw > 0) {
-      return line({level: 'plan', kind: 'spare', text: 'The battery GUARD has re-armed after the trip. Raise it back to ' + mw + ' MW: it catches the fall in the first second if another unit trips.',
+      return line({level: 'plan', kind: 'spare', text: 'After the trip the battery GUARD is at 0 MW. Raise it to ' + mw + ' MW: it catches the fall in the first second if anything else trips.',
         targets: ['ring-guard'], action: {type: 'guard', mw}, startBy: s});
     }
   }

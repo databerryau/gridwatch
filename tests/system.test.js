@@ -300,14 +300,14 @@ test('tools/follow.mjs: a STOP line\'s quoted saving is read from the line; the 
 });
 
 test('tools/follow.mjs end to end: a followed STOP is re-run skipped, and its quoted saving is set against the realised difference', slowOnly(), () => {
-  // The objective has no STOP or BATTERY branch until wave 3, so the line is synthetic, in the
-  // §21.4 order: the standing objective's own actions first, then one STOP of CCGT 1 from 10:30 on
+  // The STOP under test is synthetic, so its quote and window are known: the standing objective's own
+  // actions first (its own STOP lines, wave 3, left out), then one STOP of CCGT 1 from 10:30 on
   // a mild weekday (at its floor in the belly), quoting $20,000, then a battery branch below it
   // (from 10:30 too: charge while power is spilled). `withStop` false is the same player with no STOP branch at all.
   const stopAt = ticksAt(10, 30) / TPS, noStopAfter = ticksAt(13, 0) / TPS;
   const mk = withStop => (obs, ctx) => {
     const x = objective(obs, ctx), u = obs.units.find(q => q.id === 'ccgt1'), b = obs.battery;
-    if (x && x.action) return x;
+    if (x && x.action && x.kind !== 'stop') return x;
     if (withStop && obs.s >= stopAt && obs.s < noStopAfter && u.mode === 'on' && u.stopBlock === '') {
       return {level: 'plan', kind: 'stop', text: 'RIVERTON CCGT 1 is not needed before the evening. Stop it: saves about $20,000.', targets: ['guard-stop-ccgt1'],
         action: {type: 'stop', unit: 'ccgt1'}, startBy: -1, short: null, long: null};
@@ -315,7 +315,7 @@ test('tools/follow.mjs end to end: a followed STOP is re-run skipped, and its qu
     if (obs.s >= stopAt && obs.wind.autoMW + obs.solar.autoMW > V.SURPLUS_MIN_MW && b.mode !== 'charge' && b.socMWh < 950) {
       return {level: 'plan', kind: 'battery', text: 'Charge: power is being spilled.', targets: ['dial-battery'], action: {type: 'battery', mode: 'charge', mw: 300}, startBy: -1, short: null, long: null};
     }
-    return x;
+    return x && x.kind === 'stop' ? null : x;
   };
   const row = followSeed(DESK, 1, {untilH: 14, par: false, objective: mk(true)});
   assert.equal(row.day, 'MILD');

@@ -577,18 +577,19 @@ test('C-11 over mild weekends (slow): seeds 1, 5, 8, 9, 13 and 20261004 projecte
   const {DESK_WEEKEND} = await import('../content/scenarios.js');
   const TPS = V.TICKS_PER_S, NK = 12, HOURS = [10.5, 11, 12, 13];
   const sOf = h => Math.round((h - V.DAY_START_H) * V.S_PER_H);
-  const ONSET_S = 600;   // the first ten minutes of a spill: AGC's unmet lowering request joins the cut while the units come down to MIN (§25 M-3)
+  const ONSET_S = 600;   // the first ten minutes of a spill, and any minute in which AGC's unmet lowering request is still part of the
+  // cut while the units come down to MIN at their ramps (§25 M-3; coal at 3 MW/min can take longer than ten minutes): blue leaves it out (C-11)
   const told = [], settled = [], onset = [], guessed = [];
   for (const seed of [1, 5, 8, 9, 13, 20261004]) {
     const {st, sys} = followDay(seed, DESK_WEEKEND, {follow: false, untilH: HOURS[0]});
     const s0 = st.tick / TPS, endS = sOf(HOURS[HOURS.length - 1]) + (NK + 1) * PV.COL_S;
-    const cut = new Float64Array(endS - s0 + 1), wind = new Float64Array(cut.length), solar = new Float64Array(cut.length), lit = new Float64Array(cut.length), conts = new Uint8Array(cut.length);
+    const cut = new Float64Array(endS - s0 + 1), unmet = new Float64Array(cut.length), wind = new Float64Array(cut.length), solar = new Float64Array(cut.length), lit = new Float64Array(cut.length), conts = new Uint8Array(cut.length);
     const views = [];
     for (;;) {
       if (st.tick % TPS === 0) {
         const s = st.tick / TPS, o = observe(st), i = s - s0;
         if (HOURS.some(h => sOf(h) === s)) views.push(o);
-        cut[i] = o.wind.autoMW + o.solar.autoMW; wind[i] = o.wind.availMW; solar[i] = o.solar.availMW; lit[i] = o.demand.litMW; conts[i] = st.conts.length;
+        cut[i] = o.wind.autoMW + o.solar.autoMW; unmet[i] = o.agc.unmetMW; wind[i] = o.wind.availMW; solar[i] = o.solar.availMW; lit[i] = o.demand.litMW; conts[i] = st.conts.length;
         if (s >= endS) break;
       }
       step(st, SYS.systemInputs(sys, st));
@@ -605,10 +606,11 @@ test('C-11 over mild weekends (slow): seeds 1, 5, 8, 9, 13 and 20261004 projecte
         const err = Math.abs(T.surplusMW[k] - real);
         told.push(err);
         // a settled column: nothing cut in its minute, or the sim has been cutting without a break for ONSET_S before it
+        // and AGC has nothing unmet in that minute
         let since = 0, any = false;
         for (let s = P.times[k] - 30; s <= P.times[k] + 30; s++) if (cut[s - s0] > 0) any = true;
         for (let s = P.times[k] - 30; s >= s0 && since < ONSET_S && cut[s - s0] > 0; s--) since++;
-        (!any || since >= ONSET_S ? settled : onset).push(err);
+        (!any || (since >= ONSET_S && mean(unmet, P.times[k]) > -1) ? settled : onset).push(err);
       }
     }
   }
