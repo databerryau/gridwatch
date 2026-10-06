@@ -8,6 +8,10 @@
 // Shift ±1, PgUp/PgDn next detent; crossing the gate needs 12 px of extra drag or Shift+↑.
 // An idle station's lever books its start through the plan (`planKey`, AGC mode, L-6).
 // One lamp per machine with its own START and STOP guards (lift, then press; S S / X X).
+// Phase 2a (C-10, desk/README.md §19.5): a guard lights when its id is in vm.glow (the
+// objective's STOP or START), and tells the desk when it is hovered, pressed by a pointer,
+// focused, lifted or committed (ctx.consider), so the shell can say what the press will do
+// before it is made.
 // Foley (K-20): a hand move cues `detent` / `gate` / `ratchet`, a plan move cues `servo`; guards
 // cue `cover` (lift, drop) and `button` (the press that commits). A rough close shakes the lever.
 
@@ -42,7 +46,18 @@ export function createMachine(ctx, k, pan) {
   const stop = el(doc, 'button', 'dk-guard dk-stop');
   stop.id = 'guard-stop-' + m.id; stop.type = 'button';
   box.append(start, stop);
-  let u = null, offered = false, wasS = false, wasX = false;
+  let u = null, offered = false, wasS = false, wasX = false, glowS = false, glowX = false;
+  // C-10: hover and focus on either guard are the desk's to resolve (ctx.consider, desk.js); it
+  // is told of a pointer press too, because the focus a click leaves on a button is not the keyboard's
+  for (const g of [start, stop]) {
+    g.addEventListener('pointerenter', () => ctx.consider.hover(g.id, true));
+    g.addEventListener('pointerleave', () => ctx.consider.hover(g.id, false));
+    g.addEventListener('pointerdown', () => ctx.consider.press(g.id));
+    g.addEventListener('pointerup', () => ctx.consider.up(g.id));
+    g.addEventListener('pointercancel', () => ctx.consider.up(g.id));
+    g.addEventListener('focus', () => ctx.consider.focus(g.id, true));
+    g.addEventListener('blur', () => ctx.consider.focus(g.id, false));
+  }
 
   const startAction = () => (!u ? '' : u.mode === 'off' ? (u.startBlock ? '' : 'start') : u.mode === 'ready' ? 'scope' : '');
   const stopAction = () => {
@@ -60,7 +75,8 @@ export function createMachine(ctx, k, pan) {
     return u.stopBlock || '';
   };
 
-  function pressStart() {
+  /** @param {boolean} [byKey] the press came from S on the station's lever, not from the guard itself */
+  function pressStart(byKey) {
     if (ctx.locked()) return;
     const a = startAction();
     if (!a) { ctx.note(box, why() || MODE_WORD[u ? u.mode : 'off']); return; }
@@ -70,20 +86,23 @@ export function createMachine(ctx, k, pan) {
       return;
     }
     const res = ctx.guards.press(start.id, () => { wasS = false; if (!ctx.send({type: 'start', unit: m.id}, box)) ctx.cue('button', pan); });
-    if (res === 'lift') ctx.live(unitLabel(m.id) + ' START guard lifted: press again to start');
+    if (res === 'lift') { ctx.live(unitLabel(m.id) + ' START guard lifted: press again to start'); ctx.consider.lift(start.id, byKey === true); }
+    else ctx.consider.commit(start.id);
     render();
   }
-  function pressStop() {
+  /** @param {boolean} [byKey] the press came from X on the station's lever */
+  function pressStop(byKey) {
     if (ctx.locked()) return;
     const a = stopAction();
     if (!a) { ctx.note(box, why() || 'nothing to stop'); return; }
     if (a === 'abort') { if (!ctx.send({type: 'abortStop', unit: m.id}, box)) ctx.cue('button', pan); return; }
     const res = ctx.guards.press(stop.id, () => { wasX = false; if (!ctx.send({type: 'stop', unit: m.id}, box)) ctx.cue('button', pan); });
-    if (res === 'lift') ctx.live(unitLabel(m.id) + (a === 'cancel' ? ' CANCEL START' : ' STOP') + ' guard lifted: press again');
+    if (res === 'lift') { ctx.live(unitLabel(m.id) + (a === 'cancel' ? ' CANCEL START' : ' STOP') + ' guard lifted: press again'); ctx.consider.lift(stop.id, byKey === true); }
+    else ctx.consider.commit(stop.id);
     render();
   }
-  start.addEventListener('click', pressStart);
-  stop.addEventListener('click', pressStop);
+  start.addEventListener('click', () => pressStart(false));
+  stop.addEventListener('click', () => pressStop(false));
 
   function render() {
     if (!u) return;
@@ -99,14 +118,16 @@ export function createMachine(ctx, k, pan) {
     setText(stop, upX ? '▼?' : so === 'abort' ? '↺' : so ? '■' : '·');
     setCls(start, 'lifted', upS); setCls(stop, 'lifted', upX);
     setCls(start, 'live', !!sa); setCls(stop, 'live', !!so);
+    setCls(start, 'glow', glowS); setCls(stop, 'glow', glowX);   // L-9 / C-10: the objective points at this guard
+    const hint = ' (the objective points here)';
     setAttr(start, 'aria-disabled', sa ? 'false' : 'true');
     setAttr(stop, 'aria-disabled', so ? 'false' : 'true');
     const name = unitLabel(m.id), w = why();
     const hot = u.hotS > 0 ? ', RUNNING HOT ' + mmss(u.hotS) : '';
     setAttr(start, 'aria-label', name + ' ' + MODE_WORD[u.mode] + hot + ': ' + (upS ? 'START guard lifted, press again to start' :
-      sa === 'start' ? 'START (guarded: press twice within 2 s)' : sa === 'scope' ? 'open synchroscope' : 'no start' + (w ? ', ' + w : '')));
+      sa === 'start' ? 'START (guarded: press twice within 2 s)' : sa === 'scope' ? 'open synchroscope' : 'no start' + (w ? ', ' + w : '')) + (glowS ? hint : ''));
     setAttr(stop, 'aria-label', name + ': ' + (upX ? 'guard lifted, press again' : so === 'abort' ? 'ABORT STOP' :
-      so === 'cancel' ? 'CANCEL START (guarded: press twice within 2 s)' : so ? 'STOP (guarded: press twice within 2 s)' : 'no stop'));
+      so === 'cancel' ? 'CANCEL START (guarded: press twice within 2 s)' : so ? 'STOP (guarded: press twice within 2 s)' : 'no stop') + (glowX ? hint : ''));
     setAttr(box, 'title', name + ' · ' + MODE_WORD[u.mode] + (u.sync ? ' · ' + mw(u.outMW) + ' MW' : '') +
       (u.hotS > 0 ? ' · RUNNING HOT ' + mmss(u.hotS) + ' (trip risk ' + HOT_RISK_TEXT + ' once armed)' : '') + (w ? ' · ' + w : ''));
   }
@@ -116,6 +137,7 @@ export function createMachine(ctx, k, pan) {
     update(vm) {
       u = vm.obs.units[k];
       offered = !!(vm.offers && vm.offers.some(o => o.unit === m.id));
+      glowS = !!(vm.glow && vm.glow.has(start.id)); glowX = !!(vm.glow && vm.glow.has(stop.id));
       render();
     },
     pressStart, pressStop, startAction, stopAction,
@@ -127,11 +149,11 @@ export function createMachine(ctx, k, pan) {
 export function stationKey(machines, key) {
   if (key === 's') {
     const m = machines.find(x => x.startAction() === 'start');
-    if (m) { m.pressStart(); return true; }
+    if (m) { m.pressStart(true); return true; }
   } else if (key === 'x') {
     for (let i = machines.length - 1; i >= 0; i--) {
       const a = machines[i].stopAction();
-      if (a === 'stop' || a === 'cancel') { machines[i].pressStop(); return true; }
+      if (a === 'stop' || a === 'cancel') { machines[i].pressStop(true); return true; }
     }
   }
   return false;

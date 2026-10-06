@@ -21,10 +21,15 @@
 //   'player'  the game (SPEC §9.1 Q-18): COMMITMENT IS THE PLAYER'S. The system never books a
 //             start or a stop. At 04:30 it dispatches only what is running; from then it
 //             re-dispatches the committed units (the same planLoad RE-DISPATCH sends) whenever the
-//             commitment changes (a start, a stop, a booking, a unit synchronised or tripped) and
+//             commitment changes (a start, a stop, a booking, a unit synchronised or tripped; from
+//             Phase 2a also the battery's order or GUARD: commitSig) and
 //             every DISPATCH_S (5 grid-minutes, as NEMDE does) for the newer forecast. Which units run, and when, is the
 //             player's plan; a day with no input runs short. A lever, tie or plan-key edit by hand
 //             still takes the levers over until RE-DISPATCH.
+//             The belly (Phase 2a, desk/README.md §21.3): the dispatch is for the lit operational
+//             demand against the wind and solar AVAILABLE; in a surplus it takes every unit to its
+//             floor and the tie to the export limit, and the sim's own cut spills the rest (C-6). A
+//             battery order counts for the energy behind it (autopilot batteryOrder).
 // Everything it does is a sim input (planLoad), logged, so replay() reproduces a game day (F-6).
 // It runs on the autopilot's 'planOnly' memory and runPar's cadence: a game day with no player
 // input is the planOnly proxy's day, hash for hash (tests/system.test.js).
@@ -53,15 +58,21 @@ export function createSystem(opts) {
 }
 
 // 'player' mode: what the dispatch is made over. It changes when a unit starts, synchronises,
-// stops or trips, a start or stop is booked or unbooked, or the dark share of the city moves.
-function commitSig(obs) {
+// stops or trips, a start or stop is booked or unbooked, the dark share of the city moves, or
+// (Phase 2a, desk/README.md §21.3) the battery's order or GUARD changes: the battery is the
+// player's, and an order the dispatch has not seen is a shortfall or a surplus on the stack until
+// the next 5-minute dispatch (the review measured "Short 400 MW ... call DR" for two grid-minutes
+// after a CHARGE 350). FULL-HOLD is in it too: a charge order paused on a full battery is no
+// longer a load. The dispatch counts the order for the energy behind it (autopilot batteryOrder).
+export function commitSig(obs) {
   let s = '';
   for (const u of obs.units) s += u.mode === 'on' || u.mode === 'loading' ? '1' : u.mode === 'off' || u.mode === 'tripped' ? '0' : '2';
   for (const e of obs.plan.starts) s += '+' + e.unit + e.atS;
   for (const e of obs.plan.stops) s += '-' + e.unit + e.atS;
   let dark = 0;
   for (const d of obs.districts) if (d.dark) dark++;
-  return s + '|' + dark + (obs.tie.tripped ? 'T' : '');
+  const b = obs.battery;
+  return s + '|' + dark + (obs.tie.tripped ? 'T' : '') + '|' + b.mode + b.orderMW + (b.fullHold ? 'F' : '') + 'g' + b.guardMW;
 }
 
 function playerInputs(sys, state, s) {
@@ -95,6 +106,21 @@ function scanEdits(sys, state) {
     sys.edited = true;
   }
   sys.logIdx = log.length;
+}
+
+/**
+ * Are the levers held by hand right now? The same scan as the system's own, made at once: the
+ * system looks only every PAR_DECIDE_EVERY_S (and not at all while the clock is held), so a lever
+ * or plan key moved a moment ago would otherwise not count yet, and the re-dispatch that follows a
+ * START or a battery order (app/game.js) would load the system's plan over it. Scanning early
+ * changes nothing else: every path that clears `edited` (loaded) scans first.
+ * @param {object} sys from createSystem
+ * @param {object} state
+ * @returns {boolean} sys.edited, fresh
+ */
+export function heldByHand(sys, state) {
+  scanEdits(sys, state);
+  return sys.edited;
 }
 
 function loaded(sys, state, n) {

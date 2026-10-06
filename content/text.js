@@ -3,6 +3,8 @@
 // One entry per §8.2 row: {id, row, anchorId, game, real, ours, why, params}.
 //   row       the row's bold title exactly as in SPEC.md §8.2 (tests/text.test.js matches it).
 //             An entry for a row not yet in §8.2 carries specPending: true until the row is added.
+//             A specPending entry that RENAMES a row carries `replaces`: the title §8.2 still has
+//             (drop both keys when stage C renames the row).
 //   anchorId  the id of the bench element the "?" sits next to (bench.html); entries whose
 //             element the bench does not have carry ui: 'drawer' and show only in the bench's
 //             abstractions drawer (H-14: "the same text is in the manual drawer")
@@ -17,7 +19,7 @@
 // Numbers in `real` are real-world facts from SPEC.md §8.1 / §8.2, not model values.
 
 import {P, V} from '../sim/params.js';
-import {CLASSIC} from './scenarios.js';
+import {CLASSIC, DESK} from './scenarios.js';
 import {FLAT_RATE, WATCH_SCHEDULE} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
 import {HORN_REPEAT_S} from '../app/alarms.js';
@@ -53,6 +55,15 @@ const households = CLASSIC.city.suburbs.reduce((a, s) => a + s.households, 0);
 const coal = station('coal');
 // The auto-sync delay's tunable band (the params record's `range`; V keeps values only).
 const autoSyncRange = P.AUTO_SYNC_S.range || [V.AUTO_SYNC_S, V.AUTO_SYNC_S];
+
+// Phase 2a (desk/README.md §19.5): the belly. The rooftop, day-type and heat values are the game
+// day's (DESK), read here; the model values are params.
+const roof = DESK.rooftop, heat = DESK.events.heat, ccgt = station('ccgt');
+const roofPeak = roof.shapePm.reduce((a, p) => (p[1] > a[1] ? p : a));
+const mildShare = DESK.weather.mildShare, hotShare = 1 - DESK.weather.heatShare - mildShare;
+/** START to breaker close in AGC mode, in minutes: the run-up to full speed plus the auto-sync delay. */
+const startToSyncMin = st => st.t1Min + V.AUTO_SYNC_S / V.S_PER_MIN;
+const mslStep = (a, b) => num(a - b);
 
 // The K-12 synchroscope's speed, from the sim's Phase 1a params (desk/README.md §3.3) once
 // they exist; until the sim branch merges, the Phase 0.2 stub's text.
@@ -217,12 +228,21 @@ const ABSTRACTIONS = [
     params: ['CONTAIN_LO_HZ', 'CONTAIN_HI_HZ', 'NORMAL_LO_HZ', 'NORMAL_HI_HZ', 'FOS_RECOVER_S'],
   },
   {
-    id: 'msl-tiers', row: 'MSL3 = 1,000 MW, with MSL2 and MSL1 300 and 600 MW above it', anchorId: 'msl-gauge', game: 'drawer', ui: 'drawer',
-    real: 'Minimum-system-load floors vary with the synchronous units online; Victoria\'s are about 790 MW with ~500-MW steps.',
-    ours: 'Not modelled until Phase 2 (P-4): the bench has no minimum-system-load floor yet.',
-    why: 'Our region is an island whose largest load risk is the ' + num(V.SMELTER_MW) + '-MW smelter potline, so the ' +
-      'steps are about one such risk apart.',
-    params: ['SMELTER_MW'],
+    // Phase 2a (P-4; desk/README.md C-9): rebuilt from the MSL params; the notices are tray cards.
+    id: 'msl-tiers', row: 'MSL3 = 1,000 MW, with MSL2 and MSL1 300 and 600 MW above it', anchorId: 'msl-gauge', game: 'tray', ui: 'drawer',
+    real: 'Minimum-system-load floors vary with the network and the synchronous units online; Victoria\'s are about 790 MW ' +
+      'with ~500-MW steps. AEMO issues MSL1, MSL2 and MSL3 notices from its own forecasts, and at MSL3 may direct the ' +
+      'emergency backstop: networks switch rooftop solar off.',
+    ours: 'A market notice when the lowest demand our own forecast sees, now and over the next ' + num(V.FC_HORIZON_S / V.S_PER_H) +
+      ' h, is at or below ' + num(V.MSL1_MW) + ' MW (MSL1), ' + num(V.MSL2_MW) + ' MW (MSL2) or ' + num(V.MSL3_MW) +
+      ' MW (MSL3): steps of ' + mslStep(V.MSL2_MW, V.MSL3_MW) + ' MW, and every level ' + num(V.MSL_TIE_OUT_MW) + ' MW higher ' +
+      'for the hours the tie is out of service (an hour after its announced return is tested at the normal level). It is checked every ' + minutes(V.MSL_CHECK_S) + ' grid-minutes, and a level is left ' +
+      'only once the forecast is ' + num(V.MSL_CLEAR_MW) + ' MW above it. The notices say what this desk can do: keep battery ' +
+      'room, stop a gas unit. The backstop is not on this desk yet: frequency rises until the roofs back off by themselves.',
+    why: 'Our region is an island whose largest load risk is the ' + num(V.SMELTER_MW) + '-MW smelter potline (or the ' +
+      num(V.TIE_EXPORT_CAP_MW) + '-MW midday export), so the steps are about one such risk apart.',
+    params: ['MSL1_MW', 'MSL2_MW', 'MSL3_MW', 'MSL_TIE_OUT_MW', 'MSL_CHECK_S', 'MSL_CLEAR_MW', 'FC_HORIZON_S', 'SMELTER_MW',
+      'TIE_EXPORT_CAP_MW'],
   },
   {
     id: 'one-node', row: 'One-node network.', anchorId: 'demand-chart', game: 'map',
@@ -274,7 +294,8 @@ const ABSTRACTIONS = [
       'biggest risk (L) and a TRIP PREVIEW nadir of at least ' + hz(V.SECURE_NADIR_HZ) + ' Hz plus a ' +
       num(V.PREVIEW_MARGIN_HZ) + ' Hz margin for losing L (plus ' + num(V.PREVIEW_AGE_MARGIN_HZ_S) + ' Hz for each grid-second ' +
       'of the preview\'s age; it is re-run at least every ' + num(V.PREVIEW_REFRESH_S) + ' grid-seconds and whenever frequency ' +
-      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L; SHORT is R5 < L; SHEDDING while load is off.',
+      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L; SHORT is R5 < L; SHEDDING while load is off. SECURE ' +
+      'previews the loss of supply, not of load: losing the potline or the export at midday is not on this gauge.',
     why: 'One gauge. The margin covers what a preview with frozen schedules cannot see (demand wobble, AGC and ramps), ' +
       'measured so that no SECURE state misses ' + hz(V.SECURE_NADIR_HZ) + ' Hz when a credible contingency trips. The ' +
       'preview runs for both credible contingencies, the largest unit and the tie import (N-1), and BIGGEST RISK names ' +
@@ -285,10 +306,13 @@ const ABSTRACTIONS = [
   {
     id: 'ufls-blocks', row: 'UFLS: 8 × 6% blocks from 49.0 Hz in 0.125 Hz steps.', anchorId: 'ufls-strip', game: 'annunciator',
     real: 'Schemes differ by region (QLD 2021: 8 blocks, 49.00–48.60 Hz, 0.15 s delay); overall they reach down to ' +
-      '47.5 Hz and at most 60% of load.',
+      '47.5 Hz and at most 60% of load. With rooftop solar a circuit can feed back at midday, so tripping it adds load: ' +
+      'South Australia has disarmed reverse-flowing circuits since 2021.',
     ours: num(V.UFLS_STAGES) + ' stages of about ' + pct(V.UFLS_BLOCK_FRAC) + '% of load, two districts each, from ' +
       V.UFLS_FIRST_HZ.toFixed(3) + ' Hz down to ' + uflsLastHz.toFixed(3) + ' Hz in ' + num(V.UFLS_STEP_HZ) + '-Hz steps, ' +
-      num(V.UFLS_DELAY_S) + ' s from crossing to load off. Nothing restores them automatically.',
+      num(V.UFLS_DELAY_S) + ' s from crossing to load off. Nothing restores them automatically. The blocks are static: a ' +
+      'district trips with its stage even when its rooftop solar is feeding back, so at a sunny noon a stage sheds about half of what its ' +
+      'customers use, and a district whose roofs are feeding back sheds next to nothing. Unserved energy counts the dark customers\' own load (their rooftop is off with the feeder), not that net figure.',
     why: 'Districts are the blocks, so you see who went dark.',
     params: ['UFLS_STAGES', 'UFLS_BLOCK_FRAC', 'UFLS_FIRST_HZ', 'UFLS_STEP_HZ', 'UFLS_DELAY_S'],
   },
@@ -301,17 +325,87 @@ const ABSTRACTIONS = [
     params: ['BLACK_LO_HZ', 'BLACK_HI_HZ', 'COLLAPSE_BANDS'],
   },
   {
-    id: 'wind-solar-pfr', row: 'Wind and utility solar give no primary frequency response.', anchorId: 'ofgs-lamps', game: 'map',
+    // Phase 2a (C-7; desk/README.md §19.5): the row was renamed at stage C (it was 'Wind and utility solar give no primary frequency response.').
+    id: 'wind-solar-pfr', row: 'Wind, utility solar and rooftop solar respond to over-frequency only.',
+    anchorId: 'ofgs-lamps', game: 'dial-freq',
     real: 'Under the NEM\'s mandatory primary frequency response rule (2020), wind and solar farms respond outside ±0.015 Hz ' +
       'with a droop of 5% or less: they always lower output when frequency is high, and raise it only from output they ' +
-      'hold back (curtailment).',
-    ours: 'Wind and utility solar hold their output whatever the frequency. Only over-frequency generation shedding acts on ' +
-      'them: it trips wind in ' + V.OFGS_STAGES_HZ.length + ' stages of ' + pct(V.OFGS_STAGE_FRAC) + '% from ' +
-      hz(V.OFGS_STAGES_HZ[0]) + ' Hz. Governors (droop ' + pct(V.GOV_DROOP) + '%), the battery and load relief do all ' +
-      'the primary response.',
-    why: 'Simpler physics until the Phase 2 low-demand work (P-12). It makes high-frequency events worse than real, not ' +
-      'better, and a curtailed farm offers no raise.',
-    params: ['OFGS_STAGES_HZ', 'OFGS_STAGE_FRAC', 'GOV_DROOP'],
+      'hold back (curtailment). Rooftop inverters follow AS/NZS 4777.2: output falls from 50.25 Hz to zero at 52 Hz, and ' +
+      'the lowest value reached is held until frequency is back under 50.15 Hz.',
+    ours: (V.REN_PFR_ON
+      ? 'Above ' + hz(V.F0_HZ + V.GOV_DEADBAND_HZ) + ' Hz wind and utility solar lower their output on a ' + pct(V.GOV_DROOP) +
+        '% droop of their rating, down to zero. '
+      : 'Wind and utility solar hold their output whatever the frequency. ') +
+      (V.ROOF_FW_ON
+        ? 'Rooftop solar, as one inverter, backs off from ' + hz(V.ROOF_FW_START_HZ) + ' Hz to zero at ' + hz(V.ROOF_FW_ZERO_HZ) +
+          ' Hz and holds its lowest value until frequency is back under ' + hz(V.ROOF_FW_START_HZ - V.ROOF_FW_HYST_HZ) +
+          ' Hz, then returns over ' + minutes(V.ROOF_RAMP_S) + ' minutes. '
+        : 'Rooftop solar does not respond. ') +
+      'None of them raises output when frequency is low, even when held back. Over-frequency generation shedding still ' +
+      'trips wind in ' + V.OFGS_STAGES_HZ.length + ' stages of ' + pct(V.OFGS_STAGE_FRAC) + '% from ' + hz(V.OFGS_STAGES_HZ[0]) + ' Hz.',
+    why: 'At a sunny noon the plant that is running is wind and solar, so it must be what catches the loss of a load (the ' +
+      'potline, or the export). Lowering only: a held-back farm offers no raise, so low-frequency events are no easier than real.',
+    params: ['REN_PFR_ON', 'ROOF_FW_ON', 'GOV_DROOP', 'GOV_DEADBAND_HZ', 'ROOF_FW_START_HZ', 'ROOF_FW_ZERO_HZ', 'ROOF_FW_HYST_HZ',
+      'ROOF_RAMP_S', 'OFGS_STAGES_HZ', 'OFGS_STAGE_FRAC'],
+  },
+  {
+    // Phase 2a (P-2; desk/README.md C-4, C-5).
+    id: 'rooftop-model', row: 'Rooftop solar: one curve, six skies.', anchorId: 'rooftop-model', ui: 'drawer',
+    game: 'map',
+    real: 'Each roof has its own tilt, direction, shading and temperature; AEMO estimates rooftop output from a sample of ' +
+      'systems, and a cloud band crosses a city street by street.',
+    ours: num(roof.capacityMW) + ' MW of rooftop solar, shared among the ' + roof.share.length + ' suburbs in fixed parts, follows ' +
+      'one clear-day curve from ' + hhmm(roof.shapePm[0][0]) + ' to ' + hhmm(roof.shapePm[roof.shapePm.length - 1][0]) +
+      ' that peaks at ' + hhmm(roofPeak[0]) + ' at ' + pct(roof.clearFactor) + '% of capacity. Each suburb has its own sky: one ' +
+      'regional clearness plus a small local term, in ' + minutes(roof.cloud.stepS) + '-minute steps; at clearness k a roof gives ' +
+      '1 − ' + num(roof.cloudBite) + ' × (1 − k) of its clear-day output. Hot panels give ' + pct(1 - roof.heatFactor) +
+      '% less in a heatwave (' + hhmm(heat.onsetH) + '–' + hhmm(heat.endH) + '), ramping in over the hour before it as the heat ' +
+      'itself does. No cloud front crosses ' +
+      'the suburbs yet: that waits for the Phase 2c event director.',
+    why: 'The belly needs the right size and shape, and six skies make the midday forecast honestly uncertain.',
+    params: [],
+  },
+  {
+    // Phase 2a (P-3; desk/README.md C-2, C-3).
+    id: 'mild-days', row: 'A mild day is the hot day with its cooling load removed.', anchorId: 'mild-days',
+    ui: 'drawer', game: 'stack',
+    real: 'Demand follows temperature, the day of the week, the season and holidays, each with its own hourly shape, and ' +
+      'heatwave warnings come days ahead.',
+    ours: 'Of every 100 game days about ' + pct(mildShare) + ' are mild, ' + pct(hotShare) + ' hot and ' + pct(V.HEAT_SHARE) +
+      ' heatwaves. A hot day is the classic day. A mild day is the same day without its cooling load: ' +
+      num(V.COOLING_MAX_MW / V.COOLING_SPAN_C) + ' MW for each °C the hot day is above ' + num(V.COOLING_BASE_C) + ' °C, all ' +
+      num(V.COOLING_MAX_MW) + ' MW at ' + num(V.COOLING_BASE_C + V.COOLING_SPAN_C) + ' °C. A Saturday or Sunday multiplies ' +
+      'demand by ' + num(V.WEEKEND_DEMAND_FACTOR) + ' all day. A heatwave is announced at ' + hhmm(heat.announceH) +
+      ' on the day itself, until day-ahead warnings arrive (D-8).',
+    why: 'One tuned day gives three day types, and the mild weekend is where the belly bites.',
+    params: ['HEAT_SHARE', 'COOLING_MAX_MW', 'COOLING_BASE_C', 'COOLING_SPAN_C', 'WEEKEND_DEMAND_FACTOR'],
+  },
+  {
+    // Phase 2a (desk/README.md C-6, C-11).
+    id: 'auto-curtailment', row: 'The dispatch spills wind and solar automatically, pro rata.',
+    anchorId: 'auto-curtailment', ui: 'drawer', game: 'stack',
+    real: 'NEMDE dispatches by offer price: wind and solar farms are held back through the semi-dispatch cap, the dearest ' +
+      'offers first. Rooftop solar is curtailed last, by the emergency backstop.',
+    ours: 'When the units at minimum load plus wind and utility solar exceed demand, with the tie and the battery as you ' +
+      'have set them, the dispatch holds back that much wind and utility solar every grid second, each in proportion to its ' +
+      'output. The Live Stack shows a spill ahead as SURPLUS from ' + num(V.SURPLUS_MIN_MW) + ' MW, and MIN GEN lights while ' +
+      'it lasts. Rooftop solar is never curtailed: the backstop is not on this desk yet.',
+    why: 'Without it a sunny mild weekend ran away to 52 Hz. With it a surplus costs the energy spilled, and shrinking it ' +
+      'is yours: charge the battery, export, or stop a unit.',
+    params: ['SURPLUS_MIN_MW'],
+  },
+  {
+    // Phase 2a (desk/README.md C-12).
+    id: 'min-down-time', row: 'Minimum down time runs from breaker open to the next START.',
+    anchorId: 'min-down-time', ui: 'drawer', game: 'lever-coal',
+    real: 'A unit\'s minimum down time is the shortest time it must stay off line: from breaker open to the next breaker close.',
+    ours: 'After a planned stop a machine cannot be started for its minimum down time (coal ' + num(coal.minDownH) + ' h, CCGT ' +
+      num(ccgt.minDownH) + ' h), counted from breaker open to the next START. The run-up and auto-sync then take ' +
+      num(startToSyncMin(coal)) + ' min for coal and ' + num(startToSyncMin(ccgt)) + ' min for a CCGT, so a machine stays ' +
+      'off line that much longer than breaker to breaker.',
+    why: 'One clock the desk can show: the START guard opens when the time is up. It makes a stop a slightly bigger ' +
+      'decision than real.',
+    params: ['FLEET.coal.minDownH', 'FLEET.ccgt.minDownH', 'FLEET.coal.t1Min', 'FLEET.ccgt.t1Min', 'AUTO_SYNC_S'],
   },
   {
     id: 'directed-shedding', row: 'Automatic directed shedding when the FOS timers run out.', anchorId: 'fos-countdown', game: 'key-shed',
@@ -329,19 +423,24 @@ const ABSTRACTIONS = [
     ours: 'RESTORE is allowed when frequency is at least ' + hz(V.RESTORE_MIN_HZ) + ' Hz, ' + minutes(V.RESTORE_INTERVAL_S) +
       ' grid-minutes have passed since the last restore, spare in ' + num(V.R5_WINDOW_MIN) + ' min (R5) covers the district\'s ' +
       'cold load, and a RESTORE PREVIEW of picking up that cold load ' +
-      '(run on the restore itself) keeps the nadir at or above ' + hz(V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ) + ' Hz.',
+      '(run on the restore itself) keeps the nadir at or above ' + hz(V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ) + ' Hz. The ' +
+      'cold load is the district\'s own load without its rooftop solar: restored inverters wait ' + num(V.ROOF_RECONNECT_S) +
+      ' s and then ramp back over ' + minutes(V.ROOF_RAMP_S) + ' min.',
     why: 'A visible, learnable rule that cannot set off UFLS again: the preview checks the pickup\'s first seconds, and the ' +
       'spare in 5 minutes checks the load can be carried after them.',
-    params: ['RESTORE_MIN_HZ', 'RESTORE_INTERVAL_S', 'R5_WINDOW_MIN', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ'],
+    params: ['RESTORE_MIN_HZ', 'RESTORE_INTERVAL_S', 'R5_WINDOW_MIN', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ', 'ROOF_RECONNECT_S',
+      'ROOF_RAMP_S'],
   },
   {
     id: 'cold-load', row: 'Cold-load pickup ×1.5.', anchorId: 'cold-load', game: 'bay-restore',
-    real: 'Cold-load pickup varies by feeder and weather.',
+    real: 'Cold-load pickup varies by feeder and weather. Under AS/NZS 4777.2 a rooftop inverter reconnects no sooner ' +
+      'than 60 s after the grid is back, and then ramps up over minutes.',
     ours: 'A district dark for more than ' + minutes(V.COLD_LOAD_AFTER_S) + ' grid-minutes comes back at ' +
       num(V.COLD_LOAD_FACTOR) + '× its share of demand; the surge decays over ' + minutes(V.COLD_LOAD_DECAY_S) +
-      ' grid-minutes.',
+      ' grid-minutes. Its rooftop solar waits ' + num(V.ROOF_RECONNECT_S) + ' s and then ramps back over ' +
+      minutes(V.ROOF_RAMP_S) + ' min, so at midday a restore picks up the whole load first.',
     why: 'It teaches "restore no more than you can catch".',
-    params: ['COLD_LOAD_AFTER_S', 'COLD_LOAD_FACTOR', 'COLD_LOAD_DECAY_S'],
+    params: ['COLD_LOAD_AFTER_S', 'COLD_LOAD_FACTOR', 'COLD_LOAD_DECAY_S', 'ROOF_RECONNECT_S', 'ROOF_RAMP_S'],
   },
   {
     id: 'city-levers', row: 'City levers\' MW, costs and patience.', anchorId: 'dr-panel', game: 'btn-dr',
@@ -374,7 +473,8 @@ const ABSTRACTIONS = [
     real: 'Real NEM regions range from Tasmania to New South Wales; ours sits between Victoria and South Australia.',
     ours: 'A classic-day peak of about ' + num(peakMW) + ' MW, ' + num(households / 1e6) + ' million households in ' +
       CLASSIC.city.suburbs.length + ' suburbs, ' + num(V.WIND_MW) + ' MW of wind and ' + num(V.SOLAR_MW) + ' MW of ' +
-      'utility solar. Rooftop PV arrives in Phase 2. The names are fictional.',
+      'utility solar. The game\'s day adds ' + num(roof.capacityMW) + ' MW of rooftop solar; the bench\'s classic day has ' +
+      'none. The names are fictional.',
     why: 'A single-region story.',
     params: ['WIND_MW', 'SOLAR_MW'],
   },

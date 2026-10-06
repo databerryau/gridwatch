@@ -281,8 +281,17 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   assert.ok(h.vm().glow.has('guard-start-ccgt2'), 'and its START guard is lit');
   assert.equal($('objective').className, 'act');
   assert.match($('objective-level').textContent, /ACT NOW/);
-  tap('2'); tap('s'); tap('s');
-  assert.equal(h.game.state.log.filter(r => r.type === 'start' && r.args.unit === 'ccgt2').length, 1, '2, S, S started it');
+  tap('2'); tap('s');
+  // C-10: the guard is lifted, and before the press the line says what it would do
+  frame();
+  assert.equal($('objective-level').textContent, '? IF PRESSED');
+  assert.match($('objective-text').textContent, /^START RIVERTON CCGT 2: at minimum load \(175 MW\) by 0\d:\d\d, 49 min from now, and it must then run 4 h\. It covers the shortfall from 0\d:\d\d\.$/);
+  assert.equal($('objective').className, 'plan consider');
+  tap('s');
+  const log = h.game.state.log, at = log.findIndex(r => r.type === 'start' && r.args.unit === 'ccgt2');
+  assert.equal(log.filter(r => r.type === 'start' && r.args.unit === 'ccgt2').length, 1, '2, S, S started it');
+  // §21.4: the re-dispatch follows in the same call, so the next line is read off a plan that knows about the start
+  assert.deepEqual([log[at + 1].type, log[at + 1].tick], ['planLoad', log[at].tick]);
   for (let i = 0; i < 30; i++) frame();
   assert.doesNotMatch($('objective-text').textContent, /CCGT 2/, 'the line moves on');
   // An alarm tile says what it means when pressed; ACK with nothing flashing says so.

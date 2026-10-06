@@ -10,7 +10,7 @@ import {join, relative} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {V} from '../sim/params.js';
 import {hashState, observe} from '../sim/step.js';
-import {CLASSIC} from '../content/scenarios.js';
+import {CLASSIC, DESK} from '../content/scenarios.js';
 import {makeDocument, installGlobals} from './lib/dom.js';
 import {injectTrip} from './lib/sim-helpers.js';
 import * as G from '../app/game.js';
@@ -18,8 +18,12 @@ import * as W from '../app/watch.js';
 import * as K from '../app/keys.js';
 import * as PF from '../app/perf.js';
 import * as D from '../app/director.js';
-import {bootGame, layoutSizes, createLive, liveFrame, bandOf, LIVE_GAP_MS} from '../app/shell.js';
-import {traceOf} from '../app/record.js';
+import {bootGame, layoutSizes, createLive, liveFrame, bandOf, LIVE_GAP_MS, objectiveWord, CONSIDER_WORD, dayText} from '../app/shell.js';
+import {traceOf, createRecorder, commitMinute, MINUTE_FIELDS, CAUGHT_KEYS} from '../app/record.js';
+import * as SYS from '../app/system.js';
+import * as PVW from '../app/planview.js';
+import {LINE_MAX_CHARS} from '../app/objective.js';
+import {REDISPATCH_AFTER as FOLLOWER_REDISPATCH_AFTER} from './lib/follow.js';
 import {TEXT} from '../content/text.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -483,6 +487,322 @@ test('K-16 model: every number on the card equals the record (and so the trace)'
   for (const id of fb) assert.match(id, /^(guard-start-[a-z]+\d|dial-battery|knob-tie)$/);
 });
 
+// ------------------------------------------------------------------ Phase 2a wave 3 (desk/README.md §21.4): the app's side of the belly
+
+// A potline trip at grid second atS, through the public path (as tests/lib/sim-helpers.js injectTrip does for a unit).
+function injectPotlineTrip(s, atS) {
+  const e = {id: 'probe', atS, type: 'smelterTrip', args: {offS: 3600}, contingency: true, warned: false};
+  let i = s.evNext;
+  while (i < s.ext.events.length && s.ext.events[i].atS <= atS) i++;
+  s.ext.events.splice(i, 0, e);
+}
+
+test('K-15 / K-16, a loss of load: the beats read the rise, the caption and the card name what the inverters caught (both signs)', () => {
+  // captions, <= 15 words, for both signs and with or without the nadir
+  for (const rise of [false, true]) for (const inverterMW of [0, -253, 40]) for (const nadirHz of [0, 50.312]) for (const b of W.BEATS) {
+    const t = W.caption(b, {guardMW: 300, nadirHz, rise, inverterMW});
+    assert.ok(t.length > 0 && t.split(/\s+/).length <= 15, b + ': ' + t);
+  }
+  assert.equal(W.caption('governors', {guardMW: 0, nadirHz: 50.312, rise: true, inverterMW: -253}), 'Solar and wind back off 253 MW; governors close. The rise stops at 50.312 Hz.');
+  assert.equal(W.caption('governors', {guardMW: 0, nadirHz: 0, rise: true, inverterMW: 0}), 'Governors close the valves. The rise slows.');
+  assert.equal(W.caption('governors', {guardMW: 0, nadirHz: 49.41, rise: false, inverterMW: 40}), 'Governors open the valves; solar and wind give back 40 MW. Nadir 49.410 Hz.');
+  assert.equal(W.caption('governors', {guardMW: 0, nadirHz: 49.612}), 'Governors open the valves. The fall stops at 49.612 Hz.', 'without the new keys: the Phase 1 caption');
+  assert.match(W.caption('inertia', {guardMW: 0, rise: true}), /Frequency rises\.$/);
+  assert.match(W.caption('settle', {guardMW: 0, rise: true}), /above 50/);
+  // a real potline trip before sunrise: wind is the inverter plant running, and it backs off
+  const game = G.createGame({seed: 7, scenario: DESK, storage: null});
+  G.takeDesk(game);
+  injectPotlineTrip(game.state, V.PLAYER_START_S + 600);
+  G.runTo(game, V.PLAYER_START_TICK + 600 * TPS + V.WATCH_S * TPS + 5);
+  const c = game.state.conts[0], tr = traceOf(game.rec, c.n);
+  assert.equal(c.cause, 'load');
+  assert.ok(c.lostMW < -200 && c.extremeHz > V.F0_HZ, 'frequency rose: ' + c.extremeHz.toFixed(3));
+  assert.ok(c.caught.inverterMW < -V.EVENT_THRESHOLD_MW, 'the inverters caught ' + c.caught.inverterMW.toFixed(0) + ' MW of ' + c.lostMW.toFixed(0));
+  assert.deepEqual(Object.keys(tr.caught), [...CAUGHT_KEYS]);
+  assert.equal(W.isRise(tr, c), true);
+  assert.equal(W.isRise(tr), true, 'read off the trace alone');
+  const tl = W.beatTimeline(tr, undefined, c), idx = tl.map(b => W.BEATS.indexOf(b.beat));
+  assert.deepEqual(idx, [...idx].sort((a, b) => a - b), tl.map(b => b.beat + '@' + b.k).join(' '));
+  assert.equal(tl[0].beat, 'inertia');
+  assert.ok(tl.some(b => b.beat === 'governors'), 'the droop beat is reached on a rise too: ' + tl.map(b => b.beat).join(' '));
+  assert.equal(tl.at(-1).beat, 'settle');
+  // the watch view at the droop beat names the inverters' MW from the trace
+  const gk = tl.find(b => b.beat === 'governors').k + TPS;
+  const v = W.watchView(W.createWatch(), tr, c, c.startTick + gk, {rate: 0.15, version: 'full', guardMW: 0});
+  assert.equal(v.rise, true);
+  assert.equal(v.beat, 'governors');
+  assert.equal(v.inverterMW, tr.caught.inverterMW[gk]);
+  assert.match(v.caption, /^Solar and wind back off \d+ MW; governors close\./);
+  // the card: PEAK, and every source in the words of the event's sign, with the record's MW
+  const obs = observe(game.state), card = W.respondCard(obs, obs.contingency);
+  assert.match(card.lines[0], /^PEAK 50\.\d{3} Hz: contained within /);
+  assert.ok(card.lines[1].includes('solar and wind backed off ' + Math.round(-c.caught.inverterMW) + ' MW'), card.lines[1]);
+  assert.doesNotMatch(card.lines[1], /-\d/, 'no negative MW on the card: ' + card.lines[1]);
+  assert.equal(card.numbers.caught.inverterMW, c.caught.inverterMW);
+  assert.ok(card.lines.length <= 4);
+  // the other sign (synthetic): inverters that were backed off give it back after a loss of supply
+  const fall = Object.assign({}, obs.contingency, {lostMW: 600, extremeHz: 49.41,
+    caught: {inertiaMW: 0, batteryMW: 100, guardMW: 20, governorsMW: 300, loadReliefMW: 30, uflsMW: 0, inverterMW: 40}});
+  assert.equal(W.respondCard(obs, fall).lines[1], 'Caught by: inertia → battery 120 MW → governors 300 MW → solar and wind gave back 40 MW → load relief 30 MW.');
+  // a record from before Phase 2a (no inverterMW) still makes a card
+  const old = Object.assign({}, fall, {caught: {inertiaMW: 0, batteryMW: 100, guardMW: 20, governorsMW: 300, loadReliefMW: 30, uflsMW: 0}});
+  assert.equal(W.respondCard(obs, old).lines[1], 'Caught by: inertia → battery 120 MW → governors 300 MW → load relief 30 MW.');
+  // app/record.js: the minutes carry the load before rooftop and the rooftop bite
+  assert.deepEqual(MINUTE_FIELDS.slice(-2), ['underlying', 'rooftop']);
+  const rec = createRecorder(), noon = structuredClone(obs);
+  assert.ok(Number.isNaN(rec.minute.underlying[0]) && Number.isNaN(rec.minute.rooftop[0]), 'empty until a minute is committed');
+  Object.assign(noon.demand, {nowMW: 3600, underlyingMW: 6000, rooftopMW: 2400});
+  commitMinute(rec, noon);
+  const k = Math.ceil(noon.tick / (TPS * V.S_PER_MIN)) - 1;
+  assert.deepEqual([rec.minute.demand[k], rec.minute.underlying[k], rec.minute.rooftop[k]], [3600, 6000, 2400]);
+  delete noon.demand.underlyingMW; delete noon.demand.rooftopMW;
+  commitMinute(rec, noon);
+  assert.deepEqual([rec.minute.underlying[k], rec.minute.rooftop[k]], [3600, 0], 'an observation from before Phase 2a: all of it underlying');
+});
+
+test('Q-18 / K-22: the word beside the objective is by level, and by kind where the level\'s word would mislead (a STOP or BATTERY line never reads SHORT)', () => {
+  assert.equal(objectiveWord({kind: 'quiet', level: 'ok'}), '✓ STEADY');
+  assert.equal(objectiveWord({kind: 'commit', level: 'plan'}), '◷ PLAN');
+  assert.equal(objectiveWord({kind: 'commit', level: 'act'}), '▶ ACT NOW');
+  assert.equal(objectiveWord({kind: 'commit', level: 'crit'}), '‼ SHORT');
+  assert.equal(objectiveWord({kind: 'short', level: 'crit'}), '‼ SHORT');
+  assert.equal(objectiveWord({kind: 'held', level: 'crit'}), '‼ SHORT');
+  assert.equal(objectiveWord({kind: 'stop', level: 'plan'}), '◇ SAVING');
+  assert.equal(objectiveWord({kind: 'battery', level: 'plan'}), '◇ BATTERY');
+  assert.equal(objectiveWord({kind: 'spare', level: 'plan'}), '◷ SPARE');
+  assert.equal(objectiveWord({kind: 'restore', level: 'plan'}), '◷ DARK');
+  assert.equal(objectiveWord({kind: 'watch', level: 'act'}), '◉ WATCH');
+  for (const kind of ['stop', 'battery', 'spare', 'restore', 'watch']) for (const level of ['ok', 'plan', 'act', 'crit']) {
+    const w = objectiveWord({kind, level});
+    assert.ok(w.length > 2 && !/SHORT/.test(w), kind + ' ' + level + ': ' + w);
+    assert.match(w, /^\S [A-Z ]+$/, 'a glyph and a word, never colour alone: ' + w);
+  }
+  assert.equal(objectiveWord(null), '');
+  assert.equal(CONSIDER_WORD, '? IF PRESSED');
+});
+
+test('C-10 via the shell: while a guard is under the player\'s hand the line says what the press would do, as "? IF PRESSED" with its level\'s class', () => {
+  const {$, h, frames} = boot('?seed=7', {system: SYS, planview: PVW, scenario: DESK, commit: 'player', startPaused: true});
+  $('btn-take').click();
+  frames(2);
+  assert.equal(h.vm().mode.mode, 'PAUSE');
+  assert.equal($('objective').hidden, false);
+  const o = h.vm().objective;
+  assert.equal($('objective-level').textContent, objectiveWord(o));
+  assert.equal($('objective').className, o.level);
+  assert.equal(h.vm().consider, null);
+  // STOP on a coal machine at 04:30: the line says what it would cost, before the press
+  assert.equal(h.actions.ui({do: 'consider', target: 'guard-stop-coal1'}), '');
+  frames(1);
+  const c = h.vm().consider;
+  assert.deepEqual(Object.keys(c), ['target', 'text', 'level']);
+  assert.equal(c.target, 'guard-stop-coal1');
+  assert.match(c.text, /^STOP MT HAZEL COAL 1: off the grid in \d h \d\d, and not back at minimum load before \d\d:\d\d\./);
+  assert.equal(c.level, 'crit');
+  assert.equal($('objective-level').textContent, CONSIDER_WORD);
+  assert.equal($('objective-text').textContent, c.text);
+  assert.equal($('objective').className, 'crit consider');
+  assert.equal(h.vm().objective.text, o.text, 'the objective itself is unchanged underneath');
+  // START on the CCGT: a plan-level line
+  h.actions.ui({do: 'consider', target: 'guard-start-ccgt2'});
+  frames(1);
+  assert.match($('objective-text').textContent, /^START RIVERTON CCGT 2: at minimum load \(175 MW\) by 05:19, 49 min from now, and it must then run 4 h\. /);
+  assert.equal($('objective').className, 'plan consider');
+  // a press that does nothing says so; a target that is not a guard, or none, gives the objective back
+  h.actions.ui({do: 'consider', target: 'guard-start-coal1'});
+  frames(1);
+  assert.equal($('objective-text').textContent, 'START MT HAZEL COAL 1 does nothing: the unit is on.');
+  for (const target of ['dial-battery', null]) {
+    h.actions.ui({do: 'consider', target: 'guard-stop-coal1'});
+    frames(1);
+    assert.equal($('objective-level').textContent, CONSIDER_WORD);
+    h.actions.ui({do: 'consider', target});
+    frames(1);
+    assert.equal(h.vm().consider, null);
+    assert.equal($('objective-level').textContent, objectiveWord(h.vm().objective));
+    assert.equal($('objective').className, h.vm().objective.level);
+  }
+  // with the system's commitment (not the player's) there is no line and no consequence
+  const sysGame = boot('?seed=7', {system: SYS, planview: PVW, scenario: DESK});
+  sysGame.$('btn-take').click();
+  sysGame.frames(2);
+  sysGame.h.actions.ui({do: 'consider', target: 'guard-stop-coal1'});
+  sysGame.frames(1);
+  assert.equal(sysGame.h.vm().consider, null);
+  assert.equal(sysGame.$('objective').hidden, true);
+});
+
+test('§21.4: in player mode an accepted start, stop, abortStop, battery or guard input is followed by the system\'s re-dispatch in the same call', () => {
+  assert.deepEqual([...G.REDISPATCH_AFTER].sort(), [...FOLLOWER_REDISPATCH_AFTER].sort(), 'the game and the test player (tests/lib/follow.js) in step');
+  assert.deepEqual([...G.REDISPATCH_AFTER].sort(), ['abortStop', 'battery', 'guard', 'start', 'stop']);
+  const {$, h, system, frames} = boot('?seed=7', {commit: 'player'});
+  $('btn-take').click();
+  frames(3);
+  const log = h.game.state.log;
+  let n = system.log.redispatch;
+  assert.equal(h.actions.input({type: 'guard', mw: 200}), '');
+  assert.equal(system.log.redispatch, n + 1, 'a guard input re-dispatches');
+  assert.deepEqual(log.slice(-2).map(r => r.type), ['guard', 'tie'], 'the system\'s input is logged right behind it (the stand-in\'s planLoad)');
+  assert.equal(log.at(-1).tick, log.at(-2).tick, 'in the same call');
+  n = system.log.redispatch;
+  assert.equal(h.actions.input({type: 'battery', mode: 'charge', mw: 100}), '');
+  assert.equal(h.actions.input({type: 'start', unit: 'gta1'}), '');
+  assert.equal(system.log.redispatch, n + 2);
+  // not after an input that commits nothing; not after a refused one
+  n = system.log.redispatch;
+  assert.equal(h.actions.input({type: 'tie', mw: 150}), '');
+  assert.notEqual(h.actions.input({type: 'start', unit: 'coal1'}), '', 'refused: the unit is on');
+  assert.equal(system.log.redispatch, n);
+  // not while the levers are held by hand: the plan is the player's until RE-DISPATCH
+  h.game.sys.edited = true;
+  assert.equal(h.actions.input({type: 'guard', mw: 300}), '');
+  assert.equal(system.log.redispatch, n);
+  // and never when the commitment is the system's
+  const b = boot('?seed=7');
+  b.$('btn-take').click();
+  b.frames(3);
+  const n2 = b.system.log.redispatch;
+  assert.equal(b.h.actions.input({type: 'guard', mw: 200}), '');
+  assert.equal(b.system.log.redispatch, n2);
+});
+
+// A player-mode game with the real system operator at 04:32:10 and a half: the system looked at
+// 04:32:00 and looks again at 04:33:00 (an input made now is not seen by it for half a minute).
+function playerGame(o = {}) {
+  const game = G.createGame(Object.assign({seed: 7, scenario: DESK, system: SYS, planview: PVW, commit: 'player', storage: null}, o));
+  G.takeDesk(game, {agc: true});
+  G.runTo(game, V.PLAYER_START_TICK + 130 * TPS + 25);
+  return game;
+}
+
+test('Q-18 / §21.4: a lever or plan key moved by hand holds the plan at once: a START or a battery order right after it re-dispatches nothing (the real system)', () => {
+  const game = playerGame(), st = game.state, j = V.STATION_IDS.indexOf('coal');
+  const keys = () => st.plan.stations[j].keys;
+  // the coal lever by hand, then a START in the same tick
+  const mw = st.stations[j].basePointMW + 120;
+  let n = st.log.length;
+  assert.equal(G.sendInput(game, {type: 'basePoint', station: 'coal', mw}), '');
+  const hand = keys().find(k => k.mw === mw);
+  assert.ok(hand, 'the hand value is in the plan');
+  assert.equal(G.sendInput(game, {type: 'start', unit: 'ccgt2'}), '');
+  assert.deepEqual(st.log.slice(n).map(r => r.type), ['basePoint', 'start'], 'no planLoad over the lever');
+  assert.equal(game.sys.edited, true);
+  assert.equal(st.stations[j].basePointMW, mw);
+  assert.ok(keys().some(k => k.atS === hand.atS && k.mw === mw), 'the hand key is still in state.plan');
+  // RE-DISPATCH hands the levers back; then a plan key by hand and a battery order in the same tick
+  assert.equal(G.redispatch(game), '');
+  assert.equal(game.sys.edited, false);
+  const atS = Math.floor(st.tick / TPS) + 3 * V.S_PER_H;
+  n = st.log.length;
+  assert.equal(G.sendInput(game, {type: 'planKey', station: 'coal', atS, mw: 1500}), '');
+  assert.equal(G.sendInput(game, {type: 'battery', mode: 'charge', mw: 100}), '');
+  assert.deepEqual(st.log.slice(n).map(r => r.type), ['planKey', 'battery']);
+  assert.equal(game.sys.edited, true);
+  assert.deepEqual(keys().filter(k => k.atS === atS), [{atS, mw: 1500}], 'the hand key is still in state.plan');
+  // the objective's 'held' line at once, not at the system's next look: the coal lever pulled down
+  assert.equal(G.redispatch(game), '');
+  assert.equal(G.sendInput(game, {type: 'basePoint', station: 'coal', mw: 1000}), '');
+  const o = G.buildVm(game, {nowMs: 0, dtS: 0}).objective;
+  assert.equal(o.kind, 'held', o.text);
+  assert.deepEqual(o.action, {redispatch: true});
+});
+
+test('the line\'s errors are kept, not swallowed: an exception in the objective or the consequence blanks only that line and is in vm.objectiveError (the ?debug handle shows it)', () => {
+  const boom = Object.assign({}, PVW, {project: () => { throw new Error('boom'); }});
+  const game = playerGame({planview: boom});
+  let vm = G.buildVm(game, {nowMs: 0, dtS: 0});
+  assert.equal(vm.objective, null);
+  assert.equal(vm.objectiveError, 'objective: boom');
+  assert.equal(game.objectiveError, 'objective: boom');
+  // the next line clears it
+  game.planview = PVW;
+  G.runTo(game, game.state.tick + G.OBJECTIVE_EVERY_S * TPS);
+  vm = G.buildVm(game, {nowMs: 16, dtS: 0});
+  assert.equal(typeof vm.objective.text, 'string');
+  assert.equal(vm.objectiveError, '');
+  // a consequence that throws (a broken day-ahead forecast): no '? IF PRESSED', and why
+  game.dayAhead = {n: 3, fromS: Math.floor(game.state.tick / TPS), stepS: V.FC_STEP_S};
+  assert.equal(G.ui(game, {do: 'consider', target: 'guard-start-gta1'}), '');
+  vm = G.buildVm(game, {nowMs: 32, dtS: 0});
+  assert.equal(vm.consider, null);
+  assert.match(vm.objectiveError, /^consequence: /);
+  assert.equal(typeof vm.objective.text, 'string', 'the objective line itself stands');
+});
+
+test('F-11: one projection and one day-ahead forecast per line; a new consider target recomputes only the consequence', () => {
+  let projects = 0;
+  const spy = Object.assign({}, PVW, {project: (...a) => { projects++; return PVW.project(...a); }});
+  const game = playerGame({planview: spy});
+  G.buildVm(game, {nowMs: 0, dtS: 0});
+  assert.equal(projects, 1, 'one projection for the line (ctx.proj)');
+  assert.deepEqual(game.dayAhead, observe(game.state, {dayAhead: true}).dayAhead, 'the forecast observe(state, {dayAhead: true}) would build, without a second observe()');
+  const held = game.objectiveHeld;
+  assert.equal(G.ui(game, {do: 'consider', target: 'guard-stop-coal1'}), '');
+  const vm = G.buildVm(game, {nowMs: 16, dtS: 0});
+  assert.match(vm.consider.text, /^STOP MT HAZEL COAL 1: off the grid in /);
+  assert.equal(projects, 1, 'a new target: no new projection and no new line');
+  assert.equal(game.objectiveHeld, held);
+  // the line's own cadence still runs, and an accepted input still refreshes both at once
+  G.runTo(game, game.state.tick + G.OBJECTIVE_EVERY_S * TPS);
+  G.buildVm(game, {nowMs: 32, dtS: 0});
+  assert.equal(projects, 2);
+  assert.equal(G.sendInput(game, {type: 'guard', mw: 100}), '');
+  assert.ok(G.buildVm(game, {nowMs: 48, dtS: 0}).consider);
+  assert.equal(projects, 3);
+});
+
+test('C-2 at boot: a seed that reads as a Saturday or Sunday plays desk-weekend; the briefing says the day\'s type and weekday or weekend', () => {
+  assert.equal(G.scenarioForSeed(20261002).id, 'desk', 'a Friday');
+  assert.equal(G.scenarioForSeed(20261003).id, 'desk-weekend', 'a Saturday');
+  assert.equal(G.scenarioForSeed(20261004).id, 'desk-weekend', 'a Sunday');
+  assert.equal(G.scenarioForSeed(7).id, 'desk', 'not a date');
+  assert.equal(G.scenarioForSeed(20261332).id, 'desk', 'not a valid date');
+  assert.match(readFileSync(join(ROOT, 'app/boot.js'), 'utf8'), /scenario: scenarioForSeed/, 'the real page passes the function');
+  // dayText: plain words from the public obs.day only
+  assert.equal(dayText({temp: 'HOT', weekend: false}), 'Today: a hot weekday. A heatwave warning, if one comes, comes mid-morning.');
+  assert.equal(dayText({temp: 'MILD', weekend: false}), 'Today: a mild weekday. Rooftop solar will cut the demand your plant must meet around midday; the evening still climbs.');
+  assert.match(dayText({temp: 'MILD', weekend: true}), /^Today: a mild weekend\. .* one coal unit has been off since Friday night\.$/);
+  assert.match(dayText({temp: 'HOT', weekend: true}), /^Today: a hot weekend\. A heatwave warning, if one comes, comes mid-morning\. /);
+  assert.equal(dayText(undefined), '');
+  // a Sunday seed through the shell
+  const w = boot('?seed=20261004', {scenario: G.scenarioForSeed});
+  w.frames(2);
+  assert.equal(w.h.game.scenario.id, 'desk-weekend');
+  assert.deepEqual(w.h.game.state.day, {temp: 'MILD', weekend: true});
+  assert.equal(w.h.game.state.units.find(u => u.id === 'coal4').mode, 'off', 'coal 4 off since Friday night');
+  assert.equal(w.$('briefing-day').textContent, dayText({temp: 'MILD', weekend: true}));
+  // a weekday seed, and a hot one
+  const d = boot('?seed=7', {scenario: G.scenarioForSeed});
+  d.frames(2);
+  assert.equal(d.h.game.scenario.id, 'desk');
+  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday. A heatwave warning, if one comes, comes mid-morning.');
+  // PLAY AGAIN asks the function again (the same seed: the same scenario)
+  G.resetDay(w.h.game);
+  assert.equal(w.h.game.scenario.id, 'desk-weekend');
+});
+
+test('the game shows the line through steady(): a line the player has not acted on is kept as it was said, not re-worded every half minute', () => {
+  const {$, h, frames, key} = boot('?seed=7', {system: SYS, planview: PVW, scenario: DESK, commit: 'player'});
+  $('btn-take').click();
+  frames(2);
+  const game = h.game;
+  // run a quarter of an hour of the morning, reading the vm as the shell does
+  const seen = [];
+  for (let i = 0; i < 400; i++) {
+    frames(1, 1 / 30);
+    const o = h.vm().objective;
+    if (o && (!seen.length || seen.at(-1).text !== o.text)) seen.push({s: game.state.env.s, text: o.text, action: o.action, level: o.level});
+  }
+  assert.ok(game.objectiveHeld && game.objectiveHeld.line === game.objective, 'vm.objective is the held line');
+  const mins = Math.round((game.state.env.s - V.PLAYER_START_S) / 60);
+  assert.ok(mins >= 20, mins + ' grid-min played');
+  assert.ok(seen.length >= 1 && seen.length <= 2 + Math.ceil(mins / 15) * 2, 'a calm line: ' + seen.length + ' texts in ' + mins + ' grid-min:\n' + seen.map(x => x.text).join('\n'));
+  for (const x of seen) assert.ok(x.text.length <= LINE_MAX_CHARS);
+  // the GUARD line stood with its first figure while the preview's hundredths moved under it
+  assert.match(seen[0].text, /^If your biggest unit tripped now, frequency would fall to 49\.\d\d Hz: too low to be secure\. Raise the battery GUARD to \d+ MW/);
+  assert.deepEqual(h.vm().objective.action, game.objectiveHeld.line.action);
+});
+
 test('render/format: the header\'s chips and the rate badge (mode and rate always shown, F-5)', async () => {
   const F = await import('../render/format.js');
   assert.equal(F.lightsText({servedMWh: 1000, lightsMWh: 0}), '100%');
@@ -542,6 +862,18 @@ test('F-11 budget: frame p95 <= 8 ms, sim p95 <= 1 ms up to 150x and <= 3 ms abo
   const p = PF.createPerf();
   PF.perfFrame(p, {frameMs: 1, simMs: 0.1, ticks: 0, draw: {}});
   assert.equal(PF.perfStats(p).budget.simMs, 1);
+});
+
+test('F-11 headless (tools/perf.mjs): the sim and view-model cost are measured on the day as the page plays it', async () => {
+  const {simCost} = await import('../tools/perf.mjs');
+  // a Sunday seed: the page's scenario for it, the player's commitment (so the objective runs), its line followed
+  const r = await simCost(20261004, 120, 3);
+  assert.equal(r.scenario, 'desk-weekend');
+  assert.equal(r.commit, 'player');
+  assert.equal(r.frames, 3);
+  assert.ok(r.actions >= 1, 'the line\'s first action (the GUARD at 04:30) was followed');
+  for (const k of ['simP50', 'simP95', 'vmP50', 'vmP95']) assert.ok(Number.isFinite(r[k]) && r[k] >= 0, k);
+  assert.match(readFileSync(join(ROOT, 'app/boot.js'), 'utf8'), /scenario: scenarioForSeed, commit: 'player'/, 'the configuration app/boot.js boots');
 });
 
 test('F-11: the ?perf overlay shows the budget marks; ?debug exposes the boot handle as globalThis.gridwatch, and only then', () => {

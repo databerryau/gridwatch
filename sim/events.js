@@ -3,6 +3,8 @@
 // Stage A (implemented, frozen): prerollEvents() turns the scenario's event menu into a
 // time-sorted list of ext events at createState. Nothing here ever depends on play.
 // Stage B owner "market + events": applyDue(), which applies the events whose time has come.
+// Phase 2a owner "world" (desk/README.md §21.1): mslSecond(), the P-4 Minimum System Load
+// notices (C-9), from the forecast step() passes in.
 //
 // Event record (state.ext.events[i], plain JSON):
 //   {id: 'e7', atS: 41520, type: 'unitTrip', args: {...}, contingency: true, warned: false}
@@ -198,10 +200,14 @@ const SMELTER_MW = V.SMELTER_MW, RETURN_MW_S = V.SMELTER_RETURN_MW_MIN / S_PER_M
 // no failure-mode model, so the cause says only what happened.
 const TRIP_CAUSE = 'protection trip';
 
+// roofMsg (Phase 2a): the wording on a scenario with rooftop PV, where the sun leaving the roofs
+// is most of the evening climb in demand on the grid (P-1).
 const NOTICE = {
   MORNING_RAMP: {sev: 'info', msg: 'Morning ramp beginning: demand climbs steeply until mid-morning as the city wakes.'},
   DUCK: {sev: 'warn', msg: 'DUCK CURVE: utility solar is fading into the evening peak and net demand is climbing fast. ' +
-    'Commit plant now if the plan is short.'},
+    'Commit plant now if the plan is short.',
+    roofMsg: 'DUCK CURVE: the sun is leaving the rooftops and the solar farm as the evening peak builds, and demand on the grid ' +
+    'is climbing fast. Commit plant now if the plan is short.'},
   TROUGH: {sev: 'info', msg: 'Demand falling toward the overnight trough. Mind thermal minimum-load limits.'},
 };
 
@@ -276,7 +282,7 @@ function applyEvent(state, e, out) {
   switch (e.type) {
     case 'notice': {
       const n = Object.hasOwn(NOTICE, a.code) ? NOTICE[a.code] : {sev: 'info', msg: 'Notice: ' + a.code};
-      log(out, tick, n.sev, a.code, n.msg);
+      log(out, tick, n.sev, a.code, n.roofMsg && scn.rooftop.capacityMW > 0 ? n.roofMsg : n.msg);
       return;
     }
     case 'heatAnnounce':
@@ -343,4 +349,76 @@ function applyEvent(state, e, out) {
     default:
       return;
   }
+}
+
+// ------------------------------------------------------------------ MSL notices (P-4; Phase 2a, desk/README.md C-9)
+
+const MSL_MW = [V.MSL1_MW, V.MSL2_MW, V.MSL3_MW]; // level 1, 2, 3: descending
+const MSL_SEV = ['good', 'info', 'warn', 'crit']; // by the level reached (0 = the clear)
+const MSL_SAYS = ['.', ': two load trips above the security floor.', ': one load trip above the security floor.',
+  ': the security floor.']; // how each message ends, by the level reached
+
+/** Whole MW as text with a thousands comma (1540 -> '1,540'); no locale (README §2 rule 1). */
+const mwText = mw => String(Math.round(mw) + 0).replace(/\B(?=(\d{3})+$)/g, ',');
+
+/**
+ * P-4 Minimum System Load notices (desk/README.md C-9, §19.3, §21.1). step() calls this right
+ * after weather.sampleSecond on every MSL_CHECK_S-th grid second with the forecast for that
+ * second, fc = weather.forecast(state, FC_HORIZON_S, FC_STEP_S), so events.js imports nothing new.
+ *
+ * The tested quantity is the minimum forecast operational demand: the least of demand now
+ * (env.demandMW) and fc.demandP50 over the 4.5-h window. A level is REACHED when it is at or
+ * below that level's threshold (MSL1_MW / MSL2_MW / MSL3_MW, each raised by MSL_TIE_OUT_MW
+ * for the hours the tie is out: no export sink) and LEFT only once it is more than MSL_CLEAR_MW
+ * above it (hysteresis: a notice does not chatter, K-8). The rise is per column (the wave-1
+ * merge's decision): the present counts as out while the tie is tripped, a forecast column
+ * only if it falls before the tie's public return (env.s + tie.lockoutS), so a morning outage
+ * that ends at 09:45 raises no notice about 12:40. The column tested is the one closest to its
+ * own threshold; with the tie in that is simply the minimum. msl.minMW and msl.atS (the demand
+ * and the grid second of that column; now when the present is it) are refreshed at every check; msl.level
+ * and msl.sinceS (the grid second of the last change of level) move only on a change, and every
+ * change pushes one record {tick, kind: 'log', sev, code, msg, level, minMW, atS}: code
+ * 'MSL' + level or 'MSL_CLEAR' at 0, sev info / warn / crit for levels 1 / 2 / 3 and good for
+ * the clear, minMW rounded to 1 MW, msg complete on its own in at most 25 words ("lowest
+ * forecast demand X MW at HH:MM", or "demand is at its lowest now, X MW" when the minimum is
+ * the present second: a measured value is never called a forecast). Never a news item (news is
+ * weather). On a scenario with no rooftop it returns at once: state.msl keeps its createState
+ * value. Late in the day the window runs past the end of the sim day, as the forecast's columns
+ * do, so msl.atS may be up to FC_HORIZON_S past DAY_S (tomorrow morning on the same day type).
+ * Reads: scn.rooftop.capacityMW, scn.clock, env.{s, demandMW}, tie.{tripped, lockoutS}, msl, tick, fc.
+ * Writes: msl.*.
+ * @param {object} state
+ * @param {{fromS:number, stepS:number, n:number, demandP50:number[]}} fc
+ * @param {Array<object>} out event records (sim/README.md "Event records")
+ */
+export function mslSecond(state, fc, out) {
+  if (!(state.scn.rooftop.capacityMW > 0)) return;
+  const env = state.env, msl = state.msl;
+  const tie = state.tie, backS = tie.tripped ? env.s + tie.lockoutS : -1; // the tie's public return
+  let minMW = env.demandMW, atS = env.s, lift = tie.tripped ? V.MSL_TIE_OUT_MW : 0;
+  for (let k = 0; k < fc.n; k++) {
+    const t = fc.fromS + (k + 1) * fc.stepS, up = t <= backS ? V.MSL_TIE_OUT_MW : 0;
+    if (fc.demandP50[k] - up < minMW - lift) { minMW = fc.demandP50[k]; atS = t; lift = up; }
+  }
+  let level = 0;
+  for (let i = 0; i < MSL_MW.length; i++) {
+    const at = MSL_MW[i] + lift;
+    if (minMW <= at || (i < msl.level && minMW <= at + V.MSL_CLEAR_MW)) level = i + 1;
+  }
+  msl.minMW = minMW + 0;
+  msl.atS = atS;
+  if (level === msl.level) return;
+  msl.level = level;
+  msl.sinceS = env.s;
+  // The message names the level's own threshold as it stands (a level held by the hysteresis is
+  // up to MSL_CLEAR_MW above it), so it is true on a rise, on a fall and on the clear. When the
+  // minimum is the present second (a potline trip; a clear with demand rising) it is a measured
+  // value, not a forecast, and the message says so.
+  const name = 'MSL' + Math.max(1, level);
+  const low = atS === env.s ? 'demand is at its lowest now, ' + mwText(minMW) + ' MW' :
+    'lowest forecast demand ' + mwText(minMW) + ' MW at ' + hhmm(state.scn, atS);
+  const msg = (level === 0 ? 'MSL notice cancelled' : name + ' notice') + ': ' + low + '. ' + name + ' is ' +
+    mwText(MSL_MW[Math.max(1, level) - 1] + lift) + ' MW' + (lift > 0 ? ' (tie out)' : '') + MSL_SAYS[level];
+  out.push({tick: state.tick, kind: 'log', sev: MSL_SEV[level], code: level === 0 ? 'MSL_CLEAR' : 'MSL' + level, msg,
+    level, minMW: Math.round(minMW) + 0, atS});
 }

@@ -2,6 +2,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {hash32, uniform, normal, pick, pickWith, quantise, streamId, STREAM} from '../sim/rng.js';
+import {prerollRegime} from '../sim/weather.js';
+import {createState} from '../sim/step.js';
+import {DESK} from '../content/scenarios.js';
 
 const N = 50000;
 
@@ -89,4 +92,60 @@ test('pick and quantise', () => {
   assert.equal(quantise(1.24, 0.5), 1);
   assert.equal(quantise(1.26, 0.5), 1.5);
   assert.ok(Object.is(quantise(-0.2, 1), 0), 'quantise never returns -0 (JSON would lose the sign)');
+});
+
+// ------------------------------------------------------------------ Phase 2a "world" (desk/README.md C-2, C-5)
+// The belly draws on two streams that already existed: a second counter of EXT_REGIME for the
+// day type, and EXT_ROOFTOP for the rooftop skies. No stream was added (the frozen list above).
+
+test('F-3 (Phase 2a): the day type is a second draw on EXT_REGIME (a = 1), independent of the weather class draw (a = 0); frozen', () => {
+  const r = corr(series(i => uniform(i + 1, STREAM.EXT_REGIME, 0)), series(i => uniform(i + 1, STREAM.EXT_REGIME, 1)));
+  assert.ok(Math.abs(r) < 0.03, 'class against day type over seeds: r = ' + r.toFixed(4));
+  assert.equal(uniform(7, STREAM.EXT_REGIME, 1), 0.7705025149043649);
+  // The seeds the tests and the Q-18 play pin (desk/README.md §21.4): changing the draw changes every daily.
+  const scn = JSON.parse(JSON.stringify(DESK));
+  const temps = {1: 'MILD', 2: 'HOT', 3: 'HOT', 4: 'HEATWAVE', 5: 'MILD', 7: 'HOT', 8: 'MILD', 9: 'MILD', 11: 'HOT', 13: 'MILD',
+    20260930: 'HOT', 20261001: 'MILD', 20261003: 'HOT', 20261004: 'MILD'};
+  for (const [seed, temp] of Object.entries(temps)) assert.equal(prerollRegime(Number(seed), scn).temp, temp, 'seed ' + seed);
+  // MILD iff the draw is under mildShare / (1 - heatShare), on a day that is not a heatwave.
+  for (let seed = 1; seed <= 500; seed++) {
+    const g = prerollRegime(seed, scn), mild = uniform(seed, STREAM.EXT_REGIME, 1) < scn.weather.mildShare / (1 - scn.weather.heatShare);
+    assert.equal(g.temp, g.cls === 'heat' ? 'HEATWAVE' : mild ? 'MILD' : 'HOT', 'seed ' + seed);
+  }
+});
+
+test('F-3 (Phase 2a): the rooftop skies are EXT_ROOFTOP draws only: a = the 5-min sample, b = the suburb, b = 6 the shared sky; lanes independent; frozen', () => {
+  assert.equal(normal(7, STREAM.EXT_ROOFTOP, 3, 6), -0.7425813628360629);
+  assert.equal(normal(7, STREAM.EXT_ROOFTOP, 3, 0), -2.110627892659977);
+  assert.deepEqual(createState(7, DESK).ext.rooftop.clearPm.map(row => row.slice(0, 4)),
+    [[950, 935, 927, 877], [950, 947, 953, 965], [950, 967, 960, 965], [950, 953, 970, 976], [950, 926, 963, 964], [950, 933, 970, 961]]);
+  const sky = series(i => normal(5, STREAM.EXT_ROOFTOP, i, 6));
+  for (let b = 0; b < 6; b++) {
+    const r = corr(sky, series(i => normal(5, STREAM.EXT_ROOFTOP, i, b)));
+    assert.ok(Math.abs(r) < 0.03, 'the shared sky against suburb ' + b + ': r = ' + r.toFixed(4));
+  }
+  assert.ok(Math.abs(corr(series(i => normal(5, STREAM.EXT_ROOFTOP, i, 0)), series(i => normal(5, STREAM.EXT_ROOFTOP, i, 1)))) < 0.03);
+  // The pre-roll, rebuilt from the stream (desk/README.md C-5): a calm day and a heatwave (seed 4:
+  // its clear skies lift the shared sky's mean to at least 0.98 from the 13:30 onset).
+  for (const seed of [1, 4]) {
+    const s = createState(seed, DESK), c = s.scn.rooftop.cloud, n = s.scn.city.suburbs.length, len = 86400 / c.stepS + 1;
+    const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+    const shared = [c.startFrac];
+    for (let k = 1, x = c.startFrac, mu = c.mu; k < len; k++) {
+      if (s.ext.heat && s.ext.heat.onsetS <= k * c.stepS) mu = Math.max(mu, s.scn.events.heat.clearMu);
+      x = clamp(x + (mu - x) * c.regional.revertPerStep + c.regional.sigmaPerStep * normal(seed, STREAM.EXT_ROOFTOP, k, n), c.min, c.max);
+      shared.push(x);
+    }
+    const want = [];
+    for (let j = 0; j < n; j++) {
+      const row = [quantise(clamp(shared[0], c.min, c.max) * 1000, 1)];
+      for (let k = 1, x = 0; k < len; k++) {
+        x = x * (1 - c.local.revertPerStep) + c.local.sigmaPerStep * normal(seed, STREAM.EXT_ROOFTOP, k, j);
+        row.push(quantise(clamp(shared[k] + x, c.min, c.max) * 1000, 1));
+      }
+      want.push(row);
+    }
+    assert.equal(s.ext.heat !== null, seed === 4);
+    assert.deepEqual(s.ext.rooftop, {stepS: c.stepS, clearPm: want}, 'seed ' + seed);
+  }
 });

@@ -88,6 +88,7 @@
 .dk-seg-batt { background: repeating-linear-gradient(135deg, var(--dk-violet) 0 3px, #a371f788 3px 6px); }
 .dk-seg-gov { background: repeating-linear-gradient(135deg, var(--dk-green) 0 3px, #3fb95088 3px 6px); }
 .dk-seg-relief { background: repeating-linear-gradient(135deg, var(--dk-dim) 0 3px, #8b949e88 3px 6px); }
+.dk-seg-inv { background: repeating-linear-gradient(90deg, #f1d35c 0 2px, #f1d35c88 2px 4px); }   /* inverters backing off (C-7): upright bars, the sun's yellow, the letter V */
 .dk-imb-shed { color: var(--dk-red); font-weight: 700; } .dk-unmet { color: var(--dk-amber); }
 .dk-imb-shed[hidden], .dk-unmet[hidden] { display: none; }
 .dk-gauge { flex: 100 1 0; display: flex; flex-direction: column; gap: 2px; }

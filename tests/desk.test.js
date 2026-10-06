@@ -3,6 +3,10 @@
 // K-23 (every control by keyboard alone, roles and value text). Built in
 // the stand-in DOM (tests/lib/dom.js) from real par days (tests/lib/vm-fixture.js); inputs are
 // recorded by a mock `actions`, never applied, so every check is about what the desk SENDS.
+// Phase 2a (desk/README.md §19.5, §21.5, §25), on a real mild weekend noon of the game's scenario
+// (tests/lib/follow.js): guards that light and say which one is being considered (C-10), the
+// K-11 bar's inverter segment and its SHED mark on unserved load, the cold load read from
+// obs.districts[], DIRECT SHED naming the district the sim sheds (M-2).
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,14 +14,16 @@ import {readFileSync} from 'node:fs';
 import {makeDocument} from './lib/dom.js';
 import {dayVm, baseVm} from './lib/vm-fixture.js';
 import {V} from '../sim/params.js';
-import {createDesk, roughSyncUnit, DESK_IDS, DESK_KEYS, SLOT_IDS, LAYOUT} from '../desk/desk.js';
+import {createDesk, makeConsider, roughSyncUnit, DESK_IDS, DESK_KEYS, SLOT_IDS, LAYOUT, CONSIDER_HOLD_MS, PRESS_FOCUS_MS} from '../desk/desk.js';
 import * as C from '../desk/calc.js';
-import {clockOf, unitLabel, feelOf, slowAttr, MODE_GLYPH, CLASS_GLYPH, PAN} from '../desk/util.js';
-import {needleHz, dialAngle, barLayout} from '../desk/dial.js';
+import {clockOf, unitLabel, feelOf, slowAttr, makeGuards, MODE_GLYPH, CLASS_GLYPH, PAN, GUARD_MS} from '../desk/util.js';
+import {needleHz, dialAngle, barLayout, barScale, shedMarkMW} from '../desk/dial.js';
+import {shedText} from '../desk/emergency.js';
 import {caughtText} from '../desk/gauge.js';
-import {createState, step, observe} from '../sim/step.js';
+import {createState, step, observe, applyInput} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
-import {CLASSIC} from '../content/scenarios.js';
+import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
+import {followDay} from './lib/follow.js';
 import * as fleet from '../sim/fleet.js';
 
 const TPS = V.TICKS_PER_S;
@@ -166,6 +172,15 @@ test('K-11: the imbalance segments sum to the swing-equation imbalance within 1 
   // In the watch the gap is big and the borrowed stack is doing the work.
   const w = C.imbalanceSegments(TRIP.obs.balance);
   assert.ok(w.schedMW < -300, 'the trip opened a scheduled gap: ' + w.schedMW);
+  // Phase 2a (C-7): the inverters' back-off is a segment of its own, never above zero
+  assert.deepEqual(barLayout(w).segs.map(x => x.letter), ['GAP', 'I', 'B', 'G', 'R', 'V']);
+  for (const o of all) assert.equal(C.imbalanceSegments(o.balance).inverterMW, 0 - (o.balance.renPfrMW + o.balance.roofPfrMW));
+  // a view from before Phase 2a (no renPfrMW / roofPfrMW): the segment is zero and nothing is NaN
+  const old = clone(TRIP.obs.balance);
+  delete old.renPfrMW; delete old.roofPfrMW;
+  const os = C.imbalanceSegments(old);
+  assert.equal(os.inverterMW, 0);
+  assert.ok(barLayout(os).segs.every(x => Number.isFinite(x.left) && Number.isFinite(x.width)));
 });
 
 test('K-12 scope angle interpolation and zones; K-13 cold load matches the sim', () => {
@@ -185,9 +200,12 @@ test('K-12 scope angle interpolation and zones; K-13 cold load matches the sim',
   for (const [secs, factor] of [[300, 1], [400, V.COLD_LOAD_FACTOR]]) {
     for (let k = 0; k < secs * TPS; k++) step(state);
     const o = observe(state), od = o.districts[d];
-    const cl = C.coldLoad(od, o.s, o.demand.nowMW);
+    // Phase 2a: the MW is the sim's own (obs.districts[].coldLoadMW), not a second copy of its
+    // rule; with no rooftop (this scenario) it is still demand x share x the factor.
+    const cl = C.coldLoad(od, o.s);
     assert.equal(cl.factor, factor);
-    assert.ok(Math.abs(cl.mw - od.coldLoadMW) < 1e-6 * od.coldLoadMW + 1e-9, cl.mw + ' vs ' + od.coldLoadMW);
+    assert.equal(cl.mw, od.coldLoadMW);
+    assert.ok(Math.abs(cl.mw - o.demand.nowMW * od.share * factor) < 1e-6 * od.coldLoadMW + 1e-9, cl.mw + ' vs demand x share x ' + factor);
     if (factor === 1) assert.equal(cl.coldInS, V.COLD_LOAD_AFTER_S - (o.s - od.darkSinceS));
   }
 });
@@ -1290,4 +1308,541 @@ test('K-17: the desk fills 1280×300 in the 232/424/336/256 columns and every co
   assert.ok(inner(LAYOUT.panels[3][1]) >= 20 + 3 * 24 + 2 * 2 + 2, 'tray: head and 3 cards');
   assert.ok(inner(LAYOUT.panels[3][2]) >= 24, 'emergency keys');
   assert.ok((LAYOUT.columns[3] - 8 - 44 - 3 - 3 * 2) / 4 >= 24, 'annunciator tiles wide enough');
+});
+
+// ---------------------------------------------------------------- Phase 2a: the belly on the desk (§19.5, §21.5, §25)
+
+let NOON = null;
+/**
+ * A real mild weekend at 12:30 on the game's scenario with nobody at the desk (desk-weekend,
+ * seed 1): the roofs near their peak, Solstice Rise feeding back, the dispatch spilling. Each
+ * caller gets its own copy of the state.
+ */
+function noonState() {
+  NOON ||= followDay(1, DESK_WEEKEND, {follow: false, untilH: 12.5}).st;
+  return structuredClone(NOON);
+}
+const considers = a => a.uis.filter(u => u.do === 'consider').map(u => u.target);
+/**
+ * A mouse click as a browser delivers it (the stand-in's click() alone moves no focus): the
+ * pointer goes down, the button takes the focus (the old element blurs first), the pointer comes
+ * up, then the click.
+ */
+function mouseClick(doc, e) {
+  e.dispatch('pointerdown');
+  const prev = doc.activeElement;
+  if (prev !== e) { if (prev && prev !== doc.body) prev.blur(); e.focus(); }
+  e.dispatch('pointerup');
+  e.click();
+}
+/** Tab or Shift+Tab as a browser delivers it: the old element blurs, then the new one takes the focus. */
+function tabTo(doc, e) {
+  const prev = doc.activeElement;
+  if (prev && prev !== doc.body && prev !== e) prev.blur();
+  e.focus();
+}
+/** A fixture for the consider tests: GT·C 1 off and startable (gs), a CCGT on and stoppable (gx). */
+function considerDesk(pickLast) {
+  const vm = vmAt(EVE);
+  const o = vm.obs;
+  const k = o.units.findIndex(u => u.station === 'gtc');
+  Object.assign(o.units[k], {mode: 'off', sync: false, startBlock: '', stopBlock: 'unit is off'});
+  const ons = o.units.filter(u => u.station === 'ccgt' && u.mode === 'on'), on = pickLast ? ons[ons.length - 1] : ons[0];
+  on.stopBlock = '';
+  const m = mount(at(vm, 1000));
+  let ms = 1000;
+  /** Draw a frame at desk time t (ms); with no argument, 16 ms on. */
+  const to = t => { ms = t === undefined ? ms + 16 : t; m.desk.update(at(vm, ms)); return ms; };
+  return Object.assign(m, {vm, o, to, now: () => ms, a: m.actions, gs: 'guard-start-' + o.units[k].id, gx: 'guard-stop-' + on.id, unit: o.units[k].id});
+}
+
+test('C-10: a START / STOP guard lights when its id is in vm.glow, and says so without colour', () => {
+  const vm = vmAt(EVE, {glow: new Set(['guard-stop-ccgt2', 'guard-start-hydro3', 'lever-gta'])});
+  const {$} = mount(at(vm, 1000));
+  for (const m of V.MACHINES) for (const g of ['guard-start-', 'guard-stop-']) {
+    const want = g + m.id === 'guard-stop-ccgt2' || g + m.id === 'guard-start-hydro3';
+    assert.equal($(g + m.id).classList.contains('glow'), want, g + m.id);
+    assert.equal(/the objective points here/.test($(g + m.id).getAttribute('aria-label')), want, g + m.id + ' label');
+  }
+  assert.match(CSS, /\.dk \.glow, \.dk \.dk-focus \{ box-shadow:/, 'the glow every desk control shares');
+  // no glow set at all (older shells): nothing lit, no throw
+  const bare = vmAt(EVE);
+  delete bare.glow;
+  assert.equal(mount(at(bare, 1000)).$('guard-stop-ccgt2').classList.contains('glow'), false);
+});
+
+test('C-10 consider: the desk names the guard being considered: lifted, then focused, then hovered; null when none; only on a change', () => {
+  const {$, desk, a, vm, to, gs, gx, unit} = considerDesk(false);
+  const other = 'guard-stop-coal1';
+  assert.deepEqual(considers(a), [], 'nothing is considered at rest, and nothing is sent');
+  // hover: named at once; its end is resolved by the next frame
+  $(gx).dispatch('pointerenter');
+  $(gx).dispatch('pointerenter');
+  assert.deepEqual(considers(a), [gx]);
+  $(gx).dispatch('pointerleave');
+  assert.deepEqual(considers(a), [gx], 'not before the frame');
+  to();
+  assert.deepEqual(considers(a), [gx, null]);
+  // focus (the keyboard's: no pointer went down on it) beats hover
+  $(gx).dispatch('pointerenter');
+  $(other).focus();
+  assert.equal(considers(a).at(-1), other);
+  $(gs).dispatch('pointerenter');   // hovering another guard while one is focused changes nothing
+  $(gs).dispatch('pointerleave');
+  to();
+  assert.deepEqual(considers(a).slice(-2), [gx, other]);
+  // a lifted guard beats both
+  a.inputs.length = 0;
+  // its cover drops unused after 2 s (lifted by the pointer: no hold): back to the focused guard
+  const liftedAt = to();
+  $(gs).click();
+  assert.equal(a.inputs.length, 0);
+  assert.equal(considers(a).at(-1), gs);
+  to(liftedAt + GUARD_MS - 1);
+  assert.equal(considers(a).at(-1), gs);
+  to(liftedAt + GUARD_MS + 1);
+  assert.equal(considers(a).at(-1), other);
+  // a commit counts as a drop
+  $(gs).click();
+  assert.equal(considers(a).at(-1), gs);
+  $(gs).click();
+  assert.deepEqual(a.inputs, [{type: 'start', unit}]);
+  assert.equal(considers(a).at(-1), other);
+  $(other).blur();
+  to();
+  assert.equal(considers(a).at(-1), null);
+  // a window that is not the active one sends no focus events: the desk also reads the focused guard each frame
+  const doc = $(gx).ownerDocument;
+  doc.activeElement = $(gx);
+  to(6600);
+  assert.equal(considers(a).at(-1), gx);
+  doc.activeElement = $('lever-coal');
+  to(6700);
+  assert.equal(considers(a).at(-1), null, 'a lever is not a guard');
+  // sent only when the resolved target changes: no two the same in a row, over all of the above and idle frames
+  const n = considers(a).length;
+  for (let t = 7000; t < 12000; t += 16) desk.update(at(vm, t));
+  const all = considers(a);
+  assert.equal(all.length, n, 'idle frames send nothing');
+  for (let i = 1; i < all.length; i++) assert.notEqual(all[i], all[i - 1]);
+  assert.ok(a.uis.filter(u => u.do === 'consider').every(u => Object.keys(u).join() === 'do,target'));
+});
+
+test('C-10 consider by keys: a guard lifted by S or X is held 6 s after its cover drops; S S commits and clears it at once', () => {
+  const m = considerDesk(true);
+  const {$, a, to, gs, gx, unit} = m;
+  assert.equal(CONSIDER_HOLD_MS, 6000);
+  // 2 X: the lever has the focus, not the guard, and nothing is hovered
+  tap(m, '2');
+  tap(m, 'x');
+  assert.equal(a.inputs.length, 0);
+  assert.deepEqual(considers(a), [gx]);
+  assert.equal(m.doc.activeElement.id, 'lever-ccgt');
+  // the cover drops after 2 s (K-3 is unchanged: a late second X only lifts again) ...
+  to(1000 + GUARD_MS + 1);
+  assert.equal($(gx).getAttribute('aria-pressed'), 'false');
+  // ... and the guard is still the considered one for 6 s more
+  to(1000 + GUARD_MS + CONSIDER_HOLD_MS - 1);
+  assert.deepEqual(considers(a), [gx]);
+  // hovering another guard meanwhile does not take it; lifting another does
+  $(gs).dispatch('pointerenter');
+  assert.deepEqual(considers(a), [gx]);
+  to(1000 + GUARD_MS + CONSIDER_HOLD_MS + 1);
+  assert.deepEqual(considers(a), [gx, gs], 'the hold is over: the hovered guard');
+  $(gs).dispatch('pointerleave');
+  to();
+  assert.equal(considers(a).at(-1), null);
+  // S S on GT·C: lifted, then committed within 2 s: the hold never starts
+  a.uis.length = 0;
+  to(20000);
+  tap(m, '5');
+  tap(m, 's');
+  assert.deepEqual(considers(a), [gs]);
+  to(20500);
+  tap(m, 's');
+  assert.deepEqual(a.inputs, [{type: 'start', unit}]);
+  assert.deepEqual(considers(a), [gs, null], 'a commit counts as a drop');
+  for (let t = 20600; t < 30000; t += 100) to(t);
+  assert.deepEqual(considers(a), [gs, null]);
+  // a second key lift while one is held: the lifted one wins, then ITS hold runs
+  a.uis.length = 0;
+  to(40000);
+  tap(m, '2'); tap(m, 'x');                 // lift the CCGT stop by key at 40.0 s
+  to(43000);                                // dropped at 42.0 s; held to 48.0 s
+  $('lever-coal').focus(); tap(m, 'x');     // lift a coal stop by key at 43.0 s
+  const coalX = considers(a).at(-1);
+  assert.match(coalX, /^guard-stop-coal\d$/);
+  to(47000);                                // coal dropped at 45.0 s, held to 51.0 s: the later hold wins
+  assert.equal(considers(a).at(-1), coalX);
+  to(50900);
+  assert.equal(considers(a).at(-1), coalX);
+  to(51100);
+  assert.equal(considers(a).at(-1), null);
+  // the rule itself, off the desk (a guard losing the focus or the pointer is resolved by the next tick)
+  let now = 0;
+  const guards = makeGuards(() => now), said = [];
+  const c = makeConsider(() => now, guards, t => said.push(t));
+  c.hover('a', true); c.focus('b', true);
+  guards.press('c', () => {}); c.lift('c', true);
+  now = 1000; guards.press('c', () => {}); c.commit('c');
+  now = 20000; c.tick(); c.focus('b', false);
+  assert.deepEqual(said, ['a', 'b', 'c', 'b']);
+  c.tick(); c.hover('a', false); c.tick();
+  assert.deepEqual(said, ['a', 'b', 'c', 'b', 'a', null]);
+  assert.equal(c.target, null);
+});
+
+test('C-10 consider by keys: S alone is held like X; a key lift, a drop, then X X ends at once; a guard focused after a key lift outranks its hold', () => {
+  // 5 S, left to drop: the START guard is held for 6 s after its cover drops, with the focus still on the lever
+  const m = considerDesk(true);
+  const {$, a, to, gs, gx} = m;
+  tap(m, '5');
+  tap(m, 's');
+  assert.equal(a.inputs.length, 0);
+  assert.deepEqual(considers(a), [gs]);
+  assert.equal(m.doc.activeElement.id, 'lever-gtc');
+  to(1000 + GUARD_MS + 1);
+  assert.equal($(gs).getAttribute('aria-pressed'), 'false', 'the cover is down');
+  assert.deepEqual(considers(a), [gs]);
+  to(1000 + GUARD_MS + CONSIDER_HOLD_MS - 1);
+  assert.deepEqual(considers(a), [gs], 'a START lifted by S is held as a STOP lifted by X is');
+  to(1000 + GUARD_MS + CONSIDER_HOLD_MS + 1);
+  assert.deepEqual(considers(a), [gs, null]);
+  // 2 X, the cover drops (the hold runs), then X X: the commit clears the target at once and the old hold does not come back
+  a.uis.length = 0; a.inputs.length = 0;
+  to(20000);
+  tap(m, '2'); tap(m, 'x');                 // lifted at 20.0 s
+  to(23000);                                // dropped at 22.0 s, held to 28.0 s
+  assert.deepEqual(considers(a), [gx]);
+  tap(m, 'x');                              // lifted again at 23.0 s
+  to(23500);
+  tap(m, 'x');                              // committed
+  assert.deepEqual(a.inputs, [{type: 'stop', unit: gx.replace('guard-stop-', '')}]);
+  assert.deepEqual(considers(a), [gx, null]);
+  for (let t = 23600; t < 33000; t += 200) to(t);
+  assert.deepEqual(considers(a), [gx, null], 'no hold after a commit');
+  // a guard that takes the keyboard's focus after the key lift outranks the hold ...
+  const n = considerDesk(true);
+  tap(n, '1'); tap(n, 'x');                 // a coal STOP lifted by key at 1.0 s
+  const held = considers(n.a).at(-1);
+  assert.match(held, /^guard-stop-coal\d$/);
+  n.to(1000 + GUARD_MS + 100);              // its cover is down; the hold has 5.9 s to run
+  assert.deepEqual(considers(n.a), [held]);
+  const next = held === 'guard-stop-coal1' ? 'guard-stop-coal2' : 'guard-stop-coal1';
+  tabTo(n.doc, n.$(next));
+  assert.deepEqual(considers(n.a), [held, next], 'the focus is on another guard: that one, at once');
+  n.to(1000 + GUARD_MS + CONSIDER_HOLD_MS + 500);
+  assert.deepEqual(considers(n.a), [held, next]);
+  // ... also when it took the focus while the cover was still up
+  const q = considerDesk(true);
+  tap(q, '1'); tap(q, 'x');
+  const heldQ = considers(q.a).at(-1), nextQ = heldQ === 'guard-stop-coal1' ? 'guard-stop-coal2' : 'guard-stop-coal1';
+  q.to(1500);
+  tabTo(q.doc, q.$(nextQ));
+  assert.deepEqual(considers(q.a), [heldQ], 'a lifted guard still wins');
+  q.to(1000 + GUARD_MS + 1);
+  assert.deepEqual(considers(q.a), [heldQ, nextQ], 'the cover dropped: the focused guard, not the hold');
+  // ... but a guard that had the focus before the key lift does not: the lift is the later act
+  const r = considerDesk(true);
+  tabTo(r.doc, r.$('guard-start-coal1'));   // in the COAL slot, so X reaches the station
+  assert.deepEqual(considers(r.a), ['guard-start-coal1']);
+  r.to(1500);
+  tap(r, 'x');
+  const heldR = considers(r.a).at(-1);
+  assert.match(heldR, /^guard-stop-coal\d$/);
+  r.to(1500 + GUARD_MS + 100);
+  assert.deepEqual(considers(r.a), ['guard-start-coal1', heldR], 'held over the older focus');
+  r.to(1500 + GUARD_MS + CONSIDER_HOLD_MS + 1);
+  assert.deepEqual(considers(r.a), ['guard-start-coal1', heldR, 'guard-start-coal1']);
+});
+
+test('C-10 consider with a mouse: the focus a click leaves on a guard is not the keyboard\'s, so the target clears when the pointer leaves, the cover drops or the press commits', () => {
+  // a browser focuses a button on a click and leaves it document.activeElement after the pointer has gone
+  const m = considerDesk(false);
+  const {$, a, doc, to, gs, gx, unit} = m;
+  // one click (a lift), the pointer moves away, the cover drops
+  $(gx).dispatch('pointerenter');
+  mouseClick(doc, $(gx));
+  assert.equal(doc.activeElement, $(gx), 'the fixture: the click left the focus on the guard');
+  assert.deepEqual(considers(a), [gx]);
+  $(gx).dispatch('pointerleave');
+  to();
+  assert.deepEqual(considers(a), [gx], 'lifted: still the one');
+  to(1000 + GUARD_MS + 100);
+  assert.equal($(gx).getAttribute('aria-pressed'), 'false');
+  assert.deepEqual(considers(a), [gx, null], 'the pointer has gone and the cover is down');
+  for (let t = 4000; t < 64000; t += 500) to(t);
+  assert.equal(doc.activeElement, $(gx));
+  assert.deepEqual(considers(a), [gx, null], 'a minute later, the guard still focused by that click');
+  // the hover of another guard is not hidden behind that focus
+  $('guard-stop-coal4').dispatch('pointerenter');
+  assert.deepEqual(considers(a), [gx, null, 'guard-stop-coal4']);
+  $('guard-stop-coal4').dispatch('pointerleave');
+  to();
+  assert.equal(considers(a).at(-1), null);
+  // two clicks (a commit): the input goes, the target clears when the pointer leaves and stays clear
+  a.uis.length = 0; a.inputs.length = 0;
+  to(70000);
+  $(gs).dispatch('pointerenter');
+  mouseClick(doc, $(gs));
+  to(70300);
+  mouseClick(doc, $(gs));
+  assert.deepEqual(a.inputs, [{type: 'start', unit}]);
+  assert.deepEqual(considers(a), [gs], 'committed with the pointer still on it: hovered');
+  $(gs).dispatch('pointerleave');
+  to();
+  assert.deepEqual(considers(a), [gs, null]);
+  for (let t = 71000; t < 131000; t += 500) to(t);
+  assert.equal(doc.activeElement, $(gs));
+  assert.deepEqual(considers(a), [gs, null], 'a minute after a mouse START the objective line is the objective again');
+  // the window goes away and comes back (a blur event, then a focus event, the guard the document's focused element throughout): still the pointer's
+  $(gs).dispatch('blur');
+  for (let i = 0; i < 5; i++) to();
+  $(gs).dispatch('focus');
+  for (let i = 0; i < 5; i++) to();
+  assert.deepEqual(considers(a), [gs, null]);
+  // a guard the keyboard had focused, then clicked: the pointer has it from the press on
+  const k = considerDesk(false);
+  tabTo(k.doc, k.$(k.gx));
+  assert.deepEqual(considers(k.a), [k.gx]);
+  k.$(k.gx).dispatch('pointerenter');
+  mouseClick(k.doc, k.$(k.gx));
+  k.$(k.gx).dispatch('pointerleave');
+  k.to(1000 + GUARD_MS + 100);
+  assert.deepEqual(considers(k.a), [k.gx, null]);
+  // ... and it is the keyboard's again once the keyboard uses it: Enter on the guard lifts it, and after the drop it stays
+  press(k, 'Enter'); release(k, 'Enter');
+  assert.equal(k.$(k.gx).getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(considers(k.a), [k.gx, null, k.gx]);
+  k.to(1000 + 2 * GUARD_MS + 300);
+  assert.equal(k.$(k.gx).getAttribute('aria-pressed'), 'false');
+  for (let t = 6000; t < 20000; t += 500) k.to(t);
+  assert.deepEqual(considers(k.a), [k.gx, null, k.gx], 'focused by the keyboard: considered until the focus moves');
+  // ... or comes back to it: Tab away and Shift+Tab back
+  const b = considerDesk(false);
+  mouseClick(b.doc, b.$(b.gx));
+  b.to(1000 + GUARD_MS + 100);
+  assert.deepEqual(considers(b.a), [b.gx, null]);
+  tabTo(b.doc, b.$('lever-coal'));
+  b.to();
+  tabTo(b.doc, b.$(b.gx));
+  assert.deepEqual(considers(b.a), [b.gx, null, b.gx]);
+  // a touch: the pointer comes up and leaves before the compatibility mouse events focus the button
+  const t = considerDesk(false);
+  const g = t.$(t.gx);
+  g.dispatch('pointerenter'); g.dispatch('pointerdown'); t.to(1400); g.dispatch('pointerup'); g.dispatch('pointerleave');
+  g.focus(); g.click();
+  t.to(1400 + GUARD_MS + 100);
+  assert.equal(t.doc.activeElement, g);
+  assert.deepEqual(considers(t.a), [t.gx, null], 'a tap is a pointer press too');
+  // a press that never became a focus (a browser that does not focus buttons on a click; the pointer dragged off):
+  // the keyboard reaching that guard later is the keyboard's
+  const s = considerDesk(false);
+  s.$(s.gx).dispatch('pointerdown'); s.$(s.gx).dispatch('pointerup');
+  s.to(1000 + PRESS_FOCUS_MS + 100);
+  tabTo(s.doc, s.$(s.gx));
+  assert.deepEqual(considers(s.a), [s.gx]);
+  // the rule itself, off the desk
+  let now = 0;
+  const said = [], c = makeConsider(() => now, makeGuards(() => now), x => said.push(x));
+  c.press('a'); c.focus('a', true); c.up('a'); c.focusIs('a'); c.tick();
+  assert.deepEqual(said, [], 'pressed, focused by the press: not considered');
+  c.keyboard('a'); c.focusIs('a'); c.tick();
+  assert.deepEqual(said, ['a']);
+  c.focus('a', false); c.focusIs(null); c.tick();
+  assert.deepEqual(said, ['a', null]);
+});
+
+test('C-10 consider: one change of target is one message: Tab between guards, the pointer crossing, a window that loses the focus; a new day says the target again', () => {
+  const m = considerDesk(false);
+  const {$, a, doc, to, gs, gx, vm} = m;
+  // Tab from one guard to the next: blur, then focus, and no null between
+  tabTo(doc, $(gs));
+  tabTo(doc, $(gx));
+  to();
+  assert.deepEqual(considers(a), [gs, gx]);
+  tabTo(doc, $('lever-coal'));
+  to();
+  assert.deepEqual(considers(a), [gs, gx, null]);
+  // the pointer crossing from a machine's START to its STOP
+  $(gs).dispatch('pointerenter'); $(gs).dispatch('pointerleave'); $(gx).dispatch('pointerenter');
+  to();
+  $(gx).dispatch('pointerleave');
+  to();
+  assert.deepEqual(considers(a), [gs, gx, null, gs, gx, null]);
+  // the window stops being the active one: the guard gets a blur event and stays the document's focused element.
+  // It keeps the target (it is the focused guard again the moment the window is back), and nothing is sent.
+  a.uis.length = 0;
+  tabTo(doc, $(gx));
+  to();
+  $(gx).dispatch('blur');
+  for (let i = 0; i < 10; i++) to();
+  assert.equal(doc.activeElement, $(gx));
+  assert.deepEqual(considers(a), [gx]);
+  // a new day: the shell cleared its copy (app/game.js resetDay), so the desk says the present target again, once
+  const day2 = Object.assign({}, vm, {obs: Object.assign({}, vm.obs, {tick: 0})});
+  m.desk.update(at(day2, m.now() + 16));
+  m.desk.update(at(day2, m.now() + 32));
+  assert.deepEqual(considers(a), [gx, gx]);
+  // with nothing considered a new day sends nothing (never an initial null)
+  const e = considerDesk(false);
+  e.desk.update(at(Object.assign({}, e.vm, {obs: Object.assign({}, e.vm.obs, {tick: 0})}), 2000));
+  assert.deepEqual(considers(e.a), []);
+});
+
+test('K-11 on a real over-frequency (2a): with the potline off at a mild noon the inverters back off, the bar still balances and names them', () => {
+  const st = noonState();
+  while (st.tick % TPS !== 0) step(st);
+  fleet.tripSmelter(st, 2700, []);
+  for (let k = 0; k < 2 * TPS; k++) step(st);
+  const o = observe(st), b = o.balance;
+  assert.ok(o.f.hz > 50.05, 'a 256-MW load loss: ' + o.f.hz.toFixed(3) + ' Hz');
+  assert.ok(b.renPfrMW + b.roofPfrMW > 50, 'wind and solar are backing off: ' + (b.renPfrMW + b.roofPfrMW).toFixed(0) + ' MW');
+  const seg = C.imbalanceSegments(b);
+  assert.equal(seg.inverterMW, 0 - (b.renPfrMW + b.roofPfrMW));
+  assert.ok(Math.abs(seg.sumMW - b.imbalanceMW) <= 1 && Math.abs(seg.sumMW + seg.inertiaMW) <= 1 && Math.abs(seg.schedMW + seg.borrowedMW) <= 1);
+  const lay = barLayout(seg), inv = lay.segs.find(x => x.k === 'inverterMW');
+  const right = lay.segs.filter(x => x.mw > 0).reduce((a, x) => a + x.width, 0), left = lay.segs.filter(x => x.mw < 0).reduce((a, x) => a + x.width, 0);
+  assert.ok(Math.abs(right - left) <= 1 / lay.scale * 50 + 1e-9, 'the bar balances about zero: ' + right + ' / ' + left);
+  assert.ok(inv.width > 0 && inv.left < 50 && inv.letter === 'V', 'the inverters stack left of zero');
+  assert.equal(barScale(seg), lay.scale);
+  // the roofs' half (renPfrMW + roofPfrMW): the tie tripping at its 300-MW export in the same second takes the
+  // frequency past 50.25 Hz, where rooftop inverters start to back off (AS/NZS 4777.2) and hold what they reached
+  const st2 = noonState();
+  while (st2.tick % TPS !== 0) step(st2);
+  fleet.tripSmelter(st2, 2700, []);
+  fleet.tripTie(st2, 'test', 2700, []);
+  for (let k = 0; k < 2 * TPS; k++) step(st2);
+  const o2 = observe(st2), b2 = o2.balance, seg2 = C.imbalanceSegments(b2);
+  assert.ok(o2.f.hz > V.ROOF_FW_START_HZ, 'a load loss and the export lost together: ' + o2.f.hz.toFixed(3) + ' Hz');
+  assert.ok(b2.roofPfrMW > 20 && b2.renPfrMW > 50, 'the roofs back off ' + b2.roofPfrMW.toFixed(0) + ' MW, wind and the solar farm ' + b2.renPfrMW.toFixed(0) + ' MW');
+  assert.equal(seg2.inverterMW, 0 - (b2.renPfrMW + b2.roofPfrMW));
+  assert.ok(Math.abs(seg2.sumMW - b2.imbalanceMW) < 1e-6 && Math.abs(seg2.sumMW + seg2.inertiaMW) < 1e-6 && Math.abs(seg2.schedMW + seg2.borrowedMW) < 1e-6,
+    'the identity closes only with both halves: ' + (seg2.sumMW - b2.imbalanceMW) + ', ' + (seg2.sumMW + seg2.inertiaMW) + ', ' + (seg2.schedMW + seg2.borrowedMW));
+  const lay2 = barLayout(seg2), inv2 = lay2.segs.find(x => x.k === 'inverterMW');
+  assert.ok(Math.abs(inv2.width - (b2.renPfrMW + b2.roofPfrMW) / lay2.scale * 50) < 1e-9, 'the segment is as wide as both');
+  const right2 = lay2.segs.filter(x => x.mw > 0).reduce((a, x) => a + x.width, 0), left2 = lay2.segs.filter(x => x.mw < 0).reduce((a, x) => a + x.width, 0);
+  assert.ok(Math.abs(right2 - left2) < 1e-6, 'the bar balances about zero: ' + right2 + ' / ' + left2);
+  const el2 = mount(at(baseVm(o2), 1000)).$('bar-imbalance').querySelector('.dk-seg-inv');
+  assert.equal(el2.getAttribute('title'), 'inverters backing off −' + Math.round(b2.renPfrMW + b2.roofPfrMW) + ' MW');
+  // on the desk: its own segment, lettered, patterned and titled; in the text alternative
+  const {$} = mount(at(baseVm(o), 1000));
+  const el = $('bar-imbalance').querySelector('.dk-seg-inv');
+  assert.equal(el.textContent, 'V');
+  assert.equal(el.classList.contains('neg'), true);
+  assert.match(el.getAttribute('title'), /^inverters backing off −\d+ MW$/);
+  assert.match($('bar-imbalance').getAttribute('aria-label'), /wind and solar backing off −\d+ MW/);
+  assert.match(CSS, /\.dk-seg-inv \{ background: repeating-linear-gradient\(90deg/, 'upright bars: told from the four diagonal fills by pattern');
+  // with no back-off they say nothing
+  const calm = vmAt(13);
+  Object.assign(calm.obs.balance, {renPfrMW: 0, roofPfrMW: 0});
+  assert.ok(!/backing off/.test(mount(at(calm, 1000)).$('bar-imbalance').getAttribute('aria-label')));
+  // caught: the word for the inverters' part of a preview
+  assert.equal(caughtText({inertiaMW: 100, governorsMW: 300, inverterMW: 119, uflsMW: 0}), 'GOV 300 · INVERTERS 119 · SPIN 100');
+  assert.equal(caughtText({inertiaMW: 100, inverterMW: -253}), 'SPIN 100', 'a loss of load is not what TRIP PREVIEW previews');
+});
+
+test('P-12 on the dial (2a): the SHED mark shows the dark customers\' load (unservedMW), not the relay MW, which is zero or less with a net exporter dark', () => {
+  const st = noonState();
+  while (st.tick % TPS !== 0) step(st);
+  const lit = observe(st);
+  const sol = lit.districts.filter(d => d.suburb === 'SOL' && d.coldLoadMW < 0);
+  assert.ok(sol.length >= 1, 'Solstice Rise is feeding back at this noon: ' + lit.districts.filter(d => d.suburb === 'SOL').map(d => d.coldLoadMW.toFixed(0)).join(', '));
+  assert.equal(shedMarkMW(lit), 0);
+  assert.equal(mount(at(baseVm(lit), 1000)).$('bar-imbalance').querySelector('.dk-imb-shed').hidden, true);
+  fleet.setDistrictDark(st, st.city.districts.findIndex(d => d.id === sol[0].id), true, 'directed');
+  for (let k = 0; k < 2 * TPS; k++) step(st);
+  const o = observe(st);
+  assert.ok(o.balance.shedMW <= 0 && o.demand.shedMW <= 0, 'the relays took off a net exporter: ' + o.balance.shedMW.toFixed(1) + ' MW');
+  assert.ok(o.demand.unservedMW > 100, 'its customers are dark: ' + o.demand.unservedMW.toFixed(0) + ' MW');
+  assert.equal(shedMarkMW(o), o.demand.unservedMW);
+  const {$} = mount(at(baseVm(o), 1000));
+  const mark = $('bar-imbalance').querySelector('.dk-imb-shed');
+  assert.equal(mark.hidden, false);
+  assert.equal(mark.textContent, '✕ SHED ' + Math.round(o.demand.unservedMW) + ' MW');
+  assert.match($('bar-imbalance').getAttribute('aria-label'), new RegExp('; shed ' + Math.round(o.demand.unservedMW) + ' MW$'));
+  // the bar tolerates the negative relay MW: its scale and its segments are what they were without it
+  const seg = C.imbalanceSegments(o.balance), flat = Object.assign({}, seg, {shedMW: 0});
+  assert.ok(seg.shedMW <= 0);
+  assert.deepEqual(barLayout(seg), barLayout(flat));
+  assert.ok(barLayout(seg).segs.every(x => x.width >= 0 && x.left >= 0 && x.left + x.width <= 100 + 1e-9));
+  const deep = Object.assign({}, seg, {shedMW: -5000});   // far more than the segments: still no room asked for it
+  assert.equal(barScale(deep), barScale(flat));
+  assert.deepEqual(barLayout(deep), barLayout(flat));
+  assert.ok(barScale(Object.assign({}, seg, {shedMW: 5000})) > barScale(flat), 'a positive one still sets the scale');
+  // the feeder row reads the sim's pickup (the underlying load x 1 or 1.5), far above the district's share of operational demand
+  const od = o.districts.find(d => d.id === sol[0].id), cl = C.coldLoad(od, o.s);
+  assert.equal(cl.mw, od.coldLoadMW);
+  assert.ok(cl.mw > o.demand.nowMW * od.share + 50, 'pickup ' + cl.mw.toFixed(0) + ' MW against ' + (o.demand.nowMW * od.share).toFixed(0) + ' MW of operational demand');
+  // ... on its feeder row and on its breaker's label, the same number
+  const bayM = mount(at(baseVm(o), 1000));
+  bayM.desk.focus('bay-restore');
+  bayM.desk.update(at(baseVm(o), 1016));
+  const brk = bayM.$('restore-' + od.id);
+  assert.match(brk.parentElement.querySelector('.dk-feeder-mw').textContent, new RegExp('^' + Math.round(od.coldLoadMW) + ' MW ×' + V.COLD_LOAD_FACTOR + ' in \\d+:\\d\\d$'));
+  assert.ok(brk.getAttribute('aria-label').includes('(' + Math.round(od.coldLoadMW) + ' MW cold load)'), brk.getAttribute('aria-label'));
+  // a view from before Phase 2a (no unservedMW): the relay MW, never below zero
+  const old = clone(o);
+  delete old.demand.unservedMW;
+  assert.equal(shedMarkMW(old), 0);
+  old.balance.shedMW = 180;
+  assert.equal(shedMarkMW(old), 180);
+});
+
+test('K-7 / M-2: DIRECT SHED names the district the sim will shed and its load; "about 0 MW" when it has none to give', () => {
+  // the rule against the sim: at a mild noon, each press takes the district the desk named
+  const st = noonState();
+  while (st.tick % TPS !== 0) step(st);
+  st.sec.level = 'SHORT';   // A-3: the key works only in a shortfall (test poke of the gauge)
+  let passed = 0;
+  for (let n = 0; n < 6; n++) {
+    const o = observe(st), want = C.nextShed(o.districts);
+    const rot = o.districts.filter(d => d.rot >= 0 && !d.dark);
+    const oldRule = rot.slice().sort((x, y) => x.restoredAtS - y.restoredAtS || x.rot - y.rot)[0];
+    if (oldRule.id !== want.id) { passed++; assert.ok(oldRule.coldLoadMW <= 0 && want.coldLoadMW > 0, 'passed over ' + oldRule.id + ' at ' + oldRule.coldLoadMW.toFixed(0) + ' MW'); }
+    const out = [];
+    assert.equal(applyInput(st, {type: 'directShed'}, out).ok, true);
+    const rec = out.find(r => r.kind === 'shed');
+    assert.equal(rec.district, want.id, 'press ' + (n + 1));
+    assert.ok(Math.abs(rec.mw - want.coldLoadMW) < 1e-9);
+    assert.deepEqual(shedText(o), {id: want.id, text: want.id + ', about ' + Math.round(want.coldLoadMW) + ' MW'});
+  }
+  assert.ok(passed >= 1, 'a district feeding back was passed over at least once');
+  // on the key: the district and its MW, in the face and in the label
+  const o = observe(st);
+  const {$} = mount(at(baseVm(o), 1000));
+  const next = C.nextShed(o.districts);
+  assert.equal($('key-shed').hidden, false);
+  assert.match($('key-shed').textContent, new RegExp(next.id + ', about ' + Math.round(next.coldLoadMW) + ' MW'));
+  assert.match($('key-shed').getAttribute('aria-label'), new RegExp('sheds district ' + next.id + ', about \\d+ MW, the next in rotation'));
+  // lifting the cover says the same before anything is committed
+  const liveOf = d => d.el.querySelector('.dk-live').textContent;
+  const lit = mount(at(baseVm(o), 1000));
+  lit.$('key-shed').dispatch('pointerdown'); lit.$('key-shed').dispatch('pointerup');
+  assert.equal(liveOf(lit.desk), 'DIRECT SHED cover lifted: sheds ' + next.id + ', about ' + Math.round(next.coldLoadMW) + ' MW. Hold to commit.');
+  assert.equal(lit.actions.inputs.length, 0);
+  // none of the lit rotation districts has load to give: the old order, and "about 0 MW"
+  const zero = clone(o);
+  for (const d of zero.districts) if (d.rot >= 0 && !d.dark) d.coldLoadMW = -5 - d.rot;
+  const first = zero.districts.filter(d => d.rot >= 0 && !d.dark).sort((x, y) => x.restoredAtS - y.restoredAtS || x.rot - y.rot)[0];
+  assert.equal(C.nextShed(zero.districts).id, first.id);
+  assert.deepEqual(shedText(zero), {id: first.id, text: first.id + ', about 0 MW'});
+  first.coldLoadMW = 0.3;
+  assert.deepEqual(shedText(zero), {id: first.id, text: first.id + ', about 0 MW'}, 'under half a megawatt is about 0 too');
+  assert.match(mount(at(baseVm(zero), 1000)).$('key-shed').textContent, /about 0 MW/);
+  // nothing left in the rotation
+  const none = clone(o);
+  for (const d of none.districts) if (d.rot >= 0) d.dark = true;
+  assert.equal(C.nextShed(none.districts), null);
+  assert.deepEqual(shedText(none), {id: '', text: 'no lit district left in the rotation'});
+  const dark = mount(at(baseVm(none), 1000));
+  assert.match(dark.$('key-shed').getAttribute('aria-label'), /sheds nothing: no lit district left in the rotation/);
+  assert.equal(dark.$('key-shed').querySelector('.dk-hold-sub').textContent, 'no lit district left in the rotation');
+  dark.$('key-shed').dispatch('pointerdown'); dark.$('key-shed').dispatch('pointerup');
+  assert.equal(liveOf(dark.desk), 'DIRECT SHED cover lifted: sheds nothing, no lit district left in the rotation. Hold to commit.');
+  assert.equal(C.nextShed(undefined), null);
+  // ties by rotation index, the longest restored first, UFLS-only districts never
+  const ds = [{id: 'A', rot: 3, dark: false, restoredAtS: -1, coldLoadMW: 90}, {id: 'B', rot: 1, dark: false, restoredAtS: 500, coldLoadMW: 90},
+    {id: 'C', rot: 2, dark: false, restoredAtS: -1, coldLoadMW: 90}, {id: 'D', rot: -1, dark: false, restoredAtS: -1, coldLoadMW: 90}, {id: 'E', rot: 0, dark: true, restoredAtS: -1, coldLoadMW: 90}];
+  assert.equal(C.nextShed(ds).id, 'C');
 });

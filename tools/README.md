@@ -33,10 +33,26 @@ has its own seeded random-number generator. Only section 5 (timings) varies by m
 node tools/par.js --seed 7              # par (S-4) on one seed, with its discrete actions
 node tools/par.js --seeds 1-200 -j 11   # S-12 over 200 raw seeds on 11 worker processes
 node tools/par.js --heat 100 -j 11      # the first 100 forced-heatwave seeds
+node tools/par.js --scenario desk --seeds 1-200 -j 11 --probe --quiet   # the game's day, by day type (Phase 2a)
+node tools/follow.mjs --scenario desk-weekend --seeds 1-11 --lines      # the hint-following player, par beside it
 node tools/baseline-v4.js               # the SPEC §6 rows for the v4 core, ~5 min on 11 workers
 node tools/baseline-v4.js --quick       # section 1 plus par on seeds 1-2, ~10 s
 npm run golden:v4                       # re-record tools/baseline-v4.golden.md
 ```
+
+`tools/par.js --scenario desk | desk-weekend` measures the game's own days (rooftop PV, day
+types; Phase 2a): each row carries the day type, the minimum operational demand, the hours at a
+negative price, the MWh spilled, the peak frequency, the highest MSL level and rule 4's coal
+stops, and the summary groups them by day type. `--probe` trips both credible contingencies in a
+copy of each SECURE state (H-8), as the baseline does on the classic day; `--rows FILE` writes
+every row as a JSON line. `tools/baseline-v4.js` and its golden stay on the classic day, which
+has no rooftop PV: it is the regression anchor.
+
+`tools/follow.mjs` runs the hint-following player (`tests/lib/follow.js`: a day in which the
+only inputs are the ones the objective line proposes) over a seed range, with par's day beside
+it: unserved energy, cost by key, the battery at 16:30, and for each STOP line it followed the
+saving the line quoted against the realised difference. `--no-follow` is the day with no input
+at all, which must fail.
 
 `tools/baseline-v4.js` (Exit Phase 0) prints four sections: fixed probes (physics, the H-7
 desk-lab midday case, STOP, the import step at 13:00 and 18:30, rate invariance through
@@ -51,7 +67,9 @@ the default run, and the whole report with `GRIDWATCH_SLOW=1`. `--help` lists th
 
 | File | What it is |
 |---|---|
-| `par.js` | v4 par and the proxies over seeds (S-4, S-5, S-11, S-12); `-j N` forks workers. Exports `grade()`. |
+| `par.js` | v4 par and the proxies over seeds (S-4, S-5, S-11, S-12, S-14) on any scenario; `-j N` forks workers. Exports `grade()`. |
+| `follow.mjs` | The hint-following player over seeds, against par (SPEC §9.1 Q-18; desk/README.md §21.4). An ES module. |
+| `perf.mjs`, `shot-receiver.mjs` | F-11 headless measurements; the PNG receiver for visual QA (SPEC §10). |
 | `baseline-v4.js` | The v4 baseline above; `baseline-v4.golden.md` is its committed output. |
 | `harness.js` | Loads the inline `<script>` of `index.html` with a stub page and a seeded `Math.random`. `load({seed, file})` returns a game instance `G`; `G.runToEnd(policy)` plays a whole shift and returns `{black, grade, money, cmp, unserved, co2, worstDev, maxPrice, outT, t, endClock}`. Also exports `gradeOf(S, black)` and `weatherClass(G)`. `node tools/harness.js` runs a 5-seed smoke test. |
 | `policies.js` | Scripted players: `doNothing`, `reactiveOnly`, `competent` (the best preset from the balance review, reading only what the screen shows; see `observe()`), `competentClassic` (the review's reference policy), and the configurable `ctl(cfg)`. |

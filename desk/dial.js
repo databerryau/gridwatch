@@ -4,8 +4,11 @@
 // needle (the 1-s average above 10×, F-4), the TRIP PREVIEW ghost needle, the nadir pin during a
 // watch, a 3-decimal readout, CHANGE (RoCoF over 500 ms) and SPIN (stored energy, GW·s); "HAND"
 // on the face in HAND mode. Imbalance bar: the scheduled gap and the BORROWED stack that covers
-// it (inertia, battery, governors, load relief), plus SHED; segments sum to the swing-equation
-// imbalance (calc.imbalanceSegments).
+// it (inertia, battery, governors, load relief and, Phase 2a, the inverters backing off: wind,
+// utility solar and rooftop solar above 50 Hz, C-7), plus SHED; the segments sum to the
+// swing-equation imbalance and balance about zero (calc.imbalanceSegments). SHED is the dark
+// customers' load (obs.demand.unservedMW): the relay MW is net load and is zero or less when a
+// district that was feeding back at noon is dark (P-12).
 // The canvas is role="img"; its text alternative (K-23) changes at most once per real second.
 
 import {V} from '../sim/params.js';
@@ -159,13 +162,25 @@ const SEGS = [
   ['batteryMW', 'dk-seg-batt', 'B'],
   ['governorsMW', 'dk-seg-gov', 'G'],
   ['loadReliefMW', 'dk-seg-relief', 'R'],
+  ['inverterMW', 'dk-seg-inv', 'V'],   // inVerters (Phase 2a, C-7): <= 0, wind and solar lowering above 50 Hz
 ];
+/** A segment's name in its tooltip (the key without MW, as before; the inverters' says what they are doing). */
+const segWord = k => (k === 'inverterMW' ? 'inverters backing off' : k.replace(/MW$/, ''));
+
+/**
+ * MW the SHED mark shows: the load of the customers who are dark (obs.demand.unservedMW). A view
+ * without that key (before Phase 2a) falls back on the relay MW, never below zero.
+ */
+export function shedMarkMW(obs) {
+  const u = obs.demand && obs.demand.unservedMW;
+  return Math.max(0, typeof u === 'number' && Number.isFinite(u) ? u : fin(obs.balance && obs.balance.shedMW));
+}
 
 /** Scale (MW for half the bar) that fits the segments: 100, 200, 500, 1000, 2000, 5000... */
 export function barScale(seg) {
   let pos = 0, neg = 0;
-  for (const [k] of SEGS) { const v = seg[k]; if (v > 0) pos += v; else neg -= v; }
-  const need = Math.max(pos, neg, fin(seg.shedMW));
+  for (const [k] of SEGS) { const v = fin(seg[k]); if (v > 0) pos += v; else neg -= v; }
+  const need = Math.max(pos, neg, fin(seg.shedMW)); // a negative relay MW (a net exporter dark) asks for no room
   for (const s of [100, 200, 500, 1000, 2000, 5000, 10000]) if (need <= s) return s;
   return 20000;
 }
@@ -211,18 +226,20 @@ export function createImbalanceBar(ctx, parent) {
       lay.segs.forEach((s, i) => {
         setStyle(segEls[i], 'left', s.left.toFixed(2) + '%');
         setStyle(segEls[i], 'width', s.width.toFixed(2) + '%');
-        setAttr(segEls[i], 'title', s.k.replace(/MW$/, '') + ' ' + smw(s.mw) + ' MW');
+        setAttr(segEls[i], 'title', segWord(s.k) + ' ' + smw(s.mw) + ' MW');
         setCls(segEls[i], 'neg', s.mw < 0);
       });
       setText(txt, 'GAP ' + smw(seg.schedMW) + ' · BORROWED ' + smw(seg.borrowedMW) + ' · ±' + lay.scale);
-      setHidden(shed, !(seg.shedMW > 0.5));
-      setText(shed, '✕ SHED ' + mw(seg.shedMW) + ' MW');
+      const shedMW = shedMarkMW(o);
+      setHidden(shed, !(shedMW > 0.5));
+      setText(shed, '✕ SHED ' + mw(shedMW) + ' MW');
       const un = fin(o.agc && o.agc.unmetMW);
       setHidden(unmet, !(Math.abs(un) > 0.5));
       setText(unmet, '! AGC UNMET ' + smw(un) + ' MW');
       setAttr(box, 'aria-label', 'Imbalance: scheduled supply minus demand ' + smw(seg.schedMW) + ' MW, covered by inertia ' +
         smw(seg.inertiaMW) + ', battery ' + smw(seg.batteryMW) + ', governors ' + smw(seg.governorsMW) + ', load relief ' +
-        smw(seg.loadReliefMW) + ' MW' + (seg.shedMW > 0.5 ? '; shed ' + mw(seg.shedMW) + ' MW' : ''));
+        smw(seg.loadReliefMW) + (Math.abs(seg.inverterMW) > 0.5 ? ', wind and solar backing off ' + smw(seg.inverterMW) : '') + ' MW' +
+        (shedMW > 0.5 ? '; shed ' + mw(shedMW) + ' MW' : ''));
       setCls(box, 'glow', !!(vm.glow && vm.glow.has('bar-imbalance')));
     },
   };
