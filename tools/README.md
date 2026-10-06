@@ -76,14 +76,29 @@ node tools/play.mjs --help
 every real module in the stand-in DOM, driven by jumps (`to`, `until`) that play the page's
 frames without drawing them (~0.3 s per grid hour, stopping AT the tick a trip, the card, a mode
 change, a notice or a new line begins), drawn frames where they matter (`real=5` in the watch),
-clicks and keys, and `look`: what the player sees, as text. Use it (not hand-written
-frame-by-frame loops: ~3-5 ms per frame, minutes per playthrough) to check a fix in play.
+clicks and keys, and `look`: what the player sees, as text. `press=ID` (`press()` in the
+library) samples a press the way the owner asked (SPEC Q-40): a look before, one on the press
+frame and one 0.5 real s after. Use it (not hand-written frame-by-frame loops: ~3-5 ms per
+frame, minutes per playthrough) to check a fix in play.
+
+## Run only the tests a change affects (`changed-tests.mjs`)
+
+```
+npm run test:changed                         # this branch and uncommitted work, against main
+node tools/changed-tests.mjs --list          # which test files, without running them
+node tools/changed-tests.mjs desk/dial.js    # the tests that depend on these files
+```
+
+It reads each test file's imports (through `tests/lib/` and the game's modules) and the repo
+paths it names, and runs the tests that depend on something changed. The whole suite
+(`node --test`) runs once before a merge, and in CI. See `CLAUDE.md`.
 
 ## Files
 
 | File | What it is |
 |---|---|
 | `play.mjs` | Plays next.html headless and fast; prints what the player sees (`tests/lib/play.js`). An ES module. |
+| `changed-tests.mjs` | Runs only the test files a change can affect (`npm run test:changed`). An ES module. |
 | `par.js` | v4 par and the proxies over seeds (S-4, S-5, S-11, S-12, S-14) on any scenario; `-j N` forks workers. Exports `grade()`. |
 | `follow.mjs` | The hint-following player over seeds, against par (SPEC §9.1 Q-18; desk/README.md §21.4). An ES module. |
 | `perf.mjs`, `shot-receiver.mjs` | F-11 headless measurements; the PNG receiver for visual QA (SPEC §10). |

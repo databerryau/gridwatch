@@ -11,14 +11,10 @@ import {CLASSIC} from '../../content/scenarios.js';
 
 export const TPS = V.TICKS_PER_S;
 
-// F-10 wants the whole `node --test` run under 60 s. Multi-seed statistics that need many
-// whole days (S-12 over 200 seeds, H-8 over 1,000 states, F-2 over 100 days) run in full only
-// with GRIDWATCH_SLOW=1 (`npm run test:slow`, and tools/par.js); the default run skips them
-// or uses a small sample. slowOnly() only decides skip / run: a slow test that is still
-// pending adds the owner's TODO too, as {...TODO, ...slowOnly()}, and the owner removes TODO
-// when it passes, so with GRIDWATCH_SLOW=1 a real failure shows as a failure.
-export const SLOW = process.env.GRIDWATCH_SLOW === '1';
-export const slowOnly = () => ({skip: SLOW ? false : 'slow: set GRIDWATCH_SLOW=1 (npm run test:slow)'});
+// F-10 wants the whole `node --test` run under 60 s, and there is no slow tier (SPEC Q-40):
+// multi-seed statistics that need many whole days (S-12 over 200 seeds, H-8 over 1,000 states,
+// F-2 over 100 days) are measured on demand with tools/par.js and tools/baseline-v4.js; the
+// tests keep small samples. See CLAUDE.md.
 export const secondsToTicks = s => Math.round(s * TPS);
 export const ticksAt = (h, m = 0) => ((h - V.DAY_START_H) * 3600 + m * 60) * TPS;
 

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "test:changed": "node tools/test-changed.mjs",
+    "test:changed": "node tools/changed-tests.mjs",
     "baseline": "node tools/baseline.js",
     "golden": "node tools/baseline.js > tools/baseline.golden.md",
     "baseline:v4": "node tools/baseline-v4.js",

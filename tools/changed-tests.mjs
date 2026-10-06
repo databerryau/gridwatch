@@ -1,10 +1,10 @@
-// tools/test-changed.mjs: run only the test files a change can affect (the fast inner loop).
+// tools/changed-tests.mjs: run only the test files a change can affect (the fast inner loop).
 //
-//   node tools/test-changed.mjs                 # tests affected by this branch + uncommitted work
-//   node tools/test-changed.mjs --list          # print them, run nothing
-//   node tools/test-changed.mjs --base HEAD     # only uncommitted work
-//   node tools/test-changed.mjs app/game.js     # tests affected by these files
-//   node tools/test-changed.mjs -- --test-name-pattern=K-9   # anything after -- goes to node --test
+//   node tools/changed-tests.mjs                 # tests affected by this branch + uncommitted work
+//   node tools/changed-tests.mjs --list          # print them, run nothing
+//   node tools/changed-tests.mjs --base HEAD     # only uncommitted work
+//   node tools/changed-tests.mjs app/game.js     # tests affected by these files
+//   node tools/changed-tests.mjs -- --test-name-pattern=K-9   # anything after -- goes to node --test
 //
 // "Changed" = the files that differ from the merge base with main (committed or not) plus
 // untracked files, or the files named on the command line. A test file is picked when it
@@ -106,8 +106,8 @@ const picked = tests.filter(t => {
   return changed.some(f => c.all || c.files.has(f) || [...c.prefixes].some(p => f.startsWith(p)));
 });
 
-if (!changed.length) { console.log('test-changed: nothing has changed against main; nothing to run.'); process.exit(0); }
-console.log('test-changed: ' + changed.length + ' changed file(s) -> ' + picked.length + ' of ' + tests.length + ' test files');
+if (!changed.length) { console.log('changed-tests: nothing has changed against main; nothing to run.'); process.exit(0); }
+console.log('changed-tests: ' + changed.length + ' changed file(s) -> ' + picked.length + ' of ' + tests.length + ' test files');
 if (list || !picked.length) {
   for (const t of picked) console.log('  ' + t);
   if (!picked.length) console.log('  (no test depends on the changed files)');
