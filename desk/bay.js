@@ -131,7 +131,8 @@ export function createBay(ctx, parent) {
       list.appendChild(b);
       readyBtns.set(u.id, b);
     }
-    if (!ready.length) list.appendChild(el(doc, 'div', 'dk-empty', 'No unit at full speed.'));
+    if (!ready.length) list.appendChild(el(doc, 'div', 'dk-empty', 'START a unit on the lever bank: at full speed it waits here, ' +
+      (vm.obs.mode === 'AGC' ? 'and AGC closes its breaker itself in ' + V.AUTO_SYNC_S / 60 + ' min.' : 'for you to close.')));
   }
 
   function drawScope(u) {
@@ -169,7 +170,7 @@ export function createBay(ctx, parent) {
   function renderSync() {
     const o = vm.obs;
     const ready = o.units.filter(u => u.mode === 'ready');
-    const k = ready.map(u => u.id).join('|');
+    const k = o.mode + ':' + ready.map(u => u.id).join('|');
     if (k !== readyKey) { readyKey = k; buildReady(ready); }
     const su = scopeUnit();
     for (const u of ready) {
@@ -196,7 +197,7 @@ export function createBay(ctx, parent) {
         (Math.abs(s) > (V.SYNC_BLOCK_SLIP_HZ ?? 0.5) ? ', too fast: the sync-check relay blocks a close' : '') +
         '. Close just before 12 o\'clock (C), trim with [ and ], or U for AUTO.');
     } else {
-      setText(slip, su ? unitLabel(su) : 'Pick a unit');
+      setText(slip, su ? unitLabel(su) : ready.length ? 'Pick a unit' : 'No unit ready');
       setAttr(cv, 'aria-label', 'Synchroscope: no unit on the scope' + (ready.length ? '. O opens ' + unitLabel(ready[0].id) : ''));
     }
     const hand = o.mode === 'HAND';
