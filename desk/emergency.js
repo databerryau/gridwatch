@@ -101,7 +101,7 @@ export function createEmergency(ctx, keysParent, emergParent) {
   const doc = ctx.doc;
   let vm = null, wasHeld = false;
   const obs = () => vm.obs;
-  // U-10: notes go on the CONTROL column, never inside a key whose face is rewritten every frame
+  // U-10: notes go on the column, not in a key whose face is redrawn
   const keys = el(doc, 'div', 'dk-keys');
 
   // ---- K-2 AGC/HAND key (display; set at the briefing, locked from 04:30, D-7)
@@ -114,7 +114,7 @@ export function createEmergency(ctx, keysParent, emergParent) {
     if (obs().modeLocked) { ctx.note(keys, 'AGC/HAND is set at the briefing: locked for the day', 6000, 'info'); return; }
     if (!ctx.send({type: 'mode', agc: obs().mode !== 'AGC'}, agc)) ctx.cue('key', PAN.keys);
   });
-  // ---- A-1 RE-DISPATCH key: re-runs the pre-dispatch over the commitment you have now; lit while vm.held
+  // ---- A-1 RE-DISPATCH key: re-runs the pre-dispatch over the commitment you have now
   const redis = el(doc, 'button', 'dk-key dk-redispatch');
   redis.id = 'btn-redispatch'; redis.type = 'button';
   const redisGlyph = el(doc, 'span', 'dk-key-glyph', '⟳');
@@ -166,7 +166,7 @@ export function createEmergency(ctx, keysParent, emergParent) {
     setCls(agc, 'hand', !isAgc);
     setAttr(redis, 'aria-disabled', ctx.locked() ? 'true' : 'false');
     setCls(redis, 'glow', !!(vm.glow && vm.glow.has('btn-redispatch')));
-    // held by hand: HELD as well as amber (K-22), and a note when it starts
+    // held by hand: HELD, not amber alone (K-22); a note when it starts
     const held = !!vm.held;
     setCls(redis, 'lit', held);
     setText(redisGlyph, held ? '⟳ HELD' : '⟳');

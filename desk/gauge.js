@@ -89,8 +89,8 @@ export function createGauge(ctx, parent) {
       // The preview: the live one while T / the ring is turning, else the sim's cached one.
       const live = pv && Number.isFinite(pv.nadirHz);
       const nadir = live ? pv.nadirHz : fin(s.previewNadirHz, 50);
-      const need = SECURE_LINE_HZ + (live ? 0 : V.PREVIEW_AGE_MARGIN_HZ_S * fin(v.obs.s - s.previewAtS));
-      // under the sim's SECURE line (H-4; higher for an aged cached preview) but contained: amber
+      // under the sim's SECURE line (H-4; higher for a cached preview, by its age at the second the sim last judged) but contained: amber
+      const need = SECURE_LINE_HZ + (live ? 0 : V.PREVIEW_AGE_MARGIN_HZ_S * fin(Math.floor((v.obs.tick - 1) / V.TICKS_PER_S) - s.previewAtS));
       const needs = s.lKind !== 'none' && nadir >= V.SECURE_NADIR_HZ && nadir < need;
       const shown = hz2(needs ? Math.floor(nadir * 100) / 100 : nadir);
       const cls = s.lKind === 'none' ? 'good' : needs ? 'warn' : nadirClass(nadir);

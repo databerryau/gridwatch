@@ -2030,6 +2030,66 @@ test('K-3 (playtest): an armed guard takes its row; the row\'s other guard folds
   assert.deepEqual(m.actions.inputs.at(-1), {type: 'stop', unit: 'ccgt1'});
 });
 
+test('K-3 (playtest, last round): the folded guard leaves the Tab order, and Enter or a click on it presses its row\'s armed guard', () => {
+  const vm = playVm();
+  Object.assign(vm.obs.units.find(u => u.id === 'coal1'), {mode: 'ready', sync: false, timerS: 192});
+  const m = mount(at(vm, 1000)), $ = m.$, tab = id => $(id).getAttribute('tabindex');
+  const refusals = () => m.desk.el.querySelectorAll('.dk-note').filter(n => !n.hidden && !n.classList.contains('info')).map(n => n.textContent);
+  // S from GT·C 1's STOP (nothing to stop) arms its START: the STOP folds out of the Tab order (Tab from START? goes
+  // on to the next row, not to a guard with no width) but keeps the focus, so S S still commits from it
+  assert.deepEqual([tab('guard-start-gtc1'), tab('guard-stop-gtc1')], ['0', '0']);
+  $('guard-stop-gtc1').focus();
+  tap(m, 's');
+  assert.equal($('guard-start-gtc1').textContent, 'START?');
+  assert.deepEqual([tab('guard-start-gtc1'), tab('guard-stop-gtc1')], ['0', '-1']);
+  assert.equal(m.doc.activeElement.id, 'guard-stop-gtc1');
+  // Enter on it starts the unit: it presses the START? the row shows, not the hidden STOP (a red 'nothing to stop')
+  assert.equal(tap(m, 'Enter'), true);
+  assert.deepEqual(m.actions.inputs, [{type: 'start', unit: 'gtc1'}]);
+  assert.deepEqual(refusals(), []);
+  m.desk.update(at(vm, 1100));
+  assert.deepEqual([tab('guard-start-gtc1'), tab('guard-stop-gtc1')], ['0', '0'], 'the cover is down: both in the Tab order again');
+  // CANCEL? armed on a READY unit: Enter on its folded START cancels the start; it does not open the synchroscope
+  $('guard-stop-coal1').click();
+  assert.equal($('guard-stop-coal1').textContent, 'CANCEL?');
+  assert.equal(tab('guard-start-coal1'), '-1');
+  $('guard-start-coal1').focus();
+  tap(m, 'Enter');
+  assert.deepEqual(m.actions.inputs.at(-1), {type: 'stop', unit: 'coal1'});
+  assert.equal(inputsOf(m.actions, 'scope').length, 0);
+  // any other activation of the folded guard (Space on a focused button, a screen reader's click) is the same press
+  $('guard-stop-ccgt1').click();
+  assert.equal($('guard-stop-ccgt1').textContent, 'STOP?');
+  $('guard-start-ccgt1').click();
+  assert.deepEqual(m.actions.inputs.at(-1), {type: 'stop', unit: 'ccgt1'});
+  assert.deepEqual(refusals(), []);
+});
+
+test('K-3 (playtest, last round): a hydro unit unloaded because its water is spent offers no ABORT, and says why', () => {
+  const vm = playVm();
+  Object.assign(vm.obs.units.find(u => u.id === 'hydro1'), {mode: 'unloading', sync: true});
+  vm.obs.hydro.storageMWh = V.HYDRO_STOP_MWH;   // the sim's abortStop refuses at or below it: 'no water'
+  const {$, actions: a} = mount(at(vm, 1000)), gx = $('guard-stop-hydro1');
+  const dry = 'HYDRO 1 UNLOADING: no water to keep it on';
+  assert.equal(gx.textContent, '·', 'no ↺');
+  assert.equal(gx.getAttribute('title'), dry);
+  assert.equal(gx.getAttribute('aria-label'), 'HYDRO 1: no stop, no water to keep it on');
+  assert.equal(gx.getAttribute('aria-disabled'), 'true');
+  gx.click();
+  assert.equal(a.inputs.length, 0);
+  assert.equal(gx.parentElement.querySelector('.dk-note').textContent, dry);
+  // shut down and dry: the same; with water above the line, the one-press ABORT as before
+  Object.assign(vm.obs.units.find(u => u.id === 'hydro1'), {mode: 'shutdown'});
+  vm.obs.hydro.storageMWh = 0;
+  assert.equal(mount(at(vm, 1000)).$('guard-stop-hydro1').getAttribute('title'), 'HYDRO 1 SHUTDOWN: no water to keep it on');
+  vm.obs.hydro.storageMWh = V.HYDRO_STOP_MWH + 1;
+  const w = mount(at(vm, 1000)), wx = w.$('guard-stop-hydro1');
+  assert.equal(wx.textContent, '↺');
+  assert.equal(wx.getAttribute('title'), 'ABORT: one click puts HYDRO 1 back on');
+  wx.click();
+  assert.deepEqual(w.actions.inputs, [{type: 'abortStop', unit: 'hydro1'}]);
+});
+
 test('K-3 (playtest): one cover is up at a time, and a new day drops the cover and the commit lock', () => {
   const vm = playVm();
   Object.assign(vm.obs.units.find(u => u.id === 'gtc2'), {mode: 'off', sync: false, startBlock: '', stopBlock: 'unit is off'});
@@ -2182,6 +2242,15 @@ test('A-1 / L-6 (playtest): RE-DISPATCH lights while the levers are held by hand
   tr.dispatch('pointerup', {clientY: 80});
   assert.equal(m.actions.inputs.at(-1).mw, 100);
   assert.equal(note.textContent, 'START booked now: GT·A, ' + V.MACHINES.find(x => x.id === 'gta1').minMW + ' MW');
+  // ... and a drag above one machine's rating books that rating: 700 MW on an idle GT·B (2 × 400) is one 400-MW start
+  const vb = vmAt(EVE);
+  Object.assign(vb.obs.stations.find(s => s.id === 'gtb'), {onCount: 0, minMW: 0, maxMW: 0, basePointMW: 0, outMW: 0});
+  const mb = mount(at(vb, 1000)), tb = mb.$('lever-gtb');
+  tb.rect = {left: 0, top: 0, width: 28, height: 100};
+  tb.dispatch('pointerdown', {clientY: 12.5});
+  tb.dispatch('pointerup', {clientY: 12.5});
+  assert.deepEqual(mb.actions.inputs, [{type: 'planKey', station: 'gtb', atS: vb.obs.s, mw: 700}]);
+  assert.equal(slotOf(mb.$, 'gtb').querySelector('.dk-note.info').textContent, 'START booked now: GT·B, 400 MW');
 });
 
 test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why where it was made, by key, in the watch and on the AGC key', () => {
@@ -2203,9 +2272,27 @@ test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why whe
   tap(m, '1');
   assert.equal(tap(m, 's'), false);
   const coalNote = slotOf(m.$, 'coal').querySelector('.dk-note');
-  assert.equal(coalNote.textContent, 'nothing to start: all on');
+  assert.equal(coalNote.textContent, 'nothing to start: all running');
   assert.ok(coalNote.classList.contains('info'));
   assert.equal(m.actions.inputs.length, 0);
+  // the list is long: it stays 5 s, not the 2.5 s of a refusal
+  m.desk.update(at(coal, 1000 + 4900));
+  assert.ok(!coalNote.hidden, 'still shown at 4.9 s');
+  m.desk.update(at(coal, 1000 + 5100));
+  assert.ok(coalNote.hidden);
+  // a READY unit is not 'nothing to start': O or its START opens the synchroscope
+  const rdy = playVm();
+  Object.assign(rdy.obs.units.find(u => u.id === 'gtc1'), {mode: 'ready', sync: false, timerS: 192});
+  Object.assign(rdy.obs.units.find(u => u.id === 'gtc2'), {mode: 'on', sync: true, stopBlock: ''});
+  const r = mount(at(rdy, 1000));
+  tap(r, '5');
+  assert.equal(tap(r, 's'), false);
+  assert.equal(slotOf(r.$, 'gtc').querySelector('.dk-note').textContent, 'nothing to start: all running');
+  Object.assign(rdy.obs.units.find(u => u.id === 'gtc2'), {mode: 'starting', sync: false, timerS: 300});
+  r.desk.update(at(rdy, 1100));
+  tap(r, 's');
+  assert.equal(slotOf(r.$, 'gtc').querySelector('.dk-note').textContent, 'nothing to start: GT·C 2 STARTING: full speed in 5:00');
+  assert.equal(r.actions.inputs.length, 0);
   // S S starts GT·C 1, and the third S finds it under way and GT·C 2 held off: it names them, in blue
   const gt = playVm();
   Object.assign(gt.obs.units.find(u => u.id === 'gtc2'), {mode: 'off', sync: false, startBlock: 'minimum down time: 29 min left'});
@@ -2289,11 +2376,13 @@ test('K-4 to K-6, K-9, K-12 (playtest): the readouts say what they are in words'
 });
 
 test('K-10 (playtest): the TRIP PREVIEW ticks only where the sim says SECURE; below that line, contained, it says what it needs', () => {
-  // age: grid seconds since the sim ran its cached preview (sec.previewAtS)
+  // age: grid seconds from the sim's cached preview (sec.previewAtS) to the second it last judged. securitySecond
+  // runs in the step that starts a grid second, so at obs.tick (ticks done) that is floor((tick - 1) / TPS).
+  const judged = tick => Math.floor((tick - 1) / TPS);
   const m = mount(at(vmAt(EVE), 1000)), g = m.$('gauge-n1'), ptext = g.querySelector('.dk-ptext');
   const pv = (hz, age = 0, over) => {
     const v = vmAt(EVE, over);
-    Object.assign(v.obs.sec, {previewNadirHz: hz, lKind: 'unit', previewAtS: v.obs.s - age});
+    Object.assign(v.obs.sec, {previewNadirHz: hz, lKind: 'unit', previewAtS: judged(v.obs.tick) - age});
     m.desk.update(at(v, 1000));
     return ptext;
   };
@@ -2310,16 +2399,39 @@ test('K-10 (playtest): the TRIP PREVIEW ticks only where the sim says SECURE; be
   // a cached preview must clear the line by PREVIEW_AGE_MARGIN_HZ_S more per grid second of its age, as SECURE does
   assert.equal(pv(49.558, 10).textContent, '! 49.55<49.56 Hz');
   assert.match(pv(49.56, 10).textContent, /^✓ 49.56 Hz · U/);
-  // the sim's own verdict: with R5 plenty (DAY.state), the preview alone decides SECURE / TIGHT, and the tick agrees
+  // the line it names is rounded up, so an odd thousandth never prints the line as its own figure ('49.55<49.55')
+  assert.equal(pv(49.551, 2).textContent, '! 49.55<49.56 Hz');
+  // the tooltip's green line is the aged one too
+  assert.match(pv(49.6, 10).getAttribute('title'), /Green ≥ 49\.56, amber/);
+  assert.match(pv(49.6, 0).getAttribute('title'), /Green ≥ 49\.55, amber/);
+  // the live preview (T, the ring turning) is run now: no age margin, however old the cached one is
+  assert.equal(pv(49.0, 30, {previewGuardMW: 250}).textContent, '✓ 49.55 Hz @ GUARD 250');
+  // the sim's own verdict: with R5 plenty (DAY.state), the preview alone decides SECURE / TIGHT, and the tick agrees,
+  // both at the tick that starts a grid second (not judged yet) and one tick into it
   // (the gauge on its own here, over one vm, to keep the sweep fast)
   const doc = makeDocument(), solo = createGauge({doc, note() {}, cue() {}, ui() {}}, doc.body), v = vmAt(EVE), sec = v.obs.sec;
-  for (const age of [0, 5, 10, 30, 60]) for (let hz = 49.5; hz < 49.62; hz += 0.003) {
+  const tick0 = v.obs.tick, face = () => solo.el.querySelector('.dk-ptext').textContent;
+  assert.equal(tick0 % TPS, 0, 'the fixture sits on a second\'s first tick');
+  for (const tick of [tick0, tick0 + 1]) for (const age of [0, 5, 10, 30, 60]) for (let hz = 49.5; hz < 49.62; hz += 0.003) {
     const level = security(DAY.state, {previewUnitHz: hz, previewLinkHz: hz, previewAgeS: age}).level;
     assert.ok(level === 'SECURE' || level === 'TIGHT');
-    Object.assign(sec, {previewNadirHz: hz, lKind: 'unit', previewAtS: v.obs.s - age, level});
+    v.obs.tick = tick;
+    Object.assign(sec, {previewNadirHz: hz, lKind: 'unit', previewAtS: judged(tick) - age, level});
     solo.update(v, null);
-    assert.equal(solo.el.querySelector('.dk-ptext').textContent[0] === CLASS_GLYPH.good, level === 'SECURE', hz.toFixed(3) + ' Hz, ' + age + ' s old: ' + level);
+    assert.equal(face()[0] === CLASS_GLYPH.good, level === 'SECURE', hz.toFixed(3) + ' Hz, ' + age + ' s old at tick ' + tick + ': ' + level);
   }
+  // at a second's first tick obs.s has moved on but the level is still the last second's: the face uses that second's
+  // age (9 s here), never one tick stricter than SECURE; a tick later the sim has judged 10 s and the face follows
+  const judgedAs = age => security(DAY.state, {previewUnitHz: 49.5595, previewLinkHz: 49.5595, previewAgeS: age}).level;
+  assert.deepEqual([judgedAs(9), judgedAs(10)], ['SECURE', 'TIGHT']);
+  v.obs.tick = tick0;
+  Object.assign(sec, {previewNadirHz: 49.5595, lKind: 'unit', previewAtS: v.obs.s - 10, level: 'SECURE'});
+  solo.update(v, null);
+  assert.match(face(), /^✓ 49.56 Hz · U/);
+  v.obs.tick = tick0 + 1;
+  Object.assign(sec, {level: 'TIGHT'});
+  solo.update(v, null);
+  assert.equal(face(), '! 49.55<49.56 Hz');
   // the line fits the 1280 floor: 155 px beside 'T PREVIEW ●' is 29 characters of 9-px mono (checked in a browser).
   // The longest form, the ring turning (the mock's preview: 49.3 Hz + guard / 1000), keeps its GUARD figure.
   const turning = pv(49.3, 0, {previewGuardMW: 235}).textContent;

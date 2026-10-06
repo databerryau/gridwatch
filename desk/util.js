@@ -114,8 +114,8 @@ export const CLASS_GLYPH = Object.freeze({good: '✓', warn: '!', crit: '✕'});
 // ---------------------------------------------------------------- guards and holds (K-3, K-7)
 
 export const GUARD_MS = 2000;         // K-3: S S / X X within 2 s
-export const GUARD_CLICK_MS = 5000;   // K-3: a press on the guard itself, then again within 5 s
-export const COMMIT_LOCK_MS = 1000;   // K-3: no press on that unit's guards for 1 s after a commit
+export const GUARD_CLICK_MS = 5000;   // K-3: click, click again within 5 s
+export const COMMIT_LOCK_MS = 1000;   // K-3: a unit's guards rest 1 s after a commit
 export const HOLD_MS = 600;           // K-7: emergency controls commit only after a 0.6-s hold
 
 /**

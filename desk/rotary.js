@@ -285,7 +285,7 @@ export function createBatteryDial(ctx, parent) {
   const arc = el(doc, 'div', 'dk-batt-arc');
   face.append(ring.knob, arc, dial.knob);
   const read = el(doc, 'div', 'dk-rot-read');
-  read.title = 'Your order (CHG / IDLE / DIS), then OUT: what the battery does now, MW (+ discharging, − charging; AGC trims it)';
+  read.title = 'Your order (CHG / IDLE / DIS), then OUT: what the battery does now, MW (− charging; AGC trims it)';
   const lamps = el(doc, 'div', 'dk-lamps');
   const ffr = el(doc, 'span', 'dk-lamp dk-ffr'), full = el(doc, 'span', 'dk-lamp dk-full');
   lamps.append(ffr);
