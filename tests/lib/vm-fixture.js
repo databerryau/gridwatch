@@ -54,8 +54,17 @@ export function baseVm(obs, over) {
   return Object.assign(vm, over || {});
 }
 
+// The par days dayVm has run in this process, by seed, hour and proxy: the state at untilH
+// before any trip, as JSON. Every dayVm call parses its own copy, so a test that runs (seed 7,
+// 18:30) with and without the trip pays for the par day once. (A JSON copy, not structuredClone:
+// the state is plain JSON (F-2), and a structuredClone'd state steps about twice as slowly in
+// V8: 2.3 s against 1.2 s for DESK seed 8 from 08:00 to 21:00, measured 2026-10-07.)
+const PAR_DAYS = new Map();
+
 /**
  * Run a real day with par to `untilH` (hour of the unwrapped day, 4..28) and return its view.
+ * The par day is run once per process for each (seed, untilH, proxy) and each call gets its
+ * own copy of it, so callers may mutate what they get.
  * @param {{seed?:number, untilH?:number, proxy?:string, trip?:boolean}} [o] trip: trip the
  *   largest unit at untilH and return a view 2 grid-s into the watch (conts filled).
  */
@@ -65,8 +74,13 @@ export async function dayVm(o = {}) {
   const {CLASSIC} = await import('../../content/scenarios.js');
   const fleet = await import('../../sim/fleet.js');
   const seed = o.seed ?? 7, untilTick = Math.round(((o.untilH ?? 18.5) - V.DAY_START_H) * 3600 * V.TICKS_PER_S);
-  const state = createState(seed, CLASSIC);
-  AP.runPar(seed, CLASSIC, {state, proxy: o.proxy || 'par', untilTick});
+  const proxy = o.proxy || 'par', key = seed + '|' + untilTick + '|' + proxy;
+  if (!PAR_DAYS.has(key)) {
+    const day = createState(seed, CLASSIC);
+    AP.runPar(seed, CLASSIC, {state: day, proxy, untilTick});
+    PAR_DAYS.set(key, JSON.stringify(day));
+  }
+  const state = JSON.parse(PAR_DAYS.get(key));
   if (o.trip) {
     let best = -1;
     for (let i = 0; i < state.units.length; i++) if (state.units[i].sync && (best < 0 || state.units[i].outMW > state.units[best].outMW)) best = i;

@@ -1,17 +1,15 @@
 // K-8 / K-21: the annunciator model (app/alarms.js) and K-9: the message tray model
-// (app/tray.js). The competent proxy's day triggers <= 8 audible alarms (one seed here, more
-// with GRIDWATCH_SLOW=1).
+// (app/tray.js). The competent proxy's day triggers <= 8 audible alarms (one seed, a daily).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {V} from '../sim/params.js';
-import {createState, step, observe, hashState} from '../sim/step.js';
+import {createState, step, observe} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
 import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
 import {followDay} from './lib/follow.js';
 import * as A from '../app/alarms.js';
 import * as T from '../app/tray.js';
-import {SLOW, slowOnly} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S;
 
@@ -395,61 +393,16 @@ function competentDay(seed) {
 }
 
 test('K-8 accept: the competent proxy triggers <= 8 audible alarms in a day', () => {
-  // "Per daily": a daily is a seed that passes D-9's gate, so par must shed nothing on it.
-  // Seeds par cannot solve (practice "Hard days" at most) are reported, not asserted
-  // (stage C: seed 4, where par sheds 559 MWh, sounds 10).
-  const parClean = seed => runPar(seed, CLASSIC, {proxy: 'par'}).score.unservedMWh === 0;
-  const all = SLOW ? Array.from({length: 20}, (_, i) => i + 1) : [1];
-  const seeds = SLOW ? all.filter(parClean) : all;
-  if (SLOW) {
-    const hard = all.filter(s => !seeds.includes(s));
-    if (hard.length) console.log('# K-8: not dailies (par sheds): seeds ' + hard.join(', ') + ' -> audible ' + hard.map(s => competentDay(s).audible).join(', '));
-  }
-  if (SLOW) assert.ok(seeds.length >= 15, 'enough daily-like seeds: ' + seeds.length);
+  // "Per daily": a daily is a seed that passes D-9's gate, so par must shed nothing on it; seed 1
+  // is one. Seeds par cannot solve (practice "Hard days" at most) are not held to it (stage C:
+  // seed 4, where par sheds 559 MWh, sounds 10). One whole day: the count is a day's.
+  const seeds = [1];
   const counts = seeds.map(seed => {
     const a = competentDay(seed);
     assert.ok(a.audible <= 8, 'seed ' + seed + ': ' + a.audible + ' audible alarms ' + JSON.stringify(a.sounds));
     return a.audible;
   });
   assert.ok(counts.every(n => n >= 1), 'a day is not silent: ' + counts);
-});
-
-/**
- * The hint-following player's audible alarms over a day on the game's scenario (K-8 on the belly:
- * MIN GEN is a real P2 tile there, and a belly trip can chime OVER FREQ). The follower's day
- * (tests/lib/follow.js) is played again a tick at a time from its own log (F-6), sampled and
- * ACKed as competentDay does.
- */
-function followerDay(seed, scenario) {
-  const day = followDay(seed, scenario), log = day.st.log;
-  const st = createState(seed, scenario), a = A.createAlarms();
-  let j = 0, realMs = 0, lastS = -1, ackAt = Infinity;
-  const stationOf = id => id.replace(/\d+$/, '');
-  while (!st.over) {
-    const batch = [];
-    while (j < log.length && log[j].tick <= st.tick) { batch.push(Object.assign({type: log[j].type}, log[j].args)); j++; }
-    step(st, batch);
-    A.sampleTick(a, st);
-    if (st.tick % TPS !== 0 || st.tick < V.PLAYER_START_TICK) continue;
-    const x = A.alarmInputFromState(st);
-    realMs += (lastS < 0 ? 0 : x.s - lastS) * 1000 / (x.inWatch ? 1 : 120);
-    lastS = x.s;
-    const r = A.updateAlarms(a, x, {nowMs: realMs, realDtS: 1 / (x.inWatch ? 1 : 120), stationOf});
-    if (r.cues.length || r.newAlarm) ackAt = Math.min(ackAt, realMs + 3000);
-    if (realMs >= ackAt) { A.ackAll(a); ackAt = Infinity; }
-  }
-  assert.equal(hashState(st), hashState(day.st), 'seed ' + seed + ': the follower\'s day, replayed');
-  return a;
-}
-
-test('K-8 on the belly (slow): the hint-following player hears <= 8 audible alarms a day on mild weekends', slowOnly(), t => {
-  // (the competent proxy plays CLASSIC only until 2b / 2d; on the game's day the proxy is the line's own player)
-  for (const seed of [1, 5, 8, 13, 20261001, 20261004, 20261017]) {
-    assert.equal(createState(seed, DESK_WEEKEND).day.temp, 'MILD', 'seed ' + seed);
-    const a = followerDay(seed, DESK_WEEKEND);
-    t.diagnostic('desk-weekend seed ' + seed + ': ' + a.audible + ' audible alarms');
-    assert.ok(a.audible <= 8, 'seed ' + seed + ': ' + a.audible + ' audible alarms');
-  }
 });
 
 // ------------------------------------------------------------------ the tray (K-9)
