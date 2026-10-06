@@ -46,12 +46,13 @@ const unit = (obs, id) => obs.units.find(u => u.id === id);
 const MILD_SEED = 8;
 let morningRun = null;
 /**
- * DESK seed 8 (a MILD weekday) followed to 13:00: every line the follower read, and a copy of
- * the observation behind the first line of each kind the unit tests poke.
+ * DESK seed 8 (a MILD weekday) followed to 13:00: every line the follower read, a copy of the
+ * observation behind the first line of each kind the unit tests poke, and (C-10) what every
+ * guarded START and STOP press would say, once each half hour, on the observation the line read.
  */
 function morning() {
   if (morningRun) return morningRun;
-  const lines = [], keep = {};
+  const lines = [], keep = {}, sweep = [];
   const first = (name, obs) => { if (!keep[name]) keep[name] = copy(obs); };
   const rec = (obs, ctx) => {
     const x = objective(obs, ctx);
@@ -63,8 +64,16 @@ function morning() {
     if (x.kind === 'spare' && x.action && x.action.type === 'guard') first('guard', obs);
     return x;
   };
-  const day = followDay(MILD_SEED, DESK, {untilH: 13, objective: rec});
-  morningRun = {day, lines, keep};
+  // (follow is on, so the hook is handed the minute's own observation: no extra observe())
+  const onMinute = (st, obs) => {
+    if (obs.s % 1800 >= 60) return;
+    for (const u of obs.units) for (const g of ['guard-start-', 'guard-stop-']) {
+      const c = consequence(obs, g + u.id, {dayAhead: obs.dayAhead, planview: PV});
+      if (c) sweep.push({s: obs.s, target: g + u.id, text: c.text});
+    }
+  };
+  const day = followDay(MILD_SEED, DESK, {untilH: 13, objective: rec, onMinute});
+  morningRun = {day, lines, keep, sweep};
   return morningRun;
 }
 
@@ -1075,6 +1084,17 @@ test('steady: a line whose deadline or figure moves while it asks for the same t
 });
 
 // ------------------------------------------------------------------ consequence(): what a press would do (C-10)
+
+test('C-10 consequence on a real morning: every guarded START and STOP press, each half hour of the followed MILD morning, is one line of plain words', () => {
+  const {sweep} = morning();
+  assert.ok(sweep.length >= 100, 'presses read: ' + sweep.length);
+  for (const x of sweep) {
+    const tag = at(x.s) + ' ' + x.target;
+    assert.ok(x.text.length <= O.LINE_MAX_CHARS, tag + ': one line (' + x.text.length + '): ' + x.text);
+    assert.doesNotMatch(x.text, /undefined|NaN|Infinity/, tag + ': ' + x.text);
+    assert.doesNotMatch(x.text, /-\d{1,2}:\d{2}/, tag + ': a negative clock time: ' + x.text);
+  }
+});
 
 test('C-10 consequence: START says when the unit is at minimum load and how long it must run, from the machine\'s own times', () => {
   const obs = morning().keep.stop, ctx = {dayAhead: obs.dayAhead, planview: PV};
