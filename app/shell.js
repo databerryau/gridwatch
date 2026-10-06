@@ -30,6 +30,7 @@ import {createAudio} from '../audio/audio.js';
 import {TEXT} from '../content/text.js';
 import {badgeText, lightsText, centsText, co2Text, clockText} from '../render/format.js';
 import {BEATS} from './watch.js';
+import {modeOf} from './director.js';
 
 /** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
 export function layoutSizes(width, height) {
@@ -39,6 +40,11 @@ export function layoutSizes(width, height) {
 }
 
 const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNORS', ufls: 'UFLS', settle: 'SETTLE'};
+// Why F did nothing, by mode (the director's setFast refuses these).
+const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
+  RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you sync or relight'};
+/** The CRT switch's title and answer while REDUCED EFFECTS is on (it is greyed). */
+export const CRT_OFF = 'CRT is off while REDUCED EFFECTS is on';
 
 // ------------------------------------------------------------------ the objective line's word (Q-18, C-10)
 
@@ -188,7 +194,9 @@ export function bootGame(doc, deps) {
     input: x => { const r = base.input(x); if (r) showToast('Refused: ' + r); return r; },
     redispatch: () => { const r = base.redispatch(); if (r) showToast('RE-DISPATCH: ' + r); return r; },
     ui: cmd => {
+      const inTray = cmd && cmd.do === 'tray' && $('tray') && $('tray').contains(doc.activeElement);
       const r = base.ui(cmd);
+      if (cmd) answer(cmd, r, inTray);
       if (cmd && cmd.do === 'focus' && cmd.target) focusEl(cmd.target);
       if (cmd && (cmd.do === 'drawer')) drawDrawer();
       if (cmd && (cmd.do === 'settings' || cmd.do === 'set' || cmd.do === 'mute')) drawSettings(G.settingsView(game), game.ui.settingsOpen);
@@ -197,6 +205,25 @@ export function bootGame(doc, deps) {
     previewTrip: opts => base.previewTrip(opts),
     restorePreview: id => base.restorePreview(id),
   };
+
+  // Every press answers (Q-41): a shell press that did nothing says why, in blue (help, never red).
+  const held = () => game.phase === 'briefing' ? 'Take the desk first: Enter. Then Space runs the clock.'
+    : 'Day over: PLAY THIS DAY AGAIN for another go';
+  function answer(cmd, r, inTray) {
+    const m = modeOf(game.director, game.state), say = s => showToast(s, 'info');
+    if (cmd.do === 'pause' && r) say(held());
+    if (cmd.do === 'fast' && cmd.on) {
+      if (r) say('FAST waits: ' + (FAST_WAIT[m.mode] || 'not now') + (m.canSkip ? ' (Esc skips)' : ''));
+      else if (game.phase !== 'play' || game.state.over) say(held());
+      else if (m.mode === 'PAUSE') say('FAST needs the clock running: Space');
+    }
+    if (cmd.do === 'skipWatch' && r && m.mode === 'WATCH') say('The first watch plays through: Esc skips from the next trip');
+    // M: onto the tray's newest message; M again (the keys in the tray): its LOG opens or closes.
+    if (cmd.do === 'tray') {
+      const log = $('btn-log');
+      if (inTray && log) { log.click(); log.focus(); } else if (mods.desk && mods.desk.focus) mods.desk.focus('tray');
+    }
+  }
 
   function focusEl(id) {
     let el = $(id);
@@ -479,6 +506,7 @@ export function bootGame(doc, deps) {
       doc.body.appendChild(a);
       a.click();
       setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
+      showToast('Saved to your downloads: ' + name, 'info');
     } catch (e) {
       showToast('Download failed: ' + (e && e.message ? e.message : e));
     }
@@ -518,8 +546,12 @@ export function bootGame(doc, deps) {
       const el = $(SET_CHECKS[k]);
       if (el && el.checked !== st[k]) el.checked = st[k];
     }
-    const crt = $(SET_CHECKS.crt);
-    if (crt && crt.disabled !== st.reducedEffects) crt.disabled = st.reducedEffects; // reduced effects has no CRT
+    // Reduced effects has no CRT: the switch greys and its row says why (hover, click).
+    const crt = $(SET_CHECKS.crt), row = crt && crt.parentElement;
+    if (crt && crt.disabled !== st.reducedEffects) {
+      crt.disabled = st.reducedEffects;
+      if (row) { row.classList.toggle('off', st.reducedEffects); row.title = st.reducedEffects ? CRT_OFF : ''; }
+    }
     const mute = $('btn-mute');
     if (mute) {
       setText('btn-mute', st.muted ? 'SOUND OFF' : 'SOUND ON');
@@ -541,6 +573,8 @@ export function bootGame(doc, deps) {
     on(SET_RANGES[k], 'change', send);
   }
   for (const k of Object.keys(SET_CHECKS)) on(SET_CHECKS[k], 'change', ev => actions.ui({do: 'set', key: k, value: !!ev.target.checked}));
+  const crtRow = $(SET_CHECKS.crt) && $(SET_CHECKS.crt).parentElement;
+  if (crtRow) crtRow.addEventListener('click', () => { if ($(SET_CHECKS.crt).disabled) showToast(CRT_OFF, 'info'); });
   on('btn-settings', 'click', () => actions.ui({do: 'settings'}));
   drawSettings(G.settingsView(game), false);
 
