@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {readFileSync, readdirSync, statSync, existsSync} from 'node:fs';
 import {join, relative} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-import {V} from '../sim/params.js';
+import {V, SIM_VERSION} from '../sim/params.js';
 import {hashState, observe} from '../sim/step.js';
 import {CLASSIC, DESK} from '../content/scenarios.js';
 import {makeDocument, installGlobals} from './lib/dom.js';
@@ -279,6 +279,23 @@ test('K-23 Tab with the real map: the first Tab puts the keyboard on the map\'s 
   assert.ok(p.vm().hover, '→ on the map picks a plant');
 });
 
+test('K-23 M with the real desk: every press shows something: M puts the keys on the tray, M again opens its LOG, again closes it; a held M acts once', async () => {
+  const {openGame} = await import('./lib/play.js');
+  const p = openGame({seed: 7});
+  const tray = p.$('tray'), log = p.$('btn-log');
+  assert.ok(!tray.contains(p.doc.activeElement));
+  p.key('m');
+  assert.ok(tray.contains(p.doc.activeElement), 'M: the keyboard is on the tray');
+  assert.equal(log.getAttribute('aria-pressed'), 'false');
+  p.key('m');
+  assert.deepEqual([log.getAttribute('aria-pressed'), log.textContent, p.doc.activeElement], ['true', 'LOG ▾', log], 'M again: the LOG opens');
+  p.keyDown('m', {repeat: true}).frame();
+  assert.equal(log.getAttribute('aria-pressed'), 'true', 'a key repeat is not a press');
+  p.key('m');
+  assert.deepEqual([log.getAttribute('aria-pressed'), log.textContent], ['false', 'LOG'], 'and closes');
+  assert.equal(K.keyDown(K.createKeys(), {key: 'm', repeat: true}, p.vm(), 0), null);
+});
+
 test('K-23 key map (pure): S S / X X guarded, arrows and detents on the focused lever, the scope keys, D / E holds', () => {
   const game = G.createGame({seed: 7, storage: null});
   G.takeDesk(game);
@@ -425,6 +442,51 @@ test('C-4 / F-5: the briefing says where START is and that Space pauses; a click
   $('rate-text').click();   // the text inside it
   frames(1);
   assert.equal(h.vm().mode.mode, 'CRUISE');
+});
+
+test('Q-41 via the shell: a shell press that did nothing answers in a blue toast (Space / the rate badge at the briefing and DAY OVER, F once a press, Esc in the first watch); the download names its file; a refusal stays red', () => {
+  const {$, h, frames, key, keyUp} = boot('?seed=3');
+  const game = h.game;
+  const toast = () => ($('toast').hidden ? null : [$('toast').className === 'info' ? 'blue' : 'RED', $('toast').textContent]);
+  const press = act => { $('toast').hidden = true; act(); frames(1); return toast(); };
+  const BRIEF = ['blue', 'Take the desk first: Enter. Then Space runs the clock.'];
+  frames(1);
+  assert.deepEqual(press(() => key(' ')), BRIEF, 'Space behind the briefing');
+  assert.deepEqual(press(() => $('rate-badge').click()), BRIEF, 'the rate badge behind the briefing');
+  assert.deepEqual(press(() => { key('f'); keyUp('f'); }), BRIEF, 'F behind the briefing');
+  assert.equal(game.phase, 'briefing');
+  // The first full watch: Esc and F say why nothing happened; the watch plays on.
+  game.phase = 'play'; game.director.paused = false; // the desk at 04:00, running
+  injectTrip(game.state, Math.floor(game.state.tick / TPS) + 1);
+  G.runTo(game, game.state.tick + 3 * TPS);
+  frames(1);
+  assert.deepEqual([h.vm().mode.mode, h.vm().mode.canSkip], ['WATCH', false]);
+  assert.deepEqual(press(() => key('Escape')), ['blue', 'The first watch plays through: Esc skips from the next trip']);
+  assert.equal(h.vm().mode.mode, 'WATCH', 'not skipped');
+  assert.deepEqual(press(() => key('f')), ['blue', 'FAST waits: the watch plays the trip in slow motion']);
+  assert.equal(press(() => key('f', {repeat: true})), null, 'once a press, not per key repeat');
+  keyUp('f');
+  G.runTo(game, game.state.tick + V.WATCH_S * TPS);
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'RESPOND-CARD');
+  assert.deepEqual(press(() => { key('f'); keyUp('f'); }), ['blue', 'FAST waits: read the card, then Enter']);
+  key('Enter');
+  game.director.focusUntilTick = game.state.tick + 60 * TPS; // FOCUS (a scope open, or a district relit)
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'FOCUS');
+  assert.deepEqual(press(() => { key('f'); keyUp('f'); }), ['blue', 'FAST waits: the clock runs 1× while you SYNC or RESTORE']);
+  // DAY OVER: Space and the badge point at PLAY THIS DAY AGAIN; the download says where it went.
+  game.state.over = true;
+  frames(1);
+  const OVER = ['blue', 'Day over: PLAY THIS DAY AGAIN for another go'];
+  assert.deepEqual(press(() => key(' ')), OVER);
+  assert.deepEqual(press(() => $('rate-badge').click()), OVER);
+  const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
+  try {
+    assert.deepEqual(press(() => $('btn-save-log').click()), ['blue', 'Saved to your downloads: gridwatch-' + SIM_VERSION + '-seed-3.json']);
+  } finally { restore(); }
+  // A refusal from the grid stays red.
+  assert.equal(press(() => h.actions.input({type: 'tie', mw: 5000}))[0], 'RED');
 });
 
 test('K-9 via the shell: a tray button only focuses (the sim never changes)', () => {
