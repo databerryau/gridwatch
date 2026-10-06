@@ -2275,12 +2275,17 @@ test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why whe
   $('q-gauge').click();
   assert.ok($('gauge-n1').querySelector('.dk-note').classList.contains('info'), 'the gauge\'s ? is help');
   assert.match(CSS, /\.dk-note\.info \{ background: #0d2238; border-color: var\(--dk-blue\);/);
-  // a refusal keeps the red style
+  // Q-41: a '·' STOP with nothing to stop is help (blue, naming the unit); only the grid's own refusal keeps the red style
   $('guard-stop-gtc1').click();
-  const refusal = $('guard-stop-gtc1').parentElement.querySelector('.dk-note');
-  assert.equal(refusal.textContent, 'nothing to stop');
-  assert.ok(!refusal.classList.contains('info'));
+  const nothing = $('guard-stop-gtc1').parentElement.querySelector('.dk-note');
+  assert.equal(nothing.textContent, 'GT·C 1 OFF: nothing to stop');
+  assert.ok(nothing.classList.contains('info'));
   assert.equal(a.inputs.length, 0);
+  const rf = mount(at(playVm(), 1000), mockActions({refuse: () => 'no gas'}));
+  rf.$('guard-start-gtc1').click(); rf.$('guard-start-gtc1').click();
+  const refusal = rf.$('guard-start-gtc1').parentElement.querySelector('.dk-note');
+  assert.equal(refusal.textContent, '✕ no gas');
+  assert.ok(!refusal.classList.contains('info'));
   // S with nothing to start on the focused station: what each unit is doing, said on the lever as help (it may be
   // the S after an S S); the key is still not the desk's
   const coal = playVm();
@@ -2333,10 +2338,10 @@ test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why whe
   assert.equal(tap(g, 'x'), false);
   assert.equal(slotOf(g.$, 'gta').querySelector('.dk-note').textContent, 'nothing to stop: GT·A ON: minimum up time: 30 min left');
   assert.equal(g.actions.inputs.length, 1);
-  // the watch: a press on a guard says the desk is locked, and sends nothing
-  const w = mount(at(baseVm(clone(TRIP.obs), {mode: {mode: 'WATCH', rate: 0.15, watchS: 2, locked: true, watchVersion: 'full'}}), 1000));
+  // the watch: a press on a guard says the desk is locked (help: blue, ctx.lockNote), and sends nothing
+  const w = mount(at(baseVm(clone(TRIP.obs), {mode: {mode: 'WATCH', rate: 0.15, watchS: 2, locked: true, watchVersion: 'full', canSkip: true}}), 1000));
   w.$('guard-start-gtc1').click();
-  assert.match(w.$('guard-start-gtc1').parentElement.textContent, /desk locked while the grid catches itself \(Esc skips\)/);
+  assert.equal(w.$('guard-start-gtc1').parentElement.querySelector('.dk-note.info').textContent, 'desk locked while the grid catches itself (Esc skips)');
   assert.equal(w.actions.inputs.length, 0);
   // the AGC key, locked for the day: its note is on the CONTROL column and survives the next frame
   const v = vmAt(EVE);
@@ -2454,4 +2459,218 @@ test('K-10 (playtest): the TRIP PREVIEW ticks only where the sim says SECURE; be
   const turning = pv(49.3, 0, {previewGuardMW: 235}).textContent;
   assert.equal(turning, '! 49.53<49.55 Hz @ GUARD 235');
   assert.ok(turning.length <= 28);
+});
+
+// ---------------------------------------------------------------- every press answers (SPEC Q-41): help is blue, red only for the grid's refusal
+
+/** The note a press left on `host` (its own, not a child control's): 'blue …' (help), 'RED …' (a refusal) or ''. */
+const noteOn = host => {
+  const n = host.children.find(c => c.classList && c.classList.contains('dk-note'));
+  return n && !n.hidden ? (n.classList.contains('info') ? 'blue ' : 'RED ') + n.textContent : '';
+};
+
+test('Q-41: a guard with nothing to do says in blue what the unit is doing and what to press instead', () => {
+  const vm = playVm();
+  const set = (id, x) => Object.assign(vm.obs.units.find(u => u.id === id), x);
+  set('gtc2', {mode: 'off', sync: false, startBlock: 'minimum down time: 29 min left'});
+  set('gtb1', {mode: 'starting', sync: false, timerS: 300});
+  set('gtb2', {mode: 'unloading', sync: true});
+  set('gta1', {mode: 'tripped', sync: false, timerS: 90});
+  set('hydro1', {mode: 'on', sync: true, stopBlock: ''});
+  const {$, actions: a} = mount(at(vm, 1000));
+  const startOf = id => { $('guard-start-' + id).click(); return noteOn($('guard-start-' + id).parentElement); };
+  assert.equal(startOf('ccgt1'), 'blue CCGT 1 ON: its lever sets the MW');
+  assert.equal(startOf('hydro1'), 'blue HYDRO 1 ON: the wheel sets the MW');
+  assert.equal(startOf('gtb1'), 'blue GT·B 1 STARTING: full speed in 5:00');
+  assert.equal(startOf('gtb2'), 'blue GT·B 2 UNLOADING: ↺ puts it back on');
+  assert.equal(startOf('gta1'), 'blue GT·A TRIPPED: locked out 1:30, then START');
+  assert.equal(startOf('gtc2'), 'blue GT·C 2 OFF: minimum down time: 29 min left');
+  $('guard-stop-gtc1').click();
+  assert.equal(noteOn($('guard-stop-gtc1').parentElement), 'blue GT·C 1 OFF: nothing to stop');
+  assert.equal(a.inputs.length, 0);
+});
+
+test('Q-41: P and the MAN lamp answer in blue (a RESUME says so); an idle lever in HAND and a dry hydro wheel say what they need', () => {
+  // AGC: P on a focused lever (no MAN lamp in AGC); held by hand, it points at RE-DISPATCH
+  for (const [held, text] of [[false, 'AGC: levers follow the plan already'], [true, 'AGC: RE-DISPATCH (N) hands the levers back']]) {
+    const g = mount(at(vmAt(EVE, {held}), 1000));
+    tap(g, '2'); tap(g, 'p');
+    assert.equal(noteOn(slotOf(g.$, 'ccgt')), 'blue ' + text);
+    assert.equal(g.actions.inputs.length, 0);
+  }
+  // HAND: COAL off the plan (M), CCGT on it (P), GT·A with no machine on
+  const vm = vmAt(EVE);
+  vm.obs.mode = 'HAND';
+  vm.obs.plan.stations.find(p => p.id === 'coal').man = true;
+  Object.assign(vm.obs.stations.find(s => s.id === 'gta'), {onCount: 0, minMW: 0, maxMW: 0, basePointMW: 0, outMW: 0});
+  const {$, actions: a} = mount(at(vm, 1000));
+  $('man-ccgt').click();
+  assert.equal(noteOn(slotOf($, 'ccgt')), 'blue CCGT follows the plan: M lights once you move it');
+  $('man-coal').click();
+  assert.equal(noteOn(slotOf($, 'coal')), 'blue double-click or P: RESUME PLAN · Shift+P: KEEP');
+  $('man-coal').dispatch('dblclick');
+  assert.deepEqual(a.inputs, [{type: 'planRejoin', station: 'coal', keep: false}]);
+  assert.equal(noteOn(slotOf($, 'coal')), 'blue COAL back on the plan');
+  const tr = $('lever-gta');
+  tr.rect = {left: 0, top: 0, width: 28, height: 100};
+  tr.dispatch('pointerdown', {clientY: 40});
+  tr.dispatch('pointerup', {clientY: 40});
+  assert.equal(noteOn(slotOf($, 'gta')), 'blue no machine on: START one first (S S)');
+  assert.equal(a.inputs.length, 1);
+  // the hydro wheel with no machine on: a turn, a key or a scroll says so (the key stops at the wheel)
+  const hv = vmAt(EVE);
+  Object.assign(hv.obs.stations.find(s => s.id === 'hydro'), {onCount: 0, minMW: 0, maxMW: 0, basePointMW: 0, outMW: 0});
+  const w = mount(at(hv, 1000)), box = w.$('wheel-hydro').closest('.dk-rot');
+  tap(w, '6');
+  assert.equal(tap(w, 'ArrowRight'), true);
+  assert.equal(noteOn(box), 'blue no hydro machine on: START one (S S)');
+  w.desk.update(at(hv, 4000));
+  w.$('wheel-hydro').dispatch('wheel', {deltaY: -1});
+  assert.equal(noteOn(box), 'blue no hydro machine on: START one (S S)');
+  assert.equal(w.actions.inputs.length, 0);
+});
+
+test('Q-41: in the watch every lever, guard, MAN lamp and rotary press or key answers with the lock note (blue); nothing is sent and the key goes no further', () => {
+  const lockVm = canSkip => {
+    const v = baseVm(clone(TRIP.obs), {mode: {mode: 'WATCH', rate: 0.15, watchS: 2, locked: true, watchVersion: 'full', canSkip}});
+    v.obs.mode = 'HAND';
+    return v;
+  };
+  const LOCK = 'blue desk locked while the grid catches itself: watch this one';
+  const m = mount(at(lockVm(false), 1000)), {$} = m;
+  const rot = id => $(id).closest('.dk-rot'), lever = slotOf($, 'ccgt');
+  let t = 1000;
+  const fresh = () => { t += 3000; m.desk.update(at(lockVm(false), t)); };   // the last note has gone (NOTE_MS)
+  for (const [id, host] of [['guard-start-gtc1', $('guard-start-gtc1').parentElement], ['guard-stop-ccgt1', $('guard-stop-ccgt1').parentElement], ['man-ccgt', lever]]) {
+    fresh(); $(id).click();
+    assert.equal(noteOn(host), LOCK, id);
+  }
+  fresh(); $('man-ccgt').dispatch('dblclick');
+  assert.equal(noteOn(lever), LOCK, 'MAN double-click');
+  for (const [id, host] of [['lever-ccgt', lever], ['wheel-hydro', rot('wheel-hydro')], ['dial-battery', rot('dial-battery')], ['ring-guard', rot('ring-guard')], ['knob-tie', rot('knob-tie')]]) {
+    fresh(); $(id).dispatch('pointerdown', {clientX: 0, clientY: 0});
+    assert.equal(noteOn(host), LOCK, id + ' pointer');
+    if (id === 'lever-ccgt') continue;
+    fresh(); $(id).dispatch('wheel', {deltaY: -1});
+    assert.equal(noteOn(host), LOCK, id + ' scroll');
+  }
+  // keys on each focused control: taken at the control (the fallback map would only be refused: a red toast)
+  for (const [k, host, keys] of [['2', lever, ['ArrowUp', 'PageDown', 'Home', 's', 'x', 'p']], ['6', rot('wheel-hydro'), ['ArrowRight', 's', 'p']],
+    ['7', rot('dial-battery'), ['ArrowLeft', 'ArrowUp']], ['g', rot('ring-guard'), ['End']], ['8', rot('knob-tie'), ['ArrowDown']]]) {
+    tap(m, k);
+    for (const key of keys) {
+      fresh();
+      assert.equal(tap(m, key), true, k + ' ' + key);
+      assert.equal(noteOn(host), LOCK, k + ' ' + key);
+    }
+  }
+  assert.equal(m.actions.inputs.length, 0);
+  // Esc and Space are not the controls': they go on to the shell
+  fresh();
+  assert.equal(tap(m, 'Escape'), false);
+  assert.equal(tap(m, ' '), false);
+  assert.equal(noteOn(rot('knob-tie')), '');
+  // a watch Esc can skip says so
+  const s = mount(at(lockVm(true), 1000));
+  s.$('lever-gta').dispatch('pointerdown', {clientY: 0});
+  assert.equal(noteOn(slotOf(s.$, 'gta')), 'blue desk locked while the grid catches itself (Esc skips)');
+});
+
+test('Q-41: a guard press in the 1-s rest after a commit says in blue that the order went', () => {
+  const vm = playVm();
+  const {$, desk, actions: a} = mount(at(vm, 1000));
+  const box = $('guard-start-gtc1').parentElement;
+  $('guard-start-gtc1').click(); $('guard-start-gtc1').click();
+  assert.deepEqual(a.inputs, [{type: 'start', unit: 'gtc1'}]);
+  Object.assign(vm.obs.units.find(u => u.id === 'gtc1'), {mode: 'starting', timerS: 300});
+  desk.update(at(vm, 1500));
+  $('guard-start-gtc1').click();
+  assert.equal(noteOn(box), 'blue GT·C 1 START sent: full speed in 5:00');
+  desk.update(at(vm, 1600));
+  box.children.find(c => c.classList.contains('dk-note')).hidden = true;
+  $('guard-stop-gtc1').click();   // its other guard rests too
+  assert.equal(noteOn(box), 'blue GT·C 1 START sent: full speed in 5:00');
+  assert.equal(a.inputs.length, 1);
+  // after the rest the guard acts again: CANCEL? arms
+  desk.update(at(vm, 1000 + COMMIT_LOCK_MS + 1));
+  $('guard-stop-gtc1').click();
+  assert.equal($('guard-stop-gtc1').textContent, 'CANCEL?');
+  // the ABORT a third click used to swallow (STOP sent, the unit unloading) says so too
+  const v2 = playVm(), s = mount(at(v2, 1000)), gx = 'guard-stop-ccgt1';
+  s.$(gx).click(); s.$(gx).click();
+  v2.obs.units.find(u => u.id === 'ccgt1').mode = 'unloading';
+  s.desk.update(at(v2, 1200));
+  s.$(gx).click();
+  assert.equal(noteOn(s.$(gx).parentElement), 'blue CCGT 1 STOP sent');
+  assert.equal(s.actions.inputs.length, 1);
+});
+
+test('§13.3 / Q-41: in IDLE the battery dial in hand shows on its face the MW the next ←/→ orders, which ↑/↓ set', () => {
+  const vm = vmAt(EVE);
+  Object.assign(vm.obs.battery, {mode: 'idle', orderMW: 0, outMW: -28, guardMW: 0});
+  const m = mount(at(vm, 1000)), {$, desk, actions: a} = m;
+  const read = () => $('dial-battery').closest('.dk-rot').querySelector('.dk-rot-read').textContent;
+  assert.equal(read(), '■ IDLE · OUT −28', 'not in hand: as before');
+  tap(m, '7');
+  desk.update(at(vm, 1016));
+  assert.equal(read(), '■ IDLE ◀▶ 50 · OUT −28');
+  tap(m, 'ArrowUp');
+  assert.equal(read(), '■ IDLE ◀▶ 100 · OUT −28');
+  tap(m, 'ArrowDown', {shiftKey: true});
+  assert.equal(read(), '■ IDLE ◀▶ 90 · OUT −28');
+  assert.equal(a.inputs.length, 0, '↑/↓ in IDLE order nothing');
+  tap(m, 'ArrowRight');
+  assert.deepEqual(inputsOf(a, 'battery'), [{type: 'battery', mode: 'discharge', mw: 90}]);
+  assert.match(read(), /^▲ DIS 90 · OUT/);
+  // all of it on GUARD: the dial has no travel, and a key, a scroll or a turn says why in blue (sending nothing)
+  const gv = vmAt(EVE);
+  Object.assign(gv.obs.battery, {mode: 'idle', orderMW: 0, guardMW: V.BATT_MW});
+  const g = mount(at(gv, 1000)), gbox = g.$('dial-battery').closest('.dk-rot'), ALL = 'blue all on GUARD: turn the ring down (G, then ↓)';
+  tap(g, '7');
+  for (const k of ['ArrowRight', 'ArrowUp']) {
+    g.desk.update(at(gv, 5000 + k.length * 4000));
+    assert.equal(tap(g, k), true, k);
+    assert.equal(noteOn(gbox), ALL, k);
+  }
+  g.desk.update(at(gv, 60000));
+  g.$('dial-battery').dispatch('pointerdown', {clientX: 0, clientY: 0});
+  assert.equal(noteOn(gbox), ALL, 'turn');
+  assert.equal(g.actions.inputs.length, 0);
+});
+
+test('Q-41: the hydro wheel answers S, X and P as a lever does, in blue; P rejoins the plan from the wheel', () => {
+  const hv = (mode, man, units) => {
+    const v = vmAt(EVE, {held: false});
+    v.obs.mode = mode;
+    v.obs.plan.stations.find(p => p.id === 'hydro').man = man;
+    for (const u of v.obs.units.filter(x => /^hydro/.test(x.id))) Object.assign(u, units);
+    return v;
+  };
+  const box = m => m.$('wheel-hydro').closest('.dk-rot');
+  // S with every machine running, X with none: what there is (the shell's map would do nothing)
+  const on = mount(at(hv('AGC', false, {mode: 'on', sync: true}), 1000));
+  tap(on, '6');
+  assert.equal(tap(on, 's'), false);
+  assert.equal(noteOn(box(on)), 'blue nothing to start: all running');
+  const off = mount(at(hv('HAND', false, {mode: 'off', sync: false, startBlock: ''}), 1000));
+  tap(off, '6');
+  assert.equal(tap(off, 'x'), false);
+  assert.equal(noteOn(box(off)), 'blue nothing to stop: none running');
+  assert.equal(on.actions.inputs.length + off.actions.inputs.length, 0);
+  // P on the plan already: why, taken at the wheel (the shell's map would send a rejoin the sim refuses in red)
+  for (const [mode, text] of [['AGC', 'AGC: the wheel follows the plan already'], ['HAND', 'HYDRO follows the plan: a turn takes it off, P puts it back']]) {
+    const g = mount(at(hv(mode, false, {}), 1000));
+    tap(g, '6');
+    assert.equal(tap(g, 'p'), true, mode);
+    assert.equal(noteOn(box(g)), 'blue ' + text);
+    assert.equal(g.actions.inputs.length, 0);
+  }
+  // off the plan (a hand turn in HAND): P rejoins, Shift+P keeps, and says so
+  for (const [shiftKey, text] of [[false, 'HYDRO back on the plan'], [true, 'HYDRO KEEP: the plan goes on from here']]) {
+    const g = mount(at(hv('HAND', true, {}), 1000));
+    tap(g, '6');
+    assert.equal(tap(g, shiftKey ? 'P' : 'p', {shiftKey}), true);
+    assert.deepEqual(g.actions.inputs, [{type: 'planRejoin', station: 'hydro', keep: shiftKey}]);
+    assert.equal(noteOn(box(g)), 'blue ' + text);
+  }
 });
