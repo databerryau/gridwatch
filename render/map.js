@@ -15,7 +15,7 @@
 //        penstocks; battery = rows of white containers; tie = tall lattice pylons marching off
 //        the west edge; wind turbines on the ridge; solar rows on the plain. Labels on hover,
 //        focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
-//        target}); vm.hover rings the plant back.
+//        target}); vm.hover rings the plant back. A click: see the click listener (Q-41).
 //   G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
 //        west; long warm light and long shadows at sunset; lit windows at night, as many as
 //        the city is using (underlying demand). Rooftop PV
@@ -62,6 +62,7 @@ const SPOT_R = 44;            // its radius, base px
 const SUNRISE_H = 6.3, SUNSET_H = 18.8;
 /** Rooftop MW in the text alternative, to this step (it is re-read at most once a second, K-23). */
 const ROOF_SAY_MW = 50;
+const PIN_MS = 4000;
 const LABEL_FONT = '600 10px system-ui, -apple-system, "Segoe UI", sans-serif';
 const TAU = Math.PI * 2;
 const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
@@ -225,14 +226,26 @@ const KEY_ORDER = PLANTS.map(p => p.id).concat(SUBURBS.map(s => 'sub:' + s.id));
 /** The ids ←/→ cycle through: the plants, then the suburbs ('sub:<code>'). */
 export const mapKeyOrder = () => KEY_ORDER.slice();
 
-/** Labels to draw (pure; tests count them): hover first, then alarms; at most 3 unless hovered extra. */
-export function mapLabels(vm, hoverId) {
+/** A click's blue label (pure): wind, solar, a lit suburb or the open ground ('map'). */
+export function mapPinText(obs, id) {
+  const p = PLANTS.find(q => q.id === id), sb = SUBURBS.find(q => 'sub:' + q.id === id);
+  if (p) return p.label + ' ' + fmtMW(obs[id].outMW) + ' MW: the ' + (id === 'wind' ? 'wind' : 'sun') + ' sets it, not the desk';
+  if (!sb) return 'Click a plant for its control, a suburb for its load';
+  let mw = 0;
+  for (const d of obs.districts || []) if (d.suburb === sb.id) mw += d.coldLoadMW;
+  const r = ((obs.rooftop && obs.rooftop.suburbs) || []).find(q => q.id === sb.id), roof = r ? Math.round(r.mw) : 0;
+  return sb.name.toUpperCase() + ' draws ' + fmtMW(mw) + ' MW' + (roof > 0 ? '; roofs make ' + fmtMW(roof) + ' MW' : '');
+}
+
+/** Labels to draw (pure; tests count them): pinned, hover, then alarms; at most 3 unless hovered extra. */
+export function mapLabels(vm, hoverId, pinId) {
   const out = [], seen = new Set();
   const add = (id, text, kind) => {
     if (!seen.has(id)) { seen.add(id); out.push({id, text, kind}); return; }
     if (kind === 'alarm') { const l = out.find(q => q.id === id); if (l.kind !== 'alarm') Object.assign(l, {text, kind}); }
   };
   const plantOf = target => PLANTS.find(p => p.target && p.target === target);
+  if (pinId) add(pinId, mapPinText(vm.obs, pinId), 'info');
   if (hoverId) {
     const p = PLANTS.find(q => q.id === hoverId), sb = SUBURBS.find(q => 'sub:' + q.id === hoverId);
     if (p) add(p.id, p.label, 'hover'); else if (sb) add(hoverId, sb.name.toUpperCase(), 'hover');
@@ -245,7 +258,7 @@ export function mapLabels(vm, hoverId) {
   const darkBy = {};
   for (const d of obs.districts || []) if (d.dark) darkBy[d.suburb] = (darkBy[d.suburb] || 0) + 1;
   for (const sb of SUBURBS) if (darkBy[sb.id]) alarms.push(['sub:' + sb.id, sb.name.toUpperCase() + ': ' + darkBy[sb.id] + ' DARK']);
-  const cap = Math.max(MAX_REST_LABELS, out.length);
+  const cap = Math.max(MAX_REST_LABELS, out.length) + (pinId ? 1 : 0); // a pin never hides an alarm
   for (const [id, text] of alarms) { if (out.length >= cap) break; add(id, text, 'alarm'); }
   return out;
 }
@@ -308,7 +321,7 @@ export function createMap(doc, root, actions) {
   const frame = layer(BASE_H), skyL = layer(HORIZON_Y + 2), terrL = layer(BASE_H), cityL = layer(BASE_H), cloudA = layer(HORIZON_Y + 2), cloudB = layer(HORIZON_Y + 2);
   const g = frame.getContext('2d');
 
-  let vm = null, blocks = null, cityList = [], unitIdx = null, layout = null, hoverId = null, sentTarget = null, kbdIdx = -1, byKey = false, focused = false;
+  let vm = null, blocks = null, cityList = [], unitIdx = null, layout = null, hoverId = null, sentTarget = null, kbdIdx = -1, byKey = false, focused = false, pin = null;
   let lastMs = 0, drawMs = 0, labels = [], labelsAt = -1e9, labelsKey = '', ariaAt = -1e9, ariaText = '';
   let lightKey = '', cityKey = '', watchSinceMs = -1, watchEndMs = -1e9, spotX = 0, spotY = 0, boltUntil = 0, boltNext = 0, boltX = 0;
   let skyCss = '#6a9fd0', groundCss = '#3f6b3a', hasClouds = false;
@@ -932,6 +945,7 @@ export function createMap(doc, root, actions) {
   }
 
   function boxOf(id) {
+    if (id === 'map') return pin && [pin.x, pin.y, 0, 0];
     const p = PLANTS.find(q => q.id === id);
     if (p) return p.box;
     const sb = SUBURBS.find(q => 'sub:' + q.id === id);
@@ -1017,16 +1031,18 @@ export function createMap(doc, root, actions) {
       if ((vm.hover && p.target === vm.hover) || hoverId === p.id) ring(ctx, p.box, UI.bright, 1.5);
     }
     if (hoverId && hoverId.startsWith('sub:')) ring(ctx, boxOf(hoverId), UI.bright, 1.5);
-    const lk = (hoverId || '') + '|' + (vm.hover || '');
-    if (lk !== labelsKey || nowMs - labelsAt > 120 || nowMs < labelsAt) { labels = mapLabels(vm, hoverId); labelsKey = lk; labelsAt = nowMs; }
+    if (pin && nowMs > pin.untilMs) pin = null;
+    const lk = (hoverId || '') + '|' + (vm.hover || '') + '|' + (pin ? pin.id + pin.untilMs : '');
+    if (lk !== labelsKey || nowMs - labelsAt > 120 || nowMs < labelsAt) { labels = mapLabels(vm, hoverId, pin && pin.id); labelsKey = lk; labelsAt = nowMs; }
     ctx.font = LABEL_FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
     for (const lb of labels) {
       const box = boxOf(lb.id);
       if (!box) continue;
       const w = ctx.measureText(lb.text).width + (lb.kind === 'alarm' ? 20 : 8);
       const x = Math.max(w / 2, Math.min(cw - w / 2, sx(box[0] + box[2] / 2))), y = Math.max(16, sy(box[1]));
-      ctx.fillStyle = lb.kind === 'alarm' ? 'rgba(90,20,20,0.88)' : 'rgba(13,17,23,0.82)';
+      ctx.fillStyle = lb.kind === 'alarm' ? 'rgba(90,20,20,0.88)' : lb.kind === 'info' ? '#0d2238' : 'rgba(13,17,23,0.82)';
       ctx.fillRect(x - w / 2, y - 14, w, 14);
+      if (lb.kind === 'info') { ctx.strokeStyle = UI.blue; ctx.lineWidth = 1; ctx.strokeRect(x - w / 2 + 0.5, y - 13.5, w - 1, 13); }
       ctx.fillStyle = lb.kind === 'alarm' ? '#ffd1cc' : UI.bright;
       ctx.fillText(lb.kind === 'alarm' ? '⚠ ' + lb.text : lb.text, x, y - 2);
     }
@@ -1101,7 +1117,7 @@ export function createMap(doc, root, actions) {
     overlay(ctx, obs, nowMs, cw, ch, rm);
     if (nowMs - ariaAt >= 1000 || nowMs < ariaAt) { // the text alternative, at most once per real second (K-23)
       ariaAt = nowMs;
-      const s = mapSummary(vm, hoverId);
+      const s = mapSummary(vm, hoverId) + (pin ? ' ' + mapPinText(obs, pin.id) + '.' : '');
       if (s !== ariaText) { ariaText = s; el.setAttribute('aria-label', s); }
     }
     debug.draws++;
@@ -1136,9 +1152,13 @@ export function createMap(doc, root, actions) {
   }
 
   cv.addEventListener('pointermove', ev => { const id = pick(baseAt(ev)); if (id || !byKey) { byKey = false; kbdIdx = KEY_ORDER.indexOf(id); setHover(id); } });
+  // Every click answers (Q-41): a plant's control, a dark suburb the RESTORE bay, else a blue label
   cv.addEventListener('click', ev => {
-    const p = PLANTS.find(q => q.id === pick(baseAt(ev)));
-    if (p && p.target) actions.ui({do: 'focus', target: p.target});
+    const b = baseAt(ev), id = pick(b), p = PLANTS.find(q => q.id === id);
+    pin = null;
+    if (p && p.target) return actions.ui({do: 'focus', target: p.target});
+    if (id && vm && vm.obs.districts.some(d => d.dark && 'sub:' + d.suburb === id)) return actions.ui({do: 'focus', target: 'bay-restore'});
+    if (b && vm) { pin = {id: id || 'map', x: b.x, y: b.y, untilMs: lastMs + PIN_MS}; ariaAt = -1e9; }
   });
   cv.addEventListener('pointerleave', () => { if (!byKey) setHover(null); }); // a hover set by the keys stays until Esc or blur
 
@@ -1175,7 +1195,7 @@ export function createMap(doc, root, actions) {
     update, key, el,
     /** Test / perf hooks (not part of the contract). */
     debug: Object.defineProperties(debug, {
-      labels: {get: () => labels}, drawMs: {get: () => drawMs}, hoverId: {get: () => hoverId}, blocks: {get: () => blocks},
+      labels: {get: () => labels}, pin: {get: () => pin}, drawMs: {get: () => drawMs}, hoverId: {get: () => hoverId}, blocks: {get: () => blocks},
       pick: {value: (x, y) => pick({x, y})}, rotorSpeed: {value: id => (rotor.get(id) || {v: 0}).v},
       roof: {get: () => ({panels: roof.subs.map(q => q.n), alpha: roof.alpha, on: roof.on, conn: roof.conn})},
     }),

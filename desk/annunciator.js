@@ -47,14 +47,18 @@ export function createAnnunciator(ctx, parent) {
   sil.id = 'btn-silence'; sil.type = 'button';
   sil.setAttribute('aria-label', 'Silence the horn (Shift+A)');
   sil.setAttribute('aria-keyshortcuts', 'Shift+A');
-  let unackedNow = false;
+  let unackedNow = false, soundingNow = false;
   const doAck = () => {
     ctx.cue('button', PAN.panel);
     // ACK is not a switch: it marks flashing tiles as seen. With none flashing, say so.
     if (!unackedNow) ctx.note(box, 'Nothing to acknowledge: ACK marks flashing alarms as seen.', undefined, 'info');
     ctx.ui({do: 'ack'});
   };
-  const doSilence = () => { ctx.cue('button', PAN.panel); ctx.ui({do: 'silence'}); };
+  const doSilence = () => {
+    ctx.cue('button', PAN.panel);
+    if (!soundingNow) ctx.note(box, 'Nothing sounding: SIL stops the horn, ACK marks alarms seen.', undefined, 'info');
+    ctx.ui({do: 'silence'});
+  };
   ack.addEventListener('click', doAck);
   sil.addEventListener('click', doSilence);
   side.append(ack, sil);
@@ -106,10 +110,11 @@ export function createAnnunciator(ctx, parent) {
       }
       const unacked = list.some(t => t.state === 'alarm' || t.state === 'cleared');
       unackedNow = unacked;
+      soundingNow = !!(vm.alarms && vm.alarms.sounding);
       setCls(ack, 'lit', unacked);
       setText(ack, unacked ? '◆ ACK' : 'ACK');
-      setCls(sil, 'lit', !!(vm.alarms && vm.alarms.sounding));
-      setText(sil, vm.alarms && vm.alarms.sounding ? '♪ SIL' : 'SIL');
+      setCls(sil, 'lit', soundingNow);
+      setText(sil, soundingNow ? '♪ SIL' : 'SIL');
     },
     /** A / Shift+A from the desk's key map: the same press as the buttons. */
     ack: doAck, silence: doSilence,

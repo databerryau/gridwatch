@@ -26,8 +26,8 @@
 // | R                       restore bay (←/→ and Enter are the bay's own)
 // | A, Shift+A              ACK, SILENCE
 // | D, E (hold 0.6 s)       industrial DR, reserve diesel key
-// | T, M, L, Tab            trip preview, tray, Live Stack (again: expand), map
-// | Space, Esc, F (hold)    pause, skip the watch (after a full one), fast
+// | T, M, L, Tab            trip preview, tray (again: its LOG), Live Stack (again: expand), map
+// | Space, Esc, F (hold)    pause, skip the watch (after a full one), fast (doing nothing: a blue toast says why)
 // | Enter                   dismiss the respond card
 // | ?                       the abstractions drawer; Shift+M mute
 // | ,                       the SETTINGS popover (B-7)
@@ -100,7 +100,7 @@ export function keyDown(k, ev, vm, nowMs) {
   if (key >= '1' && key <= '8' && key.length === 1) return {ui: {do: 'focus', target: FOCUS_KEYS[key.charCodeAt(0) - 49]}};
   if (lower === 'a') return ev.shiftKey ? {ui: {do: 'silence'}} : {ui: {do: 'ack'}};
   if (lower === 't') return {ui: {do: 'preview', on: !(vm && vm.previewOn)}};
-  if (lower === 'm') return {ui: {do: 'tray'}};
+  if (lower === 'm') return ev.repeat ? null : {ui: {do: 'tray'}};
   if (lower === 'l') return focus === 'stack' ? {ui: {do: 'stackExpand', on: !(vm && vm.stackExpanded)}} : {ui: {do: 'focus', target: 'stack'}};
   if (key === 'Tab' && !ev.shiftKey && (focus === null || focus === 'stack')) return {ui: {do: 'focus', target: 'map'}};
   if (lower === 'r') return {ui: {do: 'focus', target: 'bay-restore'}};

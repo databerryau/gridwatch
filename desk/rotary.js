@@ -7,7 +7,7 @@
 import {V} from '../sim/params.js';
 import {waterLastsUntilS, redArcFromMW, knobValue, knobAngle, pointerAngle, guardFromAngle, tieSnap, TIE_DETENTS,
   nextDetent, wrapDeg, KNOB_SWEEP, GUARD_MAX_MW} from './calc.js';
-import {createMachine, stationKey} from './levers.js';
+import {createMachine, stationKey, nothingTo, rejoinPlan, help, lockedPress, lockKeys} from './levers.js';
 import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, smw, clamp, fin, clockOf, mmss, PAN} from './util.js';
 
 export const WHEEL_MW_PER_TURN = 250;   // K-4: one full turn of the hand wheel
@@ -21,7 +21,8 @@ const keyStep = (ev, coarse) => (ev.ctrlKey ? FINEST_MW : ev.shiftKey ? FINE_MW 
 /**
  * Shared rotary behaviour. o: {id, cls, label, value(), bounds() -> [lo, hi], angleValue(deg) or
  * null (relative wheel), perTurn (relative), step(ev, v) -> v | null, snap(v) (always), dragSnap(v) (drags only), send(v), turning(v),
- * detents() -> MW values that thump when passed (else a move ratchets), pan, shortcut (aria-keyshortcuts)}
+ * detents() -> MW values that thump when passed (else a move ratchets), pan, shortcut (aria-keyshortcuts),
+ * host (its box, for notes), needs() -> '' or what it needs to turn (said as help)}
  */
 function makeRotary(ctx, o) {
   const doc = ctx.doc;
@@ -40,8 +41,9 @@ function makeRotary(ctx, o) {
     const r = o.send(v);
     shown = r ? null : {v, afterTick: ctx.vm().obs.tick, frames: 0};
   }
+  const needs = () => { const n = o.needs ? o.needs() : ''; if (n) help(ctx, o.host, n); return !!n; };
   knob.addEventListener('pointerdown', ev => {
-    if (!ctx.vm() || ctx.locked()) return;
+    if (!ctx.vm() || lockedPress(ctx, o.host) || needs()) return;
     ev.stopPropagation && ev.stopPropagation();
     knob.setPointerCapture && knob.setPointerCapture(ev.pointerId);
     const [cx, cy] = center();
@@ -77,6 +79,7 @@ function makeRotary(ctx, o) {
   knob.addEventListener('lostpointercapture', release);
   knob.addEventListener('keydown', ev => {
     if (!ctx.vm() || ctx.locked()) return;
+    if (/^(Arrow|Page|Home$|End$)/.test(ev.key) && needs()) { ev.preventDefault(); return; }
     const t = o.step(ev, cur());
     if (t === null || t === undefined) return;
     ev.preventDefault();
@@ -88,7 +91,7 @@ function makeRotary(ctx, o) {
   });
   knob.addEventListener('keyup', () => flush());
   knob.addEventListener('wheel', ev => {
-    if (!ctx.vm() || ctx.locked() || !o.wheelStep) return;
+    if (!ctx.vm() || !o.wheelStep || lockedPress(ctx, o.host) || needs()) return;
     ev.preventDefault && ev.preventDefault();
     const v = apply(cur() + (fin(ev.deltaY) < 0 ? 1 : -1) * o.wheelStep(ev));
     feel(cur(), v);
@@ -127,7 +130,7 @@ export function createHydroWheel(ctx, parent) {
   let vm = null, shakeUntil = -1;
   const so = () => vm.obs.stations.find(x => x.id === 'hydro') || {basePointMW: 0, outMW: 0, onCount: 0, minMW: 0, maxMW: 0};
   const r = makeRotary(ctx, {
-    id: 'wheel-hydro', cls: 'dk-wheel', label: 'Hydro gate wheel', pan: PAN.hydro, shortcut: '6',
+    id: 'wheel-hydro', cls: 'dk-wheel', label: 'Hydro gate wheel', pan: PAN.hydro, shortcut: '6', host: box,
     value: () => fin(so().basePointMW),
     bounds: () => [fin(so().minMW), Math.max(fin(so().minMW), fin(so().maxMW))],
     angleValue: null, perTurn: WHEEL_MW_PER_TURN,
@@ -142,8 +145,9 @@ export function createHydroWheel(ctx, parent) {
       return null;
     },
     wheelStep: ev => (ev.shiftKey ? 0.1 : 0.01) * HYDRO.totalMW,
+    needs: () => (so().onCount > 0 ? '' : 'no hydro machine on: START one (S S)'),
     send(v) {
-      if (!(so().onCount > 0)) { ctx.note(box, 'no hydro machine on: START one'); return 'no machine on'; }
+      if (!(so().onCount > 0)) { help(ctx, box, 'no hydro machine on: START one (S S)'); return 'no machine on'; }
       const res = ctx.send({type: 'basePoint', station: 'hydro', mw: Math.round(v)}, box);
       if (!res) { ctx.cue('gate', PAN.hydro); ctx.live('HYDRO gate ' + Math.round(v) + ' MW'); }
       return res;
@@ -162,6 +166,14 @@ export function createHydroWheel(ctx, parent) {
   left.append(title, face, lasts, store);
   box.append(left, machCol);
   parent.appendChild(box);
+  lockKeys(ctx, box, 'sxp');
+  // P / Shift+P on the wheel (K-2, L-6), the desk's answer (the shell's map would only refuse it in red)
+  const rejoin = keep => rejoinPlan(ctx, box, 'hydro', keep, 'a turn takes it off, P puts it back', PAN.hydro);
+  box.addEventListener('keydown', ev => {
+    if ((ev.key || '').toLowerCase() !== 'p' || ev.ctrlKey || ev.altKey || ev.metaKey || ev.defaultPrevented) return;
+    ev.preventDefault();
+    if (!ev.repeat) rejoin(ev.shiftKey);
+  });
 
   function render() {
     if (!vm) return;
@@ -199,7 +211,14 @@ export function createHydroWheel(ctx, parent) {
   return {
     el: box, knob: r.knob, machines,
     update(v) { vm = v; r.tick(v); for (const m of machines) m.update(v); render(); },
-    key(target, k) { return target && box.contains(target) ? stationKey(machines, k) : false; },
+    /** S, X, P (Shift: KEEP) for a target in the wheel's box; true if handled. */
+    key(target, k, shift) {
+      if (!target || !box.contains(target)) return false;
+      if (k === 'p') { rejoin(shift); return true; }
+      if (stationKey(machines, k)) return true;
+      nothingTo(ctx, box, machines, k);
+      return false;
+    },
     /** K-12: a rough close on a hydro machine (no shake under reduced motion). */
     shake() { shakeUntil = ctx.now() + SHAKE_MS; },
   };
@@ -222,7 +241,7 @@ export function createBatteryDial(ctx, parent) {
 
   // GUARD ring (outer): 0..500 MW in 50-MW detents; turning it re-runs TRIP PREVIEW live.
   const ring = makeRotary(ctx, {
-    id: 'ring-guard', cls: 'dk-ring', label: 'GUARD ring: battery MW held back to catch trips', pan: PAN.battery, shortcut: 'G',
+    id: 'ring-guard', cls: 'dk-ring', label: 'GUARD ring: battery MW held back to catch trips', pan: PAN.battery, shortcut: 'G', host: box,
     detents: () => { const d = []; for (let x = 0; x <= GUARD_MAX_MW; x += V.GUARD_STEP_MW) d.push(x); return d; },
     value: () => fin(bt().guardMW),
     bounds: () => [0, GUARD_MAX_MW],
@@ -250,7 +269,7 @@ export function createBatteryDial(ctx, parent) {
   });
   // Dial (inner): CHARGE ← IDLE → DISCHARGE, magnitude up to the MW not on guard.
   const dial = makeRotary(ctx, {
-    id: 'dial-battery', cls: 'dk-bdial', label: 'Battery dial: charge, idle or discharge', pan: PAN.battery, shortcut: '7',
+    id: 'dial-battery', cls: 'dk-bdial', label: 'Battery dial: charge, idle or discharge', pan: PAN.battery, shortcut: '7', host: box,
     detents: () => [0],
     value: () => clamp(signed(), -avail(), avail()),
     bounds: () => [-avail(), avail()],
@@ -273,6 +292,7 @@ export function createBatteryDial(ctx, parent) {
       return null;
     },
     wheelStep: ev => (ev.shiftKey ? 1 : 10),
+    needs: () => (avail() > 0 ? '' : 'all on GUARD: turn the ring down (G, then ↓)'),
     send(v) {
       const mode = v > 0 ? 'discharge' : v < 0 ? 'charge' : 'idle';
       const r = ctx.send({type: 'battery', mode, mw: Math.abs(Math.round(v))}, box);
@@ -292,6 +312,7 @@ export function createBatteryDial(ctx, parent) {
   title.appendChild(lamps);
   box.append(title, face, read, full);
   parent.appendChild(box);
+  lockKeys(ctx, box);
 
   function render() {
     if (!vm) return;
@@ -303,7 +324,9 @@ export function createBatteryDial(ctx, parent) {
     setStyle(arc, 'background', 'conic-gradient(from ' + (-KNOB_SWEEP / 2) + 'deg, var(--dk-shade) 0deg ' + lost.toFixed(1) +
       'deg, transparent ' + lost.toFixed(1) + 'deg ' + (KNOB_SWEEP - lost).toFixed(1) + 'deg, var(--dk-shade) ' +
       (KNOB_SWEEP - lost).toFixed(1) + 'deg ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');
-    setText(read, (v > 0 ? '▲ DIS ' + mw(v) : v < 0 ? '▼ CHG ' + mw(-v) : '■ IDLE') + ' · OUT ' + smw(b.outMW).replace('+', ''));
+    // IDLE, dial focused: the MW ←/→ will order (↑/↓ set it)
+    setText(read, (v > 0 ? '▲ DIS ' + mw(v) : v < 0 ? '▼ CHG ' + mw(-v) : '■ IDLE' + (doc.activeElement === dial.knob ? ' ◀▶ ' + mw(Math.min(mag, a)) : '')) +
+      ' · OUT ' + smw(b.outMW).replace('+', ''));
     setText(soc, Math.round(fin(b.socMWh) / fin(b.capMWh, V.BATT_MWH) * 100) + '%');
     setAttr(soc, 'title', 'state of charge ' + mw(b.socMWh) + ' of ' + mw(b.capMWh) + ' MWh');
     setText(ffr, b.guardFired ? '⚡ FIRED ' + mw(b.ffrMW) : (g > 0 ? '⚡ GUARD ' : '○ GUARD ') + mw(g));
@@ -357,7 +380,7 @@ export function createTieKnob(ctx, parent) {
   let vm = null;
   const t = () => vm.obs.tie;
   const k = makeRotary(ctx, {
-    id: 'knob-tie', cls: 'dk-tknob', label: 'Interconnector knob: + import, − export', pan: PAN.tie, shortcut: '8',
+    id: 'knob-tie', cls: 'dk-tknob', label: 'Interconnector knob: + import, − export', pan: PAN.tie, shortcut: '8', host: box,
     detents: () => TIE_DETENTS,
     value: () => fin(t().setMW),
     bounds: () => [-V.TIE_MAX_MW, V.TIE_MAX_MW],
@@ -389,6 +412,7 @@ export function createTieKnob(ctx, parent) {
   title.appendChild(lamp);
   box.append(title, face, read);
   parent.appendChild(box);
+  lockKeys(ctx, box);
 
   function render() {
     if (!vm) return;

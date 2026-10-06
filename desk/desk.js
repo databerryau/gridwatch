@@ -218,8 +218,16 @@ export function createDesk(doc, root, actions, opts = {}) {
       live.textContent = text;
     },
     /** A sim input, unless the desk is locked; a refusal shows on `host`. Returns '' or the reason. */
+    /**
+     * Every press during the watch answers with this one note (help, so blue: Q-41), and it is
+     * true about Esc: the first full watch plays through (vm.mode.canSkip false).
+     */
+    lockNote(host) {
+      if (!host) return;
+      ctx.note(host, 'desk locked while the grid catches itself' + (vm && vm.mode && vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), undefined, 'info');
+    },
     send(x, host) {
-      if (locked()) { if (host) ctx.note(host, 'desk locked'); return 'desk locked'; }
+      if (locked()) { ctx.lockNote(host); return 'desk locked'; }
       const r = actions.input(x);
       const why = typeof r === 'string' ? r : r && typeof r === 'object' && typeof r.reason === 'string' ? r.reason : '';
       if (why && host) ctx.note(host, '✕ ' + why);
@@ -350,7 +358,9 @@ export function createDesk(doc, root, actions, opts = {}) {
     if (!down || ev.ctrlKey || ev.altKey || ev.metaKey) return false;
     if (k === 'd' || k === 'e') { if (!ev.repeat) emerg.holdKey(k, true); return true; }
     if (k >= '1' && k <= '8') return focus(SLOT_IDS[Number(k) - 1]);
-    if (k === 'g' || k === 'v' || k === 'k') return focus(DESK_KEYS[k]);
+    if (k === 'g' || k === 'v') return focus(DESK_KEYS[k]);
+    // K answers even with DIRECT SHED hidden (when it appears), and in the watch (the lock note)
+    if (k === 'k') { const on = focus(DESK_KEYS.k); if (!ev.repeat) emerg.shedKey(on); return true; }
     if (k === 'a') { if (ev.repeat) return true; if (ev.shiftKey) annun.silence(); else annun.ack(); return true; }
     const active = doc.activeElement;
     if (k === 'Enter') {
@@ -364,9 +374,22 @@ export function createDesk(doc, root, actions, opts = {}) {
       if (!ev.repeat) active.click();
       return true;
     }
-    if (locked()) return false;
-    if (k === 's' || k === 'x' || k === 'p') return levers.key(active, k, !!ev.shiftKey) || (k !== 'p' && hydro.key(active, k));
-    if (k === '[' || k === ']' || k === 'c' || k === 'u' || k === 'r' || k === 'o' || k === 'b') return ev.repeat && k !== '[' && k !== ']' ? false : bay.key(k);
+    const bayKey = k.length === 1 && '[]curob'.includes(k);
+    if (locked()) {
+      // The watch (Q-41): a desk control's keys answer with the lock note, once per press, never reaching the fallback,
+      // also when focus has left it (Space blurs) and vm.focus still names it (the fallback would send to it, refused in red).
+      const box = e => (e && e.closest && desk.contains(e) ? e.closest('.dk-lever-slot') || e.closest('.dk-rot') : null);
+      const watch = vm.mode && vm.mode.locked;
+      const slot = (k.length === 1 && 'sxp'.includes(k) || watch && /^(Arrow|Page|Home$|End$)/.test(k)) &&
+        (box(active) || watch && box(vm.focus && doc.getElementById(vm.focus)));
+      if (slot) { if (!ev.repeat) emerg.locked(slot); return true; }
+      if (bayKey || k === 'n') { if (!ev.repeat) (k === 'n' ? emerg.redispatch() : bay.key(k)); return true; }
+      return false;
+    }
+    // S, X, P: the focused control's, also when focus has left it (Space blurs) and vm.focus still names it
+    const tgt = active && desk.contains(active) ? active : vm.focus && doc.getElementById(vm.focus);
+    if (k === 's' || k === 'x' || k === 'p') return levers.key(tgt, k, !!ev.shiftKey) || hydro.key(tgt, k, !!ev.shiftKey);
+    if (bayKey) return ev.repeat && k !== '[' && k !== ']' ? false : bay.key(k);
     if (k === 'n') return ev.repeat ? false : emerg.redispatch();
     return false;
   }

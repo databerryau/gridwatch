@@ -439,7 +439,7 @@ export function openGame(o = {}) {
   // ---------------------------------------------------------------- reading
   /**
    * What the player sees, one line per thing: CLOCK (and mode, chips), BRIEFING, LINE (the objective),
-   * WATCH, CARD, END, TOAST, BALANCE, DIAL, N-1, NOTE (desk notes), TRAY (the cards), then CTRL lines:
+   * WATCH, CARD, END, TOAST (blue or RED), BALANCE, DIAL, N-1, NOTE (desk notes, blue or RED), TRAY (the cards), then CTRL lines:
    * every visible control as id "label"=value [disabled,pressed,on,selected,ARMED,focus].
    * opts.controls: false leaves the CTRL lines out; opts.aria: true adds the screen-reader live region.
    */
@@ -456,7 +456,8 @@ export function openGame(o = {}) {
     if (!hid('watch-vignette')) L.push('WATCH ' + tx('stopwatch') + ' | ' + tx('beat-caption') + ' | ' + tx('beat-steps'));
     if (!hid('respond-card')) L.push('CARD ' + tx('respond-card'));
     if (!hid('end-card')) L.push('END ' + textOf($('end-card'), e => e.tagName === 'BUTTON'));
-    if (!hid('toast')) L.push('TOAST ' + tx('toast'));
+    // (the colour, as for NOTE: a plain toast is a red refusal, .info a blue answer, Q-41)
+    if (!hid('toast')) L.push('TOAST ' + ($('toast').classList.contains('info') ? 'blue ' : 'RED ') + tx('toast'));
     if (!hid('settings')) L.push('SETTINGS open');
     if (!hid('drawer')) L.push('DRAWER open');
     if (!hid('popover')) L.push('POPOVER ' + tx('popover').slice(0, 160));

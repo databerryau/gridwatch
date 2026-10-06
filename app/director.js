@@ -193,7 +193,9 @@ export function modeOf(d, state) {
   const locked = c !== null;
   const rate = rateOf(d, state);
   const watchVersion = c && c.n !== d.skipN ? versionFor(d, c) : null;
-  const r = mode => ({mode, rate, watchS, locked, watchVersion});
+  // canSkip: Esc would skip this watch now (in the game, only once a full watch has been seen)
+  const canSkip = !!c && c.n !== d.skipN && (!d.game || !!d.seen.watch);
+  const r = mode => ({mode, rate, watchS, locked, watchVersion, canSkip});
   if (state.over) return r('OVER');
   if (d.hidden) return r('HIDDEN');
   if (d.paused) return r('PAUSE');

@@ -9,7 +9,7 @@ import {hashState} from '../sim/step.js';
 import {makeDocument, installGlobals} from './lib/dom.js';
 import {injectTrip} from './lib/sim-helpers.js';
 import * as G from '../app/game.js';
-import {bootGame} from '../app/shell.js';
+import {bootGame, CRT_OFF} from '../app/shell.js';
 
 const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S;
@@ -256,6 +256,31 @@ test('K-22: reduced motion defaults from prefers-reduced-motion through deps.mat
   assert.equal(boot({matchMedia: null}).doc.body.classList.contains('rm'), false);
   assert.equal(boot({matchMedia: () => { throw new Error('no'); }}).doc.body.classList.contains('rm'), false);
   assert.equal(boot({matchMedia: undefined}).doc.body.classList.contains('rm'), false, 'default: globalThis.matchMedia when present');
+});
+
+test('B-4 / Q-41: while REDUCED EFFECTS is on the CRT switch is disabled and greyed, its row says why on hover, and a click on it answers in a blue toast', () => {
+  const {$, frames} = boot();
+  assert.match(NEXT, /#settings label\.off \{ opacity: 0\.4; \}/, 'the greyed row');
+  // A browser drops a click aimed at a disabled input (it neither fires nor bubbles), so the greyed
+  // square lets clicks through to its row, whose listener answers.
+  assert.match(NEXT, /#settings label\.off input \{ pointer-events: none; \}/, 'a click on the greyed square reaches the row');
+  $('btn-take').click();
+  $('btn-settings').click();
+  frames(1);
+  const crt = $('set-crt'), row = crt.parentElement;
+  const flip = on => { $('set-fxlow').checked = on; $('set-fxlow').dispatch('change'); frames(1); };
+  const clickRow = () => { $('toast').hidden = true; row.dispatch('click'); frames(1); return $('toast').hidden ? null : [$('toast').className, $('toast').textContent]; };
+  assert.deepEqual([crt.disabled, row.classList.contains('off'), row.title], [false, false, '']);
+  flip(true);
+  assert.deepEqual([crt.checked, crt.disabled, row.classList.contains('off'), row.title], [false, true, true, CRT_OFF]);
+  assert.equal(CRT_OFF, 'CRT is off while REDUCED EFFECTS is on');
+  assert.deepEqual(clickRow(), ['info', CRT_OFF]);
+  flip(false);
+  assert.deepEqual([crt.checked, crt.disabled, row.classList.contains('off'), row.title], [true, false, false, '']);
+  assert.equal(clickRow(), null, 'an enabled switch just switches');
+  // Stored on: greyed from the first frame of a later visit.
+  const again = boot({storage: memStorage({'gridwatch:v4:settings': JSON.stringify({reducedEffects: true})})});
+  assert.deepEqual([again.$('set-crt').disabled, again.$('set-crt').parentElement.classList.contains('off')], [true, true]);
 });
 
 test('B-4: the CRT overlay is CSS over #map only: 2-px scanlines, opacity <= 0.06, no animation, no pointer events', () => {
