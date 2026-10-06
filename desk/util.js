@@ -120,21 +120,24 @@ export const HOLD_MS = 600;           // K-7: emergency controls commit only aft
 
 /**
  * Guard covers: the first press lifts the cover for `ms`, a second press while it is up
- * commits. Time comes from `now()` (the desk's frame clock), never from timers.
+ * commits; a lift drops any other. Time comes from `now()` (the desk's frame clock), never from timers.
  */
 export function makeGuards(now) {
-  const lifted = new Map();
+  const lifted = new Map(), locks = new Map();
   return {
     press(id, commit, ms = GUARD_MS) {
       const t = now(), u = lifted.get(id);
       if (u !== undefined && t <= u) { lifted.delete(id); commit(); return 'commit'; }
+      lifted.clear();
       lifted.set(id, t + ms);
       return 'lift';
     },
-    lift(id) { lifted.set(id, now() + GUARD_MS); },
     lifted(id) { const u = lifted.get(id); return u !== undefined && now() <= u; },
     drop(id) { lifted.delete(id); },
     expire() { const t = now(); for (const [k, u] of lifted) if (t > u) lifted.delete(k); },
+    lock: key => locks.set(key, now() + COMMIT_LOCK_MS),
+    locked: key => now() < locks.get(key),
+    clear() { lifted.clear(); locks.clear(); },
   };
 }
 

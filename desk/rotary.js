@@ -288,9 +288,9 @@ export function createBatteryDial(ctx, parent) {
   read.title = 'Your order (CHG / IDLE / DIS), then OUT: what the battery does now, MW (+ discharging, − charging; AGC trims it)';
   const lamps = el(doc, 'div', 'dk-lamps');
   const ffr = el(doc, 'span', 'dk-lamp dk-ffr'), full = el(doc, 'span', 'dk-lamp dk-full');
-  lamps.append(ffr, full);
+  lamps.append(ffr);
   title.appendChild(lamps);
-  box.append(title, face, read);
+  box.append(title, face, read, full);
   parent.appendChild(box);
 
   function render() {
@@ -303,7 +303,7 @@ export function createBatteryDial(ctx, parent) {
     setStyle(arc, 'background', 'conic-gradient(from ' + (-KNOB_SWEEP / 2) + 'deg, var(--dk-shade) 0deg ' + lost.toFixed(1) +
       'deg, transparent ' + lost.toFixed(1) + 'deg ' + (KNOB_SWEEP - lost).toFixed(1) + 'deg, var(--dk-shade) ' +
       (KNOB_SWEEP - lost).toFixed(1) + 'deg ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');
-    setText(read, (v > 0 ? '▲ DIS ' + mw(v) : v < 0 ? '▼ CHG ' + mw(-v) : '■ IDLE') + ' · OUT ' + smw(b.outMW));
+    setText(read, (v > 0 ? '▲ DIS ' + mw(v) : v < 0 ? '▼ CHG ' + mw(-v) : '■ IDLE') + ' · OUT ' + smw(b.outMW).replace('+', ''));
     setText(soc, Math.round(fin(b.socMWh) / fin(b.capMWh, V.BATT_MWH) * 100) + '%');
     setAttr(soc, 'title', 'state of charge ' + mw(b.socMWh) + ' of ' + mw(b.capMWh) + ' MWh');
     setText(ffr, b.guardFired ? '⚡ FIRED ' + mw(b.ffrMW) : (g > 0 ? '⚡ GUARD ' : '○ GUARD ') + mw(g));

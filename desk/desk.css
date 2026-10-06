@@ -126,6 +126,8 @@
 .dk-lever-slot { display: flex; flex-direction: column; min-height: 0; border-radius: 3px; padding: 0; position: relative; min-width: 0; }
 .dk-lever-slot.hot { background: #da363318; }
 .dk-lever-slot.hover { background: #58a6ff14; }
+.dk-lever-slot .dk-note { width: max-content; }
+.dk-lever-slot:nth-child(n+4) .dk-note { left: auto; right: 2px; }
 .dk-lever-head { display: flex; align-items: center; justify-content: space-between; height: 24px; flex: none; }
 .dk-lever-name { font-weight: 700; font-size: calc(10 * var(--u)); color: var(--dk-bright); letter-spacing: 0.04em; }
 .dk-kcap { font: calc(8 * var(--u)) var(--dk-mono); color: var(--dk-dim); border: 1px solid var(--dk-line); border-radius: 2px;
@@ -160,11 +162,14 @@
 .dk-machs { display: flex; flex-direction: column; gap: 2px; width: 50px; flex: none; }
 .dk-mach { display: flex; gap: 2px; border-radius: 3px; }
 .dk-guard { width: 24px; height: 24px; min-width: 24px; min-height: 24px; padding: 0; font-size: 9px; font-family: var(--dk-mono); }
-/* K-3: an armed guard takes its row (amber under the pointer too); its bar drains over 5 s (.key, by S / X: 2 s). */
+/* K-3: an armed guard takes its row (amber under the pointer too); its bar drains over 5 s (.key, by S / X: 2 s).
+   The other folds away, keeping its focus. */
 .dk-guard.live { border-color: var(--dk-dim); color: var(--dk-bright); }
 .dk .dk-guard.lifted { flex: 1 1 auto; position: relative; background: #d2992244; border-color: var(--dk-amber); color: var(--dk-bright);
   font-weight: 700; }
-.dk-mach.armed > .dk-guard:not(.lifted) { display: none; }
+.dk-mach.armed { gap: 0; }
+.dk .dk-mach.armed > .dk-guard:not(.lifted) { width: 0; min-width: 0; border-width: 0; overflow: hidden; }
+.dk-mach.armed:has(> :focus-visible) > .lifted { outline: 2px solid var(--dk-blue); outline-offset: 1px; }
 .dk-guard.lifted::after { content: ""; position: absolute; left: 0; bottom: 0; width: 100%; height: 2px; background: var(--dk-amber);
   animation: dk-drain 5s linear forwards; }
 .dk-guard.lifted.key::after { animation-duration: 2s; }
@@ -216,10 +221,10 @@
 .dk-ffr.lit { border-color: var(--dk-violet); }
 .dk-soc { color: var(--dk-text); font-family: var(--dk-mono); }
 .dk-keys { display: flex; flex-direction: column; gap: 3px; align-items: stretch; width: 72px; flex: none; position: relative; }
-.dk-keys > .dk-note { left: auto; right: 0; }
+.dk-keys > .dk-note { left: auto; right: 0; width: max-content; max-width: 260px; }
 .dk-key { min-width: 24px; min-height: 24px; width: 72px; height: 28px; font-weight: 700; }
 .dk-agc.hand { color: var(--dk-amber); border-color: var(--dk-amber); }
-.dk-redispatch.lit { border-color: var(--dk-amber); color: var(--dk-amber); background: #d2992222; }
+.dk .dk-redispatch.lit { border-color: var(--dk-amber); color: var(--dk-amber); background: #d2992222; }
 .dk-agc.locked { border-style: double; border-width: 3px; }
 .dk-redispatch { height: 40px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: calc(8.5 * var(--u)); }
 .dk-key-glyph { font-size: 13px; line-height: 1; }
