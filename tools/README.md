@@ -64,10 +64,26 @@ lines. `tests/baseline-v4.test.js` plays par's day on seed 4 in-process and comp
 seed's golden row, hash included. The whole report is run on demand (`npm run baseline:v4`); there
 is no slow test tier (SPEC Q-40). `--help` lists the flags.
 
+## Play the real page, fast (`play.mjs`)
+
+```
+node tools/play.mjs 20261007 to=15:40 until=trip look real=5 diff key=Enter to=+30m diff
+node tools/play.mjs 20261007 timeline=04:30-04:00/30m     # the whole day, every 30 min and every event (~8 s)
+node tools/play.mjs --help
+```
+
+`tools/play.mjs` is the command line of `tests/lib/play.js` (`openGame()`): next.html booted with
+every real module in the stand-in DOM, driven by jumps (`to`, `until`) that play the page's
+frames without drawing them (~0.3 s per grid hour, stopping AT the tick a trip, the card, a mode
+change, a notice or a new line begins), drawn frames where they matter (`real=5` in the watch),
+clicks and keys, and `look`: what the player sees, as text. Use it (not hand-written
+frame-by-frame loops: ~3-5 ms per frame, minutes per playthrough) to check a fix in play.
+
 ## Files
 
 | File | What it is |
 |---|---|
+| `play.mjs` | Plays next.html headless and fast; prints what the player sees (`tests/lib/play.js`). An ES module. |
 | `par.js` | v4 par and the proxies over seeds (S-4, S-5, S-11, S-12, S-14) on any scenario; `-j N` forks workers. Exports `grade()`. |
 | `follow.mjs` | The hint-following player over seeds, against par (SPEC §9.1 Q-18; desk/README.md §21.4). An ES module. |
 | `perf.mjs`, `shot-receiver.mjs` | F-11 headless measurements; the PNG receiver for visual QA (SPEC §10). |
