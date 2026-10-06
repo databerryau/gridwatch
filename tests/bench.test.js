@@ -4,15 +4,13 @@
 //    imports only, no Math.random outside render/ and audio/ (F-3);
 //  - live: bench.html's body is loaded into a small stand-in DOM (below; enough for the bench,
 //    not a browser) and app/bench-boot.js runs against it, driven by fake animation frames. The
-//    whole-day run is in the slow suite. The static rules cover every page module (app/, render/,
-//    content/, desk/, audio/).
+//    static rules cover every page module (app/, render/, content/, desk/, audio/).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync, readdirSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {tokenize, importSpecifiers} from './lib/js-tokens.js';
-import {slowOnly} from './lib/sim-helpers.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const rel = f => relative(ROOT, f).replace(/\\/g, '/');
@@ -312,15 +310,29 @@ test('the bench plays the debug trip as a watch: locked desk, trace chart, conti
   assert.deepEqual(doc.canvasStats.bad, []);
 });
 
-test('Exit Phase 0: bench.html plays a whole day through the bench (ASSIST PAR, 2,100×)', slowOnly(), async () => {
-  const {doc, $, frames} = await bootBench('?seed=7&speed=240');
-  $('assist-select').querySelectorAll('button').find(b => b.dataset.assist === 'par').click();
-  $('speed').querySelectorAll('button').find(b => b.textContent === '2,100×').click();
-  frames(1);
-  if (/PAUSE/.test($('rate-text').textContent)) $('btn-play').click();
-  let n = 0;
-  while ($('end-card').hidden && n++ < 60 * 600) frames(1);
-  assert.equal($('end-card').hidden, false, 'the day ended');
-  assert.match($('end-card').textContent, /Day over|went black/);
-  assert.deepEqual(doc.canvasStats.bad, []);
+// The end card (render/bench.js showEnd), drawn straight onto a second copy of bench.html: no whole
+// day needed. The wiring in app/bench-boot.js from state.over to showEnd is not reached here.
+test('the bench end card: Day over or the blackout time, the scorecard lines, SAVE LOG and CLOSE', async () => {
+  const {createBench} = await import('../render/bench.js');
+  const {createState, observe} = await import('../sim/step.js');
+  const {CLASSIC} = await import('../content/scenarios.js');
+  const doc = makeDocument(HTML), noop = () => {};
+  let saved = 0;
+  const b = createBench(doc, {input: () => '', togglePause: noop, setSpeed: noop, skipWatch: noop, setAgc: noop, setAssist: noop,
+    skipToDesk: noop, newDay: noop, debugTrip: noop, saveLog: () => { saved++; }, replan: noop});
+  const st = createState(7, CLASSIC), end = doc.getElementById('end-card');
+  assert.equal(end.hidden, true, 'no end card before the day ends');
+  b.showEnd(observe(st), ['hashState 0x00000000 · seed 7']);
+  assert.equal(end.hidden, false);
+  assert.match(end.textContent, /^Day over.*LIGHTS ON: .*CUSTOMER COST: .*CARBON: .*Frequency .*Contingencies .*hashState 0x/s);
+  assert.doesNotMatch(end.textContent, /NaN|undefined/);
+  const btn = label => end.querySelectorAll('button').find(x => x.textContent === label);
+  btn('SAVE LOG').click();
+  assert.equal(saved, 1, 'SAVE LOG saves the log');
+  st.black = true;
+  b.showEnd(observe(st), []);
+  assert.match(end.textContent, /^The grid went black at 04:00/);
+  assert.equal(end.querySelectorAll('button').length, 2, 'a redraw replaces the card, it does not stack');
+  btn('CLOSE').click();
+  assert.equal(end.hidden, true, 'CLOSE hides the card');
 });

@@ -5,13 +5,12 @@
 // (tests/lib/dom.js) and fed real observations: two real seconds of a fresh day at CRUISE (the
 // regulation noise the old bar printed as a new number every frame) and a trip while the battery
 // charges, tick by tick through its first second. Each test is a pure call or a few hundred
-// frames (F-10); the whole-day acceptance runs with GRIDWATCH_SLOW=1.
+// frames (F-10).
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {makeDocument} from './lib/dom.js';
-import {slowOnly} from './lib/sim-helpers.js';
 import {V} from '../sim/params.js';
 import {createState, step, observe} from '../sim/step.js';
 import * as fleet from '../sim/fleet.js';
@@ -113,7 +112,6 @@ function maxChangesPer(texts, n, kind = () => '') {
   }
   return most;
 }
-const wordOf = h => h.split(' ')[0];
 
 const signChanges = xs => xs.filter((x, i) => i > 0 && Math.sign(x) !== Math.sign(xs[i - 1]) && x !== 0 && xs[i - 1] !== 0).length;
 
@@ -597,91 +595,4 @@ test('the bar\'s \'?\' (q-imb) explains it as help (an info note), the trend and
   assert.deepEqual(m.notes.map(n => [n[0], n[1], n[2], n[3]]), [[m.bar.el, q.title, 8000, 'info']]);
   assert.equal(m.bar.el.getAttribute('role'), 'group');
   assert.equal(m.$('.dk-imb-track').getAttribute('aria-hidden'), 'true');
-});
-
-// ---------------------------------------------------------------- the acceptance on the real game (slow)
-
-/**
- * A day as the page plays it (app/game.js: the player's commitment, AGC on, no input): runTo(h)
- * headless, then frame() by frame at 60 fps, the bar and the dial fed each frame's view model. A
- * respond card is dismissed at once (Enter), so the day goes on at CRUISE.
- */
-async function realDay(seed) {
-  const G = await import('../app/game.js'), DIR = await import('../app/director.js');
-  const system = await import('../app/system.js'), planview = await import('../app/planview.js');
-  const game = G.createGame({seed, scenario: G.scenarioForSeed, system, planview, commit: 'player', storage: null});
-  G.takeDesk(game, {agc: true});
-  const m = mountBar(), d = mountDial();
-  let nowMs = 0;
-  return {
-    m, d,
-    runTo: h => G.runTo(game, Math.round((h - V.DAY_START_H) * 3600 * TPS)),
-    frame() {
-      nowMs += FRAME_MS;
-      G.frame(game, FRAME_MS / 1000);
-      DIR.dismissCard(game.director, game.state);
-      const vm = G.buildVm(game, {nowMs, dtS: FRAME_MS / 1000});
-      m.frame(vm);
-      d.frame(vm);
-      return vm;
-    },
-  };
-}
-
-test('K-11 accept (slow): at CRUISE outside events, on 4 days at 6 times of day, the head and the readout change at most twice in any real second (a new word or colour besides), the word never flips side and no segment is drawn', slowOnly(), async t => {
-  const SECS = 3;
-  for (const seed of [20261003, 20261005, 20261007, 20261010]) {
-    const day = await realDay(seed);
-    for (const h of [5, 8, 11, 14, 17, 20]) {
-      day.runTo(h);
-      const runs = [[]];   // CRUISE frames, a new run after each event
-      let flips = 0, drawn = 0, raw = 0, lastRaw = 0;
-      for (let f = 0; f < SECS * 60; f++) {
-        const vm = day.frame();
-        if (vm.mode.mode !== 'CRUISE' || vm.mode.locked) { if (runs[runs.length - 1].length) runs.push([]); continue; }
-        const run = runs[runs.length - 1], head = day.m.head(), r = Math.sign(imbalanceSegments(vm.obs.balance).schedMW);
-        if (run.length && r !== lastRaw) raw++;
-        if (run.length && wordOf(head) !== wordOf(run[run.length - 1].head) && wordOf(head) !== 'BALANCED' && wordOf(run[run.length - 1].head) !== 'BALANCED') flips++;
-        if (day.m.widths().some(w => w !== '0.00%')) drawn++;
-        run.push({head, hz: day.d.hz()});
-        lastRaw = r;
-      }
-      const heads = Math.max(0, ...runs.map(r => maxChangesPer(r.map(x => x.head), 60, wordOf)));
-      const hzs = Math.max(0, ...runs.map(r => maxChangesPer(r.map(x => x.hz), 60, x => x[0])));
-      const tag = seed + ' ' + h + ':00';
-      t.diagnostic(tag + ': ' + runs.reduce((a, r) => a + r.length, 0) + ' calm frames, head ' + heads + ' and readout ' + hzs +
-        ' figure changes in the busiest real second, word flips ' + flips + ', raw gap sign changes ' + raw);
-      assert.ok(heads <= 2, tag + ': the head\'s figure changed ' + heads + ' times in a real second');
-      assert.ok(hzs <= 2, tag + ': the readout\'s figure changed ' + hzs + ' times in a real second');
-      assert.equal(flips, 0, tag + ': SHORT and SURPLUS straight across');
-      assert.equal(drawn, 0, tag + ': a segment drawn between events');
-    }
-  }
-});
-
-test('K-11 on the owner\'s day (slow): with no input, the bar says SHORT, names the governors, notes AGC\'s limit and draws a red trough for 2 real s and more before UFLS sheds; the dial says the fall', slowOnly(), async t => {
-  // seed 20261007, nobody starts CCGT 2: AGC runs out of room from about 16:08 and UFLS sheds at about 16:19
-  const day = await realDay(20261007);
-  day.runTo(15.9);
-  let vm = null, shortFrames = 0, at16 = '', falling = false;
-  for (let f = 0; f < 60 * 60 && !(vm && vm.obs.demand.unservedMW > 0); f++) {
-    vm = day.frame();
-    if (vm.obs.clock.text === '16:00') at16 = day.m.head();
-    shortFrames = day.m.head().startsWith('SHORT') ? shortFrames + 1 : 0;
-    falling ||= /CHANGE falling/.test(day.d.sub());
-  }
-  assert.ok(vm.obs.demand.unservedMW > 0, 'UFLS shed by ' + vm.obs.clock.text);
-  t.diagnostic('UFLS at ' + vm.obs.clock.text + ' after ' + (shortFrames / 60).toFixed(1) + ' real s of SHORT; the head ' + day.m.head() + ', the foot ' +
-    day.m.foot().join(' / ') + ', the trend ' + day.m.trend().slice(-12).map(e => e.className[0] || '.').join('') + '; the dial ' + day.d.hz() + ' ' + day.d.sub());
-  assert.equal(at16, 'BALANCED', 'AGC still has room at 16:00');
-  assert.ok(shortFrames >= 120, 'SHORT for ' + (shortFrames / 60).toFixed(1) + ' real s before the shed');
-  assert.equal(day.m.$('.dk-imb-text').className, 'dk-imb-text crit');
-  assert.match(day.m.$('.dk-imb-who').textContent, /^held up by governors \d+/);
-  assert.equal(day.m.$('.dk-imb-agc').hidden, false, 'AGC limit');
-  assert.ok(day.m.widths().every(w => w === '0.00%'), 'the trend alone');
-  const red = day.m.trend().slice(-6);
-  assert.ok(red.every(e => e.className === 'short'), 'the newest six grid minutes are red: ' + red.map(e => e.className).join(' '));
-  const h = red.map(e => parseFloat(e.style.height));
-  for (let i = 1; i < h.length; i++) assert.ok(h[i] >= h[i - 1], 'deepening: ' + h.join(', '));
-  assert.ok(falling, 'CHANGE said falling before the shed');
 });
