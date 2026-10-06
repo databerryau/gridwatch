@@ -91,7 +91,9 @@ test('greybox day, 04:00-09:00: desk, Live Stack and RE-DISPATCH inputs through 
     respondAndRestore(g);
     act(g.h.vm().obs);
     did.add(name);
+    const t0 = g.st().tick;
     g.frame();
+    assert.equal(g.st().tick - t0, 12 * TPS, name + ': a 0.1-s frame at CRUISE runs 12 grid s (the page runs the clock)');
   };
   at(7, 'lever', o => { // 07:00: the CCGT lever up 100 MW (K-1 / L-6)
     const st = o.stations.find(x => x.id === 'ccgt');
@@ -235,6 +237,7 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   tap('a'); tap('A', {shiftKey: true}); tap('t'); tap('t'); tap('m'); tap(','); tap('Escape'); tap(' ');
   assert.equal(g.h.vm().mode.mode, 'PAUSE');
   tap(' ');
+  assert.equal(g.h.vm().mode.mode, 'CRUISE', 'Space again resumes the clock');
   assert.equal(g.st().log.length, n, 'presentation keys are not sim inputs');
 
   // GT·A reaches full speed: O opens its scope (FOCUS, 1x), U closes it cleanly (K-12). Its
