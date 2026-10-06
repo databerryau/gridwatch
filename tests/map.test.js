@@ -13,12 +13,12 @@ import {makeDocument} from './lib/dom.js';
 import {dayVm, baseVm} from './lib/vm-fixture.js';
 import {deskDayVm} from './lib/desk-vm.js';
 import {V} from '../sim/params.js';
-import {step, observe} from '../sim/step.js';
+import {step, observe, createState} from '../sim/step.js';
 import * as fleet from '../sim/fleet.js';
 import {DESK_WEEKEND} from '../content/scenarios.js';
 import {tokenize, importSpecifiers} from './lib/js-tokens.js';
 import * as D from '../render/mapdata.js';
-import {createMap, mapLabels, mapSummary, mapKeyOrder, skyState, weatherOf, MAX_REST_LABELS} from '../render/map.js';
+import {createMap, mapLabels, mapSummary, mapKeyOrder, mapPinText, skyState, weatherOf, MAX_REST_LABELS} from '../render/map.js';
 
 // One par run to 18:30 (seed 7) for both views: the trip view is that evening cloned, its largest
 // unit tripped and 2 grid-s run, as dayVm({seed: 7, untilH: 18.5, trip: true}) makes it (the same
@@ -917,4 +917,40 @@ test('L-9 / C-10: a plant lights for guard-stop-<unit> as for guard-start-<unit>
   assert.equal(rings(['guard-stop-hydro3', 'guard-stop-gta1']), 2);
   assert.equal(rings(['lever-coal', 'dial-battery', 'key-rert', 'stack']), 2, 'targets that are not on the map light nothing');
   for (const m of V.MACHINES) assert.equal(rings(['guard-stop-' + m.id]), 1, m.id);
+});
+
+test('Q-41: every click on the map answers: a plant its control, a dark suburb the RESTORE bay, the rest a blue label for 4 s', async () => {
+  const {map, ui, cv} = mount(1280, 268);
+  const vm = baseVm(observe(createState(5, DESK_WEEKEND))); // 04:00, cheap: no day run
+  for (const d of vm.obs.districts) d.dark = d.suburb === 'SAL';
+  vm.obs.rooftop.suburbs.find(s => s.id === 'RED').mw = 120;
+  map.update(vm);
+  const L = map.debug.layout;
+  const click = (x, y) => cv.dispatch('click', {clientX: L.dx + x * L.scale, clientY: L.dy + (y - L.srcY) * L.scale});
+  const at = id => { const b = (D.PLANTS.find(q => q.id === id) || D.SUBURBS.find(s => 'sub:' + s.id === id)).box; click(b[0] + b[2] / 2, b[1] + b[3] / 2); };
+  const shown = () => { vm.frame.nowMs += 16; map.update(vm); return map.debug.labels.filter(l => l.kind === 'info').map(l => l.text); };
+  at('ccgt');
+  assert.deepEqual(ui.pop(), {do: 'focus', target: 'lever-ccgt'}, 'a plant still focuses its control');
+  assert.deepEqual(shown(), []);
+  at('sub:SAL');
+  assert.deepEqual(ui.pop(), {do: 'focus', target: 'bay-restore'}, 'a dark suburb: to the RESTORE bay');
+  assert.deepEqual(shown(), []);
+  const n = ui.length;
+  at('wind');
+  assert.deepEqual(shown(), [mapPinText(vm.obs, 'wind')]);
+  assert.match(shown()[0], /^GALE RIDGE WIND [\d,]+ MW: the wind sets it, not the desk$/);
+  assert.match(map.el.getAttribute('aria-label'), /GALE RIDGE WIND .* sets it/, 'said to a screen reader too');
+  at('solar');
+  assert.match(shown()[0], /^SUNPLAIN SOLAR [\d,]+ MW: the sun sets it, not the desk$/);
+  at('sub:RED');
+  const draws = vm.obs.districts.filter(d => d.suburb === 'RED').reduce((a, d) => a + d.coldLoadMW, 0);
+  assert.deepEqual(shown(), [mapPinText(vm.obs, 'sub:RED')]);
+  assert.match(shown()[0], /^REDGUM FLATS draws [\d,]+ MW; roofs make 120 MW$/);
+  assert.equal(Number(/draws ([\d,]+)/.exec(shown()[0])[1].replace(/,/g, '')), Math.round(draws), 'what its feeders carry, as the RESTORE bay counts it');
+  assert.equal(map.debug.pick(150, 185), null, 'open ground');
+  click(150, 185);
+  assert.deepEqual(shown(), ['Click a plant for its control, a suburb for its load']);
+  assert.equal(ui.length, n, 'wind, solar, a lit suburb and the ground send nothing (no control over them)');
+  vm.frame.nowMs += 4000;
+  assert.deepEqual(shown(), [], 'the label goes after 4 s');
 });
