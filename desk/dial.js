@@ -3,9 +3,9 @@
 // Dial: 49-51 Hz; normal band green, out to 49.5/50.5 amber, beyond red; UFLS marked at 49.0; the
 // needle (above 10× the last real second's mean, F-4), the TRIP PREVIEW ghost needle, the nadir
 // pin during a watch, a 3-decimal readout, CHANGE (RoCoF over 500 ms) and SPIN (stored energy,
-// GW·s); "HAND" on the face in HAND mode. BALANCE bar: the scheduled gap and the borrowed stack
-// that covers it (inertia, battery, governors, load relief and, Phase 2a, the inverters backing
-// off: wind, utility solar and rooftop solar above 50 Hz, C-7); the segments sum to the
+// GW·s); "HAND" on the face in HAND mode. BALANCE bar: the trend, or in an event the scheduled gap
+// and the borrowed stack that covers it (inertia, battery, governors, load relief and, Phase 2a, the
+// inverters backing off: wind, utility solar and rooftop solar above 50 Hz, C-7); the segments sum to the
 // swing-equation imbalance and balance about zero (calc.imbalanceSegments). SHED is the dark
 // customers' load (obs.demand.unservedMW): the relay MW is net load and is zero or less when a
 // district that was feeding back at noon is dark (P-12). The canvas is role="img"; its text
@@ -17,7 +17,20 @@ import {el, setText, setAttr, setCls, setStyle, setHidden, slowAttr, mw, smw, hz
 
 export const DIAL_LO = 49, DIAL_HI = 51;
 export const NEEDLE_AVG_ABOVE_X = 10;   // F-4: above 10× the needle shows an average
-export const STEADY_HZ_S = 0.05;        // outside the watch a CHANGE below this reads "steady"
+export const STEADY_HZ_S = 0.05;        // outside the watch a change below this per real second is "steady"
+export const HZ_TAU_S = 0.5;            // F-4: the readout's average above 10× (real s)
+
+/** `x` eased toward `to` over `dtS` real s, time constant `tauS`. */
+const ease = (x, to, dtS, tauS) => x + (to - x) * (1 - Math.exp(-Math.max(0, fin(dtS)) / tauS));
+
+/** Real s since the last frame, else vm.frame.dtS; 0: draw raw. */
+function stepper(now) {
+  let last = NaN;
+  return vm => { const t = now(), d = (t - last) / 1000; last = t; return d > 0 ? d : Math.max(0, fin(vm.frame && vm.frame.dtS)); };
+}
+
+/** The watch, the respond card or RESPOND. */
+const inEvent = m => !!(m.locked || m.mode === 'RESPOND-CARD' || m.mode === 'RESPOND');
 
 /** Hz of a vm.hist.freq entry: a number, or {hz|meanHz|fMeanHz}. */
 const histHz = e => (typeof e === 'number' ? e : e && (e.meanHz ?? e.fMeanHz ?? e.hz));
@@ -36,19 +49,12 @@ export function needleHz(vm) {
 }
 
 /**
- * What the needle and the readout show: above 10× the mean of the last real second's grid
- * seconds (round(rate) of vm.hist.freq, at most its 180), not a new second every frame (F-4);
- * otherwise needleHz.
+ * What the needle and the readout show (F-4): above 10× needleHz eased into `prev` over HZ_TAU_S
+ * real s, whatever the rate was before; needleHz itself at 10× and below, in the watch, or `prev` NaN.
  */
-export function shownHz(vm) {
-  const f = needleHz(vm), h = vm.hist && vm.hist.freq, rate = vm.mode ? fin(vm.mode.rate) : 0;
-  if (!(rate > NEEDLE_AVG_ABOVE_X) || !Array.isArray(h)) return f;
-  let sum = 0, n = 0;
-  for (let i = Math.max(0, h.length - Math.min(180, Math.round(rate))); i < h.length; i++) {
-    const v = histHz(h[i]);
-    if (Number.isFinite(v)) { sum += v; n++; }   // NaN before the day
-  }
-  return n ? sum / n : f;
+export function shownHz(prev, vm, dtS) {
+  const f = needleHz(vm), m = vm.mode || {};
+  return m.locked || !(fin(m.rate) > NEEDLE_AVG_ABOVE_X) || !Number.isFinite(prev) ? f : ease(prev, f, dtS, HZ_TAU_S);
 }
 
 /** Dial angle (radians, canvas convention) of a frequency on the 180° arc, 49 Hz at 9 o'clock. */
@@ -144,25 +150,35 @@ export function createFreqDial(ctx, parent) {
     }
   }
 
+  const step = stepper(ctx.now);
+  let hz = NaN, move = 0, lastTick = -1, wasLocked = false, clk = 0, textMs = 0, textCls = '';
   return {
     el: box, canvas: cv,
     /** @param {object} vm @param {object|null} pv live preview {nadirHz} or null */
     update(vm, pv) {
-      const o = vm.obs, fShow = shownHz(vm);
+      const o = vm.obs, m = vm.mode || {}, dt = step(vm), rc = fin(o.f.rocofHzS);
+      // raw: no clock, the watch's end, a new day
+      const snap = !(dt > 0) || wasLocked || fin(o.tick) < lastTick || isNaN(hz);
+      wasLocked = !!m.locked; lastTick = fin(o.tick); clk += dt * 1000;
+      const fShow = shownHz(snap ? NaN : hz, vm, dt);
+      // CHANGE per real second: RoCoF × the rate, as the readout moves
+      move = snap ? 0 : ease(move, (fShow - hz) / dt, dt, HZ_TAU_S);
+      hz = fShow;
       const ghost = pv && Number.isFinite(pv.nadirHz) ? pv.nadirHz : null;
       const c = o.contingency;
-      const pin = c && (o.inWatch || (vm.mode && vm.mode.locked)) && Number.isFinite(c.extremeHz) ? c.extremeHz : null;
+      const pin = c && (o.inWatch || m.locked) && Number.isFinite(c.extremeHz) ? c.extremeHz : null;
       draw(vm, fShow, ghost, pin);
       const cls = fShow < V.CONTAIN_LO_HZ || fShow > V.CONTAIN_HI_HZ ? 'crit' : fShow < V.NORMAL_LO_HZ || fShow > V.NORMAL_HI_HZ ? 'warn' : 'good';
-      setText(big, (cls === 'good' ? '' : cls === 'warn' ? '! ' : '✕ ') + hz3(fShow) + ' Hz');
-      setAttr(big, 'class', 'dk-hz ' + cls);
-      const rc = fin(o.f.rocofHzS);
       const fast = Math.abs(rc) > V.ROCOF_LIMIT_HZ_S;
-      // digits only when the rate says something (and SPIN fits the line)
-      const steady = !(vm.mode && vm.mode.locked) && Math.abs(rc) < STEADY_HZ_S;
-      setText(sub, (fast ? '✕ ' : '') + 'CHANGE ' + (steady ? 'steady' : (rc >= 0 ? '+' : '−') + Math.abs(rc).toFixed(3) + ' Hz/s') +
-        ' · SPIN ' + fin(o.f.ekGWs).toFixed(1) + ' GW·s');
-      setCls(sub, 'crit', fast);
+      // outside an event, new figures at most once per TEXT_MS (a new colour at once)
+      if (inEvent(m) || snap || cls !== textCls || clk - textMs >= TEXT_MS) {
+        textMs = clk; textCls = cls;
+        setText(big, (cls === 'good' ? '' : cls === 'warn' ? '! ' : '✕ ') + hz3(fShow) + ' Hz');
+        setAttr(big, 'class', 'dk-hz ' + cls);
+        setText(sub, (fast ? '✕ ' : '') + 'CHANGE ' + (m.locked || fast ? (rc >= 0 ? '+' : '−') + Math.abs(rc).toFixed(3) + ' Hz/s' :
+          Math.abs(move) < STEADY_HZ_S ? 'steady' : move < 0 ? 'falling' : 'rising') + '\nSPIN ' + fin(o.f.ekGWs).toFixed(1) + ' GW·s');
+        setCls(sub, 'crit', fast);
+      }
       // The text alternative of the canvas (and of the panel that holds it): at most one change per real second.
       const alt = 'Frequency ' + hz3(fShow) + ' hertz, ' + (cls === 'good' ? 'in the normal band' : cls === 'warn' ? 'outside the normal band' :
         'outside the containment band') + ', change ' + rc.toFixed(3) + ' hertz per second' + (fast ? ' (above the limit)' : '') + ', spin ' +
@@ -177,16 +193,15 @@ export function createFreqDial(ctx, parent) {
 
 // ---------------------------------------------------------------- BALANCE bar
 
+// [key, class, letter, name in the foot and the tooltip]
 const SEGS = [
-  ['schedMW', 'dk-seg-sched', 'GAP'],
-  ['inertiaMW', 'dk-seg-inertia', 'I'],
-  ['batteryMW', 'dk-seg-batt', 'B'],
-  ['governorsMW', 'dk-seg-gov', 'G'],
-  ['loadReliefMW', 'dk-seg-relief', 'R'],
-  ['inverterMW', 'dk-seg-inv', 'V'],   // inVerters (Phase 2a, C-7): <= 0, wind and solar lowering above 50 Hz
+  ['schedMW', 'dk-seg-sched', 'GAP', 'gap'],
+  ['inertiaMW', 'dk-seg-inertia', 'I', 'spin'],
+  ['batteryMW', 'dk-seg-batt', 'B', 'battery'],
+  ['governorsMW', 'dk-seg-gov', 'G', 'governors'],
+  ['loadReliefMW', 'dk-seg-relief', 'R', 'load relief'],
+  ['inverterMW', 'dk-seg-inv', 'V', 'solar and wind'],   // inVerters (Phase 2a, C-7): <= 0, wind and solar lowering above 50 Hz
 ];
-/** A segment's name in its tooltip (the key without MW, as before; the inverters' says what they are doing). */
-const segWord = k => (k === 'inverterMW' ? 'inverters backing off' : k.replace(/MW$/, ''));
 
 /**
  * MW the SHED mark shows: the load of the customers who are dark (obs.demand.unservedMW). A view
@@ -230,27 +245,25 @@ const SEG_KEYS = SEGS.map(x => x[0]);
  * watch) or on the first frame. Linear, so they still balance about zero (K-11); SHED sets no scale.
  */
 export function smoothSeg(prev, seg, dtS, snap) {
-  const a = !prev || snap ? 1 : 1 - Math.exp(-Math.max(0, fin(dtS)) / BAL_TAU_S), out = {shedMW: 0};
-  for (const k of SEG_KEYS) out[k] = a === 1 ? fin(seg[k]) : prev[k] + (fin(seg[k]) - prev[k]) * a;
+  const out = {shedMW: 0};
+  for (const k of SEG_KEYS) out[k] = !prev || snap ? fin(seg[k]) : ease(prev[k], fin(seg[k]), dtS, BAL_TAU_S);
   return out;
 }
 
 /** BALANCED inside ±BAL_IN_MW of gap, and until it passes ±BAL_OUT_MW; a carrier is named from CARRIER_MIN_MW. */
 export const BAL_IN_MW = 15, BAL_OUT_MW = 25, CARRIER_MIN_MW = 5;
-const WHO = [['inertiaMW', 'spin'], ['batteryMW', 'battery'], ['governorsMW', 'governors'], ['loadReliefMW', 'load relief'],
-  ['inverterMW', 'solar and wind']];
 const mw10 = x => mw(Math.round(Math.abs(fin(x)) / 10) * 10);
 
 /**
  * The bar's word ('BALANCED', 'SHORT', 'SURPLUS'; `was`: the last one) and its head, the gap in
- * 10-MW steps; `who`: the two biggest carriers on the side that covers the gap.
+ * 10-MW steps; `who`: the `n` biggest carriers on the side that covers the gap.
  */
-export function balanceWord(seg, was = 'BALANCED') {
+export function balanceWord(seg, was = 'BALANCED', n = 2) {
   const g = fin(seg.schedMW);
   if (Math.abs(g) < BAL_IN_MW || (was === 'BALANCED' && Math.abs(g) <= BAL_OUT_MW)) return {word: 'BALANCED', head: 'BALANCED', who: ''};
   const word = g < 0 ? 'SHORT' : 'SURPLUS', side = g < 0 ? 1 : -1;
-  const who = WHO.filter(([k]) => side * fin(seg[k]) >= CARRIER_MIN_MW).sort((x, y) => Math.abs(seg[y[0]]) - Math.abs(seg[x[0]]))
-    .slice(0, 2).map(([k, name]) => name + ' ' + mw10(seg[k]));
+  const who = SEGS.slice(1).filter(([k]) => side * fin(seg[k]) >= CARRIER_MIN_MW).sort((x, y) => Math.abs(seg[y[0]]) - Math.abs(seg[x[0]]))
+    .slice(0, n).map(([k, , , name]) => name + ' ' + mw10(seg[k]));
   return {word, head: word + ' ' + mw10(g) + ' MW', who: who.length ? (g < 0 ? 'held up by ' : 'soaked up by ') + who.join(' · ') : ''};
 }
 
@@ -266,10 +279,10 @@ export function holdScale(h, fit, nowMs) {
 /** Grid minutes in the trend, one column each. */
 export const TREND_N = 30;
 
-/** A trend column, % of the track's height from its middle: grey inside ±BAL_IN_MW, red short, blue surplus. */
-export function trendColumn(gapMW, scale) {
+/** A trend column, % of the track's height from its middle: grey BALANCED, red below SHORT, blue above SURPLUS. */
+export function trendColumn(gapMW, scale, word) {
   const g = fin(gapMW), h = Math.min(50, Math.abs(g) / scale * 50);
-  return {cls: Math.abs(g) < BAL_IN_MW ? '' : g < 0 ? 'short' : 'surplus', top: g < 0 ? 50 : 50 - h, height: h};
+  return {cls: word === 'SHORT' ? 'short' : word === 'SURPLUS' ? 'surplus' : '', top: g < 0 ? 50 : 50 - h, height: h};
 }
 
 /** The segment the watch's caption is about glows. */
@@ -291,68 +304,74 @@ export function createImbalanceBar(ctx, parent) {
   const cols = Array.from({length: TREND_N}, () => trend.appendChild(el(doc, 'i')));
   const zero = el(doc, 'i', 'dk-imb-zero');
   const segEls = SEGS.map(([, cls, letter]) => { const s = el(doc, 'i', 'dk-seg ' + cls); s.appendChild(el(doc, 'b', '', letter)); return s; });
-  track.append(trend, zero, ...segEls);   // the segments draw over the trend
+  track.append(trend, zero, ...segEls);
   const foot = el(doc, 'div', 'dk-imb-foot');
-  const shed = el(doc, 'span', 'dk-imb-shed'), unmet = el(doc, 'span', 'dk-unmet'), who = el(doc, 'span', 'dk-imb-who');
-  foot.append(shed, unmet, who);
+  // most important first; the AGC note gives way (desk.css)
+  const shed = el(doc, 'span', 'dk-imb-shed'), who = el(doc, 'span', 'dk-imb-who'), agcEl = el(doc, 'span', 'dk-imb-agc', '! AGC limit');
+  const line = el(doc, 'span', 'dk-imb-l');
+  line.append(shed, who);
+  foot.append(line, agcEl);
   const q = el(doc, 'button', 'dk-q', '?');
   q.type = 'button'; q.id = 'q-imb';
-  q.title = 'Supply minus demand, averaged over about a second. BALANCED: AGC is keeping up. SHORT: spin, the battery and ' +
-    'governors are filling a hole, and they are what catches the next trip, so start a unit or raise a lever. After a trip ' +
-    'it shows who caught the loss. Between trips, columns: the last 30 grid minutes.';
+  q.title = 'Supply minus demand, averaged over about a second. BALANCED: within 25 MW. SHORT: spin, the battery and ' +
+    'governors are filling a hole, and they are what catches the next trip, so start a unit or raise a lever. AGC limit: the ' +
+    'running units have no room left. Between trips, one column per grid minute, the newest on the right: ' +
+    'red below the middle line is short, blue above it is surplus. After a trip: who caught the loss.';
   q.setAttribute('aria-label', 'What the balance bar means');
   q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, q.title, 8000, 'info'); });
   box.append(head, track, foot, q);
   parent.appendChild(box);
 
-  const slow = slowAttr(ctx.now), scale = {s: 0, t: 0}, trendMW = [];
-  let shown = null, lastMs = -1, lastTick = -1, word = 'BALANCED', textMs = -Infinity, trendMin = -1, trendS = 0;
+  const slow = slowAttr(ctx.now), step = stepper(ctx.now), scale = {s: 0, t: 0}, trendMW = [];
+  let shown, lim, lastTick = -1, word, clk = 0, textMs, trendMin, trendS = 0;
+  const day = () => { shown = null; lim = false; word = 'BALANCED'; textMs = -Infinity; trendMin = -1; trendMW.length = 0; scale.s = 0; };
+  day();
   return {
     el: box,
     update(vm) {
-      const o = vm.obs, m = vm.mode || {}, nowMs = ctx.now();
-      if (fin(o.tick) < lastTick) { shown = null; trendMW.length = 0; trendMin = -1; }   // a new day
-      lastTick = fin(o.tick);
-      shown = smoothSeg(shown, imbalanceSegments(o.balance, o.battery), lastMs < 0 ? 0 : (nowMs - lastMs) / 1000, !!m.locked);
-      lastMs = nowMs;
-      // in an event (the watch, the card, RESPOND) the stack is drawn at the size of the hole the trip made
-      const event = !!(m.locked || m.mode === 'RESPOND-CARD' || m.mode === 'RESPOND'), c = o.contingency;
-      const S = holdScale(scale, barScale(shown, event && c ? Math.abs(fin(c.lostMW)) : 0), nowMs);
-      const w = balanceWord(shown, word), draw = event || w.word !== 'BALANCED';
+      const o = vm.obs, m = vm.mode || {}, dt = step(vm), raw = !(dt > 0);
+      if (fin(o.tick) < lastTick) day();   // a new day
+      lastTick = fin(o.tick); clk += dt * 1000;
+      lim ||= Math.abs(fin(o.agc && o.agc.unmetMW)) > 0.5;   // AGC at its limit (it flickers there)
+      shown = smoothSeg(shown, imbalanceSegments(o.balance, o.battery), dt, raw || !!m.locked);
+      // in an event the stack, at the size of the hole the trip made; between events the trend
+      const event = inEvent(m), c = o.contingency, fit = barScale(shown, event && c ? Math.abs(fin(c.lostMW)) : 0);
+      const S = raw ? (scale.t = clk, scale.s = fit) : holdScale(scale, fit, clk);
+      const shedMW = shedMarkMW(o), w = balanceWord(shown, word, shedMW > 0.5 ? 1 : 2);   // one beside SHED
       const beat = vm.watch && BEAT_SEG[vm.watch.beat];
       barLayout(shown, S).segs.forEach((s, i) => {
         setStyle(segEls[i], 'left', s.left.toFixed(2) + '%');
-        setStyle(segEls[i], 'width', (draw ? s.width : 0).toFixed(2) + '%');
-        setAttr(segEls[i], 'title', segWord(s.k) + ' ' + smw(s.mw) + ' MW');
+        setStyle(segEls[i], 'width', (event ? s.width : 0).toFixed(2) + '%');
+        setAttr(segEls[i], 'title', SEGS[i][3] + ' ' + smw(s.mw) + ' MW');
         setCls(segEls[i], 'neg', s.mw < 0);
         setCls(segEls[i], 'glow', s.k === beat);
       });
-      const shedMW = shedMarkMW(o), un = fin(o.agc && o.agc.unmetMW);
       // a new word at once, new figures at most once per TEXT_MS
-      if (w.word !== word || nowMs - textMs >= TEXT_MS) {
-        textMs = nowMs;
+      if (raw || w.word !== word || clk - textMs >= TEXT_MS) {
+        textMs = clk;
         setText(txt, w.head);
         setAttr(txt, 'class', 'dk-imb-text' + (w.word === 'SHORT' ? ' crit' : w.word === 'SURPLUS' ? ' warn' : ''));
         setText(who, w.who);
         setHidden(shed, !(shedMW > 0.5));
         setText(shed, '✕ SHED ' + mw(shedMW) + ' MW');
-        setHidden(unmet, !(Math.abs(un) > 0.5));
-        setText(unmet, '! AGC out of room ' + smw(un) + ' MW');
+        setHidden(agcEl, w.word === 'BALANCED' || !lim);   // at the word's thresholds
+        lim = false;
       }
       word = w.word;
-      // the trend: the shown gap once a grid minute (at CRUISE 30 columns are 15 real s)
+      // the trend: the shown gap and word once a grid minute (at CRUISE 30 columns are 15 real s)
       const min = Math.floor(fin(o.s) / 60);
       if (min !== trendMin || S !== trendS) {
-        if (min !== trendMin) { trendMin = min; trendMW.push(shown.schedMW); if (trendMW.length > TREND_N) trendMW.shift(); }
+        if (min !== trendMin) { trendMin = min; trendMW.push([shown.schedMW, word]); if (trendMW.length > TREND_N) trendMW.shift(); }
         trendS = S;
         cols.forEach((e, i) => {
-          const col = trendColumn(trendMW[i - TREND_N + trendMW.length], S);   // newest on the right; none yet: flat
+          const [g, wd] = trendMW[i - TREND_N + trendMW.length] || [], col = trendColumn(g, S, wd);   // newest on the right; none yet: flat
           setStyle(e, 'top', col.top.toFixed(1) + '%');
           setStyle(e, 'height', col.height.toFixed(1) + '%');
           setAttr(e, 'class', col.cls);
         });
       }
       setHidden(trend, event);
+      setHidden(zero, !event);   // the trend has its own, across
       slow(box, 'aria-label', 'Balance: ' + w.head + '. Scheduled supply minus demand ' + smw(shown.schedMW) + ' MW, covered by spin ' +
         smw(shown.inertiaMW) + ', battery ' + smw(shown.batteryMW) + ', governors ' + smw(shown.governorsMW) + ', load relief ' +
         smw(shown.loadReliefMW) + (Math.abs(shown.inverterMW) > 0.5 ? ', wind and solar backing off ' + smw(shown.inverterMW) : '') + ' MW' +

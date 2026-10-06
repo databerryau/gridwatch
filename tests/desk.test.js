@@ -1735,13 +1735,13 @@ test('K-11 on a real over-frequency (2a): with the potline off at a mild noon th
   const right2 = lay2.segs.filter(x => x.mw > 0).reduce((a, x) => a + x.width, 0), left2 = lay2.segs.filter(x => x.mw < 0).reduce((a, x) => a + x.width, 0);
   assert.ok(Math.abs(right2 - left2) < 1e-6, 'the bar balances about zero: ' + right2 + ' / ' + left2);
   const el2 = mount(at(baseVm(o2), 1000)).$('bar-imbalance').querySelector('.dk-seg-inv');
-  assert.equal(el2.getAttribute('title'), 'inverters backing off −' + Math.round(b2.renPfrMW + b2.roofPfrMW) + ' MW');
+  assert.equal(el2.getAttribute('title'), 'solar and wind −' + Math.round(b2.renPfrMW + b2.roofPfrMW) + ' MW');
   // on the desk: its own segment, lettered, patterned and titled; in the text alternative
   const {$} = mount(at(baseVm(o), 1000));
   const el = $('bar-imbalance').querySelector('.dk-seg-inv');
   assert.equal(el.textContent, 'V');
   assert.equal(el.classList.contains('neg'), true);
-  assert.match(el.getAttribute('title'), /^inverters backing off −\d+ MW$/);
+  assert.match(el.getAttribute('title'), /^solar and wind −\d+ MW$/);
   assert.match($('bar-imbalance').getAttribute('aria-label'), /wind and solar backing off −\d+ MW/);
   assert.match(CSS, /\.dk-seg-inv \{ background: repeating-linear-gradient\(90deg/, 'upright bars: told from the four diagonal fills by pattern');
   // with no back-off they say nothing
