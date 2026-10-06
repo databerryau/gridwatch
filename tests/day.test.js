@@ -281,19 +281,28 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   assert.ok(h.vm().glow.has('guard-start-ccgt2'), 'and its START guard is lit');
   assert.equal($('objective').className, 'act');
   assert.match($('objective-level').textContent, /ACT NOW/);
+  // asked early enough to read and answer at this rate (LINE_REACT_S): its deadline is real seconds away
+  const ask = h.vm().objective;
+  assert.ok((ask.startBy - h.vm().obs.s) / h.vm().mode.rate >= 10, 'the deadline ' + ((ask.startBy - h.vm().obs.s) / h.vm().mode.rate).toFixed(1) + ' real s away');
   tap('2'); tap('s');
   // C-10: the guard is lifted (armed), and before the second press the line says what it would do
   frame();
   assert.equal($('objective-level').textContent, ARMED_WORD);
-  assert.match($('objective-text').textContent, /^Press again to confirm\. START CCGT 2: at minimum load \(175 MW\) by 0\d:\d\d, 49 min from now, and it must then run 4 h\. It covers the shortfall from 0\d:\d\d\.$/);
+  const armed = $('objective-text').textContent;
+  assert.match(armed, /^Press again to confirm\. START CCGT 2: at minimum load \(175 MW\) by 0\d:\d\d, 49 min from now, and it must then run 4 h\. It covers the shortfall from 0\d:\d\d\.$/);
   assert.equal($('objective').className, 'act consider');
+  // what the player is reading to confirm holds still while the clock runs on under it
+  const clock = $('clock-text').textContent;
+  for (let i = 0; i < 15; i++) frame();
+  assert.notEqual($('clock-text').textContent, clock);
+  assert.equal($('objective-text').textContent, armed, 'held as it read when the cover went up');
   tap('s');
   const log = h.game.state.log, at = log.findIndex(r => r.type === 'start' && r.args.unit === 'ccgt2');
   assert.equal(log.filter(r => r.type === 'start' && r.args.unit === 'ccgt2').length, 1, '2, S, S started it');
   // §21.4: the re-dispatch follows in the same call, so the next line is read off a plan that knows about the start
   assert.deepEqual([log[at + 1].type, log[at + 1].tick], ['planLoad', log[at].tick]);
   // the tray says so at once, as an event list does: the station's own words, and a jump to the lever
-  const started = h.vm().tray.cards.find(c => /^START Riverton CCGT 2: running up, full speed in \d+ min\.$/.test(c.text));
+  const started = h.vm().tray.cards.find(c => /^START Riverton CCGT 2: running up, full speed at \d\d:\d\d\.$/.test(c.text));
   assert.deepEqual(started && [started.from, started.sev, started.button.label, started.button.target], ['STATION', 'info', 'TO THE LEVER', 'lever-ccgt']);
   assert.match($('tray').textContent, /START Riverton CCGT 2: running up/);
   for (let i = 0; i < 30; i++) frame();

@@ -44,8 +44,9 @@ const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNO
 
 // The level as a glyph and a word (K-22: never colour alone). By level; and by kind where the
 // level's own word would say the wrong thing: a STOP or a BATTERY line is advice about cost, never
-// SHORT, and a line about spare or a dark district names what it is about.
-const LEVEL_WORD = Object.freeze({ok: '✓ STEADY', plan: '◷ PLAN', act: '▶ ACT NOW', crit: '‼ SHORT'});
+// URGENT, and a line about spare or a dark district names what it is about. Never SHORT, the
+// BALANCE bar's word.
+const LEVEL_WORD = Object.freeze({ok: '✓ STEADY', plan: '◷ PLAN', act: '▶ ACT NOW', crit: '‼ URGENT'});
 const KIND_WORD = Object.freeze({
   watch: {ok: '◉ WATCH', plan: '◉ WATCH', act: '◉ WATCH', crit: '◉ WATCH'},
   stop: {plan: '◇ SAVING', act: '▶ ACT NOW', crit: '▶ ACT NOW'},
