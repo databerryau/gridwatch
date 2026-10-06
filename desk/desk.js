@@ -378,7 +378,7 @@ export function createDesk(doc, root, actions, opts = {}) {
     if (locked()) {
       // The watch (Q-41): the desk's letters answer with the lock note, once per press, never reaching the fallback.
       const slot = (k === 's' || k === 'x' || k === 'p') && active && desk.contains(active) && active.closest && (active.closest('.dk-lever-slot') || active.closest('.dk-rot'));
-      if (slot) { if (!ev.repeat) ctx.lockNote(slot); return true; }
+      if (slot) { if (!ev.repeat) emerg.locked(slot); return true; }
       if (bayKey || k === 'n') { if (!ev.repeat) (k === 'n' ? emerg.redispatch() : bay.key(k)); return true; }
       return false;
     }

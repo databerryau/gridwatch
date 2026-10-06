@@ -355,3 +355,50 @@ test('Q-41 help is blue: no scope, no unit, B in AGC, K with DIRECT SHED hidden,
   assert.match(said(dr, () => { dr.dispatch('pointerdown'); dr.dispatch('pointerup'); }), /^DR is on: \d+:\d\d left$/);
   assert.deepEqual(visibleNotes(doc).filter(n => !n.classList.contains('info')).map(n => n.textContent), [], 'no red');
 });
+
+test('Q-41 true words: the press after S S names the unit running up; spent DR with the diesel armed gives no E hint; the day over is not a watch', () => {
+  const {doc, $, h, frames, key, keyUp} = bootReal();
+  const st = h.game.state;
+  const bay = $('bay-sync').parentElement.parentElement, keys = $('btn-redispatch').parentElement, dr = $('btn-dr');
+  const said = (host, act) => {
+    for (const n of doc.querySelectorAll('.dk-note')) n.textContent = '';
+    act();
+    const n = noteOf(host);
+    assert.ok(n && n.classList.contains('info'), (n ? n.textContent : 'no note') + ': blue');
+    return n.textContent;
+  };
+  const tap = k => () => { key(k); keyUp(k); };
+  // S S on GT·A: it runs up. [ ] O C are the presses a player reaches for next: they name it, not "START one".
+  key('3'); frames(1);
+  key('s'); keyUp('s'); frames(2, 0.05); key('s'); keyUp('s'); frames(2, 0.05);
+  assert.ok(h.vm().obs.units.some(u => u.mode === 'starting'), 'S S: a machine runs up');
+  assert.equal(h.vm().obs.units.filter(u => u.mode === 'ready').length, 0);
+  for (const [what, act] of [[']', tap(']')], ['O', tap('o')], ['C', tap('c')], ['[ −', () => $('sync-lower').click()]]) {
+    assert.match(said(bay, act), /^GT·A( \d)? runs up: full speed in \d+:\d\d, then O$/, what);
+  }
+  // No DR calls left: the diesel hint only while the diesel is not armed (armed, holding E stands it down).
+  st.dr.callsLeft = 0;
+  frames(1);
+  const press = () => { dr.dispatch('pointerdown'); dr.dispatch('pointerup'); };
+  assert.equal(said(dr, press), 'no DR calls left today: try reserve diesel (E)');
+  key('e'); frames(10, 0.1); keyUp('e'); frames(2, 0.1);
+  assert.equal(h.vm().obs.rert.armed, true, 'E held: the diesel armed');
+  assert.equal(said(dr, press), 'no DR calls left today');
+  // The day over: locked, but no watch. Every press says so, in blue, and nothing reaches the sim.
+  st.over = true;
+  frames(2);
+  assert.equal(h.vm().mode.locked, false, 'no watch');
+  const OVER = 'the day is over: PLAY THIS DAY AGAIN is on the card';
+  const n0 = st.log.length;
+  assert.equal(said(keys, tap('n')), OVER, 'N');
+  for (const k of ['o', ']', 'c', 'b', 'r']) assert.equal(said(bay, tap(k)), OVER, k.toUpperCase());
+  assert.equal(said(dr, tap('d')), OVER, 'D');
+  assert.equal(said($('key-rert'), tap('e')), OVER, 'E');
+  assert.equal(said(keys, () => $('key-agc').click()), OVER, 'the AGC/HAND key');
+  key('1');
+  assert.equal(said($('lever-coal').closest('.dk-lever-slot'), tap('s')), OVER, 'S on a lever');
+  frames(1);
+  assert.equal(st.log.length, n0, 'nothing reached the sim');
+  assert.ok(!doc.querySelectorAll('.dk-note').some(n => !n.hidden && /watch/.test(n.textContent)), 'no watch words');
+  assert.deepEqual(h.mods.errors, []);
+});

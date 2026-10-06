@@ -16,6 +16,7 @@
 import {V} from '../sim/params.js';
 import {scopeAngle, scopeZone, turnS, coldLoad} from './calc.js';
 import {el, setText, setAttr, setCls, setHidden, slowAttr, mw, fin, mmss, unitLabel, CLASS_GLYPH, PAN} from './util.js';
+import {lockedNote} from './emergency.js';
 
 export const SCOPE_AUTO_REAL_MS = 8000;   // K-12: AUTO after 8 real s on the scope without a close
 export const SYNC_LABEL = 'Real operators aim for 15–30 s per turn and close within ±10°. Ours turns faster. ' +
@@ -81,25 +82,32 @@ export function createBay(ctx, parent) {
   const unitObs = id => vm.obs.units.find(u => u.id === id);
   /** The READY unit O opens: an offered one first. */
   const firstReady = () => { const r = vm.obs.units.filter(u => u.mode === 'ready'); return r.find(u => vm.offers && vm.offers.some(x => x.unit === u.id)) || r[0]; };
-  // Every press answers (Q-41): help is blue; in the watch, the lock note.
-  const info = text => (ctx.locked() ? ctx.lockNote(box) : ctx.note(box, text, undefined, 'info'));
-  const NO_UNIT = 'no unit at full speed: START one on the lever bank';
+  // Every press answers (Q-41): help is blue; locked, the lock note (or the day is over).
+  const lock = () => lockedNote(ctx, box);
+  const info = text => (ctx.locked() ? lock() : ctx.note(box, text, undefined, 'info'));
+  /** No unit at full speed: the one running up (the press right after S S), else how to get one. */
+  const noUnit = () => {
+    const s = vm.obs.units.reduce((b, u) => (u.mode === 'starting' && (!b || u.timerS < b.timerS) ? u : b), null);
+    return s ? unitLabel(s.id) + ' runs up: full speed in ' + mmss(s.timerS) + ', then O' : 'no unit at full speed: START one on the lever bank';
+  };
   /** The unit on the scope; else '' once the press has been told what it needs. */
   function need() {
-    if (ctx.locked()) { ctx.lockNote(box); return ''; }
+    if (ctx.locked()) { lock(); return ''; }
     const u = scopeUnit(), f = u || firstReady();
-    if (!u) info(f ? 'open a scope first: O, or ◑ ' + unitLabel(f.id) : NO_UNIT);
+    if (!u) info(f ? 'open a scope first: O, or ◑ ' + unitLabel(f.id) : noUnit());
     return u;
   }
   function openScope(id) {
     if (!vm) return;
-    const r = ctx.send({type: 'scope', unit: id}, box);   // locked: the lock note
+    if (ctx.locked()) { lock(); return; }
+    const r = ctx.send({type: 'scope', unit: id}, box);
     if (!r) cue();
     if (!r && vm.offers && vm.offers.some(o => o.unit === id)) ctx.ui({do: 'offerTaken', unit: id});
     show('sync', true);
   }
   function exitScope() {
     if (!vm) return;
+    if (ctx.locked()) { lock(); return; }
     if (!scopeUnit()) { info('no scope open'); return; }
     if (!ctx.send({type: 'scope', unit: ''}, box)) cue();
   }
@@ -258,7 +266,7 @@ export function createBay(ctx, parent) {
   }
   function closeFeeder(id) {
     if (!vm) return;
-    if (ctx.locked()) { ctx.lockNote(box); return; }
+    if (ctx.locked()) { lock(); return; }
     const d = vm.obs.districts.find(x => x.id === id);
     if (!d || !d.dark) return;
     const why = previewOf(d);
@@ -369,7 +377,7 @@ export function createBay(ctx, parent) {
       if (k === 'o') {
         if (scopeUnit()) { exitScope(); return true; }
         const first = firstReady();
-        if (first) openScope(first.id); else { show('sync', true); info(NO_UNIT); }
+        if (first) openScope(first.id); else { show('sync', true); info(noUnit()); }
         return true;
       }
       if (k === 'b') { toggleBypass(); return true; }
@@ -377,7 +385,7 @@ export function createBay(ctx, parent) {
       if (k === ']') { trim(1); return true; }
       if (k === 'c') { close(); return true; }
       if (k === 'u') { auto(); return true; }
-      if (k === 'r') { show('restore', true); tRest.focus && tRest.focus(); feeders.focus && feeders.focus(); if (ctx.locked()) ctx.lockNote(box); return true; }
+      if (k === 'r') { show('restore', true); tRest.focus && tRest.focus(); feeders.focus && feeders.focus(); if (ctx.locked()) lock(); return true; }
       return false;
     },
   };
