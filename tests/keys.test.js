@@ -13,6 +13,7 @@ import {bootGame} from '../app/shell.js';
 import {createDesk} from '../desk/desk.js';
 import * as system from '../app/system.js';
 import * as planview from '../app/planview.js';
+import * as fleet from '../sim/fleet.js';
 
 const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S;
@@ -284,4 +285,73 @@ test('the real desk: S S starts one machine once; D and E holds act once (the fa
   assert.equal(logOf('armRERT'), rert + 1);
   assert.deepEqual(h.mods.errors, []);
   assert.ok(h.game.state.tick > V.PLAYER_START_TICK + TPS);
+});
+
+// ---- Q-41: every press answers; help is blue, red is only the grid's refusal
+/** The visible note a host carries itself (not one of its children's). */
+const noteOf = host => host.children.find(c => c.classList && c.classList.contains('dk-note') && !c.hidden);
+const visibleNotes = doc => doc.querySelectorAll('.dk-note').filter(n => !n.hidden && n.textContent);
+
+test('Q-41 the watch: every desk key and button answers with the blue lock note; nothing is sent, nothing falls through', () => {
+  const {doc, $, h, frames, key, keyUp} = bootReal();
+  const st = h.game.state;
+  const big = st.units.reduce((b, u, i) => (u.sync && (b < 0 || u.outMW > st.units[b].outMW) ? i : b), -1);
+  fleet.tripUnit(st, big, 'test trip', V.HOT_TRIP_LOCKOUT_S, []);
+  frames(2);
+  assert.equal(h.vm().mode.locked, true, 'the watch');
+  assert.equal(h.vm().mode.canSkip, false, 'a first-time player\'s first watch plays through');
+  const LOCK = 'desk locked while the grid catches itself: watch this one';
+  const n0 = st.log.length;
+  const bay = $('bay-sync').parentElement.parentElement, keys = $('btn-redispatch').parentElement, emerg = $('key-rert').parentElement;
+  const tap = k => () => { key(k); keyUp(k); };
+  function answers(what, host, act) {
+    for (const n of doc.querySelectorAll('.dk-note')) n.textContent = '';
+    act();
+    const n = noteOf(host);
+    assert.equal(n && n.textContent, LOCK, what);
+    assert.ok(n.classList.contains('info'), what + ': blue, help (Q-41)');
+  }
+  answers('N', keys, tap('n'));
+  answers('RE-DISPATCH', keys, () => $('btn-redispatch').click());
+  answers('the AGC/HAND key', keys, () => $('key-agc').click());
+  for (const k of ['o', '[', ']', 'c', 'u', 'b', 'r']) answers(k.toUpperCase(), bay, tap(k));
+  answers('+ ]', bay, () => $('sync-raise').click());
+  answers('D', $('btn-dr'), tap('d'));
+  answers('E', $('key-rert'), tap('e'));
+  answers('K', $('key-shed').hidden ? emerg : $('key-shed'), tap('k'));
+  key('1');
+  answers('S on a lever', $('lever-coal').closest('.dk-lever-slot'), tap('s'));
+  frames(1);
+  assert.equal(st.log.length, n0, 'nothing reached the sim');
+  assert.equal($('toast').hidden, true, 'and no fallback refusal toast');
+  assert.deepEqual(visibleNotes(doc).filter(n => !n.classList.contains('info')).map(n => n.textContent), [], 'no red');
+  assert.deepEqual(h.mods.errors, []);
+});
+
+test('Q-41 help is blue: no scope, no unit, B in AGC, K with DIRECT SHED hidden, a short DR press, DR on', () => {
+  const {doc, $, h, frames, key, keyUp} = bootReal();
+  const bay = $('bay-sync').parentElement.parentElement, emerg = $('key-rert').parentElement;
+  const said = (host, act) => {
+    for (const n of doc.querySelectorAll('.dk-note')) n.textContent = '';
+    act();
+    const n = noteOf(host);
+    assert.ok(n && n.classList.contains('info'), (n ? n.textContent : 'no note') + ': blue');
+    return n.textContent;
+  };
+  const tap = k => () => { key(k); keyUp(k); };
+  assert.equal(h.vm().obs.units.filter(u => u.mode === 'ready').length, 0, '04:32: no unit at full speed');
+  const NO_UNIT = 'no unit at full speed: START one on the lever bank';
+  assert.equal(said(bay, () => $('sync-raise').click()), NO_UNIT);
+  assert.equal(said(bay, tap('c')), NO_UNIT);
+  assert.equal(said(bay, tap('o')), NO_UNIT);
+  assert.equal(said(bay, () => $('sync-exit').click()), 'no scope open');
+  assert.equal(said(bay, tap('b')), 'BYPASS is HAND only: trim with [ ], or U for AUTO');
+  assert.equal($('key-shed').hidden, true);
+  assert.equal(said(emerg, tap('k')), 'DIRECT SHED appears when N-1 reads SHORT or SHEDDING');
+  const dr = $('btn-dr');
+  assert.equal(said(dr, () => { dr.dispatch('pointerdown'); dr.dispatch('pointerup'); }), 'hold 0.6 s to commit, or hold D');
+  key('d'); frames(7, 0.1); keyUp('d'); frames(1);
+  assert.ok(h.vm().obs.dr.activeS > 0, 'D held: DR on');
+  assert.match(said(dr, () => { dr.dispatch('pointerdown'); dr.dispatch('pointerup'); }), /^DR is on: \d+:\d\d left$/);
+  assert.deepEqual(visibleNotes(doc).filter(n => !n.classList.contains('info')).map(n => n.textContent), [], 'no red');
 });

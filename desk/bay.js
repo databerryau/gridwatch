@@ -79,45 +79,58 @@ export function createBay(ctx, parent) {
 
   const scopeUnit = () => (vm && vm.obs.scope ? vm.obs.scope.unit || '' : '');
   const unitObs = id => vm.obs.units.find(u => u.id === id);
+  /** The READY unit O opens: an offered one first. */
+  const firstReady = () => { const r = vm.obs.units.filter(u => u.mode === 'ready'); return r.find(u => vm.offers && vm.offers.some(x => x.unit === u.id)) || r[0]; };
+  // Every press answers (Q-41): help is blue; in the watch, the lock note.
+  const info = text => (ctx.locked() ? ctx.lockNote(box) : ctx.note(box, text, undefined, 'info'));
+  const NO_UNIT = 'no unit at full speed: START one on the lever bank';
+  /** The unit on the scope; else '' once the press has been told what it needs. */
+  function need() {
+    if (ctx.locked()) { ctx.lockNote(box); return ''; }
+    const u = scopeUnit(), f = u || firstReady();
+    if (!u) info(f ? 'open a scope first: O, or ◑ ' + unitLabel(f.id) : NO_UNIT);
+    return u;
+  }
   function openScope(id) {
-    if (!vm || ctx.locked()) return;
-    const r = ctx.send({type: 'scope', unit: id}, box);
+    if (!vm) return;
+    const r = ctx.send({type: 'scope', unit: id}, box);   // locked: the lock note
     if (!r) cue();
     if (!r && vm.offers && vm.offers.some(o => o.unit === id)) ctx.ui({do: 'offerTaken', unit: id});
     show('sync', true);
   }
   function exitScope() {
-    if (ctx.locked() || !scopeUnit()) return;
+    if (!vm) return;
+    if (!scopeUnit()) { info('no scope open'); return; }
     if (!ctx.send({type: 'scope', unit: ''}, box)) cue();
   }
   function toggleBypass() {
-    if (!vm || vm.obs.mode !== 'HAND') { ctx.note(box, 'the bypass key works only in HAND'); return; }
+    if (!vm) return;
+    if (ctx.locked() || vm.obs.mode !== 'HAND') { info('BYPASS is HAND only: trim with [ ], or U for AUTO'); return; }
     bypass = !bypass;
     cue('key');
     render();
   }
   function trim(dir) {
-    const u = scopeUnit();
-    if (!u) { ctx.note(box, 'open a scope first'); return; }
-    if (!ctx.send({type: 'syncTrim', unit: u, dHz: dir * TRIM_HZ}, box)) cue();
+    const u = need();
+    if (u && !ctx.send({type: 'syncTrim', unit: u, dHz: dir * TRIM_HZ}, box)) cue();
   }
   function close() {
-    const u = scopeUnit();
-    if (!u) { ctx.note(box, 'open a scope first'); return; }
+    const u = need();
+    if (!u) return;
     const hand = vm.obs.mode === 'HAND';
     const r = ctx.send({type: 'syncClose', unit: u, bypass: hand && bypass}, box);
     if (!r) { openMs = 0; autoSent = false; }
   }
   function auto() {
-    const u = scopeUnit();
-    if (!u) { ctx.note(box, 'open a scope first'); return; }
+    const u = need();
+    if (!u) return;
     if (!ctx.send({type: 'syncAuto', unit: u}, box)) cue();
     autoSent = true;
   }
-  bLow.addEventListener('click', () => { if (!ctx.locked()) trim(-1); });
-  bHigh.addEventListener('click', () => { if (!ctx.locked()) trim(1); });
-  bClose.addEventListener('click', () => { if (!ctx.locked()) close(); });
-  bAuto.addEventListener('click', () => { if (!ctx.locked()) auto(); });
+  bLow.addEventListener('click', () => trim(-1));
+  bHigh.addEventListener('click', () => trim(1));
+  bClose.addEventListener('click', close);
+  bAuto.addEventListener('click', auto);
   bBypass.addEventListener('click', toggleBypass);
   bExit.addEventListener('click', exitScope);
 
@@ -244,7 +257,8 @@ export function createBay(ctx, parent) {
     return r;
   }
   function closeFeeder(id) {
-    if (!vm || ctx.locked()) return;
+    if (!vm) return;
+    if (ctx.locked()) { ctx.lockNote(box); return; }
     const d = vm.obs.districts.find(x => x.id === id);
     if (!d || !d.dark) return;
     const why = previewOf(d);
@@ -299,7 +313,7 @@ export function createBay(ctx, parent) {
       setText(R.pv, CLASS_GLYPH[pvCls]);
       setAttr(R.pv, 'class', 'dk-feeder-pv ' + pvCls);
       setAttr(R.pv, 'title', ok ? 'RESTORE PREVIEW: nadir stays ≥ ' + V.SECURE_NADIR_HZ + ' Hz' : why);
-      R.brk.disabled = !ok || ctx.locked();
+      setAttr(R.brk, 'aria-disabled', !ok || ctx.locked() ? 'true' : 'false');   // still pressable: a press says why not
       setAttr(R.brk, 'aria-label', 'Close the feeder breaker of ' + d.id + ' (' + mw(d.coldLoadMW) + ' MW cold load)' + (ok ? '' : ': ' + why));
       setCls(R.row, 'sel', d.id === sel);
       setAttr(R.row, 'aria-selected', d.id === sel ? 'true' : 'false');
@@ -349,23 +363,21 @@ export function createBay(ctx, parent) {
       if (vm.obs.scope && vm.obs.scope.unit) userView = false;
       render();
     },
-    /** K-23 bay keys: [ ] C U O B (scope), R (restore bay). True if handled. */
+    /** K-23 bay keys: [ ] C U O B (scope), R (restore bay). True if handled; every one answers, in the watch too. */
     key(k) {
-      if (!vm || ctx.locked()) return false;
+      if (!vm) return false;
       if (k === 'o') {
         if (scopeUnit()) { exitScope(); return true; }
-        const ready = vm.obs.units.filter(u => u.mode === 'ready');
-        const first = ready.find(u => vm.offers && vm.offers.some(x => x.unit === u.id)) || ready[0];
-        if (!first) { show('sync', true); ctx.note(box, 'no unit at full speed'); return true; }
-        openScope(first.id);
+        const first = firstReady();
+        if (first) openScope(first.id); else { show('sync', true); info(NO_UNIT); }
         return true;
       }
-      if (k === 'b') { if (vm.obs.mode !== 'HAND') return false; toggleBypass(); return true; }
+      if (k === 'b') { toggleBypass(); return true; }
       if (k === '[') { trim(-1); return true; }
       if (k === ']') { trim(1); return true; }
       if (k === 'c') { close(); return true; }
       if (k === 'u') { auto(); return true; }
-      if (k === 'r') { show('restore', true); tRest.focus && tRest.focus(); feeders.focus && feeders.focus(); return true; }
+      if (k === 'r') { show('restore', true); tRest.focus && tRest.focus(); feeders.focus && feeders.focus(); if (ctx.locked()) ctx.lockNote(box); return true; }
       return false;
     },
   };

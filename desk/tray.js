@@ -57,7 +57,7 @@ export function createTray(ctx, parent) {
         b.type = 'button';
         b.dataset.target = c.button.target;
         // Presentation only: the button focuses (and lights) a control; it never sends an input.
-        b.addEventListener('click', () => { if (!ctx.locked()) { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); } });
+        b.addEventListener('click', () => { if (ctx.locked()) ctx.lockNote(box); else { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); } });
         b.setAttribute('aria-label', (c.button.label || 'SHOW') + ': go to the control for "' + (c.text || '') + '"');
         card.appendChild(b);
       }

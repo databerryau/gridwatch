@@ -10,6 +10,9 @@ import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
 import {followDay} from './lib/follow.js';
 import * as A from '../app/alarms.js';
 import * as T from '../app/tray.js';
+import {makeDocument} from './lib/dom.js';
+import {createDesk} from '../desk/desk.js';
+import {baseVm} from './lib/vm-fixture.js';
 
 const TPS = V.TICKS_PER_S;
 
@@ -508,4 +511,32 @@ test('MSL cards from a real belly: every MSL record the sim logs on a mild weeke
     assert.ok(c.text.includes(Math.round(r.minMW).toLocaleString('en-US') + ' MW'), c.text + ' <- ' + r.msg);
     assert.ok(c.text.split(/\s+/).length <= T.MAX_WORDS, c.text);
   }
+});
+
+test('Q-41: SIL and Shift+A with nothing sounding answer in blue, as ACK does; with the horn on they silence without a note', () => {
+  const doc = makeDocument(), root = doc.createElement('div');
+  doc.body.appendChild(root);
+  const uis = [];
+  const desk = createDesk(doc, root, {input: () => '', ui: c => uis.push(c)});
+  const quiet = baseVm(observe(createState(1, CLASSIC)));
+  desk.update(quiet);
+  const box = doc.getElementById('annunciator'), sil = doc.getElementById('btn-silence');
+  const note = () => box.children.find(c => c.classList && c.classList.contains('dk-note') && !c.hidden);
+  const said = () => uis.filter(u => u.do !== 'cue');
+  const NOTHING = 'Nothing sounding: SIL stops the horn, ACK marks alarms seen.';
+  assert.equal(sil.textContent, 'SIL');
+  sil.click();
+  assert.equal(note().textContent, NOTHING);
+  assert.ok(note().classList.contains('info'), 'help, so blue (Q-41)');
+  assert.deepEqual(said(), [{do: 'silence'}], 'still the silence press');
+  note().textContent = '';
+  assert.equal(desk.key({type: 'keydown', key: 'A', shiftKey: true}), true);
+  assert.equal(note().textContent, NOTHING, 'Shift+A is the same press');
+  // the horn on: SIL silences it, no note (the one from before has aged out)
+  uis.length = 0;
+  desk.update(Object.assign({}, quiet, {alarms: {tiles: [], sounding: true}, frame: {nowMs: 9000, dtS: 1 / 60, alpha: 0}}));
+  assert.equal(sil.textContent, '♪ SIL');
+  sil.click();
+  assert.equal(note(), undefined);
+  assert.deepEqual(said(), [{do: 'silence'}]);
 });
