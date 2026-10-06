@@ -56,7 +56,7 @@ const KIND_WORD = Object.freeze({
 });
 /** The word beside a consequence line (C-10): what a guarded press would do. */
 export const CONSIDER_WORD = '? IF PRESSED';
-/** The word instead while its cover is up (vm.armed), and once the unit is on its way (level 'ok'). */
+/** The words while a guard's cover is up (vm.armed), and for a unit on its way (level 'ok'). */
 export const ARMED_WORD = '● ARMED', UNDER_WAY_WORD = '✓ UNDER WAY';
 
 /** The glyph and word shown beside an objective line {kind, level} (app/objective.js). */
@@ -226,7 +226,7 @@ export function bootGame(doc, deps) {
   const on = (id, ev, f) => { const el = $(id); if (el) el.addEventListener(ev, f); };
   on('btn-pause', 'click', () => actions.ui({do: 'pause'}));
   on('rate-badge', 'click', () => actions.ui({do: 'pause'}));
-  // K-16: a click on the card, or a press on the desk, takes the desk as Enter does
+  // K-16: a click on the card or the desk takes the desk, as Enter does
   const dismissCard = () => { if (game.respond) actions.ui({do: 'dismissRespond'}); };
   on('respond-card', 'click', dismissCard);
   on('desk', 'pointerdown', dismissCard);
@@ -338,7 +338,7 @@ export function bootGame(doc, deps) {
     const d = $('drawer');
     if (!d) return;
     d.hidden = !game.ui.drawer;
-    doc.body.classList.toggle('q-on', !d.hidden); // the floating "?" show with it (next.html)
+    doc.body.classList.toggle('q-on', !d.hidden); // the "?" marks with it
     if (d.hidden || d.childElementCount) return;
     const h = doc.createElement('h2');
     h.textContent = 'What GRIDWATCH simplifies, and why';

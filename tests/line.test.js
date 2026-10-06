@@ -3,7 +3,7 @@
 // says ARMED / UNDER WAY through the ui {do: 'armed'} seam (vm.armed), and the tray logs every
 // START, STOP, CANCEL and ABORT the station takes. vm.held is the seam the desk's RE-DISPATCH lamp
 // reads. Pure functions and headless games at 04:00 only: each test runs in about 50 ms or less (the
-// first to build a game's line pays the warm-up).
+// first to build a game's line pays the warm-up), but FAST's, which takes the desk and runs to 04:38.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {V} from '../sim/params.js';
@@ -96,11 +96,51 @@ test('Q-18 in the game: an accepted input, or a mode change that is news (the wa
   vm = G.buildVm(game, {nowMs: 30200 + G.LINE_DWELL_MS});
   assert.equal(vm.mode.mode, 'PAUSE');
   assert.equal(vm.objective, shown, 'pause: the line shown stays, past the dwell too');
-  // out of RESPOND (the mode at the last look): news, at once
-  game.objectiveMode = 'RESPOND';
+  // out of RESPOND (the mode at the last look): news, at once, though the line shown went up 0.1 s ago
+  game.objectiveMode = 'RESPOND'; game.lineMs = 30200 + G.LINE_DWELL_MS;
   vm = G.buildVm(game, {nowMs: 30300 + G.LINE_DWELL_MS});
   assert.ok(vm.objective !== shown && vm.objective === game.objectiveHeld.line, 'the end of RESPOND');
   assert.equal(game.objectiveMode, 'PAUSE');
+});
+
+test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once, so the first "Start CCGT 2 now" leaves its CRUISE reading time (at least 8 real s)', () => {
+  const guard = {kind: 'spare', level: 'act', text: 'Raise the battery GUARD to 400 MW.', action: {type: 'guard', mw: 400}};
+  const start = {kind: 'commit', level: 'act', text: 'Start CCGT 2 now.', action: {type: 'start', unit: 'ccgt2'}};
+  assert.equal(G.newAsk(guard, start), true);
+  assert.equal(G.newAsk(null, Object.assign({}, start, {level: 'crit'})), true, 'a critical one, over nothing');
+  assert.equal(G.newAsk(start, Object.assign({}, start, {text: 'Start CCGT 2 now: it takes 49 min.'})), false, 'the same ask in other words');
+  assert.equal(G.newAsk(guard, Object.assign({}, start, {level: 'plan'})), false, 'an order at PLAN (a STOP for its saving, a charge)');
+  assert.equal(G.newAsk(guard, Object.assign({}, start, {action: null})), false, 'nothing to do yet');
+  assert.equal(G.newAsk(guard, null), false);
+  const game = game04({seed: 20261007});
+  G.takeDesk(game); // 04:30, the clock running
+  // F held from 04:30 (pressed again whenever something else ended it) until a start is asked
+  let nowMs = 1, vm = G.buildVm(game, {nowMs}), was = null, up = 0, ask = null;
+  for (let n = 0; !ask && n < 200; n++) {
+    if (vm.mode.mode === 'CRUISE') G.ui(game, {do: 'fast', on: true});
+    was = vm.objective; up = game.lineMs;
+    nowMs += 100; G.frame(game, 0.1, () => nowMs); vm = G.buildVm(game, {nowMs});
+    const o = vm.objective;
+    if (o && o.action && o.action.type === 'start' && / now/.test(o.text)) ask = o;
+  }
+  assert.ok(ask, 'a start asked by 05:00');
+  assert.equal(vm.mode.mode, 'FAST', 'asked while at FAST');
+  assert.ok(was && was.action && was.action.type !== 'start' && nowMs - up < G.LINE_DWELL_MS, 'over another ask up for ' + (nowMs - up) + ' ms, at once');
+  const next = G.buildVm(game, {nowMs: nowMs + 16}).mode;
+  assert.equal(next.mode, 'CRUISE');
+  const realS = (ask.startBy - vm.obs.s) / next.rate;
+  assert.ok(realS >= 8, 'the deadline ' + realS.toFixed(1) + ' real s away');
+  // the same ask again does not end FAST a second time (the player may skip on)
+  assert.equal(G.ui(game, {do: 'fast', on: true}), '');
+  game.objectiveS = -1e9;
+  assert.equal(G.buildVm(game, {nowMs: nowMs + 32}).objective.action.type, 'start');
+  assert.equal(G.buildVm(game, {nowMs: nowMs + 48}).mode.mode, 'FAST');
+  // at CRUISE another ask waits out the dwell, as any line does
+  G.ui(game, {do: 'fast', on: false});
+  const other = Object.assign({}, ask, {text: 'Another ask.', action: {type: 'tie', mw: 0}});
+  game.objective = other; game.lineMs = nowMs + 48; game.objectiveS = -1e9;
+  assert.equal(G.buildVm(game, {nowMs: nowMs + 64}).objective, other);
+  assert.equal(game.objectiveHeld.line.action.type, 'start');
 });
 
 // ------------------------------------------------------------------ one name per control (C-4)
@@ -146,7 +186,7 @@ test('K-9: every START, STOP, CANCEL and ABORT the station takes is a STATION ca
   assert.equal(T.cardOf({tick: 1, kind: 'log', sev: 'info', code: 'UNIT_START', msg: 'START Somewhere: running up.'}).button.target, 'stack', 'a unit it cannot name');
 });
 
-test('K-9: a full tray sends its oldest information card to the LOG before any warning; a new card is always shown', () => {
+test('K-9: a full tray sends its oldest card from before to the LOG, information before warnings; every card new in the call is shown (a warning gives way to any newer card)', () => {
   const tr = T.createTray();
   const start = (s, name) => ({tick: s * TPS, kind: 'log', sev: 'info', code: 'UNIT_START', msg: 'START ' + name + ': running up, full speed in 9 min.'});
   const trip = (s, id) => ({tick: s * TPS, kind: 'contingency', cause: 'unit', id, lostMW: 300});
@@ -163,6 +203,14 @@ test('K-9: a full tray sends its oldest information card to the LOG before any w
   assert.deepEqual(T.trayRecords(tr, [start(106, 'GT·C 1')]), ['tick']);
   assert.deepEqual(shown(), ['Mt Hazel coal 3 tripped', 'Mt Hazel coal 4 tripped', 'START GT·C 1']);
   assert.equal(T.trayView(tr).log.at(-1).text.split(':')[0], 'Mt Hazel coal 2 tripped');
+  // two new cards in one call (a START and another unit at full speed): both show
+  const ready = (s, name) => ({tick: s * TPS, kind: 'log', sev: 'info', code: 'UNIT_READY', msg: name + ' at full speed: auto-sync in 4 min (or SYNC now).'});
+  assert.deepEqual(T.trayRecords(tr, [start(107, 'GT·C 2'), ready(107, 'GT·A')]), ['tick', 'tick']);
+  assert.deepEqual(shown(), ['Mt Hazel coal 4 tripped', 'START GT·C 2', 'GT·A at full speed']);
+  assert.deepEqual(T.trayView(tr).log.slice(-2).map(c => c.text.split(':')[0]), ['START GT·C 1', 'Mt Hazel coal 3 tripped']);
+  // more new cards than the tray holds: the older ones first, then the oldest new
+  T.trayRecords(tr, [1, 2, 3, 4].map(i => start(108, 'GT·B ' + i)));
+  assert.deepEqual(shown(), ['START GT·B 2', 'START GT·B 3', 'START GT·B 4']);
 });
 
 // ------------------------------------------------------------------ the seams: vm.armed, vm.held
@@ -185,7 +233,7 @@ test('C-2 seam: ui {do: \'armed\'} names the guard whose cover is up (vm.armed);
   assert.equal(G.buildVm(game, {nowMs: 64}).armed, null, 'no guard named: null, never undefined');
 });
 
-test('C-2: while a guard\'s cover is up, what the press would do holds still as it read when the cover went up; it is read again when the unit\'s mode changes or the cover drops', () => {
+test('C-2: while a guard\'s cover is up, what the press would do holds still as it read when the cover went up; it is read again when its level or words change (a verdict, the unit\'s mode) or the cover drops', () => {
   const game = game04();
   game.phase = 'play';
   const look = () => G.buildVm(game, {nowMs: 1 + game.state.tick}).consider;
@@ -197,10 +245,15 @@ test('C-2: while a guard\'s cover is up, what the press would do holds still as 
   G.runTo(game, game.state.tick + 60 * TPS);
   assert.deepEqual(look(), c0, 'held while the cover is up');
   G.ui(game, {do: 'armed', target: 'guard-start-ccgt2', on: false});
-  assert.match(look().text, /^START CCGT 2: at minimum load \(175 MW\) by 04:50, /, 'the cover down: read afresh');
-  // the cover up again, and the unit started under it: what it is doing now
+  const by0450 = /^START CCGT 2: at minimum load \(175 MW\) by 04:50, /;
+  assert.match(look().text, by0450, 'the cover down: read afresh');
+  // the cover up again: held while its level and words (all but the figures) read the same, for its own guard
   G.ui(game, {do: 'armed', target: 'guard-start-ccgt2', on: true});
-  look();
+  for (const x of [{text: c0.text.replace(/\.$/, ', too late.')}, {level: 'crit'}, {target: 'guard-start-ccgt1'}]) {
+    game.consider = Object.assign({}, c0, x); game.considerDirty = true;
+    assert.match(look().text, by0450, JSON.stringify(x));
+  }
+  // and the unit started under it: what it is doing now
   assert.equal(G.sendInput(game, {type: 'start', unit: 'ccgt2'}), '');
   assert.equal(look().level, 'ok', 'starting: ' + game.consider.text);
 });

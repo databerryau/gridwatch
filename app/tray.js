@@ -34,7 +34,7 @@ const leverOf = unitId => {
   const st = unitId.replace(/\d+$/, '');
   return st === 'hydro' ? 'wheel-hydro' : V.STATION_IDS.includes(st) ? 'lever-' + st : 'stack';
 };
-// the lever of the unit a log line names ('START Riverton CCGT 2: running up ...')
+// the lever of the unit a log line names
 const leverOfMsg = msg => { const m = V.MACHINES.find(x => msg.includes(x.name + ':')); return m ? leverOf(m.id) : 'stack'; };
 const unitName = id => { const m = V.MACHINES.find(x => x.id === id); return m ? m.name : id; };
 const hhmm = s => {
@@ -43,7 +43,7 @@ const hhmm = s => {
 };
 
 const mwc = x => String(Math.round(x)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-// 'full speed in 35 min' as the line says it: 'full speed at 05:38'
+// ' in 35 min' as the line says it: ' at 05:38'
 const clockOf = r => r.msg.replace(/ in (\d+) min\b/, (x, n) => ' at ' + hhmm(Math.floor(r.tick / TPS) + n * V.S_PER_MIN));
 
 /**
@@ -101,7 +101,7 @@ export function cardOf(r) {
       switch (r.code) {
         case 'UNIT_READY': return {key: 'ready:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: clockOf(r),
           button: {label: 'TO THE SCOPE', target: 'bay-sync'}};
-        // each command taken, at once, as an event list logs it (no key: each one is a card)
+        // each command taken, at once (no key: each one a card)
         case 'UNIT_START': case 'UNIT_STOP': case 'UNIT_CANCEL': case 'UNIT_ABORT_STOP':
           return {key: null, from: SENDERS.station, sev: 'info', text: clockOf(r),
             button: {label: 'TO THE LEVER', target: leverOfMsg(r.msg)}};
@@ -149,8 +149,8 @@ export function trayRecords(tr, recs) {
     tr.cards.push(card);
     if (c.sev === 'warn') { cues.push('ring2'); tr.rings++; } else cues.push('tick');
   }
-  // the oldest information card goes, never the newest card; with none, the oldest
-  while (tr.cards.length > MAX_CARDS) { const i = tr.cards.findIndex((c, j) => c.sev === 'info' && j < tr.cards.length - 1); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
+  // the oldest goes, information first; the n from before this call (a cue per new card) before any new
+  while (tr.cards.length > MAX_CARDS) { const n = tr.cards.length - cues.length, i = tr.cards.findIndex((c, j) => c.sev === 'info' && (j < n || n < 1)); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
   if (cues.length) tr.rev++;
   return cues;
 }
