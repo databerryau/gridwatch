@@ -42,7 +42,7 @@ export function layoutSizes(width, height) {
 const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNORS', ufls: 'UFLS', settle: 'SETTLE'};
 // Why F did nothing, by mode (the director's setFast refuses these).
 const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
-  RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you sync or relight'};
+  RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE'};
 /** The CRT switch's title and answer while REDUCED EFFECTS is on (it is greyed). */
 export const CRT_OFF = 'CRT is off while REDUCED EFFECTS is on';
 

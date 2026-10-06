@@ -261,6 +261,9 @@ test('K-22: reduced motion defaults from prefers-reduced-motion through deps.mat
 test('B-4 / Q-41: while REDUCED EFFECTS is on the CRT switch is disabled and greyed, its row says why on hover, and a click on it answers in a blue toast', () => {
   const {$, frames} = boot();
   assert.match(NEXT, /#settings label\.off \{ opacity: 0\.4; \}/, 'the greyed row');
+  // A browser drops a click aimed at a disabled input (it neither fires nor bubbles), so the greyed
+  // square lets clicks through to its row, whose listener answers.
+  assert.match(NEXT, /#settings label\.off input \{ pointer-events: none; \}/, 'a click on the greyed square reaches the row');
   $('btn-take').click();
   $('btn-settings').click();
   frames(1);

@@ -474,7 +474,7 @@ test('Q-41 via the shell: a shell press that did nothing answers in a blue toast
   game.director.focusUntilTick = game.state.tick + 60 * TPS; // FOCUS (a scope open, or a district relit)
   frames(1);
   assert.equal(h.vm().mode.mode, 'FOCUS');
-  assert.deepEqual(press(() => { key('f'); keyUp('f'); }), ['blue', 'FAST waits: the clock runs 1× while you sync or relight']);
+  assert.deepEqual(press(() => { key('f'); keyUp('f'); }), ['blue', 'FAST waits: the clock runs 1× while you SYNC or RESTORE']);
   // DAY OVER: Space and the badge point at PLAY THIS DAY AGAIN; the download says where it went.
   game.state.over = true;
   frames(1);
