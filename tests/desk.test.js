@@ -686,9 +686,11 @@ test('K-13: a feeder breaker is enabled only when restoreBlock is \'\' and the r
   const {$, desk} = mount(at(vm, 1000), a);
   desk.focus('bay-restore');
   desk.update(at(vm, 1016));
-  assert.equal($('restore-' + ds[0].id).disabled, false);
-  assert.equal($('restore-' + ds[1].id).disabled, true, 'lamp blocks');
-  assert.equal($('restore-' + ds[2].id).disabled, true, 'preview blocks');
+  // dimmed, not disabled: a press on a blocked breaker still answers with why (Q-41)
+  const dis = i => $('restore-' + ds[i].id).getAttribute('aria-disabled');
+  assert.equal(dis(0), 'false');
+  assert.equal(dis(1), 'true', 'lamp blocks');
+  assert.equal(dis(2), 'true', 'preview blocks');
   assert.ok(!a.rp.includes(ds[1].id), 'no preview while the lamp is out');
   assert.match($('bay-restore').parentElement.parentElement.textContent, /PERMISSIVE/);
   assert.match(desk.el.textContent, /×1\.5/, 'cold load shown after 10 min dark');
@@ -897,11 +899,13 @@ test('K-23 emergency row and keys by keyboard: E and D holds, K + Enter Enter sh
   desk.update(at(vm, 6500));
   tap(m, 'Enter');                             // 2.5 s later: too late for the double, and a tap is not a hold
   assert.equal(a.inputs.length, 0);
-  // Not SHORT: the key is hidden and K does nothing.
+  // Not SHORT: the key is hidden; K says when it appears (help, blue: Q-41) and focuses nothing.
   const tight = vmAt(EVE);
   tight.obs.sec.level = 'TIGHT';
   const t = mount(at(tight, 1000));
-  assert.equal(tap(t, 'k'), false);
+  assert.equal(tap(t, 'k'), true);
+  assert.notEqual(t.doc.activeElement && t.doc.activeElement.id, 'key-shed');
+  assert.equal(t.desk.el.querySelector('.dk-note.info').textContent, 'DIRECT SHED appears when N-1 reads SHORT or SHEDDING');
   // N presses RE-DISPATCH; so does focus + Enter.
   a.uis.length = 0;
   assert.equal(tap(m, 'n'), true);
@@ -941,7 +945,8 @@ test('K-23 procedure bay by keyboard: O opens a scope, [ ] C U work it, R ←→
   assert.deepEqual(m.actions.inputs, [{type: 'syncTrim', unit: 'gtc2', dHz: -0.05}, {type: 'syncTrim', unit: 'gtc2', dHz: 0.05},
     {type: 'syncClose', unit: 'gtc2', bypass: false}, {type: 'syncAuto', unit: 'gtc2'}, {type: 'scope', unit: ''}]);
   assert.deepEqual(cuesOf(m.actions), ['button', 'button', 'button', 'button'], 'the close itself sounds from the sim record');
-  assert.equal(tap(m, 'b'), false, 'the bypass key is HAND only');
+  assert.equal(tap(m, 'b'), true, 'the bypass key is HAND only, and B says so');
+  assert.equal(m.desk.el.querySelector('.dk-note.info').textContent, 'BYPASS is HAND only: trim with [ ], or U for AUTO');
   // HAND: B turns the bypass key, shown as text as well as colour.
   const h = clone(vm.obs);
   h.mode = 'HAND';

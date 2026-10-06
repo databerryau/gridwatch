@@ -33,6 +33,16 @@ export function shedText(obs) {
 }
 
 /**
+ * A press while the desk is locked (Q-41, blue): in the watch, ctx.lockNote; once the day is over
+ * there is no watch, so say that, and where the next step is.
+ */
+export function lockedNote(ctx, host) {
+  const v = ctx.vm();
+  if (v && v.obs.over) ctx.note(host, 'the day is over: PLAY THIS DAY AGAIN is on the card', undefined, 'info');
+  else ctx.lockNote(host);
+}
+
+/**
  * A hold-to-commit key. o: {id, cls, covered, label, commit() -> '' | refusal, can() -> '' | reason,
  * cue (the K-20 cue of a commit), shortcut, twice (keyboard: a second Enter within 2 s of the lift commits)}.
  * Pointer: down starts the hold (or lifts the cover), up before 0.6 s cancels. Keyboard: Enter or
@@ -43,23 +53,23 @@ function holdKey(ctx, parent, o) {
   b.id = o.id; b.type = 'button';
   b.setAttribute('aria-keyshortcuts', o.shortcut);
   let wasUp = false;
-  const commit = () => { coverUntil = -1; if (!ctx.locked() && !o.commit()) ctx.cue(o.cue, PAN.panel); };
+  const commit = () => { coverUntil = -1; if (!o.commit()) ctx.cue(o.cue, PAN.panel); };   // locked: send shows the lock note
   const face = el(ctx.doc, 'span', 'dk-hold-face'), sub = el(ctx.doc, 'span', 'dk-hold-sub'), bar = el(ctx.doc, 'i', 'dk-hold-bar');
   b.append(face, sub, bar);
   parent.appendChild(b);
   let coverUntil = -1;
   const coverUp = () => !o.covered || ctx.now() <= coverUntil;
   function down(fromKey) {
-    if (ctx.locked()) return;
+    if (ctx.locked()) { lockedNote(ctx, b); return; }
     const why = o.can();
-    if (why) { ctx.note(b, why); return; }
+    if (why) { ctx.note(b, why, undefined, 'info'); return; }   // status, not a refusal (Q-41)
     if (!coverUp() && !fromKey) { coverUntil = ctx.now() + COVER_MS; ctx.live(o.label + ' cover lifted: ' + o.cost() + '. Hold to commit.'); return; }
     if (!coverUp()) coverUntil = ctx.now() + COVER_MS;   // hold E / D lifts and holds at once
     ctx.holds.down(o.id, commit);
   }
   function up() {
     const r = ctx.holds.up(o.id);
-    if (r === 'short') ctx.note(b, 'hold 0.6 s to commit');
+    if (r === 'short') ctx.note(b, 'hold 0.6 s to commit' + (o.twice ? '' : ', or hold ' + o.shortcut), undefined, 'info');
     if (r === 'done') coverUntil = -1;
   }
   b.addEventListener('pointerdown', ev => { if (ev.button === undefined || ev.button === 0) down(false); });
@@ -110,7 +120,8 @@ export function createEmergency(ctx, keysParent, emergParent) {
   agc.setAttribute('role', 'switch');
   agc.setAttribute('aria-keyshortcuts', 'V');
   agc.addEventListener('click', () => {
-    if (!vm || ctx.locked()) return;
+    if (!vm) return;
+    if (ctx.locked()) { lockedNote(ctx, keys); return; }
     if (obs().modeLocked) { ctx.note(keys, 'AGC/HAND is set at the briefing: locked for the day', 6000, 'info'); return; }
     if (!ctx.send({type: 'mode', agc: obs().mode !== 'AGC'}, agc)) ctx.cue('key', PAN.keys);
   });
@@ -120,9 +131,10 @@ export function createEmergency(ctx, keysParent, emergParent) {
   const redisGlyph = el(doc, 'span', 'dk-key-glyph', '⟳');
   redis.append(redisGlyph, el(doc, 'span', '', 'RE-DISPATCH'));
   redis.setAttribute('aria-keyshortcuts', 'N');
-  /** A press of the RE-DISPATCH key (click, Enter, or N). True unless the desk is locked. */
+  /** A press of the RE-DISPATCH key (click, Enter, or N); in the watch it answers with the lock note. */
   function redispatch() {
-    if (!vm || ctx.locked()) return false;
+    if (!vm) return false;
+    if (ctx.locked()) { lockedNote(ctx, keys); return true; }
     const r = typeof ctx.actions.redispatch === 'function' ? ctx.actions.redispatch() || '' : 'not available';
     if (r) ctx.note(keys, '✕ ' + r); else { ctx.cue('button', PAN.keys); ctx.note(keys, '✓ levers re-planned', undefined, 'info'); ctx.live('RE-DISPATCH: plan re-run'); }
     return true;
@@ -136,13 +148,14 @@ export function createEmergency(ctx, keysParent, emergParent) {
   emergParent.appendChild(box);
   const rert = holdKey(ctx, box, {
     id: 'key-rert', cls: 'dk-rert', covered: true, label: 'Reserve diesel', cue: 'key', shortcut: 'E',
-    can: () => (obs().rert.standingDown ? 'standing down' : ''),
+    can: () => (obs().rert.standingDown ? 'diesel standing down: arm again once it is off' : ''),
     cost: () => RERT_TEXT,
     commit() { const r = obs().rert; return ctx.send({type: r.armed ? 'standDownRERT' : 'armRERT'}, rert.el); },
   });
   const dr = holdKey(ctx, box, {
     id: 'btn-dr', cls: 'dk-dr', covered: false, label: 'Industrial DR', cue: 'button', shortcut: 'D',
-    can: () => { const d = obs().dr; return d.callsLeft <= 0 ? 'no DR calls left today' : d.activeS > 0 ? 'DR is on' : ''; },
+    // the diesel hint only while it is not armed: armed, holding E would stand it down
+    can: () => { const d = obs().dr; return d.callsLeft <= 0 ? 'no DR calls left today' + (obs().rert.armed ? '' : ': try reserve diesel (E)') : d.activeS > 0 ? 'DR is on: ' + mmss(d.activeS) + ' left' : ''; },
     cost: () => DR_TEXT,
     commit() { return ctx.send({type: 'callDR'}, dr.el); },
   });
@@ -216,9 +229,15 @@ export function createEmergency(ctx, keysParent, emergParent) {
     /** D / E held (K-23): true on keydown, false on keyup. */
     holdKey(k, on) {
       const key = k === 'e' ? rert : k === 'd' ? dr : null;
-      if (!vm || !key || (on && ctx.locked())) return false;
-      return key.hold(on);
+      return !vm || !key ? false : key.hold(on);   // locked: down() shows the lock note
     },
     redispatch,
+    /** A press on `host` while the desk is locked: lockedNote. */
+    locked: host => lockedNote(ctx, host),
+    /** K (the desk focused DIRECT SHED when `shown`): in the watch the lock note; hidden: when it appears. */
+    shedKey(shown) {
+      if (ctx.locked()) lockedNote(ctx, shown ? shed.el : box);
+      else if (!shown) ctx.note(box, 'DIRECT SHED appears when N-1 reads SHORT or SHEDDING', undefined, 'info');
+    },
   };
 }

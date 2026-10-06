@@ -358,7 +358,9 @@ export function createDesk(doc, root, actions, opts = {}) {
     if (!down || ev.ctrlKey || ev.altKey || ev.metaKey) return false;
     if (k === 'd' || k === 'e') { if (!ev.repeat) emerg.holdKey(k, true); return true; }
     if (k >= '1' && k <= '8') return focus(SLOT_IDS[Number(k) - 1]);
-    if (k === 'g' || k === 'v' || k === 'k') return focus(DESK_KEYS[k]);
+    if (k === 'g' || k === 'v') return focus(DESK_KEYS[k]);
+    // K answers even with DIRECT SHED hidden (when it appears), and in the watch (the lock note)
+    if (k === 'k') { const on = focus(DESK_KEYS.k); if (!ev.repeat) emerg.shedKey(on); return true; }
     if (k === 'a') { if (ev.repeat) return true; if (ev.shiftKey) annun.silence(); else annun.ack(); return true; }
     const active = doc.activeElement;
     if (k === 'Enter') {
@@ -372,9 +374,16 @@ export function createDesk(doc, root, actions, opts = {}) {
       if (!ev.repeat) active.click();
       return true;
     }
-    if (locked()) return false;
+    const bayKey = k.length === 1 && '[]curob'.includes(k);
+    if (locked()) {
+      // The watch (Q-41): the desk's letters answer with the lock note, once per press, never reaching the fallback.
+      const slot = (k === 's' || k === 'x' || k === 'p') && active && desk.contains(active) && active.closest && (active.closest('.dk-lever-slot') || active.closest('.dk-rot'));
+      if (slot) { if (!ev.repeat) emerg.locked(slot); return true; }
+      if (bayKey || k === 'n') { if (!ev.repeat) (k === 'n' ? emerg.redispatch() : bay.key(k)); return true; }
+      return false;
+    }
     if (k === 's' || k === 'x' || k === 'p') return levers.key(active, k, !!ev.shiftKey) || (k !== 'p' && hydro.key(active, k));
-    if (k === '[' || k === ']' || k === 'c' || k === 'u' || k === 'r' || k === 'o' || k === 'b') return ev.repeat && k !== '[' && k !== ']' ? false : bay.key(k);
+    if (bayKey) return ev.repeat && k !== '[' && k !== ']' ? false : bay.key(k);
     if (k === 'n') return ev.repeat ? false : emerg.redispatch();
     return false;
   }
