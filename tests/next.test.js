@@ -18,7 +18,8 @@ import * as W from '../app/watch.js';
 import * as K from '../app/keys.js';
 import * as PF from '../app/perf.js';
 import * as D from '../app/director.js';
-import {bootGame, layoutSizes, createLive, liveFrame, bandOf, LIVE_GAP_MS, objectiveWord, CONSIDER_WORD, dayText} from '../app/shell.js';
+import {bootGame, layoutSizes, createLive, liveFrame, bandOf, LIVE_GAP_MS, objectiveWord, CONSIDER_WORD, ARMED_WORD, UNDER_WAY_WORD,
+  dayText} from '../app/shell.js';
 import {traceOf, createRecorder, commitMinute, MINUTE_FIELDS, CAUGHT_KEYS} from '../app/record.js';
 import * as SYS from '../app/system.js';
 import * as PVW from '../app/planview.js';
@@ -88,7 +89,7 @@ test('C-3 / C-8: no location.reload anywhere; every localStorage access in the s
 // ------------------------------------------------------------------ stand-in modules (contract shapes only)
 
 const VM_KEYS = ['obs', 'mode', 'frame', 'alarms', 'tray', 'focus', 'hover', 'stackExpanded', 'previewOn', 'previewGuardMW', 'offers',
-  'respond', 'glow', 'hist', 'settings', 'settingsOpen', 'cues'];
+  'respond', 'glow', 'hist', 'settings', 'settingsOpen', 'cues', 'armed', 'held'];
 
 function stubModules() {
   const seen = {map: [], desk: [], stack: []};
@@ -353,13 +354,59 @@ test('K-15 / K-16 through the shell: vignette and stopwatch, beats in physical o
   assert.match($('rate-text').textContent, /^(RESPOND 30×|CRUISE 120×)$/);
 });
 
+test('K-16 via the shell: the respond card goes with a click on it, as with Enter (a press on the desk: the K-9 test)', () => {
+  const {$, h, frames} = boot('?seed=3');
+  $('btn-take').click();
+  frames(1);
+  const game = h.game, card = $('respond-card');
+  // a trip, run headless through its watch to the card
+  injectTrip(game.state, Math.floor(game.state.tick / TPS) + 1);
+  G.runTo(game, game.state.tick + (V.WATCH_S + 2) * TPS);
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'RESPOND-CARD');
+  assert.equal(card.hidden, false);
+  assert.equal(card.querySelectorAll('p').at(-1).textContent, 'Enter (or a click) to take the desk.');
+  assert.equal(card.querySelectorAll('button').length, 0, 'still no action on the card');
+  card.click();
+  frames(1);
+  assert.equal(h.vm().respond, null);
+  assert.equal(card.hidden, true);
+  assert.notEqual(h.vm().mode.mode, 'RESPOND-CARD');
+});
+
+test('C-4 / F-5: the briefing says where START is and that Space pauses; a click on the rate badge pauses and runs, as Space does', () => {
+  const how = /<p id="briefing-how"[^>]*>([^<]*)<\/p>/.exec(NEXT)[1];
+  assert.match(how, /click its ○ button on the lever bank \(hydro units: beside the HYDRO wheel\); it turns into START\?, so click it again to confirm\./);
+  assert.match(how, /Keys: 1–5 pick a lever, then S S\./);
+  assert.match(how, /The battery's outer ring is its GUARD/);
+  assert.match(how, /Space pauses at any time, and you can act while paused/);
+  assert.match(/<div id="rate-badge"([^>]*)>/.exec(NEXT)[1], /title="[^"]*Click or Space: pause \/ run"/);
+  assert.match(NEXT, /#rate-badge \{[^}]*cursor: pointer;/);
+  const {$, h, frames} = boot('?seed=7');
+  frames(1);
+  $('rate-badge').click();
+  frames(1);
+  assert.equal(h.game.phase, 'briefing', 'nothing to run behind the briefing');
+  $('btn-take').click();
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'CRUISE');
+  $('rate-badge').click();
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'PAUSE');
+  $('rate-text').click();   // the text inside it
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'CRUISE');
+});
+
 test('K-9 via the shell: a tray button only focuses (the sim never changes)', () => {
   const {h, frames, $} = boot('?seed=3');
   $('btn-take').click();
   injectTrip(h.game.state, Math.floor(h.game.state.tick / TPS) + 30);
   while (!h.game.respond) frames(1);
-  h.actions.ui({do: 'dismissRespond'});
+  // K-16: a press anywhere on the desk takes it, as Enter does
+  $('stack-slot').dispatch('pointerdown');
   frames(1);
+  assert.equal(h.vm().respond, null, 'a press on the desk dismissed the card');
   const cards = h.vm().tray.cards;
   assert.ok(cards.length >= 1, 'the trip made a card');
   const hash = hashState(h.game.state), logN = h.game.state.log.length;
@@ -372,8 +419,8 @@ test('K-9 via the shell: a tray button only focuses (the sim never changes)', ()
   assert.equal(h.game.state.log.length, logN);
 });
 
-test('H-14 via the shell: a "?" beside each game anchor on the page opens its text; the drawer lists all', () => {
-  const {$, doc, frames} = boot('?seed=7');
+test('H-14 via the shell: a "?" beside each game anchor on the page opens its text; the drawer lists all, and the floating ones show with it', () => {
+  const {$, doc, frames, key} = boot('?seed=7');
   frames(1);
   const qs = doc.querySelectorAll('button.q');
   const anchors = new Set(qs.map(q => q.dataset.anchor));
@@ -386,9 +433,18 @@ test('H-14 via the shell: a "?" beside each game anchor on the page opens its te
   assert.match($('popover').textContent, /Real world: .*GRIDWATCH: .*Why: /s);
   doc.body.dispatch('click');
   assert.equal($('popover').hidden, true);
+  // the floating "?" (not the header's inline ones) show with the drawer, never over the controls in play
+  assert.equal(doc.body.classList.contains('q-on'), false);
+  assert.match(NEXT, /body:not\(\.q-on\) #q-layer \{ display: none; \}/);
+  assert.ok($('q-layer').contains(q) && !$('q-layer').contains(qs.find(x => x.dataset.anchor === 'rate-badge')));
   $('btn-help').click();
   frames(1);
   assert.equal($('drawer').querySelectorAll('article').length, TEXT.abstractions.length);
+  assert.equal(doc.body.classList.contains('q-on'), true, 'shown with the drawer');
+  key('Escape');
+  frames(1);
+  assert.equal($('drawer').hidden, true);
+  assert.equal(doc.body.classList.contains('q-on'), false, 'and gone with it');
 });
 
 test('F-6 / C-3 via the shell: the day ends with the end card; its replay log reproduces the day; PLAY AGAIN resets in place', () => {
@@ -581,7 +637,7 @@ test('Q-18 / K-22: the word beside the objective is by level, and by kind where 
   assert.equal(CONSIDER_WORD, '? IF PRESSED');
 });
 
-test('C-10 via the shell: while a guard is under the player\'s hand the line says what the press would do, as "? IF PRESSED" with its level\'s class', () => {
+test('C-10 via the shell: while a guard is under the player\'s hand the line says what the press would do, as "? IF PRESSED" with its level\'s class; "● ARMED" while its cover is up, "✓ UNDER WAY" once started', () => {
   const {$, h, frames} = boot('?seed=7', {system: SYS, planview: PVW, scenario: DESK, commit: 'player', startPaused: true});
   $('btn-take').click();
   frames(2);
@@ -590,6 +646,7 @@ test('C-10 via the shell: while a guard is under the player\'s hand the line say
   const o = h.vm().objective;
   assert.equal($('objective-level').textContent, objectiveWord(o));
   assert.equal($('objective').className, o.level);
+  assert.equal($('objective-text').textContent, o.text + '  ·  Clock held: press Space to run (you can act while paused).');
   assert.equal(h.vm().consider, null);
   // STOP on a coal machine at 04:30: the line says what it would cost, before the press
   assert.equal(h.actions.ui({do: 'consider', target: 'guard-stop-coal1'}), '');
@@ -597,21 +654,51 @@ test('C-10 via the shell: while a guard is under the player\'s hand the line say
   const c = h.vm().consider;
   assert.deepEqual(Object.keys(c), ['target', 'text', 'level']);
   assert.equal(c.target, 'guard-stop-coal1');
-  assert.match(c.text, /^STOP MT HAZEL COAL 1: off the grid in \d h \d\d, and not back at minimum load before \d\d:\d\d\./);
+  assert.match(c.text, /^STOP COAL 1: off the grid in \d h \d\d, and not back at minimum load before \d\d:\d\d\./);
   assert.equal(c.level, 'crit');
   assert.equal($('objective-level').textContent, CONSIDER_WORD);
   assert.equal($('objective-text').textContent, c.text);
   assert.equal($('objective').className, 'crit consider');
   assert.equal(h.vm().objective.text, o.text, 'the objective itself is unchanged underneath');
-  // START on the CCGT: a plan-level line
-  h.actions.ui({do: 'consider', target: 'guard-start-ccgt2'});
+  // its cover up (the desk says so: ui armed): the next press commits, and the word says so; a
+  // critical consequence stays red
+  assert.equal(h.actions.ui({do: 'armed', target: 'guard-stop-coal1', on: true}), '');
   frames(1);
-  assert.match($('objective-text').textContent, /^START RIVERTON CCGT 2: at minimum load \(175 MW\) by 05:19, 49 min from now, and it must then run 4 h\. /);
+  assert.equal($('objective-level').textContent, ARMED_WORD);
+  assert.equal($('objective-text').textContent, 'Press again to confirm. ' + c.text);
+  assert.equal($('objective').className, 'crit consider');
+  h.actions.ui({do: 'armed', target: 'guard-stop-coal1', on: false});
+  // START on the CCGT: a plan-level line; another guard's cover up changes nothing
+  h.actions.ui({do: 'consider', target: 'guard-start-ccgt2'});
+  h.actions.ui({do: 'armed', target: 'guard-start-gta1', on: true});
+  frames(1);
+  const head = /^START CCGT 2: at minimum load \(175 MW\) by 05:19, 49 min from now, and it must then run 4 h\. /;
+  assert.match($('objective-text').textContent, head);
+  assert.equal($('objective-level').textContent, CONSIDER_WORD);
   assert.equal($('objective').className, 'plan consider');
-  // a press that does nothing says so; a target that is not a guard, or none, gives the objective back
+  // its own cover up: ARMED, in amber
+  h.actions.ui({do: 'armed', target: 'guard-start-ccgt2', on: true});
+  frames(1);
+  assert.equal(h.vm().armed, 'guard-start-ccgt2');
+  assert.equal($('objective-level').textContent, ARMED_WORD);
+  assert.equal($('objective-text').textContent, 'Press again to confirm. ' + h.vm().consider.text);
+  assert.match(h.vm().consider.text, head);
+  assert.equal($('objective').className, 'act consider');
+  // the second press drops the cover and sends the START: with the pointer still on the guard, the
+  // line says the unit is under way
+  h.actions.ui({do: 'armed', target: 'guard-start-ccgt2', on: false});
+  assert.equal(h.actions.input({type: 'start', unit: 'ccgt2'}), '');
+  frames(1);
+  assert.equal(h.vm().armed, null);
+  assert.equal($('objective-level').textContent, UNDER_WAY_WORD);
+  assert.match($('objective-text').textContent, /^CCGT 2 is starting: full speed at \d\d:\d\d, at minimum load by \d\d:\d\d\.$/);
+  assert.equal($('objective').className, 'ok consider');
+  // a press that would do nothing (START on a unit that is on) gives the objective back, as does a
+  // target that is not a guard, or none
   h.actions.ui({do: 'consider', target: 'guard-start-coal1'});
   frames(1);
-  assert.equal($('objective-text').textContent, 'START MT HAZEL COAL 1 does nothing: the unit is on.');
+  assert.equal(h.vm().consider, null);
+  assert.equal($('objective-level').textContent, objectiveWord(h.vm().objective));
   for (const target of ['dial-battery', null]) {
     h.actions.ui({do: 'consider', target: 'guard-stop-coal1'});
     frames(1);
@@ -739,7 +826,7 @@ test('F-11: one projection and one day-ahead forecast per line; a new consider t
   const held = game.objectiveHeld;
   assert.equal(G.ui(game, {do: 'consider', target: 'guard-stop-coal1'}), '');
   const vm = G.buildVm(game, {nowMs: 16, dtS: 0});
-  assert.match(vm.consider.text, /^STOP MT HAZEL COAL 1: off the grid in /);
+  assert.match(vm.consider.text, /^STOP COAL 1: off the grid in /);
   assert.equal(projects, 1, 'a new target: no new projection and no new line');
   assert.equal(game.objectiveHeld, held);
   // the line's own cadence still runs, and an accepted input still refreshes both at once

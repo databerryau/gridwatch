@@ -23,7 +23,7 @@
 // The respond card (K-16) is <= 4 lines, with no buttons: the nadir against the standard, the
 // MW each source caught (the record's caught at the extreme, which is the trace value at the
 // nadir), the problem in plain words (the H-4 level, R5 - L if short, the 30:00 countdown from
-// secureByTick, dark districts), and "Enter to take the desk".
+// secureByTick, dark districts), and "Enter (or a click) to take the desk".
 
 import {V} from '../sim/params.js';
 
@@ -216,7 +216,7 @@ export function respondCard(obs, c, o) {
   if (dark.length) glow.add('bay-restore');
   return {
     n: c.n,
-    lines: [line1, line2, problem, 'Enter to take the desk.'],
+    lines: [line1, line2, problem, 'Enter (or a click) to take the desk.'],
     numbers: {nadirHz: nadir, contained, caught: {inertiaMW: caught.inertiaMW, batteryMW: battery, governorsMW: caught.governorsMW,
       loadReliefMW: caught.loadReliefMW, uflsMW: caught.uflsMW, inverterMW: inverter}, shortMW: short, secureInS, darkCount: dark.length, darkMW,
     level: sec.level},

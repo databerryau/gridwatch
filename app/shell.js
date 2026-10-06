@@ -55,6 +55,8 @@ const KIND_WORD = Object.freeze({
 });
 /** The word beside a consequence line (C-10): what a guarded press would do. */
 export const CONSIDER_WORD = '? IF PRESSED';
+/** The word instead while its cover is up (vm.armed), and once the unit is on its way (level 'ok'). */
+export const ARMED_WORD = '● ARMED', UNDER_WAY_WORD = '✓ UNDER WAY';
 
 /** The glyph and word shown beside an objective line {kind, level} (app/objective.js). */
 export function objectiveWord(o) {
@@ -222,6 +224,11 @@ export function bootGame(doc, deps) {
   // ---------------------------------------------------------------- header, briefing
   const on = (id, ev, f) => { const el = $(id); if (el) el.addEventListener(ev, f); };
   on('btn-pause', 'click', () => actions.ui({do: 'pause'}));
+  on('rate-badge', 'click', () => actions.ui({do: 'pause'}));
+  // K-16: a click on the card, or a press on the desk, takes the desk as Enter does
+  const dismissCard = () => { if (game.respond) actions.ui({do: 'dismissRespond'}); };
+  on('respond-card', 'click', dismissCard);
+  on('desk', 'pointerdown', dismissCard);
   on('btn-mute', 'click', () => { actions.ui({do: 'mute'}); });
   on('btn-help', 'click', () => actions.ui({do: 'drawer'}));
   let briefAgc = true;
@@ -330,6 +337,7 @@ export function bootGame(doc, deps) {
     const d = $('drawer');
     if (!d) return;
     d.hidden = !game.ui.drawer;
+    doc.body.classList.toggle('q-on', !d.hidden); // the floating "?" show with it (next.html)
     if (d.hidden || d.childElementCount) return;
     const h = doc.createElement('h2');
     h.textContent = 'What GRIDWATCH simplifies, and why';
@@ -353,7 +361,7 @@ export function bootGame(doc, deps) {
 
   // The standing objective (Q-18): one line, with the level as a glyph and a word. While the
   // player is hovering, focusing or has lifted a START / STOP guard, the line says what that press
-  // would do instead (C-10, vm.consider), under the word '? IF PRESSED'.
+  // would do instead (C-10, vm.consider), under the word '? IF PRESSED' (ARMED: amber unless critical).
   function drawObjective(v) {
     const box = $('objective');
     if (!box) return;
@@ -361,10 +369,12 @@ export function bootGame(doc, deps) {
     const paused = v.mode.mode === 'PAUSE' && v.phase === 'play' && !v.obs.over;
     box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond;
     if (box.hidden) return;
-    const cls = c ? c.level + ' consider' : o.level;
+    const armed = !!c && v.armed === c.target;
+    const cls = c ? (armed && c.level !== 'crit' ? 'act' : c.level) + ' consider' : o.level;
     if (box.className !== cls) box.className = cls;
-    setText('objective-level', c ? CONSIDER_WORD : objectiveWord(o));
-    setText('objective-text', c ? c.text : (o.text || '') + (paused ? '  ·  Clock held: press Space to run.' : ''));
+    setText('objective-level', !c ? objectiveWord(o) : armed ? ARMED_WORD : c.level === 'ok' ? UNDER_WAY_WORD : CONSIDER_WORD);
+    setText('objective-text', c ? (armed ? 'Press again to confirm. ' : '') + c.text
+      : (o.text || '') + (paused ? '  ·  Clock held: press Space to run (you can act while paused).' : ''));
   }
 
   function drawHeader(v) {

@@ -43,6 +43,8 @@ export const HIST_FREQ_S = 180;
 export const HIST_COL_S = V.FC_STEP_S, HIST_COLS = 6;
 /** The standing objective is recomputed this often (grid seconds). */
 export const OBJECTIVE_EVERY_S = 30;
+/** A line shown stays up at least this long (real ms), so it can be read. */
+export const LINE_DWELL_MS = 4000;
 /**
  * Inputs after which the dispatch is re-run in the same call (Phase 2a, desk/README.md §21.4): the
  * commitment and the battery are the player's, and a plan that has not seen the input yet would
@@ -177,7 +179,7 @@ export function createGame(o) {
     rec: null, alarms: null, tray: null, watchMem: null,
     phase: 'briefing', agc: true,
     ui: {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null, trayOpen: false,
-      drawer: false, settingsOpen: false, consider: null},
+      drawer: false, settingsOpen: false, consider: null, armed: null},
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
     seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof},
@@ -198,7 +200,7 @@ export function resetDay(game, seed) {
   game.state = createState(game.seed, game.scenario);
   game.suburbs = null;
   game.objective = null; game.objectiveS = -1e9; game.objectiveMode = ''; game.objectiveHeld = null; game.consider = null;
-  game.objectiveError = ''; game.dayAhead = null; game.considerDirty = false;
+  game.objectiveError = ''; game.dayAhead = null; game.considerDirty = false; game.lineMs = 0; game.lineFresh = false;
   game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
   game.director = D.createDirector({game: true, paused: true, seen});
@@ -215,7 +217,7 @@ export function resetDay(game, seed) {
   game.phase = 'briefing';
   game.agc = true;
   Object.assign(game.ui, {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null,
-    trayOpen: false, consider: null});
+    trayOpen: false, consider: null, armed: null});
   game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = [];
   game.offers = []; game.offered = {}; game.offersToday = 0;
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
@@ -411,7 +413,7 @@ export function sendInput(game, x) {
   const r = applyInput(state, x, out);
   if (out.length) handleRecords(game, out, '');
   if (r.ok) {
-    game.objectiveS = -1e9;
+    game.objectiveS = -1e9; game.lineFresh = true;
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
     if (x.type === 'restore') D.focusRestore(game.director, state);
@@ -501,6 +503,8 @@ export function ui(game, cmd) {
       if (t !== u.consider) { u.consider = t; game.considerDirty = true; }
       return '';
     }
+    // vm.armed: a guard's cover going up or down (the desk tells each change)
+    case 'armed': if (cmd.on) u.armed = cmd.target; else if (u.armed === cmd.target) u.armed = null; return '';
     // Settings (K-22, §13.1, B-7): the popover never pauses the game.
     case 'mute': return setSetting(game, 'muted', !game.settings.muted);
     case 'volume': return setSetting(game, 'volume', cmd.volume); // the 1a form of {do: 'set', key: 'volume'}
@@ -603,6 +607,13 @@ function updateOffers(game, obs, mode) {
 
 const stationOfUnit = id => { const m = V.MACHINES.find(x => x.id === id); return m ? m.station : ''; };
 
+// Q-18: does the line shown since shownMs stay up against `next`? Not when `fresh` (an input or a
+// mode change since), nor against the same text, a critical or a watch line; never with nowMs 0.
+export function holdLine(shown, next, nowMs, shownMs, fresh) {
+  return !!shown && !!next && !fresh && nowMs > 0 && next.text !== shown.text && next.level !== 'crit' && next.kind !== 'watch' &&
+    nowMs - shownMs < LINE_DWELL_MS;
+}
+
 /**
  * Build the view model after a frame's ticks (once per frame). Also runs the annunciator,
  * the tray's aging, the offers and the respond card, and hands over the frame's audio cues.
@@ -650,12 +661,13 @@ export function buildVm(game, f) {
   const glow = new Set(game.respondGlow);
   for (const g of game.ui.hoverGlow) glow.add(g);
   // The standing objective (app/objective.js; Q-18): once per OBJECTIVE_EVERY_S grid seconds, and
-  // at once when the mode changes or an input lands (objectiveS is reset there). An exception in
+  // at once when the mode changes or an input lands (objectiveS is reset there; holdLine). An exception in
   // objective(), steady() or consequence() blanks only its line; it is kept in objectiveError
   // (vm.objectiveError; the ?debug handle shows it) as the system operator's is in sysError.
   if (game.phase === 'play' && game.commit === 'player' && game.planview) {
     if (obs.s - game.objectiveS >= OBJECTIVE_EVERY_S || obs.s < game.objectiveS || game.objectiveMode !== mode.mode) {
-      game.objectiveS = obs.s; game.objectiveMode = mode.mode;
+      const fresh = game.lineFresh || game.objectiveMode !== mode.mode;
+      game.objectiveS = obs.s; game.objectiveMode = mode.mode; game.lineFresh = false;
       game.objectiveError = '';
       let stage = 'objective';
       try {
@@ -668,7 +680,11 @@ export function buildVm(game, f) {
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s);
-        game.objective = game.objectiveHeld.line;
+        const line = game.objectiveHeld.line, was = game.objective;
+        if (!holdLine(was, line, nowMs, game.lineMs, fresh)) {
+          if (!was || !line || line.text !== was.text) game.lineMs = nowMs;
+          game.objective = line;
+        }
       } catch (e) { game.objective = null; game.objectiveHeld = null; game.objectiveError = stage + ': ' + errText(e); }
       game.considerDirty = true;
     }
@@ -726,6 +742,8 @@ export function buildVm(game, f) {
     // C-10 (§19.5): {target, text, level} for the guard being hovered, focused or lifted, or null;
     // the shell shows it in #objective with the word '? IF PRESSED', in place of the objective.
     consider: game.consider,
+    // the guard whose cover is up, or null; the levers held by hand (player mode)
+    armed: game.ui.armed, held: game.commit === 'player' && heldByHand(game),
   };
 }
 
