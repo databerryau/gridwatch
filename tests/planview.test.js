@@ -237,6 +237,12 @@ test('L-5: gaps are red from 50 MW below P50 and amber from 50 MW below P90; pas
     assert.equal(P.gap[k], want);
   }
   assert.equal(P.gap[0], 'red', 'a trip at the peak opens a red gap at once');
+  // both colours from GAP_MIN_MW: 10 MW under P90 is no gap, 60 under is amber; 10 MW under P50 is not red, 60 under is
+  const fc = structuredClone(obs.forecast), under = [[-200, 10], [-200, 60], [10, 10], [60, 60]];
+  for (let k = 0; k < P.n; k++) [fc.demandP50[k], fc.demandP90[k]] = under[k % 4].map(x => P.supply[k] + x);
+  const Q = PV.project(Object.assign({}, obs, {forecast: fc}), {hist: {demand: [], stations: {}}});
+  assert.deepEqual([...Q.supply], [...P.supply], 'the supply does not move with the forecast demand');
+  assert.deepEqual(Q.gap, Array.from({length: P.n}, (_, k) => ['', 'amber', '', 'red'][k % 4]));
   assert.equal(P.past.demand[5], 7600);
   assert.equal(P.past.layers.coal[5], 2000);
   assert.ok(Number.isNaN(P.past.demand[0]));

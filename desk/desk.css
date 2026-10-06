@@ -75,7 +75,8 @@
 .dk-dial-read { display: flex; align-items: center; gap: 4px; height: 26px; flex: none; }
 .dk-hz { font: 700 calc(16 * var(--u)) var(--dk-mono); color: var(--dk-bright); }
 .dk-hz.warn { color: var(--dk-amber); } .dk-hz.crit { color: var(--dk-red); }
-.dk-dial-sub { flex: 1; font-size: calc(8.5 * var(--u)); color: var(--dk-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dk-dial-sub { flex: 1; font-size: calc(8.5 * var(--u)); color: var(--dk-dim); white-space: pre; line-height: 1.15;
+  overflow: hidden; text-overflow: ellipsis; }   /* CHANGE over SPIN */
 .dk-imb { flex: 44 1 0; display: flex; flex-direction: column; gap: 2px; padding-right: 28px; }
 .dk-imb > .dk-q { position: absolute; top: 2px; right: 2px; }
 .dk-imb-head, .dk-imb-foot { display: flex; gap: 6px; font-size: calc(8.5 * var(--u)); height: 11px; white-space: nowrap; overflow: hidden; }
@@ -96,11 +97,14 @@
 .dk-seg-inv { background: repeating-linear-gradient(90deg, #f1d35c 0 2px, #f1d35c88 2px 4px); }   /* inverters backing off (C-7): upright bars, the sun's yellow, the letter V */
 .dk-seg.glow { box-shadow: none; outline: 2px solid var(--dk-bright); outline-offset: -2px; z-index: 1; }
 /* the trend between events: a column per grid minute */
-.dk-imb-trend { position: absolute; inset: 0; display: flex; gap: 1px; pointer-events: none; }
+.dk-imb-trend { position: absolute; inset: 0; display: flex; gap: 1px; pointer-events: none;
+  background: linear-gradient(var(--dk-dim), var(--dk-dim)) 0 50% / 100% 1px no-repeat; }   /* its middle line */
 .dk-imb-trend i { position: relative; flex: 1; height: 0; background: #8b949e55; }
 .dk-imb-trend i.short { background: #da3633aa; } .dk-imb-trend i.surplus { background: #58a6ffaa; }
-.dk-imb-shed { color: var(--dk-red); font-weight: 700; } .dk-unmet { color: var(--dk-amber); }
-.dk-imb-shed[hidden], .dk-unmet[hidden], .dk-imb-trend[hidden] { display: none; }
+/* the foot: what does not fit wraps out of sight */
+.dk-imb-foot { flex-wrap: wrap; } .dk-imb-l { display: flex; gap: 6px; min-width: 0; }
+.dk-imb-shed { color: var(--dk-red); font-weight: 700; } .dk-imb-agc { color: var(--dk-amber); }
+.dk-imb-shed[hidden], .dk-imb-agc[hidden], .dk-imb-trend[hidden], .dk-imb-zero[hidden] { display: none; }
 .dk-gauge { flex: 100 1 0; display: flex; flex-direction: column; gap: 2px; }
 .dk-gauge-head { display: flex; align-items: center; justify-content: space-between; height: 24px; flex: none; }
 .dk-level { font: 700 calc(12 * var(--u)) var(--dk-mono); letter-spacing: 0.05em; }
