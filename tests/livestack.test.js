@@ -770,22 +770,61 @@ test('L-1 (2a): render <= 4 ms with the belly drawn (rooftop bite, past columns,
   }
 });
 
-test('Q-41: a click with no drag on a ghost, a booked start or an edge says what to drag, in blue; a refusal is red; the watch lock is blue and true about Esc', async () => {
-  const {stack, cv, doc} = mount(1248, 420);
+test('Q-41: every press on the stack answers in blue: a click says what to drag, an edit key with nothing picked what to pick; a refusal is red; the watch lock is blue and true about Esc', async () => {
+  const {stack, cv, doc, sent} = mount(1248, 420);
   const vm = await morning();
   const msg = stack.el.querySelector('.livestack-msg');
   const blue = re => { assert.match(msg.textContent, re); assert.ok(msg.classList.contains('info'), msg.className); assert.equal(msg.style.color, UI.blue); };
   const click = (x, y) => { at(cv, 'pointerdown', x, y); at(cv, 'pointerup', x, y); };
-  const hit = kind => { const G = stack.debug.geom; for (let x = G.x(vm.obs.s) + 4; x < G.x1; x += 3) for (let y = G.y1; y < G.y0; y += 2) { const h = stack.debug.hitTest(x, y); if (h && h.kind === kind) return {x, y, h}; } };
+  const hit = (kind, ok = () => true) => { const G = stack.debug.geom; for (let x = G.x(vm.obs.s) + 4; x < G.x1; x += 3) for (let y = G.y1; y < G.y0; y += 2) { const h = stack.debug.hitTest(x, y); if (h && h.kind === kind && ok(h)) return {x, y, h}; } };
   stack.update(vm);
   const gh = hit('ghost');
   assert.ok(gh, 'an off unit\'s ghost');
-  const name = {gtb: 'GT·B', gtc: 'GT·C', gta: 'GT·A', ccgt: 'CCGT', coal: 'COAL', hydro: 'HYDRO'}[gh.h.station] + ' ' + gh.h.unit.replace(/\D/g, '');
+  // the desk's names (desk/util.js unitLabel): 'CCGT 2', but a one-machine station bare, 'GT·A'
+  const name = {gtb: 'GT·B', gtc: 'GT·C', gta: 'GT·A', ccgt: 'CCGT', coal: 'COAL', hydro: 'HYDRO'}[gh.h.station] + (V.STATIONS[gh.h.station].machines > 1 ? ' ' + gh.h.unit.replace(/\D/g, '') : '');
   click(gh.x, gh.y);
   blue(new RegExp('^Drag right to book ' + name + "'s START$"));
   const e = hit('edge');
   click(e.x, e.y);
   blue(/^Drag to plan [A-Z·]+'s MW: right for later, up for more$/);
+  // what does not drag says what does: a station's body, a weather layer, the past, the empty sky
+  const body = hit('layer', h => V.STATIONS[h.id]);
+  click(body.x, body.y);
+  blue(/^Drag [A-Z·]+'s top edge: up for more MW$/);
+  const ren = hit('layer', h => h.id === 'wind' || h.id === 'solar');
+  click(ren.x, ren.y);
+  blue(/^(WIND|SOLAR): the weather sets it$/);
+  const G = stack.debug.geom;
+  click(G.x(vm.obs.s) - 6, G.y0 - 4);
+  blue(/^That is past\. Plan ahead of now: drag a top edge or a ghost$/);
+  const sky = hit('empty');
+  click(sky.x, sky.y);
+  blue(/^Plan ahead of now: drag a top edge or a ghost$/);
+  // with focus on the stack and nothing picked, an edit key says what to pick; Enter leaves the RESPOND card to the shell
+  stack.el.focus();
+  const key = k => { msg.textContent = ''; return stack.el.dispatch('keydown', {key: k}); };
+  for (const k of ['ArrowUp', 'Delete', 'Enter']) {
+    const ev = key(k);
+    blue(/^Pick a station first: 1-6$/);
+    assert.equal(ev.defaultPrevented, k !== 'Enter', k + ': Enter is never stopped here');
+  }
+  vm.respond = {};
+  assert.equal(key('Enter').stopped, false);
+  assert.equal(msg.textContent, '', 'with the RESPOND card up, Enter is the card\'s');
+  delete vm.respond;
+  // a pick says which keys move it; Delete on a key not yet planned says so
+  key('1');
+  blue(/^COAL: ←\/→ time, ↑\/↓ MW, Enter plans it$/);
+  key('Delete');
+  blue(/^Not planned yet: Enter plans it, Esc drops it$/);
+  key('Escape');
+  // a red SHORT gap says how to fill it
+  stack.update(await tripVm());
+  const gap = hit('gap', h => h.color === 'red');
+  click(gap.x, gap.y);
+  blue(/^Short here: drag a top edge up, or a ghost right$/);
+  assert.equal(sent.length, 0, 'none of these presses sends an input');
+  stack.update(vm);
   vm.obs.plan.starts.push({unit: gh.h.unit, atS: vm.obs.s + 3600});
   vm.obs.plan.rev++;
   stack.update(vm);

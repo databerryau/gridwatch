@@ -953,4 +953,9 @@ test('Q-41: every click on the map answers: a plant its control, a dark suburb t
   assert.equal(ui.length, n, 'wind, solar, a lit suburb and the ground send nothing (no control over them)');
   vm.frame.nowMs += 4000;
   assert.deepEqual(shown(), [], 'the label goes after 4 s');
+  // the pin never pushes a grid alarm off the map: two suburbs dark, wind pinned, COAL hovered
+  for (const d of vm.obs.districts) d.dark = d.suburb === 'SAL' || d.suburb === 'RED';
+  const ls = mapLabels(vm, 'coal', 'wind');
+  assert.deepEqual(ls.map(l => l.kind), ['info', 'hover', 'alarm', 'alarm']);
+  assert.deepEqual(ls.filter(l => l.kind === 'alarm').map(l => l.text.replace(/\d+/, 'N')), ['REDGUM FLATS: N DARK', 'SALTBUSH BAY: N DARK']);
 });

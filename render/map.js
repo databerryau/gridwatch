@@ -258,7 +258,7 @@ export function mapLabels(vm, hoverId, pinId) {
   const darkBy = {};
   for (const d of obs.districts || []) if (d.dark) darkBy[d.suburb] = (darkBy[d.suburb] || 0) + 1;
   for (const sb of SUBURBS) if (darkBy[sb.id]) alarms.push(['sub:' + sb.id, sb.name.toUpperCase() + ': ' + darkBy[sb.id] + ' DARK']);
-  const cap = Math.max(MAX_REST_LABELS, out.length);
+  const cap = Math.max(MAX_REST_LABELS, out.length) + (pinId ? 1 : 0); // a pin never hides an alarm
   for (const [id, text] of alarms) { if (out.length >= cap) break; add(id, text, 'alarm'); }
   return out;
 }

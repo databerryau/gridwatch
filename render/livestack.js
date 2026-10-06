@@ -185,7 +185,8 @@ export function createLiveStack(doc, root, actions) {
     msg.className = 'livestack-msg' + (text && kind ? ' ' + kind : '');
     msg.style.color = kind === 'info' ? UI.blue : kind === 'no' ? UI.red : UI.amber;
   };
-  const unitName = (st, u) => (NAMES[st] || st) + ' ' + u.replace(/\D/g, '');
+  // the desk's form (desk/util.js unitLabel): 'CCGT 2', but 'GT·A' (one machine)
+  const unitName = (st, u) => (NAMES[st] || st) + (V.STATIONS[st] && V.STATIONS[st].machines > 1 ? ' ' + u.replace(/\D/g, '') : '');
   const sayLocked = () => say('Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
 
   function ensureProj() {
@@ -798,7 +799,7 @@ export function createLiveStack(doc, root, actions) {
     const refused = [];
     for (const x of inputs) {
       const why = actions.input(x);
-      if (why) refused.push(x.type + ': ' + why);
+      if (why && !refused.includes(why)) refused.push(why);
     }
     say(refused.length ? 'Refused: ' + refused.join('; ') : '', 'no');
     return refused;
@@ -840,7 +841,14 @@ export function createLiveStack(doc, root, actions) {
     if (!vm || !G) return;
     if (readOnly()) { sayLocked(); return; }
     const p = local(ev), h = hitTest(p.x, p.y);
-    if (!h) return;
+    // Q-41: a press on what does not drag says what does, in blue
+    const nm = h && NAMES[h.id];
+    if (!h || h.kind === 'past' || h.kind === 'empty') { say((h && h.kind === 'past' ? 'That is past. ' : '') + 'Plan ahead of now: drag a top edge or a ghost', 'info'); return; }
+    if (h.kind === 'gap') { say((h.color === 'red' ? 'Short' : 'Tight') + ' here: drag a top edge up, or a ghost right', 'info'); return; }
+    if (h.kind === 'layer') {
+      say(V.STATIONS[h.id] ? 'Drag ' + nm + "'s top edge: up for more MW" : nm + (h.id === 'wind' || h.id === 'solar' ? ': the weather sets it' : ': set on the desk, not the plan'), 'info');
+      return;
+    }
     if (h.kind === 'pending') { takePending(); ev.preventDefault(); return; }
     if (h.kind === 'key' || h.kind === 'edge' || h.kind === 'ghost' || h.kind === 'start') {
       drag = {kind: h.kind, station: h.station, unit: h.unit, from: h.kind === 'key' ? {station: h.station, atS: h.atS} : null, x0: p.x, y0: p.y, moved: false};
@@ -983,14 +991,28 @@ export function createLiveStack(doc, root, actions) {
     const done = () => { ev.preventDefault(); ev.stopPropagation(); };
     if (k === 'l' || k === 'L') { actions.ui({do: 'stackExpand', on: !vm.stackExpanded}); done(); return; }
     if (k === 'Escape' && (sel || pending)) { sel = null; pending = null; say(''); done(); return; }
-    if (readOnly()) { if (/^[1-6]$|^Arrow|^Enter$/.test(k)) { sayLocked(); done(); } return; }
-    if (/^[1-6]$/.test(k)) { selectStation(SIDS[Number(k) - 1]); done(); return; }
+    const edit = /^Arrow|^Enter$|^Delete$|^Backspace$/.test(k);
+    if (readOnly()) { if (edit || /^[1-6]$/.test(k)) { sayLocked(); done(); } return; }
+    if (/^[1-6]$/.test(k)) {
+      selectStation(SIDS[Number(k) - 1]);
+      if (!pending) say(sel.mode === 'ghost' ? unitName(sel.station, sel.unit) + "'s START: ←/→ moves it, Enter books it" : NAMES[sel.station] + ': ←/→ time, ↑/↓ MW, Enter plans it', 'info');
+      done(); return;
+    }
+    // Q-41: an edit key with nothing picked says what to pick; Enter still reaches the RESPOND card
+    if (!sel && !pending && edit) {
+      if (k !== 'Enter' || !vm.respond) say('Pick a station first: 1-6', 'info');
+      if (k !== 'Enter') done();
+      return;
+    }
     if (k === 'Enter') {
       if (pending) { takePending(); done(); return; }
       if (sel) { commit(sel.preview, sel.from); if (!pending) sel = null; done(); }
       return;
     }
-    if ((k === 'Delete' || k === 'Backspace') && sel && sel.from) { send([{type: 'planDel', station: sel.from.station, atS: sel.from.atS}]); sel = null; done(); return; }
+    if ((k === 'Delete' || k === 'Backspace') && sel) {
+      if (sel.from) { send([{type: 'planDel', station: sel.from.station, atS: sel.from.atS}]); sel = null; } else say('Not planned yet: Enter plans it, Esc drops it', 'info');
+      done(); return;
+    }
     if (!sel || !/^Arrow/.test(k)) return;
     const s = vm.obs.s;
     if (sel.mode === 'ghost') {
