@@ -60,13 +60,45 @@ desk-lab midday case, STOP, the import step at 13:00 and 18:30, rate invariance 
 prices, battery, the lean, competent, planOnly and commitAll proxies graded against par, S-11,
 S-2's correlation, F-3), one row per seed
 (each row depends only on its seed and ends with the day's `hashState`), and machine-dependent
-lines. `tests/baseline-v4.test.js` compares section 1 and the quick run's rows with the golden in
-the default run, and the whole report with `GRIDWATCH_SLOW=1`. `--help` lists the flags.
+lines. `tests/baseline-v4.test.js` plays par's day on seed 4 in-process and compares it with that
+seed's golden row, hash included. The whole report is run on demand (`npm run baseline:v4`); there
+is no slow test tier (SPEC Q-40). `--help` lists the flags.
+
+## Play the real page, fast (`play.mjs`)
+
+```
+node tools/play.mjs 20261007 to=15:40 until=trip look real=5 diff key=Enter to=+30m diff
+node tools/play.mjs 20261007 timeline=04:30-04:00/30m     # the whole day, every 30 min and every event (~8 s)
+node tools/play.mjs --help
+```
+
+`tools/play.mjs` is the command line of `tests/lib/play.js` (`openGame()`): next.html booted with
+every real module in the stand-in DOM, driven by jumps (`to`, `until`) that play the page's
+frames without drawing them (~0.3 s per grid hour, stopping AT the tick a trip, the card, a mode
+change, a notice or a new line begins), drawn frames where they matter (`real=5` in the watch),
+clicks and keys, and `look`: what the player sees, as text. `press=ID` (`press()` in the
+library) samples a press the way the owner asked (SPEC Q-40): a look before, one on the press
+frame and one 0.5 real s after. Use it (not hand-written frame-by-frame loops: ~3-5 ms per
+frame, minutes per playthrough) to check a fix in play.
+
+## Run only the tests a change affects (`changed-tests.mjs`)
+
+```
+npm run test:changed                         # this branch and uncommitted work, against main
+node tools/changed-tests.mjs --list          # which test files, without running them
+node tools/changed-tests.mjs desk/dial.js    # the tests that depend on these files
+```
+
+It reads each test file's imports (through `tests/lib/` and the game's modules) and the repo
+paths it names, and runs the tests that depend on something changed. The whole suite
+(`node --test`) runs once before a merge, and in CI. See `CLAUDE.md`.
 
 ## Files
 
 | File | What it is |
 |---|---|
+| `play.mjs` | Plays next.html headless and fast; prints what the player sees (`tests/lib/play.js`). An ES module. |
+| `changed-tests.mjs` | Runs only the test files a change can affect (`npm run test:changed`). An ES module. |
 | `par.js` | v4 par and the proxies over seeds (S-4, S-5, S-11, S-12, S-14) on any scenario; `-j N` forks workers. Exports `grade()`. |
 | `follow.mjs` | The hint-following player over seeds, against par (SPEC §9.1 Q-18; desk/README.md §21.4). An ES module. |
 | `perf.mjs`, `shot-receiver.mjs` | F-11 headless measurements; the PNG receiver for visual QA (SPEC §10). |

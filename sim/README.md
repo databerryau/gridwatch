@@ -42,12 +42,11 @@ tick budgets, as a new file), and stage A's tests (`sim-lint`, `params`,
 `rng`, `state`, `fleet`), which must stay green.
 
 Test files hold stage B acceptance tests as `test(name, {todo}, body)` with real bodies; the
-owner removes `todo` as each passes. F-10 keeps the whole `node --test` run under 60 s (the
-legacy baseline alone takes ~23 s), so multi-seed statistics over whole days (S-12, S-11, P-6,
-H-8 containment over 1,000 states, L-2 coverage, F-2 over 100 days) run only with
-`GRIDWATCH_SLOW=1` (`npm run test:slow`; `slowOnly()` in `tests/lib/sim-helpers.js`) and in
-`tools/par.js`. A pending slow test is `{...TODO, ...slowOnly()}`: slowOnly only skips, so once
-the owner removes TODO a slow failure is a failure.
+owner removes `todo` as each passes. F-10 keeps the whole `node --test` run under 60 s. Since
+SPEC Q-40 (2026-10-07) there is no slow tier: multi-seed statistics over whole days (S-12,
+S-11, P-6, H-8 containment over 1,000 states, L-2 coverage, F-2 over 100 days) are not tests.
+They are measured on demand with `tools/par.js` and `tools/baseline-v4.js`, when a change is
+about balance or par. The default tests keep small samples of the same checks.
 
 Cross-module calls (the only ones allowed):
 
@@ -750,11 +749,11 @@ never per tick. `canonicalHash(x)` is the same walk for any plain value (on the 
   empty ticks; weather tables are searched by bisection.
 * `observe()` allocates (tens of us, more with `dayAhead`); par calls it at decision points
   only (every `PAR_DECIDE_EVERY_S`), never per tick. `hashState` once per grid-hour.
-* **Test budget** (F-10 < 60 s with ~23 s of legacy baseline): the default run steps at most
-  ~8 M ticks in `tests/integration.test.js` and ~8 M in `tests/autopilot.test.js` (short
-  windows, injected trips at 04:31 instead of waiting for pre-rolled ones), and
-  `tests/baseline-v4.test.js` runs `tools/baseline-v4.js --quick` (~10 s in its own process:
-  the fixed probes and two par days); whole days over many seeds only with `GRIDWATCH_SLOW=1`.
+* **Test budget** (F-10 < 60 s; since SPEC Q-40 each test file <= 6 s alone, see `CLAUDE.md`):
+  `tests/integration.test.js` and `tests/autopilot.test.js` use short windows, injected trips at
+  04:31 instead of waiting for pre-rolled ones, and par days played once and resumed;
+  `tests/baseline-v4.test.js` plays one par day (seed 4) in-process against its golden row.
+  Whole days over many seeds are measured with `tools/par.js` and `tools/baseline-v4.js`, not tests.
 * **Measured at the end of Phase 0.2** (the owner's laptop, Node 24, other work running): a par
   day took 2.0-2.3 s (`tools/par.js`; 2.2-2.5 s in `tools/baseline-v4.js`, which adds the H-8
   probes and per-tick checks), over the 1.6-s budget. Commit 3876c98 timed the same way took

@@ -15,7 +15,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {makeDocument} from './lib/dom.js';
-import {dayVm, baseVm} from './lib/vm-fixture.js';
+import {baseVm} from './lib/vm-fixture.js';
 import {V} from '../sim/params.js';
 import {createDesk, makeConsider, roughSyncUnit, DESK_IDS, DESK_KEYS, SLOT_IDS, LAYOUT, CONSIDER_HOLD_MS, PRESS_FOCUS_MS} from '../desk/desk.js';
 import * as C from '../desk/calc.js';
@@ -38,15 +38,32 @@ const tickOf = h => Math.round((h - V.DAY_START_H) * 3600 * TPS);
 // ---------------------------------------------------------------- fixtures (one par day, one trip)
 
 const HOURS = [5, 9.5, 13, 18.5, 23];
+let EVE_STATE = null; // the par day at 18:30, cloned on the way (what dayVm({untilH: 18.5}) runs to)
 const DAY = await (async () => {
   const state = createState(7, CLASSIC);
   const want = new Map(HOURS.map(h => [tickOf(h), h]));
   const out = {};
   runPar(7, CLASSIC, {state, untilTick: tickOf(HOURS[HOURS.length - 1]) + 1, hashEveryS: 86400,
-    onStep: st => { const h = want.get(st.tick); if (h !== undefined) out[h] = observe(st); }});
+    onStep: st => {
+      const h = want.get(st.tick);
+      if (h !== undefined) out[h] = observe(st);
+      if (h === 18.5) EVE_STATE = structuredClone(st);
+    }});
   return {state, obs: out};
 })();
-const TRIP = await dayVm({untilH: 18.5, trip: true});
+// The trip fixture, as tests/lib/vm-fixture.js dayVm({untilH: 18.5, trip: true}) makes it (the same
+// hashState), from the day above instead of a second par run: the largest unit trips at 18:30 and
+// the view is 2 grid-s into the watch.
+const TRIP = (() => {
+  const state = EVE_STATE;
+  let best = -1;
+  for (let i = 0; i < state.units.length; i++) if (state.units[i].sync && (best < 0 || state.units[i].outMW > state.units[best].outMW)) best = i;
+  while (state.tick % TPS !== 0) step(state, []);
+  fleet.tripUnit(state, best, 'test trip', V.HOT_TRIP_LOCKOUT_S, []);
+  for (let k = 0; k < 2 * TPS; k++) step(state, []);
+  const obs = observe(state);
+  return {state, obs, vm: baseVm(obs)};
+})();
 const clone = o => structuredClone(o);
 const vmAt = (h, over) => baseVm(clone(DAY.obs[h]), over);
 const EVE = 18.5;

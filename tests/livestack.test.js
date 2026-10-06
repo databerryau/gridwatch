@@ -34,7 +34,9 @@ async function vmOf(key, o, over) {
   return baseVm(c, over);
 }
 const morning = over => vmOf('m', {seed: 7, untilH: 7.5}, over);
-const tripVm = over => vmOf('t', {seed: 7, untilH: 18.5, trip: true}, over);
+// the largest unit tripped at the same 07:30 (dayVm runs that par day once for both: the trip
+// leaves a red gap from the first column, and GT·B is still off, so L-9 hovers the CCGT's layer)
+const tripVm = over => vmOf('t', {seed: 7, untilH: 7.5, trip: true}, over);
 
 function mount(w = 336, h = 164) {
   const doc = makeDocument();
@@ -167,11 +169,11 @@ test('L-9: hovering a red gap lights exactly glowSet (sent to the shell for the 
   assert.deepEqual(cmd.glow, PV.glowSet(vm.obs, gap));
   assert.equal(cmd.gap.atS, gap.atS);
   // hovering a layer names its control (G-2 cross-highlight) and shows MW, ramp, start and cost (L-3)
-  const li = P.layers.findIndex(L => L.id === 'gtb');
+  const li = P.layers.findIndex(L => L.id === 'ccgt');
   let base = 0;
   for (let i = 0; i < li; i++) base += P.layers[i].mw[10];
   at(cv, 'pointermove', G.x(P.times[10]) - 2, G.y(base + P.layers[li].mw[10] / 2));
-  assert.deepEqual(ui[ui.length - 1], {do: 'hover', target: 'lever-gtb'});
+  assert.deepEqual(ui[ui.length - 1], {do: 'hover', target: 'lever-ccgt'});
   const tip = stack.el.querySelector('.livestack-tip');
   assert.ok(!tip.hidden);
   assert.match(tip.textContent, /MW[\s\S]*ramp[\s\S]*start[\s\S]*cost[\s\S]*price now \$/);

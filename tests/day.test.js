@@ -1,15 +1,21 @@
 // Stage C (desk/README.md §9): the greybox game end to end. next.html booted through
 // app/shell.js with every REAL module (desk, map, Live Stack, system operator, plan view) in the
 // stand-in DOM, driven by fake frames and a scripted player that only uses `actions`:
-//  - default suite: 04:00-09:00 with desk, stack and RE-DISPATCH inputs, replayed headless to
-//    the same hashState (F-6); then a trip walked through WATCH -> RESPOND-CARD -> RESPOND;
-//  - slow suite: whole days to 04:00 with a player that restores districts (K-13).
+// 04:00-09:00 with desk, stack and RE-DISPATCH inputs, replayed headless to the same hashState
+// (F-6); then a trip walked through WATCH -> RESPOND-CARD -> RESPOND; then K-23's keyboard day.
+//
+// Frames are sampled, not streamed: a day asks for few decisions (SPEC D-10), so between the
+// moments a test looks at, the sim jumps headless (app/game.js runTo; viewing never changes the
+// outcome, C-7) and the page draws one frame at each moment: before an input, the frame that
+// carries it, and after. Frame-by-frame stepping is kept only where the pacing is what is
+// checked (the card holding the clock, a held key); the watch's own pacing frame by frame is
+// next.test.js's "K-15 / K-16 through the shell" and loop.test.js's "K-15 via the bench".
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {makeDocument, installGlobals} from './lib/dom.js';
-import {slowOnly} from './lib/sim-helpers.js';
 import {bootGame, ARMED_WORD, UNDER_WAY_WORD} from '../app/shell.js';
+import {runTo} from '../app/game.js';
 import {createDesk} from '../desk/desk.js';
 import {createMap} from '../render/map.js';
 import {createLiveStack} from '../render/livestack.js';
@@ -37,7 +43,26 @@ function boot(seed) {
   const refusals = [];
   const send = x => { const r = h.actions.input(x); if (r) refusals.push(x.type + ': ' + r); return r; };
   const take = agc => { $(agc ? 'btn-agc' : 'btn-hand').click(); doc.dispatch('keydown', {key: 'Enter'}); frame(); };
-  return {doc, $, h, frame, send, refusals, take, st: () => h.game.state};
+  // The sim headless to `tick` (no frame drawn), then one frame of dt 0: the page draws that
+  // moment and h.vm() reads it, with no tick run.
+  const jump = tick => { runTo(h.game, tick); frame(0); };
+  return {doc, $, h, frame, jump, send, refusals, take, st: () => h.game.state};
+}
+
+/** A watch the sim is in: run it out headless to its end (the card opens on the next frame). */
+function watchOut(g) {
+  const st = g.st();
+  if (g.h.vm().mode.mode === 'WATCH') g.jump(st.conts[st.contIdx].watchEndTick);
+}
+
+/** The sim to the next whole grid second (where the bench's DEBUG trip lands), headless. */
+const toWholeSecond = g => runTo(g.h.game, Math.ceil(g.st().tick / TPS) * TPS);
+
+/** Trip the largest online machine (as the bench's DEBUG trip does). */
+function tripBiggest(g) {
+  let big = -1;
+  for (let i = 0; i < g.st().units.length; i++) if (g.st().units[i].sync && (big < 0 || g.st().units[i].outMW > g.st().units[big].outMW)) big = i;
+  fleet.tripUnit(g.st(), big, 'test trip', V.HOT_TRIP_LOCKOUT_S, []);
 }
 
 /** Dismiss any respond card and restore one permitted district per call (the restore bay's rule). */
@@ -57,25 +82,35 @@ test('greybox day, 04:00-09:00: desk, Live Stack and RE-DISPATCH inputs through 
   assert.ok(g.st().tick >= V.PLAYER_START_TICK, 'the briefing ran headless to 04:30');
   assert.ok(g.st().plan.madeAtS >= 0, 'the 04:30 pre-dispatch is in state (L-0)');
   const did = new Set();
-  while (g.st().tick < tickAt(9)) {
-    g.frame();
-    const vm = g.h.vm(), o = vm.obs;
-    if (!did.has('lever') && o.s >= 3 * 3600) { // 07:00: the CCGT lever up 100 MW (K-1 / L-6)
-      did.add('lever');
-      const st = o.stations.find(x => x.id === 'ccgt');
-      if (st.onCount > 0) assert.equal(g.send({type: 'basePoint', station: 'ccgt', mw: Math.min(st.maxMW, st.basePointMW + 100)}), '');
-    }
-    if (!did.has('stack') && o.s >= 3.5 * 3600) { // 07:30: a Live Stack drop for GT·A by +1 h (L-4)
-      did.add('stack');
-      const drop = planview.snapDrop(o, 'gta', o.s + 3600, 300);
-      const inputs = drop.infeasible ? drop.ghost.inputs : drop.inputs;
-      assert.ok(inputs && inputs.length >= 1, 'the drop is a planKey (and its starts)');
-      for (const x of inputs) assert.equal(g.send(x), '', JSON.stringify(x));
-    }
-    if (!did.has('guard') && o.s >= 4 * 3600) { did.add('guard'); assert.equal(g.send({type: 'guard', mw: 200}), ''); }
-    if (!did.has('redispatch') && o.s >= 4.25 * 3600) { did.add('redispatch'); assert.equal(g.h.actions.redispatch(), ''); }
+  // Each input at its moment: the sim jumps there headless, the page draws it (the frame before),
+  // a card or a dark district is answered as the player would, the input goes in off that frame's
+  // vm, and a 0.1-s frame carries it (the next moment's frame is the one after).
+  const at = (h, name, act) => {
+    g.jump(tickAt(h));
+    watchOut(g);
     respondAndRestore(g);
-  }
+    act(g.h.vm().obs);
+    did.add(name);
+    const t0 = g.st().tick;
+    g.frame();
+    assert.equal(g.st().tick - t0, 12 * TPS, name + ': a 0.1-s frame at CRUISE runs 12 grid s (the page runs the clock)');
+  };
+  at(7, 'lever', o => { // 07:00: the CCGT lever up 100 MW (K-1 / L-6)
+    const st = o.stations.find(x => x.id === 'ccgt');
+    if (st.onCount > 0) assert.equal(g.send({type: 'basePoint', station: 'ccgt', mw: Math.min(st.maxMW, st.basePointMW + 100)}), '');
+  });
+  at(7.5, 'stack', o => { // 07:30: a Live Stack drop for GT·A by +1 h (L-4)
+    const drop = planview.snapDrop(o, 'gta', o.s + 3600, 300);
+    const inputs = drop.infeasible ? drop.ghost.inputs : drop.inputs;
+    assert.ok(inputs && inputs.length >= 1, 'the drop is a planKey (and its starts)');
+    for (const x of inputs) assert.equal(g.send(x), '', JSON.stringify(x));
+  });
+  at(8, 'guard', () => assert.equal(g.send({type: 'guard', mw: 200}), ''));
+  at(8.25, 'redispatch', () => assert.equal(g.h.actions.redispatch(), ''));
+  g.jump(tickAt(9));
+  watchOut(g);
+  respondAndRestore(g);
+  g.frame();
   assert.deepEqual([...did].sort(), ['guard', 'lever', 'redispatch', 'stack']);
   assert.deepEqual(g.refusals, []);
   assert.deepEqual(g.doc.canvasStats.bad, [], 'no NaN or Infinity reached a canvas');
@@ -90,21 +125,28 @@ test('greybox day, 04:00-09:00: desk, Live Stack and RE-DISPATCH inputs through 
 test('greybox trip: WATCH locks the desk, the RESPOND card holds the clock and lights controls, then RESPOND and CRUISE (K-15, K-16)', () => {
   const g = boot(11);
   g.take(true);
-  while (g.st().tick < tickAt(6)) { g.frame(); respondAndRestore(g); }
+  g.jump(tickAt(6));
   assert.equal(g.st().conts.length, 0, 'no contingency before the test trip');
   // Trip the largest online machine at the next grid second (as the bench's DEBUG trip does).
-  while (g.st().tick % TPS !== 0) g.frame(0.001);
-  let big = -1;
-  for (let i = 0; i < g.st().units.length; i++) if (g.st().units[i].sync && (big < 0 || g.st().units[i].outMW > g.st().units[big].outMW)) big = i;
-  fleet.tripUnit(g.st(), big, 'test trip', V.HOT_TRIP_LOCKOUT_S, []);
+  toWholeSecond(g);
+  tripBiggest(g);
   g.frame(1 / 60);
   let vm = g.h.vm();
   assert.equal(vm.mode.mode, 'WATCH');
   assert.equal(vm.mode.locked, true);
   assert.equal(vm.mode.watchVersion, 'full', 'the first watch ever is the full version');
   assert.notEqual(g.send({type: 'guard', mw: 100}), '', 'no input during the watch (K-15)');
-  let n = 0;
-  while (g.h.vm().mode.mode === 'WATCH' && n++ < 2000) g.frame(1 / 30);
+  // Samples of the watch: midway (15 grid s in) and one tick before its end, the desk still locked;
+  // then the frame that plays its last tick opens the card.
+  const c = g.st().conts[g.st().contIdx];
+  for (const tick of [c.startTick + 15 * TPS, c.watchEndTick - 1]) {
+    g.jump(tick);
+    vm = g.h.vm();
+    assert.equal(vm.mode.mode, 'WATCH', 'still the watch at ' + vm.mode.watchS + ' grid s');
+    assert.equal(vm.mode.locked, true);
+    assert.notEqual(g.send({type: 'guard', mw: 100}), '', 'no input during the watch (K-15)');
+  }
+  g.frame(1 / 30);
   vm = g.h.vm();
   assert.equal(vm.mode.mode, 'RESPOND-CARD');
   assert.ok(vm.respond && vm.respond.lines.length <= 4, 'a card of at most 4 lines');
@@ -119,25 +161,10 @@ test('greybox trip: WATCH locks the desk, the RESPOND card holds the clock and l
   const m = g.h.vm().mode;
   if (m.mode === 'RESPOND') assert.equal(m.rate, 30);
   else assert.ok(g.h.vm().obs.contingency.backInBandTick >= 0, 'CRUISE only once back in band, not ' + m.mode);
-  n = 0;
-  while (g.h.vm().mode.mode === 'RESPOND' && n++ < 5000) g.frame();
+  // RESPOND lasts at most 5 grid min: sampled every 30 grid s.
+  for (let n = 0; g.h.vm().mode.mode === 'RESPOND' && n < 20; n++) g.jump(g.st().tick + 30 * TPS);
   assert.equal(g.h.vm().mode.mode, 'CRUISE');
   assert.deepEqual(g.doc.canvasStats.bad, []);
-});
-
-test('greybox whole days to 04:00 with a restoring player: never black, the end card shows, the log replays (slow)', {...slowOnly()}, () => {
-  for (const seed of [7, 11, 20260930]) {
-    const g = boot(seed);
-    g.take(true);
-    let frames = 0;
-    while (!g.st().over && frames++ < 20000) { g.frame(); respondAndRestore(g); }
-    assert.ok(g.st().over, 'seed ' + seed + ' reached 04:00');
-    assert.equal(g.st().black, false, 'seed ' + seed);
-    assert.equal(g.$('end-card').hidden, false);
-    assert.deepEqual(g.doc.canvasStats.bad, []);
-    const r = replay(g.st().seed, CLASSIC, g.st().log);
-    assert.equal(hashState(r), hashState(g.st()), 'seed ' + seed + ' replays');
-  }
 });
 
 // ---------------------------------------------------------------- Phase 1b: K-23, the keyboard-only day
@@ -152,12 +179,18 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   const hold = (key, s) => { down(key); for (let t = 0; t < s; t += 0.05) g.frame(0.05); up(key); g.frame(1 / 60); };
   const types = () => g.st().log.map(r => r.type);
   const count = t => types().filter(x => x === t).length;
-  const runTo = h => { while (g.st().tick < tickAt(h) && !g.st().over) { g.frame(); if (g.h.vm().mode.mode === 'RESPOND-CARD') tap('Enter'); } };
+  // Play on to `tick`: the sim jumps there headless (the injected trip and the jumps are not
+  // inputs); the frame drawn there answers a card by Enter, as the player would.
+  const playTo = tick => {
+    g.jump(tick);
+    watchOut(g);
+    if (g.h.vm().mode.mode === 'RESPOND-CARD') tap('Enter');
+  };
 
   g.$('btn-agc').click();           // the default; the briefing's own buttons are native <button>s
   down('Enter'); up('Enter'); g.frame();
   assert.equal(g.h.game.phase, 'play', 'Enter takes the desk');
-  runTo(5);
+  playTo(tickAt(5));
 
   // 2: the CCGT lever, three steps up (K-1).
   tap('2');
@@ -204,49 +237,55 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   tap('a'); tap('A', {shiftKey: true}); tap('t'); tap('t'); tap('m'); tap(','); tap('Escape'); tap(' ');
   assert.equal(g.h.vm().mode.mode, 'PAUSE');
   tap(' ');
+  assert.equal(g.h.vm().mode.mode, 'CRUISE', 'Space again resumes the clock');
   assert.equal(g.st().log.length, n, 'presentation keys are not sim inputs');
 
-  // GT·A reaches full speed: O opens its scope (FOCUS, 1x), U closes it cleanly (K-12).
+  // GT·A reaches full speed: O opens its scope (FOCUS, 1x), U closes it cleanly (K-12). Its
+  // start is sampled every 30 grid s (it then waits AUTO_SYNC_S, 240 s, at full speed).
+  const gta1 = () => g.h.vm().obs.units.find(u => u.id === 'gta1');
   let frames = 0;
-  while (!g.h.vm().obs.units.some(u => u.id === 'gta1' && u.mode === 'ready') && frames++ < 3000) g.frame();
-  assert.ok(frames < 3000, 'gta1 came to speed');
+  while (gta1().mode !== 'ready' && frames++ < 200) g.jump(g.st().tick + 30 * TPS);
+  assert.ok(frames < 200, 'gta1 came to speed');
   tap('o');
   assert.equal(g.st().scope.unit, 'gta1', 'O opens the scope');
   tap('u');
+  // The breaker closes on the next pass through 0 degrees: sampled every grid second.
   frames = 0;
-  while (g.h.vm().obs.units.find(u => u.id === 'gta1').mode === 'ready' && frames++ < 2000) g.frame(0.05);
-  assert.ok(g.h.vm().obs.units.find(u => u.id === 'gta1').sync, 'U synchronised it');
+  while (gta1().mode === 'ready' && frames++ < 120) g.jump(g.st().tick + TPS);
+  assert.ok(gta1().sync, 'U synchronised it');
 
   // F-6: every key above became a logged input or nothing (the injected trip below is not an input).
   const r = replay(g.st().seed, CLASSIC, g.st().log, {untilTick: g.st().tick});
   assert.equal(hashState(r), hashState(g.st()), 'the keyboard day replays (F-6)');
 
   // A trip: the watch, then Enter dismisses the respond card (K-16); R reaches the restore bay.
-  while (g.st().tick % TPS !== 0) g.frame(0.001);
-  let big = -1;
-  for (let i = 0; i < g.st().units.length; i++) if (g.st().units[i].sync && (big < 0 || g.st().units[i].outMW > g.st().units[big].outMW)) big = i;
-  fleet.tripUnit(g.st(), big, 'test trip', V.HOT_TRIP_LOCKOUT_S, []);
+  toWholeSecond(g);
+  tripBiggest(g);
   g.frame(1 / 60);
-  frames = 0;
-  while (g.h.vm().mode.mode === 'WATCH' && frames++ < 3000) g.frame(1 / 30);
+  assert.equal(g.h.vm().mode.mode, 'WATCH');
+  watchOut(g);
   assert.equal(g.h.vm().mode.mode, 'RESPOND-CARD');
   tap('Enter');
   assert.notEqual(g.h.vm().mode.mode, 'RESPOND-CARD', 'Enter takes the desk back');
   tap('r');
   const dark = g.h.vm().obs.districts.filter(d => d.dark);
   if (dark.length) {
-    // Restore one district by keys once its lamp and preview allow it.
+    // Restore one district by keys once its lamp and preview allow it (sampled every 12 grid s,
+    // a CRUISE frame's worth).
     frames = 0;
     n = count('restore');
-    while (count('restore') === n && frames++ < 4000) {
-      g.frame();
+    while (count('restore') === n && frames++ < 400) {
+      g.jump(g.st().tick + 12 * TPS);
+      watchOut(g);
       if (g.h.vm().mode.mode === 'RESPOND-CARD') { tap('Enter'); continue; }
       const d = g.h.vm().obs.districts.find(x => x.dark && x.restoreBlock === '' && g.h.actions.restorePreview(x.id) === '');
       if (d) { tap('r'); tap('Enter'); }
     }
     assert.ok(count('restore') > n, 'a district restored by R and Enter');
   }
-  runTo(Math.min(24, (g.st().tick / TPS / 3600) + V.DAY_START_H + 1));
+  // An hour more of play, drawn every 15 grid min.
+  const from = g.st().tick, end = Math.min(tickAt(24), from + 3600 * TPS);
+  for (let k = 1; k <= 4; k++) playTo(from + Math.round(k * (end - from) / 4));
 
   assert.deepEqual(g.h.mods.errors, []);
   assert.deepEqual(doc.canvasStats.bad, []);

@@ -1,5 +1,6 @@
 // Phase 1a (sim agent): app/system.js, the game's system operator (desk/README.md §3.4; SPEC L-0,
-// A-1 RE-DISPATCH, F-6). Whole no-input days on more seeds run with GRIDWATCH_SLOW=1.
+// A-1 RE-DISPATCH, F-6). One whole no-input day (seed 4, the heat day) is shared by the
+// hash-for-hash test and the L-0 accept; the other tests stop at the hour they need.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createState, step, applyInput, observe, hashState, replay} from '../sim/step.js';
@@ -7,18 +8,16 @@ import {runPar} from '../sim/autopilot.js';
 import {createSystem, systemInputs, redispatch, commitSig, heldByHand, DISPATCH_S} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {SLOW, slowOnly, ticksAt, injectTrip} from './lib/sim-helpers.js';
+import {ticksAt, injectTrip} from './lib/sim-helpers.js';
 import {followDay} from './lib/follow.js';
-import {objective} from '../app/objective.js';
-import {followSeed, quotedSaving, stopLines, skipping, planCost, dearerThanPar, SKIPPED, PLAN_COST_KEYS} from '../tools/follow.mjs';
+import {quotedSaving, stopLines, skipping, planCost, dearerThanPar, SKIPPED, PLAN_COST_KEYS} from '../tools/follow.mjs';
 import * as fleet from '../sim/fleet.js';
 
 const TPS = V.TICKS_PER_S;
-const SEEDS = n => Array.from({length: n}, (_, i) => i + 1);
 
-/** A game day driven by the system only (and any extra inputs by tick), to untilTick. */
-function gameDay(seed, untilTick = V.DAY_TICKS, extra = new Map(), state) {
-  const s = state || createState(seed, CLASSIC), sys = createSystem();
+/** A game day driven by the system only (and any extra inputs by tick), to untilTick; `from` ({s, sys}) carries on that day. */
+function gameDay(seed, untilTick = V.DAY_TICKS, extra = new Map(), from) {
+  const {s, sys} = from || {s: createState(seed, CLASSIC), sys: createSystem()};
   while (!s.over && s.tick < untilTick) {
     const x = systemInputs(sys, s);
     const more = extra.get(s.tick);
@@ -37,20 +36,32 @@ test('L-0: at 04:30 the system loads the pre-dispatch plan (a logged planLoad, s
   assert.ok(loads[0].args.starts.length + loads[0].args.stops.length > 0, 'the L-0 commitment is booked');
 });
 
+// Seed 4's no-input game day, run once: to 09:00 (its hash and log kept), then on to the end of
+// the day by the L-0 accept. Seed 4 is the heat day, the one on which the plan alone sheds the
+// most (tools/baseline-v4.golden.md, planOnly: 33,866 MWh, against 16,981-18,271 on seeds 1-2).
+let day4 = null;
+function noInputDay4() {
+  if (!day4) {
+    day4 = gameDay(4, ticksAt(9));
+    day4.at9 = {tick: day4.s.tick, hash: hashState(day4.s), log: JSON.parse(JSON.stringify(day4.s.log))};
+  }
+  return day4;
+}
+
 test('a no-input game day (system only) is the planOnly proxy\'s day, hash for hash', () => {
   const until = ticksAt(9);
-  const {s} = gameDay(4, until);
+  const {at9} = noInputDay4();
+  assert.equal(at9.tick, until);
   const r = runPar(4, CLASSIC, {proxy: 'planOnly', untilTick: until});
-  assert.equal(hashState(s), hashState(r.state));
-  assert.deepEqual(s.log, r.log);
+  assert.equal(at9.hash, hashState(r.state));
+  assert.deepEqual(at9.log, r.log);
 });
 
-test('L-0 accept: a no-input game day (the system alone) never ends black (seeds 1-6; 1-30 with GRIDWATCH_SLOW=1)', () => {
-  for (const seed of SEEDS(SLOW ? 30 : 6)) {
-    const {s} = gameDay(seed);
-    assert.equal(s.black, false, 'seed ' + seed);
-    assert.equal(s.over, true);
-  }
+test('L-0 accept: a no-input game day (the system alone) never ends black (seed 4, the heat day, carried on from its 09:00 state)', () => {
+  const d = noInputDay4();
+  gameDay(4, V.DAY_TICKS, undefined, d);
+  assert.equal(d.s.black, false, 'seed 4');
+  assert.equal(d.s.over, true);
 });
 
 test('A-1 RE-DISPATCH: refused before 04:30, during the watch and after the day; then a planLoad over the player\'s commitment', () => {
@@ -123,13 +134,14 @@ test('F-6: a game day (system, RE-DISPATCH, desk inputs) replays from its log; t
     [ticksAt(5, 30) + 3, (sys, s) => [redispatch(sys, s).input]],
     [ticksAt(6) + 11, [{type: 'tie', mw: 500}]],
   ]);
-  const a = gameDay(5, until, extra);
+  // One day: to 06:00, where the state and the system are copied as JSON (the resume below), then on to 07:00.
+  const a = gameDay(5, ticksAt(6), extra);
+  const s2 = JSON.parse(JSON.stringify(a.s)), sys2 = JSON.parse(JSON.stringify(a.sys));
+  gameDay(5, until, extra, a);
   assert.ok(a.s.log.some(r => r.type === 'planKey') && a.s.log.filter(r => r.type === 'planLoad').length >= 2);
   const b = replay(5, CLASSIC, a.s.log, {untilTick: until});
   assert.equal(hashState(b), hashState(a.s));
   // Resume: the state and the system as JSON copies, mid-day.
-  const mid = gameDay(5, ticksAt(6), extra);
-  const s2 = JSON.parse(JSON.stringify(mid.s)), sys2 = JSON.parse(JSON.stringify(mid.sys));
   while (s2.tick < until) {
     const x = systemInputs(sys2, s2);
     const more = extra.get(s2.tick);
@@ -297,43 +309,4 @@ test('tools/follow.mjs: a STOP line\'s quoted saving is read from the line; the 
   // followDay takes it as its objective: a day with every action dropped is the day with no input.
   const none = followDay(7, DESK, {untilH: 6, objective: () => null}), idle = followDay(7, DESK, {untilH: 6, follow: false});
   assert.equal(hashState(none.st), hashState(idle.st));
-});
-
-test('tools/follow.mjs end to end: a followed STOP is re-run skipped, and its quoted saving is set against the realised difference', slowOnly(), () => {
-  // The STOP under test is synthetic, so its quote and window are known: the standing objective's own
-  // actions first (its own STOP lines, wave 3, left out), then one STOP of CCGT 1 from 10:30 on
-  // a mild weekday (at its floor in the belly), quoting $20,000, then a battery branch below it
-  // (from 10:30 too: charge while power is spilled). `withStop` false is the same player with no STOP branch at all.
-  const stopAt = ticksAt(10, 30) / TPS, noStopAfter = ticksAt(13, 0) / TPS;
-  const mk = withStop => (obs, ctx) => {
-    const x = objective(obs, ctx), u = obs.units.find(q => q.id === 'ccgt1'), b = obs.battery;
-    if (x && x.action && x.kind !== 'stop') return x;
-    if (withStop && obs.s >= stopAt && obs.s < noStopAfter && u.mode === 'on' && u.stopBlock === '') {
-      return {level: 'plan', kind: 'stop', text: 'RIVERTON CCGT 1 is not needed before the evening. Stop it: saves about $20,000.', targets: ['guard-stop-ccgt1'],
-        action: {type: 'stop', unit: 'ccgt1'}, startBy: -1, short: null, long: null};
-    }
-    if (obs.s >= stopAt && obs.wind.autoMW + obs.solar.autoMW > V.SURPLUS_MIN_MW && b.mode !== 'charge' && b.socMWh < 950) {
-      return {level: 'plan', kind: 'battery', text: 'Charge: power is being spilled.', targets: ['dial-battery'], action: {type: 'battery', mode: 'charge', mw: 300}, startBy: -1, short: null, long: null};
-    }
-    return x && x.kind === 'stop' ? null : x;
-  };
-  const row = followSeed(DESK, 1, {untilH: 14, par: false, objective: mk(true)});
-  assert.equal(row.day, 'MILD');
-  assert.equal(row.stops.length, 1, JSON.stringify(row.kinds));
-  const s = row.stops[0];
-  assert.equal(s.unit, 'ccgt1');
-  assert.equal(s.at, '10:30');
-  assert.equal(s.quoted, 20000);
-  // Skipped, CCGT 1 sits at its 175-MW floor to 14:00 burning gas at $74 and $3,000 an hour of
-  // no-load while solar is spilled: the day with the STOP is the cheaper one.
-  assert.ok(s.realised > 20000 && s.realised < 120000, 'realised ' + Math.round(s.realised));
-  assert.equal(s.unservedSkipped, 0);
-  // The re-run IS the day of the same player without the STOP branch: it follows the battery
-  // branch under the STOP (the first form of the tool hid it for the whole window and under-read
-  // the difference by a factor of three on this seed).
-  const never = followDay(1, DESK, {untilH: 14, objective: mk(false)});
-  assert.ok(never.said.some(x => x.kind === 'battery' && x.accepted && x.s >= stopAt), 'the fixture: the battery branch is followed after 10:30');
-  assert.ok(Math.abs(s.realised - (planCost(never.score.cost) - row.planCost)) < 1, 'realised ' + Math.round(s.realised) + ' against the true skip ' + Math.round(planCost(never.score.cost) - row.planCost));
-  // And with no STOP followed the table is empty.
-  assert.deepEqual(followSeed(DESK, 1, {untilH: 6, par: false}).stops, []);
 });

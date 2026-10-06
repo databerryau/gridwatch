@@ -11,7 +11,7 @@ import {sampleSecond, forecast, demandBaseMW, underlyingBaseMW, rooftopClearSkyM
 import {createState, step, observe, hashState} from '../sim/step.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {TPS, clone, slowOnly, withoutContingencies} from './lib/sim-helpers.js';
+import {TPS, clone, withoutContingencies} from './lib/sim-helpers.js';
 
 const H = 3600, secOf = (h, m = 0) => (h - V.DAY_START_H) * H + m * 60;
 const NOON_S = secOf(13); // solar noon: the shape table's 1000 per-mille point (C-4)
@@ -260,7 +260,7 @@ test('P-3: a MILD day shows its own temperatures (display only); a HOT day and a
 
 // C-3's noise-free minima (clearness 0.92 over every suburb, no demand noise, no trips; the
 // per-second wobble of +-6 MW stays): HOT 3,442, HEATWAVE 3,442, MILD weekday 2,394, MILD weekend
-// 1,938 MW, each inside P-3's band. The medians over real seeds are measured in the slow test below.
+// 1,938 MW, each inside P-3's band. The test run checks these noise-free minima, not medians over many real seeds.
 function belly(seed, scn, prep) {
   const s = withoutContingencies(createState(seed, scn));
   if (prep) prep(s);
@@ -317,57 +317,4 @@ test('C-1 / C-9: on the classic day state.msl never moves: through step() and wh
   assert.deepEqual(s.msl, {level: 0, minMW: 0, atS: -1, sinceS: -1});
   assert.equal(out.length, 0);
   assert.equal(hashState(s), before);
-});
-
-// ------------------------------------------------------------------ slow: the measured accepts
-
-/** One day of weather and events only, with the MSL check on its cadence and the tie's lockout counted as grid.unitsSecond does. */
-function bellyDay(seed, scn) {
-  const s = createState(seed, scn), out = [];
-  let minMW = Infinity, maxLevel = 0, floorAlone = false; // floorAlone: MSL3 reached with the tie in and the potline on
-  for (let sec = 0; sec < V.DAY_S; sec++) {
-    goTo(s, sec, out);
-    if (sec % V.MSL_CHECK_S === 0) {
-      const was = s.msl.level;
-      mslSecond(s, forecast(s, V.FC_HORIZON_S, V.FC_STEP_S), out);
-      if (s.msl.level === 3 && was < 3 && !s.tie.tripped && s.smelter.loadMW === V.SMELTER_MW) floorAlone = true;
-    }
-    maxLevel = Math.max(maxLevel, s.msl.level);
-    const t = s.tie;
-    if (t.tripped) { t.lockoutS = Math.max(0, t.lockoutS - 1); if (t.lockoutS <= 0) t.tripped = false; }
-    minMW = Math.min(minMW, s.env.demandMW);
-  }
-  return {temp: s.ext.regime.temp, minMW, maxLevel, floorAlone};
-}
-const median = a => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
-
-test('P-3: median minimum operational demand over seeds 1-100 is within +-10% of 3,400 (HOT), 3,450 (HEATWAVE), 2,350 (MILD weekday), 1,800 (MILD weekend) MW', slowOnly(), () => {
-  const mins = {HOT: [], HEATWAVE: [], MILD: [], MILD_WEEKEND: []};
-  for (let seed = 1; seed <= 100; seed++) {
-    const wd = bellyDay(seed, DESK);
-    mins[wd.temp].push(wd.minMW);
-    if (wd.temp === 'MILD') mins.MILD_WEEKEND.push(bellyDay(seed, DESK_WEEKEND).minMW);
-  }
-  for (const [k, target] of Object.entries(P3)) {
-    assert.ok(mins[k].length >= 10, k + ': ' + mins[k].length + ' days');
-    assert.ok(inBand(median(mins[k]), target), k + ': median ' + median(mins[k]) + ' MW of ' + mins[k].length + ' days against ' + target);
-  }
-});
-
-test('P-4: on mild weekends MSL1 is reached on 10-30% of days and MSL2 on <= 10%; MSL3 only with the tie out or the potline off (seeds 1-200); no notice on a HOT weekday', slowOnly(), () => {
-  let days = 0, l1 = 0, l2 = 0;
-  for (let seed = 1; seed <= 200; seed++) {
-    if (createState(seed, DESK_WEEKEND).ext.regime.temp !== 'MILD') {
-      if (seed <= 40 && createState(seed, DESK).ext.regime.temp === 'HOT') assert.equal(bellyDay(seed, DESK).maxLevel, 0, 'HOT weekday, seed ' + seed);
-      continue;
-    }
-    const d = bellyDay(seed, DESK_WEEKEND);
-    days++;
-    if (d.maxLevel >= 1) l1++;
-    if (d.maxLevel >= 2) l2++;
-    assert.equal(d.floorAlone, false, 'seed ' + seed + ': MSL3 without a contingency');
-  }
-  assert.ok(days >= 80, days + ' mild weekends');
-  assert.ok(l1 / days >= 0.10 && l1 / days <= 0.30, 'MSL1 on ' + l1 + ' of ' + days);
-  assert.ok(l2 / days <= 0.10, 'MSL2 on ' + l2 + ' of ' + days);
 });

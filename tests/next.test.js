@@ -268,6 +268,17 @@ test('K-23 keys: Space, 1-8, A / Shift+A, T, L (twice), F hold, ?, Esc; typing i
   assert.match($('rate-text').textContent, /^CRUISE/);
 });
 
+test('K-23 Tab with the real map: the first Tab puts the keyboard on the map\'s focusable .citymap (not its #map box), so ←/→ step through the plants', async () => {
+  // Found by the 2026-10-07 button sweep: focusEl('map') focused the #map box, which a browser
+  // cannot focus (no tabindex), so the first Tab did nothing and the map's keys never ran.
+  const {openGame} = await import('./lib/play.js');
+  const p = openGame({seed: 7});
+  p.key('Tab');
+  assert.equal(p.doc.activeElement && p.doc.activeElement.className, 'citymap', 'the focusable map takes the focus');
+  p.key('ArrowRight');
+  assert.ok(p.vm().hover, '→ on the map picks a plant');
+});
+
 test('K-23 key map (pure): S S / X X guarded, arrows and detents on the focused lever, the scope keys, D / E holds', () => {
   const game = G.createGame({seed: 7, storage: null});
   G.takeDesk(game);

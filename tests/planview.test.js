@@ -471,9 +471,11 @@ async function mildWeekend() {
     const {observe} = await import('../sim/step.js');
     const {DESK_WEEKEND} = await import('../content/scenarios.js');
     const {st, sys} = followDay(8, DESK_WEEKEND, {follow: false, untilH: 11});
-    MILD = {st, sys, obs: observe(st)};
+    MILD = {st: JSON.stringify(st), sys: JSON.stringify(sys), obs: observe(st)};
   }
-  return structuredClone(MILD);
+  // (the state and the system operator as JSON copies: both are plain JSON, and the C-11 rows step
+  // the state on, which a structuredClone'd state does about twice as slowly)
+  return {st: JSON.parse(MILD.st), sys: JSON.parse(MILD.sys), obs: structuredClone(MILD.obs)};
 }
 
 test('L-2 / §19.5: proj.rooftop is the rooftop bite of the forecast and proj.past.rooftop that of the history, in both history forms', async () => {
@@ -575,62 +577,6 @@ test('C-11 with the player\'s terms on (DR and a DISCHARGE order; a CHARGE order
     const N0 = PV.project(none), moved = Math.max(...T.surplusMW.map((v, k) => Math.abs(v - N0.surplusMW[k])));
     assert.ok(Math.min(...cut) > V.SURPLUS_MIN_MW && moved >= 140, what + ': the sim spills through the half hour (' + Math.min(...cut).toFixed(0) + ' MW at least) and the orders move the projection by up to ' + moved.toFixed(0) + ' MW');
   }
-});
-
-test('C-11 over mild weekends (slow): seeds 1, 5, 8, 9, 13 and 20261004 projected at 10:30, 11:00, 12:00 and 13:00', {skip: !process.env.GRIDWATCH_SLOW}, async () => {
-  const {followDay} = await import('./lib/follow.js');
-  const {step, observe} = await import('../sim/step.js');
-  const SYS = await import('../app/system.js');
-  const {DESK_WEEKEND} = await import('../content/scenarios.js');
-  const TPS = V.TICKS_PER_S, NK = 12, HOURS = [10.5, 11, 12, 13];
-  const sOf = h => Math.round((h - V.DAY_START_H) * V.S_PER_H);
-  const ONSET_S = 600;   // the first ten minutes of a spill, and any minute in which AGC's unmet lowering request is still part of the
-  // cut while the units come down to MIN at their ramps (§25 M-3; coal at 3 MW/min can take longer than ten minutes): blue leaves it out (C-11)
-  const told = [], settled = [], onset = [], guessed = [];
-  for (const seed of [1, 5, 8, 9, 13, 20261004]) {
-    const {st, sys} = followDay(seed, DESK_WEEKEND, {follow: false, untilH: HOURS[0]});
-    const s0 = st.tick / TPS, endS = sOf(HOURS[HOURS.length - 1]) + (NK + 1) * PV.COL_S;
-    const cut = new Float64Array(endS - s0 + 1), unmet = new Float64Array(cut.length), wind = new Float64Array(cut.length), solar = new Float64Array(cut.length), lit = new Float64Array(cut.length), conts = new Uint8Array(cut.length);
-    const views = [];
-    for (;;) {
-      if (st.tick % TPS === 0) {
-        const s = st.tick / TPS, o = observe(st), i = s - s0;
-        if (HOURS.some(h => sOf(h) === s)) views.push(o);
-        cut[i] = o.wind.autoMW + o.solar.autoMW; unmet[i] = o.agc.unmetMW; wind[i] = o.wind.availMW; solar[i] = o.solar.availMW; lit[i] = o.demand.litMW; conts[i] = st.conts.length;
-        if (s >= endS) break;
-      }
-      step(st, SYS.systemInputs(sys, st));
-    }
-    const mean = (a, t) => { let x = 0; for (let s = t - 30; s <= t + 30; s++) x += a[s - s0]; return x / 61; };
-    for (const obs of views) {
-      const P = PV.project(obs), truth = structuredClone(obs);
-      for (let k = 0; k < NK; k++) { truth.forecast.windMW[k] = mean(wind, P.times[k]); truth.forecast.solarMW[k] = mean(solar, P.times[k]); truth.forecast.demandP50[k] = mean(lit, P.times[k]); }
-      const T = PV.project(truth), quiet = conts[P.times[NK - 1] + 30 - s0] === conts[obs.s - s0];
-      for (let k = 0; k < NK; k++) {
-        const real = mean(cut, P.times[k]);
-        if (k < 3) guessed.push(Math.abs(P.surplusMW[k] - real));
-        if (!quiet) continue; // a trip inside the hour changes the floor: not the arithmetic's error
-        const err = Math.abs(T.surplusMW[k] - real);
-        told.push(err);
-        // a settled column: nothing cut in its minute, or the sim has been cutting without a break for ONSET_S before it
-        // and AGC has nothing unmet in that minute
-        let since = 0, any = false;
-        for (let s = P.times[k] - 30; s <= P.times[k] + 30; s++) if (cut[s - s0] > 0) any = true;
-        for (let s = P.times[k] - 30; s >= s0 && since < ONSET_S && cut[s - s0] > 0; s--) since++;
-        (!any || (since >= ONSET_S && mean(unmet, P.times[k]) > -1) ? settled : onset).push(err);
-      }
-    }
-  }
-  const q = (a, f) => a.slice().sort((x, y) => x - y)[Math.floor(a.length * f)];
-  assert.ok(told.length >= 100 && guessed.length === 72, told.length + ' / ' + guessed.length);
-  // given what then happened, the projection is the sim's cut: within a megawatt or so once a spill
-  // has settled (measured: 191 columns, worst 1.0 MW), and within the AGC request while one begins
-  // (37 columns, median 0.3, worst 59 MW)
-  assert.ok(q(told, 0.5) <= 1 && q(told, 0.9) <= 2, 'told: median ' + q(told, 0.5).toFixed(2) + ', p90 ' + q(told, 0.9).toFixed(2) + ' MW');
-  assert.ok(settled.length >= 100 && Math.max(...settled) <= 3, 'settled: ' + settled.length + ' columns, worst ' + Math.max(...settled).toFixed(2) + ' MW');
-  assert.ok(onset.length >= 10 && Math.max(...onset) <= 100, 'onset: ' + onset.length + ' columns, worst ' + Math.max(...onset).toFixed(1) + ' MW');
-  // with its own forecast, 5 to 15 minutes ahead
-  assert.ok(q(guessed, 0.5) <= 80 && q(guessed, 0.9) <= 200 && Math.max(...guessed) <= 300, 'forecast: median ' + q(guessed, 0.5).toFixed(0) + ', p90 ' + q(guessed, 0.9).toFixed(0) + ', worst ' + Math.max(...guessed).toFixed(0) + ' MW');
 });
 
 test('planview imports only sim/params.js and uses no Math.random', () => {
