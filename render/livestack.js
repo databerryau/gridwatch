@@ -29,7 +29,7 @@
 // Pointer: drag a key handle or a layer's top edge (a new key there) to (time, MW); drag an off
 // unit's ghost sideways to book its START; drag a booked start below the axis to unbook it.
 // Drops snap to 15 min / 50 MW; an infeasible drop shows the earliest-arrival ghost instead
-// (click it or press Enter to take it). Keyboard (stack focused): 1-6 select COAL, CCGT, GT·A,
+// (click it or press Enter to take it); a click with no drag says what to drag. Keyboard (stack focused): 1-6 select COAL, CCGT, GT·A,
 // GT·B, GT·C, HYDRO (again: that station's off-unit ghost), arrows move one snap step, Enter
 // drops, Delete removes the selected key, Esc clears, L expands. The element listens for its
 // own keys and stops them, so the handle needs no key() for the shell to forward (§13.3).
@@ -178,7 +178,15 @@ export function createLiveStack(doc, root, actions) {
     rooftop: {mw: 0, future: false, past: 0, word: false}, surplus: {cols: 0, minPx: 0, word: 0}, price: {text: '', spill: false}};
   let drawnKey = '';
 
-  const say = text => { message = text ? {text, until: nowMs + MSG_MS} : null; msg.textContent = text || ''; };
+  // Q-41: kind 'info' help (blue), 'no' a refusal (red), else amber
+  const say = (text, kind) => {
+    message = text ? {text, until: nowMs + MSG_MS} : null;
+    msg.textContent = text || '';
+    msg.className = 'livestack-msg' + (text && kind ? ' ' + kind : '');
+    msg.style.color = kind === 'info' ? UI.blue : kind === 'no' ? UI.red : UI.amber;
+  };
+  const unitName = (st, u) => (NAMES[st] || st) + ' ' + u.replace(/\D/g, '');
+  const sayLocked = () => say('Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
 
   function ensureProj() {
     const obs = vm.obs, k = signature(obs);
@@ -792,7 +800,7 @@ export function createLiveStack(doc, root, actions) {
       const why = actions.input(x);
       if (why) refused.push(x.type + ': ' + why);
     }
-    say(refused.length ? 'Refused: ' + refused.join('; ') : '');
+    say(refused.length ? 'Refused: ' + refused.join('; ') : '', 'no');
     return refused;
   }
 
@@ -805,7 +813,7 @@ export function createLiveStack(doc, root, actions) {
       if (!r.ghost) { say(r.reason || 'Cannot arrive in the window'); return; }
       pending = {result: r, until: nowMs + GHOST_MS};
       const at = r.unit ? r.ghost.onAtS : r.ghost.atS;
-      say('Too soon: earliest ' + clockText(at, false) + '. Click the ghost or press Enter to book it.');
+      say('Too soon: earliest ' + clockText(at, false) + '. Click the ghost or press Enter to book it.', 'info');
       return;
     }
     const inputs = [];
@@ -830,7 +838,7 @@ export function createLiveStack(doc, root, actions) {
 
   cv.addEventListener('pointerdown', ev => {
     if (!vm || !G) return;
-    if (readOnly()) { say('Read-only during the watch'); return; }
+    if (readOnly()) { sayLocked(); return; }
     const p = local(ev), h = hitTest(p.x, p.y);
     if (!h) return;
     if (h.kind === 'pending') { takePending(); ev.preventDefault(); return; }
@@ -861,7 +869,12 @@ export function createLiveStack(doc, root, actions) {
     if (cv.releasePointerCapture) cv.releasePointerCapture(ev.pointerId);
     if (readOnly()) return;
     if (!d.moved && d.kind === 'key') { selectKey(d.station, d.from.atS); return; }
-    if (!d.moved) return;
+    if (!d.moved) {
+      const who = d.unit ? unitName(d.station, d.unit) + "'s START" : NAMES[d.station] + "'s MW";
+      say(d.kind === 'ghost' ? 'Drag right to book ' + who : d.kind === 'start' ? 'Drag ' + who + ' sideways to move it, below the axis to unbook' :
+        'Drag to plan ' + who + ': right for later, up for more', 'info');
+      return;
+    }
     const p = local(ev);
     commit(previewFor(d, p.x, p.y), d.from);
   });
@@ -913,7 +926,7 @@ export function createLiveStack(doc, root, actions) {
       const k = h.k ?? colOf(Math.max(obs.s, G.t(p.x)));
       const L = proj.layers.find(q => q.id === id);
       const mwv = L ? L.mw[k] : 0;
-      if (h.kind === 'ghost') text = (NAMES[id] || id) + ' ' + h.unit.replace(/\D/g, '') + ' is off: earliest on ' + clockText(h.atS, false) + '\nDrag to book its START';
+      if (h.kind === 'ghost') text = unitName(id, h.unit) + ' is off: earliest on ' + clockText(h.atS, false) + '\nDrag to book its START';
       else if (h.kind === 'start') text = 'START booked: on at MIN ' + clockText(h.onAtS, false) + '\nDrag below the axis to unbook';
       else if (f) {
         text = (f.name || NAMES[id]) + '  ' + Math.round(mwv) + ' MW at ' + clockText(proj.times[k], false) +
@@ -970,7 +983,7 @@ export function createLiveStack(doc, root, actions) {
     const done = () => { ev.preventDefault(); ev.stopPropagation(); };
     if (k === 'l' || k === 'L') { actions.ui({do: 'stackExpand', on: !vm.stackExpanded}); done(); return; }
     if (k === 'Escape' && (sel || pending)) { sel = null; pending = null; say(''); done(); return; }
-    if (readOnly()) { if (/^[1-6]$|^Arrow|^Enter$/.test(k)) { say('Read-only during the watch'); done(); } return; }
+    if (readOnly()) { if (/^[1-6]$|^Arrow|^Enter$/.test(k)) { sayLocked(); done(); } return; }
     if (/^[1-6]$/.test(k)) { selectStation(SIDS[Number(k) - 1]); done(); return; }
     if (k === 'Enter') {
       if (pending) { takePending(); done(); return; }
