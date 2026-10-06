@@ -24,6 +24,8 @@ import {unitLabel} from '../desk/util.js';
 import {followDay} from './lib/follow.js';
 import * as FOLLOW from '../tools/follow.mjs';
 import {slowOnly} from './lib/sim-helpers.js';
+import {LINE_REACT_S} from '../app/game.js';
+import {FLAT_RATE} from '../app/director.js';
 
 const TPS = V.TICKS_PER_S;
 const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN;
@@ -454,6 +456,20 @@ test('short now outranks everything else: the battery first, sized to what is sh
   assert.equal(z.kind, 'short');
   assert.equal(z.action, null);
   assert.match(z.text, /^The plan is [\d,]+ MW below demand now\. /);
+  // the one start is for a shortfall it can reach (here an hour on), from the same moment a commit
+  // line says "now": ACT_WITHIN_S plus the game's reading time (ctx.leadS)
+  const later = copy(base);
+  Object.assign(later.battery, {mode: 'idle', orderMW: 0});
+  for (const fc of [later.forecast, later.dayAhead]) { const R = O.capacityGap(later, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, R, k => (tk(k) >= later.s + S_PER_H && tk(k) < later.s + 2 * S_PER_H ? 1200 : -2000)); }
+  const by = lineOf(later);
+  assert.deepEqual([by.kind, by.level, by.action], ['commit', 'plan', null], by.text);
+  const lead = by.startBy - later.s - O.ACT_WITHIN_S, ctx = {edited: false, planview: PV, dayAhead: later.dayAhead};
+  for (const fc of [later.forecast, later.dayAhead]) fc.demandP50[0] += 4000;
+  later.sec.level = 'SHORT';
+  const fast = leadS => objective(later, Object.assign({leadS}, ctx)).targets;
+  assert.deepEqual(fast(0), ['dial-battery']);
+  assert.deepEqual(fast(lead - 60), ['dial-battery'], 'not before its "now"');
+  assert.deepEqual(fast(lead), ['dial-battery', by.targets[0]], 'and then: ' + objective(later, Object.assign({leadS: lead}, ctx)).text);
 });
 
 // ------------------------------------------------------------------ the line says what is true (wave-3 review)
@@ -662,6 +678,29 @@ test('the reserve diesel is stood down only when HALF of the battery\'s and dema
   const shallow = copy(o);
   setGap(shallow.dayAhead, R0, gapMW / 3, o.s + 600, o.s + 4 * S_PER_H + 600); setGap(shallow.forecast, F0, gapMW / 3, o.s + 600, o.s + 4 * S_PER_H + 600);
   assert.deepEqual(lineOf(shallow).action, {type: 'standDownRERT'});
+});
+
+test('the reserve diesel is armed within its 20 min and ACT_WITHIN_S of the shortfall, whatever the game\'s reading time (ctx.leadS): never into the stand-down\'s 45 min, so an arm is never followed by "Stand it down"', () => {
+  const o = plain();
+  for (const u of o.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
+  Object.assign(o.battery, {mode: 'idle', orderMW: 0});
+  const proj = PV.project(o), arms = [];
+  // with every unit committed, 1,200 MW short for 3 h from `min` ahead (far beyond the battery and DR), with room before
+  for (const min of [25, 30, 35, 40, 45, 50, 55]) {
+    const x0 = copy(o), from = o.s + min * S_PER_MIN;
+    for (const fc of [x0.forecast, x0.dayAhead]) { const R = O.capacityGap(x0, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, R, k => (tk(k) >= from && tk(k) < from + 3 * S_PER_H ? 1200 : -700)); }
+    const ctx = {edited: false, planview: PV, dayAhead: x0.dayAhead, proj, leadS: FLAT_RATE * LINE_REACT_S}; // CRUISE's
+    const x = objective(x0, ctx);
+    assert.match(x.text, /more than the battery and demand response can carry\. The reserve diesel \(hold E\) takes 20 min and costs dearly(\.|: arm it by \d\d:\d\d\.)$/, min + ' min: ' + x.text);
+    if (!x.action) continue;
+    assert.deepEqual(x.action, {type: 'armRERT'});
+    arms.push(min);
+    const a = copy(x0);
+    Object.assign(a.rert, {armed: true, standingDown: false, leadS: V.RERT_LEAD_S, outMW: 0, armedEver: true});
+    const y = objective(a, ctx);
+    assert.notDeepEqual(y.action, {type: 'standDownRERT'}, 'armed for ' + min + ' min ahead, then: ' + y.text);
+  }
+  assert.ok(arms.includes(25) && !arms.includes(35), 'armed for ' + arms.join(', ') + ' min ahead');
 });
 
 test('a gap no start can reach, while the battery is discharging into it: one line that says so, never "be ready to discharge"', () => {

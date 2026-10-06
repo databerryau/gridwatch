@@ -153,7 +153,7 @@ const mark = s => Math.floor(s / V.FC_STEP_S) * V.FC_STEP_S;
 const atMark = s => at(mark(s));
 // A clock time that may fall after the day's end (04:00): '05:14 tomorrow'.
 const atDay = s => at(s) + (s >= DAY_S ? ' tomorrow' : '');
-const unitName = unitLabel; // as the desk labels it: 'CCGT 2', 'GT·A' (one name per control)
+const unitName = unitLabel; // the desk's: 'CCGT 2', 'GT·A'
 const pctText = b => Math.round(100 * b.socMWh / b.capMWh) + '%';
 const partOfDay = s => { const h = (V.DAY_START_H + s / S_PER_H) % V.DAY_H; return h >= 4 && h < 12 ? 'the morning' : h < 17 ? 'the afternoon' : h < 22 ? 'the evening' : 'tonight'; };
 
@@ -424,7 +424,7 @@ function tripped(c) {
  *   player holds levers by hand (app/system.js sys.edited); planview: app/planview.js; proj: its
  *   project(obs) if the caller already has it; dayAhead: observe(state, {dayAhead: true}).dayAhead,
  *   the forecast to 04:00 (without it the line looks 4.5 h ahead only); leadS: grid seconds more
- *   to ACT_WITHIN_S (the game's reading time; default 0)
+ *   to a START's ACT_WITHIN_S (the game's reading time; default 0)
  */
 export function objective(obs, ctx) {
   const PV = ctx.planview;
@@ -703,7 +703,7 @@ function shortNow(X, line) {
   }
   // Demand response when neither can answer: a call is dear and there are few.
   if (!fast.length && obs.dr.callsLeft > 0 && !(obs.dr.activeS > 0)) fast.push({id: 'btn-dr', say: 'call demand response (hold D): industry cuts ' + mwText(V.DR_MW) + ' for ' + spanText(V.DR_DURATION_S), action: {type: 'callDR'}});
-  // (not "short": the BALANCE bar's word for the grid this second, which AGC may be keeping level)
+  // (not "short": the BALANCE bar's word)
   let text = 'The plan is ' + figure(mw) + ' below demand now';
   if (fast.length) {
     text += ': ' + fast.map(f => f.say).join(', or ') + '.';
@@ -746,7 +746,7 @@ function commitNow(X, line) {
   if (!late || !beyondReserves(obs, R, late)) return null;
   const head = 'You will be ' + figure(hourOf(R, late)) + ' short from ' + atMark(late.crossS) + ', more than the battery and demand response can carry. ';
   if (obs.rert.armed) return line({level: 'crit', kind: 'commit', text: head + (obs.rert.standingDown ? 'The reserve diesel is standing down: it can be armed again once it is off.' : 'The reserve diesel is on its way.'), startBy: s, short: pub(late)});
-  const arm = late.atS - s <= V.RERT_LEAD_S + X.act;
+  const arm = late.atS - s <= V.RERT_LEAD_S + ACT_WITHIN_S; // (not X.act: spare()'s 45 min)
   return line({level: 'crit', kind: 'commit', text: head + 'The reserve diesel (hold E) takes 20 min and costs dearly' + (arm ? '.' : ': arm it by ' + atMark(late.atS - V.RERT_LEAD_S) + '.'),
     targets: ['key-rert'], action: arm ? {type: 'armRERT'} : null, startBy: s, short: pub(late)});
 }
@@ -1149,7 +1149,7 @@ function commitLater(X, line) {
 /**
  * What a guarded press would do, before it is made (desk/README.md §19.5, C-10). Covers START,
  * STOP, CANCEL START and a press that would be refused (its reason); a unit on its way says where
- * it is, as a faceplate would (starting: level 'ok'); a press that would do nothing returns null.
+ * it is (starting: level 'ok'); a press that would do nothing returns null.
  * Every time is computed from the unit's own times (V.MACHINES; C-12: minimum down time runs from
  * breaker open to the next START).
  * @param {object} obs observe(state)
@@ -1174,7 +1174,7 @@ export function consequence(obs, target, ctx = {}) {
     if (u.mode === 'starting') return out(name + ' is starting: full speed at ' + atDay(s + u.timerS) + (syncS ? ', ' + onGrid + ' by ' + atDay(s + u.timerS + syncS + m.t2S) : '; then SYNC it by hand') + '.', 'ok');
     if (u.mode === 'ready') return out(name + ' is at full speed: a press opens the synchroscope (the clock runs at 1×)' + (syncS ? '; auto-sync closes its breaker at ' + atDay(s + u.timerS) : '') + '.');
     if (u.mode === 'tripped') return out('START ' + name + ' is blocked: it tripped and is locked out for another ' + spanText(u.timerS) + '.');
-    if (u.mode !== 'off') return null; // the objective stays up while the pointer crosses the bank
+    if (u.mode !== 'off') return null; // (the line stays up as the pointer crosses the bank)
     if (u.startBlock !== '') return out('START ' + name + ' is blocked: ' + reason(u.startBlock) + '.');
     const onAt = s + u.startToMinS;
     const head = 'START ' + name + ': ' + (u.minMW > 0 ? 'at minimum load (' + commas(Math.round(u.minMW)) + ' MW)' : 'on the grid') + ' by ' + atDay(onAt) + ', ' + spanText(u.startToMinS) + ' from now' +
@@ -1254,7 +1254,7 @@ export const STEADY_HOLD_S = 900, STEADY_S = 300;
 export const STEADY_QUIET_S = 300;
 
 // A line's words with every number, clock time and dollar figure masked ('49.41 Hz', '16:10', '$43,000', '5,889 MW').
-const masked = t => t.replace(/[$−-]?\d[\d,.:]*/g, '#');
+export const masked = t => t.replace(/[$−-]?\d[\d,.:]*/g, '#');
 
 /**
  * The line as the desk shows it. The forecast's columns slide a minute at a time, so a waiting

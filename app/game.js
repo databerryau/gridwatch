@@ -22,7 +22,7 @@ import * as grid from '../sim/grid.js';
 import * as fleet from '../sim/fleet.js';
 import * as weather from '../sim/weather.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
-import {objective, consequence, steady} from './objective.js';
+import {objective, consequence, steady, masked} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
 import {createRecorder, onTick, startTrace, traceOf, needleF, secondsWindow} from './record.js';
@@ -45,7 +45,7 @@ export const HIST_COL_S = V.FC_STEP_S, HIST_COLS = 6;
 export const OBJECTIVE_EVERY_S = 30;
 /** A line shown stays up at least this long (real ms), so it can be read. */
 export const LINE_DWELL_MS = 4000;
-/** A START is "now" this many real s sooner at the clock's rate (ctx.leadS): to read, press twice. */
+/** A START is "now" this many real s sooner at CRUISE (ctx.leadS): to read, press twice. */
 export const LINE_REACT_S = 13;
 /**
  * Inputs after which the dispatch is re-run in the same call (Phase 2a, desk/README.md §21.4): the
@@ -505,7 +505,7 @@ export function ui(game, cmd) {
       if (t !== u.consider) { u.consider = t; game.considerDirty = true; }
       return '';
     }
-    // vm.armed: a guard's cover going up or down (the desk tells each change)
+    // vm.armed: a guard's cover up or down
     case 'armed': if (cmd.on) u.armed = cmd.target || null; else if (u.armed === cmd.target) u.armed = null; game.considerDirty = true; return '';
     // Settings (K-22, §13.1, B-7): the popover never pauses the game.
     case 'mute': return setSetting(game, 'muted', !game.settings.muted);
@@ -610,12 +610,14 @@ function updateOffers(game, obs, mode) {
 const stationOfUnit = id => { const m = V.MACHINES.find(x => x.id === id); return m ? m.station : ''; };
 
 const LEVELS = ['ok', 'plan', 'act', 'crit'];
-// Q-18: does the line shown since shownMs stay up against `next`? Not when `fresh` (an input or a
-// mode change since), nor against the same text, a critical or a watch line, or a higher ask; never with nowMs 0.
+// Q-18: the line shown since shownMs stays up against `next`, unless `fresh` (an input, news), the
+// same text, a critical or watch line, a higher ask, or nowMs 0.
 export function holdLine(shown, next, nowMs, shownMs, fresh) {
   return !!shown && !!next && !fresh && nowMs > 0 && next.text !== shown.text && next.level !== 'crit' && next.kind !== 'watch' &&
     !(next.action && LEVELS.indexOf(next.level) > LEVELS.indexOf(shown.level)) && nowMs - shownMs < LINE_DWELL_MS;
 }
+// A new ask to act: at FAST it ends FAST, as an alarm does, and shows at once.
+export const newAsk = (shown, next) => !!next && !!next.action && LEVELS.indexOf(next.level) > 1 && JSON.stringify(next.action) !== JSON.stringify(shown && shown.action);
 
 /**
  * Build the view model after a frame's ticks (once per frame). Also runs the annunciator,
@@ -664,14 +666,14 @@ export function buildVm(game, f) {
   const glow = new Set(game.respondGlow);
   for (const g of game.ui.hoverGlow) glow.add(g);
   // The standing objective (app/objective.js; Q-18): once per OBJECTIVE_EVERY_S grid seconds, and
-  // at once when an input lands (objectiveS is reset there; holdLine) or the watch, the card or
-  // RESPOND comes or goes (not Space). An exception in
-  // objective(), steady() or consequence() blanks only its line; it is kept in objectiveError
-  // (vm.objectiveError; the ?debug handle shows it) as the system operator's is in sysError.
+  // at once when an input lands (objectiveS is reset there) or the watch, the card or RESPOND comes
+  // or goes (not Space). An exception in objective(), steady() or consequence() blanks only its
+  // line; it is kept in objectiveError (vm.objectiveError; the ?debug handle shows it) as the
+  // system operator's is in sysError.
   if (game.phase === 'play' && game.commit === 'player' && game.planview) {
     const news = game.objectiveMode !== mode.mode && /WATCH|RESPOND|OVER/.test(mode.mode + game.objectiveMode);
     if (obs.s - game.objectiveS >= OBJECTIVE_EVERY_S || obs.s < game.objectiveS || news) {
-      const fresh = game.lineFresh || news;
+      let fresh = game.lineFresh || news;
       game.objectiveS = obs.s; game.objectiveMode = mode.mode; game.lineFresh = false;
       game.objectiveError = '';
       let stage = 'objective';
@@ -686,6 +688,7 @@ export function buildVm(game, f) {
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s);
         const line = game.objectiveHeld.line, was = game.objective;
+        if (mode.mode === 'FAST' && newAsk(was, line)) { D.endFast(d); fresh = true; }
         if (!holdLine(was, line, nowMs, game.lineMs, fresh)) {
           if (!was || !line || line.text !== was.text) game.lineMs = nowMs;
           game.objective = line;
@@ -695,19 +698,17 @@ export function buildVm(game, f) {
     }
     // C-10 (§19.5): what the guard under the player's hand would do, on the same cadence and at once
     // when the target changes ('consider' marks it; only consequence() is recomputed then, on the
-    // line's own day-ahead forecast) or an input lands; with its cover up, as it read then.
+    // line's own day-ahead forecast) or an input lands; with its cover up, held until its level or words change.
     if (game.considerDirty) {
       game.considerDirty = false;
-      const t = game.ui.consider, u = t && t === game.ui.armed && obs.units.find(x => t.endsWith('-' + x.id)), key = u ? t + u.mode : '';
-      if (!key || key !== game.considerKey || !game.consider) {
-        game.considerKey = key;
-        game.consider = null;
-        if (t && !mode.locked) {
-          try {
-            if (!game.dayAhead) game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
-            game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview});
-          } catch (e) { game.consider = null; game.objectiveError = 'consequence: ' + errText(e); }
-        }
+      const t = game.ui.consider, was = game.consider;
+      game.consider = null;
+      if (t && !mode.locked) {
+        try {
+          if (!game.dayAhead) game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
+          const c = game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview});
+          if (t === game.ui.armed && c && was && was.target === t && was.level === c.level && masked(was.text) === masked(c.text)) game.consider = was;
+        } catch (e) { game.consider = null; game.objectiveError = 'consequence: ' + errText(e); }
       }
     }
     if (!game.ui.consider || mode.locked) game.consider = null;
@@ -751,7 +752,7 @@ export function buildVm(game, f) {
     // C-10 (§19.5): {target, text, level} for the guard being hovered, focused or lifted, or null;
     // the shell shows it in #objective with the word '? IF PRESSED', in place of the objective.
     consider: game.consider,
-    // the guard whose cover is up, or null; the levers held by hand (player mode)
+    // the guard with its cover up, or null; levers held by hand
     armed: game.ui.armed, held: game.commit === 'player' && heldByHand(game),
   };
 }
