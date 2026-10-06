@@ -495,7 +495,8 @@ test('C-11 / K-22: blue SURPLUS columns carry bars, a glyph and the word, never 
   // blue is its own thing: no gap column is 'blue', and its run is marked beside the red and amber ones
   assert.ok(P.gap.every(g => g === '' || g === 'red' || g === 'amber'));
   const gaps = gapRuns(P), marks = stack.debug.stats.gapMarks;
-  assert.ok(gaps.some(r => r.kind === 'red') && gaps.some(r => r.kind === 'amber'), 'the fixture: the evening is short');
+  // the fixture: the evening is short of P90; it is within a few MW of P50, drift that is no red gap (L-5: GAP_MIN_MW)
+  assert.ok(gaps.some(r => r.kind === 'amber') && !gaps.some(r => r.kind === 'red'), 'the fixture: the evening is amber');
   assert.equal(marks.length, gaps.length + runs.length, 'one mark per run');
   assert.deepEqual(marks.filter(m => m.startsWith('blue')), ['blue:bars:+']);
   assert.equal(S.word, 1);

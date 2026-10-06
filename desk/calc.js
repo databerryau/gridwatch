@@ -1,6 +1,6 @@
 // desk/calc.js: the numbers the desk derives from the view model (desk/README.md §6). Pure
 // functions of observe() values and sim/params.js constants: no DOM, no state, no engine. Each is
-// unit-tested in tests/desk.test.js.
+// unit-tested in tests/desk.test.js or tests/balance.test.js.
 
 import {V} from '../sim/params.js';
 
@@ -133,10 +133,13 @@ export function agcBandMW(obs, sid) {
  * the sum and in BORROWED as it is in the sim's identity. Keys that are missing (older fixtures)
  * count as 0. shedMW is the relay MW (net load: <= 0 when a district that was feeding back is
  * dark); the dial's SHED mark reads obs.demand.unservedMW instead (the customers' load).
+ * With `bat` (obs.battery, §29) the battery is its change from schedule, as the respond card
+ * counts it: a charge suspended for a trip (H-10) moves from the gap to the battery.
  */
-export function imbalanceSegments(b) {
-  const schedMW = fin(b.schedSupplyMW) - fin(b.servedMW);
-  const governorsMW = fin(b.governorsMW), batteryMW = fin(b.batteryPfrMW) + fin(b.guardMW), loadReliefMW = fin(b.loadReliefMW);
+export function imbalanceSegments(b, bat) {
+  const susMW = bat ? fin(bat.outMW) - fin(b.batteryPfrMW) - fin(b.guardMW) - fin(bat.schedMW) : 0;
+  const schedMW = fin(b.schedSupplyMW) - fin(b.servedMW) - susMW;
+  const governorsMW = fin(b.governorsMW), batteryMW = fin(b.batteryPfrMW) + fin(b.guardMW) + susMW, loadReliefMW = fin(b.loadReliefMW);
   const inertiaMW = fin(b.inertiaMW);
   const inverterMW = 0 - (fin(b.renPfrMW) + fin(b.roofPfrMW));
   return {schedMW, governorsMW, batteryMW, loadReliefMW, inertiaMW, inverterMW, shedMW: fin(b.shedMW),

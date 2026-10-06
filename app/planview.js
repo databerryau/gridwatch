@@ -27,6 +27,8 @@ export const N_FUTURE = Math.round(V.FC_HORIZON_S / V.FC_STEP_S);
 export const N_PAST = 6;
 export const SNAP_S = 900;
 export const SNAP_MW = 50;
+/** L-5: red / amber from this many MW under P50 / P90, as blue is from SURPLUS_MIN_MW. */
+export const GAP_MIN_MW = 50;
 const DT = 10; // executor step (s): key application and transitions land within one step of the sim's
 const AUTO = V.AUTO_SYNC_S;
 const S_PER_H = V.S_PER_H, EPS = 1e-6;
@@ -358,7 +360,7 @@ export function project(obs, opts = {}) {
     load[q] = fc.demandP50[q];
     rooftop[q] = fc.rooftopMW && Number.isFinite(fc.rooftopMW[q]) ? fc.rooftopMW[q] : 0;
     deficit[q] = fc.demandP50[q] - supply[q];
-    gap[q] = supply[q] < fc.demandP50[q] - 0.5 ? 'red' : supply[q] < fc.demandP90[q] - 0.5 ? 'amber' : '';
+    gap[q] = supply[q] < fc.demandP50[q] - GAP_MIN_MW ? 'red' : supply[q] < fc.demandP90[q] - GAP_MIN_MW ? 'amber' : '';
     const room = tieDown[q] ? 0 : fc.exportLimitMW ? fc.exportLimitMW[q] : V.TIE_MAX_MW;
     // DR called and a battery ordered to DISCHARGE both push supply onto a grid that is already
     // full, and the sim's cut counts them (measured 350 and 200 MW low without these two terms).
