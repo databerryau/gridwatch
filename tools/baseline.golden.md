@@ -1,6 +1,6 @@
 # GRIDWATCH baseline
 
-Build: `index.html` (git blob e99feb0a7d, 92011 bytes). Seeds 1-100. Command: `node tools/baseline.js`.
+Build: `classic.html` (git blob e99feb0a7d, 92011 bytes). Seeds 1-100. Command: `node tools/baseline.js`.
 
 ## 1. Policy outcomes (current build)
 

@@ -17,6 +17,6 @@ test('F-11: the first visit to next.html is at most 400 KB gzip-compressed', () 
   }
 });
 
-test('F-11: next.html loads nothing the legacy game or the tools need (no tools/, tests/ or index.html code)', () => {
+test('F-11: next.html loads nothing the legacy game or the tools need (no tools/, tests/ or classic.html code)', () => {
   for (const f of firstVisit('next.html')) assert.ok(!/^(tools|tests)\//.test(f.path), f.path);
 });

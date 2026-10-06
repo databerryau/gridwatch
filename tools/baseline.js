@@ -1,7 +1,7 @@
 // GRIDWATCH baseline: runs the scripted policies over seeds 1..N against the current build
 // and prints a markdown report. Not loaded by the game.
 //
-//   node tools/baseline.js            # seeds 1-100 against ../index.html
+//   node tools/baseline.js            # seeds 1-100 against ../classic.html
 //   node tools/baseline.js 20         # quick run, seeds 1-20
 //   GRIDWATCH_HTML=path/to/copy.html node tools/baseline.js   # measure a patched copy
 //
@@ -106,7 +106,7 @@ const out=[];
 const p=s=>out.push(s);
 p('# GRIDWATCH baseline');
 p('');
-p('Build: `'+(process.env.GRIDWATCH_HTML?H.GAME:'index.html')+'` (git blob '+blob.slice(0,10)+', '+html.length+' bytes). Seeds 1-'+N+'. Command: `node tools/baseline.js'+(N!==100?' '+N:'')+'`.');
+p('Build: `'+(process.env.GRIDWATCH_HTML?H.GAME:'classic.html')+'` (git blob '+blob.slice(0,10)+', '+html.length+' bytes). Seeds 1-'+N+'. Command: `node tools/baseline.js'+(N!==100?' '+N:'')+'`.');
 p('');
 
 const results={};

@@ -10,7 +10,7 @@ import {fileURLToPath} from 'node:url';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 // Lines that legitimately differ between runs or commits: the build fingerprint (hash and
-// size of index.html) and section 5, which times the sim on this machine.
+// size of classic.html) and section 5, which times the sim on this machine.
 function comparable(report) {
   const out = [];
   let inTimings = false;

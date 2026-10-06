@@ -1,14 +1,15 @@
 // GRIDWATCH headless harness (Node, CommonJS). Not loaded by the game.
 //
-// Loads the inline <script> of index.html with a stub DOM and a seeded Math.random,
-// and exposes the sim so scripted policies can drive tick() directly.
+// Loads the inline <script> of classic.html (the v2 game, index.html until the site root began
+// redirecting to next.html) with a stub DOM and a seeded Math.random, and exposes the sim so
+// scripted policies can drive tick() directly.
 //
 //   const {load} = require('./harness.js');
 //   const G = load({seed: 42});            // fresh game instance, schedule() already called
 //   const r = G.runToEnd(policy);           // policy(G) is called before every tick
 //   // r = {black, grade, money, cmp, unserved, co2, worstDev, maxPrice, outT, t, endClock, ...}
 //
-// load({seed, file}): `file` defaults to ../index.html (the live game), or $GRIDWATCH_HTML.
+// load({seed, file}): `file` defaults to ../classic.html (the legacy game), or $GRIDWATCH_HTML.
 // G.S (live state), G.F (fleet array; F[i].set / starting / on / out), G.FU (fleet by id),
 // G.logs (array of {t, clock, cls, msg}), helpers G.hourNow(), G.demandF(h), G.solarClear(h),
 // G.capE(u), G.minE(u), G.startUnit(id), G.stopUnit(id), G.callDR(), G.toggleDiesel(on).
@@ -16,7 +17,7 @@
 // and own seeded RNG), so many can run in one process and runs are deterministic per seed.
 'use strict';
 const fs = require('fs'), path = require('path');
-const GAME = process.env.GRIDWATCH_HTML || path.join(__dirname, '..', 'index.html');
+const GAME = process.env.GRIDWATCH_HTML || path.join(__dirname, '..', 'classic.html');
 
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
   t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
@@ -39,7 +40,7 @@ function makeStub(){
   return stub;
 }
 
-// Same ladder as endShift() in index.html (L576-584). Exported so tools can grade mid-run.
+// Same ladder as endShift() in classic.html (L576-584). Exported so tools can grade mid-run.
 function gradeOf(S, black){
   const cmp=100*S.okTicks/Math.max(S.ticks,1);
   if(black)return 'F';
