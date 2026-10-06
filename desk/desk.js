@@ -376,13 +376,19 @@ export function createDesk(doc, root, actions, opts = {}) {
     }
     const bayKey = k.length === 1 && '[]curob'.includes(k);
     if (locked()) {
-      // The watch (Q-41): the desk's letters answer with the lock note, once per press, never reaching the fallback.
-      const slot = (k === 's' || k === 'x' || k === 'p') && active && desk.contains(active) && active.closest && (active.closest('.dk-lever-slot') || active.closest('.dk-rot'));
+      // The watch (Q-41): a desk control's keys answer with the lock note, once per press, never reaching the fallback,
+      // also when focus has left it (Space blurs) and vm.focus still names it (the fallback would send to it, refused in red).
+      const box = e => (e && e.closest && desk.contains(e) ? e.closest('.dk-lever-slot') || e.closest('.dk-rot') : null);
+      const watch = vm.mode && vm.mode.locked;
+      const slot = (k.length === 1 && 'sxp'.includes(k) || watch && /^(Arrow|Page|Home$|End$)/.test(k)) &&
+        (box(active) || watch && box(vm.focus && doc.getElementById(vm.focus)));
       if (slot) { if (!ev.repeat) emerg.locked(slot); return true; }
       if (bayKey || k === 'n') { if (!ev.repeat) (k === 'n' ? emerg.redispatch() : bay.key(k)); return true; }
       return false;
     }
-    if (k === 's' || k === 'x' || k === 'p') return levers.key(active, k, !!ev.shiftKey) || (k !== 'p' && hydro.key(active, k));
+    // S, X, P: the focused control's, also when focus has left it (Space blurs) and vm.focus still names it
+    const tgt = active && desk.contains(active) ? active : vm.focus && doc.getElementById(vm.focus);
+    if (k === 's' || k === 'x' || k === 'p') return levers.key(tgt, k, !!ev.shiftKey) || hydro.key(tgt, k, !!ev.shiftKey);
     if (bayKey) return ev.repeat && k !== '[' && k !== ']' ? false : bay.key(k);
     if (k === 'n') return ev.repeat ? false : emerg.redispatch();
     return false;

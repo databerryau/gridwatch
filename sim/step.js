@@ -343,7 +343,7 @@ export function applyInput(state, input, out = []) {
     if (p) return reject(k + ' ' + p);
   }
   if (state.over) return reject('the day is over');
-  if (inWatch(state)) return reject('desk locked during the watch (K-15)');
+  if (inWatch(state)) return reject('desk locked during the watch');   // K-15
   const cmd = {type};
   for (const k of Object.keys(shape)) cmd[k] = canonArg(shape[k], argOf(k));
   if (type === 'mode') {

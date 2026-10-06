@@ -402,3 +402,22 @@ test('Q-41 true words: the press after S S names the unit running up; spent DR w
   assert.ok(!doc.querySelectorAll('.dk-note').some(n => !n.hidden && /watch/.test(n.textContent)), 'no watch words');
   assert.deepEqual(h.mods.errors, []);
 });
+
+test('Q-41: in the watch, a lever key after Space has blurred the desk answers with the blue lock note, never the red refusal toast', async () => {
+  // Found in the 2026-10-07 review: Space blurs the focused lever while vm.focus still names it, so
+  // in the watch the arrows and S / X / P fell through to the keys fallback, which sent an input the
+  // sim refused in red ('desk locked during the watch').
+  const {openGame} = await import('./lib/play.js');
+  const {injectTrip} = await import('./lib/sim-helpers.js');
+  const p = openGame({seed: 7});
+  p.key('2'); p.key(' '); p.key(' ');
+  assert.notEqual(p.doc.activeElement && p.doc.activeElement.id, 'lever-ccgt', 'Space blurred the lever');
+  assert.equal(p.vm().focus, 'lever-ccgt', 'the game still names it');
+  injectTrip(p.game.state, p.game.state.tick / V.TICKS_PER_S + 4);
+  assert.equal(p.until('trip', {max: '+2m'}).why, 'trip');
+  for (const k of ['ArrowUp', 's', 'x', 'p']) {
+    const s = p.pressKey(k, {}, {after: 0.05});
+    assert.match(s.during, /^NOTE blue dk-lever-slot.*: desk locked while the grid catches itself/m, k + ' answers with the lock note');
+    assert.doesNotMatch(s.after, /^TOAST RED/m, k + ' sends nothing to be refused');
+  }
+});
