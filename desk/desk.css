@@ -49,7 +49,7 @@
   background: #3d1f1f; border: 1px solid var(--dk-red); color: var(--dk-bright); font-size: 9px; line-height: 1.2;
   white-space: normal; pointer-events: none; }
 .dk-note[hidden] { display: none; }
-.dk-note.info { background: #0d2238; border-color: var(--dk-blue); font-size: 10px; }   /* help, not a refusal */
+.dk-note.info { background: #0d2238; border-color: var(--dk-blue); font-size: 10px; }
 .dk .glow, .dk .dk-focus { box-shadow: 0 0 0 2px var(--dk-cyan), 0 0 8px var(--dk-cyan); }
 .dk .dk-focus { outline: 2px solid var(--dk-bright); outline-offset: 1px; }
 .dk :focus-visible { outline: 2px solid var(--dk-blue); outline-offset: 1px; }
@@ -166,8 +166,7 @@
 .dk-machs { display: flex; flex-direction: column; gap: 2px; width: 50px; flex: none; }
 .dk-mach { display: flex; gap: 2px; border-radius: 3px; }
 .dk-guard { width: 24px; height: 24px; min-width: 24px; min-height: 24px; padding: 0; font-size: 9px; font-family: var(--dk-mono); }
-/* K-3: an armed guard takes its row (amber under the pointer too); its bar drains over 5 s (.key, by S / X: 2 s).
-   The other folds away, keeping its focus. */
+/* K-3: the armed guard takes its row; the other folds to no width, keeping the focus */
 .dk-guard.live { border-color: var(--dk-dim); color: var(--dk-bright); }
 .dk .dk-guard.lifted { flex: 1 1 auto; position: relative; background: #d2992244; border-color: var(--dk-amber); color: var(--dk-bright);
   font-weight: 700; }

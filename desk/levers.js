@@ -11,7 +11,7 @@
 // Phase 2a (C-10, desk/README.md §19.5): a guard lights when its id is in vm.glow (the
 // objective's STOP or START), and tells the desk when it is hovered, pressed by a pointer,
 // focused, lifted or committed (ctx.consider), so the shell can say what the press will do
-// before it is made; an armed one says START? / STOP? and tells the shell (K-3).
+// before it is made.
 // Foley (K-20): a hand move cues `detent` / `gate` / `ratchet`, a plan move cues `servo`; guards
 // cue `cover` (lift, drop) and `button` (the press that commits). A rough close shakes the lever.
 
@@ -67,21 +67,22 @@ export function createMachine(ctx, k, pan) {
     if (!u) return '';
     if (u.mode === 'starting' || u.mode === 'ready') return 'cancel';
     if (u.mode === 'on' || u.mode === 'loading') return u.stopBlock ? '' : 'stop';
-    if (u.mode === 'unloading' || u.mode === 'shutdown') return 'abort';
+    if (u.mode === 'unloading' || u.mode === 'shutdown') return stopWhy() ? '' : 'abort';
     return '';
   };
   const why = () => (!u ? '' : u.mode === 'off' ? u.startBlock || '' : u.mode === 'starting' ? 'full speed in ' + mmss(u.timerS) :
     u.mode === 'tripped' ? 'locked out ' + mmss(u.timerS) : '');
-  const stopWhy = () => (u && (u.mode === 'on' || u.mode === 'loading') ? u.stopBlock || '' : '');
+  const stopWhy = () => (!u ? '' : u.mode === 'on' || u.mode === 'loading' ? u.stopBlock || '' : (u.mode === 'unloading' || u.mode === 'shutdown') &&
+    m.station === 'hydro' && ctx.vm().obs.hydro.storageMWh <= V.HYDRO_STOP_MWH ? 'no water to keep it on' : '');
   const says = r => name + ' ' + MODE_WORD[u ? u.mode : 'off'] + (r ? ': ' + r : '');
 
   const refused = () => { const v = ctx.vm(); if (v && v.mode && v.mode.locked) ctx.note(box, 'desk locked while the grid catches itself (Esc skips)'); };
   const sent = (x, what) => { if (!ctx.send(x, box)) { ctx.guards.lock(m.id); ctx.cue('button', pan); ctx.live(name + what + ' sent'); } };
-  /** K-3: a first press arms guard g, a second sends x; after it the unit's guards wait COMMIT_LOCK_MS. */
+  /** K-3: press 1 lifts g, press 2 sends x (then the unit's guards rest COMMIT_LOCK_MS) */
   function guarded(g, what, x, key) {
     const res = ctx.guards.press(g.id, () => {
       if (g === start) wasS = false; else wasX = false;
-      ctx.ui({do: 'armed', target: g.id, on: false});   // a commit drops the cover with no frame to show it
+      ctx.ui({do: 'armed', target: g.id, on: false});   // no frame sees this drop
       sent(x, what);
     }, key ? GUARD_MS : GUARD_CLICK_MS);
     if (res === 'lift') {
@@ -114,13 +115,14 @@ export function createMachine(ctx, k, pan) {
     if (a === 'abort') sent({type: 'abortStop', unit: m.id}, ' ABORT');
     else guarded(stop, a === 'cancel' ? ' CANCEL START' : ' STOP', {type: 'stop', unit: m.id}, byKey === true);
   }
-  start.addEventListener('click', () => pressStart(false));
-  stop.addEventListener('click', () => pressStop(false));
+  // a folded guard (keys only) presses the armed one
+  start.addEventListener('click', () => (ctx.guards.lifted(stop.id) ? pressStop : pressStart)(false));
+  stop.addEventListener('click', () => (ctx.guards.lifted(start.id) ? pressStart : pressStop)(false));
 
   function render() {
     if (!u) return;
     const sa = startAction(), so = stopAction();
-    // a cover whose press no longer does what it says drops at once
+    // a cover drops when its press changes
     if (sa !== 'start') ctx.guards.drop(start.id);
     if (so !== 'stop' && so !== 'cancel') ctx.guards.drop(stop.id);
     const upS = ctx.guards.lifted(start.id), upX = ctx.guards.lifted(stop.id);
@@ -129,6 +131,7 @@ export function createMachine(ctx, k, pan) {
     if (upX !== wasX) { wasX = upX; ctx.cue('cover', pan); ctx.ui({do: 'armed', target: stop.id, on: upX}); }
     setAttr(start, 'aria-pressed', upS ? 'true' : 'false');
     setAttr(stop, 'aria-pressed', upX ? 'true' : 'false');
+    setAttr(start, 'tabindex', upX ? -1 : 0); setAttr(stop, 'tabindex', upS ? -1 : 0);
     setAttr(box, 'class', 'dk-mach m-' + u.mode + (u.hotS > 0 ? ' hot' : '') + (offered ? ' offered' : '') + (upS || upX ? ' armed' : ''));
     setText(start, upS ? 'START?' : (MODE_GLYPH[u.mode] || '?') + m.j);
     setText(stop, upX ? (so === 'cancel' ? 'CANCEL?' : 'STOP?') : so === 'abort' ? '↺' : so ? '■' : '·');
@@ -441,9 +444,9 @@ function createLever(ctx, sid, parent) {
     key(k, shift) {
       if (k === 'p') { rejoin(shift); return true; }
       if (stationKey(machines, k)) return true;
-      // help, not a refusal (it may be the S after an S S)
-      const s = k === 's', all = machines.filter(m => !(s ? /^(on|loading)$/ : /^(off|tripped)$/).test(m.mode())).map(m => (s ? m.start : m.stop).getAttribute('title')).join(', ');
-      ctx.note(slot, 'nothing to ' + (s ? 'start: ' + (all || 'all on') : 'stop: ' + (all || 'none running')), undefined, 'info');
+      // help, not a refusal (it may follow S S); a READY unit is O's
+      const s = k === 's', all = machines.filter(m => !(s ? /^(on|loading|ready)$/ : /^(off|tripped)$/).test(m.mode())).map(m => (s ? m.start : m.stop).getAttribute('title')).join(', ');
+      ctx.note(slot, 'nothing to ' + (s ? 'start: ' + (all || 'all running') : 'stop: ' + (all || 'none running')), 5000, 'info');
       return false;
     },
     /** K-12: a rough close on one of this station's machines (no shake under reduced motion). */

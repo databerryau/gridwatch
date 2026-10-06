@@ -121,7 +121,7 @@ export function makeConsider(now, guards, send) {
     for (let i = lifts.length - 1; i >= 0; i--) {
       const l = lifts[i];
       if (guards.lifted(l.id)) continue;
-      lifts.splice(i, 1);              // its cover dropped unused (a key lift's GUARD_MS after it)
+      lifts.splice(i, 1);              // its cover dropped unused
       if (l.byKey && l.at + GUARD_MS + CONSIDER_HOLD_MS > held.until) { held.id = l.id; held.until = l.at + GUARD_MS + CONSIDER_HOLD_MS; held.since = l.at; }
     }
     if (held.id && (t > held.until || (focus !== null && focus !== held.id && focusAt > held.since))) held.id = null;
@@ -207,7 +207,7 @@ export function createDesk(doc, root, actions, opts = {}) {
       ctx.cue(c, pan);
     },
     live(text) { live.textContent = text; },
-    /** kind 'info': help or a confirmation, not a refusal (K-22) */
+    /** kind 'info': help, not a refusal (K-22) */
     note(host, text, ms = NOTE_MS, kind) {
       let n = notes.get(host);
       if (!n) { n = {span: el(doc, 'span', 'dk-note'), until: 0}; host.appendChild(n.span); notes.set(host, n); }
@@ -297,7 +297,7 @@ export function createDesk(doc, root, actions, opts = {}) {
     ctx.guards.expire();
     // C-10: the focused guard is read from the document as well as heard from its events; a cover
     // that dropped by itself, or a guard that lost the focus or the pointer since the last frame,
-    // changes what is being considered. A new day: the shell has cleared its target, so say it again; covers drop (K-3).
+    // changes what is being considered. A new day: the shell has cleared its target, so say it again.
     const ae = doc.activeElement;
     ctx.consider.focusIs(ae && ae.classList && ae.classList.contains('dk-guard') && desk.contains(ae) ? ae.id : null);
     if (fin(v.obs.tick, 0) < lastTick) { ctx.consider.forget(); ctx.guards.clear(); }
