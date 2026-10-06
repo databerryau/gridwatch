@@ -420,10 +420,11 @@ function tripped(c) {
 
 /**
  * @param {object} obs observe(state)
- * @param {{edited?:boolean, planview:object, proj?:object, dayAhead?:object|null}} ctx edited: the
+ * @param {{edited?:boolean, planview:object, proj?:object, dayAhead?:object|null, leadS?:number}} ctx edited: the
  *   player holds levers by hand (app/system.js sys.edited); planview: app/planview.js; proj: its
  *   project(obs) if the caller already has it; dayAhead: observe(state, {dayAhead: true}).dayAhead,
- *   the forecast to 04:00 (without it the line looks 4.5 h ahead only)
+ *   the forecast to 04:00 (without it the line looks 4.5 h ahead only); leadS: grid seconds more
+ *   to ACT_WITHIN_S (the game's reading time; default 0)
  */
 export function objective(obs, ctx) {
   const PV = ctx.planview;
@@ -434,7 +435,7 @@ export function objective(obs, ctx) {
   const day = ctx.dayAhead || obs.forecast;
   const reds = PV.redRuns(proj);
   const long = (PV.blueRuns ? PV.blueRuns(proj)[0] : null) || null;
-  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV};
+  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV, act: ACT_WITHIN_S + (ctx.leadS || 0)};
   // the plan's largest deficit in the columns within NOW_S (never a later column of the same red run)
   X.redNowMW = 0;
   for (let k = 0; k < proj.n && proj.times[k] - s <= NOW_S; k++) if (proj.gap[k] === 'red' && proj.deficit[k] > X.redNowMW) X.redNowMW = proj.deficit[k];
@@ -445,8 +446,8 @@ export function objective(obs, ctx) {
   const heldRed = ctx.edited ? red || reds.find(r => r.mw >= SHORT_MIN_MW) || null : null;
   if (heldRed) {
     const now = heldRed.atS - s <= NOW_S;
-    return line({level: 'crit', kind: 'held', text: 'Short ' + mwText(now ? Math.max(X.redNowMW, SHORT_MIN_MW) : heldRed.mw) + (now ? ' now' : ' from ' + at(heldRed.atS)) +
-      ' with levers held by hand. RE-DISPATCH (N) hands every lever back to the plan.', targets: ['btn-redispatch'], action: {redispatch: true}, startBy: s});
+    return line({level: 'crit', kind: 'held', text: 'With levers held by hand the plan is ' + mwText(now ? Math.max(X.redNowMW, SHORT_MIN_MW) : heldRed.mw) + ' below demand' +
+      (now ? ' now' : ' from ' + at(heldRed.atS)) + '. RE-DISPATCH (N) hands every lever back to the plan.', targets: ['btn-redispatch'], action: {redispatch: true}, startBy: s});
   }
 
   // 2. Short right now: the fast answers.
@@ -571,7 +572,7 @@ function shortHead(X, fromS, thin) {
   if (thin.real && !nowish) return 'You will be ' + mwText(thin.mw) + ' short from ' + needAt(thin, fromS) + '. ';
   if (thin.real) {
     const R = realShort(X);
-    return R.nowMW >= BATT_MIN_MW ? 'You are ' + figure(R.nowMW) + ' short now. ' : 'Within the hour you will be up to ' + mwText(thin.mw) + ' short of a safe margin. ';
+    return R.nowMW >= BATT_MIN_MW ? 'Your units are ' + figure(R.nowMW) + ' below demand now. ' : 'Within the hour you will be up to ' + mwText(thin.mw) + ' short of a safe margin. ';
   }
   if (!nowish) return 'From about ' + needAt(thin, fromS) + ' one trip would leave you short. ';
   return (recentTrip(X.obs) ? 'Another' : 'One') + ' trip now would leave you short. ';
@@ -697,18 +698,19 @@ function shortNow(X, line) {
   }
   // One start, for the part of the shortfall it can still reach (lookAhead); never a second for the same gap.
   const A = lookAhead(X);
-  if (A && A.unit && A.startBy - s <= ACT_WITHIN_S) {
+  if (A && A.unit && A.startBy - s <= X.act) {
     fast.push({id: A.unit.id, say: 'start ' + unitName(A.unit.unit) + ' (' + minText(A.unit.lead) + ')', action: {type: 'start', unit: A.unit.unit}});
   }
   // Demand response when neither can answer: a call is dear and there are few.
   if (!fast.length && obs.dr.callsLeft > 0 && !(obs.dr.activeS > 0)) fast.push({id: 'btn-dr', say: 'call demand response (hold D): industry cuts ' + mwText(V.DR_MW) + ' for ' + spanText(V.DR_DURATION_S), action: {type: 'callDR'}});
-  let text;
+  // (not "short": the BALANCE bar's word for the grid this second, which AGC may be keeping level)
+  let text = 'The plan is ' + figure(mw) + ' below demand now';
   if (fast.length) {
-    text = 'Short ' + figure(mw) + ' now: ' + fast.map(f => f.say).join(', or ') + '.';
+    text += ': ' + fast.map(f => f.say).join(', or ') + '.';
     if (fast[0].id === 'dial-battery' && text.length <= 145) text += ' It answers in seconds.';
   } else {
     const a = arriving(obs);
-    text = 'Short ' + figure(mw) + ' now. ' + (a ? a.name + ' arrives at ' + at(a.atS) + '; until then ' + carries(obs) + '.' : 'Everything that can help is already on its way.');
+    text += '. ' + (a ? a.name + ' arrives at ' + at(a.atS) + '; until then ' + carries(obs) + '.' : 'Everything that can help is already on its way.');
   }
   return line({level: 'crit', kind: 'short', text, targets: fast.map(f => f.id), action: fast.length ? fast[0].action : null, startBy: s});
 }
@@ -719,7 +721,7 @@ function commitNow(X, line) {
   if (!A) return null;
   if (A.unit) {
     if (A.reach.atS - s > V.FC_HORIZON_S) return null; // commit-later's
-    const c = A.unit, act = A.startBy - s <= ACT_WITHIN_S, name = unitName(c.unit);
+    const c = A.unit, act = A.startBy - s <= X.act, name = unitName(c.unit);
     // a shortfall that begins before any start can arrive: say what carries it meanwhile, and only
     // a gap the desk really has (the real check), never the margin's
     const late = A.first.atS < A.reach.atS && A.first.endS >= A.reach.atS - X.day.stepS;
@@ -744,7 +746,7 @@ function commitNow(X, line) {
   if (!late || !beyondReserves(obs, R, late)) return null;
   const head = 'You will be ' + figure(hourOf(R, late)) + ' short from ' + atMark(late.crossS) + ', more than the battery and demand response can carry. ';
   if (obs.rert.armed) return line({level: 'crit', kind: 'commit', text: head + (obs.rert.standingDown ? 'The reserve diesel is standing down: it can be armed again once it is off.' : 'The reserve diesel is on its way.'), startBy: s, short: pub(late)});
-  const arm = late.atS - s <= V.RERT_LEAD_S + ACT_WITHIN_S;
+  const arm = late.atS - s <= V.RERT_LEAD_S + X.act;
   return line({level: 'crit', kind: 'commit', text: head + 'The reserve diesel (hold E) takes 20 min and costs dearly' + (arm ? '.' : ': arm it by ' + atMark(late.atS - V.RERT_LEAD_S) + '.'),
     targets: ['key-rert'], action: arm ? {type: 'armRERT'} : null, startBy: s, short: pub(late)});
 }
@@ -1169,7 +1171,7 @@ export function consequence(obs, target, ctx = {}) {
   const reason = why => why.replace(/^unit is /, 'the unit is ').replace(/: (\d+) min left$/, (x, n) => ', ' + spanText(n * S_PER_MIN) + ' left');
   const syncS = obs.mode === 'AGC' ? AUTO : 0, onGrid = u.minMW > 0 ? 'at minimum load' : 'on the grid';
   if (hit[1] === 'start') {
-    if (u.mode === 'starting') return out(name + ' is starting: full speed at ' + atDay(s + u.timerS) + ', ' + onGrid + ' by ' + atDay(s + u.timerS + syncS + m.t2S) + '.', 'ok');
+    if (u.mode === 'starting') return out(name + ' is starting: full speed at ' + atDay(s + u.timerS) + (syncS ? ', ' + onGrid + ' by ' + atDay(s + u.timerS + syncS + m.t2S) : '; then SYNC it by hand') + '.', 'ok');
     if (u.mode === 'ready') return out(name + ' is at full speed: a press opens the synchroscope (the clock runs at 1×)' + (syncS ? '; auto-sync closes its breaker at ' + atDay(s + u.timerS) : '') + '.');
     if (u.mode === 'tripped') return out('START ' + name + ' is blocked: it tripped and is locked out for another ' + spanText(u.timerS) + '.');
     if (u.mode !== 'off') return null; // the objective stays up while the pointer crosses the bank
@@ -1194,7 +1196,9 @@ export function consequence(obs, target, ctx = {}) {
     return out(head + tail);
   }
   // the STOP guard
-  if (u.mode === 'unloading' || u.mode === 'shutdown') return out(name + ' is stopping: one press ABORTs the stop and keeps it on.');
+  if (u.mode === 'unloading' || u.mode === 'shutdown') {
+    return out(name + ' is stopping: ' + (u.station === 'hydro' && obs.hydro.storageMWh <= V.HYDRO_STOP_MWH ? 'its water is spent, so it cannot be kept on.' : 'one press ABORTs the stop and keeps it on.'));
+  }
   if (u.mode === 'tripped') return out(name + ' is tripped: nothing to stop.');
   if (u.mode === 'off') return null;
   const cancel = u.mode === 'starting' || u.mode === 'ready';

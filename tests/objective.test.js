@@ -137,6 +137,13 @@ test('the objective sees the morning shortfall ahead and names the CCGT, with it
   assert.ok(o.startBy > obs.s + O.ACT_WITHIN_S && o.startBy < short.atS, 'a decision with a lead time');
   assert.equal(Math.round(startToMinS('ccgt2') / S_PER_MIN), 49, 'the 49 minutes are the machine\'s own times');
   assert.deepEqual(o.short && Object.keys(o.short), ['atS', 'endS', 'mw']);
+  // the game's reading time (ctx.leadS, grid seconds: its rate x LINE_REACT_S): "now" that much earlier
+  const lead = o.startBy - obs.s - O.ACT_WITHIN_S, ctx = {edited: false, planview: PV, dayAhead: obs.dayAhead};
+  const early = objective(obs, Object.assign({leadS: lead}, ctx));
+  assert.deepEqual([early.level, early.action], ['act', {type: 'start', unit: 'ccgt2'}]);
+  assert.match(early.text, /Start CCGT 2 now: it takes 49 min/);
+  assert.equal(early.startBy, o.startBy, 'the deadline itself is the same');
+  assert.equal(objective(obs, Object.assign({leadS: lead - 60}, ctx)).level, 'plan', 'and no earlier');
 });
 
 test('levers held by hand with the plan short: the objective says RE-DISPATCH', () => {
@@ -148,7 +155,7 @@ test('levers held by hand with the plan short: the objective says RE-DISPATCH', 
   const o = objective(observe(st), {edited: sys.edited, planview: PV});
   assert.equal(o.level, 'crit');
   assert.equal(o.kind, 'held');
-  assert.match(o.text, /RE-DISPATCH \(N\) hands every lever back/);
+  assert.match(o.text, /^With levers held by hand the plan is [\d,]+ MW below demand (now|from \d\d:\d\d)\. RE-DISPATCH \(N\) hands every lever back/);
   assert.deepEqual(o.action, {redispatch: true});
   const r = SYS.redispatch(sys, st);
   assert.equal(applyInput(st, r.input, []).ok, true);
@@ -421,7 +428,9 @@ test('short now outranks everything else: the battery first, sized to what is sh
   const x = lineOf(short);
   assert.equal(x.kind, 'short');
   assert.equal(x.level, 'crit');
-  assert.match(x.text, /^Short [\d,]+ MW now: /);
+  // (the plan's figure, which AGC may still be covering: never the BALANCE bar's word SHORT)
+  assert.match(x.text, /^The plan is [\d,]+ MW below demand now: /);
+  assert.doesNotMatch(x.text, /short/i);
   assert.doesNotMatch(x.text, /too late to plan/i, 'a trip nobody could foresee is nobody\'s fault');
   assert.ok(x.action.type === 'battery' || x.action.type === 'guard', 'the battery is there in seconds: ' + JSON.stringify(x.action));
   if (x.action.type === 'battery') assert.equal(x.action.mode, 'discharge');
@@ -444,6 +453,7 @@ test('short now outranks everything else: the battery first, sized to what is sh
   const z = lineOf(bare);
   assert.equal(z.kind, 'short');
   assert.equal(z.action, null);
+  assert.match(z.text, /^The plan is [\d,]+ MW below demand now\. /);
 });
 
 // ------------------------------------------------------------------ the line says what is true (wave-3 review)
@@ -460,7 +470,7 @@ const maxGap = (G, from = -Infinity, to = Infinity) => { let m = -Infinity; for 
 /** Demand set so that the check G (a gap of the same forecast) reads target(k) in every column from..to (MW; G moves one for one with demand). */
 const setGap = (fc, G, target, from = -Infinity, to = Infinity) => { for (let k = 0; k < fc.n; k++) { const t = fc.fromS + (k + 1) * fc.stepS; if (t >= from && t < to) fc.demandP50[k] += (typeof target === 'function' ? target(k) : target) - G.gap[k]; } };
 
-test('the commit line: "You are N MW short now" only when the desk really is; otherwise what the hour lacks against a safe margin', () => {
+test('the commit line: "Your units are N MW below demand now" only when the desk really is; otherwise what the hour lacks against a safe margin', () => {
   const base = plain();
   // short of the planning margin from now (the water held for the evening), rising over the hour as an
   // evening ramp does, with the gorge and the tie able to cover it
@@ -475,14 +485,14 @@ test('the commit line: "You are N MW short now" only when the desk really is; ot
   assert.equal(x.kind, 'commit');
   assert.equal(x.level, 'act');
   assert.match(x.text, /^Within the hour you will be up to [\d,]+ MW short of a safe margin\. Start [A-Z·0-9 ]+ now: it takes /);
-  assert.doesNotMatch(x.text, /You are|until then/, 'not short now, and no gap for anything to carry: ' + x.text);
+  assert.doesNotMatch(x.text, /below demand now|until then/, 'not short now, and no gap for anything to carry: ' + x.text);
   // the same with the desk really short in the next minutes (its plan as it was: the short-now line is the plan's)
   const r = copy(o);
   both(r, R, 150, -Infinity, o.s + 601);
   Object.assign(r.battery, {mode: 'idle', orderMW: 0, fullHold: false});
   const y = objective(r, {edited: false, planview: PV, dayAhead: r.dayAhead, proj: PV.project(base)});
   assert.equal(y.kind, 'commit');
-  assert.match(y.text, /^You are [\d,]+ MW short now\. Start [A-Z·0-9 ]+ now: it takes [^;]+; until then the battery and the spare on the grid carry the gap\.$/);
+  assert.match(y.text, /^Your units are [\d,]+ MW below demand now\. Start [A-Z·0-9 ]+ now: it takes [^;]+; until then the battery and the spare on the grid carry the gap\.$/);
   // a charging battery is never said to carry it
   const c = copy(r);
   Object.assign(c.battery, {mode: 'charge', orderMW: 100, socMWh: 700});
@@ -571,13 +581,13 @@ test('short now: the plan\'s red within five minutes is an emergency only when t
   P.gap[0] = 'red'; P.deficit[0] = 500;
   const ctx = {edited: false, planview: PV, dayAhead: o.dayAhead, proj: P};
   assert.ok(maxGap(O.capacityGap(o, o.forecast, {real: true}), -Infinity, o.s + 301) < -O.SHORT_MIN_MW, 'the real check has room');
-  assert.notEqual(objective(o, ctx).kind, 'short', 'a plan still climbing to its keyframe is not "Short now"');
+  assert.notEqual(objective(o, ctx).kind, 'short', 'a plan still climbing to its keyframe is not "below demand now"');
   const r = copy(o);
   const R = O.capacityGap(r, r.forecast, {real: true});
   setGap(r.forecast, R, 200, -Infinity, r.s + 301);
   const x = objective(r, Object.assign({}, ctx, {dayAhead: r.dayAhead}));
   assert.equal(x.kind, 'short');
-  assert.match(x.text, /^Short [\d,]+ MW now: /);
+  assert.match(x.text, /^The plan is [\d,]+ MW below demand now: /);
 });
 
 test('STOP saving: the energy that replaces the unit is free in columns where power would be spilled', () => {
@@ -1193,8 +1203,10 @@ test('C-10 consequence: CANCEL START, a blocked press says why, a unit on its wa
   Object.assign(unit(coming, 'ccgt2'), {mode: 'starting', timerS: 1200});
   assert.deepEqual(consequence(coming, 'guard-start-ccgt2', ctx), {target: 'guard-start-ccgt2', level: 'ok',
     text: 'CCGT 2 is starting: full speed at ' + at(coming.s + 1200) + ', at minimum load by ' + at(coming.s + 1200 + V.AUTO_SYNC_S + cm.t2S) + '.'});
+  // by HAND nothing syncs it but the player: no time it cannot keep by itself
   coming.mode = 'HAND';
-  assert.ok(consequence(coming, 'guard-start-ccgt2', ctx).text.endsWith(', at minimum load by ' + at(coming.s + 1200 + cm.t2S) + '.'), 'no auto-sync by HAND');
+  assert.deepEqual(consequence(coming, 'guard-start-ccgt2', ctx), {target: 'guard-start-ccgt2', level: 'ok',
+    text: 'CCGT 2 is starting: full speed at ' + at(coming.s + 1200) + '; then SYNC it by hand.'});
   const water = copy(obs);
   Object.assign(unit(water, 'hydro3'), {mode: 'starting', timerS: 60});
   assert.match(consequence(water, 'guard-start-hydro3', ctx).text, /^HYDRO 3 is starting: full speed at \d\d:\d\d, on the grid by \d\d:\d\d\.$/);
@@ -1212,6 +1224,12 @@ test('C-10 consequence: CANCEL START, a blocked press says why, a unit on its wa
     assert.deepEqual(consequence(stopping, 'guard-stop-ccgt1', ctx), {target: 'guard-stop-ccgt1', level: 'plan',
       text: 'CCGT 1 is stopping: one press ABORTs the stop and keeps it on.'}, mode);
   }
+  // except hydro the grid unloads for its water: the sim refuses the ABORT ('no water'), and the line never offers it
+  const dry = copy(obs);
+  unit(dry, 'hydro1').mode = 'unloading';
+  assert.match(consequence(dry, 'guard-stop-hydro1', ctx).text, /ABORTs/, 'water left: it can be kept on');
+  dry.hydro.storageMWh = V.HYDRO_STOP_MWH - 1;
+  assert.equal(consequence(dry, 'guard-stop-hydro1', ctx).text, 'HYDRO 1 is stopping: its water is spent, so it cannot be kept on.');
   // no target, an unknown one, the watch and the day's end: nothing
   assert.equal(consequence(obs, null, ctx), null);
   assert.equal(consequence(obs, 'guard-start-nothing9', ctx), null);
@@ -1260,7 +1278,7 @@ for (const scn of [DESK, DESK_WEEKEND]) {
         // of spare short by THIN_MW or more; "short now" in the present tense only when the desk at its
         // limits is short in the next minutes
         if (/^Enough plant/.test(x.text)) assert.ok(maxGap(O.tripGap(obs, ctx.dayAhead, O.COMMIT_MARGIN_MW - O.MARGIN_MW)) < O.THIN_MW, tag0 + ' ' + at(obs.s) + ': ' + x.text);
-        if (/^You are [\d,]+ MW short now/.test(x.text)) assert.ok(maxGap(O.capacityGap(obs, obs.forecast, {real: true}), -Infinity, obs.s + 301) > 0, tag0 + ' ' + at(obs.s) + ': ' + x.text);
+        if (/^Your units are [\d,]+ MW below demand now/.test(x.text)) assert.ok(maxGap(O.capacityGap(obs, obs.forecast, {real: true}), -Infinity, obs.s + 301) > 0, tag0 + ' ' + at(obs.s) + ': ' + x.text);
         return x;
       };
       const day = followDay(seed, scn, {objective: rec, onMinute: (st, obs) => {

@@ -69,9 +69,10 @@
   body.crt #map::before { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0.06;
     background: repeating-linear-gradient(to bottom, #000 0, #000 1px, transparent 1px, transparent 2px); }
   #desk { position: relative; min-height: 0; overflow: hidden; border-top: 1px solid var(--line); background: var(--panel); }
-  /* L-4: it ends above the objective line (2 lines), off the lever bank. */
-  #stack-overlay { position: fixed; z-index: 8; left: 16px; right: 16px; top: calc(var(--hdr) + 8px);
-    height: min(420px, calc(100vh - max(300px, (100vh - var(--hdr)) / 2) - var(--hdr) - 58px));
+  /* L-4: it ends above the objective line (2 lines), off the lever bank; the Live Stack in it reads the variables. */
+  #stack-overlay { position: fixed; z-index: 8; left: 16px; right: 16px; top: var(--stack-expanded-top);
+    --stack-expanded-top: calc(var(--hdr) + 8px);
+    --stack-expanded-h: min(420px, calc(100vh - max(300px, (100vh - var(--hdr)) / 2) - var(--hdr) - 58px)); height: var(--stack-expanded-h);
     background: var(--panel); border: 1px solid var(--dim); border-radius: 6px; box-shadow: 0 10px 30px #000c; }
 
   /* K-15: the watch. The vignette never takes clicks (ACK, SILENCE, pause and skip still work). */
@@ -153,7 +154,7 @@
 <div id="briefing-card" class="card" role="dialog" aria-label="Briefing" hidden>
   <h2>Tonight's desk</h2>
   <p id="briefing-text">You decide which power stations run, and when. The dispatch system sets how hard each running unit works; you start more before the city needs them, and stop them when it does not. A coal unit takes two hours to reach the grid, a gas turbine ten minutes.</p>
-  <p id="briefing-how" class="dim">The line above the desk says what is needed next. To start a unit, click its ○ button on the lever bank (hydro units: beside the HYDRO wheel); it turns into START?, so click it again to confirm. Keys: 1–5 pick a lever, then S S. The battery's outer ring is its GUARD: MW held back to catch a trip. Space pauses at any time, and you can act while paused; the clock is held until you first press it. ? (top right) shows what GRIDWATCH simplifies.</p>
+  <p id="briefing-how" class="dim">The line above the desk says what is needed next. To start a unit, click its ○ button on the lever bank (hydro units: beside the HYDRO wheel); it turns into START?, so click it again to confirm. Keys: 1–5 pick a lever (6 the HYDRO wheel), then S S. The battery's outer ring is its GUARD: MW held back to catch a trip. Space pauses at any time, and you can act while paused; the clock is held until you first press it. ? (top right) shows what GRIDWATCH simplifies.</p>
   <p id="briefing-day"></p>
   <p id="briefing-watch" class="dim"></p>
   <div class="row" id="briefing-mode" role="radiogroup" aria-label="Regulation">

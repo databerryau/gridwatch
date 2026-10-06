@@ -43,6 +43,8 @@ const hhmm = s => {
 };
 
 const mwc = x => String(Math.round(x)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+// 'full speed in 35 min' as the line says it: 'full speed at 05:38'
+const clockOf = r => r.msg.replace(/ in (\d+) min\b/, (x, n) => ' at ' + hhmm(Math.floor(r.tick / TPS) + n * V.S_PER_MIN));
 
 /**
  * An MSL notice (P-4; desk/README.md C-9, §21.4) as a MARKET NOTICE card. It says the lowest demand
@@ -97,11 +99,11 @@ export function cardOf(r) {
         text: 'District ' + r.district + ' shed (' + r.why + ', ' + Math.round(r.mw) + ' MW).', button: {label: 'TO THE RESTORE BAY', target: 'bay-restore'}};
     case 'log':
       switch (r.code) {
-        case 'UNIT_READY': return {key: 'ready:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: r.msg,
+        case 'UNIT_READY': return {key: 'ready:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: clockOf(r),
           button: {label: 'TO THE SCOPE', target: 'bay-sync'}};
-        // each command taken, at once, as an event list logs it
+        // each command taken, at once, as an event list logs it (no key: each one is a card)
         case 'UNIT_START': case 'UNIT_STOP': case 'UNIT_CANCEL': case 'UNIT_ABORT_STOP':
-          return {key: 'unit:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: r.msg,
+          return {key: null, from: SENDERS.station, sev: 'info', text: clockOf(r),
             button: {label: 'TO THE LEVER', target: leverOfMsg(r.msg)}};
         case 'UNIT_RELEASED': return {key: 'rel:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: r.msg,
           button: {label: 'TO THE STACK', target: 'stack'}};
@@ -142,13 +144,13 @@ export function trayRecords(tr, recs) {
   for (const r of recs) {
     const c = cardOf(r);
     if (!c) continue;
-    if (tr.seen[c.key]) continue; // never repeats
-    tr.seen[c.key] = true;
+    if (c.key) { if (tr.seen[c.key]) continue; tr.seen[c.key] = true; } // never repeats
     const card = {id: 'card' + tr.nextId++, from: c.from, atS: Math.floor(r.tick / TPS), text: words(c.text), button: c.button, sev: c.sev};
     tr.cards.push(card);
     if (c.sev === 'warn') { cues.push('ring2'); tr.rings++; } else cues.push('tick');
   }
-  while (tr.cards.length > MAX_CARDS) { const i = tr.cards.findIndex(c => c.sev === 'info'); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
+  // the oldest information card goes, never the newest card; with none, the oldest
+  while (tr.cards.length > MAX_CARDS) { const i = tr.cards.findIndex((c, j) => c.sev === 'info' && j < tr.cards.length - 1); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
   if (cues.length) tr.rev++;
   return cues;
 }
