@@ -199,7 +199,10 @@ export function bootGame(doc, deps) {
   };
 
   function focusEl(id) {
-    const el = $(id);
+    let el = $(id);
+    // A box a browser cannot focus (#map: no tabindex) hands the focus to its focusable child
+    // (the map's .citymap, which takes the keys).
+    if (el && !el.hasAttribute('tabindex') && !/^(BUTTON|INPUT|SELECT|TEXTAREA|A)$/.test(el.tagName)) el = el.querySelector('[tabindex]') || el;
     if (el && el.focus) { try { el.focus(); } catch { /* ignore */ } }
   }
 

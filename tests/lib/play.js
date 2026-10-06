@@ -466,7 +466,8 @@ export function openGame(o = {}) {
     if ($('dial-freq')) L.push('DIAL ' + textOf($('dial-freq'), noBtn));
     if ($('gauge-n1')) L.push('N-1 ' + textOf($('gauge-n1'), noBtn));
     const notes = [...doc.querySelectorAll('.dk-note')].filter(e => !isHidden(e) && squash(e.textContent));
-    for (const n of notes) L.push('NOTE ' + (n.parent && (n.parent.id || n.parent.dataset.unit || n.parent.className) || '') + ': ' + squash(n.textContent));
+    // (the colour too: a plain .dk-note is red, a refusal; .info is blue. The owner's rule: help is never red)
+    for (const n of notes) L.push('NOTE ' + (n.classList.contains('info') ? 'blue ' : 'RED ') + (n.parent && (n.parent.id || n.parent.dataset.unit || n.parent.className) || '') + ': ' + squash(n.textContent));
     const tray = $('tray');
     if (tray) {
       const cs = tray.querySelector('.dk-cards');
