@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {makeDocument, installGlobals} from './lib/dom.js';
 import {slowOnly} from './lib/sim-helpers.js';
-import {bootGame} from '../app/shell.js';
+import {bootGame, ARMED_WORD, UNDER_WAY_WORD} from '../app/shell.js';
 import {createDesk} from '../desk/desk.js';
 import {createMap} from '../render/map.js';
 import {createLiveStack} from '../render/livestack.js';
@@ -254,7 +254,7 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
 
 // ---------------------------------------------------------------- SPEC §9.1 Q-18: the page as boot.js boots it
 
-test('Q-18, the real page: the clock is held at 04:30, the objective names a unit, starting it by keys clears the line', async () => {
+test('Q-18, the real page: the clock is held at 04:30, the objective names a unit, starting it by keys clears the line; a slow double click starts one too; the tray says so', async () => {
   const {DESK} = await import('../content/scenarios.js');
   const doc = makeDocument(NEXT);
   let t = 1000;
@@ -281,19 +281,49 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   assert.ok(h.vm().glow.has('guard-start-ccgt2'), 'and its START guard is lit');
   assert.equal($('objective').className, 'act');
   assert.match($('objective-level').textContent, /ACT NOW/);
+  // asked early enough to read and answer at this rate (LINE_REACT_S): its deadline is real seconds away
+  const ask = h.vm().objective;
+  assert.ok((ask.startBy - h.vm().obs.s) / h.vm().mode.rate >= 10, 'the deadline ' + ((ask.startBy - h.vm().obs.s) / h.vm().mode.rate).toFixed(1) + ' real s away');
   tap('2'); tap('s');
-  // C-10: the guard is lifted, and before the press the line says what it would do
+  // C-10: the guard is lifted (armed), and before the second press the line says what it would do
   frame();
-  assert.equal($('objective-level').textContent, '? IF PRESSED');
-  assert.match($('objective-text').textContent, /^START RIVERTON CCGT 2: at minimum load \(175 MW\) by 0\d:\d\d, 49 min from now, and it must then run 4 h\. It covers the shortfall from 0\d:\d\d\.$/);
-  assert.equal($('objective').className, 'plan consider');
+  assert.equal($('objective-level').textContent, ARMED_WORD);
+  const armed = $('objective-text').textContent;
+  assert.match(armed, /^Press again to confirm\. START CCGT 2: at minimum load \(175 MW\) by 0\d:\d\d, 49 min from now, and it must then run 4 h\. It covers the shortfall from 0\d:\d\d\.$/);
+  assert.equal($('objective').className, 'act consider');
+  // what the player is reading to confirm holds still while the clock runs on under it
+  const clock = $('clock-text').textContent;
+  for (let i = 0; i < 15; i++) frame();
+  assert.notEqual($('clock-text').textContent, clock);
+  assert.equal($('objective-text').textContent, armed, 'held as it read when the cover went up');
   tap('s');
   const log = h.game.state.log, at = log.findIndex(r => r.type === 'start' && r.args.unit === 'ccgt2');
   assert.equal(log.filter(r => r.type === 'start' && r.args.unit === 'ccgt2').length, 1, '2, S, S started it');
   // §21.4: the re-dispatch follows in the same call, so the next line is read off a plan that knows about the start
   assert.deepEqual([log[at + 1].type, log[at + 1].tick], ['planLoad', log[at].tick]);
+  // the tray says so at once, as an event list does: the station's own words, and a jump to the lever
+  const started = h.vm().tray.cards.find(c => /^START Riverton CCGT 2: running up, full speed at \d\d:\d\d\.$/.test(c.text));
+  assert.deepEqual(started && [started.from, started.sev, started.button.label, started.button.target], ['STATION', 'info', 'TO THE LEVER', 'lever-ccgt']);
+  assert.match($('tray').textContent, /START Riverton CCGT 2: running up/);
   for (let i = 0; i < 30; i++) frame();
   assert.doesNotMatch($('objective-text').textContent, /CCGT 2/, 'the line moves on');
+  // By mouse, with the clock held (Space): a click arms GT·B 1's START, and a second click 3 s later
+  // still commits; with the pointer still on the guard the line says the unit is under way.
+  tap(' ');
+  assert.equal(h.vm().mode.mode, 'PAUSE');
+  const gtb = $('guard-start-gtb1');
+  const click = () => { gtb.dispatch('pointerdown'); gtb.dispatch('pointerup'); gtb.click(); frame(1 / 60); };
+  gtb.dispatch('pointerenter');
+  click();
+  assert.equal($('objective-level').textContent, ARMED_WORD);
+  frame(3);
+  click();
+  assert.equal(log.filter(r => r.type === 'start' && r.args.unit === 'gtb1').length, 1, 'a second click 3 s after the first started it');
+  assert.equal($('objective-level').textContent, UNDER_WAY_WORD);
+  assert.match($('objective-text').textContent, /^GT·B 1 is starting: full speed at \d\d:\d\d, at minimum load by \d\d:\d\d\.$/);
+  assert.ok(h.vm().tray.cards.some(c => /^START GT·B 1: running up/.test(c.text) && c.button.target === 'lever-gtb'), 'and its card is up');
+  gtb.dispatch('pointerleave');
+  tap(' ');
   // An alarm tile says what it means when pressed; ACK with nothing flashing says so.
   $('tile-n1').click();
   assert.match($('annunciator').textContent, /N-1 INSECURE: losing your biggest unit/);

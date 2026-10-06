@@ -99,8 +99,10 @@ function holdKey(ctx, parent, o) {
 
 export function createEmergency(ctx, keysParent, emergParent) {
   const doc = ctx.doc;
-  let vm = null;
+  let vm = null, wasHeld = false;
   const obs = () => vm.obs;
+  // U-10: notes go on the column, not in a key whose face is redrawn
+  const keys = el(doc, 'div', 'dk-keys');
 
   // ---- K-2 AGC/HAND key (display; set at the briefing, locked from 04:30, D-7)
   const agc = el(doc, 'button', 'dk-key dk-agc');
@@ -109,24 +111,23 @@ export function createEmergency(ctx, keysParent, emergParent) {
   agc.setAttribute('aria-keyshortcuts', 'V');
   agc.addEventListener('click', () => {
     if (!vm || ctx.locked()) return;
-    if (obs().modeLocked) { ctx.note(agc, 'mode is locked for the day'); return; }
+    if (obs().modeLocked) { ctx.note(keys, 'AGC/HAND is set at the briefing: locked for the day', 6000, 'info'); return; }
     if (!ctx.send({type: 'mode', agc: obs().mode !== 'AGC'}, agc)) ctx.cue('key', PAN.keys);
   });
   // ---- A-1 RE-DISPATCH key: re-runs the pre-dispatch over the commitment you have now
   const redis = el(doc, 'button', 'dk-key dk-redispatch');
   redis.id = 'btn-redispatch'; redis.type = 'button';
-  redis.append(el(doc, 'span', 'dk-key-glyph', '⟳'), el(doc, 'span', '', 'RE-DISPATCH'));
-  redis.setAttribute('aria-label', 'RE-DISPATCH: re-plan every lever and the tie from now over the units committed now');
+  const redisGlyph = el(doc, 'span', 'dk-key-glyph', '⟳');
+  redis.append(redisGlyph, el(doc, 'span', '', 'RE-DISPATCH'));
   redis.setAttribute('aria-keyshortcuts', 'N');
   /** A press of the RE-DISPATCH key (click, Enter, or N). True unless the desk is locked. */
   function redispatch() {
     if (!vm || ctx.locked()) return false;
     const r = typeof ctx.actions.redispatch === 'function' ? ctx.actions.redispatch() || '' : 'not available';
-    if (r) ctx.note(redis, '✕ ' + r); else { ctx.cue('button', PAN.keys); ctx.note(redis, '✓ levers re-planned'); ctx.live('RE-DISPATCH: plan re-run'); }
+    if (r) ctx.note(keys, '✕ ' + r); else { ctx.cue('button', PAN.keys); ctx.note(keys, '✓ levers re-planned', undefined, 'info'); ctx.live('RE-DISPATCH: plan re-run'); }
     return true;
   }
   redis.addEventListener('click', redispatch);
-  const keys = el(doc, 'div', 'dk-keys');
   keys.append(el(doc, 'div', 'dk-rot-title', 'CONTROL'), agc, redis);
   keysParent.appendChild(keys);
 
@@ -165,6 +166,15 @@ export function createEmergency(ctx, keysParent, emergParent) {
     setCls(agc, 'hand', !isAgc);
     setAttr(redis, 'aria-disabled', ctx.locked() ? 'true' : 'false');
     setCls(redis, 'glow', !!(vm.glow && vm.glow.has('btn-redispatch')));
+    // held by hand: HELD, not amber alone (K-22); a note when it starts
+    const held = !!vm.held;
+    setCls(redis, 'lit', held);
+    setText(redisGlyph, held ? '⟳ HELD' : '⟳');
+    setAttr(redis, 'title', held ? 'HELD BY HAND: you moved a lever, the HYDRO wheel or the TIE knob, so the dispatch stopped ' +
+      'moving the levers. Press to hand them back.' : 'Re-plan every lever and the tie from now');
+    setAttr(redis, 'aria-label', (held ? 'HELD BY HAND: ' : '') + 'RE-DISPATCH: re-plan every lever and the tie from now over the units committed now');
+    if (held && !wasHeld) ctx.note(keys, 'held by hand: RE-DISPATCH (N) hands the levers back', 6000, 'info');
+    wasHeld = held;
     // RERT
     const r = o.rert;
     setText(rert.face, r.armed ? (r.standingDown ? '◐ STANDING DOWN' : r.leadS > 0 ? '◔ DIESEL ' + mmss(r.leadS) : '● DIESEL ' + mw(r.outMW) + ' MW')

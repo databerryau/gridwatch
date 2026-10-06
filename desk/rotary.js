@@ -182,7 +182,8 @@ export function createHydroWheel(ctx, parent) {
     const dayEnd = V.DAY_S;
     setText(lasts, v <= 0 ? 'GATE SHUT' : until >= dayEnd ? 'LASTS ALL DAY' : (inRed ? '✕ ' : '') + 'LASTS ' + clockOf(until));
     setCls(lasts, 'crit', inRed);
-    setText(store, mw(o.hydro.storageMWh) + ' MWh ' + Math.round(fin(o.hydro.frac) * 100) + '%');
+    setText(store, 'OUT ' + mw(s.outMW) + ' MW · ' + Math.round(fin(o.hydro.frac) * 100) + '%');
+    setAttr(store, 'title', 'Output now, and the reservoir: ' + mw(o.hydro.storageMWh) + ' MWh');
     setCls(box, 'hand', o.mode === 'HAND');
     setCls(box, 'moving', r.moving());
     setCls(box, 'glow', !!(vm.glow && vm.glow.has('wheel-hydro')));
@@ -280,14 +281,16 @@ export function createBatteryDial(ctx, parent) {
     },
     render: () => render(),
   });
+  ring.knob.title = 'GUARD: drag around the outer ring (or G, then ↑ ↓), ' + V.GUARD_STEP_MW + ' MW a step';
   const arc = el(doc, 'div', 'dk-batt-arc');
   face.append(ring.knob, arc, dial.knob);
   const read = el(doc, 'div', 'dk-rot-read');
+  read.title = 'Your order (CHG / IDLE / DIS), then OUT: what the battery does now, MW (− charging; AGC trims it)';
   const lamps = el(doc, 'div', 'dk-lamps');
   const ffr = el(doc, 'span', 'dk-lamp dk-ffr'), full = el(doc, 'span', 'dk-lamp dk-full');
-  lamps.append(ffr, full);
+  lamps.append(ffr);
   title.appendChild(lamps);
-  box.append(title, face, read);
+  box.append(title, face, read, full);
   parent.appendChild(box);
 
   function render() {
@@ -300,18 +303,18 @@ export function createBatteryDial(ctx, parent) {
     setStyle(arc, 'background', 'conic-gradient(from ' + (-KNOB_SWEEP / 2) + 'deg, var(--dk-shade) 0deg ' + lost.toFixed(1) +
       'deg, transparent ' + lost.toFixed(1) + 'deg ' + (KNOB_SWEEP - lost).toFixed(1) + 'deg, var(--dk-shade) ' +
       (KNOB_SWEEP - lost).toFixed(1) + 'deg ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');
-    const word = v > 0 ? '▲ DIS ' : v < 0 ? '▼ CHG ' : '■ IDLE ';
-    setText(read, word + (v ? mw(Math.abs(v)) : '') + ' · ' + smw(b.outMW));
+    setText(read, (v > 0 ? '▲ DIS ' + mw(v) : v < 0 ? '▼ CHG ' + mw(-v) : '■ IDLE') + ' · OUT ' + smw(b.outMW).replace('+', ''));
     setText(soc, Math.round(fin(b.socMWh) / fin(b.capMWh, V.BATT_MWH) * 100) + '%');
     setAttr(soc, 'title', 'state of charge ' + mw(b.socMWh) + ' of ' + mw(b.capMWh) + ' MWh');
-    setText(ffr, b.guardFired ? '⚡ FIRED ' + mw(b.ffrMW) : g > 0 ? '⚡ FFR ' + mw(g) : '○ FFR 0');
+    setText(ffr, b.guardFired ? '⚡ FIRED ' + mw(b.ffrMW) : (g > 0 ? '⚡ GUARD ' : '○ GUARD ') + mw(g));
     setCls(ffr, 'lit', g > 0 && !b.guardFired);
     setCls(ffr, 'fired', !!b.guardFired);
     setAttr(ffr, 'title', 'FFR ARMED: ' + mw(g) + ' MW held back on the GUARD ring, delivered within 1 s of a trip');
     setText(full, b.fullHold ? 'F FULL–HOLD' : b.ufSuspend ? '! UF HOLD' : '');
     setHidden(full, !(b.fullHold || b.ufSuspend));
     setCls(full, 'lit', !!(b.fullHold || b.ufSuspend));
-    setCls(box, 'glow', !!(vm.glow && (vm.glow.has('dial-battery') || vm.glow.has('ring-guard'))));
+    setCls(box, 'glow', !!(vm.glow && vm.glow.has('dial-battery')));
+    setCls(ring.knob, 'glow', !!(vm.glow && vm.glow.has('ring-guard')));
     for (const [k, lo, hi, now, text] of [[ring.knob, 0, GUARD_MAX_MW, g, 'GUARD ' + mw(g) + ' MW' + (b.guardFired ? ' (fired)' : '')],
       [dial.knob, -a, a, v, (v > 0 ? 'discharge ' + mw(v) : v < 0 ? 'charge ' + mw(-v) : 'idle, mode keys order ' + mw(Math.min(mag, a))) +
         ' MW of ' + mw(a) + ' beside the guard, output ' + smw(b.outMW) + ' MW, charge ' +
@@ -339,6 +342,9 @@ export function createBatteryDial(ctx, parent) {
 }
 
 // ---------------------------------------------------------------- K-6 tie knob
+
+/** Tie MW in words: 'IMP 250' (+, in), 'EXP 300' (−, out), '0'. */
+export const tieWords = x => { const r = Math.round(fin(x)); return (r > 0 ? 'IMP ' : r < 0 ? 'EXP ' : '') + Math.abs(r); };
 
 export function createTieKnob(ctx, parent) {
   const doc = ctx.doc;
@@ -394,9 +400,9 @@ export function createTieKnob(ctx, parent) {
       'deg, var(--dk-rim) ' + aCap.toFixed(1) + 'deg ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');
     setStyle(k.pointer, 'transform', 'rotate(' + knobAngle(v, -V.TIE_MAX_MW, V.TIE_MAX_MW).toFixed(1) + 'deg)');
     setStyle(flow, 'transform', 'rotate(' + knobAngle(tt.flowMW, -V.TIE_MAX_MW, V.TIE_MAX_MW).toFixed(1) + 'deg)');
-    setText(rSet, 'SET ' + smw(v));
-    setText(rFlow, 'FLOW ' + smw(tt.flowMW));
-    setText(lamp, tt.tripped ? '✕ TRIP ' + mmss(tt.lockoutS) : '● LINK');
+    setText(rSet, 'SET ' + tieWords(v));
+    setText(rFlow, 'FLOW ' + tieWords(tt.flowMW));
+    setText(lamp, tt.tripped ? '✕ TRIP ' + mmss(tt.lockoutS) : '● LINK OK');
     setCls(lamp, 'crit', !!tt.tripped);
     setCls(lamp, 'lit', !tt.tripped);
     setCls(box, 'capped', cap < V.TIE_MAX_MW);

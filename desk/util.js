@@ -113,26 +113,31 @@ export const CLASS_GLYPH = Object.freeze({good: '✓', warn: '!', crit: '✕'});
 
 // ---------------------------------------------------------------- guards and holds (K-3, K-7)
 
-export const GUARD_MS = 2000;   // K-3: lift, then press within 2 s (S S / X X within 2 s)
-export const HOLD_MS = 600;     // K-7: emergency controls commit only after a 0.6-s hold
+export const GUARD_MS = 2000;         // K-3: S S / X X within 2 s
+export const GUARD_CLICK_MS = 5000;   // K-3: click, click again within 5 s
+export const COMMIT_LOCK_MS = 1000;   // K-3: a unit's guards rest 1 s after a commit
+export const HOLD_MS = 600;           // K-7: emergency controls commit only after a 0.6-s hold
 
 /**
- * Guard covers: the first press lifts the cover for GUARD_MS, a second press while it is up
- * commits. Time comes from `now()` (the desk's frame clock), never from timers.
+ * Guard covers: the first press lifts the cover for `ms`, a second press while it is up
+ * commits; a lift drops any other. Time comes from `now()` (the desk's frame clock), never from timers.
  */
 export function makeGuards(now) {
-  const lifted = new Map();
+  const lifted = new Map(), locks = new Map();
   return {
-    press(id, commit) {
+    press(id, commit, ms = GUARD_MS) {
       const t = now(), u = lifted.get(id);
       if (u !== undefined && t <= u) { lifted.delete(id); commit(); return 'commit'; }
-      lifted.set(id, t + GUARD_MS);
+      lifted.clear();
+      lifted.set(id, t + ms);
       return 'lift';
     },
-    lift(id) { lifted.set(id, now() + GUARD_MS); },
     lifted(id) { const u = lifted.get(id); return u !== undefined && now() <= u; },
     drop(id) { lifted.delete(id); },
     expire() { const t = now(); for (const [k, u] of lifted) if (t > u) lifted.delete(k); },
+    lock: key => locks.set(key, now() + COMMIT_LOCK_MS),
+    locked: key => now() < locks.get(key),
+    clear() { lifted.clear(); locks.clear(); },
   };
 }
 

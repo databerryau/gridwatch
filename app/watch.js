@@ -23,7 +23,7 @@
 // The respond card (K-16) is <= 4 lines, with no buttons: the nadir against the standard, the
 // MW each source caught (the record's caught at the extreme, which is the trace value at the
 // nadir), the problem in plain words (the H-4 level, R5 - L if short, the 30:00 countdown from
-// secureByTick, dark districts), and "Enter to take the desk".
+// secureByTick, dark districts), and "Enter (or a click) to take the desk".
 
 import {V} from '../sim/params.js';
 
@@ -184,7 +184,8 @@ export function respondCard(obs, c, o) {
   const caught = c.caught;
   const battery = caught.batteryMW + caught.guardMW;
   // Inertia comes first and carries the whole hole at the start, but at the extreme (where
-  // df/dt = 0) its catch is about zero, so it is named without a number (§4.1's card).
+  // df/dt = 0) its catch is about zero, so it is named without a number (§4.1's card), as the
+  // BALANCE bar names it: spin.
   const falls = c.lostMW >= 0, inverter = caught.inverterMW || 0;
   const parts = (falls
     ? [['battery', battery], ['governors', caught.governorsMW], ['load relief', caught.loadReliefMW], ['UFLS', caught.uflsMW]]
@@ -200,7 +201,7 @@ export function respondCard(obs, c, o) {
   const line1 = (falls ? 'NADIR ' : 'PEAK ') + f3(nadir) + ' Hz: ' + (contained ? 'contained within ' : 'OUTSIDE ') +
     lo.toFixed(1) + '–' + hi.toFixed(1) + ' Hz ' + (contained ? '✓' : '✗') + '. Back to ' + V.NORMAL_LO_HZ.toFixed(2) + '–' +
     V.NORMAL_HI_HZ.toFixed(2) + ' Hz within ' + mmss(V.FOS_RECOVER_S) + '.';
-  const line2 = 'Caught by: ' + ['inertia', ...parts.map(p => p[0] + ' ' + mw(p[1]) + ' MW')].join(' → ') + '.';
+  const line2 = 'Caught by: ' + ['spin', ...parts.map(p => p[0] + ' ' + mw(p[1]) + ' MW')].join(' → ') + '.';
   const sec = obs.sec, short = Math.max(0, sec.lMW - sec.r5MW);
   const secureInS = Math.max(0, (c.secureByTick - obs.tick) / TPS);
   const dark = obs.districts.filter(d => d.dark);
@@ -216,7 +217,7 @@ export function respondCard(obs, c, o) {
   if (dark.length) glow.add('bay-restore');
   return {
     n: c.n,
-    lines: [line1, line2, problem, 'Enter to take the desk.'],
+    lines: [line1, line2, problem, 'Enter (or a click) to take the desk.'],
     numbers: {nadirHz: nadir, contained, caught: {inertiaMW: caught.inertiaMW, batteryMW: battery, governorsMW: caught.governorsMW,
       loadReliefMW: caught.loadReliefMW, uflsMW: caught.uflsMW, inverterMW: inverter}, shortMW: short, secureInS, darkCount: dark.length, darkMW,
     level: sec.level},

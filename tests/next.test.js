@@ -18,7 +18,8 @@ import * as W from '../app/watch.js';
 import * as K from '../app/keys.js';
 import * as PF from '../app/perf.js';
 import * as D from '../app/director.js';
-import {bootGame, layoutSizes, createLive, liveFrame, bandOf, LIVE_GAP_MS, objectiveWord, CONSIDER_WORD, dayText} from '../app/shell.js';
+import {bootGame, layoutSizes, createLive, liveFrame, bandOf, LIVE_GAP_MS, objectiveWord, CONSIDER_WORD, ARMED_WORD, UNDER_WAY_WORD,
+  dayText} from '../app/shell.js';
 import {traceOf, createRecorder, commitMinute, MINUTE_FIELDS, CAUGHT_KEYS} from '../app/record.js';
 import * as SYS from '../app/system.js';
 import * as PVW from '../app/planview.js';
@@ -28,6 +29,10 @@ import {TEXT} from '../content/text.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const TPS = V.TICKS_PER_S;
+// What #objective shows (a line of LINE_MAX_CHARS with the paused note or the ARMED prompt) wraps to
+// at most two rows at 1280 px: the expanded Live Stack ends above two (next.html, C18). Measured in
+// the browser at 1280x768: 300 characters of capitals take two rows (385 of the line's own words).
+const SHOWN_MAX_CHARS = 300;
 const NEXT = readFileSync(join(ROOT, 'next.html'), 'utf8');
 const BENCH = readFileSync(join(ROOT, 'bench.html'), 'utf8');
 
@@ -71,6 +76,19 @@ test('K-17: header 32 px, desk max(300, half the rest), map the rest; the CSS sa
   assert.match(NEXT, /--hdr: 32px/);
   assert.match(NEXT, /@media \(min-width: 1600px\) \{ :root \{ --hdr: 40px; \} \}/);
   assert.match(NEXT, /min-width: 1280px/);
+  // L-4 (C18): the expanded Live Stack is sized by the variables render/livestack.js reads, set on its
+  // parent #stack-overlay, so it ends above the objective line's two rows (41 px) and the lever bank
+  // (checked in the browser at 1280x768: the stack 40-350, the line from 359, the levers from 429)
+  const rule = /#stack-overlay \{([^}]*)\}/.exec(NEXT)[1];
+  assert.match(rule, /--stack-expanded-top: calc\(var\(--hdr\) \+ 8px\);/);
+  assert.match(rule, /--stack-expanded-h: min\(420px, calc\(100vh - max\(300px, \(100vh - var\(--hdr\)\) \/ 2\) - var\(--hdr\) - 58px\)\);/);
+  assert.match(rule, /top: var\(--stack-expanded-top\);[^]*height: var\(--stack-expanded-h\);/);
+  const LS = readFileSync(join(ROOT, 'render/livestack.js'), 'utf8');
+  for (const v of ['--stack-expanded-top', '--stack-expanded-h']) assert.ok(LS.includes('var(' + v + ','), 'render/livestack.js reads ' + v);
+  for (const [w, h] of [[1280, 768], [1440, 900], [1920, 1080]]) {
+    const L = layoutSizes(w, h), bottom = L.header + 8 + Math.min(420, h - L.desk - L.header - 58);
+    assert.ok(bottom <= h - L.desk - 41, w + 'x' + h + ': the stack ends at ' + bottom);
+  }
 });
 
 test('C-3 / C-8: no location.reload anywhere; every localStorage access in the shell is wrapped', () => {
@@ -88,7 +106,7 @@ test('C-3 / C-8: no location.reload anywhere; every localStorage access in the s
 // ------------------------------------------------------------------ stand-in modules (contract shapes only)
 
 const VM_KEYS = ['obs', 'mode', 'frame', 'alarms', 'tray', 'focus', 'hover', 'stackExpanded', 'previewOn', 'previewGuardMW', 'offers',
-  'respond', 'glow', 'hist', 'settings', 'settingsOpen', 'cues'];
+  'respond', 'glow', 'hist', 'settings', 'settingsOpen', 'cues', 'armed', 'held'];
 
 function stubModules() {
   const seen = {map: [], desk: [], stack: []};
@@ -353,13 +371,60 @@ test('K-15 / K-16 through the shell: vignette and stopwatch, beats in physical o
   assert.match($('rate-text').textContent, /^(RESPOND 30×|CRUISE 120×)$/);
 });
 
+test('K-16 via the shell: the respond card goes with a click on it, as with Enter (a press on the desk: the K-9 test)', () => {
+  const {$, h, frames} = boot('?seed=3');
+  const game = h.game, card = $('respond-card');
+  game.phase = 'play'; game.director.paused = false; // the desk at 04:00, running (not the headless half hour to 04:30)
+  // a trip, run headless through its watch to the card
+  injectTrip(game.state, Math.floor(game.state.tick / TPS) + 1);
+  G.runTo(game, game.state.tick + (V.WATCH_S + 2) * TPS);
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'RESPOND-CARD');
+  assert.equal(card.hidden, false);
+  assert.equal(card.querySelectorAll('p').at(-1).textContent, 'Enter (or a click) to take the desk.');
+  assert.equal(card.querySelectorAll('button').length, 0, 'still no action on the card');
+  card.click();
+  frames(1);
+  assert.equal(h.vm().respond, null);
+  assert.equal(card.hidden, true);
+  assert.notEqual(h.vm().mode.mode, 'RESPOND-CARD');
+});
+
+test('C-4 / F-5: the briefing says where START is and that Space pauses; a click on the rate badge pauses and runs, as Space does', () => {
+  const how = /<p id="briefing-how"[^>]*>([^<]*)<\/p>/.exec(NEXT)[1];
+  assert.match(how, /click its ○ button on the lever bank \(hydro units: beside the HYDRO wheel\); it turns into START\?, so click it again to confirm\./);
+  assert.match(how, /Keys: 1–5 pick a lever \(6 the HYDRO wheel\), then S S\./);
+  assert.match(how, /The battery's outer ring is its GUARD/);
+  assert.match(how, /Space pauses at any time, and you can act while paused/);
+  assert.match(/<div id="rate-badge"([^>]*)>/.exec(NEXT)[1], /title="[^"]*Click or Space: pause \/ run"/);
+  assert.match(NEXT, /#rate-badge \{[^}]*cursor: pointer;/);
+  const {$, h, frames} = boot('?seed=7');
+  frames(1);
+  $('rate-badge').click();
+  frames(1);
+  assert.equal(h.game.phase, 'briefing', 'nothing to run behind the briefing');
+  assert.equal(h.vm().mode.mode, 'PAUSE');
+  h.game.phase = 'play'; // the desk at 04:00 (TAKE THE DESK runs the half hour to 04:30 headless: not this test's)
+  $('rate-badge').click();
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'CRUISE');
+  $('rate-badge').click();
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'PAUSE');
+  $('rate-text').click();   // the text inside it
+  frames(1);
+  assert.equal(h.vm().mode.mode, 'CRUISE');
+});
+
 test('K-9 via the shell: a tray button only focuses (the sim never changes)', () => {
   const {h, frames, $} = boot('?seed=3');
   $('btn-take').click();
   injectTrip(h.game.state, Math.floor(h.game.state.tick / TPS) + 30);
   while (!h.game.respond) frames(1);
-  h.actions.ui({do: 'dismissRespond'});
+  // K-16: a press anywhere on the desk takes it, as Enter does
+  $('stack-slot').dispatch('pointerdown');
   frames(1);
+  assert.equal(h.vm().respond, null, 'a press on the desk dismissed the card');
   const cards = h.vm().tray.cards;
   assert.ok(cards.length >= 1, 'the trip made a card');
   const hash = hashState(h.game.state), logN = h.game.state.log.length;
@@ -372,8 +437,8 @@ test('K-9 via the shell: a tray button only focuses (the sim never changes)', ()
   assert.equal(h.game.state.log.length, logN);
 });
 
-test('H-14 via the shell: a "?" beside each game anchor on the page opens its text; the drawer lists all', () => {
-  const {$, doc, frames} = boot('?seed=7');
+test('H-14 via the shell: a "?" beside each game anchor on the page opens its text; the drawer lists all, and the floating ones show with it', () => {
+  const {$, doc, frames, key} = boot('?seed=7');
   frames(1);
   const qs = doc.querySelectorAll('button.q');
   const anchors = new Set(qs.map(q => q.dataset.anchor));
@@ -386,9 +451,18 @@ test('H-14 via the shell: a "?" beside each game anchor on the page opens its te
   assert.match($('popover').textContent, /Real world: .*GRIDWATCH: .*Why: /s);
   doc.body.dispatch('click');
   assert.equal($('popover').hidden, true);
+  // the floating "?" (not the header's inline ones) show with the drawer, never over the controls in play
+  assert.equal(doc.body.classList.contains('q-on'), false);
+  assert.match(NEXT, /body:not\(\.q-on\) #q-layer \{ display: none; \}/);
+  assert.ok($('q-layer').contains(q) && !$('q-layer').contains(qs.find(x => x.dataset.anchor === 'rate-badge')));
   $('btn-help').click();
   frames(1);
   assert.equal($('drawer').querySelectorAll('article').length, TEXT.abstractions.length);
+  assert.equal(doc.body.classList.contains('q-on'), true, 'shown with the drawer');
+  key('Escape');
+  frames(1);
+  assert.equal($('drawer').hidden, true);
+  assert.equal(doc.body.classList.contains('q-on'), false, 'and gone with it');
 });
 
 test('F-6 / C-3 via the shell: the day ends with the end card; its replay log reproduces the day; PLAY AGAIN resets in place', () => {
@@ -543,10 +617,11 @@ test('K-15 / K-16, a loss of load: the beats read the rise, the caption and the 
   // the other sign (synthetic): inverters that were backed off give it back after a loss of supply
   const fall = Object.assign({}, obs.contingency, {lostMW: 600, extremeHz: 49.41,
     caught: {inertiaMW: 0, batteryMW: 100, guardMW: 20, governorsMW: 300, loadReliefMW: 30, uflsMW: 0, inverterMW: 40}});
-  assert.equal(W.respondCard(obs, fall).lines[1], 'Caught by: inertia → battery 120 MW → governors 300 MW → solar and wind gave back 40 MW → load relief 30 MW.');
+  // (inertia by the BALANCE bar's word for it: spin)
+  assert.equal(W.respondCard(obs, fall).lines[1], 'Caught by: spin → battery 120 MW → governors 300 MW → solar and wind gave back 40 MW → load relief 30 MW.');
   // a record from before Phase 2a (no inverterMW) still makes a card
   const old = Object.assign({}, fall, {caught: {inertiaMW: 0, batteryMW: 100, guardMW: 20, governorsMW: 300, loadReliefMW: 30, uflsMW: 0}});
-  assert.equal(W.respondCard(obs, old).lines[1], 'Caught by: inertia → battery 120 MW → governors 300 MW → load relief 30 MW.');
+  assert.equal(W.respondCard(obs, old).lines[1], 'Caught by: spin → battery 120 MW → governors 300 MW → load relief 30 MW.');
   // app/record.js: the minutes carry the load before rooftop and the rooftop bite
   assert.deepEqual(MINUTE_FIELDS.slice(-2), ['underlying', 'rooftop']);
   const rec = createRecorder(), noon = structuredClone(obs);
@@ -560,13 +635,13 @@ test('K-15 / K-16, a loss of load: the beats read the rise, the caption and the 
   assert.deepEqual([rec.minute.underlying[k], rec.minute.rooftop[k]], [3600, 0], 'an observation from before Phase 2a: all of it underlying');
 });
 
-test('Q-18 / K-22: the word beside the objective is by level, and by kind where the level\'s word would mislead (a STOP or BATTERY line never reads SHORT)', () => {
+test('Q-18 / K-22: the word beside the objective is by level, and by kind where the level\'s word would mislead (a STOP or BATTERY line never reads URGENT); never the BALANCE bar\'s SHORT', () => {
   assert.equal(objectiveWord({kind: 'quiet', level: 'ok'}), '✓ STEADY');
   assert.equal(objectiveWord({kind: 'commit', level: 'plan'}), '◷ PLAN');
   assert.equal(objectiveWord({kind: 'commit', level: 'act'}), '▶ ACT NOW');
-  assert.equal(objectiveWord({kind: 'commit', level: 'crit'}), '‼ SHORT');
-  assert.equal(objectiveWord({kind: 'short', level: 'crit'}), '‼ SHORT');
-  assert.equal(objectiveWord({kind: 'held', level: 'crit'}), '‼ SHORT');
+  assert.equal(objectiveWord({kind: 'commit', level: 'crit'}), '‼ URGENT');
+  assert.equal(objectiveWord({kind: 'short', level: 'crit'}), '‼ URGENT');
+  assert.equal(objectiveWord({kind: 'held', level: 'crit'}), '‼ URGENT');
   assert.equal(objectiveWord({kind: 'stop', level: 'plan'}), '◇ SAVING');
   assert.equal(objectiveWord({kind: 'battery', level: 'plan'}), '◇ BATTERY');
   assert.equal(objectiveWord({kind: 'spare', level: 'plan'}), '◷ SPARE');
@@ -574,14 +649,17 @@ test('Q-18 / K-22: the word beside the objective is by level, and by kind where 
   assert.equal(objectiveWord({kind: 'watch', level: 'act'}), '◉ WATCH');
   for (const kind of ['stop', 'battery', 'spare', 'restore', 'watch']) for (const level of ['ok', 'plan', 'act', 'crit']) {
     const w = objectiveWord({kind, level});
-    assert.ok(w.length > 2 && !/SHORT/.test(w), kind + ' ' + level + ': ' + w);
+    assert.ok(w.length > 2 && !/URGENT/.test(w), kind + ' ' + level + ': ' + w);
     assert.match(w, /^\S [A-Z ]+$/, 'a glyph and a word, never colour alone: ' + w);
+  }
+  for (const kind of ['quiet', 'commit', 'short', 'held', 'stop', 'battery', 'spare', 'restore', 'watch']) {
+    for (const level of ['ok', 'plan', 'act', 'crit']) assert.doesNotMatch(objectiveWord({kind, level}), /SHORT/, 'the BALANCE bar\'s word: ' + kind + ' ' + level);
   }
   assert.equal(objectiveWord(null), '');
   assert.equal(CONSIDER_WORD, '? IF PRESSED');
 });
 
-test('C-10 via the shell: while a guard is under the player\'s hand the line says what the press would do, as "? IF PRESSED" with its level\'s class', () => {
+test('C-10 via the shell: while a guard is under the player\'s hand the line says what the press would do, as "? IF PRESSED" with its level\'s class; "● ARMED" while its cover is up, "✓ UNDER WAY" once started', () => {
   const {$, h, frames} = boot('?seed=7', {system: SYS, planview: PVW, scenario: DESK, commit: 'player', startPaused: true});
   $('btn-take').click();
   frames(2);
@@ -590,28 +668,71 @@ test('C-10 via the shell: while a guard is under the player\'s hand the line say
   const o = h.vm().objective;
   assert.equal($('objective-level').textContent, objectiveWord(o));
   assert.equal($('objective').className, o.level);
+  assert.equal($('objective-text').textContent, o.text + '  ·  Clock held: press Space to run (you can act while paused).');
   assert.equal(h.vm().consider, null);
+  // the longest line with the paused note still fits the line's two rows at 1280 px
+  const long = 'Start CCGT 2 now: ' + 'w'.repeat(LINE_MAX_CHARS - 18);
+  h.game.objective = Object.assign({}, o, {text: long});
+  frames(1);
+  assert.ok($('objective-text').textContent.startsWith(long) && $('objective-text').textContent.length <= SHOWN_MAX_CHARS, $('objective-text').textContent.length + ' characters');
+  h.game.objective = o;
   // STOP on a coal machine at 04:30: the line says what it would cost, before the press
   assert.equal(h.actions.ui({do: 'consider', target: 'guard-stop-coal1'}), '');
   frames(1);
   const c = h.vm().consider;
   assert.deepEqual(Object.keys(c), ['target', 'text', 'level']);
   assert.equal(c.target, 'guard-stop-coal1');
-  assert.match(c.text, /^STOP MT HAZEL COAL 1: off the grid in \d h \d\d, and not back at minimum load before \d\d:\d\d\./);
+  assert.match(c.text, /^STOP COAL 1: off the grid in \d h \d\d, and not back at minimum load before \d\d:\d\d\./);
   assert.equal(c.level, 'crit');
   assert.equal($('objective-level').textContent, CONSIDER_WORD);
   assert.equal($('objective-text').textContent, c.text);
   assert.equal($('objective').className, 'crit consider');
   assert.equal(h.vm().objective.text, o.text, 'the objective itself is unchanged underneath');
-  // START on the CCGT: a plan-level line
-  h.actions.ui({do: 'consider', target: 'guard-start-ccgt2'});
+  // its cover up (the desk says so: ui armed): the next press commits, and the word says so; a
+  // critical consequence stays red
+  assert.equal(h.actions.ui({do: 'armed', target: 'guard-stop-coal1', on: true}), '');
   frames(1);
-  assert.match($('objective-text').textContent, /^START RIVERTON CCGT 2: at minimum load \(175 MW\) by 05:19, 49 min from now, and it must then run 4 h\. /);
+  assert.equal($('objective-level').textContent, ARMED_WORD);
+  assert.equal($('objective-text').textContent, 'Press again to confirm. ' + c.text);
+  assert.equal($('objective').className, 'crit consider');
+  h.actions.ui({do: 'armed', target: 'guard-stop-coal1', on: false});
+  // START on the CCGT: a plan-level line; another guard's cover up changes nothing
+  h.actions.ui({do: 'consider', target: 'guard-start-ccgt2'});
+  h.actions.ui({do: 'armed', target: 'guard-start-gta1', on: true});
+  frames(1);
+  const head = /^START CCGT 2: at minimum load \(175 MW\) by 05:19, 49 min from now, and it must then run 4 h\. /;
+  assert.match($('objective-text').textContent, head);
+  assert.equal($('objective-level').textContent, CONSIDER_WORD);
   assert.equal($('objective').className, 'plan consider');
-  // a press that does nothing says so; a target that is not a guard, or none, gives the objective back
+  // its own cover up: ARMED, in amber
+  h.actions.ui({do: 'armed', target: 'guard-start-ccgt2', on: true});
+  frames(1);
+  assert.equal(h.vm().armed, 'guard-start-ccgt2');
+  assert.equal($('objective-level').textContent, ARMED_WORD);
+  assert.equal($('objective-text').textContent, 'Press again to confirm. ' + h.vm().consider.text);
+  assert.match(h.vm().consider.text, head);
+  assert.equal($('objective').className, 'act consider');
+  // the longest consequence with the ARMED prompt fits too
+  const said = h.game.consider;
+  h.game.consider = Object.assign({}, said, {text: long});
+  frames(1);
+  assert.ok($('objective-text').textContent.endsWith(long) && $('objective-text').textContent.length <= SHOWN_MAX_CHARS, $('objective-text').textContent.length + ' characters');
+  h.game.consider = said;
+  // the second press drops the cover and sends the START: with the pointer still on the guard, the
+  // line says the unit is under way
+  h.actions.ui({do: 'armed', target: 'guard-start-ccgt2', on: false});
+  assert.equal(h.actions.input({type: 'start', unit: 'ccgt2'}), '');
+  frames(1);
+  assert.equal(h.vm().armed, null);
+  assert.equal($('objective-level').textContent, UNDER_WAY_WORD);
+  assert.match($('objective-text').textContent, /^CCGT 2 is starting: full speed at \d\d:\d\d, at minimum load by \d\d:\d\d\.$/);
+  assert.equal($('objective').className, 'ok consider');
+  // a press that would do nothing (START on a unit that is on) gives the objective back, as does a
+  // target that is not a guard, or none
   h.actions.ui({do: 'consider', target: 'guard-start-coal1'});
   frames(1);
-  assert.equal($('objective-text').textContent, 'START MT HAZEL COAL 1 does nothing: the unit is on.');
+  assert.equal(h.vm().consider, null);
+  assert.equal($('objective-level').textContent, objectiveWord(h.vm().objective));
   for (const target of ['dial-battery', null]) {
     h.actions.ui({do: 'consider', target: 'guard-stop-coal1'});
     frames(1);
@@ -739,7 +860,7 @@ test('F-11: one projection and one day-ahead forecast per line; a new consider t
   const held = game.objectiveHeld;
   assert.equal(G.ui(game, {do: 'consider', target: 'guard-stop-coal1'}), '');
   const vm = G.buildVm(game, {nowMs: 16, dtS: 0});
-  assert.match(vm.consider.text, /^STOP MT HAZEL COAL 1: off the grid in /);
+  assert.match(vm.consider.text, /^STOP COAL 1: off the grid in /);
   assert.equal(projects, 1, 'a new target: no new projection and no new line');
   assert.equal(game.objectiveHeld, held);
   // the line's own cadence still runs, and an accepted input still refreshes both at once

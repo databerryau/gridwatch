@@ -59,7 +59,7 @@
 //
 //   consequence(obs, target, {planview, dayAhead}) -> {target, text, level} | null
 //     what a guarded press would do, said before it is made (C-10): target is
-//     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'plan' | 'crit'.
+//     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
 //
 //   steady(held, next, s) -> {line, seenS, sinceS}
 //     the line as the desk shows it: a line whose deadline or figure moves with each forecast while
@@ -70,6 +70,7 @@
 import {V} from '../sim/params.js';
 import {SCENARIOS} from '../content/scenarios.js';
 import {clockText, priceText} from '../render/format.js';
+import {unitLabel} from '../desk/util.js';
 
 /** The objective line and the consequence line are one line each: at most this many characters (§21.4). */
 export const LINE_MAX_CHARS = 170;
@@ -152,7 +153,7 @@ const mark = s => Math.floor(s / V.FC_STEP_S) * V.FC_STEP_S;
 const atMark = s => at(mark(s));
 // A clock time that may fall after the day's end (04:00): '05:14 tomorrow'.
 const atDay = s => at(s) + (s >= DAY_S ? ' tomorrow' : '');
-const unitName = id => { const m = M.find(x => x.id === id); return m ? m.name.toUpperCase() : id; };
+const unitName = unitLabel; // the desk's: 'CCGT 2', 'GT·A'
 const pctText = b => Math.round(100 * b.socMWh / b.capMWh) + '%';
 const partOfDay = s => { const h = (V.DAY_START_H + s / S_PER_H) % V.DAY_H; return h >= 4 && h < 12 ? 'the morning' : h < 17 ? 'the afternoon' : h < 22 ? 'the evening' : 'tonight'; };
 
@@ -419,10 +420,11 @@ function tripped(c) {
 
 /**
  * @param {object} obs observe(state)
- * @param {{edited?:boolean, planview:object, proj?:object, dayAhead?:object|null}} ctx edited: the
+ * @param {{edited?:boolean, planview:object, proj?:object, dayAhead?:object|null, leadS?:number}} ctx edited: the
  *   player holds levers by hand (app/system.js sys.edited); planview: app/planview.js; proj: its
  *   project(obs) if the caller already has it; dayAhead: observe(state, {dayAhead: true}).dayAhead,
- *   the forecast to 04:00 (without it the line looks 4.5 h ahead only)
+ *   the forecast to 04:00 (without it the line looks 4.5 h ahead only); leadS: grid seconds more
+ *   to a START's ACT_WITHIN_S (the game's reading time; default 0)
  */
 export function objective(obs, ctx) {
   const PV = ctx.planview;
@@ -433,7 +435,7 @@ export function objective(obs, ctx) {
   const day = ctx.dayAhead || obs.forecast;
   const reds = PV.redRuns(proj);
   const long = (PV.blueRuns ? PV.blueRuns(proj)[0] : null) || null;
-  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV};
+  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV, act: ACT_WITHIN_S + (ctx.leadS || 0)};
   // the plan's largest deficit in the columns within NOW_S (never a later column of the same red run)
   X.redNowMW = 0;
   for (let k = 0; k < proj.n && proj.times[k] - s <= NOW_S; k++) if (proj.gap[k] === 'red' && proj.deficit[k] > X.redNowMW) X.redNowMW = proj.deficit[k];
@@ -444,8 +446,8 @@ export function objective(obs, ctx) {
   const heldRed = ctx.edited ? red || reds.find(r => r.mw >= SHORT_MIN_MW) || null : null;
   if (heldRed) {
     const now = heldRed.atS - s <= NOW_S;
-    return line({level: 'crit', kind: 'held', text: 'Short ' + mwText(now ? Math.max(X.redNowMW, SHORT_MIN_MW) : heldRed.mw) + (now ? ' now' : ' from ' + at(heldRed.atS)) +
-      ' with levers held by hand. RE-DISPATCH (N) hands every lever back to the plan.', targets: ['btn-redispatch'], action: {redispatch: true}, startBy: s});
+    return line({level: 'crit', kind: 'held', text: 'With levers held by hand the plan is ' + mwText(now ? Math.max(X.redNowMW, SHORT_MIN_MW) : heldRed.mw) + ' below demand' +
+      (now ? ' now' : ' from ' + at(heldRed.atS)) + '. RE-DISPATCH (N) hands every lever back to the plan.', targets: ['btn-redispatch'], action: {redispatch: true}, startBy: s});
   }
 
   // 2. Short right now: the fast answers.
@@ -570,7 +572,7 @@ function shortHead(X, fromS, thin) {
   if (thin.real && !nowish) return 'You will be ' + mwText(thin.mw) + ' short from ' + needAt(thin, fromS) + '. ';
   if (thin.real) {
     const R = realShort(X);
-    return R.nowMW >= BATT_MIN_MW ? 'You are ' + figure(R.nowMW) + ' short now. ' : 'Within the hour you will be up to ' + mwText(thin.mw) + ' short of a safe margin. ';
+    return R.nowMW >= BATT_MIN_MW ? 'Your units are ' + figure(R.nowMW) + ' below demand now. ' : 'Within the hour you will be up to ' + mwText(thin.mw) + ' short of a safe margin. ';
   }
   if (!nowish) return 'From about ' + needAt(thin, fromS) + ' one trip would leave you short. ';
   return (recentTrip(X.obs) ? 'Another' : 'One') + ' trip now would leave you short. ';
@@ -696,18 +698,19 @@ function shortNow(X, line) {
   }
   // One start, for the part of the shortfall it can still reach (lookAhead); never a second for the same gap.
   const A = lookAhead(X);
-  if (A && A.unit && A.startBy - s <= ACT_WITHIN_S) {
+  if (A && A.unit && A.startBy - s <= X.act) {
     fast.push({id: A.unit.id, say: 'start ' + unitName(A.unit.unit) + ' (' + minText(A.unit.lead) + ')', action: {type: 'start', unit: A.unit.unit}});
   }
   // Demand response when neither can answer: a call is dear and there are few.
   if (!fast.length && obs.dr.callsLeft > 0 && !(obs.dr.activeS > 0)) fast.push({id: 'btn-dr', say: 'call demand response (hold D): industry cuts ' + mwText(V.DR_MW) + ' for ' + spanText(V.DR_DURATION_S), action: {type: 'callDR'}});
-  let text;
+  // (not "short": the BALANCE bar's word)
+  let text = 'The plan is ' + figure(mw) + ' below demand now';
   if (fast.length) {
-    text = 'Short ' + figure(mw) + ' now: ' + fast.map(f => f.say).join(', or ') + '.';
+    text += ': ' + fast.map(f => f.say).join(', or ') + '.';
     if (fast[0].id === 'dial-battery' && text.length <= 145) text += ' It answers in seconds.';
   } else {
     const a = arriving(obs);
-    text = 'Short ' + figure(mw) + ' now. ' + (a ? a.name + ' arrives at ' + at(a.atS) + '; until then ' + carries(obs) + '.' : 'Everything that can help is already on its way.');
+    text += '. ' + (a ? a.name + ' arrives at ' + at(a.atS) + '; until then ' + carries(obs) + '.' : 'Everything that can help is already on its way.');
   }
   return line({level: 'crit', kind: 'short', text, targets: fast.map(f => f.id), action: fast.length ? fast[0].action : null, startBy: s});
 }
@@ -718,7 +721,7 @@ function commitNow(X, line) {
   if (!A) return null;
   if (A.unit) {
     if (A.reach.atS - s > V.FC_HORIZON_S) return null; // commit-later's
-    const c = A.unit, act = A.startBy - s <= ACT_WITHIN_S, name = unitName(c.unit);
+    const c = A.unit, act = A.startBy - s <= X.act, name = unitName(c.unit);
     // a shortfall that begins before any start can arrive: say what carries it meanwhile, and only
     // a gap the desk really has (the real check), never the margin's
     const late = A.first.atS < A.reach.atS && A.first.endS >= A.reach.atS - X.day.stepS;
@@ -743,7 +746,7 @@ function commitNow(X, line) {
   if (!late || !beyondReserves(obs, R, late)) return null;
   const head = 'You will be ' + figure(hourOf(R, late)) + ' short from ' + atMark(late.crossS) + ', more than the battery and demand response can carry. ';
   if (obs.rert.armed) return line({level: 'crit', kind: 'commit', text: head + (obs.rert.standingDown ? 'The reserve diesel is standing down: it can be armed again once it is off.' : 'The reserve diesel is on its way.'), startBy: s, short: pub(late)});
-  const arm = late.atS - s <= V.RERT_LEAD_S + ACT_WITHIN_S;
+  const arm = late.atS - s <= V.RERT_LEAD_S + ACT_WITHIN_S; // (not X.act: spare()'s 45 min)
   return line({level: 'crit', kind: 'commit', text: head + 'The reserve diesel (hold E) takes 20 min and costs dearly' + (arm ? '.' : ': arm it by ' + atMark(late.atS - V.RERT_LEAD_S) + '.'),
     targets: ['key-rert'], action: arm ? {type: 'armRERT'} : null, startBy: s, short: pub(late)});
 }
@@ -1145,16 +1148,17 @@ function commitLater(X, line) {
 
 /**
  * What a guarded press would do, before it is made (desk/README.md §19.5, C-10). Covers START,
- * STOP, CANCEL START and a press that would be refused (its reason); a press that opens the
- * synchroscope or aborts a stop returns null. Every time is computed from the unit's own times
- * (V.MACHINES; C-12: minimum down time runs from breaker open to the next START).
+ * STOP, CANCEL START and a press that would be refused (its reason); a unit on its way says where
+ * it is (starting: level 'ok'); a press that would do nothing returns null.
+ * Every time is computed from the unit's own times (V.MACHINES; C-12: minimum down time runs from
+ * breaker open to the next START).
  * @param {object} obs observe(state)
  * @param {string|null} target 'guard-start-<unit>' | 'guard-stop-<unit>'
  * @param {{dayAhead?:object|null, planview?:object}} [ctx]
  * A STOP that opens a shortfall says what the press itself costs: the MW that would be missing
  * that are not missing already (the evening's units not yet started are the objective's to ask
  * for, not this press's doing).
- * @returns {{target:string, text:string, level:'plan'|'crit'}|null} level 'crit' when the press
+ * @returns {{target:string, text:string, level:'ok'|'plan'|'crit'}|null} level 'crit' when the press
  *   opens a shortfall the unit cannot be back for
  */
 export function consequence(obs, target, ctx = {}) {
@@ -1165,10 +1169,12 @@ export function consequence(obs, target, ctx = {}) {
   const m = M.find(x => x.id === u.id), s = obs.s, name = unitName(u.id), day = ctx.dayAhead || obs.forecast;
   const out = (text, level = 'plan') => ({target, text, level});
   const reason = why => why.replace(/^unit is /, 'the unit is ').replace(/: (\d+) min left$/, (x, n) => ', ' + spanText(n * S_PER_MIN) + ' left');
+  const syncS = obs.mode === 'AGC' ? AUTO : 0, onGrid = u.minMW > 0 ? 'at minimum load' : 'on the grid';
   if (hit[1] === 'start') {
-    if (u.mode === 'ready') return null; // opens the synchroscope
+    if (u.mode === 'starting') return out(name + ' is starting: full speed at ' + atDay(s + u.timerS) + (syncS ? ', ' + onGrid + ' by ' + atDay(s + u.timerS + syncS + m.t2S) : '; then SYNC it by hand') + '.', 'ok');
+    if (u.mode === 'ready') return out(name + ' is at full speed: a press opens the synchroscope (the clock runs at 1×)' + (syncS ? '; auto-sync closes its breaker at ' + atDay(s + u.timerS) : '') + '.');
     if (u.mode === 'tripped') return out('START ' + name + ' is blocked: it tripped and is locked out for another ' + spanText(u.timerS) + '.');
-    if (u.mode !== 'off') return out('START ' + name + ' does nothing: the unit is ' + u.mode + '.');
+    if (u.mode !== 'off') return null; // (the line stays up as the pointer crosses the bank)
     if (u.startBlock !== '') return out('START ' + name + ' is blocked: ' + reason(u.startBlock) + '.');
     const onAt = s + u.startToMinS;
     const head = 'START ' + name + ': ' + (u.minMW > 0 ? 'at minimum load (' + commas(Math.round(u.minMW)) + ' MW)' : 'on the grid') + ' by ' + atDay(onAt) + ', ' + spanText(u.startToMinS) + ' from now' +
@@ -1190,8 +1196,11 @@ export function consequence(obs, target, ctx = {}) {
     return out(head + tail);
   }
   // the STOP guard
-  if (u.mode === 'unloading' || u.mode === 'shutdown') return null; // one press aborts the stop
-  if (u.mode === 'off' || u.mode === 'tripped') return out('STOP ' + name + ' does nothing: the unit is ' + u.mode + '.');
+  if (u.mode === 'unloading' || u.mode === 'shutdown') {
+    return out(name + ' is stopping: ' + (u.station === 'hydro' && obs.hydro.storageMWh <= V.HYDRO_STOP_MWH ? 'its water is spent, so it cannot be kept on.' : 'one press ABORTs the stop and keeps it on.'));
+  }
+  if (u.mode === 'tripped') return out(name + ' is tripped: nothing to stop.');
+  if (u.mode === 'off') return null;
   const cancel = u.mode === 'starting' || u.mode === 'ready';
   if (!cancel && u.stopBlock !== '') return out('STOP ' + name + ' is blocked: ' + reason(u.stopBlock) + '.');
   // when it leaves the grid, and the earliest it could be back at minimum load
@@ -1245,7 +1254,7 @@ export const STEADY_HOLD_S = 900, STEADY_S = 300;
 export const STEADY_QUIET_S = 300;
 
 // A line's words with every number, clock time and dollar figure masked ('49.41 Hz', '16:10', '$43,000', '5,889 MW').
-const masked = t => t.replace(/[$−-]?\d[\d,.:]*/g, '#');
+export const masked = t => t.replace(/[$−-]?\d[\d,.:]*/g, '#');
 
 /**
  * The line as the desk shows it. The forecast's columns slide a minute at a time, so a waiting

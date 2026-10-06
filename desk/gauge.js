@@ -1,7 +1,7 @@
 // desk/gauge.js: the K-10 N-1 gauge and TRIP PREVIEW (desk/README.md §6, A-2).
 // "SPARE IN 5 MIN" (R5) against "BIGGEST RISK: <name>" (L), the H-4 word, and the TRIP PREVIEW
 // for both credible contingencies (the largest unit and the tie import). Plain words on the face;
-// R5, L and the LOR names sit behind "?". Colours by nadir: >= 49.5 green, 49.0-49.5 amber,
+// R5, L and the LOR names sit behind "?". Colours by nadir: >= 49.55 green, 49.0-49.55 amber,
 // < 49.0 red, always with a glyph. The bars are told apart without colour too (K-22): SPARE is a
 // solid fill and carries the level's glyph on its number (✓ covers 1.25 × the risk, ! covers the
 // risk, ✕ short: cross-hatched), RISK is a hatched fill.
@@ -10,9 +10,10 @@ import {V} from '../sim/params.js';
 import {el, setText, setAttr, setCls, setStyle, setHidden, mw, hz2, fin, clamp, unitLabel, nadirClass, CLASS_GLYPH, PAN} from './util.js';
 
 const LEVEL_GLYPH = {SECURE: '✓', TIGHT: '!', SHORT: '✕', SHEDDING: '✕✕'};
+export const SECURE_LINE_HZ = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ;   // H-4: what SECURE needs of a fresh preview
 const HELP = 'SPARE IN 5 MIN is R5: headroom that can be delivered within 5 minutes. BIGGEST RISK is L: the largest ' +
   'credible contingency (the biggest unit online, or the tie import). SECURE needs R5 ≥ ' + V.SECURE_RATIO + ' × L and a TRIP ' +
-  'PREVIEW nadir ≥ ' + V.SECURE_NADIR_HZ + ' Hz for both; TIGHT is LOR1-like, SHORT is LOR2-like (R5 < L), SHEDDING is LOR3.';
+  'PREVIEW nadir ≥ ' + hz2(SECURE_LINE_HZ) + ' Hz for both; TIGHT is LOR1-like, SHORT is LOR2-like (R5 < L), SHEDDING is LOR3.';
 // inverterMW (Phase 2a, C-7): wind and solar inverters. Positive when a loss of supply began above
 // 50.015 Hz and they gave back what the droop was holding; negative (not listed) for a loss of load.
 const CAUGHT_WORD = {inertiaMW: 'SPIN', batteryMW: 'BATT', guardMW: 'GUARD', governorsMW: 'GOV', loadReliefMW: 'RELIEF', uflsMW: 'UFLS',
@@ -37,7 +38,7 @@ export function createGauge(ctx, parent) {
   q.type = 'button'; q.id = 'q-gauge';
   q.title = HELP;
   q.setAttribute('aria-label', 'What these words mean');
-  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, HELP, 8000); });
+  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, HELP, 8000, 'info'); });
   head.append(word, q);
   const bar = (label) => {
     const row = el(doc, 'div', 'dk-gbar');
@@ -88,14 +89,17 @@ export function createGauge(ctx, parent) {
       // The preview: the live one while T / the ring is turning, else the sim's cached one.
       const live = pv && Number.isFinite(pv.nadirHz);
       const nadir = live ? pv.nadirHz : fin(s.previewNadirHz, 50);
-      const cls = s.lKind === 'none' ? 'good' : nadirClass(nadir);
-      const uHz = fin(s.previewUnitHz, nadir), kHz = fin(s.previewLinkHz, 50);
-      setText(ptext, s.lKind === 'none' ? 'no credible risk' :
-        CLASS_GLYPH[cls] + ' ' + hz2(nadir) + ' Hz' + (live ? (pv.guardMW !== undefined && pv.guardMW !== null ? ' @ GUARD ' + mw(pv.guardMW) : ' now') :
-          ' · U ' + hz2(uHz) + ' L ' + hz2(kHz)));
+      // under the sim's SECURE line (H-4; higher for a cached preview, by its age at the second the sim last judged) but contained: amber
+      const need = SECURE_LINE_HZ + (live ? 0 : V.PREVIEW_AGE_MARGIN_HZ_S * fin(Math.floor((v.obs.tick - 1) / V.TICKS_PER_S) - s.previewAtS));
+      const needs = s.lKind !== 'none' && nadir >= V.SECURE_NADIR_HZ && nadir < need;
+      const shown = hz2(needs ? Math.floor(nadir * 100) / 100 : nadir);
+      const cls = s.lKind === 'none' ? 'good' : needs ? 'warn' : nadirClass(nadir);
+      const uHz = fin(s.previewUnitHz, nadir), kHz = fin(s.previewLinkHz, 50), line = hz2(Math.ceil(need * 100 - 1e-6) / 100);
+      setText(ptext, s.lKind === 'none' ? 'no credible risk' : CLASS_GLYPH[cls] + ' ' + shown + (needs ? '<' + line : '') + ' Hz' +
+        (live ? (pv.guardMW !== undefined && pv.guardMW !== null ? ' @ GUARD ' + mw(pv.guardMW) : ' now') : needs ? '' : ' · U ' + hz2(uHz) + ' L ' + hz2(kHz)));
       setAttr(ptext, 'class', 'dk-ptext ' + cls);
       setAttr(ptext, 'title', 'TRIP PREVIEW: where frequency would bottom out if ' + (s.lKind === 'none' ? 'nothing' : unitLabel(s.lId)) +
-        ' tripped now. Unit ' + hz2(uHz) + ' Hz, tie ' + hz2(kHz) + ' Hz. Green ≥ ' + V.SECURE_NADIR_HZ + ', amber to ' +
+        ' tripped now. Unit ' + hz2(uHz) + ' Hz, tie ' + hz2(kHz) + ' Hz. Green ≥ ' + line + ', amber to ' +
         V.UFLS_FIRST_HZ + ', red: UFLS would operate.');
       setHidden(caught, !live);
       if (live) setText(caught, caughtText(pv.caught) || '—');
@@ -103,8 +107,9 @@ export function createGauge(ctx, parent) {
       setCls(pbtn, 'on', !!v.previewOn);
       setText(pbtn, v.previewOn ? 'T PREVIEW ●' : 'T PREVIEW');
       setAttr(box, 'aria-label', 'N-1 gauge: ' + s.level + '. Spare in 5 minutes ' + mw(s.r5MW) + ' MW, biggest risk ' +
-        (s.lKind === 'none' ? 'none' : unitLabel(s.lId) + ' ' + mw(s.lMW) + ' MW') + '. Trip preview ' + hz2(nadir) + ' Hz' +
-        (s.lKind === 'none' ? '' : cls === 'good' ? ', contained' : cls === 'warn' ? ', below 49.5' : ', UFLS would operate') +
+        (s.lKind === 'none' ? 'none' : unitLabel(s.lId) + ' ' + mw(s.lMW) + ' MW') + '. Trip preview ' + shown + ' Hz' +
+        (s.lKind === 'none' ? '' : cls === 'good' ? ', contained' : needs ? ', under the SECURE line, ' + line :
+          cls === 'warn' ? ', below 49.5' : ', UFLS would operate') +
         (live && caughtText(pv.caught) ? '; caught by ' + caughtText(pv.caught) : '') + '.');
       setCls(box, 'glow', !!(v.glow && v.glow.has('gauge-n1')));
     },
