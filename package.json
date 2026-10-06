@@ -1,6 +1,6 @@
 {
   "private": true,
-  "description": "GRIDWATCH. A static site served as-is (no build, no dependencies): index.html is the frozen legacy game, sim/ is the pure v4 core (see sim/README.md), content/ holds scenarios as data. `node --test` runs tests/*.test.js; `npm run test:slow` adds the multi-seed whole-day statistics (Node >= 20.6 for --env-file).",
+  "description": "GRIDWATCH. A static site served as-is (no build, no dependencies): classic.html is the frozen legacy game (index.html redirects to next.html), sim/ is the pure v4 core (see sim/README.md), content/ holds scenarios as data. `node --test` runs tests/*.test.js; `npm run test:slow` adds the multi-seed whole-day statistics (Node >= 20.6 for --env-file).",
   "type": "module",
   "scripts": {
     "test": "node --test",

@@ -1,5 +1,5 @@
 // Phase 0.1 acceptance tests (spec §5, "The live game, made honest"), run against the
-// legacy index.html through the headless harness in tools/.
+// legacy classic.html through the headless harness in tools/.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
@@ -8,7 +8,7 @@ import {readFileSync} from 'node:fs';
 const require = createRequire(import.meta.url);
 const H = require('../tools/harness.js');
 const P = require('../tools/policies.js');
-const HTML = readFileSync(H.GAME, 'utf8'); // the same build the harness loads (GRIDWATCH_HTML or index.html)
+const HTML = readFileSync(H.GAME, 'utf8'); // the same build the harness loads (GRIDWATCH_HTML or classic.html)
 
 // Put the grid in balance at 04:00 with no demand noise, as tools/baseline.js does.
 function balanced(seed) {
