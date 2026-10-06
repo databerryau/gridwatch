@@ -1,10 +1,10 @@
 {
   "private": true,
-  "description": "GRIDWATCH. A static site served as-is (no build, no dependencies): classic.html is the frozen legacy game (index.html redirects to next.html), sim/ is the pure v4 core (see sim/README.md), content/ holds scenarios as data. `node --test` runs tests/*.test.js; `npm run test:slow` adds the multi-seed whole-day statistics (Node >= 20.6 for --env-file).",
+  "description": "GRIDWATCH. A static site served as-is (no build, no dependencies): classic.html is the frozen legacy game (index.html redirects to next.html), sim/ is the pure v4 core (see sim/README.md), content/ holds scenarios as data. `node --test` runs tests/*.test.js (the whole suite: before a merge, and in CI); `npm run test:changed` runs only the test files a change can affect (the inner loop). Statistics over many seeds are tools, not tests: tools/par.js, tools/follow.mjs, tools/baseline-v4.js.",
   "type": "module",
   "scripts": {
     "test": "node --test",
-    "test:slow": "node --env-file=tests/slow.env --test",
+    "test:changed": "node tools/test-changed.mjs",
     "baseline": "node tools/baseline.js",
     "golden": "node tools/baseline.js > tools/baseline.golden.md",
     "baseline:v4": "node tools/baseline-v4.js",

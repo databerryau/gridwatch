@@ -4,7 +4,7 @@
 // CommonJS (tools/package.json); the ES-module sim is loaded with await import().
 //
 //   node tools/baseline-v4.js                 # the full report (golden: tools/baseline-v4.golden.md)
-//   node tools/baseline-v4.js --quick         # section 1 plus par on seeds 1-2 (tests/baseline-v4.test.js)
+//   node tools/baseline-v4.js --quick         # section 1 plus par on seeds 1-2
 //   node tools/baseline-v4.js --out FILE      # write the report to FILE (UTF-8) instead of stdout
 //   npm run golden:v4                         # re-record the golden (an intentional behaviour change)
 //

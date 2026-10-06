@@ -384,8 +384,9 @@ bounding-box test proves no building sits outside the terrain.
 
 ## 9. Tests and the definition of done
 
-* `node --test` stays under 60 s and green (F-10). Slow statistics only with
-  `GRIDWATCH_SLOW=1`.
+* `node --test` stays under 60 s and green (F-10). There is no slow tier (SPEC Q-40,
+  2026-10-07): statistics over many seeds are measured on demand with `tools/par.js` and
+  `tools/follow.mjs`, and `CLAUDE.md` holds the test loop.
 * Each agent's tests cover every *Accept* of its items that can be checked headless (DOM
   modules through the stand-in DOM pattern in `tests/bench.test.js`; extend it in a new
   `tests/lib/dom.js` if needed, shell agent owns that file, others may copy the pattern

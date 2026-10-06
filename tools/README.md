@@ -60,8 +60,9 @@ desk-lab midday case, STOP, the import step at 13:00 and 18:30, rate invariance 
 prices, battery, the lean, competent, planOnly and commitAll proxies graded against par, S-11,
 S-2's correlation, F-3), one row per seed
 (each row depends only on its seed and ends with the day's `hashState`), and machine-dependent
-lines. `tests/baseline-v4.test.js` compares section 1 and the quick run's rows with the golden in
-the default run, and the whole report with `GRIDWATCH_SLOW=1`. `--help` lists the flags.
+lines. `tests/baseline-v4.test.js` plays par's day on seed 4 in-process and compares it with that
+seed's golden row, hash included. The whole report is run on demand (`npm run baseline:v4`); there
+is no slow test tier (SPEC Q-40). `--help` lists the flags.
 
 ## Files
 
