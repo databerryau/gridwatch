@@ -50,6 +50,7 @@ export function createTray(ctx, parent) {
       meta.append(el(doc, 'span', 'dk-card-glyph', SEV_GLYPH[c.sev] || 'i'), el(doc, 'span', 'dk-card-from', c.from || ''),
         el(doc, 'span', 'dk-card-time', c.atS >= 0 ? clockOf(c.atS) : ''));
       const text = el(doc, 'div', 'dk-card-text', c.text || '');
+      text.title = c.text || '';   // a card shows one line: the whole message on hover (U-14)
       card.append(meta, text);
       if (c.button && c.button.target) {
         const b = el(doc, 'button', 'dk-btn dk-card-btn', c.button.label || 'SHOW');

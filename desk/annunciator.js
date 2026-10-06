@@ -51,7 +51,7 @@ export function createAnnunciator(ctx, parent) {
   const doAck = () => {
     ctx.cue('button', PAN.panel);
     // ACK is not a switch: it marks flashing tiles as seen. With none flashing, say so.
-    if (!unackedNow) ctx.note(box, 'Nothing to acknowledge: ACK marks flashing alarms as seen.');
+    if (!unackedNow) ctx.note(box, 'Nothing to acknowledge: ACK marks flashing alarms as seen.', undefined, 'info');
     ctx.ui({do: 'ack'});
   };
   const doSilence = () => { ctx.cue('button', PAN.panel); ctx.ui({do: 'silence'}); };
@@ -76,7 +76,7 @@ export function createAnnunciator(ctx, parent) {
         b.dataset.target = t.target || '';
         b.addEventListener('click', () => { if (b.dataset.target) { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); }
           const st = b.dataset.state || 'normal';
-          ctx.note(box, (TILE_HELP[t.id] || t.label) + (st === 'normal' ? ' Not in alarm now.' : ''), 6000); });
+          ctx.note(box, (TILE_HELP[t.id] || t.label) + (st === 'normal' ? ' Not in alarm now.' : ''), 6000, 'info'); });   // help, not a refusal
       } else {
         b.classList.add('empty');
         b.setAttribute('aria-hidden', 'true');

@@ -7,6 +7,9 @@
 // (tests/lib/follow.js): guards that light and say which one is being considered (C-10), the
 // K-11 bar's inverter segment and its SHED mark on unserved load, the cold load read from
 // obs.districts[], DIRECT SHED naming the district the sim sheds (M-2).
+// After the owner's playtest (the last section): a START that visibly arms and forgives a slow
+// second click (K-3), the GUARD lamp and ring (K-5), the held-by-hand lamp, notes that are help
+// rather than refusals, and readouts in words.
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -16,10 +19,12 @@ import {dayVm, baseVm} from './lib/vm-fixture.js';
 import {V} from '../sim/params.js';
 import {createDesk, makeConsider, roughSyncUnit, DESK_IDS, DESK_KEYS, SLOT_IDS, LAYOUT, CONSIDER_HOLD_MS, PRESS_FOCUS_MS} from '../desk/desk.js';
 import * as C from '../desk/calc.js';
-import {clockOf, unitLabel, feelOf, slowAttr, makeGuards, MODE_GLYPH, CLASS_GLYPH, PAN, GUARD_MS} from '../desk/util.js';
+import {clockOf, unitLabel, feelOf, slowAttr, makeGuards, MODE_GLYPH, CLASS_GLYPH, PAN, GUARD_MS, GUARD_CLICK_MS, COMMIT_LOCK_MS,
+  LEVER_STATIONS} from '../desk/util.js';
 import {needleHz, dialAngle, barLayout, barScale, shedMarkMW} from '../desk/dial.js';
 import {shedText} from '../desk/emergency.js';
-import {caughtText} from '../desk/gauge.js';
+import {caughtText, SECURE_LINE_HZ} from '../desk/gauge.js';
+import {tieWords} from '../desk/rotary.js';
 import {createState, step, observe, applyInput} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
 import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
@@ -301,10 +306,11 @@ test('K-3: START and STOP guards never commit on one click; lift then press, or 
   assert.match($('guard-start-' + id).textContent, /\?/);
   $('guard-start-' + id).click();
   assert.deepEqual(a.inputs, [{type: 'start', unit: id}]);
-  // The lift expires after 2 s: a late second click only lifts again.
+  // A click's lift expires after 5 s: a later second click only lifts again (past the 1-s lock after the commit above).
   a.inputs.length = 0;
+  desk.update(at(vm, 2000));
   $('guard-start-' + id).click();
-  desk.update(at(vm, 3500));
+  desk.update(at(vm, 2000 + GUARD_CLICK_MS + 100));
   $('guard-start-' + id).click();
   assert.equal(a.inputs.length, 0, 'expired lift does not commit');
   // STOP on a running CCGT machine.
@@ -313,9 +319,9 @@ test('K-3: START and STOP guards never commit on one click; lift then press, or 
   assert.equal(a.inputs.length, 0);
   $('guard-stop-' + sid).click();
   assert.deepEqual(a.inputs, [{type: 'stop', unit: sid}]);
-  // S S on the focused GT·C lever.
+  // S S on the focused GT·C lever (after the click lift above has dropped).
   a.inputs.length = 0;
-  desk.update(at(vm, 9000));
+  desk.update(at(vm, 14000));
   $('lever-gtc').focus();
   assert.equal(desk.key({type: 'keydown', key: 's', target: $('lever-gtc')}), true);
   assert.equal(a.inputs.length, 0);
@@ -734,10 +740,14 @@ test('K-23 levers by keys alone: 1-5 focus, ↑↓ move, S S starts, X X stops; 
   tap(m, 'x');
   assert.deepEqual(a.inputs, [{type: 'stop', unit: o.units[on].id}]);
   assert.deepEqual(cuesOf(a), ['cover', 'button']);
-  // A lifted guard that is not used drops after 2 s, with its click.
+  // For 1 s after that commit the unit's guards ignore a press; after it, a guard lifted by X and not used
+  // drops after 2 s, with its click.
   a.uis.length = 0;
   tap(m, 'x');
-  m.desk.update(at(vm, 4000));
+  assert.deepEqual(cuesOf(a), []);
+  m.desk.update(at(vm, 1000 + COMMIT_LOCK_MS));
+  tap(m, 'x');
+  m.desk.update(at(vm, 1000 + COMMIT_LOCK_MS + GUARD_MS + 1));
   assert.deepEqual(cuesOf(a), ['cover', 'cover']);
   assert.equal(inputsOf(a, 'stop').length, 1);
   // Tab to a machine's own guard, then Enter twice: the same guarded press; a held Enter never repeats it.
@@ -1393,14 +1403,14 @@ test('C-10 consider: the desk names the guard being considered: lifted, then foc
   assert.deepEqual(considers(a).slice(-2), [gx, other]);
   // a lifted guard beats both
   a.inputs.length = 0;
-  // its cover drops unused after 2 s (lifted by the pointer: no hold): back to the focused guard
+  // its cover drops unused after 5 s (lifted by the pointer: no hold): back to the focused guard
   const liftedAt = to();
   $(gs).click();
   assert.equal(a.inputs.length, 0);
   assert.equal(considers(a).at(-1), gs);
-  to(liftedAt + GUARD_MS - 1);
+  to(liftedAt + GUARD_CLICK_MS - 1);
   assert.equal(considers(a).at(-1), gs);
-  to(liftedAt + GUARD_MS + 1);
+  to(liftedAt + GUARD_CLICK_MS + 1);
   assert.equal(considers(a).at(-1), other);
   // a commit counts as a drop
   $(gs).click();
@@ -1568,10 +1578,10 @@ test('C-10 consider with a mouse: the focus a click leaves on a guard is not the
   $(gx).dispatch('pointerleave');
   to();
   assert.deepEqual(considers(a), [gx], 'lifted: still the one');
-  to(1000 + GUARD_MS + 100);
+  to(1000 + GUARD_CLICK_MS + 100);
   assert.equal($(gx).getAttribute('aria-pressed'), 'false');
   assert.deepEqual(considers(a), [gx, null], 'the pointer has gone and the cover is down');
-  for (let t = 4000; t < 64000; t += 500) to(t);
+  for (let t = 7000; t < 64000; t += 500) to(t);
   assert.equal(doc.activeElement, $(gx));
   assert.deepEqual(considers(a), [gx, null], 'a minute later, the guard still focused by that click');
   // the hover of another guard is not hidden behind that focus
@@ -1608,20 +1618,20 @@ test('C-10 consider with a mouse: the focus a click leaves on a guard is not the
   k.$(k.gx).dispatch('pointerenter');
   mouseClick(k.doc, k.$(k.gx));
   k.$(k.gx).dispatch('pointerleave');
-  k.to(1000 + GUARD_MS + 100);
+  k.to(1000 + GUARD_CLICK_MS + 100);
   assert.deepEqual(considers(k.a), [k.gx, null]);
   // ... and it is the keyboard's again once the keyboard uses it: Enter on the guard lifts it, and after the drop it stays
   press(k, 'Enter'); release(k, 'Enter');
   assert.equal(k.$(k.gx).getAttribute('aria-pressed'), 'true');
   assert.deepEqual(considers(k.a), [k.gx, null, k.gx]);
-  k.to(1000 + 2 * GUARD_MS + 300);
+  k.to(1000 + 2 * GUARD_CLICK_MS + 300);
   assert.equal(k.$(k.gx).getAttribute('aria-pressed'), 'false');
-  for (let t = 6000; t < 20000; t += 500) k.to(t);
+  for (let t = 12000; t < 26000; t += 500) k.to(t);
   assert.deepEqual(considers(k.a), [k.gx, null, k.gx], 'focused by the keyboard: considered until the focus moves');
   // ... or comes back to it: Tab away and Shift+Tab back
   const b = considerDesk(false);
   mouseClick(b.doc, b.$(b.gx));
-  b.to(1000 + GUARD_MS + 100);
+  b.to(1000 + GUARD_CLICK_MS + 100);
   assert.deepEqual(considers(b.a), [b.gx, null]);
   tabTo(b.doc, b.$('lever-coal'));
   b.to();
@@ -1632,7 +1642,7 @@ test('C-10 consider with a mouse: the focus a click leaves on a guard is not the
   const g = t.$(t.gx);
   g.dispatch('pointerenter'); g.dispatch('pointerdown'); t.to(1400); g.dispatch('pointerup'); g.dispatch('pointerleave');
   g.focus(); g.click();
-  t.to(1400 + GUARD_MS + 100);
+  t.to(1400 + GUARD_CLICK_MS + 100);
   assert.equal(t.doc.activeElement, g);
   assert.deepEqual(considers(t.a), [t.gx, null], 'a tap is a pointer press too');
   // a press that never became a focus (a browser that does not focus buttons on a click; the pointer dragged off):
@@ -1845,4 +1855,271 @@ test('K-7 / M-2: DIRECT SHED names the district the sim will shed and its load; 
   const ds = [{id: 'A', rot: 3, dark: false, restoredAtS: -1, coldLoadMW: 90}, {id: 'B', rot: 1, dark: false, restoredAtS: 500, coldLoadMW: 90},
     {id: 'C', rot: 2, dark: false, restoredAtS: -1, coldLoadMW: 90}, {id: 'D', rot: -1, dark: false, restoredAtS: -1, coldLoadMW: 90}, {id: 'E', rot: 0, dark: true, restoredAtS: -1, coldLoadMW: 90}];
   assert.equal(C.nextShed(ds).id, 'C');
+});
+
+// ---------------------------------------------------------------- after the owner's playtest: guards you can see, words on the controls
+
+/** GT·C 1 off and startable, CCGT 1 on and stoppable, at EVE (the vm is the caller's to change). */
+function playVm(over) {
+  const vm = vmAt(EVE, over);
+  Object.assign(vm.obs.units.find(u => u.id === 'gtc1'), {mode: 'off', sync: false, startBlock: '', stopBlock: 'unit is off'});
+  Object.assign(vm.obs.units.find(u => u.id === 'ccgt1'), {mode: 'on', sync: true, stopBlock: ''});
+  return vm;
+}
+const armedOf = a => a.uis.filter(u => u.do === 'armed');
+const liveText = d => d.el.querySelector('.dk-live').textContent;
+
+test('K-3 (playtest): a press on a guard keeps its cover up 5 s; S S keeps 2 s', () => {
+  assert.deepEqual([GUARD_MS, GUARD_CLICK_MS, COMMIT_LOCK_MS], [2000, 5000, 1000]);
+  let now = 0, n = 0;
+  const g = makeGuards(() => now), commit = () => n++;
+  assert.equal(g.press('a', commit, GUARD_CLICK_MS), 'lift');
+  now = 4900;
+  assert.equal(g.press('a', commit, GUARD_CLICK_MS), 'commit', 'a second press 4.9 s later commits');
+  assert.equal(n, 1);
+  now = 10000; g.press('a', commit, GUARD_CLICK_MS);
+  now = 15100;
+  assert.equal(g.lifted('a'), false);
+  assert.equal(g.press('a', commit, GUARD_CLICK_MS), 'lift', '5.1 s later: lifts again');
+  assert.equal(n, 1);
+  // the default window is the keys' 2 s
+  now = 20000; g.press('b', commit);
+  now = 22100;
+  assert.equal(g.press('b', commit), 'lift');
+  now = 23900;
+  assert.equal(g.press('b', commit), 'commit');
+  assert.equal(n, 2);
+});
+
+test('K-3 (playtest): one click arms START where it shows and tells the shell; a click 3 s later starts; one click alone never does', () => {
+  const vm = playVm();
+  const gs = 'guard-start-gtc1', {$, desk, actions: a} = mount(at(vm, 1000));
+  $(gs).click();
+  assert.equal(a.inputs.length, 0, 'one click sends nothing');
+  assert.equal($(gs).textContent, 'START?');
+  assert.ok($(gs).classList.contains('lifted') && !$(gs).classList.contains('key'), 'lifted, with the 5-s bar');
+  assert.ok($(gs).parentElement.classList.contains('armed'), 'its row is armed (desk.css hides the row\'s other guard)');
+  assert.match($(gs).getAttribute('aria-label'), /START armed, press again to start/);
+  assert.equal(liveText(desk), 'GT·C 1 START armed: press again within 5 s');
+  assert.deepEqual(armedOf(a), [{do: 'armed', target: gs, on: true}]);
+  // 3 s on the desk clock: still armed; the second click starts it, and the shell hears the cover drop once
+  desk.update(at(vm, 4000));
+  assert.equal($(gs).getAttribute('aria-pressed'), 'true');
+  $(gs).click();
+  assert.deepEqual(a.inputs, [{type: 'start', unit: 'gtc1'}]);
+  assert.deepEqual(armedOf(a), [{do: 'armed', target: gs, on: true}, {do: 'armed', target: gs, on: false}]);
+  assert.equal(liveText(desk), 'GT·C 1 START sent');
+  desk.update(at(vm, 4016));
+  assert.equal(armedOf(a).length, 2);
+  // a third click inside 1 s does nothing at all (the unit is still OFF in this mock: it would arm again)
+  desk.update(at(vm, 4500));
+  $(gs).click();
+  assert.equal(a.inputs.length, 1);
+  assert.equal(armedOf(a).length, 2);
+  assert.notEqual($(gs).textContent, 'START?');
+  // one click alone: the cover drops after 5 s, nothing is sent, and the shell is told
+  const b = mount(at(vm, 1000));
+  b.$(gs).click();
+  b.desk.update(at(vm, 1000 + GUARD_CLICK_MS - 100));
+  assert.equal(b.$(gs).textContent, 'START?');
+  b.desk.update(at(vm, 1000 + GUARD_CLICK_MS + 100));
+  assert.equal(b.actions.inputs.length, 0);
+  assert.equal(b.$(gs).textContent, MODE_GLYPH.off + '1');
+  assert.ok(!b.$(gs).parentElement.classList.contains('armed'));
+  assert.deepEqual(armedOf(b.actions).map(u => u.on), [true, false]);
+  // S S keeps its 2 s (and its 2-s bar): S, then S 2.1 s later, only arms again
+  const c = mount(at(vm, 1000));
+  tap(c, '5'); tap(c, 's');
+  assert.ok(c.$(gs).classList.contains('key'));
+  c.desk.update(at(vm, 3100));
+  tap(c, 's');
+  assert.equal(c.actions.inputs.length, 0);
+});
+
+test('K-3 (playtest): STOP? on a running unit; a third click inside 1 s of the stop is no ABORT; a cover whose action has gone drops', () => {
+  const vm = playVm();
+  const gx = 'guard-stop-ccgt1', {$, desk, actions: a} = mount(at(vm, 1000));
+  $(gx).click();
+  assert.equal($(gx).textContent, 'STOP?');
+  desk.update(at(vm, 3000));
+  $(gx).click();
+  assert.deepEqual(a.inputs, [{type: 'stop', unit: 'ccgt1'}]);
+  vm.obs.units.find(u => u.id === 'ccgt1').mode = 'unloading';   // the stop under way: STOP is now a one-press ABORT
+  desk.update(at(vm, 3200));
+  assert.equal($(gx).textContent, '↺');
+  $(gx).click();
+  assert.equal(a.inputs.length, 1, 'no ABORT within 1 s of the stop');
+  desk.update(at(vm, 3000 + COMMIT_LOCK_MS));
+  $(gx).click();
+  assert.deepEqual(a.inputs.at(-1), {type: 'abortStop', unit: 'ccgt1'}, 'after it, ABORT is one press');
+  // armed, then the unit moves on by itself (here the plan starts it): the cover drops and the shell is told
+  const v2 = playVm(), m = mount(at(v2, 1000));
+  m.$('guard-start-gtc1').click();
+  v2.obs.units.find(u => u.id === 'gtc1').mode = 'starting';
+  m.desk.update(at(v2, 1100));
+  assert.equal(m.$('guard-start-gtc1').getAttribute('aria-pressed'), 'false');
+  assert.deepEqual(armedOf(m.actions).map(u => u.on), [true, false]);
+  m.$('guard-start-gtc1').click();
+  assert.equal(m.actions.inputs.length, 0, 'a press now explains (starting) and sends nothing');
+});
+
+test('K-3 / K-23 (playtest): each guard\'s tooltip says how to press it, each lever head shows its key, and the CSS draws the armed face', () => {
+  const vm = playVm();
+  const set = (id, o) => Object.assign(vm.obs.units.find(u => u.id === id), o);
+  set('ccgt2', {mode: 'off', sync: false, startBlock: '', stopBlock: 'unit is off'});
+  set('gtc2', {mode: 'off', sync: false, startBlock: 'minimum down time: 29 min left'});
+  set('gtb1', {mode: 'starting', sync: false, timerS: 300});
+  set('gtb2', {mode: 'unloading', sync: true});
+  set('hydro1', {mode: 'off', sync: false, startBlock: ''});
+  const {$} = mount(at(vm, 1000));
+  const title = id => $(id).getAttribute('title');
+  assert.equal(title('guard-start-ccgt2'), 'START CCGT 2: click, then click START? to confirm (keys: 2, S S)');
+  assert.equal(title('guard-start-hydro1'), 'START HYDRO 1: click, then click START? to confirm (keys: 6, S S)');
+  assert.equal(title('guard-stop-ccgt1'), 'STOP CCGT 1: click, then click again to confirm (keys: 2, X X)');
+  assert.equal(title('guard-stop-gtb1'), 'CANCEL START GT·B 1: click, then click again to confirm (keys: 4, X X)');
+  assert.equal(title('guard-stop-gtb2'), 'ABORT: one click puts GT·B 2 back on');
+  assert.equal(title('guard-start-gtc2'), 'GT·C 2 OFF: minimum down time: 29 min left');
+  assert.equal(title('guard-stop-gtc2'), 'GT·C 2: nothing to stop');
+  assert.match($('guard-start-ccgt2').getAttribute('aria-label'), /START \(guarded: press twice within 5 s, or S S within 2 s\)/);
+  LEVER_STATIONS.forEach((sid, i) => assert.equal(slotOf($, sid).querySelector('.dk-kcap').textContent, String(i + 1), sid));
+  assert.equal(slotOf($, 'ccgt').querySelector('.dk-lever-foot').title, 'SET (white): where the lever is ▸ OUT (orange): what CCGT makes now, MW');
+  // the armed face: amber, its row to itself, a bar that drains (5 s; 2 s by key), held still under reduced motion
+  assert.match(CSS, /\.dk-guard\.lifted \{[^}]*background: #d2992244; border-color: var\(--dk-amber\)/);
+  assert.match(CSS, /\.dk-mach\.armed > \.dk-guard:not\(\.lifted\) \{ display: none; \}/);
+  assert.match(CSS, /\.dk-guard\.lifted::after \{[^}]*animation: dk-drain 5s linear forwards; \}/);
+  assert.match(CSS, /\.dk-guard\.lifted\.key::after \{ animation-duration: 2s; \}/);
+  assert.match(CSS, /@keyframes dk-drain \{ from \{ width: 100%; \} to \{ width: 0; \} \}/);
+  assert.match(CSS, /body\.rm \.dk-guard\.lifted::after, \.dk-rm \.dk-guard\.lifted::after \{ animation: none; \}/);
+  assert.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(CSS)[1], /\.dk-guard\.lifted::after \{ animation: none; \}/);
+  // a startable START is not drawn faint; the watch's lock shows on the cursor
+  assert.match(CSS, /\.dk-mach\.m-off \.dk-start:not\(\.live\) \{ color: var\(--dk-faint\); \}/);
+  assert.match(CSS, /\.dk-guard\.live \{ border-color: var\(--dk-dim\); color: var\(--dk-bright\); \}/);
+  assert.match(CSS, /\.dk-locked \.dk-guard \{ cursor: not-allowed; \}/);
+});
+
+test('K-5 (playtest): the battery lamp says GUARD, and the objective lights the GUARD ring itself, not the whole battery', () => {
+  const lamp = (guardMW, guardFired) => {
+    const v = vmAt(EVE);
+    Object.assign(v.obs.battery, {guardMW, guardFired, ffrMW: 390});
+    return mount(at(v, 1000)).$('ring-guard').parentElement.parentElement.querySelector('.dk-ffr').textContent;
+  };
+  assert.deepEqual([lamp(0, false), lamp(400, false), lamp(400, true)], ['○ GUARD 0', '⚡ GUARD 400', '⚡ FIRED 390']);
+  const ring = mount(at(vmAt(EVE, {glow: new Set(['ring-guard'])}), 1000)).$('ring-guard');
+  assert.equal(ring.title, 'GUARD: drag around the outer ring (or G, then ↑ ↓), 50 MW a step');
+  assert.ok(ring.classList.contains('glow'));
+  assert.ok(!ring.parentElement.parentElement.classList.contains('glow'));
+  const dial = mount(at(vmAt(EVE, {glow: new Set(['dial-battery'])}), 1000)).$('ring-guard');
+  assert.ok(!dial.classList.contains('glow'));
+  assert.ok(dial.parentElement.parentElement.classList.contains('glow'));
+});
+
+test('A-1 / L-6 (playtest): RE-DISPATCH lights while the levers are held by hand, with one note; an idle lever drag says it booked a start', () => {
+  const {$, desk} = mount(at(vmAt(EVE, {held: true}), 1000));
+  const r = $('btn-redispatch'), keys = r.parentElement;
+  assert.ok(r.classList.contains('lit'));
+  assert.match(r.textContent, /HELD/, 'not by colour alone');
+  assert.match(r.getAttribute('title'), /^HELD BY HAND: .*Press to hand them back\.$/);
+  const shown = () => keys.querySelectorAll('.dk-note').filter(n => !n.hidden);
+  assert.equal(shown().length, 1);
+  assert.ok(shown()[0].classList.contains('info'));
+  assert.equal(shown()[0].textContent, 'held by hand: RE-DISPATCH (N) hands the levers back');
+  desk.update(at(vmAt(EVE, {held: true}), 2000));
+  assert.equal(keys.querySelectorAll('.dk-note').length, 1, 'one note, the frame it starts');
+  desk.update(at(vmAt(EVE), 3000));
+  assert.ok(!r.classList.contains('lit'));
+  assert.doesNotMatch(r.textContent, /HELD/);
+  assert.equal(r.getAttribute('title'), 'Re-plan every lever and the tie from now');
+  const plain = mount(at(vmAt(EVE), 1000));
+  assert.ok(!plain.$('btn-redispatch').classList.contains('lit'));
+  assert.equal(plain.$('btn-redispatch').parentElement.querySelectorAll('.dk-note').length, 0);
+  // the idle-lever drag (K-1 / L-6) sends planKey and says so on the lever
+  const vm = vmAt(EVE);
+  Object.assign(vm.obs.stations.find(s => s.id === 'gta'), {onCount: 0, minMW: 0, maxMW: 0, basePointMW: 0, outMW: 0});
+  const m = mount(at(vm, 1000));
+  const tr = m.$('lever-gta');
+  tr.rect = {left: 0, top: 0, width: 28, height: 100};
+  tr.dispatch('pointerdown', {clientY: 40});
+  tr.dispatch('pointerup', {clientY: 40});
+  assert.deepEqual(m.actions.inputs, [{type: 'planKey', station: 'gta', atS: vm.obs.s, mw: 300}]);
+  const note = slotOf(m.$, 'gta').querySelector('.dk-note.info');
+  assert.equal(note && note.textContent, 'START booked now: GT·A, 300 MW');
+});
+
+test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why where it was made, by key, in the watch and on the AGC key', () => {
+  const {$, actions: a} = mount(at(playVm(), 1000));
+  $('q-gauge').click();
+  assert.ok($('gauge-n1').querySelector('.dk-note').classList.contains('info'), 'the gauge\'s ? is help');
+  assert.match(CSS, /\.dk-note\.info \{ background: #0d2238; border-color: var\(--dk-blue\);/);
+  // a refusal keeps the red style
+  $('guard-stop-gtc1').click();
+  const refusal = $('guard-stop-gtc1').parentElement.querySelector('.dk-note');
+  assert.equal(refusal.textContent, 'nothing to stop');
+  assert.ok(!refusal.classList.contains('info'));
+  assert.equal(a.inputs.length, 0);
+  // S with nothing to start on the focused station: said on the lever; the key is still not the desk's
+  const coal = playVm();
+  for (const u of coal.obs.units) if (u.station === 'coal') Object.assign(u, {mode: 'on', sync: true});
+  const m = mount(at(coal, 1000));
+  tap(m, '1');
+  assert.equal(tap(m, 's'), false);
+  assert.equal(slotOf(m.$, 'coal').querySelector('.dk-note').textContent, 'nothing here to start: see each unit\'s tooltip');
+  assert.equal(m.actions.inputs.length, 0);
+  // the watch: a press on a guard says the desk is locked, and sends nothing
+  const w = mount(at(baseVm(clone(TRIP.obs), {mode: {mode: 'WATCH', rate: 0.15, watchS: 2, locked: true, watchVersion: 'full'}}), 1000));
+  w.$('guard-start-gtc1').click();
+  assert.match(w.$('guard-start-gtc1').parentElement.textContent, /desk locked while the grid catches itself \(Esc skips\)/);
+  assert.equal(w.actions.inputs.length, 0);
+  // the AGC key, locked for the day: its note is on the CONTROL column and survives the next frame
+  const v = vmAt(EVE);
+  v.obs.modeLocked = true;
+  const k = mount(at(v, 1000));
+  k.$('key-agc').click();
+  k.desk.update(at(v, 1016));
+  const note = k.$('key-agc').parentElement.querySelector('.dk-note');
+  assert.ok(note && !note.hidden && note.classList.contains('info'));
+  assert.equal(note.textContent, 'AGC/HAND is set at the briefing: locked for the day');
+  assert.equal(k.$('key-agc').textContent, 'A AGC');
+  assert.equal(k.actions.inputs.length, 0);
+});
+
+test('K-4 to K-6, K-9, K-12 (playtest): the readouts say what they are in words', () => {
+  const vm = vmAt(EVE, {tray: {cards: [{id: 'c', from: 'GT·B', atS: 30000, text: 'GT·B 2 at full speed: auto-sync in 4 min; close by hand to save time', sev: 'info'}], log: []}});
+  const o = vm.obs;
+  Object.assign(o.battery, {mode: 'idle', orderMW: 0, outMW: -28});
+  Object.assign(o.tie, {setMW: 250, flowMW: 248.4, tripped: false});
+  Object.assign(o.stations.find(s => s.id === 'hydro'), {outMW: 38});
+  Object.assign(o.hydro, {frac: 0.98, storageMWh: 7334});
+  for (const u of o.units) if (u.mode === 'ready') u.mode = 'off';
+  o.scope = {unit: ''};
+  const {$} = mount(at(vm, 1000));
+  const batt = $('ring-guard').parentElement.parentElement, tie = $('knob-tie').parentElement.parentElement;
+  assert.equal(batt.querySelector('.dk-rot-read').textContent, '■ IDLE · OUT −28');
+  assert.match(batt.querySelector('.dk-rot-read').title, /^Your order \(CHG \/ IDLE \/ DIS\), then OUT: /);
+  assert.equal(tie.querySelector('.dk-tie-set').textContent, 'SET IMP 250');
+  assert.equal(tie.querySelector('.dk-tie-flow').textContent, 'FLOW IMP 248');
+  assert.equal(tie.querySelector('.dk-link').textContent, '● LINK OK');
+  assert.deepEqual([250, -300, 0.3, -0.4].map(tieWords), ['IMP 250', 'EXP 300', '0', '0']);
+  const store = $('wheel-hydro').parentElement.parentElement.querySelector('.dk-store');
+  assert.equal(store.textContent, 'OUT 38 MW · 98%');
+  assert.equal(store.getAttribute('title'), 'Output now, and the reservoir: 7334 MWh');
+  // the SYNC bay with nothing ready says what it is for, and where starting happens
+  assert.equal($('scope-canvas').parentElement.querySelector('.dk-slip').textContent, 'No unit ready');
+  assert.equal($('bay-sync').parentElement.parentElement.querySelector('.dk-empty').textContent,
+    'START a unit on the lever bank: at full speed it waits here, and AGC closes its breaker itself in 4 min.');
+  // a tray card shows one line: the whole of it on hover
+  const card = $('tray').querySelector('.dk-card-text');
+  assert.equal(card.title, card.textContent);
+});
+
+test('K-10 (playtest): the TRIP PREVIEW ticks only at the SECURE line; below it, contained, it says what it needs', () => {
+  const pv = hz => { const v = vmAt(EVE); v.obs.sec.previewNadirHz = hz; v.obs.sec.lKind = 'unit'; return mount(at(v, 1000)).$('gauge-n1').querySelector('.dk-ptext'); };
+  assert.equal(SECURE_LINE_HZ, V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ);
+  const low = pv(49.533);
+  assert.match(low.textContent, /^! 49\.53 Hz \(needs 49\.55\)/);
+  assert.ok(low.classList.contains('warn'));
+  assert.match(pv(49.549).textContent, /^! 49\.54 Hz \(needs 49\.55\)/, 'rounded down: never reads as the line itself');
+  const ok = pv(49.6);
+  assert.match(ok.textContent, /^✓ 49\.60 Hz · U/);
+  assert.ok(ok.classList.contains('good'));
+  assert.match(pv(49.3).textContent, /^! 49\.30 Hz · U/, 'below 49.5: amber as before, with no "needs"');
 });

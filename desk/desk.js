@@ -50,7 +50,8 @@
 // focus a mouse click leaves on a guard is not counted (makeConsider says how), so after a
 // pointer lift or commit the target clears when the pointer leaves. The shell shows vm.consider
 // in the objective line; the desk only names the guard. After a new day (obs.tick going back)
-// the target is sent again, because the shell clears its copy.
+// the target is sent again, because the shell clears its copy. K-3: a cover going up or down
+// sends {do: 'armed', target, on}.
 
 import {createLevers} from './levers.js';
 import {createHydroWheel, createBatteryDial, createTieKnob} from './rotary.js';
@@ -120,7 +121,7 @@ export function makeConsider(now, guards, send) {
     for (let i = lifts.length - 1; i >= 0; i--) {
       const l = lifts[i];
       if (guards.lifted(l.id)) continue;
-      lifts.splice(i, 1);              // its cover dropped unused, GUARD_MS after the lift
+      lifts.splice(i, 1);              // its cover dropped unused (a key lift's GUARD_MS after it)
       if (l.byKey && l.at + GUARD_MS + CONSIDER_HOLD_MS > held.until) { held.id = l.id; held.until = l.at + GUARD_MS + CONSIDER_HOLD_MS; held.since = l.at; }
     }
     if (held.id && (t > held.until || (focus !== null && focus !== held.id && focusAt > held.since))) held.id = null;
@@ -206,9 +207,11 @@ export function createDesk(doc, root, actions, opts = {}) {
       ctx.cue(c, pan);
     },
     live(text) { live.textContent = text; },
-    note(host, text, ms = NOTE_MS) {
+    /** kind 'info': help or a confirmation, not a refusal (K-22) */
+    note(host, text, ms = NOTE_MS, kind) {
       let n = notes.get(host);
       if (!n) { n = {span: el(doc, 'span', 'dk-note'), until: 0}; host.appendChild(n.span); notes.set(host, n); }
+      n.span.className = kind === 'info' ? 'dk-note info' : 'dk-note';
       n.span.textContent = text;
       n.span.hidden = false;
       n.until = nowFn() + ms;

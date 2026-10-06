@@ -11,14 +11,14 @@
 // Phase 2a (C-10, desk/README.md §19.5): a guard lights when its id is in vm.glow (the
 // objective's STOP or START), and tells the desk when it is hovered, pressed by a pointer,
 // focused, lifted or committed (ctx.consider), so the shell can say what the press will do
-// before it is made.
+// before it is made; an armed one says START? / STOP? and tells the shell (K-3).
 // Foley (K-20): a hand move cues `detent` / `gate` / `ratchet`, a plan move cues `servo`; guards
 // cue `cover` (lift, drop) and `button` (the press that commits). A rough close shakes the lever.
 
 import {V} from '../sim/params.js';
 import {leverScale, nextDetent, rampCone, agcBandMW, stationUnits} from './calc.js';
 import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, clamp, fin, clockOf, mmss, unitLabel,
-  STATION_SHORT, LEVER_STATIONS, MODE_GLYPH, MODE_WORD, PAN} from './util.js';
+  STATION_SHORT, LEVER_STATIONS, MODE_GLYPH, MODE_WORD, PAN, GUARD_MS, GUARD_CLICK_MS, COMMIT_LOCK_MS} from './util.js';
 
 export const GATE_PX = 12;          // K-1: extra drag past the spring gate
 export const DRAG_SEND_MS = 250;    // K-1: at most one basePoint per 250 ms while dragging
@@ -27,6 +27,7 @@ export const HAND_MS = 500;         // K-20: no servo cue within 0.5 s of a hand
 export const SERVO_MS = 250;        // K-20: at most one servo cue per lever per 0.25 s
 export const SHAKE_MS = 600;        // K-12: a rough close shakes the lever this long
 const HOT_RISK_TEXT = (V.HOT_TRIP_PER_H * 100).toFixed(1) + '%/h';
+const KEY_S = GUARD_MS / 1000, CLICK_S = GUARD_CLICK_MS / 1000;
 
 const pct = (v, total) => (total > 0 ? clamp(fin(v) / total, 0, 1) * 100 : 0);
 
@@ -39,6 +40,7 @@ const pct = (v, total) => (total > 0 ? clamp(fin(v) / total, 0, 1) * 100 : 0);
  */
 export function createMachine(ctx, k, pan) {
   const doc = ctx.doc, m = V.MACHINES[k];
+  const name = unitLabel(m.id), kc = m.station === 'hydro' ? 6 : LEVER_STATIONS.indexOf(m.station) + 1;   // its K-23 key
   const box = el(doc, 'div', 'dk-mach');
   box.dataset.unit = m.id;
   const start = el(doc, 'button', 'dk-guard dk-start');
@@ -47,6 +49,7 @@ export function createMachine(ctx, k, pan) {
   stop.id = 'guard-stop-' + m.id; stop.type = 'button';
   box.append(start, stop);
   let u = null, offered = false, wasS = false, wasX = false, glowS = false, glowX = false;
+  let keyS = false, keyX = false, lockT = -1;   // lifted by S / X; no press before lockT
   // C-10: hover and focus on either guard are the desk's to resolve (ctx.consider, desk.js); it
   // is told of a pointer press too, because the focus a click leaves on a button is not the keyboard's
   for (const g of [start, stop]) {
@@ -75,9 +78,27 @@ export function createMachine(ctx, k, pan) {
     return u.stopBlock || '';
   };
 
+  const refused = () => { const v = ctx.vm(); if (v && v.mode && v.mode.locked) ctx.note(box, 'desk locked while the grid catches itself (Esc skips)'); };
+  const sent = (x, what) => { if (!ctx.send(x, box)) { lockT = ctx.now() + COMMIT_LOCK_MS; ctx.cue('button', pan); ctx.live(name + what + ' sent'); } };
+  /** K-3: a first press arms guard g, a second sends x; after it the unit's guards wait COMMIT_LOCK_MS. */
+  function guarded(g, what, x, key) {
+    const res = ctx.guards.press(g.id, () => {
+      if (g === start) wasS = false; else wasX = false;
+      ctx.ui({do: 'armed', target: g.id, on: false});   // a commit drops the cover with no frame to show it
+      sent(x, what);
+    }, key ? GUARD_MS : GUARD_CLICK_MS);
+    if (res === 'lift') {
+      if (g === start) keyS = key; else keyX = key;
+      ctx.live(name + what + ' armed: press again within ' + (key ? KEY_S : CLICK_S) + ' s');
+      ctx.consider.lift(g.id, key);
+    } else ctx.consider.commit(g.id);
+    render();
+  }
+
   /** @param {boolean} [byKey] the press came from S on the station's lever, not from the guard itself */
   function pressStart(byKey) {
-    if (ctx.locked()) return;
+    if (ctx.locked()) { refused(); return; }
+    if (ctx.now() < lockT) return;
     const a = startAction();
     if (!a) { ctx.note(box, why() || MODE_WORD[u ? u.mode : 'off']); return; }
     if (a === 'scope') {
@@ -85,21 +106,16 @@ export function createMachine(ctx, k, pan) {
       if (!r) { ctx.cue('button', pan); if (offered) ctx.ui({do: 'offerTaken', unit: m.id}); ctx.showBay('sync'); }
       return;
     }
-    const res = ctx.guards.press(start.id, () => { wasS = false; if (!ctx.send({type: 'start', unit: m.id}, box)) ctx.cue('button', pan); });
-    if (res === 'lift') { ctx.live(unitLabel(m.id) + ' START guard lifted: press again to start'); ctx.consider.lift(start.id, byKey === true); }
-    else ctx.consider.commit(start.id);
-    render();
+    guarded(start, ' START', {type: 'start', unit: m.id}, byKey === true);
   }
   /** @param {boolean} [byKey] the press came from X on the station's lever */
   function pressStop(byKey) {
-    if (ctx.locked()) return;
+    if (ctx.locked()) { refused(); return; }
+    if (ctx.now() < lockT) return;
     const a = stopAction();
     if (!a) { ctx.note(box, why() || 'nothing to stop'); return; }
-    if (a === 'abort') { if (!ctx.send({type: 'abortStop', unit: m.id}, box)) ctx.cue('button', pan); return; }
-    const res = ctx.guards.press(stop.id, () => { wasX = false; if (!ctx.send({type: 'stop', unit: m.id}, box)) ctx.cue('button', pan); });
-    if (res === 'lift') { ctx.live(unitLabel(m.id) + (a === 'cancel' ? ' CANCEL START' : ' STOP') + ' guard lifted: press again'); ctx.consider.lift(stop.id, byKey === true); }
-    else ctx.consider.commit(stop.id);
-    render();
+    if (a === 'abort') sent({type: 'abortStop', unit: m.id}, ' ABORT');
+    else guarded(stop, a === 'cancel' ? ' CANCEL START' : ' STOP', {type: 'stop', unit: m.id}, byKey === true);
   }
   start.addEventListener('click', () => pressStart(false));
   stop.addEventListener('click', () => pressStop(false));
@@ -107,27 +123,35 @@ export function createMachine(ctx, k, pan) {
   function render() {
     if (!u) return;
     const sa = startAction(), so = stopAction();
+    // a cover whose press no longer does what it says drops at once
+    if (sa !== 'start') ctx.guards.drop(start.id);
+    if (so !== 'stop' && so !== 'cancel') ctx.guards.drop(stop.id);
     const upS = ctx.guards.lifted(start.id), upX = ctx.guards.lifted(stop.id);
-    // A guard lifting, or dropping unused after 2 s, clicks (a commit has its own button cue).
-    if (upS !== wasS) { wasS = upS; ctx.cue('cover', pan); }
-    if (upX !== wasX) { wasX = upX; ctx.cue('cover', pan); }
+    // A guard lifting, or dropping unused, clicks (a commit has its own button cue) and tells the shell.
+    if (upS !== wasS) { wasS = upS; ctx.cue('cover', pan); ctx.ui({do: 'armed', target: start.id, on: upS}); }
+    if (upX !== wasX) { wasX = upX; ctx.cue('cover', pan); ctx.ui({do: 'armed', target: stop.id, on: upX}); }
     setAttr(start, 'aria-pressed', upS ? 'true' : 'false');
     setAttr(stop, 'aria-pressed', upX ? 'true' : 'false');
-    setAttr(box, 'class', 'dk-mach m-' + u.mode + (u.hotS > 0 ? ' hot' : '') + (offered ? ' offered' : ''));
-    setText(start, upS ? '▲?' : (MODE_GLYPH[u.mode] || '?') + m.j);
-    setText(stop, upX ? '▼?' : so === 'abort' ? '↺' : so ? '■' : '·');
+    setAttr(box, 'class', 'dk-mach m-' + u.mode + (u.hotS > 0 ? ' hot' : '') + (offered ? ' offered' : '') + (upS || upX ? ' armed' : ''));
+    setText(start, upS ? 'START?' : (MODE_GLYPH[u.mode] || '?') + m.j);
+    setText(stop, upX ? (so === 'cancel' ? 'CANCEL?' : 'STOP?') : so === 'abort' ? '↺' : so ? '■' : '·');
     setCls(start, 'lifted', upS); setCls(stop, 'lifted', upX);
+    setCls(start, 'key', upS && keyS); setCls(stop, 'key', upX && keyX);
     setCls(start, 'live', !!sa); setCls(stop, 'live', !!so);
     setCls(start, 'glow', glowS); setCls(stop, 'glow', glowX);   // L-9 / C-10: the objective points at this guard
     const hint = ' (the objective points here)';
     setAttr(start, 'aria-disabled', sa ? 'false' : 'true');
     setAttr(stop, 'aria-disabled', so ? 'false' : 'true');
-    const name = unitLabel(m.id), w = why();
+    const w = why(), verb = so === 'cancel' ? 'CANCEL START' : 'STOP', twice = ' (guarded: press twice within ' + CLICK_S + ' s, or ';
+    setAttr(start, 'title', sa === 'start' ? 'START ' + name + ': click, then click START? to confirm (keys: ' + kc + ', S S)' :
+      sa === 'scope' ? 'SYNC ' + name + ': open the synchroscope (AGC closes it by itself)' : name + ' ' + MODE_WORD[u.mode] + (w ? ': ' + w : ''));
+    setAttr(stop, 'title', so === 'abort' ? 'ABORT: one click puts ' + name + ' back on' :
+      so ? verb + ' ' + name + ': click, then click again to confirm (keys: ' + kc + ', X X)' : name + ': nothing to stop');
     const hot = u.hotS > 0 ? ', RUNNING HOT ' + mmss(u.hotS) : '';
-    setAttr(start, 'aria-label', name + ' ' + MODE_WORD[u.mode] + hot + ': ' + (upS ? 'START guard lifted, press again to start' :
-      sa === 'start' ? 'START (guarded: press twice within 2 s)' : sa === 'scope' ? 'open synchroscope' : 'no start' + (w ? ', ' + w : '')) + (glowS ? hint : ''));
-    setAttr(stop, 'aria-label', name + ': ' + (upX ? 'guard lifted, press again' : so === 'abort' ? 'ABORT STOP' :
-      so === 'cancel' ? 'CANCEL START (guarded: press twice within 2 s)' : so ? 'STOP (guarded: press twice within 2 s)' : 'no stop') + (glowX ? hint : ''));
+    setAttr(start, 'aria-label', name + ' ' + MODE_WORD[u.mode] + hot + ': ' + (upS ? 'START armed, press again to start' :
+      sa === 'start' ? 'START' + twice + 'S S within ' + KEY_S + ' s)' : sa === 'scope' ? 'open synchroscope' : 'no start' + (w ? ', ' + w : '')) + (glowS ? hint : ''));
+    setAttr(stop, 'aria-label', name + ': ' + (upX ? verb + ' armed, press again' : so === 'abort' ? 'ABORT STOP' :
+      so ? verb + twice + 'X X within ' + KEY_S + ' s)' : 'no stop') + (glowX ? hint : ''));
     setAttr(box, 'title', name + ' · ' + MODE_WORD[u.mode] + (u.sync ? ' · ' + mw(u.outMW) + ' MW' : '') +
       (u.hotS > 0 ? ' · RUNNING HOT ' + mmss(u.hotS) + ' (trip risk ' + HOT_RISK_TEXT + ' once armed)' : '') + (w ? ' · ' + w : ''));
   }
@@ -166,7 +190,8 @@ function createLever(ctx, sid, parent) {
   const slot = el(doc, 'div', 'dk-lever-slot');
   slot.dataset.station = sid;
   const head = el(doc, 'div', 'dk-lever-head');
-  const name = el(doc, 'span', 'dk-lever-name', STATION_SHORT[sid]);
+  const name = el(doc, 'span', 'dk-lever-name');
+  name.append(el(doc, 'kbd', 'dk-kcap', LEVER_STATIONS.indexOf(sid) + 1), STATION_SHORT[sid]);   // its K-23 key
   const man = el(doc, 'button', 'dk-man', 'M');
   man.id = 'man-' + sid; man.type = 'button';
   man.setAttribute('aria-label', STATION_SHORT[sid] + ' MAN lamp: double-click or P to resume the plan, Shift+P to keep');
@@ -189,6 +214,7 @@ function createLever(ctx, sid, parent) {
   const foot = el(doc, 'div', 'dk-lever-foot');
   const rBase = el(doc, 'span', 'dk-rd-base'), rOut = el(doc, 'span', 'dk-rd-out');
   foot.append(rBase, el(doc, 'span', 'dk-rd-sep', '▸'), rOut);
+  foot.title = 'SET (white): where the lever is ▸ OUT (orange): what ' + STATION_SHORT[sid] + ' makes now, MW';
   slot.append(head, body, foot);
   parent.appendChild(slot);
 
@@ -222,6 +248,7 @@ function createLever(ctx, sid, parent) {
     shown = r ? null : {v: sc.onCount > 0 ? x : baseNow(), afterTick: o.tick, frames: 0};
     handT = ctx.now();
     if (!r) ctx.live(STATION_SHORT[sid] + ' ' + x + ' MW');
+    if (!r && sc.onCount === 0) ctx.note(slot, 'START booked now: ' + STATION_SHORT[sid] + ', ' + x + ' MW', 4000, 'info');
     return r;
   }
 
@@ -415,7 +442,9 @@ function createLever(ctx, sid, parent) {
     },
     key(k, shift) {
       if (k === 'p') { rejoin(shift); return true; }
-      return stationKey(machines, k);
+      if (stationKey(machines, k)) return true;
+      if (k === 's' || k === 'x') ctx.note(slot, k === 's' ? 'nothing here to start: see each unit\'s tooltip' : 'nothing here to stop');
+      return false;
     },
     /** K-12: a rough close on one of this station's machines (no shake under reduced motion). */
     shake() { shakeUntil = ctx.now() + SHAKE_MS; },
