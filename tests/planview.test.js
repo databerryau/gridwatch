@@ -228,11 +228,12 @@ test('L-4: snapDrop lands on the 15-min / 50-MW grid and returns the earliest-ar
   assert.deepEqual(ok.inputs, [{type: 'planStart', unit: 'gtb1', atS: ok.onAtS - startToMin(M.find(x => x.id === 'gtb1'))}]);
 });
 
-test('L-5: gaps are red below P50 and amber below P90; past columns read the shell history', async () => {
+test('L-5: gaps are red from 50 MW below P50 and amber from 50 MW below P90; past columns read the shell history', async () => {
   const obs = planOf(await tripped());
   const P = PV.project(obs, {hist: {demand: [{s: obs.s - 1000, mw: 7000}, {s: obs.s - 10, mw: 7600}], stations: {coal: [{s: obs.s - 200, mw: 2000}]}}});
+  assert.equal(PV.GAP_MIN_MW, 50);
   for (let k = 0; k < P.n; k++) {
-    const want = P.supply[k] < P.p50[k] - 0.5 ? 'red' : P.supply[k] < P.p90[k] - 0.5 ? 'amber' : '';
+    const want = P.supply[k] < P.p50[k] - PV.GAP_MIN_MW ? 'red' : P.supply[k] < P.p90[k] - PV.GAP_MIN_MW ? 'amber' : '';
     assert.equal(P.gap[k], want);
   }
   assert.equal(P.gap[0], 'red', 'a trip at the peak opens a red gap at once');
