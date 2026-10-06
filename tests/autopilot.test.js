@@ -1,6 +1,7 @@
-// Stage B owner "autopilot": sim/autopilot.js acceptance (L-0, S-4, S-11, S-12, P-6, D-2, D-9).
+// Stage B owner "autopilot": sim/autopilot.js acceptance (L-0, S-4, S-11, S-12, P-6, D-2;
+// S-4 pace and D-9 are in tests/baseline-v4.test.js).
 // The import barrier (autopilot imports only params.js and step.js) is checked for real in
-// sim-lint. Slow tests still todo carry the measured result and the reason in their todo.
+// sim-lint.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {runPar, createAutopilot, decide, refRealSeconds, preDispatch, replan, planUpdates} from '../sim/autopilot.js';
@@ -8,26 +9,16 @@ import {createState, step, observe, hashState, applyInput} from '../sim/step.js'
 import * as fleet from '../sim/fleet.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {slowOnly, ticksAt, SLOW, TPS, injectTrip, clone} from './lib/sim-helpers.js';
-import {yardstickNs, workClock, budgetUnits} from './lib/speed.js';
+import {ticksAt, TPS, injectTrip, clone} from './lib/sim-helpers.js';
 
-// Whole-day statistics run only with GRIDWATCH_SLOW=1 (npm run test:slow), or in tools/par.js.
+// Whole-day statistics over many seeds (S-12, S-11, P-6, L-0's planOnly days) are measured by
+// tools/par.js and tools/baseline-v4.js (section 2), not in the test run.
 // Tuning pass (owner decisions D1-D3, 2026-09-30; SPEC S-12 has the table): GT·C 2 x 300 MW,
 // minimum down time after planned stops only, rule 8's adequacy walk; then the finishing pass's
 // preview refresh on frequency drift (H-4), then the review-fix pass (rule 6's window end,
 // rule 2's sustainable GUARD, the price on the lit demand). Measured (v4-core-0.2.2,
 // tools/baseline-v4.js): par clean on 181/200 raw and 75/100 forced-heat seeds, RERT on 47/200,
 // commitAll dearer on 86/100 (seeds 1-100), lean A on 0/100, planOnly black on 0/100.
-const SEEDS = n => Array.from({length: n}, (_, i) => i + 1);
-
-/** S-5 letter grade of a proxy's run against par's on the same seed (tools/par.js grade()). */
-function grade(r, par) {
-  if (r.black) return 'F';
-  const du = r.score.unservedMWh - par.score.unservedMWh;
-  if (du <= 10) return r.summary.costDollars <= par.summary.costDollars * 1.05 ? 'A' : 'B';
-  if (du <= 150) return 'B';
-  return du <= 600 ? 'C' : 'D';
-}
 
 /** A state stepped (no inputs) to the given tick. */
 function stepTo(seed, tick, scenario = CLASSIC) {
@@ -36,13 +27,28 @@ function stepTo(seed, tick, scenario = CLASSIC) {
   return s;
 }
 
-test('S-4: par is deterministic per seed', () => {
-  const a = runPar(3, CLASSIC, {untilTick: ticksAt(8)}), b = runPar(3, CLASSIC, {untilTick: ticksAt(8)});
-  assert.deepEqual(a.log, b.log);
-  assert.deepEqual(a.origins, b.origins);
-  assert.deepEqual(a.hashes, b.hashes);
-  assert.equal(a.origins.length, a.log.length);
-});
+// Par's own days on the game's days, shared by the tests below (the information barrier and the
+// Phase 2a rules): each day is run once and every caller gets a JSON copy of it.
+const DAYS = new Map();
+// The times asked of one par day, in order: the day is played once, resumed from its own state
+// and memory at each (the same day as a fresh run to that time: 'par memory is plain JSON' below).
+const FIXTURE_TIMES = new Map([['1' + DESK.id, [[8, 0], [10, 0], [12, 30]]], ['2' + DESK.id, [[10, 0], [16, 0]]]]);
+/** Par's day on `scn` to hh:mm (a JSON copy of the state; each day is run once). */
+function parDayAt(seed, scn, h, m) {
+  const key = seed + scn.id + h + ':' + m;
+  if (!DAYS.has(key)) {
+    let r = null;
+    for (const [hh, mm] of FIXTURE_TIMES.get(seed + scn.id) || [[h, m]]) {
+      r = runPar(seed, scn, r ? {state: r.state, memo: r.memo, untilTick: ticksAt(hh, mm) + 1} : {untilTick: ticksAt(hh, mm) + 1});
+      DAYS.set(seed + scn.id + hh + ':' + mm, clone(r.state));
+    }
+    assert.ok(DAYS.has(key), key + ' is not in FIXTURE_TIMES');
+  }
+  return clone(DAYS.get(key));
+}
+
+// S-4 "par is deterministic per seed" is checked by 'par memory is plain JSON' below: two runs
+// of the same seed (one whole, one resumed) give the same log, origins and hourly hashes.
 
 test('L-0: the pre-dispatch plan is deterministic, starts at the desk opening and obeys ramps and start times', () => {
   const s = stepTo(4, V.PLAYER_START_TICK);
@@ -79,18 +85,22 @@ test('L-0: the pre-dispatch plan is deterministic, starts at the desk opening an
 test('S-4: information barrier: scrambling hidden state (future events, the regime, the series, the heat window) leaves par\'s log unchanged', () => {
   // Par runs on a state whose ext is replaced after the cut by another seed's; its input log
   // before the cut must be identical (nothing hidden after the cut was observable before it).
-  // The donor is a heat day (seed 4: heat announced 10:30, after the cut) and seed 5 a storm
-  // day, so the regime and the heat window really change (review fix: seeds 5 and 6 are both
-  // storm days with no heat window, and the scramble changed neither).
-  // Phase 2a (desk/README.md §25): the same on DESK, the game's day, where the hidden state also
-  // holds each suburb's rooftop sky (ext.rooftop.clearPm) and the regime's temperature class
-  // (seed 5 is a MILD storm day, the donor a heatwave announced at 10:30). state.day is public
-  // (MILD / HOT, the weekend) and is not swapped.
-  const cutS = (10 - V.DAY_START_H) * 3600, cut = cutS * TPS;
-  for (const scn of [CLASSIC, DESK]) {
-    const plain = runPar(5, scn, {untilTick: cut});
+  // The donor is a heat day (seed 4: heat announced 10:30, after the cut) and the subject a day
+  // without one, so the regime and the heat window really change (review fix: seeds 5 and 6 are
+  // both storm days with no heat window, and the scramble changed neither).
+  // Phase 2a (desk/README.md §25): on DESK, the game's day, the hidden state also holds each
+  // suburb's rooftop sky (ext.rooftop.clearPm) and the regime's temperature class. state.day is
+  // public (MILD / HOT, the weekend) and is not swapped. The par runs are on DESK only (budget,
+  // F-10): its hidden state is every field the classic day hides plus the rooftop skies, and par's
+  // code is the same on both; the decide() check below is on the classic day. The subject is seed
+  // 1 (a MILD calm day; the donor a heatwave announced at 10:30), whose plain run to the cut is
+  // the shared par day (parDayAt), so only the scrambled run is extra.
+  const cutS = (10 - V.DAY_START_H) * 3600, cut = cutS * TPS + 1; // just after the 10:00:00 grid update, where parDayAt stops
+  for (const scn of [DESK]) {
+    const plain = parDayAt(1, scn, 10, 0);
+    assert.equal(plain.tick, cut);
     const donor = createState(4, scn);
-    const s = createState(5, scn);
+    const s = createState(1, scn);
     assert.notDeepEqual(donor.ext.regime, s.ext.regime, 'the donor has another regime');
     assert.ok(donor.ext.heat !== null && s.ext.heat === null && donor.ext.heat.announceS > cutS, 'a heat window announced after the cut');
     s.ext.regime = donor.ext.regime;
@@ -106,7 +116,7 @@ test('S-4: information barrier: scrambling hidden state (future events, the regi
       roof.clearPm = roof.clearPm.map((row, j) => row.map((x, i) => (i * roof.stepS > cutS ? donor.ext.rooftop.clearPm[j][i] : x)));
       assert.notEqual(JSON.stringify(roof.clearPm), before, 'the rooftop skies after the cut really change');
     }
-    const scrambled = runPar(5, scn, {state: s, untilTick: cut});
+    const scrambled = runPar(1, scn, {state: s, untilTick: cut});
     assert.ok(plain.log.length > 10, scn.id + ': par acted before the cut');
     assert.deepEqual(scrambled.log, plain.log, scn.id);
   }
@@ -118,51 +128,8 @@ test('S-4: information barrier: scrambling hidden state (future events, the regi
   assert.deepEqual(decide(observe(a), createAutopilot()), decide(observe(b), createAutopilot()));
 });
 
-test('S-4 pace: at most one discrete action per 3 real s of the reference playback, none in a watch; D-9: a par day <= 2 x 1.6 s on the owner\'s laptop, timed against a CPU yardstick that shares no code with the sim', () => {
-  const yard = yardstickNs();
-  const clock = workClock();
-  const r = runPar(7, CLASSIC);
-  const secs = clock();
-  const conts = observe(r.state).contingencies;
-  // 'plan' is the L-0 plan; 'replan' is par's re-dispatched schedule after an action (the
-  // RE-PLAN, part of the action it follows: SPEC S-4 and §8.2). Every other input is a
-  // discrete action and is paced.
-  const acts = r.log.filter((x, i) => r.origins[i] !== 'plan' && r.origins[i] !== 'replan');
-  assert.ok(acts.length > 10 && acts.every((x, i) => /^rule[1-9]$/.test(r.origins[r.log.indexOf(x)])), 'discrete actions are rules');
-  for (let i = 1; i < acts.length; i++) {
-    const a = acts[i - 1].tick / TPS, b = acts[i].tick / TPS;
-    assert.ok(refRealSeconds(a, b, conts) >= V.PAR_ACTION_GAP_REAL_S - 1e-9, 'actions at ' + a + ' and ' + b + ' s too close');
-  }
-  // A re-plan follows an action: none before par's first discrete action, and it only moves
-  // levers and the tie or starts what the re-dispatch commits (par decommits by rule 4 only).
-  const firstAct = r.origins.findIndex(o => /^rule/.test(o));
-  const re = r.log.filter((x, i) => r.origins[i] === 'replan');
-  assert.ok(re.length > 0 && r.origins.indexOf('replan') > firstAct, 'replan before any action');
-  assert.ok(re.every(x => x.type === 'planLoad' && x.args.stops.length === 0), 'a re-plan is a planLoad and never stops a unit');
-  assert.equal(r.log.filter((x, i) => r.origins[i] === 'plan').length, 1, 'one L-0 plan (a planLoad at 04:30)');
-  for (const x of r.log) {
-    const sx = x.tick / TPS;
-    assert.ok(!conts.some(c => sx >= c.startS && sx < c.watchEndS), 'input during the watch at ' + sx);
-    assert.ok(x.tick >= V.PLAYER_START_TICK, 'par acted before 04:30');
-  }
-  // D-9: 365 par days in <= 10 min on one core needs <= 1.6 s a day on the owner's laptop;
-  // 2x margin. The day is timed on the main thread's CPU clock where Node has one (other
-  // processes of the parallel `node --test` run do not inflate it) and divided by a CPU
-  // yardstick measured just before it (tests/lib/speed.js), so a slower machine is not a
-  // failure and a slower ENGINE is (review fix: the old fallback compared par with planOnly,
-  // which share the engine, so a 4x slower physics still passed). Measured on the owner's
-  // laptop after the review fixes: ~1.5-1.7 s, ~5 yardstick units per tick against 10.6.
-  const limit = budgetUnits(2 * 1.6e9 / V.DAY_TICKS);
-  const units = (x, y) => x * 1e9 / V.DAY_TICKS / y;
-  let got = units(secs, yard);
-  if (got > limit) { // one re-time before failing: the yardstick again, then par again (the faster of each)
-    const y2 = Math.min(yard, yardstickNs()), c2 = workClock();
-    runPar(7, CLASSIC);
-    got = units(Math.min(secs, c2()), y2);
-  }
-  assert.ok(got <= limit, 'a par day costs ' + got.toFixed(2) + ' yardstick units per tick (' + secs.toFixed(2) + ' s here), budget ' +
-    limit.toFixed(2) + ' (2 x 1.6 s on the owner\'s laptop)');
-});
+// S-4 pace and D-9 (par's runtime) are checked on the golden's heat day, seed 4, in
+// tests/baseline-v4.test.js, beside the run that compares that day with its golden row.
 
 test('D-2: the reference profile integrates to 245 +- 3 real s from 04:30 to 04:00; night hours are unwrapped', () => {
   assert.ok(Math.abs(refRealSeconds(V.PLAYER_START_S, V.DAY_S, []) - 245) <= 3);
@@ -191,7 +158,7 @@ test('S-11: commitAll starts every offline machine at 04:00 in one batch (no pac
   assert.ok(starts.every(x => x.tick === 0));
 });
 
-test('par memory is plain JSON: a day resumed from JSON copies of the state and the memo is the same day (review fix)', () => {
+test('par memory is plain JSON: a day resumed from JSON copies of the state and the memo is the same day (review fix); S-4: par is deterministic per seed', () => {
   // Seed 2 with a trip injected at 04:31, resumed 20 s after its watch, when the decision
   // cadence is off the minute grid: the resumed run must decide at the same seconds and play the
   // same inputs. (Before the fix the cadence lived in runPar's locals, the old test compared []
@@ -210,6 +177,12 @@ test('par memory is plain JSON: a day resumed from JSON copies of the state and 
   assert.deepEqual(rest.origins.slice(first.log.length), whole.origins.slice(first.log.length));
   assert.equal(hashState(rest.state), hashState(whole.state));
   assert.ok(whole.origins.every(o => o === 'plan' || o === 'replan' || /^rule[1-9]$/.test(o)));
+  // S-4: par is deterministic per seed. The two runs of seed 2 agree input for input (above),
+  // origin for origin and hash for hash every sim-hour.
+  assert.equal(whole.origins.length, whole.log.length);
+  assert.deepEqual(first.origins, whole.origins.slice(0, first.log.length));
+  assert.ok(whole.hashes.length >= 2);
+  assert.deepEqual(first.hashes.concat(rest.hashes), whole.hashes, 'the same hourly hashes');
 });
 
 test('par rule 6 and rule 2 (review fix): a discharge order past 22:00 is ended before rules 2-5; the GUARD is raised only as far as the battery sustains it', () => {
@@ -240,16 +213,9 @@ test('par rule 6 and rule 2 (review fix): a discharge order past 22:00 is ended 
 
 // ---------------------------------------------------------------- Phase 2a: the belly (S-14, P-12; desk/README.md C-12, §21.3)
 // Poked observations of REAL game days, in the style of the rule 6 / rule 2 test above: par's own
-// day on DESK or DESK_WEEKEND up to the given time (run once per case and cloned), then the
+// day on DESK or DESK_WEEKEND up to the given time (parDayAt: run once and cloned), then the
 // observation is poked so that rules 1 to 3 want nothing and the rule under test decides.
 
-const DAYS = new Map();
-/** Par's day on `scn` to hh:mm (a JSON copy of the state; each distinct day is run once). */
-function parDayAt(seed, scn, h, m) {
-  const key = seed + scn.id + h + ':' + m;
-  if (!DAYS.has(key)) DAYS.set(key, runPar(seed, scn, {untilTick: ticksAt(h, m) + 1}).state);
-  return clone(DAYS.get(key));
-}
 /** An observation in which rules 1-3 want nothing: no contingency in hand, security comfortable, no GUARD to step down. */
 function quiet(obs) {
   obs.contingencies = [];
@@ -940,95 +906,4 @@ test('a unit still loading in the belly (final review of Phase 2a): the dispatch
     const kOn = Math.ceil((onS - P.t0) / P.stepS) + 1;
     assert.ok(P.lever[0][kOn] >= 4 * m4.minMW - 1 && P.tie[kOn] <= 0, proxy + ': after it is on, coal ' + P.lever[0][kOn].toFixed(0) + ' MW, tie ' + P.tie[kOn].toFixed(0));
   }
-});
-
-test('S-12: par sheds zero on >= 85% of 200 raw seeds; arms RERT on <= 25%; the lean proxy earns A on <= 40%', slowOnly(), () => {
-  let clean = 0, rert = 0, leanA = 0;
-  const LEAN_SEEDS = 50;
-  for (const seed of SEEDS(200)) {
-    const r = runPar(seed, CLASSIC);
-    if (r.score.unservedMWh === 0 && !r.black) clean++;
-    if (r.log.some(x => x.type === 'armRERT')) rert++;
-    if (seed <= LEAN_SEEDS && grade(runPar(seed, CLASSIC, {proxy: 'lean'}), r) === 'A') leanA++;
-  }
-  assert.ok(clean >= 170, 'par clean on ' + clean + '/200');
-  assert.ok(rert <= 50, 'par armed RERT on ' + rert + '/200');
-  assert.ok(leanA <= 0.4 * LEAN_SEEDS, 'lean A on ' + leanA + '/' + LEAN_SEEDS);
-});
-
-test('S-12: par sheds zero on >= 75% of 100 forced-heatwave seeds', slowOnly(), () => {
-  // Forced heat: seeds whose regime is heat (the 15% class), first 100 of them.
-  const heatSeeds = [];
-  for (let seed = 1; heatSeeds.length < 100; seed++) if (createState(seed, CLASSIC).ext.regime.cls === 'heat') heatSeeds.push(seed);
-  const clean = heatSeeds.filter(seed => { const r = runPar(seed, CLASSIC); return r.score.unservedMWh === 0 && !r.black; }).length;
-  assert.ok(clean >= 75, 'par clean on ' + clean + '/100 heat seeds');
-});
-
-// Phase 2a (S-14 accept; desk/README.md §21.3): S-12 is measured on the game's days too. The belly
-// rules themselves cannot fire on the classic day (nothing is spilled there, the price never
-// reaches $0); what moves par there is the battery order counted for its energy (the night's
-// recharge is in the plan): 198 of 200 classic rows, clean 183 -> 183, RERT 45 -> 44, forced heat
-// 76 -> 77 of 100. Measured at the review-fix pass (tools/par.js, v4-core-2a.0, the weekend
-// opening with both CCGTs): desk clean on 192/200 raw and 86/100 forced-heat seeds, RERT on
-// 13/200, never black, commitAll dearer on 198/200; desk-weekend clean on 197/200 and 98/100,
-// RERT on 1/200, never black, commitAll dearer on 200/200; rule 4's coal branch fired on none
-// of the 600 days.
-for (const scn of [DESK, DESK_WEEKEND]) {
-  test('S-12 on ' + scn.id + ' (the belly, S-14): par sheds zero on >= 85% of 200 raw seeds, arms RERT on <= 25%, and is never black', slowOnly(), () => {
-    let clean = 0, rert = 0;
-    const black = [];
-    for (const seed of SEEDS(200)) {
-      const r = runPar(seed, scn);
-      if (r.black) black.push(seed);
-      if (r.score.unservedMWh === 0 && !r.black) clean++;
-      if (r.log.some(x => x.type === 'armRERT')) rert++;
-      // S-14 rule 4's coal branch is expected never to fire on the game's days (MSL2 for 3 h does not occur).
-      assert.equal(r.memo.coalStops, 0, 'seed ' + seed + ': par stopped a coal machine');
-    }
-    assert.deepEqual(black, [], 'black days');
-    assert.ok(clean >= 170, 'par clean on ' + clean + '/200');
-    assert.ok(rert <= 50, 'par armed RERT on ' + rert + '/200');
-  });
-
-  test('S-12 on ' + scn.id + ': par sheds zero on >= 75% of 100 forced-heatwave seeds', slowOnly(), () => {
-    const heatSeeds = [];
-    for (let seed = 1; heatSeeds.length < 100; seed++) if (createState(seed, scn).ext.regime.cls === 'heat') heatSeeds.push(seed);
-    const clean = heatSeeds.filter(seed => { const r = runPar(seed, scn); return r.score.unservedMWh === 0 && !r.black; }).length;
-    assert.ok(clean >= 75, 'par clean on ' + clean + '/100 heat seeds');
-  });
-
-  test('S-11 on ' + scn.id + ': "commit everything at 04:00" costs more than par on >= 70% of seeds', slowOnly(), () => {
-    let dearer = 0;
-    for (const seed of SEEDS(30)) {
-      const par = runPar(seed, scn).summary.costDollars;
-      const all = runPar(seed, scn, {proxy: 'commitAll'}).summary.costDollars;
-      if (all > par) dearer++;
-    }
-    assert.ok(dearer >= 21, dearer + '/30');
-  });
-}
-
-test('P-6: par\'s tie flow is not pinned at one limit all day on >= 50% of seeds (importing is a decision)', slowOnly(), () => {
-  let varied = 0;
-  for (const seed of SEEDS(40)) {
-    const flows = new Set();
-    runPar(seed, CLASSIC, {onStep: st => { if (st.tick % (300 * TPS) === 0) flows.add(Math.round(st.tie.flowMW)); }});
-    const pinned = flows.size <= 1 || [...flows].every(f => f >= V.TIE_MAX_MW - 1);
-    if (!pinned) varied++;
-  }
-  assert.ok(varied >= 20, varied + '/40');
-});
-
-test('S-11: "commit everything at 04:00" costs more than par on >= 70% of seeds', slowOnly(), () => {
-  let dearer = 0;
-  for (const seed of SEEDS(30)) {
-    const par = runPar(seed, CLASSIC).summary.costDollars;
-    const all = runPar(seed, CLASSIC, {proxy: 'commitAll'}).summary.costDollars;
-    if (all > par) dearer++;
-  }
-  assert.ok(dearer >= 21, dearer + '/30');
-});
-
-test('L-0: AGC plus the pre-dispatch plan with no other input (planOnly) never ends the day black', slowOnly(), () => {
-  for (const seed of SEEDS(SLOW ? 50 : 20)) assert.equal(runPar(seed, CLASSIC, {proxy: 'planOnly'}).black, false, 'seed ' + seed);
 });

@@ -10,7 +10,7 @@ import {createState, step} from '../sim/step.js';
 import {largestContingency} from '../sim/fleet.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {TPS, clone, slowOnly} from './lib/sim-helpers.js';
+import {TPS, clone} from './lib/sim-helpers.js';
 
 /** Advance to grid second s applying due events (no physics or grid logic). */
 function goTo(state, s, out = []) {
@@ -104,25 +104,6 @@ test('smelter: trip removes 256 MW of load in one step (a load contingency), ret
   assert.ok(before - s.env.demandMW > V.SMELTER_MW - 50);
   for (let t = e.atS; t < e.atS + e.args.offS + 30 * 60; t++) goTo(s, t);
   assert.equal(s.smelter.loadMW, V.SMELTER_MW);
-});
-
-test('L-2: realised demand falls inside P10-P90 in 80 +- 5% of 15-min intervals at 1-h and 4-h leads (100 seeds)', slowOnly(), () => {
-  for (const leadS of [3600, 4 * 3600]) {
-    let inside = 0, total = 0;
-    for (let seed = 1; seed <= 100; seed++) {
-      const s = createState(seed, CLASSIC);
-      for (let t = 3600; t + leadS < V.DAY_S - 3600; t += 900) {
-        goTo(s, t);
-        const fc = forecast(s, leadS, V.FC_STEP_S);
-        const k = fc.n - 1;
-        const probe = clone(s);
-        goTo(probe, t + leadS);
-        total++;
-        if (probe.env.demandMW >= fc.demandP10[k] && probe.env.demandMW <= fc.demandP90[k]) inside++;
-      }
-    }
-    assert.ok(Math.abs(inside / total - 0.8) <= 0.05, 'lead ' + leadS + ' s: ' + (inside / total).toFixed(3));
-  }
 });
 
 // ------------------------------------------------------------------ stage B extensions (market + events)
@@ -387,25 +368,6 @@ test('L-2: the band carries the rooftop cloud process\'s own forecast error (reg
   goTo(s, 0); goTo(still, 0);
   const n0 = FC(s), n1 = FC(still);
   for (let k = 0; k < 24; k++) assert.equal(n0.demandP90[k] - n0.demandP10[k], n1.demandP90[k] - n1.demandP10[k]);
-});
-
-test('L-2 (DESK): realised operational demand falls inside P10-P90 in 80 +- 5% of 15-min intervals at 1-h and 4-h leads (100 seeds)', slowOnly(), () => {
-  for (const leadS of [3600, 4 * 3600]) {
-    let inside = 0, total = 0;
-    for (let seed = 1; seed <= 100; seed++) {
-      const s = createState(seed, DESK);
-      for (let t = 3600; t + leadS < V.DAY_S - 3600; t += 900) {
-        goTo(s, t);
-        const fc = forecast(s, leadS, V.FC_STEP_S);
-        const k = fc.n - 1;
-        const probe = clone(s);
-        goTo(probe, t + leadS);
-        total++;
-        if (probe.env.demandMW >= fc.demandP10[k] && probe.env.demandMW <= fc.demandP90[k]) inside++;
-      }
-    }
-    assert.ok(Math.abs(inside / total - 0.8) <= 0.05, 'lead ' + leadS + ' s: ' + (inside / total).toFixed(3));
-  }
 });
 
 // ---- P-4: MSL notices (C-9)

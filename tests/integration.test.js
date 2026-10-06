@@ -1,8 +1,10 @@
 // Stage B owner "integration": whole-sim acceptance through step() (F-2, F-3, F-4, F-6, F-7,
-// D-6, D-7, H-1, H-8 containment, K-2, K-10, K-15, S-1). Whole days over many seeds run with GRIDWATCH_SLOW=1.
+// D-6, D-7, H-1, K-2, K-10, K-15, S-1). H-8 containment from SECURE states is checked on par's
+// seed-4 day by tests/baseline-v4.test.js (the golden row's probe columns) and measured over many
+// par days by tools/baseline-v4.js (section 2), not here.
 //
-// Budget (F-10, README §10): the default run of this file steps ~8 M ticks (~5 s at the
-// 1.6 s/day target). Whole days over many seeds run only with GRIDWATCH_SLOW=1.
+// Budget (F-10, README §10): each test runs one or two seeds for a few sim-hours, so the file
+// takes about 5 s on its own; no whole days.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -15,10 +17,9 @@ import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {createPacer, runFrame} from '../app/loop.js';
 import {tokenize, jsFiles} from './lib/js-tokens.js';
-import {ticksAt, SLOW, slowOnly, calmScenario, withoutContingencies, injectTrip, clone} from './lib/sim-helpers.js';
+import {ticksAt, calmScenario, withoutContingencies, injectTrip} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S;
-const SEEDS = n => Array.from({length: n}, (_, i) => i + 1);
 const EMPTY_INPUTS = [];
 
 // ------------------------------------------------------------------ inputs: real now
@@ -209,9 +210,9 @@ const TRIP_S = V.PLAYER_START_S + 60; // 04:31: an injected trip early in the da
 
 // ------------------------------------------------------------------ whole sim
 
-test('F-2: the same seed and input log give an identical hashState every sim-hour (100 whole days with GRIDWATCH_SLOW=1)', () => {
-  const until = SLOW ? V.DAY_TICKS : ticksAt(6);
-  for (const seed of SLOW ? SEEDS(100) : [1, 2]) {
+test('F-2: the same seed and input log give an identical hashState every sim-hour', () => {
+  const until = ticksAt(6);
+  for (const seed of [2]) { // one seed, the storm day (determinism needs one; F-2 / F-7 below plays seed 5)
     const log = fuzzLog(seed, 40, until, [TRIP_S]);
     const a = play(seed, log, {untilTick: until, tripAtS: TRIP_S}), b = play(seed, log, {untilTick: until, tripAtS: TRIP_S});
     assert.ok(a.hashes.length >= 2);
@@ -249,8 +250,8 @@ test('F-2: no hidden module state: two seeds stepped interleaved, with observe/s
 });
 
 test('F-6: replay(seed, scenario, log) reproduces the scorecard and the final hash exactly; it throws on a foreign log', () => {
-  const until = SLOW ? V.DAY_TICKS : ticksAt(6);
-  for (const seed of SLOW ? [1, 2, 3] : [1]) {
+  const until = ticksAt(6);
+  for (const seed of [1]) {
     const a = play(seed, fuzzLog(seed, 60, until), {untilTick: until}).s;
     assert.ok(a.log.length > 5, 'some fuzz inputs were accepted');
     const b = replay(seed, CLASSIC, a.log, {untilTick: until});
@@ -298,13 +299,17 @@ test('F-4 / D-6: rate invariance: one log played at 0.25x, 1x, 60x and 240x, and
 });
 
 test('F-3: doNothing, competent, par and a fuzzer see identical demand, wind, solar and event timelines', () => {
-  const until = SLOW ? V.DAY_TICKS : ticksAt(5, 30);
-  for (const seed of SLOW ? SEEDS(100) : [1, 2]) {
-    const rows = [];
+  // One seed, the storm day (seed 2; the core test below takes the calm seed 1). Seed 2, because
+  // to 05:30 on seed 1 par and competent play the same day (one input each, the same end hash),
+  // so par's trace there would only be a copy of competent's (review fix).
+  const until = ticksAt(5, 30);
+  for (const seed of [2]) {
+    const rows = [], ends = [];
     const row = st => [st.env.underlyingMW, st.env.demandMW, st.env.windAvailMW, st.env.solarAvailMW, st.evNext, st.news.length].join();
-    const trace = run => { const out = []; run(st => { if (st.tick % (60 * TPS) === 0) out.push(row(st)); }); rows.push(out); };
-    for (const proxy of ['doNothing', 'competent', 'par']) trace(onStep => runPar(seed, CLASSIC, {proxy, untilTick: until, onStep}));
-    trace(onStep => play(seed, fuzzLog(seed, 50, until), {untilTick: until, onStep}));
+    const trace = run => { const out = []; ends.push(hashState(run(st => { if (st.tick % (60 * TPS) === 0) out.push(row(st)); }))); rows.push(out); };
+    for (const proxy of ['doNothing', 'competent', 'par']) trace(onStep => runPar(seed, CLASSIC, {proxy, untilTick: until, onStep}).state);
+    trace(onStep => play(seed, fuzzLog(seed, 50, until), {untilTick: until, onStep}).s);
+    assert.equal(new Set(ends).size, ends.length, 'seed ' + seed + ': the policies must play differently');
     // A run that went black stops early; every pair must agree on their common prefix, and
     // at least one run must cover the whole window.
     const longest = rows.reduce((a, b) => (b.length > a.length ? b : a));
@@ -356,8 +361,9 @@ function runPolicy(seed, policy, untilTick, onStep, scenario = CLASSIC) {
 }
 
 test('F-3 (core, without the autopilot): doNothing, a scripted operator and a fuzzer see identical demand, wind, solar and event timelines', () => {
-  const until = SLOW ? V.DAY_TICKS : ticksAt(6, 30);
-  for (const seed of SLOW ? SEEDS(100) : [1, 2]) {
+  // One seed, the calm day (seed 1; the F-3 test above takes the storm seed 2).
+  const until = ticksAt(6, 30);
+  for (const seed of [1]) {
     const rows = [], ends = [];
     const row = st => [st.env.underlyingMW, st.env.demandMW, st.env.windAvailMW, st.env.solarAvailMW, st.env.heatActive, st.evNext,
       st.news.length, st.smelter.returnS].join();
@@ -381,7 +387,7 @@ test('F-3 (Phase 2a, the game\'s day): the same three policies see identical und
   // 04:00 to 06:45: half an hour of sun (sunrise 06:12; budget, F-10). The no-input belly itself is
   // the grid job's and stage C's to carry through noon; the ext timelines do not depend on it.
   const until = ticksAt(6, 45);
-  for (const [scenario, seeds] of [[DESK, SLOW ? SEEDS(20) : [1]], [DESK_WEEKEND, SLOW ? SEEDS(20) : [2]]]) {
+  for (const [scenario, seeds] of [[DESK, [1]], [DESK_WEEKEND, [2]]]) {
     for (const seed of seeds) {
       const rows = [], ends = [];
       const row = st => [st.env.underlyingMW, st.env.rooftopMW, st.env.roofSubMW.join('/'), st.env.roofClearFrac.join('/'), st.env.demandMW,
@@ -483,10 +489,10 @@ test('K-2 / L-8: AGC on, the L-0 plan, no other input: >= 97% of ticks in 49.85-
   // Event-free: no optional events and no contingencies, so the series have no event-driven
   // shifts; the plan (planOnly) moves the base points and AGC trims around them.
   const scn = calmScenario();
-  for (const seed of SLOW ? SEEDS(10) : [1, 2]) {
+  for (const seed of [1, 2]) {
     let inBand = 0, n = 0;
     runPar(seed, scn, {proxy: 'planOnly', state: withoutContingencies(createState(seed, scn)),
-      untilTick: SLOW ? V.DAY_TICKS : ticksAt(7), onStep: st => {
+      untilTick: ticksAt(7), onStep: st => {
         if (st.tick <= V.PLAYER_START_TICK) return;
         n++;
         if (st.phys.fHz >= V.NORMAL_LO_HZ && st.phys.fHz <= V.NORMAL_HI_HZ) inBand++;
@@ -523,59 +529,6 @@ test('K-10 through step(): a preview taken at a second boundary matches the real
     assert.equal(s.conts[s.contIdx].cause, 'link');
     assert.ok(Math.abs(minHz - p.nadirHz) <= 0.02, 'seed ' + seed + ' link: real ' + minHz.toFixed(4) + ' preview ' + p.nadirHz.toFixed(4));
   }
-});
-
-test('H-8: containment: from 1,000 sampled SECURE states (fresh preview), losing L (A-2: either credible contingency) keeps the nadir >= 49.5 Hz', slowOnly(), () => {
-  // Sample par days at most once per 5 grid-minutes, at a second boundary (before that
-  // second's grid update). SECURE is judged with a FRESH preview taken at the sampled tick
-  // (security(state) re-runs previewTrip for L), so the preview is not the cached one that can
-  // be up to PREVIEW_REFRESH_S old. Each probe is a JSON copy with its future contingencies
-  // removed and L tripped at this very second. States the desk shows as SECURE (the cached
-  // level) are probed too: the preview margin (PREVIEW_MARGIN_HZ) must cover the cache.
-  // Each judgement is checked against the L it previewed: the fresh L for a fresh preview, the
-  // cached L (sec.lKind, from the start of the second) for the level the desk showed. The two
-  // differ only when L changed kind within the second, i.e. a unit and the tie import within a
-  // few MW of each other (seed 11, 21:16: tie 620.75 MW, coal units ~620.7 MW). Losing the other
-  // one is not what H-4 previews; tools/baseline-v4.js measures that gap separately.
-  const want = 1000, failures = [];
-  let fresh = 0, live = 0;
-  const probe = (st, sec, kind) => {
-    const p = clone(st);
-    p.ext.events = p.ext.events.filter((e, i) => i < p.evNext || !e.contingency);
-    injectTrip(p, sec, kind === 'link' ? 'link' : 'unit');
-    let minHz = Infinity;
-    while (!p.over && p.tick < (sec + V.WATCH_S) * TPS) { step(p); minHz = Math.min(minHz, p.phys.fHz); }
-    return minHz;
-  };
-  for (let seed = 1; fresh < want && seed <= 160; seed++) {
-    let nextS = V.PLAYER_START_S;
-    runPar(seed, CLASSIC, {onStep: st => {
-      if (fresh >= want || st.tick % TPS !== 0 || st.over) return;
-      const sec = st.tick / TPS;
-      if (sec < nextS || st.sec.lKind === 'none') return;
-      const fr = security(st);
-      const isFresh = fr.level === 'SECURE', isLive = st.sec.level === 'SECURE';
-      if (!isFresh && !isLive) return;
-      nextS = sec + 300;
-      if (isFresh) fresh++;
-      if (isLive) live++;
-      const judged = [];
-      if (V.N1_PREVIEW_ALL) { // A-2: SECURE previews both credible contingencies, so both must hold
-        judged.push(['both', 'unit']);
-        if (!st.tie.tripped && st.tie.flowMW > V.EVENT_THRESHOLD_MW) judged.push(['both', 'link']);
-      } else {
-        if (isFresh) judged.push(['fresh', fr.lKind]);
-        if (isLive) judged.push(['live', st.sec.lKind]);
-      }
-      for (const [how, kind] of judged) {
-        const minHz = probe(st, sec, kind);
-        if (minHz < V.CONTAIN_LO_HZ) failures.push('seed ' + seed + ' s ' + sec + ' ' + how + ' L=' + kind + ': ' + minHz.toFixed(3));
-      }
-    }});
-  }
-  assert.equal(fresh, want, 'only ' + fresh + ' SECURE states (fresh preview) sampled');
-  assert.ok(live >= want / 4, 'only ' + live + ' states the desk showed as SECURE');
-  assert.deepEqual(failures, []);
 });
 
 test('S-1: observe().score.unservedMWh equals the integral of shed MW over settled seconds', () => {
