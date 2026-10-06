@@ -168,10 +168,11 @@ export function createHydroWheel(ctx, parent) {
   parent.appendChild(box);
   lockKeys(ctx, box, 'sxp');
   // P / Shift+P on the wheel (K-2, L-6), the desk's answer (the shell's map would only refuse it in red)
+  const rejoin = keep => rejoinPlan(ctx, box, 'hydro', keep, 'a turn takes it off, P puts it back', PAN.hydro);
   box.addEventListener('keydown', ev => {
     if ((ev.key || '').toLowerCase() !== 'p' || ev.ctrlKey || ev.altKey || ev.metaKey || ev.defaultPrevented) return;
     ev.preventDefault();
-    if (!ev.repeat) rejoinPlan(ctx, box, 'hydro', ev.shiftKey, 'a turn takes it off, P puts it back', PAN.hydro);
+    if (!ev.repeat) rejoin(ev.shiftKey);
   });
 
   function render() {
@@ -210,8 +211,10 @@ export function createHydroWheel(ctx, parent) {
   return {
     el: box, knob: r.knob, machines,
     update(v) { vm = v; r.tick(v); for (const m of machines) m.update(v); render(); },
-    key(target, k) {
+    /** S, X, P (Shift: KEEP) for a target in the wheel's box; true if handled. */
+    key(target, k, shift) {
       if (!target || !box.contains(target)) return false;
+      if (k === 'p') { rejoin(shift); return true; }
       if (stationKey(machines, k)) return true;
       nothingTo(ctx, box, machines, k);
       return false;
