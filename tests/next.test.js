@@ -175,7 +175,7 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   assert.ok($('stack-slot').contains($('stack-el')), 'the Live Stack mounts in the desk\'s #stack-slot');
   const vm = h.vm();
   for (const k of VM_KEYS) assert.ok(k in vm, 'vm.' + k);
-  assert.deepEqual(Object.keys(vm.mode).sort(), ['locked', 'mode', 'rate', 'watchS', 'watchVersion']);
+  assert.deepEqual(Object.keys(vm.mode).sort(), ['canSkip', 'locked', 'mode', 'rate', 'watchS', 'watchVersion']);
   assert.ok(vm.glow instanceof Set);
   assert.equal(vm.alarms.tiles.length, 12);
   assert.equal(vm.hist.freq.length, G.HIST_FREQ_S);

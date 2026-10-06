@@ -218,8 +218,16 @@ export function createDesk(doc, root, actions, opts = {}) {
       live.textContent = text;
     },
     /** A sim input, unless the desk is locked; a refusal shows on `host`. Returns '' or the reason. */
+    /**
+     * Every press during the watch answers with this one note (help, so blue: Q-41), and it is
+     * true about Esc: the first full watch plays through (vm.mode.canSkip false).
+     */
+    lockNote(host) {
+      if (!host) return;
+      ctx.note(host, 'desk locked while the grid catches itself' + (vm && vm.mode && vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), undefined, 'info');
+    },
     send(x, host) {
-      if (locked()) { if (host) ctx.note(host, 'desk locked'); return 'desk locked'; }
+      if (locked()) { ctx.lockNote(host); return 'desk locked'; }
       const r = actions.input(x);
       const why = typeof r === 'string' ? r : r && typeof r === 'object' && typeof r.reason === 'string' ? r.reason : '';
       if (why && host) ctx.note(host, '✕ ' + why);

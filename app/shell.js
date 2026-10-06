@@ -354,9 +354,11 @@ export function bootGame(doc, deps) {
   }
 
   // ---------------------------------------------------------------- overlays
-  function showToast(text) {
+  /** kind 'info': an answer to a press that did nothing (blue, Q-41); else a refusal (red). */
+  function showToast(text, kind) {
     const t = $('toast');
     if (!t) return;
+    t.className = kind === 'info' ? 'info' : '';
     t.textContent = text;
     t.hidden = false;
     toastUntil = now() + 3000;

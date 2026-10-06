@@ -255,7 +255,7 @@ never assumes its input was accepted.
 ```
 vm = {
   obs,                 // observe(state), fresh each frame (contains plan, scope, forecast, sec, ...)
-  mode,                // director: {mode, rate, watchS, locked, watchVersion: 'full'|'compact'|null}
+  mode,                // director: {mode, rate, watchS, locked, watchVersion: 'full'|'compact'|null, canSkip: Esc would skip this watch (Q-41)}
   frame: {nowMs, dtS, alpha},
   alarms,              // app/alarms.js: {tiles: [{id, label, prio, state:'normal'|'alarm'|'ackd'|'cleared', flash:'fast'|'slow'|null, glyph, target}], sounding: bool}
   tray,                // app/tray.js: {cards: [{id, from, atS, text, button:{label, target}, sev}], log: [...]}
