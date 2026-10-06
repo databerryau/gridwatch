@@ -9,6 +9,7 @@
 //   p.until('trip');          // jump to the tick the next trip begins, then draw one frame
 //   p.real(5); p.look();      // five real seconds of frames (the watch), then what the player sees
 //   p.click('guard-start-gta1'); p.key('Enter');
+//   const s = p.press('guard-start-gta1');   // {before, during, after, diff}: three sampled looks
 //
 // WHY. One drawn frame costs ~3-5 ms in the stand-in DOM (the desk, map, Live Stack and shell
 // all draw); at CRUISE a 60-fps frame is only 2 grid seconds, so frame-by-frame play to the
@@ -267,6 +268,26 @@ export function openGame(o = {}) {
   /** A sim input straight through the page's actions (bypasses the desk; refusals toast). */
   function send(x) { const r = h.actions.input(x); frame(); return r; }
 
+  // ---------------------------------------------------------------- sampled presses (SPEC Q-40)
+  // The owner's rule for headless play: a frame before a press, the press frame, a frame after.
+  // A day asks for ~16-25 decisions (D-10), so a whole played day is a few hundred drawn frames.
+  /**
+   * Click a control and sample what the player sees: before, during (the press frame) and after
+   * `opts.after` real seconds (default 0.5: long enough for notes, covers and the line to react).
+   * @returns {{before:string, during:string, after:string, diff:string}} diff = before -> after
+   */
+  function press(x, opts = {}) { return sampled(() => click(x, opts), opts); }
+  /** pressKey('s'), pressKey('Enter'), pressKey('a', {shiftKey: true}): a key, sampled as press() is. */
+  function pressKey(k, extra = {}, opts = {}) { return sampled(() => key(k, extra), opts); }
+  function sampled(act, opts) {
+    const before = look(opts.look);
+    act();
+    const during = look(opts.look);
+    real(opts.after === undefined ? 0.5 : opts.after);
+    const after = look(opts.look);
+    return {before, during, after, diff: diffLooks(before, after)};
+  }
+
   // ---------------------------------------------------------------- the jump engine
   const rateNow = () => D.rateOf(game.director, game.state);
   const modeNow = () => D.modeOf(game.director, game.state).mode;
@@ -512,7 +533,7 @@ export function openGame(o = {}) {
     doc, h, game, $,
     get now() { return t; },
     frame, frames, real, to, until, look, lookDiff, buttons, timeline,
-    click, hover, key, keyDown, keyUp, hold, pointer, send,
+    click, hover, key, keyDown, keyUp, hold, pointer, send, press, pressKey,
     vm: () => h.vm(),
     clock: () => clockOfS(game.state.tick / TPS),
     mode: modeNow,

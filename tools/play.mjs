@@ -23,6 +23,8 @@
 //   buttons                 every visible, enabled control: id "label" [state]
 //   real=S | frames=N       S real seconds (or N frames) of drawn 60-fps frames: the watch, holds
 //   click=ID|LABEL          a mouse click on a control (by id, else by its visible label), + 1 frame
+//   press=ID|LABEL          a click sampled: what changed on the press frame, and 0.5 real s later
+//   presskey=K              the same for a key (s, Enter, Shift+A...)
 //   hover=ID|LABEL          rest the pointer on a control (a guard's "? IF PRESSED" line)
 //   key=K                   a key press (Enter, Escape, Space, s, Shift+A, ArrowUp...), + 1 frame
 //   hold=K:S                hold a key for S real seconds (D, E, F)
@@ -103,6 +105,13 @@ for (const step of rest) {
       case 'real': p.real(Number(arg)); out = p.clock() + ' ' + p.mode(); break;
       case 'frames': p.frames(Number(arg)); out = p.clock() + ' ' + p.mode(); break;
       case 'click': p.click(arg); out = p.clock() + ' ' + p.mode(); break;
+      case 'press': case 'presskey': {
+        const s = name === 'press' ? p.press(arg, {look: lookOpts}) : (k => p.pressKey(k.key, k.extra, {look: lookOpts}))(keyOf(arg));
+        out = 'DURING (changed on the press frame)\n' + (diffLooks(s.before, s.during) || '(no change)') +
+          '\nAFTER 0.5 real s (changed since before)\n' + (s.diff || '(no change)');
+        prev = s.after;
+        break;
+      }
       case 'hover': p.hover(arg); p.frame(); out = p.clock() + ' ' + p.mode(); break;
       case 'key': { const k = keyOf(arg); p.key(k.key, k.extra); out = p.clock() + ' ' + p.mode(); break; }
       case 'hold': { const [k, s] = arg.split(':'); p.hold(keyOf(k).key, Number(s || 1)); out = p.clock() + ' ' + p.mode(); break; }

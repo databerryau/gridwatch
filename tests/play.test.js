@@ -38,4 +38,11 @@ test('play driver: a jump shows what frame-by-frame play shows; look, buttons, c
   assert.equal(fast.game.state.tick, (parseTime('04:35:02') + 1200) * 50 + 100);
   assert.match(fast.look(), /guard-start-gta1 "○1"/);
   assert.throws(() => fast.click('no such control'), /no element or visible control/);
+
+  // press(): three samples (before, the press frame, 0.5 real s after) and the diff across them
+  const s = fast.press('guard-start-gta1');
+  assert.match(s.before, /guard-start-gta1 "○1"/);
+  assert.match(s.during, /guard-start-gta1 "START\?" \[pressed,ARMED/);
+  assert.match(s.after, /guard-start-gta1 "START\?" \[pressed,ARMED/, 'the cover stays up for 0.5 s');
+  assert.match(s.diff, /^CTRL .*guard-start-gta1 "START\?"/m);
 });
