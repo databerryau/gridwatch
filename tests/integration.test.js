@@ -1,6 +1,7 @@
 // Stage B owner "integration": whole-sim acceptance through step() (F-2, F-3, F-4, F-6, F-7,
-// D-6, D-7, H-1, K-2, K-10, K-15, S-1). H-8 containment from SECURE states over many par days is
-// measured by tools/baseline-v4.js (section 2), not here.
+// D-6, D-7, H-1, K-2, K-10, K-15, S-1). H-8 containment from SECURE states is checked on par's
+// seed-4 day by tests/baseline-v4.test.js (the golden row's probe columns) and measured over many
+// par days by tools/baseline-v4.js (section 2), not here.
 //
 // Budget (F-10, README §10): each test runs one or two seeds for a few sim-hours, so the file
 // takes about 5 s on its own; no whole days.
@@ -298,14 +299,17 @@ test('F-4 / D-6: rate invariance: one log played at 0.25x, 1x, 60x and 240x, and
 });
 
 test('F-3: doNothing, competent, par and a fuzzer see identical demand, wind, solar and event timelines', () => {
-  // One seed, the calm day (seed 1; the core test below takes the storm seed 2).
+  // One seed, the storm day (seed 2; the core test below takes the calm seed 1). Seed 2, because
+  // to 05:30 on seed 1 par and competent play the same day (one input each, the same end hash),
+  // so par's trace there would only be a copy of competent's (review fix).
   const until = ticksAt(5, 30);
-  for (const seed of [1]) {
-    const rows = [];
+  for (const seed of [2]) {
+    const rows = [], ends = [];
     const row = st => [st.env.underlyingMW, st.env.demandMW, st.env.windAvailMW, st.env.solarAvailMW, st.evNext, st.news.length].join();
-    const trace = run => { const out = []; run(st => { if (st.tick % (60 * TPS) === 0) out.push(row(st)); }); rows.push(out); };
-    for (const proxy of ['doNothing', 'competent', 'par']) trace(onStep => runPar(seed, CLASSIC, {proxy, untilTick: until, onStep}));
-    trace(onStep => play(seed, fuzzLog(seed, 50, until), {untilTick: until, onStep}));
+    const trace = run => { const out = []; ends.push(hashState(run(st => { if (st.tick % (60 * TPS) === 0) out.push(row(st)); }))); rows.push(out); };
+    for (const proxy of ['doNothing', 'competent', 'par']) trace(onStep => runPar(seed, CLASSIC, {proxy, untilTick: until, onStep}).state);
+    trace(onStep => play(seed, fuzzLog(seed, 50, until), {untilTick: until, onStep}).s);
+    assert.equal(new Set(ends).size, ends.length, 'seed ' + seed + ': the policies must play differently');
     // A run that went black stops early; every pair must agree on their common prefix, and
     // at least one run must cover the whole window.
     const longest = rows.reduce((a, b) => (b.length > a.length ? b : a));
@@ -357,9 +361,9 @@ function runPolicy(seed, policy, untilTick, onStep, scenario = CLASSIC) {
 }
 
 test('F-3 (core, without the autopilot): doNothing, a scripted operator and a fuzzer see identical demand, wind, solar and event timelines', () => {
-  // One seed, the storm day (seed 2; the F-3 test above takes the calm seed 1).
+  // One seed, the calm day (seed 1; the F-3 test above takes the storm seed 2).
   const until = ticksAt(6, 30);
-  for (const seed of [2]) {
+  for (const seed of [1]) {
     const rows = [], ends = [];
     const row = st => [st.env.underlyingMW, st.env.demandMW, st.env.windAvailMW, st.env.solarAvailMW, st.env.heatActive, st.evNext,
       st.news.length, st.smelter.returnS].join();

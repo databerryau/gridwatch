@@ -1,4 +1,5 @@
-// Stage B owner "autopilot": sim/autopilot.js acceptance (L-0, S-4, S-11, S-12, P-6, D-2, D-9).
+// Stage B owner "autopilot": sim/autopilot.js acceptance (L-0, S-4, S-11, S-12, P-6, D-2;
+// S-4 pace and D-9 are in tests/baseline-v4.test.js).
 // The import barrier (autopilot imports only params.js and step.js) is checked for real in
 // sim-lint.
 import {test} from 'node:test';
@@ -9,7 +10,6 @@ import * as fleet from '../sim/fleet.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {ticksAt, TPS, injectTrip, clone} from './lib/sim-helpers.js';
-import {yardstickNs, workClock, budgetUnits} from './lib/speed.js';
 
 // Whole-day statistics over many seeds (S-12, S-11, P-6, L-0's planOnly days) are measured by
 // tools/par.js and tools/baseline-v4.js (section 2), not in the test run.
@@ -128,51 +128,8 @@ test('S-4: information barrier: scrambling hidden state (future events, the regi
   assert.deepEqual(decide(observe(a), createAutopilot()), decide(observe(b), createAutopilot()));
 });
 
-test('S-4 pace: at most one discrete action per 3 real s of the reference playback, none in a watch; D-9: a par day <= 2 x 1.6 s on the owner\'s laptop, timed against a CPU yardstick that shares no code with the sim', () => {
-  const yard = yardstickNs();
-  const clock = workClock();
-  const r = runPar(7, CLASSIC);
-  const secs = clock();
-  const conts = observe(r.state).contingencies;
-  // 'plan' is the L-0 plan; 'replan' is par's re-dispatched schedule after an action (the
-  // RE-PLAN, part of the action it follows: SPEC S-4 and §8.2). Every other input is a
-  // discrete action and is paced.
-  const acts = r.log.filter((x, i) => r.origins[i] !== 'plan' && r.origins[i] !== 'replan');
-  assert.ok(acts.length > 10 && acts.every((x, i) => /^rule[1-9]$/.test(r.origins[r.log.indexOf(x)])), 'discrete actions are rules');
-  for (let i = 1; i < acts.length; i++) {
-    const a = acts[i - 1].tick / TPS, b = acts[i].tick / TPS;
-    assert.ok(refRealSeconds(a, b, conts) >= V.PAR_ACTION_GAP_REAL_S - 1e-9, 'actions at ' + a + ' and ' + b + ' s too close');
-  }
-  // A re-plan follows an action: none before par's first discrete action, and it only moves
-  // levers and the tie or starts what the re-dispatch commits (par decommits by rule 4 only).
-  const firstAct = r.origins.findIndex(o => /^rule/.test(o));
-  const re = r.log.filter((x, i) => r.origins[i] === 'replan');
-  assert.ok(re.length > 0 && r.origins.indexOf('replan') > firstAct, 'replan before any action');
-  assert.ok(re.every(x => x.type === 'planLoad' && x.args.stops.length === 0), 'a re-plan is a planLoad and never stops a unit');
-  assert.equal(r.log.filter((x, i) => r.origins[i] === 'plan').length, 1, 'one L-0 plan (a planLoad at 04:30)');
-  for (const x of r.log) {
-    const sx = x.tick / TPS;
-    assert.ok(!conts.some(c => sx >= c.startS && sx < c.watchEndS), 'input during the watch at ' + sx);
-    assert.ok(x.tick >= V.PLAYER_START_TICK, 'par acted before 04:30');
-  }
-  // D-9: 365 par days in <= 10 min on one core needs <= 1.6 s a day on the owner's laptop;
-  // 2x margin. The day is timed on the main thread's CPU clock where Node has one (other
-  // processes of the parallel `node --test` run do not inflate it) and divided by a CPU
-  // yardstick measured just before it (tests/lib/speed.js), so a slower machine is not a
-  // failure and a slower ENGINE is (review fix: the old fallback compared par with planOnly,
-  // which share the engine, so a 4x slower physics still passed). Measured on the owner's
-  // laptop after the review fixes: ~1.5-1.7 s, ~5 yardstick units per tick against 10.6.
-  const limit = budgetUnits(2 * 1.6e9 / V.DAY_TICKS);
-  const units = (x, y) => x * 1e9 / V.DAY_TICKS / y;
-  let got = units(secs, yard);
-  if (got > limit) { // one re-time before failing: the yardstick again, then par again (the faster of each)
-    const y2 = Math.min(yard, yardstickNs()), c2 = workClock();
-    runPar(7, CLASSIC);
-    got = units(Math.min(secs, c2()), y2);
-  }
-  assert.ok(got <= limit, 'a par day costs ' + got.toFixed(2) + ' yardstick units per tick (' + secs.toFixed(2) + ' s here), budget ' +
-    limit.toFixed(2) + ' (2 x 1.6 s on the owner\'s laptop)');
-});
+// S-4 pace and D-9 (par's runtime) are checked on the golden's heat day, seed 4, in
+// tests/baseline-v4.test.js, beside the run that compares that day with its golden row.
 
 test('D-2: the reference profile integrates to 245 +- 3 real s from 04:30 to 04:00; night hours are unwrapped', () => {
   assert.ok(Math.abs(refRealSeconds(V.PLAYER_START_S, V.DAY_S, []) - 245) <= 3);
