@@ -30,6 +30,23 @@ const HOT_RISK_TEXT = (V.HOT_TRIP_PER_H * 100).toFixed(1) + '%/h';
 const KEY_S = GUARD_MS / 1000, CLICK_S = GUARD_CLICK_MS / 1000;
 
 const pct = (v, total) => (total > 0 ? clamp(fin(v) / total, 0, 1) * 100 : 0);
+/** Help, blue (Q-41: red is only the grid's refusal, ctx.send's '✕ reason'). */
+export const help = (ctx, host, text) => ctx.note(host, text, undefined, 'info');
+/** True while the desk is locked; in the watch the press is answered by ctx.lockNote. */
+export function lockedPress(ctx, host) {
+  if (!ctx.locked()) return false;
+  const v = ctx.vm();
+  if (v && v.mode && v.mode.locked) ctx.lockNote(host);
+  return true;
+}
+/** Locked: the keys of the controls in `host` (arrows, Page, Home/End, `letters`) get the lock note, not the fallback map. */
+export function lockKeys(ctx, host, letters = '') {
+  host.addEventListener('keydown', ev => {
+    const k = ev.key || '';
+    if (ev.ctrlKey || ev.altKey || ev.metaKey || !(/^(Arrow|Page|Home$|End$)/.test(k) || k.length === 1 && letters.includes(k.toLowerCase()))) return;
+    if (lockedPress(ctx, host)) ev.preventDefault();
+  });
+}
 
 // ---------------------------------------------------------------- one machine: lamp + guards (K-3)
 
@@ -50,6 +67,7 @@ export function createMachine(ctx, k, pan) {
   box.append(start, stop);
   let u = null, offered = false, wasS = false, wasX = false, glowS = false, glowX = false;
   let keyS = false, keyX = false;   // lifted by S / X
+  let last = '';                    // 'CCGT 2 START sent': said again by a press in the 1-s rest
   // C-10: hover and focus on either guard are the desk's to resolve (ctx.consider, desk.js); it
   // is told of a pointer press too, because the focus a click leaves on a button is not the keyboard's
   for (const g of [start, stop]) {
@@ -76,8 +94,11 @@ export function createMachine(ctx, k, pan) {
     m.station === 'hydro' && ctx.vm().obs.hydro.storageMWh <= V.HYDRO_STOP_MWH ? 'no water to keep it on' : '');
   const says = r => name + ' ' + MODE_WORD[u ? u.mode : 'off'] + (r ? ': ' + r : '');
 
-  const refused = () => { const v = ctx.vm(); if (v && v.mode && v.mode.locked) ctx.note(box, 'desk locked while the grid catches itself (Esc skips)'); };
-  const sent = (x, what) => { if (!ctx.send(x, box)) { ctx.guards.lock(m.id); ctx.cue('button', pan); ctx.live(name + what + ' sent'); } };
+  // START with nothing to start: what the unit does, what to press instead
+  const startHelp = () => (!u ? '' : /^(on|loading)$/.test(u.mode) ? (m.station === 'hydro' ? 'the wheel' : 'its lever') + ' sets the MW' :
+    /^(unloading|shutdown)$/.test(u.mode) ? stopWhy() || '↺ puts it back on' : u.mode === 'tripped' ? why() + ', then START' : why());
+  const sent = (x, what) => { if (!ctx.send(x, box)) { ctx.guards.lock(m.id); last = name + what + ' sent'; ctx.cue('button', pan); ctx.live(last); } };
+  const rest = () => help(ctx, box, last + (why() ? ': ' + why() : ''));
   /** K-3: press 1 lifts g, press 2 sends x (then the unit's guards rest COMMIT_LOCK_MS) */
   function guarded(g, what, x, key) {
     const res = ctx.guards.press(g.id, () => {
@@ -95,10 +116,10 @@ export function createMachine(ctx, k, pan) {
 
   /** @param {boolean} [byKey] the press came from S on the station's lever, not from the guard itself */
   function pressStart(byKey) {
-    if (ctx.locked()) { refused(); return; }
-    if (ctx.guards.locked(m.id)) return;
+    if (lockedPress(ctx, box)) return;
+    if (ctx.guards.locked(m.id)) { rest(); return; }
     const a = startAction();
-    if (!a) { ctx.note(box, says(why())); return; }
+    if (!a) { help(ctx, box, says(startHelp())); return; }
     if (a === 'scope') {
       const r = ctx.send({type: 'scope', unit: m.id}, box);
       if (!r) { ctx.cue('button', pan); if (offered) ctx.ui({do: 'offerTaken', unit: m.id}); ctx.showBay('sync'); }
@@ -108,10 +129,10 @@ export function createMachine(ctx, k, pan) {
   }
   /** @param {boolean} [byKey] the press came from X on the station's lever */
   function pressStop(byKey) {
-    if (ctx.locked()) { refused(); return; }
-    if (ctx.guards.locked(m.id)) return;
+    if (lockedPress(ctx, box)) return;
+    if (ctx.guards.locked(m.id)) { rest(); return; }
     const a = stopAction();
-    if (!a) { ctx.note(box, stopWhy() ? says(stopWhy()) : 'nothing to stop'); return; }
+    if (!a) { help(ctx, box, says(stopWhy() || 'nothing to stop')); return; }
     if (a === 'abort') sent({type: 'abortStop', unit: m.id}, ' ABORT');
     else guarded(stop, a === 'cancel' ? ' CANCEL START' : ' STOP', {type: 'stop', unit: m.id}, byKey === true);
   }
@@ -244,7 +265,7 @@ function createLever(ctx, sid, parent) {
     if (sc.onCount > 0) r = ctx.send({type: 'basePoint', station: sid, mw: x}, slot);
     else if (!final) return '';
     else if (o.mode === 'AGC') r = ctx.send({type: 'planKey', station: sid, atS: o.s, mw: x}, slot);
-    else { ctx.note(slot, 'no machine on: START one first'); r = 'no machine on'; }
+    else { help(ctx, slot, 'no machine on: START one first (S S)'); r = 'no machine on'; }
     shown = r ? null : {v: sc.onCount > 0 ? x : baseNow(), afterTick: o.tick, frames: 0};
     handT = ctx.now();
     if (!r) ctx.live(STATION_SHORT[sid] + ' ' + x + ' MW');
@@ -273,7 +294,7 @@ function createLever(ctx, sid, parent) {
     feel(was, drag.v);
   }
   track.addEventListener('pointerdown', ev => {
-    if (!vm || ctx.locked()) return;
+    if (!vm || lockedPress(ctx, slot)) return;
     if (ev.button !== undefined && ev.button !== 0) return;
     track.setPointerCapture && track.setPointerCapture(ev.pointerId);
     const t = ctx.now();
@@ -345,14 +366,18 @@ function createLever(ctx, sid, parent) {
   }
 
   // ---- HAND: the MAN lamp rejoins the plan (K-2, L-6)
+  const S = STATION_SHORT[sid];
+  const onPlan = () => (obs().mode === 'HAND' ? S + ' follows the plan: M lights once you move it' :
+    vm.held ? 'AGC: RE-DISPATCH (N) hands the levers back' : 'AGC: levers follow the plan already');
   function rejoin(keep) {
-    if (!vm || ctx.locked()) return;
+    if (!vm || lockedPress(ctx, slot)) return;
     const p = planOf();
-    if (!p || !p.man) { ctx.note(slot, obs().mode === 'HAND' ? 'following the plan' : 'AGC: levers always follow the plan'); return; }
-    if (!ctx.send({type: 'planRejoin', station: sid, keep: !!keep}, slot)) ctx.cue('button', pan);
+    if (!p || !p.man) { help(ctx, slot, onPlan()); return; }
+    if (!ctx.send({type: 'planRejoin', station: sid, keep: !!keep}, slot)) { ctx.cue('button', pan); help(ctx, slot, S + (keep ? ' KEEP: the plan goes on from here' : ' back on the plan')); }
   }
   man.addEventListener('dblclick', ev => rejoin(ev.shiftKey));
-  man.addEventListener('click', () => { if (vm && planOf() && planOf().man) ctx.note(slot, 'double-click or P: RESUME PLAN · Shift+P: KEEP'); });
+  man.addEventListener('click', () => { if (vm && !lockedPress(ctx, slot)) help(ctx, slot, planOf() && planOf().man ? 'double-click or P: RESUME PLAN · Shift+P: KEEP' : onPlan()); });
+  lockKeys(ctx, slot, 'sxp');
   const planOf = () => (obs().plan && obs().plan.stations ? obs().plan.stations.find(x => x.id === sid) : null);
 
   // ---- render
