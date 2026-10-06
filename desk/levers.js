@@ -17,6 +17,7 @@
 
 import {V} from '../sim/params.js';
 import {leverScale, nextDetent, rampCone, agcBandMW, stationUnits} from './calc.js';
+import {lockedNote} from './emergency.js';
 import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, clamp, fin, clockOf, mmss, unitLabel,
   STATION_SHORT, LEVER_STATIONS, MODE_GLYPH, MODE_WORD, PAN, GUARD_MS, GUARD_CLICK_MS} from './util.js';
 
@@ -32,11 +33,10 @@ const KEY_S = GUARD_MS / 1000, CLICK_S = GUARD_CLICK_MS / 1000;
 const pct = (v, total) => (total > 0 ? clamp(fin(v) / total, 0, 1) * 100 : 0);
 /** Help, blue (Q-41: red is only the grid's refusal, ctx.send's '✕ reason'). */
 export const help = (ctx, host, text) => ctx.note(host, text, undefined, 'info');
-/** True while the desk is locked; in the watch the press is answered by ctx.lockNote. */
+/** True while the desk is locked; the press is answered by lockedNote (the watch: ctx.lockNote; the day over says so). */
 export function lockedPress(ctx, host) {
   if (!ctx.locked()) return false;
-  const v = ctx.vm();
-  if (v && v.mode && v.mode.locked) ctx.lockNote(host);
+  lockedNote(ctx, host);
   return true;
 }
 /** Locked: the keys of the controls in `host` (arrows, Page, Home/End, `letters`) get the lock note, not the fallback map. */
