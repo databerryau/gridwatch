@@ -2,11 +2,11 @@
 // (vm.tray).
 //
 // Cards come from the sim's records: news (`announce`: the weather bureau), station notices
-// (trips, a unit at full speed, lockout releases, water), market notices (the security level
+// (trips, each START / STOP / CANCEL / ABORT, a unit at full speed, lockout releases, water), market notices (the security level
 // going SHORT or SHEDDING, reserve diesel, DR, and from Phase 2a the minimum-system-load levels,
 // P-4 / desk/README.md C-9) and the city desk (UFLS, directed shedding, restores). Each card: a sender, a grid time, <= 25 words and ONE button that only focuses a
 // control (and lights it, L-9); it never dispatches (K-9). At most 3 cards are visible; older
-// ones and cards older than CARD_TTL_S go to the LOG drawer. Warning cards ring twice (the
+// ones (information first) and cards older than CARD_TTL_S go to the LOG drawer. Warning cards ring twice (the
 // audio cue 'ring2') and never repeat: a warning's key (what it is about) is shown once a day.
 // Cards never pause play (§7).
 
@@ -34,6 +34,8 @@ const leverOf = unitId => {
   const st = unitId.replace(/\d+$/, '');
   return st === 'hydro' ? 'wheel-hydro' : V.STATION_IDS.includes(st) ? 'lever-' + st : 'stack';
 };
+// the lever of the unit a log line names ('START Riverton CCGT 2: running up ...')
+const leverOfMsg = msg => { const m = V.MACHINES.find(x => msg.includes(x.name + ':')); return m ? leverOf(m.id) : 'stack'; };
 const unitName = id => { const m = V.MACHINES.find(x => x.id === id); return m ? m.name : id; };
 const hhmm = s => {
   const sod = ((V.DAY_START_H * V.S_PER_H + s) % V.DAY_S + V.DAY_S) % V.DAY_S;
@@ -97,6 +99,10 @@ export function cardOf(r) {
       switch (r.code) {
         case 'UNIT_READY': return {key: 'ready:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: r.msg,
           button: {label: 'TO THE SCOPE', target: 'bay-sync'}};
+        // each command taken, at once, as an event list logs it
+        case 'UNIT_START': case 'UNIT_STOP': case 'UNIT_CANCEL': case 'UNIT_ABORT_STOP':
+          return {key: 'unit:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: r.msg,
+            button: {label: 'TO THE LEVER', target: leverOfMsg(r.msg)}};
         case 'UNIT_RELEASED': return {key: 'rel:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: r.msg,
           button: {label: 'TO THE STACK', target: 'stack'}};
         case 'HYDRO_WATER': case 'HYDRO_EMPTY': return {key: 'water:' + r.code + ':' + r.msg.slice(0, 40), from: SENDERS.station, sev: 'warn',
@@ -142,7 +148,7 @@ export function trayRecords(tr, recs) {
     tr.cards.push(card);
     if (c.sev === 'warn') { cues.push('ring2'); tr.rings++; } else cues.push('tick');
   }
-  while (tr.cards.length > MAX_CARDS) toLog(tr, tr.cards.shift());
+  while (tr.cards.length > MAX_CARDS) { const i = tr.cards.findIndex(c => c.sev === 'info'); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
   if (cues.length) tr.rev++;
   return cues;
 }

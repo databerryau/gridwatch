@@ -59,7 +59,7 @@
 //
 //   consequence(obs, target, {planview, dayAhead}) -> {target, text, level} | null
 //     what a guarded press would do, said before it is made (C-10): target is
-//     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'plan' | 'crit'.
+//     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
 //
 //   steady(held, next, s) -> {line, seenS, sinceS}
 //     the line as the desk shows it: a line whose deadline or figure moves with each forecast while
@@ -70,6 +70,7 @@
 import {V} from '../sim/params.js';
 import {SCENARIOS} from '../content/scenarios.js';
 import {clockText, priceText} from '../render/format.js';
+import {unitLabel} from '../desk/util.js';
 
 /** The objective line and the consequence line are one line each: at most this many characters (§21.4). */
 export const LINE_MAX_CHARS = 170;
@@ -152,7 +153,7 @@ const mark = s => Math.floor(s / V.FC_STEP_S) * V.FC_STEP_S;
 const atMark = s => at(mark(s));
 // A clock time that may fall after the day's end (04:00): '05:14 tomorrow'.
 const atDay = s => at(s) + (s >= DAY_S ? ' tomorrow' : '');
-const unitName = id => { const m = M.find(x => x.id === id); return m ? m.name.toUpperCase() : id; };
+const unitName = unitLabel; // as the desk labels it: 'CCGT 2', 'GT·A' (one name per control)
 const pctText = b => Math.round(100 * b.socMWh / b.capMWh) + '%';
 const partOfDay = s => { const h = (V.DAY_START_H + s / S_PER_H) % V.DAY_H; return h >= 4 && h < 12 ? 'the morning' : h < 17 ? 'the afternoon' : h < 22 ? 'the evening' : 'tonight'; };
 
@@ -1145,16 +1146,17 @@ function commitLater(X, line) {
 
 /**
  * What a guarded press would do, before it is made (desk/README.md §19.5, C-10). Covers START,
- * STOP, CANCEL START and a press that would be refused (its reason); a press that opens the
- * synchroscope or aborts a stop returns null. Every time is computed from the unit's own times
- * (V.MACHINES; C-12: minimum down time runs from breaker open to the next START).
+ * STOP, CANCEL START and a press that would be refused (its reason); a unit on its way says where
+ * it is, as a faceplate would (starting: level 'ok'); a press that would do nothing returns null.
+ * Every time is computed from the unit's own times (V.MACHINES; C-12: minimum down time runs from
+ * breaker open to the next START).
  * @param {object} obs observe(state)
  * @param {string|null} target 'guard-start-<unit>' | 'guard-stop-<unit>'
  * @param {{dayAhead?:object|null, planview?:object}} [ctx]
  * A STOP that opens a shortfall says what the press itself costs: the MW that would be missing
  * that are not missing already (the evening's units not yet started are the objective's to ask
  * for, not this press's doing).
- * @returns {{target:string, text:string, level:'plan'|'crit'}|null} level 'crit' when the press
+ * @returns {{target:string, text:string, level:'ok'|'plan'|'crit'}|null} level 'crit' when the press
  *   opens a shortfall the unit cannot be back for
  */
 export function consequence(obs, target, ctx = {}) {
@@ -1165,10 +1167,12 @@ export function consequence(obs, target, ctx = {}) {
   const m = M.find(x => x.id === u.id), s = obs.s, name = unitName(u.id), day = ctx.dayAhead || obs.forecast;
   const out = (text, level = 'plan') => ({target, text, level});
   const reason = why => why.replace(/^unit is /, 'the unit is ').replace(/: (\d+) min left$/, (x, n) => ', ' + spanText(n * S_PER_MIN) + ' left');
+  const syncS = obs.mode === 'AGC' ? AUTO : 0, onGrid = u.minMW > 0 ? 'at minimum load' : 'on the grid';
   if (hit[1] === 'start') {
-    if (u.mode === 'ready') return null; // opens the synchroscope
+    if (u.mode === 'starting') return out(name + ' is starting: full speed at ' + atDay(s + u.timerS) + ', ' + onGrid + ' by ' + atDay(s + u.timerS + syncS + m.t2S) + '.', 'ok');
+    if (u.mode === 'ready') return out(name + ' is at full speed: a press opens the synchroscope (the clock runs at 1×)' + (syncS ? '; auto-sync closes its breaker at ' + atDay(s + u.timerS) : '') + '.');
     if (u.mode === 'tripped') return out('START ' + name + ' is blocked: it tripped and is locked out for another ' + spanText(u.timerS) + '.');
-    if (u.mode !== 'off') return out('START ' + name + ' does nothing: the unit is ' + u.mode + '.');
+    if (u.mode !== 'off') return null; // the objective stays up while the pointer crosses the bank
     if (u.startBlock !== '') return out('START ' + name + ' is blocked: ' + reason(u.startBlock) + '.');
     const onAt = s + u.startToMinS;
     const head = 'START ' + name + ': ' + (u.minMW > 0 ? 'at minimum load (' + commas(Math.round(u.minMW)) + ' MW)' : 'on the grid') + ' by ' + atDay(onAt) + ', ' + spanText(u.startToMinS) + ' from now' +
@@ -1190,8 +1194,9 @@ export function consequence(obs, target, ctx = {}) {
     return out(head + tail);
   }
   // the STOP guard
-  if (u.mode === 'unloading' || u.mode === 'shutdown') return null; // one press aborts the stop
-  if (u.mode === 'off' || u.mode === 'tripped') return out('STOP ' + name + ' does nothing: the unit is ' + u.mode + '.');
+  if (u.mode === 'unloading' || u.mode === 'shutdown') return out(name + ' is stopping: one press ABORTs the stop and keeps it on.');
+  if (u.mode === 'tripped') return out(name + ' is tripped: nothing to stop.');
+  if (u.mode === 'off') return null;
   const cancel = u.mode === 'starting' || u.mode === 'ready';
   if (!cancel && u.stopBlock !== '') return out('STOP ' + name + ' is blocked: ' + reason(u.stopBlock) + '.');
   // when it leaves the grid, and the earliest it could be back at minimum load
