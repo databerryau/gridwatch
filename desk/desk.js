@@ -297,10 +297,10 @@ export function createDesk(doc, root, actions, opts = {}) {
     ctx.guards.expire();
     // C-10: the focused guard is read from the document as well as heard from its events; a cover
     // that dropped by itself, or a guard that lost the focus or the pointer since the last frame,
-    // changes what is being considered. A new day: the shell has cleared its target, so say it again.
+    // changes what is being considered. A new day: the shell has cleared its target, so say it again; covers drop (K-3).
     const ae = doc.activeElement;
     ctx.consider.focusIs(ae && ae.classList && ae.classList.contains('dk-guard') && desk.contains(ae) ? ae.id : null);
-    if (fin(v.obs.tick, 0) < lastTick) ctx.consider.forget();
+    if (fin(v.obs.tick, 0) < lastTick) { ctx.consider.forget(); ctx.guards.clear(); }
     lastTick = fin(v.obs.tick, 0);
     ctx.consider.tick();
     ctx.holds.tick();

@@ -119,7 +119,6 @@ export function createEmergency(ctx, keysParent, emergParent) {
   redis.id = 'btn-redispatch'; redis.type = 'button';
   const redisGlyph = el(doc, 'span', 'dk-key-glyph', '⟳');
   redis.append(redisGlyph, el(doc, 'span', '', 'RE-DISPATCH'));
-  redis.setAttribute('aria-label', 'RE-DISPATCH: re-plan every lever and the tie from now over the units committed now');
   redis.setAttribute('aria-keyshortcuts', 'N');
   /** A press of the RE-DISPATCH key (click, Enter, or N). True unless the desk is locked. */
   function redispatch() {
@@ -171,8 +170,9 @@ export function createEmergency(ctx, keysParent, emergParent) {
     const held = !!vm.held;
     setCls(redis, 'lit', held);
     setText(redisGlyph, held ? '⟳ HELD' : '⟳');
-    setAttr(redis, 'title', held ? 'HELD BY HAND: you moved a lever, the wheel or the tie, so the dispatch stopped ' +
+    setAttr(redis, 'title', held ? 'HELD BY HAND: you moved a lever, the HYDRO wheel or the TIE knob, so the dispatch stopped ' +
       'moving the levers. Press to hand them back.' : 'Re-plan every lever and the tie from now');
+    setAttr(redis, 'aria-label', (held ? 'HELD BY HAND: ' : '') + 'RE-DISPATCH: re-plan every lever and the tie from now over the units committed now');
     if (held && !wasHeld) ctx.note(keys, 'held by hand: RE-DISPATCH (N) hands the levers back', 6000, 'info');
     wasHeld = held;
     // RERT
