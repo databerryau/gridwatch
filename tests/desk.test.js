@@ -2555,7 +2555,7 @@ test('Q-41: in the watch every lever, guard, MAN lamp and rotary press or key an
     assert.equal(noteOn(host), LOCK, id + ' scroll');
   }
   // keys on each focused control: taken at the control (the fallback map would only be refused: a red toast)
-  for (const [k, host, keys] of [['2', lever, ['ArrowUp', 'PageDown', 'Home', 's', 'x', 'p']], ['6', rot('wheel-hydro'), ['ArrowRight', 's']],
+  for (const [k, host, keys] of [['2', lever, ['ArrowUp', 'PageDown', 'Home', 's', 'x', 'p']], ['6', rot('wheel-hydro'), ['ArrowRight', 's', 'p']],
     ['7', rot('dial-battery'), ['ArrowLeft', 'ArrowUp']], ['g', rot('ring-guard'), ['End']], ['8', rot('knob-tie'), ['ArrowDown']]]) {
     tap(m, k);
     for (const key of keys) {
@@ -2622,4 +2622,55 @@ test('§13.3 / Q-41: in IDLE the battery dial in hand shows on its face the MW t
   tap(m, 'ArrowRight');
   assert.deepEqual(inputsOf(a, 'battery'), [{type: 'battery', mode: 'discharge', mw: 90}]);
   assert.match(read(), /^▲ DIS 90 · OUT/);
+  // all of it on GUARD: the dial has no travel, and a key, a scroll or a turn says why in blue (sending nothing)
+  const gv = vmAt(EVE);
+  Object.assign(gv.obs.battery, {mode: 'idle', orderMW: 0, guardMW: V.BATT_MW});
+  const g = mount(at(gv, 1000)), gbox = g.$('dial-battery').closest('.dk-rot'), ALL = 'blue all on GUARD: turn the ring down (G, then ↓)';
+  tap(g, '7');
+  for (const k of ['ArrowRight', 'ArrowUp']) {
+    g.desk.update(at(gv, 5000 + k.length * 4000));
+    assert.equal(tap(g, k), true, k);
+    assert.equal(noteOn(gbox), ALL, k);
+  }
+  g.desk.update(at(gv, 60000));
+  g.$('dial-battery').dispatch('pointerdown', {clientX: 0, clientY: 0});
+  assert.equal(noteOn(gbox), ALL, 'turn');
+  assert.equal(g.actions.inputs.length, 0);
+});
+
+test('Q-41: the hydro wheel answers S, X and P as a lever does, in blue; P rejoins the plan from the wheel', () => {
+  const hv = (mode, man, units) => {
+    const v = vmAt(EVE, {held: false});
+    v.obs.mode = mode;
+    v.obs.plan.stations.find(p => p.id === 'hydro').man = man;
+    for (const u of v.obs.units.filter(x => /^hydro/.test(x.id))) Object.assign(u, units);
+    return v;
+  };
+  const box = m => m.$('wheel-hydro').closest('.dk-rot');
+  // S with every machine running, X with none: what there is (the shell's map would do nothing)
+  const on = mount(at(hv('AGC', false, {mode: 'on', sync: true}), 1000));
+  tap(on, '6');
+  assert.equal(tap(on, 's'), false);
+  assert.equal(noteOn(box(on)), 'blue nothing to start: all running');
+  const off = mount(at(hv('HAND', false, {mode: 'off', sync: false, startBlock: ''}), 1000));
+  tap(off, '6');
+  assert.equal(tap(off, 'x'), false);
+  assert.equal(noteOn(box(off)), 'blue nothing to stop: none running');
+  assert.equal(on.actions.inputs.length + off.actions.inputs.length, 0);
+  // P on the plan already: why, taken at the wheel (the shell's map would send a rejoin the sim refuses in red)
+  for (const [mode, text] of [['AGC', 'AGC: the wheel follows the plan already'], ['HAND', 'HYDRO follows the plan: a turn takes it off, P puts it back']]) {
+    const g = mount(at(hv(mode, false, {}), 1000));
+    tap(g, '6');
+    assert.equal(tap(g, 'p'), true, mode);
+    assert.equal(noteOn(box(g)), 'blue ' + text);
+    assert.equal(g.actions.inputs.length, 0);
+  }
+  // off the plan (a hand turn in HAND): P rejoins, Shift+P keeps, and says so
+  for (const [shiftKey, text] of [[false, 'HYDRO back on the plan'], [true, 'HYDRO KEEP: the plan goes on from here']]) {
+    const g = mount(at(hv('HAND', true, {}), 1000));
+    tap(g, '6');
+    assert.equal(tap(g, shiftKey ? 'P' : 'p', {shiftKey}), true);
+    assert.deepEqual(g.actions.inputs, [{type: 'planRejoin', station: 'hydro', keep: shiftKey}]);
+    assert.equal(noteOn(box(g)), 'blue ' + text);
+  }
 });

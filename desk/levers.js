@@ -204,6 +204,24 @@ export function stationKey(machines, key) {
   return false;
 }
 
+/** S / X that found nothing (stationKey false): what each machine is doing, as help (it may follow S S); a READY unit is O's. */
+export function nothingTo(ctx, host, machines, k) {
+  const s = k === 's', all = machines.filter(m => !(s ? /^(on|loading|ready)$/ : /^(off|tripped)$/).test(m.mode())).map(m => (s ? m.start : m.stop).getAttribute('title')).join(', ');
+  ctx.note(host, 'nothing to ' + (s ? 'start: ' + (all || 'all running') : 'stop: ' + (all || 'none running')), 5000, 'info');
+}
+
+/** P on a station (K-2, L-6): why it already follows the plan; `how` says, in HAND, how it leaves it. */
+export const planSays = (vm, sid, how) => (vm.obs.mode === 'HAND' ? STATION_SHORT[sid] + ' follows the plan: ' + how :
+  vm.held ? 'AGC: RE-DISPATCH (N) hands the levers back' : 'AGC: ' + (sid === 'hydro' ? 'the wheel follows' : 'levers follow') + ' the plan already');
+/** P (Shift: KEEP): back on the plan when off it (MAN), else why not; answered in blue either way. */
+export function rejoinPlan(ctx, host, sid, keep, how, pan) {
+  const vm = ctx.vm();
+  if (!vm || lockedPress(ctx, host)) return;
+  const pl = vm.obs.plan, p = pl && pl.stations ? pl.stations.find(x => x.id === sid) : null, S = STATION_SHORT[sid];
+  if (!p || !p.man) { help(ctx, host, planSays(vm, sid, how)); return; }
+  if (!ctx.send({type: 'planRejoin', station: sid, keep: !!keep}, host)) { ctx.cue('button', pan); help(ctx, host, S + (keep ? ' KEEP: the plan goes on from here' : ' back on the plan')); }
+}
+
 // ---------------------------------------------------------------- one lever
 
 function createLever(ctx, sid, parent) {
@@ -366,17 +384,10 @@ function createLever(ctx, sid, parent) {
   }
 
   // ---- HAND: the MAN lamp rejoins the plan (K-2, L-6)
-  const S = STATION_SHORT[sid];
-  const onPlan = () => (obs().mode === 'HAND' ? S + ' follows the plan: M lights once you move it' :
-    vm.held ? 'AGC: RE-DISPATCH (N) hands the levers back' : 'AGC: levers follow the plan already');
-  function rejoin(keep) {
-    if (!vm || lockedPress(ctx, slot)) return;
-    const p = planOf();
-    if (!p || !p.man) { help(ctx, slot, onPlan()); return; }
-    if (!ctx.send({type: 'planRejoin', station: sid, keep: !!keep}, slot)) { ctx.cue('button', pan); help(ctx, slot, S + (keep ? ' KEEP: the plan goes on from here' : ' back on the plan')); }
-  }
+  const HOW = 'M lights once you move it';
+  const rejoin = keep => { if (vm) rejoinPlan(ctx, slot, sid, keep, HOW, pan); };
   man.addEventListener('dblclick', ev => rejoin(ev.shiftKey));
-  man.addEventListener('click', () => { if (vm && !lockedPress(ctx, slot)) help(ctx, slot, planOf() && planOf().man ? 'double-click or P: RESUME PLAN · Shift+P: KEEP' : onPlan()); });
+  man.addEventListener('click', () => { if (vm && !lockedPress(ctx, slot)) help(ctx, slot, planOf() && planOf().man ? 'double-click or P: RESUME PLAN · Shift+P: KEEP' : planSays(vm, sid, HOW)); });
   lockKeys(ctx, slot, 'sxp');
   const planOf = () => (obs().plan && obs().plan.stations ? obs().plan.stations.find(x => x.id === sid) : null);
 
@@ -469,9 +480,7 @@ function createLever(ctx, sid, parent) {
     key(k, shift) {
       if (k === 'p') { rejoin(shift); return true; }
       if (stationKey(machines, k)) return true;
-      // help, not a refusal (it may follow S S); a READY unit is O's
-      const s = k === 's', all = machines.filter(m => !(s ? /^(on|loading|ready)$/ : /^(off|tripped)$/).test(m.mode())).map(m => (s ? m.start : m.stop).getAttribute('title')).join(', ');
-      ctx.note(slot, 'nothing to ' + (s ? 'start: ' + (all || 'all running') : 'stop: ' + (all || 'none running')), 5000, 'info');
+      nothingTo(ctx, slot, machines, k);
       return false;
     },
     /** K-12: a rough close on one of this station's machines (no shake under reduced motion). */

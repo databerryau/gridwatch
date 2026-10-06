@@ -7,7 +7,7 @@
 import {V} from '../sim/params.js';
 import {waterLastsUntilS, redArcFromMW, knobValue, knobAngle, pointerAngle, guardFromAngle, tieSnap, TIE_DETENTS,
   nextDetent, wrapDeg, KNOB_SWEEP, GUARD_MAX_MW} from './calc.js';
-import {createMachine, stationKey, help, lockedPress, lockKeys} from './levers.js';
+import {createMachine, stationKey, nothingTo, rejoinPlan, help, lockedPress, lockKeys} from './levers.js';
 import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, smw, clamp, fin, clockOf, mmss, PAN} from './util.js';
 
 export const WHEEL_MW_PER_TURN = 250;   // K-4: one full turn of the hand wheel
@@ -79,10 +79,10 @@ function makeRotary(ctx, o) {
   knob.addEventListener('lostpointercapture', release);
   knob.addEventListener('keydown', ev => {
     if (!ctx.vm() || ctx.locked()) return;
+    if (/^(Arrow|Page|Home$|End$)/.test(ev.key) && needs()) { ev.preventDefault(); return; }
     const t = o.step(ev, cur());
     if (t === null || t === undefined) return;
     ev.preventDefault();
-    if (needs()) return;
     const v = apply(t);
     feel(cur(), v);
     pending = {v, t: pending ? pending.t : ctx.now()};
@@ -166,7 +166,13 @@ export function createHydroWheel(ctx, parent) {
   left.append(title, face, lasts, store);
   box.append(left, machCol);
   parent.appendChild(box);
-  lockKeys(ctx, box, 'sx');
+  lockKeys(ctx, box, 'sxp');
+  // P / Shift+P on the wheel (K-2, L-6), the desk's answer (the shell's map would only refuse it in red)
+  box.addEventListener('keydown', ev => {
+    if ((ev.key || '').toLowerCase() !== 'p' || ev.ctrlKey || ev.altKey || ev.metaKey || ev.defaultPrevented) return;
+    ev.preventDefault();
+    if (!ev.repeat) rejoinPlan(ctx, box, 'hydro', ev.shiftKey, 'a turn takes it off, P puts it back', PAN.hydro);
+  });
 
   function render() {
     if (!vm) return;
@@ -204,7 +210,12 @@ export function createHydroWheel(ctx, parent) {
   return {
     el: box, knob: r.knob, machines,
     update(v) { vm = v; r.tick(v); for (const m of machines) m.update(v); render(); },
-    key(target, k) { return target && box.contains(target) ? stationKey(machines, k) : false; },
+    key(target, k) {
+      if (!target || !box.contains(target)) return false;
+      if (stationKey(machines, k)) return true;
+      nothingTo(ctx, box, machines, k);
+      return false;
+    },
     /** K-12: a rough close on a hydro machine (no shake under reduced motion). */
     shake() { shakeUntil = ctx.now() + SHAKE_MS; },
   };
@@ -278,6 +289,7 @@ export function createBatteryDial(ctx, parent) {
       return null;
     },
     wheelStep: ev => (ev.shiftKey ? 1 : 10),
+    needs: () => (avail() > 0 ? '' : 'all on GUARD: turn the ring down (G, then ↓)'),
     send(v) {
       const mode = v > 0 ? 'discharge' : v < 0 ? 'charge' : 'idle';
       const r = ctx.send({type: 'battery', mode, mw: Math.abs(Math.round(v))}, box);
