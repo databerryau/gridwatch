@@ -25,9 +25,12 @@ sim alone runs a whole day in about 2 s. The game asks for few actions: about 16
 day (SPEC D-10), at most one per 3 real seconds. So **sample, don't stream**: jump the sim
 between moments and render one frame before a press, one during it and one after.
 
-- `tests/lib/play.js` is the driver: `openGame()`, `to('HH:MM')`, `until('trip')`, `press()`
-  (looks before, during and after), `after(realSeconds)`, `look()`, `buttons()`, `timeline()`.
-- `node tools/play.mjs --help` is the same from the command line.
+- `tests/lib/play.js` is the driver: `openGame({seed})`, `to('HH:MM')` and `until('trip')` jump
+  headless and stop at the tick an event begins, `press(id)` / `pressKey(k)` return the looks
+  before, on the press frame and 0.5 real s after, `real(s)` plays real seconds (the watch),
+  `look()` / `lookDiff()` / `buttons()` say what the player sees, `timeline()` covers a span.
+- `node tools/play.mjs --help` is the same from the command line, e.g.
+  `node tools/play.mjs 20261007 to=06:00 press=guard-start-gta1 until=trip real=5 diff`.
 - Don't write ad-hoc frame loops. If the driver can't express something, extend the driver.
 
 ## The browser
