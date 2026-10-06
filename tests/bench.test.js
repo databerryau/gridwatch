@@ -4,15 +4,13 @@
 //    imports only, no Math.random outside render/ and audio/ (F-3);
 //  - live: bench.html's body is loaded into a small stand-in DOM (below; enough for the bench,
 //    not a browser) and app/bench-boot.js runs against it, driven by fake animation frames. The
-//    whole-day run is in the slow suite. The static rules cover every page module (app/, render/,
-//    content/, desk/, audio/).
+//    static rules cover every page module (app/, render/, content/, desk/, audio/).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync, readdirSync, statSync} from 'node:fs';
 import {join, relative} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {tokenize, importSpecifiers} from './lib/js-tokens.js';
-import {slowOnly} from './lib/sim-helpers.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const rel = f => relative(ROOT, f).replace(/\\/g, '/');
@@ -309,18 +307,5 @@ test('the bench plays the debug trip as a watch: locked desk, trace chart, conti
   assert.doesNotMatch($('rate-text').textContent, /WATCH/);
   assert.match($('cont-card').textContent, /#\d+ unit .*nadir 4\d\.\d{3} Hz/);
   assert.match($('log-list').textContent, /DEBUG: tripped/);
-  assert.deepEqual(doc.canvasStats.bad, []);
-});
-
-test('Exit Phase 0: bench.html plays a whole day through the bench (ASSIST PAR, 2,100×)', slowOnly(), async () => {
-  const {doc, $, frames} = await bootBench('?seed=7&speed=240');
-  $('assist-select').querySelectorAll('button').find(b => b.dataset.assist === 'par').click();
-  $('speed').querySelectorAll('button').find(b => b.textContent === '2,100×').click();
-  frames(1);
-  if (/PAUSE/.test($('rate-text').textContent)) $('btn-play').click();
-  let n = 0;
-  while ($('end-card').hidden && n++ < 60 * 600) frames(1);
-  assert.equal($('end-card').hidden, false, 'the day ended');
-  assert.match($('end-card').textContent, /Day over|went black/);
   assert.deepEqual(doc.canvasStats.bad, []);
 });

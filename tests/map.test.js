@@ -13,17 +13,29 @@ import {makeDocument} from './lib/dom.js';
 import {dayVm, baseVm} from './lib/vm-fixture.js';
 import {deskDayVm} from './lib/desk-vm.js';
 import {V} from '../sim/params.js';
+import {step, observe} from '../sim/step.js';
+import * as fleet from '../sim/fleet.js';
 import {DESK_WEEKEND} from '../content/scenarios.js';
 import {tokenize, importSpecifiers} from './lib/js-tokens.js';
 import * as D from '../render/mapdata.js';
 import {createMap, mapLabels, mapSummary, mapKeyOrder, skyState, weatherOf, MAX_REST_LABELS} from '../render/map.js';
 
+// One par run to 18:30 (seed 7) for both views: the trip view is that evening cloned, its largest
+// unit tripped and 2 grid-s run, as dayVm({seed: 7, untilH: 18.5, trip: true}) makes it (the same
+// hashState) without a second par run.
 let DAY = null;
 async function vmOf(over, trip = false) {
-  const key = trip ? 't' : 'e';
-  DAY ||= {};
-  if (!DAY[key]) DAY[key] = dayVm({seed: 7, untilH: 18.5, trip});
-  const {obs} = await DAY[key];
+  DAY ||= (async () => {
+    const eve = await dayVm({seed: 7, untilH: 18.5});
+    const st = structuredClone(eve.state);
+    let best = -1;
+    for (let i = 0; i < st.units.length; i++) if (st.units[i].sync && (best < 0 || st.units[i].outMW > st.units[best].outMW)) best = i;
+    while (st.tick % V.TICKS_PER_S !== 0) step(st, []);
+    fleet.tripUnit(st, best, 'test trip', V.HOT_TRIP_LOCKOUT_S, []);
+    for (let k = 0; k < 2 * V.TICKS_PER_S; k++) step(st, []);
+    return {e: eve.obs, t: observe(st)};
+  })();
+  const obs = (await DAY)[trip ? 't' : 'e'];
   return baseVm(structuredClone(obs), over);
 }
 
