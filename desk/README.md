@@ -1593,7 +1593,10 @@ re-run after the final review.
 
 ---
 
-## 29. Alarms beside the plan, an alarm panel that explains, "?" that closes, and one ALL-IN score (contract, 2026-10-08)
+## 30. Alarms beside the plan, an alarm panel that explains, "?" that closes, and one ALL-IN score (contract, 2026-10-08)
+
+(Comments that cite "§29" in `desk/dial.js`, `desk/calc.js` and `tests/balance.test.js` mean the
+PR #9 BALANCE-bar playtest record, which never landed here. This contract is §30.)
 
 The owner, 2026-10-08, after playing the PR #11 build:
 
@@ -1606,7 +1609,7 @@ The owner, 2026-10-08, after playing the PR #11 build:
 > total consumer cost and also ratio against carbon emissions, so the final score should be a
 > combination of the 3 put together a sensible formula
 
-How we read it (checked against the code, workflow `wf_d9aef32c-e8d`, 2026-10-08):
+How we read it (checked against the code, workflows `wf_d9aef32c-e8d` and `wf_cc8a1cd4-c64`):
 - **The "plan notes" are the standing objective line** (`#objective`, Q-18): its badge reads
   `◷ PLAN`, and the owner reads it all day. The message tray is already directly under the
   annunciator, so it cannot be what is far from the alarms.
@@ -1615,265 +1618,436 @@ How we read it (checked against the code, workflow `wf_d9aef32c-e8d`, 2026-10-08
   click lands on the drawer, which has no close control (a mouse-only player cannot close it). It
   also covers desk column 4 (the alarms and the tray). (b) The shell's "?" badges call
   `showPopover` on every click (it has no open state), and Esc closes the drawer under the popover
-  first. (c) The desk's own "?" buttons (`q-dial`, `q-imb`, `q-gauge`) re-arm an 8-s note on each
-  press. The tests passed because the DOM stand-in has no layout.
+  first. (c) The desk's own "?" buttons (`q-dial`, `q-imb`, `q-gauge`) and the annunciator tiles
+  re-arm their notes on each press. The tests passed because the DOM stand-in has no layout.
 - **STPIS cannot be applied as-is, and the game must say so.** AER STPIS v2.0 cl. 3.3(a)(2)–(4)
-  excludes load shed for a generation shortfall, automatic UFLS and AEMO-directed shedding, which
-  are the only outages GRIDWATCH has. Regulators value *those* outages at VCR × unserved energy
-  (the Reliability Panel; AEMO's ISP counts "involuntary load shedding, valued at VCR" and
-  "emissions, valued at the VER" in total system cost). So the score prices reliability the
-  system-operator way (VCR × MWh dark) and shows SAIDI, SAIFI and MAIFI the way a distributor's
-  STPIS counts them, labelled as an abstraction. STPIS dollars and VCR × USE are never added
-  together: STPIS's rates are built from VCR, so that would count an outage twice.
+  (and the Distribution Reliability Measures Guideline §3.3, items 1–3) let a distributor *exclude*
+  load shed for a generation shortfall, automatic UFLS and shedding directed by AEMO, unless a
+  network interruption is already under way. Until slice 2c's storm feeders, those are the only
+  outages GRIDWATCH has. Regulators value unserved energy from supply shortfalls at VCR: the
+  Reliability Panel sets the standard against "the cost of unserved energy measured at the VCR",
+  and AEMO's ISP counts "involuntary load shedding costs, valued at the value of customer
+  reliability" and "changes in greenhouse gas emissions, valued at the value of emissions
+  reduction". GRIDWATCH extends VCR to every MWh it sheds, UFLS after any trip included, although
+  the reliability standard leaves out non-credible contingencies and the AER computes no VCR for
+  widespread or longer-than-12-h outages. Regulators rank options by the *difference* in these
+  dollars; dividing par's total by yours is GRIDWATCH's own rule. So the score prices reliability
+  the system-operator way (VCR × MWh dark) and shows SAIDI, SAIFI and MAIFI as the Guideline
+  defines them, before STPIS's exclusions (the AER's "all outages" basis), labelled. STPIS dollars
+  and VCR × USE are never added together: STPIS's rates are built from VCR, so that would count an
+  outage twice.
 
-### 29.1 Decisions (owner-delegated, "most fun within realism"; SPEC §9.1 numbers allocated here)
+### 30.1 Decisions (owner-delegated, "most fun within realism"; SPEC §9.1 numbers allocated here)
 
 | # | Decision | Why |
 |---|---|---|
-| **Q-44** | **Help texts load on demand** (risk 11, option A). `content/text.js` (the drawer and "?" texts, 14.4 KB gzip) leaves the first visit and loads on the first open of the drawer or a "?" popover. The new alarm explainers load on the first open of the alarm panel. A small static anchor index stays eager. F-11's 400 KB stays as written; the test names the on-demand modules and caps them. | Keeps F-11's promise ("the first visit transfers ≤400 KB") literally true and frees about 13 KB for slices 2b–2e. The other two options (raise F-11; trim the most-tested module) cost more. Loading takes one same-origin request, while the reader is reading. |
-| **Q-45** | **The plan bar.** The objective line and a compact annunciator share one strip along the bottom of the map: `#planbar` = `#objective` (unchanged id, children and classes) on the left, the annunciator as 6 × 2 tiles with ACK, SIL and an **EXPLAIN** key on the right. The desk's column 4 becomes the message tray (now 212 px tall) above the emergency cell. | The owner's eyes are on the plan line; the alarms now sit at its right end, where a control room's alarm banner sits. Every id stays, so every focus jump, key and test that names a control still works. |
-| **Q-46** | **The alarm panel explains and holds the clock.** EXPLAIN (or W) pops the alarms out into a large panel over the desk. While it is open the clock is held (director mode `ALARMS`, badge `HELD 0× · Esc`); closing returns to exactly the run state before (the player's own pause is untouched). For each of the 12 alarms it shows the state, at least one live number, what it means, why it happens, what to do (with a GO TO that focuses the control and leaves the clock paused, so the player can act), and what the real grid does, with its source or "GRIDWATCH's own rule". No button in it sends a sim input. New horns and repeats wait while it is open; anything still unacknowledged sounds once on close. Allowed at any time, including the watch (the watch resumes at the same tick, as with Space). | "Pop out and pause so you can understand each alarm." A hold the player asks for is D-6's free pause with a reason attached, not the pause-card the §7 cut list rejects: nothing in it plays the game for you. |
-| **Q-47** | **The "?" rule.** The press that opened a help closes it. Nothing a "?" opens covers that "?" (the drawer runs from under the header to the top of the plan bar). Every help has a visible CLOSE. Esc closes the top-most thing first, in z-order: popover (20) → settings (16) → drawer (15) → alarm panel (13) → a desk help note → skip the watch, and Esc does this even while the map or the Live Stack has the keyboard. | The owner's bug, generalised: no help may trap the view. |
-| **Q-48** | **One ALL-IN score.** ALL-IN $ = SUPPLY (S-2's cost of supply) + OUTAGES (VCR $30,000/MWh × MWh dark, S-1) + CARBON (VER $80/t × S-3's intensity × MWh the city asked for). **SCORE = round(1000 × par's ALL-IN ÷ yours)**: 1000 is par, more beats it, a black day is 0 (F). The letter comes from the score (§29.7). SAIDI, SAIFI and MAIFI are counted in the sim (sustained > 3 grid-min, per household) and shown as STPIS readouts, never added in. The header gains an ALL-IN chip (¢/kWh asked for); the briefing names the three goals and their prices; the end card shows the breakdown against par. Overrides H-12's "footnote only" for the *score* (CUSTOMER COST still never prices unserved energy), S-5's MWh ladder and S-9's carbon star. | One currency is how regulators trade the three goals off (AEMO ISP, Reliability Panel, AEMC with the VER), so the formula teaches the real trade: 1 MWh dark = $30,000 = 375 t of CO₂. Carbon on intensity × energy asked for keeps S-3's protection (shedding or importing cannot buy carbon). The ratio to par is scale-free across days. Measured on seed 20261008 (`v4-core-2a.1`, VER $80): par $9.12M; competent 987; lean 944; commit-all 809; a 10-MWh shed 968; the no-input day 14. |
+| **Q-44** | **Help texts load on demand** (risk 11, option A). `content/text.js` (the drawer and "?" texts, 14.4 KB gzip) leaves the first visit and loads on the first open of the drawer or a "?" popover; the new alarm explainers load on the first open of the alarm panel. A small static anchor index stays eager. F-11's 400 KB stays as written; the test names the on-demand modules and caps each. Measured: the first visit goes from 397.6 to about 384.6 KB; after this wave's eager code (≤ 6 KB in all, each agent reports its share) about 9–11 KB is left for slices 2b–2e. | Keeps F-11's promise ("the first visit transfers ≤400 KB") literally true. The other options (raise F-11; trim the most-tested module) cost more. Loading takes one same-origin request, while the reader is reading. |
+| **Q-45** | **The plan bar.** The objective line and a compact annunciator share one strip along the bottom of the map: `#planbar` = `#objective` (unchanged id, children and classes) on the left, the annunciator as 6 × 2 tiles with ACK, HORN OFF and an **EXPLAIN** key on the right. The desk's column 4 becomes the message tray (now 212 px tall) above the emergency cell. SIL is renamed HORN OFF (owner, playtest 1: faces must say what they do). | The owner's eyes are on the plan line; the alarms now sit at its right end, where a control room's alarm banner sits. Every id stays, so every focus jump, key and test that names a control still works. |
+| **Q-46** | **The alarm panel explains and holds the clock.** EXPLAIN (or W, or a second press on a tile) pops the alarms out into a large panel over the desk. While it is open the clock is held (director mode `ALARMS`, badge `HELD 0× · Esc`); closing returns to exactly the run state before (the player's own pause is untouched). For each of the 12 alarms it shows the state and at least one live number, what to do (with GO TO, which focuses the control and leaves the clock paused so the player can act), what it means, why it happens, and what the real grid does, with its source or "GRIDWATCH's own rule". No button in it sends a sim input; any other desk key closes it first (as GO TO). New horns and repeats wait while it is open; anything still unacknowledged sounds once on close. Allowed at any time, including the watch (the watch resumes at the same tick, as with Space). | "Pop out and pause so you can understand each alarm." A hold the player asks for is D-6's free pause with a reason attached, not the pause-card the §7 cut list rejects: nothing in it plays the game for you. |
+| **Q-47** | **The "?" rule.** The press that opened a help closes it. Nothing a "?" opens covers that "?" (the drawer runs from under the header to the top of the plan bar; a popover opens below or above its "?", never over it). Every help shows how to close it: the drawer and the popover have a ✕, and a desk note's own "?" reads ✕ while its note shows. Esc closes the top-most thing first, in z-order: popover (20) → settings (16) → drawer (15) → alarm panel (13) → a desk note (a "?" note or a tile note); only when none is open does Esc go on to the map, the stack or skipping the watch. | The owner's bug, generalised: no help may trap the view. |
+| **Q-48** | **One ALL-IN score.** ALL-IN $ = SUPPLY (S-2's cost of supply) + OUTAGES (VCR $30,000/MWh × MWh dark, S-1) + CARBON (VER $80/t × S-3's intensity × MWh the city asked for). **SCORE = round(1000 × par's ALL-IN ÷ yours)**: 1000 is par (GRIDWATCH's own autopilot on the same day), more beats it, a black day is 0 (F). Letters come from the score (§30.7). A live SCORE chip compares you with par at the same grid time all day. SAIDI, SAIFI and MAIFI are counted in the sim (per household; sustained = dark longer than 3 grid-min) and shown as reliability readouts with their link to the money, never added in. The briefing names the three goals and their prices; the end card shows the breakdown against par. Overrides H-12's "footnote only" for the *score* (CUSTOMER COST still never prices unserved energy), S-5's MWh ladder and S-9's carbon star. | One currency is how regulators trade the three goals off, so the formula teaches the real trade: 1 MWh dark = $30,000 = 375 priced tonnes of CO₂. Carbon on intensity × energy asked for: shedding barely moves it, and importing lowers it only through the mix you run (imported MWh are charged at your own mix, not the neighbour's). The ratio to par reads the same on any day. Recomputed on seed 20261008 (`v4-core-2a.1`, VER $80): par $9.124M (supply 4.331 + carbon 4.793); competent 987–988; lean 944–945; commit-all 809; a 10-MWh shed 968; the no-input day 14. |
 
-### 29.2 Who builds what
+### 30.2 Who builds what
 
-Stage A (one agent, `base`) lands the shared skeleton (§29.3) on `alarms-and-score`. Then five
-agents work in parallel, each in its own worktree **fast-forwarded to the stage-A commit**, each
-editing only its files (shared files: only the region named). The integrator (stage C) merges,
-writes SPEC.md, measures, and does the one browser pass.
+Stage A (one agent, `base`) lands the shared skeleton (§30.3) on `alarms-and-score`. Then five
+agents work in parallel, each in its own worktree **fast-forwarded to the stage-A commit** (agent
+worktrees branch from `main`: `git merge --ff-only alarms-and-score` first), each editing only its
+files (shared files: only the region named). The integrator (stage C) merges, writes SPEC.md,
+re-records the golden, measures, and does the one browser pass.
 
-| Owner | Files (region) | Tests |
+| Owner | Files (region) | Its tests |
 |---|---|---|
-| **base** (stage A) | `content/anchors.js` (new), `app/boot.js`, `app/shell.js` (TEXT access, Esc chain `closeTop`, the panel mount hook, `first`/`own` routes), `app/director.js`, `app/game.js` (`ui` alarms commands, `alarmCtx`, `vm.alarmsOpen/alarmsSel`, `resetDay`), `app/keys.js` (W), `render/format.js` (ALARMS label), `next.html` (new containers and CSS variables only), `tools/perf.mjs`, `tests/budget.test.js`, `tests/lib/play.js` (deps, `alarmCtx`, look lines) | `budget`, `director`, `keys`, `next`, `play`, new `tests/anchors.test.js` |
-| **planbar** (W1) | `desk/annunciator.js`, `desk/desk.js` (mount and ownership only), `desk/desk.css`, `next.html` (`#planbar`, `#objective`, `#annun-slot`, `#stack-overlay` CSS), `app/shell.js` (K-16 on the slot; the `used` route) | `desk`, `next`, `day`, `alarms` |
-| **help** (W2) | `app/shell.js` ("?" labels, popover, drawer), `next.html` (`#drawer`, `#popover`, `#q-layer` CSS; `#btn-help` attributes), `desk/desk.js` (`ctx.note` and `closeHelp` only), `desk/dial.js`, `desk/gauge.js` (pass the "?" to `ctx.note`), `tests/lib/play.js` (`open` state in `controlOf`) | `next`, `desk`, `balance` |
-| **panel** (W3) | `app/alarmpanel.js` (new, on demand), `content/alarmhelp.js` (new, on demand), `app/alarms.js` (`ctx.hold`; expose `setAtS`; one AGC-limit constant), `app/shell.js` (only `drawAlarmPanel`), `tests/lib/play.js` (the ALARMS look line) | new `tests/alarmpanel.test.js`, `alarms` |
-| **score-core** (W4) | `sim/step.js`, `sim/market.js`, `sim/params.js` (`VER`, `SIM_VERSION`), `sim/README.md` §8, `app/score.js` (new), `app/par.js` (new), `app/game.js` (`game.par`, `game.end` fields only), `tools/par.js`, `tools/baseline-v4.golden.md` (re-record once) | `state`, `market`, `params`, `baseline-v4`, new `tests/score.test.js` |
-| **score-ui** (W5) | `app/shell.js` (`drawHeader` chip, `drawEnd`, briefing goals; the par stepping call in `onFrame`), `next.html` (`#chip-allin`, `#briefing-goals`, `#end-card` CSS), `render/format.js` (money and score text), `content/text.js` (new and fixed entries), `SPEC.md` §8.1/§8.2 (only the rows text.test.js needs) | `next`, `text`, `honesty` |
+| **base** (stage A) | `content/anchors.js`, `app/alarmpanel.js` and `content/alarmhelp.js` (stubs), `app/score.js` (complete), `app/par.js` (stub), `app/boot.js`, `app/shell.js` (TEXT loading, popover functions, Esc capture and `closeTop`, key routing while the panel is open, focus on open/close, `drawAlarmPanel`, the par step in `onFrame`, `?perf` par line), `app/director.js`, `app/game.js` (the alarms commands, `alarmCtx`, `vm.alarmsOpen/alarmsSel`, `game.par`, `game.end` fields, `resetDay`, `take`), `app/alarms.js` (`defaultSel` stub only), `app/keys.js` (W), `render/format.js` (ALARMS label), `next.html` (containers, box rules, CSS variables), `tools/perf.mjs`, `tests/lib/dom.js` (capture phase), `tests/lib/play.js` (deps, `alarmCtx`, look lines), `tests/budget.test.js`, `tests/next.test.js` (:75 and :84 for `--desk-h`; deps) | new `tests/anchors.test.js`, new `tests/hold.test.js`; `budget`, `director`, `keys`, `next`, `play` |
+| **planbar** (W1) | `desk/annunciator.js`, `desk/desk.js` (mount and ownership only), `desk/desk.css`, `next.html` (`#planbar`, `#objective`, `#annun-slot`, `#stack-overlay`, `#respond-card` top), `app/shell.js` (K-16 on the slot; the `used` route) | new `tests/planbar.test.js`; may fix broken lines in `desk`, `next`, `day`, `alarms` |
+| **help** (W2) | `app/shell.js` (bodies of `openPopover`/`closePopover`/`toggleHelp`, `placeQs`, `drawDrawer`), `next.html` (`#drawer`, `#popover`, `#q-layer` CSS; `#btn-help` attributes), `desk/desk.js` (`ctx.note` and `closeHelp` only), `desk/dial.js`, `desk/gauge.js`, `desk/annunciator.js` (one line: pass the tile to `ctx.note`), `tests/lib/play.js` (`open` state in `controlOf`) | new `tests/help.test.js`; may fix broken lines in `next`, `desk`, `balance` |
+| **panel** (W3) | `app/alarmpanel.js`, `content/alarmhelp.js` (fill the stubs), `app/alarms.js` (`ctx.hold`, `defaultSel`'s body, `setAtS` in the view, one AGC-limit constant), `app/watch.js` (one line), `tests/lib/play.js` (the ALARMS look line's detail) | new `tests/alarmpanel.test.js`; may fix broken lines in `alarms`, `next` (:1097) |
+| **score-core** (W4) | `sim/step.js`, `sim/market.js`, `sim/params.js` (`SIM_VERSION` only), `sim/README.md` §8, `app/par.js` (the runner's body), `app/score.js` (`LETTERS` values only, after calibration), `app/game.js` (filling `game.end.parAllIn`/`grade` when par finishes), `tools/par.js`, test titles at `tests/integration.test.js:114` and `tests/market.test.js:72`, `desk/README.md:881` | new `tests/score.test.js`; may fix broken lines in `state`, `market`, `baseline-v4` |
+| **score-ui** (W5) | `app/shell.js` (`drawHeader`'s chip, `drawEnd`, `briefingText`), `next.html` (`#chip-allin` and `#end-card` CSS, `#briefing-goals` and `#briefing-how` text), `render/format.js` (money and score text), `content/text.js` (new and fixed entries), `content/anchors.js` (append its own anchors), `SPEC.md` §8.1/§8.2 (only the rows `tests/text.test.js` needs) | new `tests/scoreface.test.js`; may fix broken lines in `next`, `text`, `honesty` |
 
-Frozen for the wave: everything else, and `SPEC.md` except W5's §8 rows. Shared-file rule: edit
-only your region; if you must touch another region, say so in your report and keep it to a line.
+Rules for all: never edit `app/score.js` or `app/par.js` signatures; never touch another agent's
+region (if you must, one line, named in your report). New tests go in your own new file; edit an
+existing test file only to repair an assertion your change breaks, and name the line. Pre-existing
+overruns (`feedback.test.js` 6.85 s; the K-8 accept at `alarms.test.js:398`, 2.54 s) are exempt
+unless you add time to them; the integrator splits them. Frozen: everything else, and `SPEC.md`
+except W5's §8 rows.
 
-### 29.3 Stage A: the shared skeleton (base)
+### 30.3 Stage A: the shared skeleton (base)
 
 1. **Q-44, on-demand text.**
-   - `content/anchors.js` (eager, tiny): `export const ANCHORS = Object.freeze([{game: '<id>',
-     rows: ['<row title>', ...]}, ...])`, exactly the `game` anchors and row titles of
-     `TEXT.abstractions` (entries with no `game` or `game: 'drawer'` are not anchors).
-     `tests/anchors.test.js` checks it equals what `content/text.js` gives, so the two cannot drift.
-   - `bootGame(doc, deps)` takes `deps.text`: either the module object (`{TEXT}`, tests) or a
-     function returning a promise of it (`app/boot.js`: `() => import('../content/text.js')`).
-     The shell's `loadText()` returns `TEXT` or `null` and starts the load once. The "?" badges
-     are placed from `ANCHORS` (titles and aria-labels need no text). While the text is loading,
-     the drawer shows "Loading…" and a popover shows its row titles; when it arrives, whatever is
-     open is redrawn (the drawer's build-once guard must not freeze an empty drawer). If the load
-     fails, the popover keeps the titles and the drawer says the text could not be loaded.
-   - The same for the panel: `deps.alarmPanel` is the module (`app/alarmpanel.js`) or a loader.
-   - `tools/perf.mjs`: the import walk also follows multi-line static imports (it silently missed
-     four). `tests/budget.test.js`: `content/text.js` leaves the required list; a new test names
-     the on-demand modules (`content/text.js`, `app/alarmpanel.js`, `content/alarmhelp.js`),
-     proves none is reachable by a static import from `next.html`, and caps their gzip total at
-     24 KB; the first visit stays ≤ 400 KB.
-   - `tests/lib/play.js` and the tests that boot the shell pass `text` (and later `alarmPanel`)
-     statically, so every sampled press stays synchronous.
+   - `content/anchors.js` (eager): `export const ANCHORS = Object.freeze([{game: '<id>', rows:
+     ['<row title>', …]}, …])`, exactly the `game` anchors and row titles of `TEXT.abstractions`
+     (entries with no `game` or `game: 'drawer'` are not anchors). `tests/anchors.test.js` checks
+     it equals what `content/text.js` gives, so the two cannot drift.
+   - `bootGame(doc, deps)`: `deps.text` is the module object (`{TEXT}`) or a function returning a
+     promise of it; absent, the shell imports `../content/text.js` itself on first need.
+     `app/boot.js` passes nothing (so the browser loads it on demand); `tests/lib/play.js` and
+     `tests/next.test.js` pass the module (synchronous). The shell's `loadText()` returns `TEXT` or
+     `null` and starts the load once. Badges and their titles/aria-labels come from `ANCHORS`.
+     While loading, the drawer shows "Loading…" and a popover shows its row titles; when the text
+     arrives whatever is open is redrawn (the drawer's build-once guard must not freeze an empty
+     drawer). If the load fails, the popover keeps the titles and the drawer says the text could
+     not be loaded.
+   - `deps.alarmPanel` likewise: the module, a loader, or absent (`import('./alarmpanel.js')`).
+     Stage A creates the stubs W3 fills: `app/alarmpanel.js` exports `createAlarmPanel(doc, root,
+     actions) → {update(vm) {}, focus() {}, el}` with one `✕ CLOSE` button
+     (`id="btn-alarms-close"`, sends `{do: 'alarms', on: false}`); `content/alarmhelp.js` exports
+     `ALARM_HELP = {}`. `tests/lib/play.js` and `tests/next.test.js` pass `alarmPanel` statically.
+   - `tools/perf.mjs`: the import walk also follows multi-line static imports.
+     `tests/budget.test.js`: `content/text.js` leaves the required list; a new test names the
+     on-demand modules (`content/text.js`, `app/alarmpanel.js`, `content/alarmhelp.js`) and checks
+     (a) none is in `firstVisit('next.html')`; (b) every `import(` under `app/`, `desk/`,
+     `render/`, `content/`, `audio/` names one of them; (c) the static-import closure of each,
+     minus the first visit, holds only named modules; (d) gzip -9 caps: `content/text.js`
+     ≤ 17 KB (W5), `content/alarmhelp.js` ≤ 5 KB and `app/alarmpanel.js` ≤ 6 KB (W3). The first
+     visit stays ≤ 400 KB.
 2. **The hold.** `app/director.js`: `createDirector` gains `held: false`. `rateOf` and
    `rateOfLastTick` return 0 when held. `modeOf`: `OVER > HIDDEN > ALARMS > PAUSE > WATCH > …`
    (`locked` is still the watch's). `setFast` refuses in ALARMS; `directorFrame` ends FAST in
    ALARMS. `render/format.js`: `MODE_LABEL.ALARMS = 'HELD'`, badge `HELD 0× · Esc`. Shell: the
    pause button reads PLAY in ALARMS; `FAST_WAIT.ALARMS` = "the alarm panel holds the clock: Esc
    closes it"; `#rate-badge.ALARMS` styled like PAUSE.
-3. **The commands** (`app/game.js` `ui`, presentation only, never logged):
-   - `{do: 'alarms', on?, id?}`: `on` undefined toggles. Open sets `ui.alarmsOpen = true`,
-     `ui.alarmsSel = id || ui.alarmsSel || null`, `director.held = true`, ends FAST. Close sets
-     `alarmsOpen = false`, `held = false`. Allowed in every phase (briefing and day over: a
-     glossary, nothing to hold). Returns ''.
-   - `{do: 'alarmsSel', id}`: selects a tile (unknown id: 'no such tile').
-   - `{do: 'alarmsGoto', target}`: closes the panel; then, in play and not over and with no
-     RESPOND card, sets `director.paused = true` (the hold becomes an ordinary pause, with its
-     "Clock held" note); then focuses `target` as `{do: 'focus'}` does. Returns ''.
-   - `{do: 'pause'}` while the panel is open closes it and runs the clock (Space, PLAY and the
-     badge all route here), unless the phase forbids running.
-   - `resetDay` clears `alarmsOpen` and `alarmsSel` (the new director starts unheld).
-   - vm: `vm.alarmsOpen: boolean`, `vm.alarmsSel: string|null`.
+3. **The commands** (`app/game.js` `ui`; presentation only, never logged):
+   - `{do: 'alarms', on?, id?}`: `on` undefined toggles. **Open**, in every phase: `ui.alarmsOpen =
+     true`; `ui.alarmsSel = id` if given, else `A.defaultSel(view, ui.alarmsPick, nowMs)` (below).
+     Only while `phase === 'play'` and the day is not over does it also set `director.held = true`
+     and end FAST; `take()` sets `held` from `alarmsOpen`. **Close**: `alarmsOpen = false`,
+     `alarmsSel = null`, `held = false`. Returns ''.
+   - `{do: 'alarmsSel', id}`: the one selection (`vm.alarmsSel`); the panel sends it on every
+     change (click, arrows, Home/End, focus). Unknown id: 'no such tile'.
+   - `ui.alarmsPick = {id, untilMs}`: a tile press while the panel is closed records its tile for
+     the life of its note (6 s), then it lapses. `A.defaultSel(view, pick, nowMs)` (stage A stub:
+     the pick if live, else 'underFreq'; W3 fills) chooses: a live pick; else the unacknowledged
+     tile (state `alarm` or `cleared`) with the highest effective priority, newest `setAtS` first;
+     else the newest acknowledged standing tile; else 'underFreq'.
+   - `{do: 'alarmsGoto', target}`: closes the panel; then, if in play, not over and
+     `!D.respondCardOpen(director, state)` (not `vm.respond` or the mode, which read ALARMS and
+     null while the panel is open), sets `director.paused = true` (the hold becomes an ordinary
+     pause, with its "Clock held" note); then focuses `target` as `{do: 'focus'}` does. Returns ''.
+   - `{do: 'focus', target}` while the panel is open runs as `{do: 'alarmsGoto', target}` (a map
+     click on a dark suburb, a tray button, 1–8). The one exception is a tile press, which selects
+     (§30.4).
+   - `{do: 'pause'}` while the panel is open closes it in every phase; then it runs the clock only
+     in play before the day is over; elsewhere it answers with the existing blue toast.
    - With the panel open the RESPOND card hides and returns on close, exactly as with Space.
-4. **One alarm context.** `G.alarmCtx(game, nowMs, realDtS)` →
+   - `resetDay` clears `alarmsOpen`, `alarmsSel` and `alarmsPick` (the new director starts unheld).
+   - vm: `vm.alarmsOpen: boolean`, `vm.alarmsSel: string|null`.
+4. **Focus** is moved synchronously by the shell's `actions.ui` wrapper, never by `panel.update`.
+   When `{do: 'alarms'}` opens the panel the wrapper records `opener = doc.activeElement`;
+   `drawAlarmPanel` calls `panel.focus()` once, on the frame the panel first shows. After a close
+   the wrapper does exactly one thing: for `{do: 'alarms'}` (W, EXPLAIN, ✕, Esc) it focuses
+   `opener` if it is still in the document and not hidden; for `{do: 'alarmsGoto', target}` it
+   calls `focusEl(target)` even when `vm.focus` already names it; for `{do: 'pause'}` it moves no
+   focus (Space has already blurred).
+5. **One alarm context.** `G.alarmCtx(game, nowMs, realDtS)` →
    `{nowMs, realDtS, stationOf, hold}`: `realDtS` is 0 while the clock's rate is 0 (so AGC LIMIT
    counts running time only; this also changes PAUSE, on purpose), `hold = !!game.ui.alarmsOpen`.
    `buildVm` and `tests/lib/play.js` `lightFrame` both call it, so headless jumps and the page agree.
-5. **Keys.** `app/keys.js`: `w`/`W` → `{ui: {do: 'alarms'}}` (free and unpinned; `q` and `z` stay
-   unbound). The shell's `first` route claims Escape whenever a popover, the settings, the drawer
-   or the alarm panel is open and runs `closeTop()`, so Esc works while the map or the stack has
-   focus. `closeTop()` is the one Esc chain (Q-47 order); it calls `mods.desk.closeHelp()` if the
-   desk has it (W2 adds it). The `own` route lets the panel keep its own keys
-   (arrows, Home, End, Enter, Tab) when focus is inside `#alarm-panel`; Esc, Space, W, A and
-   Shift+A fall through.
-6. **Containers** (`next.html`; content and styling belong to the wave):
+6. **Keys.**
+   - `app/keys.js`: `w`/`W` → `{ui: {do: 'alarms'}}` (free and unpinned; `q` and `z` stay unbound).
+   - **Esc first.** `app/shell.js` adds `doc.addEventListener('keydown', escFirst, true)`
+     (capture). On Escape with no modifiers, not typing: `closeTop()` closes the top-most of
+     popover → settings → drawer → alarm panel → desk note (`mods.desk.closeHelp()` when the desk
+     has it, W2); if it closed something, `preventDefault()` and `stopPropagation()`, so the map
+     and the Live Stack never see that Esc. Otherwise the Esc goes on as today (the map, the stack,
+     then the fallback, which skips the watch). The old Esc lines in `run()` go. `tests/lib/dom.js`:
+     `addEventListener(t, f, opts)` records capture (`opts === true` or `opts.capture`), and
+     `dispatch` runs the document's capture listeners first (`stopPropagation` there ends it),
+     then target → ancestors, then the document's bubbling listeners.
+   - **Other keys while the panel is open.** Inside `#alarm-panel` the panel handles arrows, Home,
+     End, Enter and Tab itself (the `own` route leaves them alone). Elsewhere, any keydown other
+     than Escape, Space, W, A, Shift+A, ?, `,` and Shift+M first runs `{do: 'alarmsGoto', target:
+     null}` (close, ordinary pause), then goes on as it always does. Keyups are untouched (the D/E
+     release path).
+7. **Popover functions** (`app/shell.js`): `openPopover(anchorEl, rows)` fills `#popover` (the
+   rows' texts once loaded, their titles until then), places it and shows it; `closePopover()`
+   hides it; `toggleHelp(button, rows)` is what every "?" calls. `closeTop`, the outside-click
+   handler and the drawer's close only ever call `closePopover()`; nothing else sets
+   `#popover.hidden`. Stage A writes them as today's behaviour; W2 fills the toggle, aria and
+   placement.
+8. **Containers and box rules** (`next.html`):
    - `:root` gains `--desk-h: max(300px, calc((100vh - var(--hdr)) / 2))` and `--planbar-h: 58px`;
-     existing rules that repeat the desk height use `--desk-h`.
+     rules that repeat the desk height use `--desk-h`; `tests/next.test.js:75` and `:84` follow.
    - `<div id="planbar">` wraps `#objective` and a new `<div id="annun-slot" class="dk-vars">`.
-   - `<div id="alarm-panel" role="dialog" aria-modal="true" aria-label="Alarms explained"
-     hidden>` (z-index 13, over the desk area: `left: 8px; right: 8px; bottom: 8px;
-     top: calc(100vh - var(--desk-h) + 4px)`).
+     `#planbar { position: fixed; z-index: 6; left: 0; right: 0; bottom: var(--desk-h); display:
+     flex; align-items: flex-end; gap: 8px; padding-right: 4px; pointer-events: none }`;
+     `#objective` loses `position: fixed` and its offsets and becomes `flex: 1 1 auto; min-width:
+     0`; `#annun-slot { flex: none; margin-left: auto; pointer-events: auto }` (it stays at the
+     right end while `#objective` is hidden). W1 tunes these.
+   - `<div id="alarm-panel" role="dialog" aria-modal="true" aria-label="Alarms explained" hidden>`
+     with `#alarm-panel { position: fixed; z-index: 13; left: 8px; right: 8px; bottom: 8px; top:
+     calc(100vh - var(--desk-h) + 4px); overflow: auto; background: var(--panel2); border: 1px
+     solid var(--dim); border-radius: 8px }`. W3 styles only its insides (injected `<style>`).
    - `<span id="chip-allin" class="chip" hidden>` in the header after the CO₂ chip, and
      `<p id="briefing-goals"></p>` in the briefing card before `#briefing-how`.
-7. **Look lines** (`tests/lib/play.js`): `ALARMS open: <selected tile label>` while
-   `#alarm-panel` is shown (W3 adds the explainer's first sentence). The CLOCK line shows the
-   `ALARMS` mode like any other.
-8. Mount hooks: `createDesk(doc, root, actions, {annunSlot: $('annun-slot')})` (the desk may
-   ignore it until W1); `drawAlarmPanel(vm)` in the shell's draw step mounts the panel module into
-   `#alarm-panel` on the first open (through `deps.alarmPanel`), then calls `panel.update(vm)`
-   while open and keeps `hidden` in step with `vm.alarmsOpen` (W3 fills the module).
+9. **Score skeleton.**
+   - `app/score.js`, complete as §30.7 specifies; `LETTERS` provisional `[['A', 960], ['B', 670],
+     ['C', 340], ['D', -Infinity]]` (W4 calibrates the values only). It reads `sc.saidiMin || 0`,
+     `sc.saifi || 0`, `sc.maifi || 0` until W4's counters land.
+   - `app/par.js` stub with §30.7's signature: `createParRunner(seed, scenario, opts)` →
+     `{step(maxTicks) {return true}, done: true, score: null, series: [], at(s) {return null},
+     progress: 1, black: false}`.
+   - `createGame({par})`: `par` defaults to **false** (no runner; every existing test is
+     unaffected); `true` makes a runner; an object `{score, series?, black?}` is a finished runner
+     (tests). `bootGame` passes `deps.par`; `app/boot.js` passes `par: true`. `game.par` is the
+     runner or null.
+   - `game.end` gains `allIn` (the player's, from `app/score.js`), `parAllIn: null` and `grade:
+     null`; on a black day `grade = {points: 0, letter: 'F', star: false}` at once, without par.
+     `game.end` is mutated in place when par arrives (W4), never replaced.
+   - The shell calls `game.par.step(3000)` once per frame from TAKE THE DESK while the day runs, in
+     every mode (PAUSE and ALARMS too), and `step(6000)` once the day is over, before `G.buildVm`.
+     `?perf` shows the step as its own `par` line inside the frame (no hiding it from F-11).
+10. **Look lines** (`tests/lib/play.js`): `ALARMS open: <label of vm.alarmsSel>` while
+    `#alarm-panel` is shown (W3 adds the explainer's first sentence). The CLOCK line also prints
+    `#chip-allin`'s text (empty while hidden). The CLOCK line shows the `ALARMS` mode like any other.
+11. **Mount hooks.** `createDesk(doc, root, actions, {annunSlot: $('annun-slot')})` (the desk may
+    ignore it until W1). `drawAlarmPanel(vm)` mounts the panel module into `#alarm-panel` on the
+    first open, then calls `panel.update(vm)` while open and keeps `hidden` in step with
+    `vm.alarmsOpen`.
+12. `tests/hold.test.js`: open/close restores PAUSE or CRUISE exactly; Space closes and runs; GO TO
+    leaves the clock paused and focuses its target; a held watch keeps its tick; the RESPOND card
+    returns on close; in the briefing W opens without holding and TAKE THE DESK carries the hold;
+    with the map focused and the drawer open one Esc closes the drawer and the map keeps its state;
+    with the panel open, 1 then S S closes the panel, pauses, and the start is sent; a replay with
+    the panel used has the same end hash as without.
 
-### 29.4 The plan bar (W1)
+### 30.4 The plan bar (W1)
 
-- `#planbar`: `position: fixed; z-index: 6; left: 0; right: 0; bottom: var(--desk-h);
-  display: flex; align-items: flex-end; gap: 8px; padding-right: 4px; pointer-events: none`.
-  `#objective` becomes an in-flow flex item (`flex: 1 1 auto; min-width: 0`), keeps its look,
-  its classes (exactly the level, plus ` consider`) and `pointer-events: none`.
-- `#annun-slot`: `flex: none; pointer-events: auto`; 432 × 58 px below 1600 px wide,
-  `clamp(432px, 30vw, 600px)` wide from 1600 px; it carries the desk's CSS variables
-  (`.dk, .dk-vars { --dk-…; --u }`), focus ring and glow rules.
-- The desk builds the annunciator into `opts.annunSlot` (fallback: its own column, so desk-only
-  mounts and tests still work). Tiles 6 × 2 (about 52 × 24 px, two-line labels; from 1600 px one
-  line); ACK and SIL stacked (24 px each); the **EXPLAIN** key (about 52 × 50 px; the word
-  EXPLAIN and a small W; `id="btn-explain"`, `aria-keyshortcuts="W"`, `aria-controls="alarm-panel"`,
-  `aria-expanded` = `vm.alarmsOpen`; title "Explain the alarms (W): holds the clock"; press →
-  `actions.ui({do: 'alarms'})`; pressed look while open).
-- A tile press still focuses its control and shows its one-line note (K-8), now ending
-  "EXPLAIN (W) says more"; it also sets the panel's selection (`{do: 'alarmsSel', id}`). Notes
-  float above the block (over the map), not over the tiles.
+- `#planbar` and `#objective` as §30.3.8; `#objective` keeps its look, its classes (exactly the
+  level, plus ` consider`) and `pointer-events: none`.
+- `#annun-slot`: 432 × 58 px below 1600 px wide, `clamp(432px, 30vw, 600px)` wide from 1600 px; it
+  carries the desk's CSS variables (`.dk, .dk-vars { --dk-…; --u }`), focus ring and glow rules,
+  and the desk's scale and reduced-motion classes.
+- The desk builds the annunciator into `opts.annunSlot` (fallback: its own column 4, so desk-only
+  mounts and tests still work). Tiles 6 × 2, about 52 × 24 px; the state glyph sits inline before
+  the label (no glyph row); below 1600 px the label is 8.5 px, line-height 1, at most two lines
+  (escalated tiles with their double border still fit); from 1600 px 10 px on one line. ACK and
+  HORN OFF stacked (24 px each; HORN OFF on two lines, `♪ HORN OFF` while sounding; `#btn-silence`
+  keeps its id; update `alarms.test.js:527` and `:538`). The **EXPLAIN** key (about 52 × 50 px;
+  the word EXPLAIN and a small W; `id="btn-explain"`, `aria-keyshortcuts="W"`,
+  `aria-controls="alarm-panel"`, `aria-expanded` = `vm.alarmsOpen`; title "Explain the alarms
+  (W): holds the clock"; press → `actions.ui({do: 'alarms'})`; the pressed look while open; the
+  `.lit` look while any tile is in `alarm`, until the panel has been opened once that day).
+- **Tile press.** With the panel closed: focuses its control and shows its one-line note (K-8),
+  now ending "Press again to explain (W).", and records `alarmsPick`. A second press on the same
+  tile while its note shows closes the note and opens the panel at that tile (`{do: 'alarms', on:
+  true, id}`). With the panel open: only selects (`{do: 'alarmsSel', id}`); no focus jump, no
+  note; the tile's aria-label then ends "Enter: explain it". Notes float above the block (over
+  the map), not over the tiles.
 - Every `desk.contains(e)` check that must include the alarms widens to the desk or the moved
-  annunciator (`focus()`, the `.dk-focus` ring, Enter on a focused tile, the reduced-motion and
-  scale classes). Shell: a pointerdown on `#annun-slot` dismisses the RESPOND card (K-16 parity);
-  the `used` route follows focus there too.
+  annunciator (`focus()`, the `.dk-focus` ring, Enter on a focused tile, the scale and
+  reduced-motion classes). Shell: a pointerdown on `#annun-slot` dismisses the RESPOND card (K-16
+  parity), except on `#btn-explain` (the card then returns on close); the `used` route follows
+  focus into the slot.
 - Desk column 4: `LAYOUT.panels[3] = [212, 80]`: the tray (its cards may wrap to two lines) above
-  the emergency cell. The CSS and `LAYOUT` agree (the K-17 test).
+  the emergency cell; the CSS and `LAYOUT` agree (the K-17 test). Rewrite `desk.test.js:1340-1343`.
 - L-4: the expanded Live Stack's reserve above the desk goes from 58 to 75 px.
-- At the 1280 × 600 floor the RESPOND card must not cover the tiles: move it up if needed.
+- `@media (max-height: 659px) { #respond-card { top: calc(var(--hdr) + 8px); } }`, so at the
+  1280 × 600 floor the card ends above the plan bar (a CSS pin in `planbar.test.js`).
+- First-visit growth ≤ 1 KB.
 
-### 29.5 The "?" rule (W2)
+### 30.5 The "?" rule (W2)
 
 - **Drawer:** `top: var(--hdr); bottom: calc(var(--desk-h) + var(--planbar-h) + 9px); right: 0;
-  width: min(470px, 40vw)`, so it covers neither the header nor the plan bar nor the desk. A
-  `✕ CLOSE` button first in it (`id="btn-drawer-close"`, title "Close (? or Esc)"). `#btn-help`
-  gets `aria-haspopup="dialog"`, `aria-controls="drawer"`, `aria-expanded` and the `.on` look.
-  Focus moves to CLOSE on open and back to `#btn-help` on close (if it was inside). Outside clicks
-  do not close it (its purpose is to reveal the "?" badges). Closing it also closes a popover
-  opened from a badge.
-- **Popover:** the "?" that opened it closes it; another "?" swaps to it. Every "?" has
-  `aria-controls="popover"` and `aria-expanded`. No `stopPropagation` (a "?" click closes
-  SETTINGS like any outside click). Position clamped to the viewport; `max-height` and scroll.
-- **Desk notes:** `ctx.note(box, text, ms, kind, q)`: given the "?" button `q`, a second press
-  hides that note, `q.aria-expanded` follows (also on expiry), and a "?" note stays at least
-  `max(ms, 0.3 s × words)`. `desk.closeHelp()` hides an open "?" note and returns true (false if
-  none); the shell's `closeTop()` calls it.
+  width: min(470px, 40vw)`: it covers neither the header nor the plan bar nor the desk. A sticky
+  (`position: sticky; top: 0`) row with `✕ CLOSE` (`id="btn-drawer-close"`, title "Close (? or
+  Esc)"). Where the drawer is under 300 px tall, each article is a closed `<details>` whose
+  `<summary>` is its row title, so it opens as an index. `#btn-help` gets
+  `aria-haspopup="dialog"`, `aria-controls="drawer"`, `aria-expanded` and the `.on` look. Focus
+  moves to CLOSE on open and back to `#btn-help` on close (if it was inside). Outside clicks do
+  not close it. Closing it also closes a popover opened from a badge. A floating badge whose
+  top-right corner falls inside the open drawer is placed at its element's top-left instead.
+- **Popover:** the "?" that opened it closes it; another "?" swaps to it. A `✕` in its top-right
+  corner (aria-label "Close"). Every "?" has `aria-controls="popover"` and `aria-expanded`. No
+  `stopPropagation` (a "?" click closes SETTINGS like any outside click). It opens below its "?"
+  if it fits, else above; `max-height` is the larger space minus 12 px, with scroll; it never
+  overlaps its "?".
+- **Inline "?"**: an anchor inside the header or inside a `.card` (briefing, end card) gets an
+  inline "?" right after it; it is shown only while its element is shown, and re-inserted when its
+  element was rebuilt (`!q.isConnected`).
+- **Desk notes:** `ctx.note(box, text, ms, kind, q)`: given the "?" button or tile `q`, a second
+  press hides that note; `q.aria-expanded` follows (also on expiry); a "?" button reads `✕` with
+  the `.on` look while its note shows; a "?" note stays at least `max(ms, 0.3 s × words)`.
+  `desk.closeHelp()` hides an open "?" or tile note and returns true (false if none).
 - **Driver:** `controlOf` marks `open` when `aria-expanded="true"`, so a close is not read as a
   silent press.
+- First-visit growth ≤ 0.6 KB.
 
-### 29.6 The alarm panel (W3)
+### 30.6 The alarm panel (W3)
 
-- `app/alarmpanel.js` (on demand; it imports `content/alarmhelp.js`, may import `desk/util.js`,
-  `desk/calc.js`, `desk/gauge.js`, `desk/dial.js` helpers and `render/format.js`, and injects its
-  own `<style>` once): `createAlarmPanel(doc, root, actions) → {update(vm), focus(), el}`.
-- Layout: a header ("ALARMS · clock held" + CLOSE `✕` `id="btn-alarms-close"`); on the left the 12
-  tiles as a large 4 × 3 board (glyph, label, state word, a short live reading); on the right the
-  selected alarm: **NOW** (≥ 1 live number), **WHAT IT MEANS**, **WHY** (the physics, plain),
-  **WHAT TO DO** (keys and controls, with `GO TO <control>` → `{do: 'alarmsGoto', target}` and
-  `ACK` → `{do: 'ackTile', id}`), **ON THE REAL GRID** (a sourced fact, or "GRIDWATCH's own rule",
-  with the §8.1 confidence), and the trigger ("sets below 49.85 Hz, clears above 49.90 Hz",
-  built from the constants). Footer: ACK ALL (A), SIL (Shift+A), "Esc or W closes · Space closes
-  and runs".
-- Order and default: alarm, then acknowledged, then cleared-unacknowledged, then quiet (dimmed);
-  within a group escalated first, then newest `setAtS`. Default selection: `vm.alarmsSel`, else
-  the highest unacknowledged alarm, else the first standing one, else UNDER FREQ. Arrow keys move,
-  Home/End jump; the selection follows focus.
-- Focus moves into the panel on open and returns to the opener (EXPLAIN, or the key's focused
-  element) on close, before Space's blur; GO TO leaves focus on its target.
+- `app/alarmpanel.js` (on demand; imports `content/alarmhelp.js`, may import `desk/util.js`,
+  `desk/calc.js`, `desk/gauge.js`, `desk/dial.js` helpers and `render/format.js`; injects its own
+  `<style>` once): `createAlarmPanel(doc, root, actions) → {update(vm), focus(), el}`.
+- **Ids:** tiles `ap-<tileId>`, ACK ALL `btn-ap-ack`, HORN OFF `btn-ap-sil`, GO TO `ap-goto`, ACK
+  this alarm `ap-ack-one`, CLOSE `btn-alarms-close`. No panel element reuses an annunciator id.
+- **Layout:** a header ("ALARMS · clock held" and ✕); on the left the 12 tiles as a large 4 × 3
+  board (glyph, label, state word, a short live reading), sorted once when the panel opens (an ACK
+  changes a face in place, never moves it); on the right the selected alarm, in this order:
+  **NOW** (≥ 1 live number); **WHAT TO DO** (with `GO TO <control as the desk labels it>` and
+  ACK); **WHAT IT MEANS**; **WHY** (the physics, plain); **ON THE REAL GRID**; the trigger ("sets
+  below 49.85 Hz, clears above 49.90 Hz", built from the constants). At 1280 × 600 NOW, WHAT TO DO
+  and WHAT IT MEANS show without scrolling. Footer: "ACK ALL (A) · HORN OFF (Shift+A) · Esc or W
+  closes · Space closes and runs".
+- **GO TO** targets a control the player acts on, never a readout (`dial-freq`, `bar-imbalance`,
+  `gauge-n1`); when the plan line is ▶ ACT NOW or ‼ URGENT and names a target, WHAT TO DO first
+  offers GO TO that control.
+- **Order:** alarm, then cleared-unacknowledged, then acknowledged, then quiet (dimmed); within a
+  group escalated first, then newest `setAtS`. Arrow keys move, Home/End jump, the selection
+  follows focus and is sent as `{do: 'alarmsSel', id}`.
 - `content/alarmhelp.js`: `ALARM_HELP[tileId] = {means, why, todo: {text, target}, real: {text,
-  facts: [exact §8.1 Fact titles]} | {own: text}, reading(obs, tile) → string}`; numbers come from
-  `sim/params.js` and `app/alarms.js` constants, never typed in. Claims stay within what the code
-  does (UFLS OPERATED lights only for stages inside a trip's watch; a smelter trip lights no trip
-  tile; quote `f.rocofHzS`, not the trip-start RoCoF). The trip lockout (90–150 min) and the
-  swing-equation constants are labelled unverified (§8.3). WEATHER, STORAGE LOW and LINK TRIP have
-  no §8.1 row: their "real grid" part is a §8.2 abstraction or "GRIDWATCH's own rule".
-- `app/alarms.js`: while `ctx.hold`, nothing starts sounding and nothing repeats (as in the watch);
-  on release, tiles still unacknowledged sound once (the post-watch path). Nothing is silenced for
-  the player. `alarmsView` tiles gain `setAtS`. `AGC_LIMIT_REAL_S` comes from
-  `V.AGC_LIMIT_ALARM_REAL_S`.
-- No control in the panel sends a sim input.
+  facts: ['<exact §8.1 Fact title>', …]} | {text, abstraction: '<exact §8.2 bold title>'} | {own:
+  text}, reading(obs, tile) → string}`. Numbers come from `sim/params.js` and `app/alarms.js`
+  constants, never typed in. ON THE REAL GRID says only what the cited §8.1 row's Value cell (or
+  §8.2 row's "Real world" cell) says, with its confidence as a word (H well established, M likely,
+  L or UNVERIFIED unverified; "H / M" → "well established / likely"). A §8.1 limit is the
+  standard's limit, never a real control room's alarm setting; the trigger line is GRIDWATCH's.
+  Nothing on the §8.3 list is stated as fact (the trip lockout, the swing-equation constants,
+  ISA-18.2's acknowledge semantics — ACK is "this desk's ACK" —, MSL3 for a region like ours, the
+  1.9M households); where needed it says "unverified". Claims stay within what the code does
+  (UFLS OPERATED lights only for stages inside a trip's watch; a smelter trip lights no trip tile;
+  quote `f.rocofHzS`, not the trip-start RoCoF). WEATHER, STORAGE LOW and LINK TRIP have no §8.1
+  row: their "real grid" part is a §8.2 abstraction or `own`.
+- `app/alarms.js`: while `ctx.hold`, nothing starts sounding and nothing repeats (as in the
+  watch); on release, tiles still unacknowledged sound once (the post-watch path); nothing is
+  silenced for the player. `alarmsView` tiles gain `setAtS` (fix `next.test.js:1097`).
+  `AGC_LIMIT_REAL_S` comes from `V.AGC_LIMIT_ALARM_REAL_S`. Fill `defaultSel` (§30.3.3).
+- `app/watch.js`: on the day's first trip the RESPOND card's last line reads "Enter (or a click)
+  to take the desk · W explains each alarm (the clock holds)."
+- `tests/alarmpanel.test.js`: parses SPEC §8.1 and §8.2 as `tests/text.test.js` does; every
+  `TILES` id has an entry; every `facts`/`abstraction` title exists; every number in each
+  rendered entry equals a value in `sim/params.js`, `app/alarms.js` or the cited row; with the
+  panel open a tile press selects and focus stays in the panel; W after a trip opens on UNIT TRIP
+  (not a lapsed pick); no sound while open and one sounding on close; every panel control answers.
+- On-demand caps: `app/alarmpanel.js` ≤ 6 KB, `content/alarmhelp.js` ≤ 5 KB gzip; first-visit
+  growth ≤ 0.5 KB.
 
-### 29.7 The ALL-IN score (W4 core, W5 face)
+### 30.7 The ALL-IN score (W4 core, W5 face)
 
-**Sim (W4).** `state.score` gains, after `spillMWh` and before the summary keys:
-- `saidiMin`: Σ over sustained interruptions (dark longer than 180 grid-s) of minutes dark × the
-  district's `share` (households fraction): minutes per household. Counted each grid second in
-  `market.settleSecond`; at the second an interruption passes 180 s its first 180 s are added.
-- `saifi`: Σ of `share` over sustained interruptions (added when one passes 180 s).
-- `maifi`: Σ of `share` over interruptions that end within 180 s (no reclosers are modelled;
-  it will usually be 0).
+**Sim (W4).** `state.score` gains, after `spillMWh` and before the summary keys (update
+`tests/state.test.js`'s frozen order and `sim/README.md` §8):
+- `saidiMin`: Σ over sustained interruptions (dark longer than `V.SUSTAINED_INTERRUPTION_S`) of
+  minutes dark × the district's `share` (households fraction): minutes per household. Counted
+  each grid second in `market.settleSecond`; at the second an interruption passes the line, its
+  first `V.SUSTAINED_INTERRUPTION_S` are added.
+- `saifi`: Σ of `share` over sustained interruptions (added when one passes the line).
+- `maifi`: Σ of `share` over interruptions relit after ≤ the line (no reclosers are modelled; it
+  will usually be 0).
+- Task districts (slice 2c) will count from the second they go dark.
 No household count is needed (a district's share is both its customers and its demand). No price
-in `sim/` (the H-12 scan stays). `V.VER = 80` ($/t CO₂-e, AER May 2024 guidance, 2026 value in
-AUD2023, the interim VER; the ministers' instrument expired 30 Jun 2026 with no replacement found)
-next to `V.VCR`; `V.VCR`'s note changes from "debrief footnote only" to "priced in the ALL-IN
-score (Q-48), never in CUSTOMER COST". `SIM_VERSION` → `v4-core-2a.2`; re-record the golden once;
-every cell but the hashes must be unchanged (a free check).
+in `sim/` (the H-12 scan stays). `SIM_VERSION` → `v4-core-2a.2`. W4 re-records the golden in its
+worktree once (`npm run golden:v4 -- -j 4`) to prove that only the hash cells, line 3 (the
+version and the sources hash) and the first-visit line change — any other change is a bug; the
+integrator re-records the final golden after the merge.
 
-**`app/score.js` (W4; pure, imports only `sim/params.js`):**
+**`app/score.js`** (stage A writes it complete; pure; imports only `sim/params.js`):
 ```
-allIn(sc, households) -> {supply, outage, carbon, total,            // dollars
-  askedMWh,            // sc.servedMWh + sc.lightsMWh
-  cents,               // total / askedMWh / 10  (¢ per kWh asked for)
-  perHousehold,        // total / households
-  unservedMWh, co2t, co2tPerMWh, supplyCents,                      // copied for the face
-  saidiMin, saifi, maifi}
-   supply = sc.costDollars; outage = V.VCR * sc.lightsMWh;
-   carbon = V.VER * sc.co2tPerMWh * askedMWh   (0 if nothing generated)
+allIn(sc, households) -> {supply, outage, carbon, total,          // dollars
+  askedMWh,      // sc.servedMWh + sc.lightsMWh
+  co2tPriced,    // sc.co2tPerMWh * askedMWh: the tonnes the carbon term prices
+  cents,         // total / askedMWh / 10  (c per kWh asked for)
+  perHousehold,  // total / households
+  unservedMWh, co2t, co2tPerMWh, supplyCents, saidiMin, saifi, maifi}   // copied for the face
+   supply = sc.costDollars; outage = V.VCR * sc.lightsMWh; carbon = V.VER * co2tPriced
+   (0 if nothing generated; askedMWh 0 -> cents 0)
 grade(you, par, black) -> {points, letter, star}
-   points = black ? 0 : Math.round(1000 * par.total / you.total); star = points >= 1000
-   letter: F if black, else the first of LETTERS whose min <= points
-LETTERS = [['A', a], ['B', b], ['C', c], ['D', -Infinity]]  // a, b, c set by one calibration run
+   black -> {points: 0, letter: 'F', star: false}; par null or par.total <= 0 -> null
+   points = Math.round(1000 * par.total / you.total); star = points >= 1000
+   letter: the first of LETTERS whose min <= points
+LETTERS = [['A', a], ['B', b], ['C', c], ['D', -Infinity]]
 ```
-`tools/par.js` grades with the same `grade`, so the game, the tools and later the share card
-agree (D-20). Calibration (one `tools/par.js` run on `desk` and `desk-weekend`, 100 seeds each,
-reported): S-5's accept carries over (competent ≥ 70% A, lean ≤ 40% A, commit-all loses A on
-≥ 30%), and a 10-MWh shed on an otherwise par day stays an A.
+**Calibration (W4, one run, reported).** `tools/par.js` keeps `module.exports = {grade}` (the S-5
+MWh letter `tools/baseline-v4.js` uses) and gains `--allin`, which grades with
+`app/score.js`'s `grade` on rows extended with `servedMWh`, `lightsMWh`, `co2tPerMWh`,
+`costDollars`, `saidiMin`, `saifi`, `maifi`. One run on `desk` and `desk-weekend`, 100 seeds each:
+`a` so that S-5's accept carries over (competent ≥ 70% A, lean ≤ 40% A, commit-all loses A on
+≥ 30%) and a 10-MWh shed on an otherwise par day stays an A; `b` and `c` so that, on the median
+calibration day, par's day plus 150 MWh dark at VCR scores ≥ b and plus 600 MWh scores ≥ c. The
+report gives a, b, c and the competent and lean A/B/C/D/F splits beside S-5's measured A71 B13 C2
+D14.
 
-**Par in the page (W4).** `app/par.js`: `createParRunner(seed, scenario, {storage}) →
-{step(ms) → done, done, score, progress}` resumes `AP.runPar` in slices (`opts.state`,
-`opts.memo`, `untilTick`) and caches the finished `score` in storage under
-`gridwatch:v4:par` keyed by seed, scenario and `SIM_VERSION`. `game.par` is created with the
-day (and on `resetDay`, reusing the cache); `createGame({par: false})` turns it off (tests), or
-`par: {score}` injects a finished one. `game.end` gains `allIn` (the player's) and, once par is
-done, `parAllIn` and `grade`; the end card redraws when par arrives.
+**Par in the page (W4 fills `app/par.js`).** `createParRunner(seed, scenario, {storage}) →
+{step(maxTicks) → done, done, score, series, at(s), progress, black}`. `step` never reads a clock:
+it advances par by at most `maxTicks` ticks through `AP.runPar(seed, scenario, {state, memo,
+untilTick: min(tick + chunk, end)})` calls in chunks of at least 500 ticks, creating its state on
+the first step. It records par's `{costDollars, lightsMWh, servedMWh, co2tPerMWh, saidiMin, saifi,
+maifi}` every 300 grid-s (`series`, 289 entries); `at(s)` returns those at grid second s, linear
+between marks, null until par has passed s. Storage: one key, `gridwatch:v4:par` = `{v, seed,
+scenarioId, score, series, black}` for the latest finished day only, through game.js's wrapped
+`readJson`/`writeJson`; a matching key makes the runner finished at once. `resetDay` with the same
+seed, scenario and `SIM_VERSION` keeps the current runner, finished or not. W4 fills
+`game.end.parAllIn` and `grade` (in place) on the frame par finishes; a par day that went black
+gives `grade = null`. `tests/score.test.js`: a runner stepped to 08:00 in 500-tick slices equals
+one `AP.runPar(…, {untilTick})`; `allIn`/`grade` on the measured rows; the incentive order VCR
+> PRICE_CAP > RERT price > DR price (shedding is never cheaper than the reserves).
 
-**Face (W5).**
-- The shell steps par from `onFrame`: about 2 ms a frame while the day runs, 8 ms once it is over.
-- Header: `#chip-allin` `ALL-IN <¢> ¢/kWh` (its "?" explains the formula, the prices and their
-  sources). The three chips keep their meaning.
-- Briefing (`#briefing-goals`, ≤ 50 words): the three goals and how they are scored together,
-  with both prices.
-- End card: the score and letter (★ at 1000 or more) on top; then a YOU / PAR table of SUPPLY,
-  OUTAGES (MWh dark × $30,000), CARBON (t × $80, with t/MWh), ALL-IN (and ¢/kWh and $ per
-  household); "Score = 1000 × par's ALL-IN ÷ yours"; then one STPIS line: SAIDI, SAIFI, MAIFI
-  (per household, sustained > 3 min) with a "?" that says what real STPIS would exclude. While par
-  is computing: "PAR: computing… n%". Keep the seed/hash line and both buttons.
-- Text (`content/text.js`, on demand): new entries for the ALL-IN score (VCR, VER, ISP/Reliability
-  Panel practice) and for the STPIS readouts (the 3-minute line, the 60/40 VCR split of the AER's
-  rates, the ±5% cap, cl. 3.3 exclusions, why the game counts them anyway); fix 'customer-cost'
-  ("unserved energy is never priced" → never priced in CUSTOMER COST; the ALL-IN score prices it).
-  With them, the §8.2 rows text.test.js needs, and the §8.1 source rows.
+**Face (W5).** Wording is fixed: no text calls ALL-IN or SUPPLY "what customers pay", "your bill"
+or "the price"; prices come from `V.VCR` and `V.VER`, never typed in.
+- **Header** `#chip-allin` (shown from TAKE THE DESK): `SCORE <n>` where n = `grade(allIn(yours
+  so far), par.at(obs.s), black).points`, i.e. against par at the same grid time; `SCORE …` while
+  `at()` is null; with par off, `ALL-IN <c>c`. Title and aria-label: "ALL-IN so far: <c> c/kWh
+  (par <c>), SAIDI <m> min. The day's cost to the community per kWh the city asked for: supply +
+  MWh dark × $30,000 (VCR) + CO₂ × $80 (VER). Not a price or a bill." Its inline "?" (anchor
+  `chip-allin`) adds: "Customers pay the market price plus network and retail charges. Those
+  charges, most of a bill, are the same whatever you do and are left out. VCR and VER are what
+  regulators count an outage and a tonne as worth, not money anyone is paid." At 04:00 the chip
+  equals the end card's score (a test). Both COST and ALL-IN use "c/kWh".
+- **Briefing** `#briefing-goals` (≤ 60 words): "Keep the lights on, cheaply and cleanly. Your day
+  is scored as one total: the cost of supply, plus $30,000 for each MWh the city goes without (the
+  AER's value of customer reliability), plus $80 a tonne of CO₂ (the interim value of emissions
+  reduction). Par, GRIDWATCH's own autopilot on this day, scores 1000; a smaller total scores
+  more." `#briefing-how` gains "EXPLAIN (W), beside the alarms, holds the clock and explains each
+  one."
+- **End card:** the h2 stays first and unchanged ("Day over: 04:00." / "The grid went black.").
+  Under it the score and letter (★ at 1000 or more). Then a YOU / PAR / Δ table:
+  - SUPPLY (the COST chip): $ and c/kWh;
+  - OUTAGES: <MWh> MWh dark × $30,000 (VCR);
+  - CARBON: <t/MWh> t/MWh × <MWh asked> MWh = <co2tPriced> t × $80 (VER), and under it "your
+    plants emitted <co2t> t; imports and dark load are counted at your mix";
+  - ALL-IN: $, c/kWh and $ per household (title: "per household of the city's 1.9M
+    (unverified); real networks also count businesses").
+  Then "Biggest gap to par: <PART> +$<x>M (SUPPLY: more or dearer plant than par's; OUTAGES:
+  <n> MWh dark at $30,000 each; CARBON: a dirtier mix than par's)", or "You beat par on all
+  three." Then "Score = 1000 × par's ALL-IN ÷ yours. Par is GRIDWATCH's own autopilot on this
+  same day." Then a RELIABILITY block (`id="end-reliability"`): line 1 "SAIDI <m> min · SAIFI <x>
+  · MAIFI <y> per household today (par: SAIDI <m> min)"; line 2, when SAIDI > 0, "Each
+  SAIDI-minute today cost customers about $<OUTAGES ÷ SAIDI>M at VCR. A distributor's STPIS would
+  not count this shedding (?)", else "No household was off for more than 3 minutes." Its "?" is a
+  button inside the card (`id="q-reliability"`, class `q inline`, `aria-controls="popover"`) that
+  calls `toggleHelp(button, ['<the reliability entry's row title>'])`. Then the seed/hash line and
+  both buttons.
+  - Par computing: "PAR: computing… <n>%" in the score's place, redrawn when par arrives; par
+    off: the player's ALL-IN and "PAR: off", no score. Black day: "The grid went black at HH:MM",
+    the F at once, par's ALL-IN, no YOU column (the day was cut short). Par black: "par could not
+    finish this day: no score".
+- **Text** (`content/text.js`, on demand; new entries `ui: 'drawer'`, `params` naming `VCR`, `VER`,
+  `SUSTAINED_INTERRUPTION_S` as they use them): the ALL-IN score (`game: 'chip-allin'`: the
+  formula, VCR, VER, ISP/Reliability Panel practice, "not a bill"); the reliability readouts
+  (`game: 'drawer'`: AER definitions, the 3-minute line, all outages vs normalised, a 2024
+  customer's year — 115 min / 1.0 normalised, 394 min / 1.6 all outages —, how STPIS turns VCR
+  into incentive rates (60/40 SAIDI/SAIFI, ±5% of revenue), cl. 3.3(a)(2)–(4), why the game counts
+  them anyway, slice 2c's storm feeders as the real STPIS case); fix 'customer-cost' ("unserved
+  energy is never priced" → never priced in CUSTOMER COST; the ALL-IN score prices it); append to
+  'carbon-generation'.ours "In the ALL-IN score, every MWh the city asked for, imports and dark load
+  included, is charged at this intensity." Append the new anchors to `content/anchors.js`.
+- **SPEC §8** (W5, only these rows): §8.2 rows "ALL-IN carbon charges every MWh the city asked for
+  at the region's own intensity", "Every MWh dark is valued at the NEM VCR, $30,000/MWh (2024
+  dollars)", "The score divides par's ALL-IN by yours", "SAIDI, SAIFI and MAIFI count the shedding
+  you cause, per household, in grid-minutes"; §8.1 rows for STPIS v2.0 (cl. 3.3, w = 1.5, ±5%),
+  the Guideline's 3-minute line, the 2024 VCRs, the interim VER table ("H (value) / UNVERIFIED (no
+  replacement)"), the 0.002% reliability standard, and the 2024 SAIDI/SAIFI averages — each with
+  its URL from the research record.
+- First-visit growth ≤ 2 KB (W5) and ≤ 1 KB (W4); `content/text.js` ≤ 17 KB gzip.
 
-### 29.8 Done means (every agent)
+### 30.8 Done means (every agent)
 
-- Your tests and the tests your change can affect pass (`npm run test:changed`; name files with
-  `--list` to check). Never the whole suite in a loop; the integrator runs it once.
+- Your tests and the tests your change can affect pass (`npm run test:changed`; `--list` to see
+  them). Never the whole suite in a loop; the integrator runs it once.
 - No browser, no server. Headless checks through `tests/lib/play.js` / `tools/play.mjs` and the
-  DOM stand-in. Statistics tools only where this contract says (W4: the golden and one
-  calibration run).
-- Test budget: a new or changed test file ≤ 6 s alone, a test ≤ 2.5 s; `tests/feedback.test.js`
-  (already over) gets no new presses.
+  DOM stand-in. Statistics tools only where this contract says (W4: one golden re-record and one
+  calibration run, `-j 4`).
+- Test budget: a new or changed test file ≤ 6 s alone, a test ≤ 2.5 s. End-card tests set
+  `state.over` and inject `par: {score}`; they never play to 04:00.
 - Every press answers (Q-41/Q-42): blue for help, red only for refusals.
-- First visit ≤ 400 KB gzip (`node tools/perf.mjs`); say what your change costs.
-- Commit in your worktree with plain-English subjects naming the Q ids; report what you measured
-  and anything you could not do. Do not edit SPEC.md (W5: only the §8 rows) or this section.
+- First visit ≤ 400 KB gzip (`node tools/perf.mjs`); report your growth against your share.
+- Commit in your worktree with plain-English subjects naming the Q ids; report what you measured,
+  what you could not do, and every line you changed outside your region. Do not edit SPEC.md
+  (W5: only the §8 rows) or this section.
