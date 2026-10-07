@@ -331,7 +331,9 @@ export const P = {
   // ---------------------------------------------------------------- market (P-5 to P-8, H-12)
   PRICE_CAP: src(23200, '$/MWh', 'AEMC schedule of reliability settings FY2026-27 (H-12, P-8)'),
   PRICE_FLOOR: src(-1000, '$/MWh', 'AEMC MSL consultation paper (2026): market floor price (P-8)'),
-  VCR: src(30000, '$/MWh', 'AER VCR review 2024, NEM-wide (H-12): debrief footnote only, never in CUSTOMER COST'),
+  VCR: src(30000, '$/MWh', 'AER VCR review 2024, NEM-wide, 2024 dollars: priced in the ALL-IN score (app/score.js, Q-48), never in CUSTOMER COST or anywhere in sim/ (H-12)'),
+  VER: src(80, '$/t', 'AER, Valuing emissions reduction, final guidance (May 2024) Table 1: the interim VER for calendar 2026, AUD2023 real. The ministers\' statement behind it ran to 30 Jun 2026; the AER guidance applies until varied or revoked; no replacement value found by 2026-10-08 (unverified). Held at the 2026 value for every daily (2027 would be $84). Priced in the ALL-IN score only (Q-48).'),
+  SUSTAINED_INTERRUPTION_S: src(180, 's', 'AER Distribution Reliability Measures Guideline (Aug 2022, updated Dec 2024) s3.1: an interruption longer than 3 minutes is sustained (SAIDI, SAIFI); 3 minutes or less is momentary (MAIFI). GRIDWATCH counts it in grid seconds (Q-48).'),
   MIN_LOAD_OFFER: src(-1000, '$/MWh', 'P-6: thermal minimum-load blocks offered at the floor'),
   STACK_START_WITHIN_S: simp(600, 's', 'P-5: the price stack holds offline units able to reach MIN within 10 minutes.'),
   SCARCITY_FREE_X: simp(1.25, 'R5/L', 'P-7: no adder at R5/L >= 1.25.'),
