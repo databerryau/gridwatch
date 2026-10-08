@@ -133,14 +133,16 @@ export class Elem {
   removeEventListener(t, f, opts) { this.listeners[t] = (this.listeners[t] || []).filter(g => g !== f); }
   /**
    * Fire an event. `extra` is merged into the event (clientX, key, shiftKey...). The order: the
-   * document's capture listeners (stopPropagation there ends it), then the target and its
-   * ancestors (bubbling), then the document's bubbling listeners.
+   * document's capture listeners (all of them, as in a browser: stopPropagation there ends the
+   * event after them, stopImmediatePropagation at once), then the target and its ancestors
+   * (bubbling), then the document's bubbling listeners.
    */
   dispatch(type, extra) {
-    const ev = Object.assign({type, target: this, currentTarget: this, stopped: false, defaultPrevented: false,
-      preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; }, pointerId: 1, button: 0}, extra);
+    const ev = Object.assign({type, target: this, currentTarget: this, stopped: false, immediate: false, defaultPrevented: false,
+      preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; },
+      stopImmediatePropagation() { this.stopped = this.immediate = true; }, pointerId: 1, button: 0}, extra);
     const doc = this.ownerDocument;
-    for (const f of (doc.captures[type] || []).slice()) { if (ev.stopped) break; ev.currentTarget = doc; f(ev); }
+    for (const f of (doc.captures[type] || []).slice()) { if (ev.immediate) break; ev.currentTarget = doc; f(ev); }
     for (let n = this; n && !ev.stopped; n = n.parent) { ev.currentTarget = n; for (const f of (n.listeners[type] || []).slice()) f(ev); }
     if (!ev.stopped) { ev.currentTarget = doc; for (const f of (doc.listeners[type] || []).slice()) f(ev); }
     return ev;
