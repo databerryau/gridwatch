@@ -29,6 +29,7 @@ const WATER_TABLE = V.HYDRO_WATER_VALUE, ALLOCATION_MWH = V.HYDRO_ALLOCATION_MWH
 const DR_MW = V.DR_MW, DR_PRICE = V.DR_PRICE;
 const NORMAL_LO = V.NORMAL_LO_HZ, NORMAL_HI = V.NORMAL_HI_HZ;
 const SPARK_BLOCK_S = V.SPARK_BLOCK_S, SPARK_LAST = V.SPARK_BLOCKS - 1;
+const SUSTAINED_S = V.SUSTAINED_INTERRUPTION_S, S_PER_MIN = V.S_PER_MIN;
 
 // S-2 variable cost per MWh by machine: the P-6 offer for thermal plant (cost-based offers
 // ARE the fuel cost), HYDRO_VAR_COST for hydro (the water value is an offer, not a cost).
@@ -297,6 +298,7 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
   if (ticks > 0) {
     const sc = state.score, cost = sc.cost, last = state.last, units = state.units;
     const secs = ticks / TPS, h = secs / S_PER_H;
+    const sDone = Math.floor((state.tick - 1) / TPS); // the second being settled
 
     // S-1: LIGHTS ON. Unserved energy in MWh only; it never meets a price (H-12). Phase 2a
     // (C-8): it is the dark customers' UNDERLYING load (acc.unservedMWs), not the relay MW
@@ -307,6 +309,7 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
     sc.unservedMWh += unservedMWh;
     const servedMWh = acc.servedMWs / S_PER_H;
     sc.servedMWh += servedMWh;
+    reliabilitySecond(state, sc, sDone, secs);
 
     // S-2: CUSTOMER COST (resource cost) and S-3: CARBON (generation in the region).
     let fuel = 0, noLoad = 0, co2 = 0, starts = 0;
@@ -359,7 +362,6 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
     if (acc.fMinHz < sc.minHz) sc.minHz = acc.fMinHz;
     if (acc.fMaxHz > sc.maxHz) sc.maxHz = acc.fMaxHz;
     if (fMean < NORMAL_LO || fMean > NORMAL_HI) sc.outsideNormalS += secs;
-    const sDone = Math.floor((state.tick - 1) / TPS); // the second being settled
     const blk = Math.min(SPARK_LAST, Math.max(0, Math.floor(sDone / SPARK_BLOCK_S)));
     const worst = Math.max(acc.fMaxHz - F0, F0 - acc.fMinHz);
     if (worst > sc.spark[blk]) sc.spark[blk] = worst;
@@ -388,6 +390,20 @@ function splitShed(state, sc, shedMWh) {
     sc.taskMWh += shedMWh * (task / total);
   } else {
     sc.uflsMWh += shedMWh;
+  }
+}
+
+// Q-48 (desk/README.md §30.7): SAIDI, SAIFI, MAIFI per household for second t. A relight on the
+// tick ending t (restoredAtS t + 1) was dark through t.
+function reliabilitySecond(state, sc, t, secs) {
+  const ds = state.city.districts;
+  for (let d = 0; d < ds.length; d++) {
+    const x = ds[d], from = x.darkSinceS, to = x.restoredAtS, over = t - from - SUSTAINED_S;
+    if (from < 0 || from > t) continue;
+    if (x.dark || to === t + 1) {
+      if (over === 0) sc.saifi += x.share;
+      if (over >= 0) sc.saidiMin += x.share * (over ? secs : SUSTAINED_S + secs) / S_PER_MIN;
+    } else if (to === t && to - from <= SUSTAINED_S) sc.maifi += x.share;
   }
 }
 

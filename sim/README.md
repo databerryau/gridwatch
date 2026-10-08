@@ -514,7 +514,7 @@ C-6 / C-7: wind and solar energy held back or backed off; each settled second ad
 `(windCurtMW + windAutoMW) x (1 - ofgs.trippedFrac) + solarCurtMW + solarAutoMW` and
 `acc.spillMWs`; counted and shown, never charged for: its cost is the fuel burned later, S-2).
 `market.scoreSummary(score)` derives `{lightsMWh, costDollars, centsPerKWh, co2t, co2tPerMWh,
-servedMWh}` (`co2tPerMWh` = co2t / genMWh, AEMO's CDEII convention: imports count in neither term). **Never** unserved x a price (H-12; linted). VCR is for the debrief only.
+servedMWh}` (`co2tPerMWh` = co2t / genMWh, AEMO's CDEII convention: imports count in neither term). **Never** unserved x a price (H-12; linted). VCR is priced only outside sim/, in the ALL-IN score (`app/score.js`, Q-48). `saidiMin`, `saifi`, `maifi` (Q-48, last): §8.
 
 ### conts[] (contingency records; K-15 watch, K-16 respond card, D-21 moment)
 
@@ -686,6 +686,11 @@ hour (the 10:30 warning is the news), and no key `clearPm` exists in it (`tests/
 interval; the restore preview runs only on the restore input, never per district here) and
 `fleet.DISTRICT_LIT` for a lit one. The bench asks the preview itself for lit lamps
 (`app/session.restoreChecks`, once per grid second), so its RESTORE button matches the input.
+Q-48 (desk/README.md §30.7, `v4-core-2a.2`): `score` gains `saidiMin`, `saifi`, `maifi` (after
+`spillMWh`, before the summary keys): SAIDI in minutes, SAIFI and MAIFI in interruptions, each
+per household (a district's `share`), counted by `market.settleSecond` from `darkSinceS` and
+`restoredAtS` in grid seconds; an interruption is sustained once it has lasted longer than
+`SUSTAINED_INTERRUPTION_S`, momentary when it is relit within it. No price (H-12).
 
 `forecast` = `weather.forecast(state, FC_HORIZON_S, FC_STEP_S)`: 54 five-minute columns
 `{fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[], neighbourPrice[],
