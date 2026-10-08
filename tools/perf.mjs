@@ -22,13 +22,18 @@ import {performance} from 'node:perf_hooks';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const BUDGET = Object.freeze({firstVisitGzipBytes: 400 * 1024, simMsAt150: 1, simMsAt2100: 3, frameMs: 8});
 
-/**
- * Every file a page loads on a first visit: the page, its stylesheets, its module scripts and
- * their static imports (relative .js only, C-1).
- * @returns {Array<{path:string, bytes:number, gzip:number}>} repo-relative, sorted by size
- */
-export function firstVisit(page = 'next.html', root = ROOT) {
-  const seen = new Map();
+// A static import or re-export at the start of a line, its specifier list on one line or on
+// several (`import {\n  a,\n  b,\n} from './x.js'`), or a bare `import './x.js'`. A dynamic
+// import('./x.js') is not one: what it names loads on demand (Q-44), outside the first visit.
+const STATIC_IMPORT = /(?:^|\n)[ \t]*(?:import|export)\s*(?:[\w$*{}\s,]*?\bfrom\s*)?['"](\.[^'"]+)['"]/g;
+
+/** The relative specifiers a module imports statically (STATIC_IMPORT). */
+export function staticImports(src) {
+  return [...src.matchAll(STATIC_IMPORT)].map(m => m[1]);
+}
+
+// Adds the files `queue` names and everything they import statically to `seen` (repo paths).
+function walk(seen, queue, root) {
   const add = rel => {
     const key = rel.split('\\').join('/');
     if (seen.has(key)) return null;
@@ -36,19 +41,39 @@ export function firstVisit(page = 'next.html', root = ROOT) {
     seen.set(key, {path: key, bytes: buf.length, gzip: gzipSync(buf, {level: 9}).length});
     return buf.toString('utf8');
   };
+  while (queue.length) {
+    const rel = queue.pop();
+    const src = add(rel);
+    if (src === null || !/\.m?js$/.test(rel)) continue;
+    for (const spec of staticImports(src)) queue.push(join(dirname(rel), spec));
+  }
+  return add;
+}
+
+/**
+ * Every file a page loads on a first visit: the page, its stylesheets, its module scripts and
+ * their static imports (relative .js only, C-1).
+ * @returns {Array<{path:string, bytes:number, gzip:number}>} repo-relative, sorted by size
+ */
+export function firstVisit(page = 'next.html', root = ROOT) {
+  const seen = new Map();
+  const add = walk(seen, [], root);
   const html = add(page);
   const pageDir = dirname(page);
   const queue = [];
   for (const m of html.matchAll(/<link[^>]+rel="stylesheet"[^>]*href="([^"]+)"/g)) add(join(pageDir, m[1]));
   for (const m of html.matchAll(/<script[^>]+src="([^"]+)"/g)) queue.push(join(pageDir, m[1]));
-  while (queue.length) {
-    const rel = queue.pop();
-    const src = add(rel);
-    if (src === null) continue;
-    for (const m of src.matchAll(/(?:^|\n)\s*(?:import|export)\b[^'"\n;]*?from\s*['"](\.[^'"]+)['"]|(?:^|\n)\s*import\s*['"](\.[^'"]+)['"]/g)) {
-      queue.push(join(dirname(rel), m[1] || m[2]));
-    }
-  }
+  walk(seen, queue, root);
+  return [...seen.values()].sort((a, b) => b.gzip - a.gzip);
+}
+
+/**
+ * A module and everything it imports statically (Q-44: what an on-demand module brings with it).
+ * @returns {Array<{path:string, bytes:number, gzip:number}>} repo-relative, sorted by size
+ */
+export function moduleClosure(module, root = ROOT) {
+  const seen = new Map();
+  walk(seen, [module], root);
   return [...seen.values()].sort((a, b) => b.gzip - a.gzip);
 }
 

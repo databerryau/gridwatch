@@ -29,7 +29,8 @@
 // No tile starts a NEW sounding within RESOUND_HOLDOFF_S real s of its last one (K-8 accept):
 // an alarm that sets again inside that window flashes at once and is held; if it is still
 // unacknowledged when the window ends it sounds then. During the watch every sound is held
-// the same way; tiles still unacknowledged sound once when the watch ends.
+// the same way; tiles still unacknowledged sound once when the watch ends. So with the alarm
+// panel open (ctx.hold, Q-46).
 //
 // Inputs: updateAlarms(a, x, ctx) reads a small snapshot `x` built by alarmInput(obs) in the
 // game, or alarmInputFromState(state) in headless runs (tests; they must agree). Frequency
@@ -55,7 +56,7 @@ export const N1_SET_S = 10, N1_CLEAR_S = 1800;
 /** HIGH RoCoF: |df/dt| over the FOS 500-ms window above this (Hz/s) sets; below CLEAR clears. */
 export const ROCOF_SET_HZ_S = 1, ROCOF_CLEAR_HZ_S = 0.5;
 /** AGC LIMIT: AGC at its limit for more than this many REAL seconds (K-2). */
-export const AGC_LIMIT_REAL_S = 5;
+export const AGC_LIMIT_REAL_S = V.AGC_LIMIT_ALARM_REAL_S;
 /** STORAGE LOW: hydro below 30% of its allocation or the battery below 10%; clears at 35% / 20%. */
 export const HYDRO_LOW = 0.30, HYDRO_OK = 0.35, BATT_LOW = 0.10, BATT_OK = 0.20;
 /** PEAK: inside 17:00-20:00 (hours of day) and not SECURE (with the N-1 hold). */
@@ -187,9 +188,10 @@ const hyst = (was, setNow, clearNow) => (was ? !clearNow : setNow);
  * One annunciator update (once per frame in the game).
  * @param {object} a from createAlarms
  * @param {object} x alarmInput(obs) or alarmInputFromState(state)
- * @param {{nowMs:number, realDtS:number, stationOf?:function(string):string}} ctx
+ * @param {{nowMs:number, realDtS:number, stationOf?:function(string):string, hold?:boolean}} ctx
  *   nowMs: a real-time clock (ms) for the re-sound hold-off and horn repeats; realDtS: real
- *   seconds since the last update (AGC LIMIT's 5 real s); stationOf(unitId): station id (targets).
+ *   seconds since the last update (AGC LIMIT's 5 real s); stationOf(unitId): station id (targets);
+ *   hold: the alarm panel is open (sounds wait, as in the watch).
  * @returns {{cues:string[], newAlarm:boolean}} cues: 'horn' | 'chime' to play now (a sounding
  *   or a re-sound); newAlarm: a P1/P2 tile went into alarm or escalated (ends FAST).
  */
@@ -279,25 +281,26 @@ export function updateAlarms(a, x, ctx) {
   const cues = [];
   const now = ctx.nowMs, holdMs = RESOUND_HOLDOFF_S * 1000;
   const unacked = k => k.state === 'alarm' || k.state === 'cleared';
+  const quiet = x.inWatch || !!ctx.hold;
   let newAlarm = false, hornNow = false;
   const candidates = [];
   for (const t of fresh) {
     if (t.prio === 'P3') continue;
     newAlarm = true;
-    // Held: by the watch, or by the tile's own hold-off (it sounds when that ends, below).
-    if (x.inWatch || now - T[t.id].lastSoundMs < holdMs) { T[t.id].held = true; continue; }
+    // Held: by the watch (or the panel), or by the tile's own hold-off (it sounds when that ends, below).
+    if (quiet || now - T[t.id].lastSoundMs < holdMs) { T[t.id].held = true; continue; }
     candidates.push(t);
   }
   for (const t of raised) {
     const k = T[t.id];
     newAlarm = true;
     if (k.held) continue;
-    if (x.inWatch) k.held = true;
+    if (quiet) k.held = true;
     else if (now - k.lastSoundMs < holdMs) hornNow = true; // the same sounding, now a horn (a re-sound, B-3)
     else candidates.push(t);
   }
-  if (!x.inWatch) {
-    // The watch ended, or a hold-off ran out: held tiles still unacknowledged sound once.
+  if (!quiet) {
+    // The watch ended (or the panel closed), or a hold-off ran out: held tiles still unacknowledged sound once.
     for (const t of TILES) {
       const k = T[t.id];
       if (!k.held || candidates.includes(t)) continue;
@@ -327,10 +330,10 @@ export function updateAlarms(a, x, ctx) {
     cues.push('horn');
     a.repeats++;
     a.sounding = true; a.soundPrio = 'P1'; a.lastHornMs = now;
-  } else if (a.sounding && !x.inWatch && now - a.lastHornMs >= HORN_REPEAT_S * 1000) {
+  } else if (a.sounding && !quiet && now - a.lastHornMs >= HORN_REPEAT_S * 1000) {
     // K-21: the horn again every 4 real s until SILENCE or ACK, while a P1 alarm still flashes.
     if (hornTile()) { cues.push('horn'); a.repeats++; a.lastHornMs = now; } else { a.sounding = false; a.soundPrio = ''; }
-  } else if (!a.sounding && !x.inWatch) {
+  } else if (!a.sounding && !quiet) {
     // B-3: the single P2 repeat, 60 real s after the chime, if the tile is still unacknowledged.
     let due = false;
     for (const t of TILES) {
@@ -372,8 +375,9 @@ export function silence(a) {
 
 /**
  * vm.alarms (desk/README.md §5, §14.2). A tile's `prio` is the EFFECTIVE priority (B-1: P1
- * while escalated), `basePrio` the one in TILES, `escalated` true while they differ.
- * @returns {{tiles:Array<{id, label, prio, basePrio, escalated:boolean, state, flash:'fast'|'slow'|null, glyph, target}>,
+ * while escalated), `basePrio` the one in TILES, `escalated` true while they differ; `setAtS` the
+ * grid second it last went into alarm (-1: not today).
+ * @returns {{tiles:Array<{id, label, prio, basePrio, escalated:boolean, state, flash:'fast'|'slow'|null, glyph, target, setAtS}>,
  *   sounding:boolean, unacked:number}}
  */
 export function alarmsView(a) {
@@ -383,8 +387,21 @@ export function alarmsView(a) {
     if (k.state === 'alarm' || k.state === 'cleared') unacked++;
     const prio = prioOf(a, t);
     return {id: t.id, label: t.label, prio, basePrio: t.prio, escalated: prio !== t.prio, state: k.state,
-      flash: k.state === 'alarm' ? 'fast' : k.state === 'cleared' ? 'slow' : null, glyph: GLYPH[k.state], target: k.target};
+      flash: k.state === 'alarm' ? 'fast' : k.state === 'cleared' ? 'slow' : null, glyph: GLYPH[k.state], target: k.target, setAtS: k.setAtS};
   });
   return {tiles, sounding: a.sounding, unacked};
+}
+
+/**
+ * The tile the alarm panel opens on when none is named (Q-46, §30.3.3), from alarmsView(), the
+ * pick ({id, untilMs}) and the page's ms: a live pick; else the unacknowledged tile with the
+ * highest effective priority, newest setAtS first; else the newest acknowledged; else UNDER FREQ.
+ */
+export function defaultSel(view, pick, nowMs) {
+  if (pick && pick.id && nowMs < pick.untilMs) return pick.id;
+  const best = (list, rank) => list.sort((p, q) => rank(q) - rank(p) || q.setAtS - p.setAtS)[0];
+  const unacked = view.tiles.filter(t => t.state === 'alarm' || t.state === 'cleared');
+  const t = unacked.length ? best(unacked, x => PRIO_RANK[x.prio]) : best(view.tiles.filter(x => x.state === 'ackd'), () => 0);
+  return t ? t.id : 'underFreq';
 }
 

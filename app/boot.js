@@ -17,4 +17,5 @@ export const handle = bootGame(globalThis.document, {createDesk, createLiveStack
   // SPEC §9.1 Q-18: the commitment is the player's, on the lean-overnight day, and the desk opens with
   // the clock held. Phase 2a (desk/README.md C-2): a seed that reads as a Saturday or Sunday plays
   // the weekend day ('desk-weekend'), any other seed the weekday ('desk').
-  scenario: scenarioForSeed, commit: 'player', startPaused: true});
+  // Q-48: par runs beside the day. Q-44: no `text` or `alarmPanel`: they load on first use.
+  scenario: scenarioForSeed, commit: 'player', startPaused: true, par: true});

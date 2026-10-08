@@ -217,7 +217,7 @@ export function respondCard(obs, c, o) {
   if (dark.length) glow.add('bay-restore');
   return {
     n: c.n,
-    lines: [line1, line2, problem, 'Enter (or a click) to take the desk.'],
+    lines: [line1, line2, problem, 'Enter (or a click) to take the desk' + (c.n === 1 ? ' · W explains each alarm (the clock holds).' : '.')], // (Q-46: the day's first trip)
     numbers: {nadirHz: nadir, contained, caught: {inertiaMW: caught.inertiaMW, batteryMW: battery, governorsMW: caught.governorsMW,
       loadReliefMW: caught.loadReliefMW, uflsMW: caught.uflsMW, inverterMW: inverter}, shortMW: short, secureInS, darkCount: dark.length, darkMW,
     level: sec.level},

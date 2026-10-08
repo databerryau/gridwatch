@@ -38,7 +38,8 @@ export function createGauge(ctx, parent) {
   q.type = 'button'; q.id = 'q-gauge';
   q.title = HELP;
   q.setAttribute('aria-label', 'What these words mean');
-  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, HELP, 8000, 'info'); });
+  q.setAttribute('aria-expanded', 'false');
+  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, HELP, 8000, 'info', q); });
   head.append(word, q);
   const bar = (label) => {
     const row = el(doc, 'div', 'dk-gbar');

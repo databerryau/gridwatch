@@ -111,7 +111,7 @@ test('K-15: every input is refused during the watch (the first 30 grid-s after a
   assert.equal(applyInput(s, {type: 'mode', agc: false}).ok, true);
 });
 
-test('H-12: nothing in sim/ multiplies unserved energy by a price, and VCR is debrief-only', () => {
+test('H-12: nothing in sim/ multiplies unserved energy by a price or names VCR (the ALL-IN score prices it in app/score.js, Q-48)', () => {
   const bad = [];
   for (const f of jsFiles(fileURLToPath(new URL('../sim/', import.meta.url)))) {
     if (f.endsWith('params.js')) continue;

@@ -1,7 +1,8 @@
-// desk/annunciator.js: the K-8 annunciator view (desk/README.md §6). 4×3 tiles from
-// vm.alarms.tiles (app/alarms.js owns the model: states, flash, priorities); ACK and SILENCE;
-// click or Enter on a tile focuses its target control. Presentation only: never a sim input.
-// ACK and SILENCE work during the watch (K-15), like the tiles' focus jump.
+// desk/annunciator.js: the K-8 annunciator view (desk/README.md §6, §30.4). 6×2 tiles from
+// vm.alarms.tiles (app/alarms.js owns the model: states, flash, priorities); ACK, HORN OFF, EXPLAIN;
+// in the plan bar (Q-45). A tile press (Q-46): closed, it focuses its control, says what it means and
+// is W's pick; again while that note shows, the alarm panel opens there; open, it selects. Never a
+// sim input; it all works during the watch (K-15).
 //
 // ISA-18.1 sequence R, visual only (§11 B-2): alarm = fast flash (2.5 Hz), ACK = steady, cleared
 // before ACK = slow flash (0.8 Hz) until ACK, cleared after ACK = dark. Reduced motion: 1 Hz and
@@ -26,6 +27,7 @@ export const TILE_HELP = Object.freeze({
   weather: 'WEATHER: the bureau has issued a warning. Read the message tray (M).',
   peak: 'PEAK: it is the evening peak and you are not secure. Every spare unit should be on.',
 });
+export const AGAIN = ' Press again to explain (W).';   // a tile note's end (Q-46)
 const STATE_GLYPH = {normal: '', alarm: '◆', ackd: '■', cleared: '◇'};
 const STATE_WORD = {normal: 'normal', alarm: 'ALARM, not acknowledged', ackd: 'acknowledged', cleared: 'cleared, not acknowledged'};
 export const ESCALATED_GLYPH = '‼';
@@ -43,11 +45,16 @@ export function createAnnunciator(ctx, parent) {
   ack.id = 'btn-ack'; ack.type = 'button';
   ack.setAttribute('aria-label', 'Acknowledge alarms (A)');
   ack.setAttribute('aria-keyshortcuts', 'A');
-  const sil = el(doc, 'button', 'dk-btn dk-silence', 'SIL');
+  const sil = el(doc, 'button', 'dk-btn dk-silence', 'HORN OFF');   // (Q-45: once SIL)
   sil.id = 'btn-silence'; sil.type = 'button';
   sil.setAttribute('aria-label', 'Silence the horn (Shift+A)');
   sil.setAttribute('aria-keyshortcuts', 'Shift+A');
-  let unackedNow = false, soundingNow = false;
+  const exp = el(doc, 'button', 'dk-btn dk-explain', 'EXPLAIN');   // Q-46
+  exp.id = 'btn-explain'; exp.type = 'button'; exp.title = 'Explain the alarms (W): holds the clock';
+  exp.setAttribute('aria-keyshortcuts', 'W');
+  exp.setAttribute('aria-controls', 'alarm-panel');
+  exp.append(el(doc, 'small', 'dk-kcap', 'W'));
+  let unackedNow = false, soundingNow = false, explained = false, lastTick = 0;
   const doAck = () => {
     ctx.cue('button', PAN.panel);
     // ACK is not a switch: it marks flashing tiles as seen. With none flashing, say so.
@@ -56,15 +63,25 @@ export function createAnnunciator(ctx, parent) {
   };
   const doSilence = () => {
     ctx.cue('button', PAN.panel);
-    if (!soundingNow) ctx.note(box, 'Nothing sounding: SIL stops the horn, ACK marks alarms seen.', undefined, 'info');
+    if (!soundingNow) ctx.note(box, 'Nothing sounding: HORN OFF stops the horn, ACK marks alarms seen.', undefined, 'info');
     ctx.ui({do: 'silence'});
   };
   ack.addEventListener('click', doAck);
   sil.addEventListener('click', doSilence);
+  exp.addEventListener('click', () => { ctx.cue('button', PAN.panel); ctx.ui({do: 'alarms'}); });
   side.append(ack, sil);
-  box.append(grid, side);
+  box.append(grid, side, exp);
   parent.appendChild(box);
 
+  function press(t, b) {
+    const n = box.querySelector('.dk-note'), v = ctx.vm(), help = TILE_HELP[t.id] || t.label;
+    ctx.cue('button', PAN.panel);
+    if (v && v.alarmsOpen) return ctx.ui({do: 'alarmsSel', id: t.id});
+    if (n && !n.hidden && n.textContent.startsWith(help)) { ctx.note(box, n.textContent, 6000, 'info', b); n.hidden = true; return ctx.ui({do: 'alarms', on: true, id: t.id}); }   // its note shows: close it (Q-47), explain (Q-46)
+    ctx.ui({do: 'alarmsPick', id: t.id});
+    if (b.dataset.target) ctx.ui({do: 'focus', target: b.dataset.target});
+    ctx.note(box, help + ((b.dataset.state || 'normal') === 'normal' ? ' Not in alarm now.' : '') + AGAIN, 6000, 'info', b);   // help, not a refusal
+  }
   let key = '', tiles = [];
   function build(list) {
     grid.replaceChildren();
@@ -78,9 +95,7 @@ export function createAnnunciator(ctx, parent) {
       if (t) {
         b.id = 'tile-' + t.id;
         b.dataset.target = t.target || '';
-        b.addEventListener('click', () => { if (b.dataset.target) { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); }
-          const st = b.dataset.state || 'normal';
-          ctx.note(box, (TILE_HELP[t.id] || t.label) + (st === 'normal' ? ' Not in alarm now.' : ''), 6000, 'info'); });   // help, not a refusal
+        b.addEventListener('click', () => press(t, b));
       } else {
         b.classList.add('empty');
         b.setAttribute('aria-hidden', 'true');
@@ -96,6 +111,7 @@ export function createAnnunciator(ctx, parent) {
       const list = (vm.alarms && vm.alarms.tiles) || [];
       const k = list.map(t => t.id).join('|');
       if (k !== key) { key = k; build(list); }
+      const open = !!vm.alarmsOpen;
       for (let i = 0; i < tiles.length; i++) {
         const t = list[i], T = tiles[i];
         if (!t) continue;
@@ -106,7 +122,7 @@ export function createAnnunciator(ctx, parent) {
         setText(T.g, (esc ? ESCALATED_GLYPH : '') + (t.glyph || STATE_GLYPH[t.state] || ''));
         setText(T.l, t.label);
         setAttr(T.b, 'aria-label', t.label + ': ' + (STATE_WORD[t.state] || t.state) + (t.prio ? ', ' + t.prio : '') +
-          (esc ? ', escalated' : '') + '. Enter: go to its control.');
+          (esc ? ', escalated' : '') + '. Enter: ' + (open ? 'explain it.' : 'go to its control.'));
       }
       const unacked = list.some(t => t.state === 'alarm' || t.state === 'cleared');
       unackedNow = unacked;
@@ -114,7 +130,13 @@ export function createAnnunciator(ctx, parent) {
       setCls(ack, 'lit', unacked);
       setText(ack, unacked ? '◆ ACK' : 'ACK');
       setCls(sil, 'lit', soundingNow);
-      setText(sil, soundingNow ? '♪ SIL' : 'SIL');
+      setText(sil, soundingNow ? '♪ HORN OFF' : 'HORN OFF');
+      // EXPLAIN: lit while a tile is in alarm until the panel is opened that day
+      explained = open || explained && vm.obs.tick >= lastTick;
+      lastTick = vm.obs.tick;
+      setCls(exp, 'on', open);
+      setAttr(exp, 'aria-expanded', open);
+      setCls(exp, 'lit', !explained && list.some(t => t.state === 'alarm'));
     },
     /** A / Shift+A from the desk's key map: the same press as the buttons. */
     ack: doAck, silence: doSilence,

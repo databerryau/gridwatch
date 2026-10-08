@@ -52,7 +52,8 @@ function freshScore() {
   return {servedMWh: 0, unservedMWh: 0, uflsMWh: 0, directedMWh: 0, taskMWh: 0,
     cost: {fuel: 0, noLoad: 0, starts: 0, tie: 0, battWear: 0, dr: 0, rert: 0, flex: 0},
     co2t: 0, genMWh: 0, marketBill: 0, minHz: F0, maxHz: F0, outsideNormalS: 0, spark: zeros(V.SPARK_BLOCKS), starts: 0,
-    spillMWh: 0}; // Phase 2a (desk/README.md §19.2): wind and solar energy held back or backed off; counted, never charged for
+    spillMWh: 0, // Phase 2a (desk/README.md §19.2): wind and solar energy held back or backed off; counted, never charged for
+    saidiMin: 0, saifi: 0, maifi: 0}; // Q-48
 }
 
 // The opening second is balanced with the online hydro machines (within their range),
@@ -385,7 +386,7 @@ const FOS_KEYS = ['outsideS', 'belowContainS', 'countdownS', 'directed', 'nextSh
 const AGC_KEYS = ['nextCycleS', 'requestMW', 'unmetMW', 'atLimitS', 'aceMW'];
 const PRICE_KEYS = ['mwh', 'marginalId', 'adder', 'exhausted', 'x'];
 const SCORE_KEYS = ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'cost', 'co2t', 'genMWh', 'marketBill', 'minHz',
-  'maxHz', 'outsideNormalS', 'spark', 'starts', 'spillMWh'];
+  'maxHz', 'outsideNormalS', 'spark', 'starts', 'spillMWh', 'saidiMin', 'saifi', 'maifi'];
 const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'];
 const CAUGHT_KEYS = ['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW', 'inverterMW'];
 const MSL_KEYS = ['level', 'minMW', 'atS', 'sinceS'];
