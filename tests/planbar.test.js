@@ -238,13 +238,13 @@ test('Q-45 / Q-46 on the page: the slot holds the annunciator; EXPLAIN holds the
   assert.equal(p.mode(), 'CRUISE');
   // again while its note shows: the panel at that tile, the note gone
   r = p.press('tile-n1');
-  assert.match(r.during, /^ALARMS open: N-1 INSECURE$/m);
+  assert.match(r.during, /^ALARMS open: N-1 INSECURE · /m);
   assert.doesNotMatch(r.during, /^NOTE /m);
   assert.equal(p.mode(), 'ALARMS');
   // open: a tile selects, nothing else (no focus jump, no note, the clock still held)
   const tick = p.game.state.tick;
   r = p.press('tile-ufls');
-  assert.match(r.after, /^ALARMS open: UFLS OPERATED$/m);
+  assert.match(r.after, /^ALARMS open: UFLS OPERATED · /m);
   assert.doesNotMatch(r.after, /^NOTE /m);
   assert.equal(p.doc.activeElement.id, 'tile-ufls');
   assert.equal(p.game.state.tick, tick);

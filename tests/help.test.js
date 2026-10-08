@@ -212,10 +212,13 @@ test('Q-47 in play (sampled): a tile\'s second press hides its note; a header "?
   r = p.press('tile-n1', {after: 1 / 60});
   assert.doesNotMatch(r.after, /^NOTE blue annunciator: N-1/m, 'the second press hides it');
   assert.match(r.diff, /tile-n1 "[^"]*"(?! \[open)/, 'and that is no silent press');
+  assert.match(r.after, /^ALARMS open: N-1 INSECURE/m, 'and opens the alarm panel at that tile (§30.4)');
+  p.key('w');
   p.click('tile-n1');
   p.click('tile-rocof');
-  assert.deepEqual(['tile-n1', 'tile-rocof'].map(id => p.$(id).getAttribute('aria-expanded')), ['false', 'true'], 'another tile\'s note takes the panel\'s place');
+  assert.deepEqual(['tile-n1', 'tile-rocof'].map(id => p.$(id).getAttribute('aria-expanded')), ['false', 'true'], 'another tile\'s note takes the note\'s place');
   p.click('tile-rocof');
+  p.key('w');
   const clock = p.doc.querySelector('button.q[data-anchor="clock"]');
   p.press(clock, lite);
   r = p.press(clock, {after: 1 / 60});
