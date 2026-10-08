@@ -20,14 +20,15 @@
 // classes rm / fxlow / crt that follow vm.settings; the one key listener and its order (§13.3:
 // the desk's key(ev), then the stack's and the map's, then app/keys.js); the #aria-live region
 // (createLive / liveFrame below); the ?perf budget marks; ?debug -> globalThis.gridwatch.
+// desk/README.md §30: texts and the alarm panel on demand (Q-44, Q-46), "?" and Esc (Q-47), par (Q-48).
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import * as G from './game.js';
 import {startRaf} from './loop.js';
-import {createKeys, bindKeys, poll as pollKeys} from './keys.js';
+import {createKeys, bindKeys, poll as pollKeys, typing} from './keys.js';
 import {createPerf, perfFrame, renderPerf} from './perf.js';
 import {createAudio} from '../audio/audio.js';
-import {TEXT} from '../content/text.js';
+import {ANCHORS} from '../content/anchors.js';
 import {badgeText, lightsText, centsText, co2Text, clockText} from '../render/format.js';
 import {BEATS} from './watch.js';
 import {modeOf} from './director.js';
@@ -42,7 +43,12 @@ export function layoutSizes(width, height) {
 const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNORS', ufls: 'UFLS', settle: 'SETTLE'};
 // Why F did nothing, by mode (the director's setFast refuses these).
 const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
-  RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE'};
+  RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE',
+  ALARMS: 'the alarm panel holds the clock: Esc closes it'};
+/** Q-48: par's ticks per frame while the day runs, and once it is over. */
+export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
+// Q-46: the alarm panel's own keys inside it; the keys that outside it do not close it (§30.3.6).
+const PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaA?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
 /** The CRT switch's title and answer while REDUCED EFFECTS is on (it is greyed). */
 export const CRT_OFF = 'CRT is off while REDUCED EFFECTS is on';
 
@@ -162,11 +168,13 @@ const SET_CHECKS = {reducedMotion: 'set-rm', reducedEffects: 'set-fxlow', crt: '
  * @param {Document} doc
  * @param {{createDesk?:function, createLiveStack?:function, createMap?:function, system?:object, planview?:object,
  *   search?:string, storage?:object|null, audioWin?:object, raf?:boolean, now?:function():number, date?:Date,
- *   matchMedia?:function(string):{matches:boolean}|null}} deps
+ *   matchMedia?:function(string):{matches:boolean}|null, text?:object|function, alarmPanel?:object|function,
+ *   par?:boolean|object}} deps
  *   raf: false to skip startRaf (tests call handle.frame(dtS) themselves). matchMedia: the
  *   system's prefers-reduced-motion is read through it (default: globalThis.matchMedia when
  *   present; null: no system preference).
- * @returns {object} handle {game, actions, frame(dtS), vm(), audio, mods, keys, perf, live, unbind()}
+ *   text, alarmPanel (Q-44): the module (tests), a loader of it, or absent: imported on first need.
+ * @returns {object} handle {game, actions, frame(dtS), vm(), audio, mods, keys, perf, live, loadText(), closeTop(), unbind()}
  */
 export function bootGame(doc, deps) {
   const o = deps || {};
@@ -180,7 +188,7 @@ export function bootGame(doc, deps) {
   let rmQuery = null;
   try { rmQuery = mm ? mm('(prefers-reduced-motion: reduce)') : null; } catch { rmQuery = null; }
   const game = G.createGame({seed: G.seedFrom(search, o.date), system: o.system, planview: o.planview, scenario: o.scenario, commit: o.commit,
-    startPaused: o.startPaused,
+    startPaused: o.startPaused, par: o.par,
     storage: o.storage === undefined ? safeStorage() : o.storage, reducedMotion: () => !!(rmQuery && rmQuery.matches)});
   const audio = createAudio(o.audioWin === undefined ? globalThis : o.audioWin);
   const perf = query.has('perf') ? createPerf() : null;
@@ -190,14 +198,18 @@ export function bootGame(doc, deps) {
 
   // ---------------------------------------------------------------- actions (desk/README.md §4)
   const base = G.makeActions(game);
+  let opener = null; // Q-46: the focus when the alarm panel opened
   const actions = {
     input: x => { const r = base.input(x); if (r) showToast('Refused: ' + r); return r; },
     redispatch: () => { const r = base.redispatch(); if (r) showToast('RE-DISPATCH: ' + r); return r; },
     ui: cmd => {
       const inTray = cmd && cmd.do === 'tray' && $('tray') && $('tray').contains(doc.activeElement);
+      const wasOpen = !!game.ui.alarmsOpen;
+      if (cmd && cmd.do === 'alarms' && !wasOpen) opener = doc.activeElement;
       const r = base.ui(cmd);
       if (cmd) answer(cmd, r, inTray);
       if (cmd && cmd.do === 'focus' && cmd.target) focusEl(cmd.target);
+      else if (cmd && wasOpen && !game.ui.alarmsOpen) focusAfterPanel(cmd);
       if (cmd && (cmd.do === 'drawer')) drawDrawer();
       if (cmd && (cmd.do === 'settings' || cmd.do === 'set' || cmd.do === 'mute')) drawSettings(G.settingsView(game), game.ui.settingsOpen);
       return r;
@@ -233,14 +245,23 @@ export function bootGame(doc, deps) {
     if (el && el.focus) { try { el.focus(); } catch { /* ignore */ } }
   }
 
+  // Q-46 (§30.3.4): once the panel closes, the focus goes back to its opener if shown, or to GO TO's target.
+  function focusAfterPanel(cmd) {
+    let n = opener;
+    if (cmd.do === 'alarmsGoto' && cmd.target) focusEl(cmd.target);
+    if (cmd.do !== 'alarms' || !n || n === doc.body) return;
+    while (n && !n.hidden && n !== doc.body) n = n.parentElement;
+    if (n === doc.body) opener.focus();
+  }
+
   // ---------------------------------------------------------------- modules
   const mods = {map: null, desk: null, stack: null, errors: []};
-  const mount = (name, fn, root) => {
+  const mount = (name, fn, root, opts) => {
     if (!fn || !root) return null;
-    try { return fn(doc, root, actions); } catch (e) { mods.errors.push(name + ': ' + (e && e.message ? e.message : e)); return null; }
+    try { return opts === undefined ? fn(doc, root, actions) : fn(doc, root, actions, opts); } catch (e) { mods.errors.push(name + ': ' + (e && e.message ? e.message : e)); return null; }
   };
   mods.map = mount('map', o.createMap, $('map'));
-  mods.desk = mount('desk', o.createDesk, $('desk'));
+  mods.desk = mount('desk', o.createDesk, $('desk'), {annunSlot: $('annun-slot')});
   let slot = $('stack-slot');
   if (!slot && $('desk')) {
     slot = doc.createElement('div');
@@ -291,18 +312,29 @@ export function bootGame(doc, deps) {
     }
   }
 
-  // ---------------------------------------------------------------- "?" labels and the drawer (H-14)
-  const byAnchor = new Map();
-  for (const e of TEXT.abstractions) {
-    if (!e.game || e.game === 'drawer') continue;
-    if (!byAnchor.has(e.game)) byAnchor.set(e.game, []);
-    byAnchor.get(e.game).push(e);
+  // ---------------------------------------------------------------- on demand (Q-44): a module passed in (tests), a loader, or import()
+  const err = (what, e) => mods.errors.push(what + ': ' + (e && e.message ? e.message : e));
+  function lazy(src, imp, got, fail) {
+    if (src && typeof src === 'object') { try { got(src); } catch (e) { fail(e); } return; }
+    Promise.resolve().then(typeof src === 'function' ? src : imp).then(got).catch(fail);
   }
+  // loadText(): TEXT, or null while it loads (the first call starts it) or failed; open help redraws on arrival.
+  let TEXT = null, textState = ''; // 'loading' | 'ready' | 'failed'
+  const redrawHelp = () => { if (game.ui.drawer) drawDrawer(); if (popRows) fillPopover(); };
+  function loadText() {
+    if (textState) return TEXT;
+    textState = 'loading';
+    lazy(o.text, () => import('../content/text.js'), m => { TEXT = m.TEXT || null; textState = TEXT ? 'ready' : 'failed'; redrawHelp(); },
+      e => { textState = 'failed'; err('text', e); redrawHelp(); });
+    return TEXT;
+  }
+
+  // ---------------------------------------------------------------- "?" labels and the drawer (H-14)
   const qButtons = new Map();
   function placeQs() {
     const layer = $('q-layer');
     if (!layer) return;
-    for (const [id, entries] of byAnchor) {
+    for (const {game: id, rows} of ANCHORS) {
       const el = $(id);
       let q = qButtons.get(id);
       if (!el) { if (q) q.hidden = true; continue; }
@@ -311,9 +343,9 @@ export function bootGame(doc, deps) {
         q.className = 'q';
         q.textContent = '?';
         q.dataset.anchor = id;
-        q.title = entries.map(e => e.row).join(' · ');
-        q.setAttribute('aria-label', 'About: ' + entries.map(e => e.row).join('; '));
-        q.addEventListener('click', ev => { if (ev.stopPropagation) ev.stopPropagation(); showPopover(q, entries); });
+        q.title = rows.join(' · ');
+        q.setAttribute('aria-label', 'About: ' + rows.join('; '));
+        q.addEventListener('click', ev => { if (ev.stopPropagation) ev.stopPropagation(); toggleHelp(q, rows); });
         qButtons.set(id, q);
         // The header is the shell's own: its "?" sits inline right after the element. Desk,
         // stack and map elements get a floating badge on their top-right corner (their DOM is
@@ -347,37 +379,72 @@ export function bootGame(doc, deps) {
       parent.appendChild(p);
     }
   }
-  function showPopover(q, entries) {
+  // Q-47 (§30.3.7): every "?" calls toggleHelp; only closePopover() hides #popover. (Today's behaviour: W2 fills them.)
+  let popAnchor = null, popRows = null;
+  function fillPopover() {
+    const pop = $('popover'), T = loadText();
+    pop.replaceChildren();
+    for (const row of popRows) {
+      const e = T && T.abstractions.find(x => x.row === row);
+      if (e) entryNodes(pop, e, 'h4'); else pop.appendChild(doc.createElement('h4')).textContent = row;
+    }
+  }
+  function openPopover(anchorEl, rows) {
     const pop = $('popover');
     if (!pop) return;
-    pop.replaceChildren();
-    for (const e of entries) entryNodes(pop, e, 'h4');
-    const r = q.getBoundingClientRect();
+    popAnchor = anchorEl; popRows = rows;
+    fillPopover();
+    const r = anchorEl.getBoundingClientRect();
     pop.style.left = Math.max(8, Math.round(r.left - 200)) + 'px';
     pop.style.top = Math.round(r.bottom + 4) + 'px';
     pop.hidden = false;
   }
+  function closePopover() {
+    const pop = $('popover');
+    if (pop) pop.hidden = true;
+    popAnchor = null; popRows = null;
+  }
+  function toggleHelp(button, rows) {
+    openPopover(button, rows);
+  }
   doc.addEventListener('click', ev => {
     const pop = $('popover');
-    if (pop && !pop.hidden && !(ev.target && ev.target.classList && ev.target.classList.contains('q')) && !pop.contains(ev.target)) pop.hidden = true;
+    if (pop && !pop.hidden && !(ev.target && ev.target.classList && ev.target.classList.contains('q')) && !pop.contains(ev.target)) closePopover();
     // A click anywhere else closes the SETTINGS popover (its own button toggles it).
     const set = $('settings'), btn = $('btn-settings');
     if (game.ui.settingsOpen && set && !set.contains(ev.target) && !(btn && btn.contains(ev.target))) actions.ui({do: 'settings', on: false});
   });
+  let drawerShows = ''; // the textState it was built in (never frozen empty)
   function drawDrawer() {
     const d = $('drawer');
     if (!d) return;
     d.hidden = !game.ui.drawer;
     doc.body.classList.toggle('q-on', !d.hidden); // the "?" marks with it
-    if (d.hidden || d.childElementCount) return;
-    const h = doc.createElement('h2');
-    h.textContent = 'What GRIDWATCH simplifies, and why';
-    d.appendChild(h);
-    for (const e of TEXT.abstractions) {
-      const a = doc.createElement('article');
-      entryNodes(a, e, 'h4');
-      d.appendChild(a);
+    if (d.hidden) return;
+    const T = loadText();
+    if (drawerShows === textState) return;
+    drawerShows = textState;
+    d.replaceChildren();
+    d.appendChild(doc.createElement('h2')).textContent = 'What GRIDWATCH simplifies, and why';
+    if (!T) d.appendChild(doc.createElement('p')).textContent = textState === 'failed' ? 'The texts could not be loaded: reload the page to try again.' : 'Loading…';
+    else for (const e of T.abstractions) entryNodes(d.appendChild(doc.createElement('article')), e, 'h4');
+  }
+
+  // Q-46: the alarm panel, mounted on its first open; panel.focus() once, on the frame it first shows.
+  let panel = null, panelState = '', panelShown = false;
+  function drawAlarmPanel(v) {
+    const box = $('alarm-panel');
+    if (!box) return;
+    if (box.hidden === v.alarmsOpen) box.hidden = !v.alarmsOpen;
+    if (!v.alarmsOpen) { panelShown = false; return; }
+    if (!panelState) {
+      panelState = 'loading';
+      box.textContent = 'Loading…';
+      lazy(o.alarmPanel, () => import('./alarmpanel.js'), m => { box.replaceChildren(); panel = m.createAlarmPanel(doc, box, actions); },
+        e => { box.textContent = 'The alarm panel could not be loaded. Esc or W closes it.'; err('alarm panel', e); });
     }
+    if (!panel) return;
+    try { panel.update(v); if (!panelShown) { panelShown = true; panel.focus(); } } catch (e) { err('alarm panel', e); }
   }
 
   // ---------------------------------------------------------------- overlays
@@ -420,7 +487,7 @@ export function bootGame(doc, deps) {
     setText('chip-lights-v', lightsText(sc));
     setText('chip-cost-v', centsText(sc));
     setText('chip-co2-v', co2Text(sc));
-    setText('btn-pause', m.mode === 'PAUSE' || m.mode === 'HIDDEN' ? 'PLAY' : 'PAUSE');
+    setText('btn-pause', m.mode === 'PAUSE' || m.mode === 'HIDDEN' || m.mode === 'ALARMS' ? 'PLAY' : 'PAUSE');
     const bp = $('btn-pause');
     if (bp) bp.disabled = v.phase !== 'play' || v.obs.over;
   }
@@ -591,12 +658,15 @@ export function bootGame(doc, deps) {
     for (const a of pollKeys(keys, t0)) run(a);
     const ticks = G.frame(game, dtS, now);
     const t1 = now();
+    // Q-48: par, a slice a frame from TAKE THE DESK, in every mode (?perf: its own 'par' line)
+    if (game.par && game.phase === 'play') timed('par', () => { if (!game.par.done) game.par.step(game.state.over ? PAR_STEP_OVER_TICKS : PAR_STEP_TICKS); });
     vm = G.buildVm(game, {nowMs: t1, dtS});
     if (mods.map) timed('map', () => mods.map.update(vm));
     if (mods.desk) timed('desk', () => mods.desk.update(vm));
     if (mods.stack) timed('stack', () => mods.stack.update(vm));
     timed('shell', () => {
       drawHeader(vm); drawObjective(vm); drawSettings(vm.settings, vm.settingsOpen); drawWatch(vm); drawRespond(vm); drawEnd(vm); placeStack(vm);
+      drawAlarmPanel(vm);
       announce(vm, t1);
       const b = $('briefing-card');
       if (b) b.hidden = vm.phase !== 'briefing';
@@ -620,18 +690,32 @@ export function bootGame(doc, deps) {
 
   // ---------------------------------------------------------------- keys and gestures
   function run(a) {
-    if (a.ui) {
-      if (a.ui.do === 'dismissRespond' || a.ui.do === 'skipWatch') {
-        // Esc closes what is open on top first: the settings, the drawer, a "?" popover.
-        const pop = $('popover');
-        if (a.ui.do === 'skipWatch' && game.ui.settingsOpen) { actions.ui({do: 'settings', on: false}); return; }
-        if (a.ui.do === 'skipWatch' && game.ui.drawer) { actions.ui({do: 'drawer', on: false}); return; }
-        if (a.ui.do === 'skipWatch' && pop && !pop.hidden) { pop.hidden = true; return; }
-      }
-      actions.ui(a.ui);
-    } else if (a.input) actions.input(a.input);
+    if (a.ui) actions.ui(a.ui);
+    else if (a.input) actions.input(a.input);
     else if (a.redispatch) actions.redispatch();
   }
+
+  // Q-47: Esc closes the top-most first: popover, SETTINGS, drawer, alarm panel, a desk note (W2).
+  function closeTop() {
+    const pop = $('popover'), u = game.ui, d = mods.desk;
+    if (pop && !pop.hidden) closePopover();
+    else if (u.settingsOpen || u.drawer || u.alarmsOpen) actions.ui(u.settingsOpen ? {do: 'settings', on: false} : u.drawer ? {do: 'drawer', on: false} : {do: 'alarms', on: false});
+    else return !!(d && d.closeHelp && d.closeHelp());
+    return true;
+  }
+  const mod = ev => ev.ctrlKey || ev.metaKey || ev.altKey || typing(ev.target);
+  // Capture phase (§30.3.6): an Esc that closed something stops there; with the alarm panel open, a
+  // key pressed outside it first closes it as GO TO, before any control's own handler.
+  const inPanel = t => { const p = $('alarm-panel'); return !!(p && t && p.contains(t)); };
+  function escFirst(ev) {
+    if (ev.key === 'Escape' && !ev.shiftKey && !mod(ev) && closeTop()) { ev.preventDefault(); ev.stopPropagation(); }
+  }
+  function panelFirst(ev) {
+    if (game.ui.alarmsOpen && !mod(ev) && !inPanel(ev.target) && !PANEL_KEEPS.test(ev.key) && !(ev.key === 'M' && ev.shiftKey)) actions.ui({do: 'alarmsGoto', target: null});
+  }
+  doc.addEventListener('keydown', escFirst, true);
+  doc.addEventListener('keydown', panelFirst, true);
+
   // The page's one key listener (§13.3; the order is app/keys.js bindKeys'): text fields and
   // consumed keys are left alone, then the desk, the stack, the map, then the fallback map.
   const inSettings = t => { const s = $('settings'); return !!(s && t && s.contains(t)); };
@@ -640,14 +724,14 @@ export function bootGame(doc, deps) {
     run(a);
   }, now, {
     // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
-    own: ev => inSettings(ev.target) && ev.key !== 'Escape' && ev.key !== ',',
+    own: ev => (inSettings(ev.target) && ev.key !== 'Escape' && ev.key !== ',') || (inPanel(ev.target) && PANEL_OWN.test(ev.key)),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
     first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
     chain: () => [mods.desk, mods.stack, mods.map],
-    // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows.
+    // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows (GO TO, if open).
     used: (m, ev) => {
       const ae = doc.activeElement, desk = $('desk');
-      if (ev.type !== 'keyup' && ae && ae.id && ae !== doc.body && ae.id !== game.ui.focus && desk && desk.contains(ae)) base.ui({do: 'focus', target: ae.id});
+      if (ev.type !== 'keyup' && ae && ae.id && ae !== doc.body && (ae.id !== game.ui.focus || game.ui.alarmsOpen) && desk && desk.contains(ae)) base.ui({do: 'focus', target: ae.id});
     },
     error: e => { mods.errors.push('key: ' + (e && e.message ? e.message : e)); },
   });
@@ -660,10 +744,10 @@ export function bootGame(doc, deps) {
   if (mods.errors.length) showToast(mods.errors[0]);
 
   const handle = {
-    game, actions, audio, mods, keys, perf, live,
+    game, actions, audio, mods, keys, perf, live, loadText, closeTop,
     frame: onFrame,
     vm: () => vm,
-    unbind() { unbindKeys(); if (stopRaf) stopRaf(); },
+    unbind() { unbindKeys(); for (const f of [escFirst, panelFirst]) doc.removeEventListener('keydown', f, true); if (stopRaf) stopRaf(); },
   };
   // F-11: ?debug exposes the boot handle for stage C's shot and perf tools (nothing else may use it).
   if (query.has('debug')) globalThis.gridwatch = handle;

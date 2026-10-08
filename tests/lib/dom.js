@@ -2,7 +2,8 @@
 // Enough for the desk, the Live Stack, the map and the shell to build, update and receive
 // events in Node; it is not a browser (no layout, no CSS). Extracted from tests/bench.test.js
 // and extended: attributes, focus, pointer/keyboard events with coordinates, a canvas 2D
-// context that counts calls and rejects NaN/Infinity (a drawing bug).
+// context that counts calls and rejects NaN/Infinity (a drawing bug), the document's capture
+// phase (desk/README.md §30.3.6: the shell's Esc-first listener).
 //
 //   const doc = makeDocument(html?)   // html: a page whose <body> is parsed; omit for an empty body
 //   const el = doc.createElement('div'); root.appendChild(el);
@@ -82,6 +83,8 @@ export class Elem {
   get firstChild() { return this.children[0] || null; }
   get parentNode() { return this.parent; }
   get parentElement() { return this.parent instanceof Elem ? this.parent : null; }
+  /** In the document (under its <html>), as a browser's Node.isConnected. */
+  get isConnected() { let n = this; while (n.parent) n = n.parent; return n === this.ownerDocument.documentElement; }
   get clientWidth() { return this._cw; }
   set clientWidth(v) { this._cw = v; }
   get clientHeight() { return this._ch; }
@@ -124,14 +127,22 @@ export class Elem {
   hasAttribute(k) { return this.getAttribute(k) !== null; }
   removeAttribute(k) { delete this.attrs[k]; if (k === 'hidden') this.hidden = false; }
   toggleAttribute(k, force) { const want = force === undefined ? !this.hasAttribute(k) : !!force; if (want) this.setAttribute(k, ''); else this.removeAttribute(k); return want; }
-  addEventListener(t, f) { (this.listeners[t] ||= []).push(f); }
-  removeEventListener(t, f) { this.listeners[t] = (this.listeners[t] || []).filter(g => g !== f); }
-  /** Fire an event that bubbles to the document. `extra` is merged into the event (clientX, key, shiftKey...). */
+  // (opts: a capture listener on an element runs as a bubbling one: only the document's capture
+  // phase is modelled, desk/README.md §30.3.6)
+  addEventListener(t, f, opts) { (this.listeners[t] ||= []).push(f); }
+  removeEventListener(t, f, opts) { this.listeners[t] = (this.listeners[t] || []).filter(g => g !== f); }
+  /**
+   * Fire an event. `extra` is merged into the event (clientX, key, shiftKey...). The order: the
+   * document's capture listeners (stopPropagation there ends it), then the target and its
+   * ancestors (bubbling), then the document's bubbling listeners.
+   */
   dispatch(type, extra) {
     const ev = Object.assign({type, target: this, currentTarget: this, stopped: false, defaultPrevented: false,
       preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; }, pointerId: 1, button: 0}, extra);
+    const doc = this.ownerDocument;
+    for (const f of (doc.captures[type] || []).slice()) { if (ev.stopped) break; ev.currentTarget = doc; f(ev); }
     for (let n = this; n && !ev.stopped; n = n.parent) { ev.currentTarget = n; for (const f of (n.listeners[type] || []).slice()) f(ev); }
-    if (!ev.stopped) for (const f of (this.ownerDocument.listeners[type] || []).slice()) f(ev);
+    if (!ev.stopped) { ev.currentTarget = doc; for (const f of (doc.listeners[type] || []).slice()) f(ev); }
     return ev;
   }
   dispatchEvent(ev) { return this.dispatch(ev.type, ev); }
@@ -175,13 +186,15 @@ export class Elem {
  * aria-(any), tabindex or for lands in attrs).
  */
 export function makeDocument(html) {
-  const doc = {listeners: {}, visibilityState: 'visible', canvasStats: {calls: 0, bad: []}, activeElement: null};
+  const doc = {listeners: {}, captures: {}, visibilityState: 'visible', canvasStats: {calls: 0, bad: []}, activeElement: null};
   doc.createElement = t => new Elem(doc, t);
   doc.createElementNS = (ns, t) => new Elem(doc, t);
   doc.createTextNode = s => new TextNode(s);
   doc.createDocumentFragment = () => new Elem(doc, 'fragment');
-  doc.addEventListener = (t, f) => { (doc.listeners[t] ||= []).push(f); };
-  doc.removeEventListener = (t, f) => { doc.listeners[t] = (doc.listeners[t] || []).filter(g => g !== f); };
+  // opts: true or {capture: true} is a capture listener (it runs before the target's own, Esc first)
+  const phase = opts => (opts === true || !!(opts && opts.capture) ? doc.captures : doc.listeners);
+  doc.addEventListener = (t, f, opts) => { (phase(opts)[t] ||= []).push(f); };
+  doc.removeEventListener = (t, f, opts) => { const L = phase(opts); L[t] = (L[t] || []).filter(g => g !== f); };
   doc.documentElement = new Elem(doc, 'html');
   doc.head = doc.documentElement.appendChild(new Elem(doc, 'head'));
   doc.body = doc.documentElement.appendChild(new Elem(doc, 'body'));

@@ -69,6 +69,9 @@ import * as A from '../../app/alarms.js';
 import * as T from '../../app/tray.js';
 import {V} from '../../sim/params.js';
 import {SCENARIOS} from '../../content/scenarios.js';
+// Q-44: the page loads these on demand; the driver hands them to the shell up front (synchronous)
+import {TEXT} from '../../content/text.js';
+import * as alarmPanel from '../../app/alarmpanel.js';
 
 const NEXT = readFileSync(new URL('../../next.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S, TICK_S = 1 / TPS, DAY_S = V.DAY_S;
@@ -81,7 +84,6 @@ export const NEAR_S = 1200;
 export const EVENTS = Object.freeze(['trip', 'card', 'mode', 'notice', 'line', 'ask']);
 const EVENT_SET = ['trip', 'card', 'mode', 'notice', 'ask'];
 
-const stationOf = id => { const m = V.MACHINES.find(x => x.id === id); return m ? m.station : ''; };
 const pad = n => String(n).padStart(2, '0');
 
 /** Grid seconds (0 = 04:00) -> 'HH:MM:SS'. */
@@ -189,12 +191,13 @@ const fmtControl = c => (c.id || '?') + ' "' + c.label + '"' + (c.value !== unde
 /**
  * Boot next.html headless and return the driver.
  * @param {{seed?:number, scenario?:string|object|function, commit?:'player'|'system', agc?:boolean, take?:boolean,
- *   run?:boolean, storage?:object|null, startPaused?:boolean}} [o]
+ *   run?:boolean, storage?:object|null, startPaused?:boolean, par?:boolean|object}} [o]
  *   seed (default 20261007); scenario: a name in content/scenarios.js, a scenario, or a function
  *   of the seed (default: the page's scenarioForSeed); commit (default 'player', the page's);
  *   agc: AGC (true, default) or HAND at the briefing; take: press TAKE THE DESK (default true);
  *   run: press Space after taking the desk so the clock runs (default true; the page opens
- *   held); storage: a localStorage stand-in (default null: a first-time player, full watch).
+ *   held); storage: a localStorage stand-in (default null: a first-time player, full watch);
+ *   par: the game's par (Q-48; default false: no runner; or a finished runner's {score, series?, black?}).
  */
 export function openGame(o = {}) {
   const seed = o.seed === undefined ? 20261007 : Number(o.seed);
@@ -207,7 +210,7 @@ export function openGame(o = {}) {
   try {
     h = bootGame(doc, {createDesk, createMap, createLiveStack, system, planview, scenario, commit: o.commit || 'player',
       startPaused: o.startPaused === undefined ? true : o.startPaused, search: '?seed=' + seed, storage: o.storage === undefined ? null : o.storage,
-      audioWin: {}, raf: false, now: () => t});
+      audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, par: o.par});
   } finally { restore(); }
   const game = h.game, $ = id => doc.getElementById(id);
   let hovered = null, lastLook = '';
@@ -311,13 +314,14 @@ export function openGame(o = {}) {
     return m !== game.objectiveMode && /WATCH|RESPOND|OVER/.test(m + game.objectiveMode);
   }
   // The rest of buildVm's per-frame work that has memory: the annunciator (on
-  // alarmInputFromState, which tests keep equal to alarmInput(observe)), the tray's ageing.
+  // alarmInputFromState, which tests keep equal to alarmInput(observe), and the page's own
+  // context, G.alarmCtx), the tray's ageing.
   function lightFrame() {
     const s = game.state, nowMs = t;
     const realDtS = game.lastFrameMs < 0 ? 0 : Math.max(0, (nowMs - game.lastFrameMs) / 1000);
     game.lastFrameMs = nowMs;
     if (game.phase === 'play') {
-      const r = A.updateAlarms(game.alarms, A.alarmInputFromState(s), {nowMs, realDtS, stationOf});
+      const r = A.updateAlarms(game.alarms, A.alarmInputFromState(s), G.alarmCtx(game, nowMs, realDtS));
       if (r.newAlarm) D.endFast(game.director);
     }
     T.trayFrame(game.tray, Math.floor(s.tick / TPS));
@@ -438,7 +442,7 @@ export function openGame(o = {}) {
 
   // ---------------------------------------------------------------- reading
   /**
-   * What the player sees, one line per thing: CLOCK (and mode, chips), BRIEFING, LINE (the objective),
+   * What the player sees, one line per thing: CLOCK (and mode, chips), BRIEFING, ALARMS (the panel), LINE (the objective),
    * WATCH, CARD, END, TOAST (blue or RED), BALANCE, DIAL, N-1, NOTE (desk notes, blue or RED), TRAY (the cards), then CTRL lines:
    * every visible control as id "label"=value [disabled,pressed,on,selected,ARMED,focus].
    * opts.controls: false leaves the CTRL lines out; opts.aria: true adds the screen-reader live region.
@@ -448,10 +452,15 @@ export function openGame(o = {}) {
     const hid = id => { const e = $(id); return !e || isHidden(e); };
     const tx = (id, skip) => textOf($(id), skip);
     const obs = vm ? vm.obs : null;
-    const ck = tx('clock-text');
+    const ck = tx('clock-text'), allIn = tx('chip-allin'); // (the ALL-IN chip, Q-48: empty while hidden)
     L.push('CLOCK ' + ck + (obs && /^\d\d:\d\d$/.test(ck) ? ':' + pad(Math.floor(obs.s) % 60) : '') + ' | ' + tx('rate-text') +
-      ' | ' + ['chip-lights', 'chip-cost', 'chip-co2'].map(id => tx(id)).join(' | '));
+      ' | ' + ['chip-lights', 'chip-cost', 'chip-co2'].map(id => tx(id)).join(' | ') + (allIn ? ' | ' + allIn : ''));
     if (!hid('briefing-card')) L.push('BRIEFING ' + tx('briefing-day') + ' ' + tx('briefing-watch'));
+    // Q-46: the alarm panel and its selection (W3 adds the explainer's first sentence)
+    if (!hid('alarm-panel')) {
+      const sel = vm && A.TILES.find(x => x.id === vm.alarmsSel);
+      L.push('ALARMS open: ' + (sel ? sel.label : vm && vm.alarmsSel ? vm.alarmsSel : '(none)'));
+    }
     if (!hid('objective')) L.push('LINE ' + tx('objective-level') + ' ' + tx('objective-text'));
     if (!hid('watch-vignette')) L.push('WATCH ' + tx('stopwatch') + ' | ' + tx('beat-caption') + ' | ' + tx('beat-steps'));
     if (!hid('respond-card')) L.push('CARD ' + tx('respond-card'));

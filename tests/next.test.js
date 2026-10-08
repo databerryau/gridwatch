@@ -26,6 +26,7 @@ import * as PVW from '../app/planview.js';
 import {LINE_MAX_CHARS} from '../app/objective.js';
 import {REDISPATCH_AFTER as FOLLOWER_REDISPATCH_AFTER} from './lib/follow.js';
 import {TEXT} from '../content/text.js';
+import * as alarmPanel from '../app/alarmpanel.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const TPS = V.TICKS_PER_S;
@@ -72,7 +73,10 @@ test('K-17: header 32 px, desk max(300, half the rest), map the rest; the CSS sa
   assert.deepEqual(layoutSizes(1280, 720), {header: 32, desk: 344, map: 344});
   assert.deepEqual(layoutSizes(1920, 1080), {header: 40, desk: 520, map: 520});
   assert.ok(layoutSizes(1280, 600).map >= 260, 'the map is >= 260 px at the floor');
-  assert.match(NEXT, /grid-template-rows: var\(--hdr\) minmax\(0, 1fr\) max\(300px, calc\(\(100vh - var\(--hdr\)\) \/ 2\)\)/);
+  // (§30.3.8: every rule that needs the desk's height reads --desk-h)
+  assert.match(NEXT, /--desk-h: max\(300px, calc\(\(100vh - var\(--hdr\)\) \/ 2\)\);/);
+  assert.match(NEXT, /grid-template-rows: var\(--hdr\) minmax\(0, 1fr\) var\(--desk-h\);/);
+  assert.ok(!/max\(300px/.test(NEXT.replace(/--desk-h: max\(300px/, '')), 'the desk height is written once, as --desk-h');
   assert.match(NEXT, /--hdr: 32px/);
   assert.match(NEXT, /@media \(min-width: 1600px\) \{ :root \{ --hdr: 40px; \} \}/);
   assert.match(NEXT, /min-width: 1280px/);
@@ -81,7 +85,7 @@ test('K-17: header 32 px, desk max(300, half the rest), map the rest; the CSS sa
   // (checked in the browser at 1280x768: the stack 40-350, the line from 359, the levers from 429)
   const rule = /#stack-overlay \{([^}]*)\}/.exec(NEXT)[1];
   assert.match(rule, /--stack-expanded-top: calc\(var\(--hdr\) \+ 8px\);/);
-  assert.match(rule, /--stack-expanded-h: min\(420px, calc\(100vh - max\(300px, \(100vh - var\(--hdr\)\) \/ 2\) - var\(--hdr\) - 58px\)\);/);
+  assert.match(rule, /--stack-expanded-h: min\(420px, calc\(100vh - var\(--desk-h\) - var\(--hdr\) - 58px\)\);/);
   assert.match(rule, /top: var\(--stack-expanded-top\);[^]*height: var\(--stack-expanded-h\);/);
   const LS = readFileSync(join(ROOT, 'render/livestack.js'), 'utf8');
   for (const v of ['--stack-expanded-top', '--stack-expanded-h']) assert.ok(LS.includes('var(' + v + ','), 'render/livestack.js reads ' + v);
@@ -150,8 +154,9 @@ function boot(query = '?seed=7&perf', over = {}) {
   const mods = stubModules(), system = stubSystem();
   let t = 1000;
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
+  // (Q-44: the page loads the texts and the alarm panel on demand; here they are passed up front)
   const h = bootGame(doc, Object.assign({createDesk: mods.createDesk, createMap: mods.createMap, createLiveStack: mods.createLiveStack,
-    system, search: query, storage: null, audioWin: {}, raf: false, now: () => t}, over));
+    system, search: query, storage: null, audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel}, over));
   restore();
   const frames = (n, dtS = 1 / 60) => { for (let i = 0; i < n; i++) { t += dtS * 1000; h.frame(dtS); } };
   const key = (k, extra) => doc.dispatch('keydown', Object.assign({key: k}, extra));

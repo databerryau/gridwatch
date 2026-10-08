@@ -110,13 +110,20 @@ export function jsFiles(dir) {
   return out;
 }
 
-/** Module specifiers imported or re-exported by a token stream (static and dynamic). */
+/**
+ * Module specifiers imported or re-exported by a token stream (static and dynamic). A dynamic
+ * import of a string literal, import('./x.js') (Q-44's on-demand modules), gives that literal;
+ * any other gives '(dynamic import)'.
+ */
 export function importSpecifiers(toks) {
   const specs = [];
   for (let k = 0; k < toks.length - 1; k++) {
     const t = toks[k], nx = toks[k + 1];
     if (t.type === 'ident' && (t.text === 'from' || t.text === 'import') && nx.type === 'str') specs.push(nx.text.slice(1, -1));
-    if (t.type === 'ident' && t.text === 'import' && nx.text === '(') specs.push('(dynamic import)');
+    if (t.type === 'ident' && t.text === 'import' && nx.text === '(') {
+      const a = toks[k + 2], b = toks[k + 3];
+      specs.push(a && a.type === 'str' && b && b.text === ')' ? a.text.slice(1, -1) : '(dynamic import)');
+    }
   }
   return specs;
 }
