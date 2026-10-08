@@ -995,7 +995,7 @@ test('K-23 annunciator and tray by keyboard: A, Shift+A, tiles and cards with En
   a.uis.length = 0;
   $('tile-uf').focus();
   assert.equal(tap(m, 'Enter'), true);
-  assert.deepEqual(uiOf(a), [{do: 'focus', target: 'dial-freq'}]);
+  assert.deepEqual(uiOf(a), [{do: 'alarmsPick', id: 'uf'}, {do: 'focus', target: 'dial-freq'}]);   // (W's pick, Q-46)
   // The tray (M is the shell's: it sets vm.focus = 'tray'): focus lands on the first card's button.
   const open = mount(at(vmAt(EVE, {tray: {cards, log: []}}), 1000));
   open.desk.update(at(vmAt(EVE, {tray: {cards, log: []}, focus: 'tray'}), 1016));
@@ -1337,10 +1337,9 @@ test('K-17: the desk fills 1280×300 in the 232/424/336/256 columns and every co
   assert.ok(inner(LAYOUT.panels[1][1]) >= 12 + 68 + 12, 'rotary row holds the battery ring');
   assert.ok(inner(LAYOUT.panels[1][1]) >= 3 * 24 + 2 * 2, 'hydro machines beside the wheel');
   assert.ok(inner(LAYOUT.panels[2][1]) >= 24 + 2 + 72 + 2 + 17, 'bay: tabs, scope row, label');
-  assert.ok(inner(LAYOUT.panels[3][0]) >= 3 * 24 + 2 * 2, 'annunciator: 3 rows of tiles');
-  assert.ok(inner(LAYOUT.panels[3][1]) >= 20 + 3 * 24 + 2 * 2 + 2, 'tray: head and 3 cards');
-  assert.ok(inner(LAYOUT.panels[3][2]) >= 24, 'emergency keys');
-  assert.ok((LAYOUT.columns[3] - 8 - 44 - 3 - 3 * 2) / 4 >= 24, 'annunciator tiles wide enough');
+  // (Q-45: column 4 is the tray over the emergency row; the annunciator's sums are tests/planbar.test.js's)
+  assert.ok(inner(LAYOUT.panels[3][0]) >= 20 + 3 * 24 + 2 * 2 + 2, 'tray: head and 3 cards');
+  assert.ok(inner(LAYOUT.panels[3][1]) >= 24, 'emergency keys');
 });
 
 // ---------------------------------------------------------------- Phase 2a: the belly on the desk (§19.5, §21.5, §25)

@@ -523,8 +523,8 @@ test('Q-41: SIL and Shift+A with nothing sounding answer in blue, as ACK does; w
   const box = doc.getElementById('annunciator'), sil = doc.getElementById('btn-silence');
   const note = () => box.children.find(c => c.classList && c.classList.contains('dk-note') && !c.hidden);
   const said = () => uis.filter(u => u.do !== 'cue');
-  const NOTHING = 'Nothing sounding: SIL stops the horn, ACK marks alarms seen.';
-  assert.equal(sil.textContent, 'SIL');
+  const NOTHING = 'Nothing sounding: HORN OFF stops the horn, ACK marks alarms seen.';
+  assert.equal(sil.textContent, 'HORN OFF');
   sil.click();
   assert.equal(note().textContent, NOTHING);
   assert.ok(note().classList.contains('info'), 'help, so blue (Q-41)');
@@ -535,7 +535,7 @@ test('Q-41: SIL and Shift+A with nothing sounding answer in blue, as ACK does; w
   // the horn on: SIL silences it, no note (the one from before has aged out)
   uis.length = 0;
   desk.update(Object.assign({}, quiet, {alarms: {tiles: [], sounding: true}, frame: {nowMs: 9000, dtS: 1 / 60, alpha: 0}}));
-  assert.equal(sil.textContent, '♪ SIL');
+  assert.equal(sil.textContent, '♪ HORN OFF');
   sil.click();
   assert.equal(note(), undefined);
   assert.deepEqual(said(), [{do: 'silence'}]);

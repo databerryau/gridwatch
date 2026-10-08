@@ -1,6 +1,6 @@
 // desk/desk.js: the desk (desk/README.md §6, §13-§14.2; SPEC §4.2-§4.3, K-17 panel sizes).
 //
-//   const desk = createDesk(doc, root, actions, opts?);   // root: the #desk element the shell sizes
+//   const desk = createDesk(doc, root, actions, opts?);   // root: the #desk element the shell sizes; opts.annunSlot (Q-45)
 //   desk.update(vm);          // every frame, after the ticks (reads the view model only, §5)
 //   desk.key(ev);             // the shell forwards every keydown/keyup here first (§13.3); true = the desk acted
 //   desk.focus(id);           // focus a desk control by its §5 id (also done when vm.focus changes)
@@ -10,7 +10,7 @@
 // Four columns at the 1280×300 floor (232 / 424 / 336 / 256 px + 8-px gutters): the frequency
 // dial over the imbalance bar and N-1 gauge; the lever bank over the hydro wheel, battery dial,
 // tie knob and the AGC / RE-DISPATCH keys; the Live Stack slot over the procedure bay; the
-// annunciator, the message tray and the emergency row. Every input goes through
+// message tray over the emergency row; the annunciator in the plan bar (§30.4). Every input goes through
 // actions.input (never assumed accepted: refusals show on the control for a moment); the desk
 // is locked while vm.mode.locked (the watch) except ACK and SILENCE. Time for guards, holds and
 // the synchroscope's 8-s AUTO comes from vm.frame.nowMs (or opts.now), never from timers.
@@ -82,7 +82,7 @@ export const DESK_IDS = Object.freeze([
 export const LAYOUT = Object.freeze({
   width: 1280, height: 300, gutter: 8, pad: 4,
   columns: [232, 424, 336, 256],
-  panels: [[140, 152], [180, 112], [164, 128], [96, 108, 80]],
+  panels: [[140, 152], [180, 112], [164, 128], [212, 80]],   // (Q-45)
 });
 
 export const NOTE_MS = 2500;   // a refusal / hint stays on its control this long
@@ -249,7 +249,8 @@ export function createDesk(doc, root, actions, opts = {}) {
   const stack = cell(c3, 'dk-c3a dk-stack-slot');
   stack.id = 'stack-slot'; // the Live Stack's own element is #stack (render/livestack.js)
   const c3b = cell(c3, 'dk-c3b');
-  const c4a = cell(c4, 'dk-c4a'), c4b = cell(c4, 'dk-c4b'), c4c = cell(c4, 'dk-c4c dk-panel');
+  const c4a = cell(c4, 'dk-c4a'), c4b = cell(c4, 'dk-c4b dk-panel');
+  const slot = opts.annunSlot, roots = slot ? [desk, slot] : [desk], mine = e => roots.some(r => r.contains(e));   // (§30.4: the alarms are the desk's)
 
   const dial = createFreqDial(ctx, c1a);
   const imb = createImbalanceBar(ctx, c1b);
@@ -260,16 +261,16 @@ export function createDesk(doc, root, actions, opts = {}) {
   const hydro = createHydroWheel(ctx, rot);
   const batt = createBatteryDial(ctx, rot);
   const tie = createTieKnob(ctx, rot);
-  const emerg = createEmergency(ctx, rot, c4c);
+  const emerg = createEmergency(ctx, rot, c4b);
   const bay = createBay(ctx, c3b);
-  const annun = createAnnunciator(ctx, c4a);
-  const tray = createTray(ctx, c4b);
+  const annun = createAnnunciator(ctx, slot || c4);
+  const tray = createTray(ctx, c4a);
   desk.appendChild(live);
   root.appendChild(desk);
 
   function focus(id) {
     const e = doc.getElementById(id);
-    if (!e || !desk.contains(e) || e.hidden) return false;
+    if (!mine(e) || e.hidden) return false;
     if (id === 'bay-restore') bay.show('restore', true);
     if (id === 'bay-sync') bay.show('sync', true);
     if (id === 'tray' && tray.focusFirst()) return true;   // M: straight to the first card's button
@@ -299,8 +300,11 @@ export function createDesk(doc, root, actions, opts = {}) {
     vm = v;
     frameNow = fin(v.frame && v.frame.nowMs, frameNow);
     const k = clamp(Math.min(fin(root.clientWidth, 1280) / LAYOUT.width, fin(root.clientHeight, 300) / LAYOUT.height), 1, 1.5);
-    if (desk.style.getPropertyValue ? desk.style.getPropertyValue('--dk-k') !== k.toFixed(3) : desk.style['--dk-k'] !== k.toFixed(3)) {
-      desk.style.setProperty('--dk-k', k.toFixed(3));
+    for (const e of roots) {
+      if (e.style.getPropertyValue ? e.style.getPropertyValue('--dk-k') !== k.toFixed(3) : e.style['--dk-k'] !== k.toFixed(3)) {
+        e.style.setProperty('--dk-k', k.toFixed(3));
+      }
+      setCls(e, 'dk-rm', ctx.rm());   // desk.css: no shake, no handle transition, flashes <= 1 Hz (§13.5)
     }
     ctx.guards.expire();
     // C-10: the focused guard is read from the document as well as heard from its events; a cover
@@ -315,7 +319,6 @@ export function createDesk(doc, root, actions, opts = {}) {
     for (const [host, n] of notes) if (nowFn() > n.until && !n.span.hidden) n.span.hidden = true;
     setCls(desk, 'dk-locked', locked());
     setCls(desk, 'dk-hand', v.obs.mode === 'HAND');
-    setCls(desk, 'dk-rm', ctx.rm());   // desk.css: no shake, no handle transition, flashes <= 1 Hz (§13.5)
     // K-12: a rough close shakes that unit's lever (or the hydro wheel) for 0.6 s.
     const rough = roughSyncUnit(v, prevScope);
     if (rough) {
@@ -338,8 +341,8 @@ export function createDesk(doc, root, actions, opts = {}) {
     tray.update(v);
     setCls(stack, 'glow', !!(v.glow && v.glow.has('stack')));
     if (v.focus !== lastFocus) { lastFocus = v.focus; if (v.focus) focus(v.focus); }
-    for (const e of desk.querySelectorAll('.dk-focus')) if (e.id !== v.focus) e.classList.remove('dk-focus');
-    if (v.focus) { const e = doc.getElementById(v.focus); if (e && desk.contains(e)) e.classList.add('dk-focus'); }
+    for (const r of roots) for (const e of r.querySelectorAll('.dk-focus')) if (e.id !== v.focus) e.classList.remove('dk-focus');
+    if (v.focus) { const e = doc.getElementById(v.focus); if (mine(e)) e.classList.add('dk-focus'); }
   }
 
   /**
@@ -367,7 +370,7 @@ export function createDesk(doc, root, actions, opts = {}) {
       // A focused desk button is pressed by Enter here, once (the shell then prevents the native click).
       // The hold keys and the restore list take their own Enter; the RESPOND card's Enter is the shell's.
       // A held Enter is swallowed, so auto-repeat can never be the second press of a guard (K-3).
-      if (vm.respond || !active || !desk.contains(active)) return false;
+      if (vm.respond || !mine(active)) return false;
       if (active === tray.el) return ev.repeat ? true : tray.focusFirst();
       if (active.tagName !== 'BUTTON' || active.disabled || active.classList.contains('dk-hold')) return false;
       if (active.classList.contains('dk-guard')) ctx.consider.keyboard(active.id);   // C-10: the keyboard is on this guard now, whoever focused it

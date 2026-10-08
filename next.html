@@ -57,7 +57,8 @@
   /* Q-45: the plan bar on the desk's top edge: the objective line, then the alarms at the right end. */
   #planbar { position: fixed; z-index: 6; left: 0; right: 0; bottom: var(--desk-h); display: flex; align-items: flex-end; gap: 8px;
     padding-right: 4px; pointer-events: none; }
-  #annun-slot { flex: none; margin-left: auto; pointer-events: auto; }
+  #annun-slot { flex: none; margin-left: auto; pointer-events: auto; width: 432px; height: var(--planbar-h); }
+  @media (min-width: 1600px) { #annun-slot { width: clamp(432px, 30vw, 600px); } }
   /* SPEC §9.1 Q-18: the standing objective, one line along the bottom of the map. The level is
      a glyph and a word as well as a colour (K-22). */
   #objective { flex: 1 1 auto; min-width: 0; display: flex; align-items: center;
@@ -74,10 +75,10 @@
   body.crt #map::before { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0.06;
     background: repeating-linear-gradient(to bottom, #000 0, #000 1px, transparent 1px, transparent 2px); }
   #desk { position: relative; min-height: 0; overflow: hidden; border-top: 1px solid var(--line); background: var(--panel); }
-  /* L-4: above the 2-line objective, off the levers; the Live Stack in it reads both variables. */
+  /* L-4: above the plan bar (58 px), off the levers; the Live Stack in it reads both variables. */
   #stack-overlay { position: fixed; z-index: 8; left: 16px; right: 16px; top: var(--stack-expanded-top);
     --stack-expanded-top: calc(var(--hdr) + 8px);
-    --stack-expanded-h: min(420px, calc(100vh - var(--desk-h) - var(--hdr) - 58px)); height: var(--stack-expanded-h);
+    --stack-expanded-h: min(420px, calc(100vh - var(--desk-h) - var(--hdr) - 75px)); height: var(--stack-expanded-h);
     background: var(--panel); border: 1px solid var(--dim); border-radius: 6px; box-shadow: 0 10px 30px #000c; }
 
   /* K-15: the watch. The vignette never takes clicks (ACK, SILENCE, pause and skip still work). */
@@ -94,6 +95,7 @@
   .card h2 { margin: 0 0 6px; color: var(--bright); font-size: 15px; }
   .card p { margin: 4px 0; }
   #respond-card { top: calc(var(--hdr) + 60px); width: 620px; border-color: var(--amber); }
+  @media (max-height: 659px) { #respond-card { top: calc(var(--hdr) + 8px); } }
   #respond-card p { font: 13px/1.4 var(--mono); color: var(--bright); }
   #respond-card p.hint { color: var(--amber); }
   #briefing-card { top: calc(var(--hdr) + 40px); width: 520px; }

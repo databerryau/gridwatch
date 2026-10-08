@@ -288,6 +288,7 @@ export function bootGame(doc, deps) {
   const dismissCard = () => { if (game.respond) actions.ui({do: 'dismissRespond'}); };
   on('respond-card', 'click', dismissCard);
   on('desk', 'pointerdown', dismissCard);
+  on('annun-slot', 'pointerdown', ev => { if (!within('btn-explain', ev.target)) dismissCard(); }); // (§30.4; EXPLAIN: back on its close)
   on('btn-mute', 'click', () => { actions.ui({do: 'mute'}); });
   on('btn-help', 'click', () => actions.ui({do: 'drawer'}));
   let briefAgc = true;
@@ -720,7 +721,7 @@ export function bootGame(doc, deps) {
   function panelFirst(ev) {
     const t = ev.target, k = ev.key;
     if (!game.ui.alarmsOpen || mod(ev) || PANEL_KEEPS.test(k) || (k === 'M' && ev.shiftKey) || within('settings', t)) return;
-    if (!(inPanel(t) && PANEL_OWN.test(k))) actions.ui({do: 'alarmsGoto', target: null});
+    if (!((inPanel(t) || k === 'Enter' && t.classList.contains('dk-tile')) && PANEL_OWN.test(k))) actions.ui({do: 'alarmsGoto', target: null}); // (§30.4: Enter on a tile selects it)
   }
   doc.addEventListener('keydown', escFirst, true);
   doc.addEventListener('keydown', panelFirst, true);
@@ -736,11 +737,11 @@ export function bootGame(doc, deps) {
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
     first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
     chain: () => [mods.desk, mods.stack, mods.map],
-    // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows.
-    // (With the alarm panel open, panelFirst has closed it before any desk key gets here.)
+    // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows, into the plan bar too.
+    // (With the alarm panel open, panelFirst has closed it before any desk key gets here, but for Enter on a tile: it selects.)
     used: (m, ev) => {
-      const ae = doc.activeElement, desk = $('desk');
-      if (ev.type !== 'keyup' && ae && ae.id && ae !== doc.body && ae.id !== game.ui.focus && desk && desk.contains(ae)) base.ui({do: 'focus', target: ae.id});
+      const ae = doc.activeElement;
+      if (ev.type !== 'keyup' && !game.ui.alarmsOpen && ae && ae.id && ae.id !== game.ui.focus && (within('desk', ae) || within('annun-slot', ae))) base.ui({do: 'focus', target: ae.id});
     },
     error: e => { mods.errors.push('key: ' + (e && e.message ? e.message : e)); },
   });
