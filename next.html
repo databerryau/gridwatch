@@ -118,22 +118,28 @@
   #toast { position: fixed; z-index: 14; left: 50%; bottom: 16px; transform: translateX(-50%); background: #da363333;
     border: 1px solid var(--red); color: var(--bright); border-radius: 6px; padding: 4px 12px; font-size: 12px; }
   #toast.info { background: #0d2238; border-color: var(--blue); }
-  #drawer { position: fixed; z-index: 15; top: 0; right: 0; bottom: 0; width: 470px; overflow-y: auto; background: var(--panel);
-    border-left: 1px solid var(--dim); padding: 10px 12px; box-shadow: -8px 0 24px #000a; }
-  #drawer h2 { margin: 0 0 6px; font-size: 14px; color: var(--bright); }
+  /* Q-47: no help covers its "?" */
+  #drawer { position: fixed; z-index: 15; top: var(--hdr); bottom: calc(var(--desk-h) + var(--planbar-h) + 9px); right: 0; width: min(470px, 40vw);
+    overflow-y: auto; background: var(--panel); border-left: 1px solid var(--dim); padding: 0 12px 10px; box-shadow: -8px 0 24px #000a; }
+  #drawer .top { position: sticky; top: 0; display: flex; align-items: center; padding: 8px 0 6px; background: var(--panel); }
+  #drawer h2 { flex: 1; margin: 0; font-size: 14px; color: var(--bright); }
   #drawer article { border-top: 1px solid var(--line); padding: 6px 0; }
-  #drawer article h4 { margin: 0 0 3px; color: var(--bright); font-size: 12px; }
+  #drawer summary { color: var(--bright); font-weight: 700; cursor: pointer; }
   #drawer article p { margin: 2px 0; } #drawer article p b { color: var(--dim); }
-  #popover { position: fixed; z-index: 20; max-width: 420px; background: var(--panel2); border: 1px solid var(--dim); border-radius: 6px;
+  #popover { position: fixed; z-index: 20; max-width: 420px; overflow-y: auto; background: var(--panel2); border: 1px solid var(--dim); border-radius: 6px;
     padding: 8px 10px; box-shadow: 0 8px 24px #000a; }
+  #popover .x { float: right; position: sticky; top: 0; margin: -6px -8px 0 6px; padding: 0; }
+  #popover .x::before { content: '✕'; }
   #popover h4 { margin: 0 0 4px; color: var(--bright); font-size: 12px; }
   #popover p { margin: 3px 0; } #popover p b { color: var(--dim); }
   #q-layer { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
   body:not(.q-on) #q-layer { display: none; } /* H-14: shown with the drawer */
-  #q-layer .q { position: absolute; pointer-events: auto; width: 24px; height: 24px; padding: 0; border-radius: 50%;
-    font: 700 11px/22px system-ui, sans-serif; color: var(--dim); background: #151b23cc; border: 1px solid var(--line); }
-  header .q.inline { width: 24px; height: 24px; padding: 0; margin-left: -6px; border-radius: 50%;
-    font: 700 11px/22px system-ui, sans-serif; color: var(--dim); background: transparent; border: 1px solid var(--line); flex: none; }
+  button.q { width: 24px; height: 24px; padding: 0; border-radius: 50%; font: 700 11px/22px system-ui, sans-serif; color: var(--dim);
+    background: #151b23cc; border: 1px solid var(--line); flex: none; }
+  #q-layer .q { position: absolute; pointer-events: auto; }
+  .q.inline { margin-left: -6px; background: transparent; }
+  .q.on { background: #1f6feb55; border-color: var(--blue); color: var(--bright); }
+  .dk-q.on { z-index: 6; } /* over its note */
   #perf { position: fixed; z-index: 30; right: 8px; bottom: 8px; margin: 0; padding: 6px 8px; font: 11px var(--mono);
     background: #000c; color: var(--green); border: 1px solid var(--line); border-radius: 4px; pointer-events: none; }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -153,7 +159,7 @@
   <button id="btn-pause" title="Space" aria-keyshortcuts="Space">PAUSE</button>
   <button id="btn-mute" title="Sound on or off (Shift+M)" aria-keyshortcuts="Shift+M" aria-pressed="false">SOUND ON</button>
   <button id="btn-settings" title="Settings: volumes, reduced motion, reduced effects, CRT (,)" aria-keyshortcuts="," aria-haspopup="dialog" aria-expanded="false" aria-controls="settings">SETTINGS</button>
-  <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)" aria-label="What GRIDWATCH simplifies, and why" aria-keyshortcuts="?">?</button>
+  <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)" aria-label="What GRIDWATCH simplifies, and why" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="drawer" aria-expanded="false">?</button>
 </header>
 <div id="map" aria-label="The city and its power stations"></div>
 <div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="annun-slot" class="dk-vars"></div></div>
@@ -190,8 +196,8 @@
   <label class="sw"><input id="set-crt" type="checkbox"><span>CRT</span></label>
   <p class="hint">Shift+M mutes. Reduced effects turns the hum and the CRT lines off. The clock keeps running.</p>
 </div>
-<div id="drawer" role="dialog" aria-label="Abstractions" hidden></div>
-<div id="popover" role="dialog" hidden></div>
+<div id="drawer" role="dialog" aria-label="Abstractions" hidden><div class="top"><h2>What GRIDWATCH simplifies, and why</h2><button id="btn-drawer-close" title="Close (? or Esc)">✕ CLOSE</button></div><div id="drawer-body"></div></div>
+<div id="popover" role="dialog" hidden><button id="btn-pop-close" class="x" title="Close (Esc)" aria-label="Close"></button><div id="pop-body"></div></div>
 <div id="toast" role="alert" hidden></div>
 <div id="q-layer"></div>
 <div id="aria-live" class="sr" role="status" aria-live="polite"></div>

@@ -80,7 +80,7 @@ export function createAnnunciator(ctx, parent) {
         b.dataset.target = t.target || '';
         b.addEventListener('click', () => { if (b.dataset.target) { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); }
           const st = b.dataset.state || 'normal';
-          ctx.note(box, (TILE_HELP[t.id] || t.label) + (st === 'normal' ? ' Not in alarm now.' : ''), 6000, 'info'); });   // help, not a refusal
+          ctx.note(box, (TILE_HELP[t.id] || t.label) + (st === 'normal' ? ' Not in alarm now.' : ''), 6000, 'info', b); });   // help, not a refusal; again: hides it (Q-47)
       } else {
         b.classList.add('empty');
         b.setAttribute('aria-hidden', 'true');
