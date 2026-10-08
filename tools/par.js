@@ -10,6 +10,8 @@
 //   node tools/par.js --seeds 1-30 --vs commitAll         # S-11: is the proxy dearer than par?
 //   node tools/par.js --seeds 1-20 --json   # one JSON line per seed instead of the table
 //   node tools/par.js --scenario desk --seeds 1-200 -j 8 --probe --quiet   # the game's day, by day type
+//   node tools/par.js --scenario desk,desk-weekend --seeds 1-100 -j 4 --proxy competent,lean,commitAll --allin
+//                                           # Q-48: the ALL-IN letters' calibration against par
 //
 // Flags: --seed N | --seeds A-B (default 1-20) | --heat N (first N heat seeds, or with --seeds A-B
 // the heat seeds number A..B) | --proxy P (par, planOnly, doNothing, lean, competent,
@@ -17,7 +19,10 @@
 // proxy P and count the seeds where it costs more than the main proxy, S-11) | -j/--workers N
 // | --json | --quiet (summary only) | --scenario ID (classic, desk, desk-weekend) | --probe (H-8:
 // trip both credible contingencies in a copy of each SECURE state, as tools/baseline-v4.js does)
-// | --rows FILE (also write every row as a JSON line to FILE).
+// | --rows FILE (also write every row as a JSON line to FILE) | --allin (Q-48, desk/README.md §30.7:
+// grade each proxy of a comma-separated --proxy against par on every seed of each scenario of a
+// comma-separated --scenario with app/score.js's ALL-IN grade, S-5's MWh letter beside it, and
+// print what LETTERS' a, b and c are calibrated from).
 // The weather class and the day type shown are the seed's hidden regime: this is a measurement
 // tool, and it reads state.ext for reporting only (par itself never sees it, S-4).
 // Phase 2a (desk/README.md §21.3): each row also carries the day type (MILD / HOT / HEATWAVE, and
@@ -35,7 +40,7 @@ const load = rel => import(pathToFileURL(path.join(ROOT, rel)).href);
 // ---------------------------------------------------------------- arguments
 function parseArgs(argv) {
   const o = {seeds: null, seed: null, heat: 0, proxy: 'par', grade: false, vs: null, workers: 1, json: false, quiet: false,
-    scenario: 'classic', probe: false, rows: null, worker: false};
+    scenario: 'classic', probe: false, rows: null, worker: false, allin: false};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], next = () => argv[++i];
     if (a === '--seed') o.seed = parseInt(next(), 10);
@@ -50,10 +55,12 @@ function parseArgs(argv) {
     else if (a === '--scenario') o.scenario = next();
     else if (a === '--probe') o.probe = true;
     else if (a === '--rows') o.rows = next();
+    else if (a === '--allin') o.allin = true;
     else if (a === '--worker') o.worker = true;
     else if (a === '-h' || a === '--help') { const src = require('fs').readFileSync(__filename, 'utf8').split('\n'); console.log(src.slice(0, src.findIndex(l => !l.startsWith('//'))).join('\n')); process.exit(0); }
     else throw new Error('unknown flag ' + a + ' (see --help)');
   }
+  if (!o.allin && (o.proxy.includes(',') || o.scenario.includes(','))) throw new Error('a list in --proxy or --scenario needs --allin');
   return o;
 }
 
@@ -146,7 +153,7 @@ function runOne(S, scenario, seed, proxy, withActions, probe) {
   const fin = x => (Number.isFinite(x) ? x : null);
   const rule4Stops = r.log.filter((x, i) => x.type === 'stop' && r.origins[i] === 'rule4');
   const row = {
-    seed, proxy, weather: st.ext.regime.cls, day: dayType(st), black: r.black, endsAt: hhmm(V, st.tick),
+    seed, proxy, scenario: scenario.id, weather: st.ext.regime.cls, day: dayType(st), black: r.black, endsAt: hhmm(V, st.tick),
     unservedMWh: sc.unservedMWh, uflsMWh: sc.uflsMWh, directedMWh: sc.directedMWh, firstShed: firstShed < 0 ? '' : hhmm(V, firstShed),
     rert: count('armRERT') > 0, drCalls: count('callDR'), costDollars: r.summary.costDollars, centsPerKWh: r.summary.centsPerKWh,
     co2tPerMWh: r.summary.co2tPerMWh, trips: st.conts.length, starts: sc.starts, actions: r.memo.actions,
@@ -158,6 +165,8 @@ function runOne(S, scenario, seed, proxy, withActions, probe) {
     coalStops: rule4Stops.filter(x => /^coal/.test(x.args.unit)).length, gasStops: rule4Stops.filter(x => !/^coal/.test(x.args.unit)).length,
     charges: r.log.filter((x, i) => x.type === 'battery' && x.args.mode === 'charge' && r.origins[i] === 'rule6').length,
     battEndMWh: st.battery.socMWh,
+    // Q-48: the rest of what app/score.js's allIn reads (costDollars and co2tPerMWh are above)
+    servedMWh: sc.servedMWh, lightsMWh: sc.lightsMWh, saidiMin: sc.saidiMin, saifi: sc.saifi, maifi: sc.maifi,
   };
   if (probe) row.probe = Object.assign({}, P, {worst: fin(P.worst), unitWorst: fin(P.unitWorst), linkWorst: fin(P.linkWorst)});
   if (withActions) {
@@ -205,15 +214,17 @@ function runWorkers(o, seeds, jobs) {
     const child = fork(__filename, ['--worker'], {stdio: ['ignore', 'inherit', 'inherit', 'ipc']});
     child.on('message', m => { if (m.row) rows.push(m.row); });
     child.on('exit', code => (code === 0 ? resolve() : reject(new Error('worker exited with ' + code))));
-    child.send({scenario: o.scenario, seeds: chunk, jobs, probe: o.probe});
+    child.send({scenarios: o.scenario.split(','), seeds: chunk, jobs, probe: o.probe});
   }))).then(() => rows);
 }
 
 async function workerMain() {
   const S = await sim();
   process.on('message', m => {
-    const scenario = S.getScenario(m.scenario);
-    for (const seed of m.seeds) for (const j of m.jobs) process.send({row: runOne(S, scenario, seed, j.proxy, false, m.probe && j === m.jobs[0])});
+    for (const id of m.scenarios) {
+      const scenario = S.getScenario(id);
+      for (const seed of m.seeds) for (const j of m.jobs) process.send({row: runOne(S, scenario, seed, j.proxy, false, m.probe && j === m.jobs[0])});
+    }
     process.disconnect();
   });
 }
@@ -282,23 +293,64 @@ function summary(title, rows) {
   }
 }
 
+// ---------------------------------------------------------------- the ALL-IN score (--allin, Q-48)
+/**
+ * desk/README.md §30.7's calibration: each proxy graded against par on the same seed and scenario
+ * with app/score.js (a black day is an F; a black par day gives no score), and what LETTERS' a, b
+ * and c are set from: a so that S-5's accept carries over (competent >= 70% A, lean <= 40% A,
+ * commitAll loses A on >= 30%) and a 10-MWh shed on a par day stays an A; b and c the points of
+ * par's median day plus 150 and plus 600 MWh dark (taken off the served MWh: the city asked for
+ * the same energy).
+ */
+async function allinReport(o, rows, t0) {
+  const [{allIn, grade: graded, LETTERS}, {V, SIM_VERSION}] = await Promise.all([load('app/score.js'), load('sim/params.js')]);
+  const key = r => r.scenario + '|' + r.seed, day = r => r.scenario + ' seed ' + r.seed, M = x => '$' + f3(x / 1e6) + 'M';
+  const parBy = new Map(rows.filter(r => r.proxy === 'par').map(r => [key(r), r]));
+  const pars = [...parBy.values()].filter(r => !r.black).sort((a, b) => allIn(a, 0).total - allIn(b, 0).total);
+  const plus = (r, mwh) => graded(allIn(Object.assign({}, r, {lightsMWh: r.lightsMWh + mwh, servedMWh: r.servedMWh - mwh}), 0), allIn(r, 0), false).points;
+  const med = pars[Math.floor((pars.length - 1) / 2)], m = allIn(med, 0);
+  console.log(`\nALL-IN against par on ${o.scenario}: ${parBy.size} days (SIM ${SIM_VERSION}), wall ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+  console.log('LETTERS now ' + LETTERS.map(([l, x]) => l + ' >= ' + x).join(', ') + '; VCR $' + V.VCR + '/MWh, VER $' + V.VER + '/t');
+  console.log(`par's ALL-IN: median ${M(m.total)} (${day(med)}: supply ${M(m.supply)}, outages ${M(m.outage)}, carbon ${M(m.carbon)}), ` +
+    `lowest ${M(allIn(pars[0], 0).total)} (${day(pars[0])}), highest ${M(allIn(pars[pars.length - 1], 0).total)} (${day(pars[pars.length - 1])}); ` +
+    `par black on ${parBy.size - pars.length} (no score)`);
+  const need = {};
+  const proxies = [...new Set(rows.map(r => r.proxy))].filter(p => p !== 'par');
+  table(proxies.map(p => {
+    const g = rows.filter(r => r.proxy === p && parBy.has(key(r)) && !parBy.get(key(r)).black);
+    const gr = g.map(r => graded(allIn(r, 0), allIn(parBy.get(key(r)), 0), r.black)), pts = gr.map(x => x.points).sort((a, b) => a - b), n = pts.length;
+    const split = ls => ['A', 'B', 'C', 'D', 'F'].map(l => l + ls.filter(x => x === l).length).join(' ');
+    const at = f => pts[Math.min(n - 1, Math.floor(f * n))];
+    need[p] = {aMax: pts[n - Math.ceil(0.7 * n)], aAbove: pts[n - Math.floor(0.4 * n) - 1], loseAbove: pts[Math.ceil(0.3 * n) - 1]};
+    return {p, n, q: [0.1, 0.3, 0.5, 0.7, 0.9].map(at).join(' / '), allin: split(gr.map(x => x.letter)), s5: split(g.map(r => grade(r, parBy.get(key(r))))),
+      saidi: f1(mean(g.map(r => r.saidiMin))) + ' / ' + f2(mean(g.map(r => r.saifi))) + ' / ' + f2(mean(g.map(r => r.maifi)))};
+  }), [['proxy', r => r.p], ['days', r => r.n], ['points p10 / p30 / p50 / p70 / p90', r => r.q], ['ALL-IN letters (LETTERS now)', r => r.allin],
+    ['S-5 MWh letters', r => r.s5], ['SAIDI min / SAIFI / MAIFI (mean)', r => r.saidi]]);
+  const low10 = pars.reduce((a, r) => (plus(r, 10) < plus(a, 10) ? r : a), pars[0]);
+  console.log(`\npar + 10 MWh dark: ${plus(med, 10)} on the median day, lowest ${plus(low10, 10)} (${day(low10)}): a <= ${plus(low10, 10)} keeps a 10-MWh shed an A on every day`);
+  console.log(`par + 150 MWh dark on the median day: ${plus(med, 150)} (b <= this); + 600 MWh: ${plus(med, 600)} (c <= this)`);
+  if (need.competent) console.log(`competent >= 70% A: a <= ${need.competent.aMax}`);
+  if (need.lean) console.log(`lean <= 40% A: a > ${need.lean.aAbove}`);
+  if (need.commitAll) console.log(`commitAll loses A on >= 30%: a > ${need.commitAll.loseAbove}`);
+}
+
 async function main() {
   const o = parseArgs(process.argv.slice(2));
   if (o.worker) return workerMain();
   const S = await sim();
-  const scenario = S.getScenario(o.scenario);
+  const scenarios = o.scenario.split(',').map(id => S.getScenario(id)), scenario = scenarios[0];
   const seeds = await seedList(S, o, scenario);
-  const jobs = [{proxy: o.proxy}];
-  if ((o.grade || o.vs) && o.proxy !== 'par') jobs.push({proxy: 'par'});
+  const jobs = o.proxy.split(',').map(proxy => ({proxy}));
+  if ((o.grade || o.vs || o.allin) && !jobs.some(j => j.proxy === 'par')) jobs.push({proxy: 'par'});
   if (o.vs && !jobs.some(j => j.proxy === o.vs)) jobs.push({proxy: o.vs});
   const t0 = Date.now();
   let rows;
-  if (o.workers > 1 && seeds.length > 1) {
+  if (o.workers > 1 && seeds.length * scenarios.length > 1) {
     rows = await runWorkers(o, seeds, jobs);
   } else {
     rows = [];
-    for (const seed of seeds) for (const j of jobs) {
-      const row = runOne(S, scenario, seed, j.proxy, seeds.length === 1 && !o.json, o.probe && j === jobs[0]);
+    for (const scn of scenarios) for (const seed of seeds) for (const j of jobs) {
+      const row = runOne(S, scn, seed, j.proxy, seeds.length === 1 && !o.json && !o.allin, o.probe && j === jobs[0]);
       rows.push(row);
       if (o.json) console.log(JSON.stringify(row));
     }
@@ -306,6 +358,7 @@ async function main() {
   if (o.rows) require('fs').writeFileSync(o.rows, rows.slice().sort((a, b) => a.seed - b.seed).map(r => JSON.stringify(r)).join('\n') + '\n');
   if (o.json && o.workers > 1) for (const r of rows.sort((a, b) => a.seed - b.seed)) console.log(JSON.stringify(r));
   if (o.json) return;
+  if (o.allin) return allinReport(o, rows, t0);
   const main = rows.filter(r => r.proxy === o.proxy).sort((a, b) => a.seed - b.seed);
   const parBy = new Map(rows.filter(r => r.proxy === 'par').map(r => [r.seed, r]));
   const vsBy = o.vs ? new Map(rows.filter(r => r.proxy === o.vs).map(r => [r.seed, r])) : null;
