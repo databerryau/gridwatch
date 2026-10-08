@@ -388,3 +388,11 @@ export function alarmsView(a) {
   return {tiles, sounding: a.sounding, unacked};
 }
 
+/**
+ * The tile the alarm panel opens on when none is named (Q-46, §30.3.3), from alarmsView(), the
+ * pick ({id, untilMs}) and the page's ms. Stage A stub: a live pick, else 'underFreq' (W3 fills).
+ */
+export function defaultSel(view, pick, nowMs) {
+  return pick && pick.id && nowMs < pick.untilMs ? pick.id : 'underFreq';
+}
+

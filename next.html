@@ -14,7 +14,7 @@
   motion), fxlow (reduced effects), crt (the B-4 scanlines), so CSS follows without the vm.
   Layout (SPEC §4.2, K-17): a 32-px header (40 px from 1600 px wide), the map on top, the desk
   at the bottom: max(300 px, half the viewport below the header). app/boot.js mounts the map,
-  the desk and the Live Stack, and draws the overlays below.
+  the desk and the Live Stack, and draws the overlays below (desk/README.md §30: #planbar, #alarm-panel).
 -->
 <style>
   :root {
@@ -23,13 +23,14 @@
     --violet: #a371f7; --orange: #f0883e;
     --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
     --hdr: 32px;
+    --desk-h: max(300px, calc((100vh - var(--hdr)) / 2)); --planbar-h: 58px; /* K-17; Q-45 */
   }
   @media (min-width: 1600px) { :root { --hdr: 40px; } }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 12px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
   /* K-17: header, map (the rest), desk = max(300 px, 50% of the viewport below the header). */
-  body { display: grid; grid-template-rows: var(--hdr) minmax(0, 1fr) max(300px, calc((100vh - var(--hdr)) / 2));
+  body { display: grid; grid-template-rows: var(--hdr) minmax(0, 1fr) var(--desk-h);
     height: 100vh; min-width: 1280px; min-height: 600px; overflow: hidden; }
   button { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line); border-radius: 4px;
     padding: 2px 8px; cursor: pointer; white-space: nowrap; min-height: 24px; min-width: 24px; }
@@ -47,15 +48,19 @@
   #rate-badge.WATCH, #rate-badge.RESPOND-CARD { background: #d2992233; border-color: var(--amber); }
   #rate-badge.RESPOND, #rate-badge.FOCUS { background: #a371f722; border-color: var(--violet); }
   #rate-badge.FAST { background: #3fb95022; border-color: var(--green); }
-  #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER { background: #6e768133; border-color: var(--faint); }
+  #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER, #rate-badge.ALARMS { background: #6e768133; border-color: var(--faint); }
   .chip { font: 11px var(--mono); color: var(--dim); padding: 2px 8px; border: 1px solid var(--line); border-radius: 10px; }
   .chip b { color: var(--bright); font-weight: 700; }
   .grow { flex: 1; }
 
   #map { position: relative; min-height: 0; overflow: hidden; background: #0a0e14; }
+  /* Q-45: the plan bar on the desk's top edge: the objective line, then the alarms at the right end. */
+  #planbar { position: fixed; z-index: 6; left: 0; right: 0; bottom: var(--desk-h); display: flex; align-items: flex-end; gap: 8px;
+    padding-right: 4px; pointer-events: none; }
+  #annun-slot { flex: none; margin-left: auto; pointer-events: auto; }
   /* SPEC §9.1 Q-18: the standing objective, one line along the bottom of the map. The level is
      a glyph and a word as well as a colour (K-22). */
-  #objective { position: fixed; z-index: 6; left: 0; right: 0; bottom: max(300px, calc((100vh - var(--hdr)) / 2)); display: flex; align-items: center;
+  #objective { flex: 1 1 auto; min-width: 0; display: flex; align-items: center;
     gap: 8px; min-height: 26px; padding: 3px 10px; font: 600 13px/1.3 system-ui, sans-serif; color: var(--bright);
     background: #0d1117e6; border-top: 1px solid var(--line); pointer-events: none; }
   #objective b { font: 700 11px var(--mono); padding: 1px 6px; border-radius: 3px; border: 1px solid var(--green); color: var(--green); flex: none; }
@@ -72,7 +77,7 @@
   /* L-4: above the 2-line objective, off the levers; the Live Stack in it reads both variables. */
   #stack-overlay { position: fixed; z-index: 8; left: 16px; right: 16px; top: var(--stack-expanded-top);
     --stack-expanded-top: calc(var(--hdr) + 8px);
-    --stack-expanded-h: min(420px, calc(100vh - max(300px, (100vh - var(--hdr)) / 2) - var(--hdr) - 58px)); height: var(--stack-expanded-h);
+    --stack-expanded-h: min(420px, calc(100vh - var(--desk-h) - var(--hdr) - 58px)); height: var(--stack-expanded-h);
     background: var(--panel); border: 1px solid var(--dim); border-radius: 6px; box-shadow: 0 10px 30px #000c; }
 
   /* K-15: the watch. The vignette never takes clicks (ACK, SILENCE, pause and skip still work). */
@@ -107,6 +112,9 @@
   #settings input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
   #settings .hint { color: var(--faint); font-size: 11px; margin: 6px 0 0; }
   #end-card .score { font: 13px var(--mono); }
+  /* Q-46: over the desk while the clock is held (app/alarmpanel.js styles its insides) */
+  #alarm-panel { position: fixed; z-index: 13; left: 8px; right: 8px; bottom: 8px; top: calc(100vh - var(--desk-h) + 4px); overflow: auto;
+    background: var(--panel2); border: 1px solid var(--dim); border-radius: 8px; }
   #toast { position: fixed; z-index: 14; left: 50%; bottom: 16px; transform: translateX(-50%); background: #da363333;
     border: 1px solid var(--red); color: var(--bright); border-radius: 6px; padding: 4px 12px; font-size: 12px; }
   #toast.info { background: #0d2238; border-color: var(--blue); }
@@ -140,6 +148,7 @@
   <div id="chip-lights" class="chip" title="LIGHTS ON: share of the energy the city asked for that it got">LIGHTS ON <b id="chip-lights-v">100%</b></div>
   <div id="chip-cost" class="chip" title="CUSTOMER COST so far">COST <b id="chip-cost-v">-</b> c/kWh</div>
   <div id="chip-co2" class="chip" title="CO₂ per MWh generated in the region so far">CO₂ <b id="chip-co2-v">-</b> t/MWh</div>
+  <span id="chip-allin" class="chip" hidden></span>
   <span class="grow"></span>
   <button id="btn-pause" title="Space" aria-keyshortcuts="Space">PAUSE</button>
   <button id="btn-mute" title="Sound on or off (Shift+M)" aria-keyshortcuts="Shift+M" aria-pressed="false">SOUND ON</button>
@@ -147,7 +156,7 @@
   <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)" aria-label="What GRIDWATCH simplifies, and why" aria-keyshortcuts="?">?</button>
 </header>
 <div id="map" aria-label="The city and its power stations"></div>
-<div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div>
+<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="annun-slot" class="dk-vars"></div></div>
 <div id="desk" aria-label="The control desk"></div>
 <noscript>GRIDWATCH needs JavaScript (ES modules).</noscript>
 
@@ -157,6 +166,7 @@
 <div id="briefing-card" class="card" role="dialog" aria-label="Briefing" hidden>
   <h2>Tonight's desk</h2>
   <p id="briefing-text">You decide which power stations run, and when. The dispatch system sets how hard each running unit works; you start more before the city needs them, and stop them when it does not. A coal unit takes two hours to reach the grid, a gas turbine ten minutes.</p>
+  <p id="briefing-goals"></p>
   <p id="briefing-how" class="dim">The line above the desk says what is needed next. To start a unit, click its ○ button on the lever bank (hydro units: beside the HYDRO wheel); it turns into START?, so click it again to confirm. Keys: 1–5 pick a lever (6 the HYDRO wheel), then S S. The battery's outer ring is its GUARD: MW held back to catch a trip. Space pauses at any time, and you can act while paused; the clock is held until you first press it. ? (top right) shows what GRIDWATCH simplifies.</p>
   <p id="briefing-day"></p>
   <p id="briefing-watch" class="dim"></p>
@@ -168,6 +178,7 @@
   </div>
 </div>
 <div id="end-card" class="card" role="dialog" aria-label="Day over" hidden></div>
+<div id="alarm-panel" role="dialog" aria-modal="true" aria-label="Alarms explained" tabindex="-1" hidden></div>
 <div id="settings" class="card" role="dialog" aria-label="Settings" hidden>
   <h2>Settings</h2>
   <label><span>MASTER</span><input id="set-volume" type="range" min="0" max="100" step="5" value="80" aria-label="Master volume"></label>
