@@ -2051,3 +2051,32 @@ or "the price"; prices come from `V.VCR` and `V.VER`, never typed in.
 - Commit in your worktree with plain-English subjects naming the Q ids; report what you measured,
   what you could not do, and every line you changed outside your region. Do not edit SPEC.md
   (W5: only the §8 rows) or this section.
+
+### 30.9 Stage A record (2026-10-08) and what changes for the wave
+
+Stage A merged as `eeec42c` (builder `wf_b1c8deb4-952`, two reviewers, one fix pass; 14 findings,
+13 fixed, F3 rejected because `{do: 'ackTile', id}` already existed). Whole suite: 653 tests pass
+in 31.5 s. First visit: 397.9 KB before, **390.6 KB after** (`content/text.js` −14.4 KB on demand,
+`content/anchors.js` +1.2 KB, stage A's own code +5.6 KB: well over the share §30.1 implied).
+
+Changes for the wave (they override §30.2–§30.7 where they differ):
+- **W5's end card loads on demand.** `drawEnd` and its score face move into a new on-demand
+  module `app/endcard.js` (`createEndCard(doc, root, actions, deps) → {update(vm), el}`), mounted
+  into `#end-card` when the day ends, through `deps.endCard` (module, loader, or absent →
+  `import('./endcard.js')`), the same pattern as the alarm panel; `tests/lib/play.js` and
+  `tests/next.test.js` pass it statically (W5 may add those two lines). W5 adds `app/endcard.js`
+  to `tests/budget.test.js`'s on-demand list with a 5 KB cap. W5's eager share is then ≤ 0.8 KB
+  (the chip, the briefing text); the end card's text reads its prices from `V`.
+- **W4 does not edit `app/game.js`:** stage A's `buildVm` already fills `game.end.parAllIn` and
+  `grade` in place on the first frame par is done (a black par gives `grade = null`). `app/par.js`
+  already exports `PAR_MARK_S = 300` and `seriesAt(series, s)`; W4's runner reuses them. An
+  injected object with a `step()` is used as the runner itself; any other object is a finished
+  runner (`{score, series?, black?, at?}`).
+- **W1's tile press** records the pick with `{do: 'alarmsPick', id}` while the panel is closed
+  (stage A added it; `ALARMS_PICK_MS = 6000`), and selects with `{do: 'alarmsSel', id}` while it
+  is open (ignored when closed).
+- **Keys:** with the panel open any desk key closes it first (as GO TO), with the focus inside the
+  panel too, except the panel's own keys inside it, the keep list (`PANEL_KEEPS` in
+  `app/shell.js`: Esc, Space, W, A, Shift+A, ?, `,`, Shift+M, F) and keys inside SETTINGS.
+- **Budget after the wave:** about 394 KB if every agent stays inside its share, leaving about
+  6 KB for slices 2b–2e. Risk 11 is eased, not closed; the integrator records the measured figure.
