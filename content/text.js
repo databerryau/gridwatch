@@ -23,6 +23,7 @@ import {CLASSIC, DESK} from './scenarios.js';
 import {FLAT_RATE, WATCH_SCHEDULE} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
 import {HORN_REPEAT_S} from '../app/alarms.js';
+import {LETTERS} from '../app/score.js';
 
 // ------------------------------------------------------------------ formatting
 
@@ -272,7 +273,8 @@ const ABSTRACTIONS = [
     real: 'NEM customers pay the market price, plus network charges, not the resource cost.',
     ours: 'CUSTOMER COST adds fuel, no-load, starts, imports minus exports, battery wear (' + usd(V.BATT_WEAR_PER_MWH) +
       '/MWh), DR (' + usd(V.DR_PRICE) + '/MWh) and reserve diesel (' + usd(V.RERT_COST) + '/MWh), in cents per kWh ' +
-      'served. The market bill is information only, and unserved energy is never priced.',
+      'served. The market bill is information only, and unserved energy is never priced in CUSTOMER COST: the ALL-IN score ' +
+      'prices it.',
     why: 'It keeps the cost axis independent of shedding and of scarcity rents.',
     params: ['BATT_WEAR_PER_MWH', 'DR_PRICE', 'RERT_COST'],
   },
@@ -282,7 +284,8 @@ const ABSTRACTIONS = [
       'consumer-based count would instead charge imported energy the neighbour\'s emissions.',
     ours: 'CARBON is tonnes of CO₂ per MWh generated in the region: coal ' + num(coal.co2) + ', CCGT ' + num(station('ccgt').co2) +
       ', GTs ' + num(station('gta').co2) + ', reserve diesel ' + num(V.RERT_CO2) + ' t/MWh; wind, solar and hydro 0. Imports ' +
-      'count in neither term (the neighbour\'s emissions are its own), and the battery only stores energy already counted.',
+      'count in neither term (the neighbour\'s emissions are its own), and the battery only stores energy already counted. ' +
+      'In the ALL-IN score, every MWh the city asked for, imports and dark load included, is charged at this intensity.',
     why: 'Importing cannot make the region look cleaner just by adding MWh to the bottom of the fraction; only a cleaner ' +
       'mix does. Shedding load barely moves it.',
     params: ['FLEET.coal.co2', 'FLEET.ccgt.co2', 'FLEET.gta.co2', 'RERT_CO2'],
@@ -519,6 +522,74 @@ const ABSTRACTIONS = [
       hhmm(CLASSIC.sun.setH) + ', a heatwave on ' + pct(V.HEAT_SHARE) + '% of days.',
     why: 'One tuned season; a July heatwave would break the realism rule.',
     params: ['HEAT_SHARE'],
+  },
+  // Q-48 (desk/README.md §30.7): the ALL-IN score and the reliability readouts. Prices from V.VCR and V.VER.
+  {
+    id: 'allin-score', row: 'The score divides par\'s ALL-IN by yours', anchorId: 'allin-score', ui: 'drawer', game: 'chip-allin',
+    real: 'Regulators weigh cost, reliability and emissions in one currency: AEMO\'s Integrated System Plan counts load ' +
+      'shedding at the value of customer reliability (VCR) and emissions at the value of emissions reduction (VER), beside ' +
+      'fuel and capital costs, and the Reliability Panel sets the reliability standard where the cost of new generation and ' +
+      'of unserved energy is least. They rank options by the difference in those dollars. Customers pay the market price ' +
+      'plus network and retail charges. Those charges, most of a bill, are the same whatever you do and are left out. VCR ' +
+      'and VER are what regulators count an outage and a tonne as worth, not money anyone is paid.',
+    ours: 'ALL-IN is SUPPLY, the COST chip\'s dollars; plus OUTAGES, ' + usd(V.VCR) + ' (VCR) for each MWh dark; plus CARBON, ' +
+      usd(V.VER) + ' (VER) a tonne on your CO₂ intensity × every MWh the city asked for. SCORE = 1000 × par\'s ALL-IN ÷ ' +
+      'yours, par being GRIDWATCH\'s own autopilot on the same day: 1000 is par, more beats it, and a black day scores 0 (F). ' +
+      'Letters: ' + LETTERS.slice(0, -1).map(l => l[0] + ' from ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
+      ' below. Through the day the chip compares you with par at the same grid time. ALL-IN is the day\'s cost to the ' +
+      'community, not a price or a bill.',
+    why: 'One currency is how regulators trade the three goals off, so the score teaches the real trade: an MWh dark weighs ' +
+      'as much as ' + num(V.VCR / V.VER) + ' priced tonnes of CO₂. Dividing par\'s total by yours is GRIDWATCH\'s own rule; it ' +
+      'reads the same on any day.',
+    params: ['VCR', 'VER'],
+  },
+  {
+    id: 'allin-vcr', row: 'Every MWh dark is valued at the NEM VCR, $30,000/MWh (2024 dollars)', anchorId: 'allin-vcr', ui: 'drawer',
+    game: 'drawer',
+    real: 'The AER\'s 2024 values of customer reliability, in 2024 dollars: NEM $30,000/MWh, VIC $35,780, SA $33,320, ' +
+      'households across the NEM $41,480. They cover outages up to 12 hours; the AER computes none for widespread or longer ' +
+      'outages. The Reliability Panel and AEMO\'s system plan still value unserved energy from a supply shortfall at VCR, ' +
+      'and the standard allows 0.002% of a region\'s energy a year unserved.',
+    ours: 'OUTAGES = ' + usd(V.VCR) + ' × every MWh dark: UFLS after a trip, directed shedding and a black grid alike, at the ' +
+      'NEM-wide value whatever the district. CUSTOMER COST still never prices it. At ' + usd(V.VER) + ' a tonne, an MWh dark ' +
+      'weighs as much as ' + num(V.VCR / V.VER) + ' t of CO₂.',
+    why: 'One value for every MWh keeps the rule visible before you act. The reliability standard leaves out non-credible ' +
+      'contingencies, and the AER computes no VCR for a widespread outage: extending the NEM value to every MWh you shed is ' +
+      'GRIDWATCH\'s own rule.',
+    params: ['VCR', 'VER'],
+  },
+  {
+    id: 'allin-carbon', row: 'ALL-IN carbon charges every MWh the city asked for at the region\'s own intensity',
+    anchorId: 'allin-carbon', ui: 'drawer', game: 'drawer',
+    real: 'The AEMC multiplies a change in tonnes by the interim VER ($80/t for 2026, in 2023 dollars) and adds it beside the ' +
+      'other costs and benefits. AEMO\'s carbon intensity index divides a region\'s emissions by the energy its own ' +
+      'generators produce.',
+    ours: 'CARBON = your CO₂ intensity (t per MWh generated in the region: the CARBON chip) × every MWh the city asked for, ' +
+      'imports and dark load included, × ' + usd(V.VER) + ' a tonne. An imported MWh is charged at your own mix, not the ' +
+      'neighbour\'s; the end card also shows the tonnes your plants emitted.',
+    why: 'Charging the tonnes emitted would make shedding and importing look clean (dark load and the neighbour\'s plants ' +
+      'emit nothing here). Intensity × the energy asked for leaves a cleaner mix the only way down: shedding barely moves ' +
+      'it, and importing lowers it only through the mix you run.',
+    params: ['VER'],
+  },
+  {
+    id: 'reliability-indices', row: 'SAIDI, SAIFI and MAIFI count the shedding you cause, per household, in grid-minutes',
+    anchorId: 'reliability-indices', ui: 'drawer', game: 'drawer',
+    real: 'The AER\'s Distribution Reliability Measures Guideline: an interruption longer than 3 minutes is sustained, 3 ' +
+      'minutes or less momentary. SAIDI is the minutes of sustained interruption per customer, SAIFI their number per ' +
+      'customer, MAIFI the momentary ones per customer. In 2024 the average customer was off 394 minutes, 1.6 times, ' +
+      'counting all outages; 115 minutes, 1.0 times, normalised (excluded events and major event days taken out). STPIS ' +
+      'turns VCR into incentive rates, 60% on SAIDI and 40% on SAIFI, within ±5% of a distributor\'s revenue; its clause ' +
+      '3.3(a)(2)–(4) excludes load shed for a generation shortfall, by under-frequency relays or at AEMO\'s direction.',
+    ours: 'A district dark longer than ' + minutes(V.SUSTAINED_INTERRUPTION_S) + ' grid-minutes adds its share of the ' +
+      'households to SAIFI and, for every minute dark, that share to SAIDI; one relit sooner adds to MAIFI (no reclosers are ' +
+      'modelled, so it is usually 0). They count every outage you cause, before STPIS\'s exclusions (the all-outages basis). ' +
+      'The end card shows them as readouts beside OUTAGES, never added to the score: STPIS\'s rates are built from VCR, so ' +
+      'that would count an outage twice.',
+    why: 'They are how a network reports its reliability, so a dark day reads in a network\'s units. Real STPIS would count ' +
+      'none of this desk\'s shedding; its real case is faults on a network\'s own feeders, the storm feeders that come with ' +
+      'slice 2c.',
+    params: ['SUSTAINED_INTERRUPTION_S'],
   },
 ];
 

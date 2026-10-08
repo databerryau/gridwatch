@@ -26,4 +26,5 @@ export const ANCHORS = Object.freeze([
   {game: 'btn-mute', rows: ['Hum reference tone']},
   {game: 'wheel-hydro', rows: ['Daily hydro allocation', 'Hydro spins free.']},
   {game: 'clock', rows: ['Every daily is a late-summer day, until Y-9 ships']},
+  {game: 'chip-allin', rows: ['The score divides par\'s ALL-IN by yours']}, // Q-48
 ].map(a => Object.freeze({game: a.game, rows: Object.freeze(a.rows)})));

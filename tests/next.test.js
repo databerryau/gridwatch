@@ -27,6 +27,7 @@ import {LINE_MAX_CHARS} from '../app/objective.js';
 import {REDISPATCH_AFTER as FOLLOWER_REDISPATCH_AFTER} from './lib/follow.js';
 import {TEXT} from '../content/text.js';
 import * as alarmPanel from '../app/alarmpanel.js';
+import * as endCard from '../app/endcard.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const TPS = V.TICKS_PER_S;
@@ -156,7 +157,7 @@ function boot(query = '?seed=7&perf', over = {}) {
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
   // (Q-44: the page loads the texts and the alarm panel on demand; here they are passed up front)
   const h = bootGame(doc, Object.assign({createDesk: mods.createDesk, createMap: mods.createMap, createLiveStack: mods.createLiveStack,
-    system, search: query, storage: null, audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel}, over));
+    system, search: query, storage: null, audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard}, over));
   restore();
   const frames = (n, dtS = 1 / 60) => { for (let i = 0; i < n; i++) { t += dtS * 1000; h.frame(dtS); } };
   const key = (k, extra) => doc.dispatch('keydown', Object.assign({key: k}, extra));
@@ -563,7 +564,7 @@ test('F-6 / C-3 via the shell: the day ends with the end card; its replay log re
   frames(2);
   assert.equal($('end-card').hidden, false);
   assert.match($('end-card').textContent, /Day over|went black/);
-  assert.match($('end-card').textContent, /LIGHTS ON .*COST .*CO₂/s);
+  assert.match($('end-card').textContent, /SUPPLY.*OUTAGES.*CARBON.*ALL-IN/s);
   assert.match($('rate-text').textContent, /DAY OVER/);
   $('btn-save-log').click();
   $('btn-again').click();

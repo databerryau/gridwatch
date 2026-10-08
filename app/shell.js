@@ -22,14 +22,15 @@
 // (createLive / liveFrame below); the ?perf budget marks; ?debug -> globalThis.gridwatch.
 // desk/README.md §30: texts and the alarm panel on demand (Q-44, Q-46), "?" and Esc (Q-47), par (Q-48).
 
-import {SIM_VERSION, V} from '../sim/params.js';
+import {V} from '../sim/params.js';
 import * as G from './game.js';
+import {allIn, grade} from './score.js';
 import {startRaf} from './loop.js';
 import {createKeys, bindKeys, poll as pollKeys, typing} from './keys.js';
 import {createPerf, perfFrame, renderPerf} from './perf.js';
 import {createAudio} from '../audio/audio.js';
 import {ANCHORS} from '../content/anchors.js';
-import {badgeText, lightsText, centsText, co2Text, clockText} from '../render/format.js';
+import {badgeText, lightsText, centsText, co2Text, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
 import {BEATS} from './watch.js';
 import {modeOf} from './director.js';
 
@@ -96,6 +97,11 @@ export function dayText(day) {
   if (day.temp === 'MILD') return 'Today: a mild ' + when + '. Rooftop solar will cut the demand your plant must meet around midday; the evening still climbs.' + lean;
   return 'Today: a hot ' + when + '. A heatwave warning, if one comes, comes mid-morning.' + lean;
 }
+
+/** The briefing's goals (Q-48, §30.7): the ALL-IN score's three parts, their prices from the params, and par. */
+export const GOALS_TEXT = 'Keep the lights on, cheaply and cleanly. Your day is scored as one total: the cost of supply, plus ' + VCR_TEXT +
+  ' for each MWh the city goes without (the AER\'s value of customer reliability), plus ' + VER_TEXT + ' a tonne of CO₂ (the interim ' +
+  'value of emissions reduction). Par, GRIDWATCH\'s own autopilot on this day, scores 1000; a smaller total scores more.';
 
 // ------------------------------------------------------------------ the live region (K-23, §13.3)
 
@@ -176,11 +182,11 @@ const SET_CHECKS = {reducedMotion: 'set-rm', reducedEffects: 'set-fxlow', crt: '
  * @param {{createDesk?:function, createLiveStack?:function, createMap?:function, system?:object, planview?:object,
  *   search?:string, storage?:object|null, audioWin?:object, raf?:boolean, now?:function():number, date?:Date,
  *   matchMedia?:function(string):{matches:boolean}|null, text?:object|function, alarmPanel?:object|function,
- *   par?:boolean|object}} deps
+ *   endCard?:object|function, par?:boolean|object}} deps
  *   raf: false to skip startRaf (tests call handle.frame(dtS) themselves). matchMedia: the
  *   system's prefers-reduced-motion is read through it (default: globalThis.matchMedia when
  *   present; null: no system preference).
- *   text, alarmPanel (Q-44): the module (tests), a loader of it, or absent: imported on first need.
+ *   text, alarmPanel, endCard (Q-44, §30.9): the module (tests), a loader of it, or absent: imported on first need.
  * @returns {object} handle {game, actions, frame(dtS), vm(), audio, mods, keys, perf, live, loadText(), closeTop(), unbind()}
  */
 export function bootGame(doc, deps) {
@@ -319,8 +325,9 @@ export function bootGame(doc, deps) {
     const b = $('briefing-card');
     if (!b) return;
     b.hidden = game.phase !== 'briefing';
-    const day = $('briefing-day');
+    const day = $('briefing-day'), goals = $('briefing-goals');
     if (day) day.textContent = dayText(game.state.day);
+    if (goals) goals.textContent = GOALS_TEXT;
     const w = $('briefing-watch');
     if (w) {
       const news = game.state.news.map(n => n.text);
@@ -524,6 +531,26 @@ export function bootGame(doc, deps) {
     setText('btn-pause', m.mode === 'PAUSE' || m.mode === 'HIDDEN' || m.mode === 'ALARMS' ? 'PLAY' : 'PAUSE');
     const bp = $('btn-pause');
     if (bp) bp.disabled = v.phase !== 'play' || v.obs.over;
+    drawAllIn(v);
+  }
+
+  // Q-48 (§30.7): SCORE against par at the same grid time (once graded, the end card's), 'SCORE …' until par
+  // gets there; with no par to compare (off, black, no score), ALL-IN in cents per kWh asked for.
+  let allInTip = '';
+  function drawAllIn(v) {
+    const chip = $('chip-allin');
+    if (!chip) return;
+    chip.hidden = v.phase !== 'play';
+    if (chip.hidden) return;
+    const par = game.par, hh = game.households, you = allIn(v.obs.score, hh), g0 = v.end && v.end.grade;
+    const off = !par || (par.done && (par.black || !par.score)), at = off ? null : par.at(v.obs.s), p = at && allIn(at, hh);
+    const g = g0 || grade(you, p, false), c = allInCents(you);
+    setText('chip-allin-k', off && !g0 ? 'ALL-IN' : 'SCORE');
+    setText('chip-allin-v', off && !g0 ? c + 'c' : g ? String(g.points) : '…');
+    const tip = 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +
+      ' min. The day\'s cost to the community per kWh the city asked for: supply + MWh dark × ' + VCR_TEXT + ' (VCR) + CO₂ × ' + VER_TEXT +
+      ' (VER). Not a price or a bill.';
+    if (tip !== allInTip) { allInTip = tip; chip.title = tip; chip.setAttribute('aria-label', tip); }
   }
 
   function drawWatch(v) {
@@ -562,55 +589,20 @@ export function bootGame(doc, deps) {
     });
   }
 
-  let endShown = false;
+  // Q-48 (§30.9): the end card, on demand (app/endcard.js), mounted into #end-card when the day ends (hidden while it loads).
+  let endCard = null, endState = '';
+  const endDeps = {par: () => game.par, households: () => game.households, log: () => G.gameLog(game), toggleHelp, toast: showToast,
+    again: () => { G.resetDay(game); const c = $('end-card'); if (c) c.hidden = true; briefingText(); }};
   function drawEnd(v) {
     const card = $('end-card');
     if (!card) return;
-    if (!v.end) { card.hidden = true; endShown = false; return; }
-    if (endShown) return;
-    endShown = true;
-    card.hidden = false;
-    card.replaceChildren();
-    const h = doc.createElement('h2');
-    h.textContent = v.end.black ? 'The grid went black.' : 'Day over: 04:00.';
-    card.appendChild(h);
-    const sc = v.end.score;
-    for (const line of ['LIGHTS ON  ' + lightsText(sc) + ' · ' + sc.lightsMWh.toFixed(1) + ' MWh dark',
-      'COST       ' + centsText(sc) + ' c/kWh', 'CO₂        ' + co2Text(sc) + ' t/MWh',
-      'Seed ' + v.end.seed + ' · ' + v.end.v + ' · ' + v.end.inputs + ' inputs · hash 0x' + (v.end.hash >>> 0).toString(16).padStart(8, '0')]) {
-      const p = doc.createElement('p');
-      p.className = 'score';
-      p.textContent = line;
-      card.appendChild(p);
+    if (v.end && !endState) {
+      endState = 'loading';
+      lazy(o.endCard, () => import('./endcard.js'), m => { card.replaceChildren(); endCard = m.createEndCard(doc, card, actions, endDeps); },
+        e => { endState = 'failed'; card.textContent = 'The end card could not be loaded: reload the page to play this day again.'; err('end card', e); });
     }
-    const row = doc.createElement('p');
-    const save = doc.createElement('button');
-    save.id = 'btn-save-log';
-    save.textContent = 'DOWNLOAD REPLAY LOG';
-    save.addEventListener('click', () => download('gridwatch-' + SIM_VERSION + '-seed-' + game.seed + '.json',
-      JSON.stringify(G.gameLog(game), null, 1)));
-    const again = doc.createElement('button');
-    again.id = 'btn-again';
-    again.textContent = 'PLAY THIS DAY AGAIN';
-    again.addEventListener('click', () => { G.resetDay(game); endShown = false; card.hidden = true; briefingText(); });
-    row.appendChild(save);
-    row.appendChild(doc.createTextNode(' '));
-    row.appendChild(again);
-    card.appendChild(row);
-  }
-
-  function download(name, text) {
-    try {
-      const a = doc.createElement('a');
-      a.href = URL.createObjectURL(new Blob([text], {type: 'application/json'}));
-      a.download = name;
-      doc.body.appendChild(a);
-      a.click();
-      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 0);
-      showToast('Saved to your downloads: ' + name, 'info');
-    } catch (e) {
-      showToast('Download failed: ' + (e && e.message ? e.message : e));
-    }
+    if (v.end && endCard) { try { endCard.update(v); } catch (e) { err('end card', e); } }
+    card.hidden = !v.end || (!endCard && endState !== 'failed');
   }
 
   function placeStack(v) {

@@ -86,6 +86,10 @@ export const centsText = score => (score.servedMWh > 0 && Number.isFinite(score.
 /** CO₂ intensity in t/MWh generated ('0.61'), '-' before anything is generated. */
 export const co2Text = score => (score.co2tPerMWh > 0 && Number.isFinite(score.co2tPerMWh) ? score.co2tPerMWh.toFixed(2) : '-');
 
+/** Q-48 (§30.7): the ALL-IN score's prices, from the params ('$' and a thousands comma), and its c/kWh asked for. */
+export const VCR_TEXT = '$' + mw(V.VCR), VER_TEXT = '$' + mw(V.VER);
+export const allInCents = a => (a && a.askedMWh > 0 && Number.isFinite(a.cents) ? a.cents.toFixed(1) : '-');
+
 const MODE_LABEL = {OVER: 'DAY OVER', HIDDEN: 'PAUSE', ALARMS: 'HELD', PAUSE: 'PAUSE', WATCH: 'WATCH', 'RESPOND-CARD': 'HELD', FOCUS: 'FOCUS',
   RESPOND: 'RESPOND', FAST: 'FAST', CRUISE: 'CRUISE', DEBUG: 'DEBUG'};
 
