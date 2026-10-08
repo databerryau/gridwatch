@@ -69,7 +69,7 @@ test('P-6: hydro water value is $130 at full storage and rises as storage falls'
   assert.ok(market.waterValue(0.5) > 130 && market.waterValue(0.1) > market.waterValue(0.5));
 });
 
-test('S-1 / H-12: unserved MWh is exactly the integral of shed MW, and never priced in the scorecard', () => {
+test('S-1 / H-12: unserved MWh is exactly the integral of shed MW, and never priced in CUSTOMER COST (the ALL-IN score prices it, Q-48)', () => {
   const a = opening(2), b = clone(a);
   for (const s of [a, b]) { s.tick = V.TICKS_PER_S; s.acc.ticks = V.TICKS_PER_S; s.acc.fSumHz = 50 * V.TICKS_PER_S; }
   b.acc.unservedMWs = 360 * 1; // 360 MW for one second (Phase 2a, C-8: the dark customers' underlying load)

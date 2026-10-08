@@ -878,7 +878,7 @@ demand    += underlyingMW, rooftopMW, litMW, unservedMW       (after tempC)
              // so nowMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW) holds in obs);
              // litMW = fleet.litDemandMW(state); unservedMW = G * shedFrac
 wind      += autoMW        solar += autoMW                    (last)
-score     += spillMWh                                         (last of SCORE_KEYS)
+score     += spillMWh                                         (after starts; §30.7 adds saidiMin, saifi, maifi after it)
 districts[] += reconnectS                                     (last; the number, passed through)
 contingency.pre, contingency.caught += inverterMW             (last)
 forecast, dayAhead += underlyingP50, rooftopMW                (after exportLimitMW; arrays of length n)

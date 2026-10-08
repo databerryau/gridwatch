@@ -3,8 +3,8 @@
 
 import {V} from '../sim/params.js';
 
-/** [letter, min points], best first. Provisional: W4 calibrates the values only. */
-export const LETTERS = Object.freeze([['A', 960], ['B', 670], ['C', 340], ['D', -Infinity]].map(l => Object.freeze(l)));
+/** [letter, min points], best first. Calibrated (§30.7; tools/par.js --allin). */
+export const LETTERS = Object.freeze([['A', 962], ['B', 684], ['C', 351], ['D', -Infinity]].map(l => Object.freeze(l)));
 
 /** A day's ALL-IN (dollars, MWh, tonnes) from obs.score or a par row; households: the scenario's. */
 export function allIn(sc, households) {
