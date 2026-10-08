@@ -81,17 +81,17 @@ test('K-17: header 32 px, desk max(300, half the rest), map the rest; the CSS sa
   assert.match(NEXT, /@media \(min-width: 1600px\) \{ :root \{ --hdr: 40px; \} \}/);
   assert.match(NEXT, /min-width: 1280px/);
   // L-4 (C18): the expanded Live Stack is sized by the variables render/livestack.js reads, set on its
-  // parent #stack-overlay, so it ends above the objective line's two rows (41 px) and the lever bank
-  // (checked in the browser at 1280x768: the stack 40-350, the line from 359, the levers from 429)
+  // parent #stack-overlay, so it ends above the plan bar (58 px, Q-45) and the lever bank
+  // (checked in the browser at 1280x768 before Q-45: the stack 40-350, the line from 359, the levers from 429)
   const rule = /#stack-overlay \{([^}]*)\}/.exec(NEXT)[1];
   assert.match(rule, /--stack-expanded-top: calc\(var\(--hdr\) \+ 8px\);/);
-  assert.match(rule, /--stack-expanded-h: min\(420px, calc\(100vh - var\(--desk-h\) - var\(--hdr\) - 58px\)\);/);
+  assert.match(rule, /--stack-expanded-h: min\(420px, calc\(100vh - var\(--desk-h\) - var\(--hdr\) - 75px\)\);/);
   assert.match(rule, /top: var\(--stack-expanded-top\);[^]*height: var\(--stack-expanded-h\);/);
   const LS = readFileSync(join(ROOT, 'render/livestack.js'), 'utf8');
   for (const v of ['--stack-expanded-top', '--stack-expanded-h']) assert.ok(LS.includes('var(' + v + ','), 'render/livestack.js reads ' + v);
   for (const [w, h] of [[1280, 768], [1440, 900], [1920, 1080]]) {
-    const L = layoutSizes(w, h), bottom = L.header + 8 + Math.min(420, h - L.desk - L.header - 58);
-    assert.ok(bottom <= h - L.desk - 41, w + 'x' + h + ': the stack ends at ' + bottom);
+    const L = layoutSizes(w, h), bottom = L.header + 8 + Math.min(420, h - L.desk - L.header - 75);
+    assert.ok(bottom <= h - L.desk - 58, w + 'x' + h + ': the stack ends at ' + bottom);
   }
 });
 

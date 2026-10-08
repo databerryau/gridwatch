@@ -180,7 +180,7 @@ test('every press answers: the quiet desk, header and help (clock held at 04:30)
   // the annunciator
   click(p, 'btn-ack', null, 'btn-ack');
   click(p, 'btn-ack', /^NOTE blue /m, 'btn-ack', 'ACK, nothing to acknowledge');
-  click(p, 'btn-silence', /^NOTE blue annunciator: Nothing sounding: SIL stops the horn, ACK marks alarms seen\.$/m, 'btn-silence');
+  click(p, 'btn-silence', /^NOTE blue annunciator: Nothing sounding: HORN OFF stops the horn, ACK marks alarms seen\.$/m, 'btn-silence');
   tap(p, 'A',/^NOTE blue annunciator: Nothing sounding/m, 'keys-misc', {shiftKey: true});
   click(p, 'tile-n1', /^NOTE blue /m, 'tiles');
   // the AGC/HAND key and the bay's tabs
