@@ -32,6 +32,8 @@ import * as W from './watch.js';
 // A namespace import: cuesOfRecord (Phase 1b, desk/README.md §13.2) is used when the audio
 // model has it; until then the 1a cueOfRecord.
 import * as AM from '../audio/model.js';
+import * as S from './score.js';
+import {createParRunner} from './par.js';
 
 const TPS = V.TICKS_PER_S;
 const EMPTY = Object.freeze([]);
@@ -58,6 +60,8 @@ export const REDISPATCH_AFTER = Object.freeze(['start', 'stop', 'abortStop', 'ba
 export const MAX_OFFERS = 3;
 /** Storage keys (C-8: every access is wrapped; the game plays with storage blocked). */
 export const SEEN_KEY = 'gridwatch:v4:seen', SETTINGS_KEY = 'gridwatch:v4:settings';
+/** Q-46: a tile pressed is W's pick this long (its note's life, ms). */
+export const ALARMS_PICK_MS = 6000;
 
 // ------------------------------------------------------------------ storage (C-8)
 
@@ -159,6 +163,7 @@ export function scenarioForSeed(seed) {
  *   (scripted players and tests; it may call sendInput); reducedMotion: the system's
  *   prefers-reduced-motion (the shell passes a function reading matchMedia), used while the
  *   player has made no choice of their own.
+ *   par (Q-48): false (default), true (app/par.js), a runner, or a finished one's {score, series?, black?, at?} (tests).
  */
 export function createGame(o) {
   const scenarioOf = typeof o.scenario === 'function' ? o.scenario : null;
@@ -181,7 +186,8 @@ export function createGame(o) {
     rec: null, alarms: null, tray: null, watchMem: null,
     phase: 'briefing', agc: true,
     ui: {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null, trayOpen: false,
-      drawer: false, settingsOpen: false, consider: null, armed: null},
+      drawer: false, settingsOpen: false, consider: null, armed: null,
+      alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
     seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof},
@@ -189,10 +195,20 @@ export function createGame(o) {
     previewCache: new Map(), previewS: -1, restoreCache: new Map(), restoreS: -1,
     hist: null, histView: null, histViewS: -1,
     hashes: [], lastFrameMs: -1, end: null,
+    par: null, parOpt: o.par || false, parKey: '', households: 0, // Q-48: par's runner, for the day parKey names
   };
   game.cueCtx = {suburbOf: id => suburbOf(game, id)};
   resetDay(game, game.seed);
   return game;
+}
+
+// Q-48: par, once per seed and scenario (PLAY THIS DAY AGAIN keeps it).
+function parFor(game) {
+  const p = game.parOpt, key = game.seed + '|' + game.state.scenarioId;
+  if (!p || (game.par && game.parKey === key)) { if (!p) game.par = null; return; }
+  game.parKey = key;
+  game.par = p === true ? createParRunner(game.seed, game.scenario, {storage: {read: k => readJson(game.storage, k), write: (k, v) => writeJson(game.storage, k, v)}})
+    : p.step ? p : Object.assign({step: () => true, done: true, score: null, series: [], at: () => null, progress: 1, black: false}, p);
 }
 
 /** In-page reset (C-3): a new day (the same seed by default) on the same game object. */
@@ -219,13 +235,15 @@ export function resetDay(game, seed) {
   game.phase = 'briefing';
   game.agc = true;
   Object.assign(game.ui, {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null,
-    trayOpen: false, consider: null, armed: null});
+    trayOpen: false, consider: null, armed: null, alarmsOpen: false, alarmsSel: null, alarmsPick: null});
   game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = [];
   game.offers = []; game.offered = {}; game.offersToday = 0;
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
   game.hist = createHist();
   game.histView = null; game.histViewS = -1;
   game.hashes = []; game.end = null; game.lastFrameMs = -1;
+  game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
+  parFor(game);
   return game;
 }
 
@@ -399,6 +417,7 @@ export function takeDesk(game, o) {
   runTo(game, V.PLAYER_START_TICK);
   game.phase = 'play';
   game.director.paused = game.startPaused;
+  game.director.held = game.ui.alarmsOpen; // Q-46: an alarm panel opened in the briefing holds the clock now
   return true;
 }
 
@@ -473,14 +492,31 @@ export function redispatch(game) {
 
 // ------------------------------------------------------------------ presentation (actions.ui)
 
+const isTile = id => A.TILES.some(t => t.id === id);
+
 /**
- * A presentation command (never a sim input). Returns '' (done) or why nothing happened.
+ * A presentation command (never a sim input). Returns '' (done) or why nothing happened. The
+ * alarm panel's: alarms, alarmsSel, alarmsPick (a tile pressed while closed), alarmsGoto (Q-46, §30.3.3).
  * @param {{do:string}} cmd
  */
 export function ui(game, cmd) {
-  const d = game.director, state = game.state, u = game.ui;
+  const d = game.director, state = game.state, u = game.ui, play = game.phase === 'play' && !state.over;
+  const close = () => { u.alarmsOpen = false; u.alarmsSel = null; d.held = false; };
   switch (cmd && cmd.do) {
-    case 'focus': u.focus = cmd.target || null; return '';
+    case 'focus': if (u.alarmsOpen) return ui(game, {do: 'alarmsGoto', target: cmd.target}); u.focus = cmd.target || null; return '';
+    case 'alarms':
+      if (!(cmd.on === undefined ? !u.alarmsOpen : cmd.on)) { close(); return ''; }
+      u.alarmsOpen = true;
+      u.alarmsSel = isTile(cmd.id) ? cmd.id : A.defaultSel(A.alarmsView(game.alarms), u.alarmsPick, game.lastFrameMs);
+      if (play) { d.held = true; D.endFast(d); }
+      return '';
+    case 'alarmsSel': if (!isTile(cmd.id)) return 'no such tile'; if (u.alarmsOpen) u.alarmsSel = cmd.id; return '';
+    case 'alarmsPick': if (!isTile(cmd.id)) return 'no such tile'; u.alarmsPick = {id: cmd.id, untilMs: game.lastFrameMs + ALARMS_PICK_MS}; return '';
+    case 'alarmsGoto':
+      close();
+      if (play && !D.respondCardOpen(d, state)) d.paused = true; // (a waiting RESPOND card holds the clock itself)
+      if (cmd.target) u.focus = cmd.target;
+      return '';
     case 'hover': u.hover = cmd.target || null; u.hoverGlow = Array.isArray(cmd.glow) ? cmd.glow.slice() : []; return '';
     case 'ack': A.ackAll(game.alarms); return '';
     case 'silence': A.silence(game.alarms); return '';
@@ -493,7 +529,8 @@ export function ui(game, cmd) {
       game.offered[cmd.unit].taken = true; return '';
     case 'dismissRespond': return D.dismissCard(d, state) ? '' : 'no card';
     case 'pause':
-      if (state.over || game.phase !== 'play') return 'not now';
+      if (u.alarmsOpen) { close(); if (play) d.paused = false; return play ? '' : 'not now'; } // Q-46: closes it, then runs
+      if (!play) return 'not now';
       D.togglePause(d); return '';
     case 'fast': return D.setFast(d, state, !!cmd.on) || !cmd.on ? '' : 'not now';
     case 'skipWatch': return D.skipWatch(d, state) ? '' : 'nothing to skip';
@@ -619,6 +656,11 @@ export function holdLine(shown, next, nowMs, shownMs, fresh) {
 // A new ask to act: at FAST it ends FAST, as an alarm does, and shows at once.
 export const newAsk = (shown, next) => !!next && !!next.action && LEVELS.indexOf(next.level) > 1 && JSON.stringify(next.action) !== JSON.stringify(shown && shown.action);
 
+/** The annunciator's context (§30.3.5; buildVm and tests/lib/play.js): no real time while the clock is held. */
+export function alarmCtx(game, nowMs, realDtS) {
+  return {nowMs, realDtS: D.rateOf(game.director, game.state) > 0 ? realDtS : 0, stationOf: stationOfUnit, hold: !!game.ui.alarmsOpen};
+}
+
 /**
  * Build the view model after a frame's ticks (once per frame). Also runs the annunciator,
  * the tray's aging, the offers and the respond card, and hands over the frame's audio cues.
@@ -635,7 +677,7 @@ export function buildVm(game, f) {
 
   // Annunciator (not during the briefing: the desk opens at 04:30).
   if (game.phase === 'play') {
-    const r = A.updateAlarms(game.alarms, A.alarmInput(obs), {nowMs, realDtS, stationOf: stationOfUnit});
+    const r = A.updateAlarms(game.alarms, A.alarmInput(obs), alarmCtx(game, nowMs, realDtS));
     for (const c of r.cues) pushCue(game, c);
     if (r.newAlarm) D.endFast(d);
   }
@@ -722,7 +764,10 @@ export function buildVm(game, f) {
     if (tr) watch = W.watchView(game.watchMem, tr, c, state.tick, {rate: mode.rate, version: mode.watchVersion, guardMW: obs.battery.guardMW});
   }
   if (state.over && !game.end) {
-    game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: state.log.length, seed: game.seed, v: SIM_VERSION};
+    // Q-48: par's ALL-IN and the grade are filled in place when par arrives (W4); black is an F at once
+    const allIn = S.allIn(obs.score, game.households);
+    game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: state.log.length, seed: game.seed, v: SIM_VERSION,
+      allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null};
   }
   // spoolUp: no sim record marks a machine starting (booked starts included), so it is read
   // off the unit's mode between two frames (audio/model.js cueOfModeChange).
@@ -754,6 +799,7 @@ export function buildVm(game, f) {
     consider: game.consider,
     // the guard with its cover up, or null; levers held by hand
     armed: game.ui.armed, held: game.commit === 'player' && heldByHand(game),
+    alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
   };
 }
 

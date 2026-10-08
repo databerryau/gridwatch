@@ -31,6 +31,7 @@
 // | Enter                   dismiss the respond card
 // | ?                       the abstractions drawer; Shift+M mute
 // | ,                       the SETTINGS popover (B-7)
+// | W                       EXPLAIN: the alarm panel opens (the clock holds) or closes (Q-46)
 
 import {V} from '../sim/params.js';
 
@@ -96,6 +97,7 @@ export function keyDown(k, ev, vm, nowMs) {
   if (key === 'Enter') return vm && vm.respond ? {ui: {do: 'dismissRespond'}} : null;
   if (key === '?') return {ui: {do: 'drawer'}};
   if (key === ',') return {ui: {do: 'settings'}};
+  if (lower === 'w') return ev.repeat ? null : {ui: {do: 'alarms'}};
   if (key === 'M' && ev.shiftKey) return {ui: {do: 'mute'}};
   if (key >= '1' && key <= '8' && key.length === 1) return {ui: {do: 'focus', target: FOCUS_KEYS[key.charCodeAt(0) - 49]}};
   if (lower === 'a') return ev.shiftKey ? {ui: {do: 'silence'}} : {ui: {do: 'ack'}};

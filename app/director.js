@@ -1,7 +1,7 @@
 // app/director.js: chooses the playback rate (spec F-5, K-15, K-16, D-6). The sim never does.
 //
-// Modes (desk/README.md §2), precedence PAUSE > WATCH > RESPOND-CARD > FOCUS > RESPOND > FAST >
-// CRUISE:
+// Modes (desk/README.md §2), precedence OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD >
+// FOCUS > RESPOND > FAST > CRUISE:
 //   CRUISE        a flat 120x (the D-2 profile arrives in Phase 2)
 //   FAST          3 x CRUISE while F is held; it ends on F up, a new P1/P2 alarm, a watch, the
 //                 respond card, RESPOND or FOCUS (the game calls endFast / the frame clears it)
@@ -15,6 +15,7 @@
 //   FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
 //                 a restore input (the breaker being closed, K-13)
 //   PAUSE         Space; a hidden tab (HIDDEN); the day's end (OVER)
+//   ALARMS        rate 0 while the alarm panel holds the clock (d.held, Q-46); d.paused is untouched
 //   DEBUG         the bench's speed selector (bench.html only): any speed other than CRUISE
 //
 // A director made with {game: true} runs every mode above; without it (the bench) it is the
@@ -87,7 +88,8 @@ export function createDirector(opts) {
     speed: o.speed === undefined ? FLAT_RATE : o.speed,
     paused: o.paused === undefined ? true : o.paused,
     hidden: false,
-    skipN: -1,                 // contingency n whose watch is being skipped
+    held: false,               // the alarm panel holds the clock (ALARMS)
+    skipN: -1,                // contingency n whose watch is being skipped
     game: !!o.game,            // FAST / RESPOND-CARD / RESPOND / FOCUS and the compact watch
     fast: false, fastN: -1,    // F held; the contingency count when it was pressed (a new one ends it)
     seen: Object.assign({watch: false, ufls: false, rocof: false}, o.seen || {}),
@@ -150,7 +152,7 @@ function fastNow(d, state) {
 
 /** The rate right now (grid seconds per real second). Cheap: called between every two ticks. */
 export function rateOf(d, state) {
-  if (state.over || d.paused || d.hidden) return 0;
+  if (state.over || d.paused || d.hidden || d.held) return 0;
   const c = watching(state);
   if (c !== null) {
     if (c.n !== d.skipN) return watchRate(state.tick - c.startTick, scheduleFor(d, c));
@@ -172,7 +174,7 @@ export function rateOf(d, state) {
  * reads as "charged correctly" (it re-charges only for a positive rate that differs).
  */
 export function rateOfLastTick(d, state) {
-  if (d.paused || d.hidden) return 0;
+  if (d.paused || d.hidden || d.held) return 0;
   if (state.contIdx >= 0) {
     const c = state.conts[state.contIdx], t = state.tick - 1;
     if (t >= c.startTick && t < c.watchEndTick && c.n !== d.skipN) return watchRate(t - c.startTick, scheduleFor(d, c));
@@ -182,7 +184,7 @@ export function rateOfLastTick(d, state) {
 
 /**
  * What the rate badge shows (F-5: the rate is always visible).
- * @returns {{mode:'OVER'|'HIDDEN'|'PAUSE'|'WATCH'|'RESPOND-CARD'|'FOCUS'|'RESPOND'|'FAST'|'CRUISE'|'DEBUG',
+ * @returns {{mode:'OVER'|'HIDDEN'|'ALARMS'|'PAUSE'|'WATCH'|'RESPOND-CARD'|'FOCUS'|'RESPOND'|'FAST'|'CRUISE'|'DEBUG',
  *   rate:number, watchS:number, locked:boolean, watchVersion:'full'|'compact'|null}}
  *   watchS: grid seconds since the contingency (-1 outside a watch); locked: desk locked (K-15);
  *   watchVersion: the version of the watch in progress (null outside one or while skipped).
@@ -198,6 +200,7 @@ export function modeOf(d, state) {
   const r = mode => ({mode, rate, watchS, locked, watchVersion, canSkip});
   if (state.over) return r('OVER');
   if (d.hidden) return r('HIDDEN');
+  if (d.held) return r('ALARMS');
   if (d.paused) return r('PAUSE');
   if (c && c.n !== d.skipN) return r('WATCH');
   if (!d.game) return r(d.speed === FLAT_RATE ? 'CRUISE' : 'DEBUG');
@@ -210,12 +213,12 @@ export function modeOf(d, state) {
 }
 
 /**
- * Once per frame (game): FAST ends when a watch, the card, RESPOND or FOCUS is on; a watch
+ * Once per frame (game): FAST ends when a watch, the card, RESPOND, FOCUS or ALARMS is on; a watch
  * that has ended marks what it showed as seen. Returns true when `d.seen` changed (save it).
  */
 export function directorFrame(d, state) {
   const m = modeOf(d, state).mode;
-  if (m === 'WATCH' || m === 'RESPOND-CARD' || m === 'RESPOND' || m === 'FOCUS') d.fast = false;
+  if (m === 'WATCH' || m === 'RESPOND-CARD' || m === 'RESPOND' || m === 'FOCUS' || m === 'ALARMS') d.fast = false;
   let changed = false;
   if (state.contIdx >= 0) {
     const c = state.conts[state.contIdx];
@@ -242,12 +245,12 @@ export function setSpeed(d, rate) {
   d.speed = rate;
 }
 
-/** F held (on) or released (off). Pressing it during a watch, the card or FOCUS does nothing. */
+/** F held (on) or released (off). Pressing it during a watch, the card, FOCUS or ALARMS does nothing. */
 export function setFast(d, state, on) {
   if (!d.game) return false;
   if (!on) { d.fast = false; return false; }
   const m = modeOf(d, state).mode;
-  if (m === 'WATCH' || m === 'RESPOND-CARD' || m === 'RESPOND' || m === 'FOCUS') return false;
+  if (m === 'WATCH' || m === 'RESPOND-CARD' || m === 'RESPOND' || m === 'FOCUS' || m === 'ALARMS') return false;
   d.fast = true;
   d.fastN = contCount(state);
   return true;
