@@ -178,7 +178,10 @@ export function roughSyncUnit(vm, prev) {
 export function createDesk(doc, root, actions, opts = {}) {
   let vm = null, lastFocus = null, frameNow = 0, previewKey = '', preview = null, prevScope = null, lastTick = -1;
   const nowFn = typeof opts.now === 'function' ? opts.now : () => frameNow;
-  const notes = new Map();   // host element -> {span, until}
+  const notes = new Map();   // host element -> {span, until, q}, the newest help last
+  // Q-47: the "?" or tile q of a note says that it shows; a "?" reads ✕ meanwhile
+  const opened = (q, on) => { if (q) { q.setAttribute('aria-expanded', on); if (q.classList.contains('dk-q')) { q.textContent = on ? '✕' : '?'; q.classList.toggle('on', on); } } };
+  const closeNote = n => { n.span.hidden = true; opened(n.q, false); n.q = null; };
   const live = el(doc, 'div', 'dk-live');
   live.setAttribute('aria-live', 'polite');
   live.setAttribute('role', 'status');
@@ -207,14 +210,19 @@ export function createDesk(doc, root, actions, opts = {}) {
       ctx.cue(c, pan);
     },
     live(text) { live.textContent = text; },
-    /** kind 'info': help, not a refusal (K-22) */
-    note(host, text, ms = NOTE_MS, kind) {
+    /** kind 'info': help, not a refusal (K-22). q (Q-47): its "?" or tile: pressed again, it hides the note. */
+    note(host, text, ms = NOTE_MS, kind, q) {
       let n = notes.get(host);
-      if (!n) { n = {span: el(doc, 'span', 'dk-note'), until: 0}; host.appendChild(n.span); notes.set(host, n); }
+      if (!n) { n = {span: el(doc, 'span', 'dk-note'), until: 0, q: null}; host.appendChild(n.span); notes.set(host, n); }
+      if (q && n.q === q && !n.span.hidden) return closeNote(n);
+      if (n.q !== q) opened(n.q, false);
+      n.q = q || null;
       n.span.className = kind === 'info' ? 'dk-note info' : 'dk-note';
       n.span.textContent = text;
       n.span.hidden = false;
-      n.until = nowFn() + ms;
+      // a "?" note stays 0.3 s a word or more
+      n.until = nowFn() + (q && q.classList.contains('dk-q') ? Math.max(ms, 300 * text.split(' ').length) : ms);
+      if (q) { opened(q, true); notes.delete(host); notes.set(host, n); }
       live.textContent = text;
     },
     /** A sim input, unless the desk is locked; a refusal shows on `host`. Returns '' or the reason. */
@@ -316,7 +324,7 @@ export function createDesk(doc, root, actions, opts = {}) {
     lastTick = fin(v.obs.tick, 0);
     ctx.consider.tick();
     ctx.holds.tick();
-    for (const [host, n] of notes) if (nowFn() > n.until && !n.span.hidden) n.span.hidden = true;
+    for (const n of notes.values()) if ((nowFn() > n.until || n.span.hidden) && (n.q || !n.span.hidden)) closeNote(n);
     setCls(desk, 'dk-locked', locked());
     setCls(desk, 'dk-hand', v.obs.mode === 'HAND');
     // K-12: a rough close shakes that unit's lever (or the hydro wheel) for 0.6 s.
@@ -397,5 +405,13 @@ export function createDesk(doc, root, actions, opts = {}) {
     return false;
   }
 
-  return {el: desk, update, key, focus, slots: {stack}, ids: DESK_IDS};
+  /** Q-47: Esc hides the newest "?" or tile note: true, or false when none shows. */
+  function closeHelp() {
+    let top = null;
+    for (const n of notes.values()) if (n.q && !n.span.hidden) top = n;
+    if (top) closeNote(top);
+    return !!top;
+  }
+
+  return {el: desk, update, key, focus, closeHelp, slots: {stack}, ids: DESK_IDS};
 }

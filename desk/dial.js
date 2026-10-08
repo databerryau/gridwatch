@@ -88,7 +88,8 @@ export function createFreqDial(ctx, parent) {
   q.title = 'CHANGE is the rate of change of frequency (RoCoF), measured over the last 500 ms; 1 Hz/s is the limit after a ' +
     'credible trip. SPIN is the energy stored in spinning machines (inertia), in GW·s: more spin, slower falls.';
   q.setAttribute('aria-label', 'What CHANGE and SPIN mean');
-  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, q.title, 8000, 'info'); });
+  q.setAttribute('aria-expanded', 'false');
+  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, q.title, 8000, 'info', q); });
   read.append(big, sub, q);
   box.append(cv, read);
   parent.appendChild(box);
@@ -318,7 +319,8 @@ export function createImbalanceBar(ctx, parent) {
     'running units have no room left. Between trips, one column per grid minute, the newest on the right: ' +
     'red below the middle line is short, blue above it is surplus. After a trip: who caught the loss.';
   q.setAttribute('aria-label', 'What the balance bar means');
-  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, q.title, 8000, 'info'); });
+  q.setAttribute('aria-expanded', 'false');
+  q.addEventListener('click', () => { ctx.cue('button', PAN.gauge); ctx.note(box, q.title, 8000, 'info', q); });
   box.append(head, track, foot, q);
   parent.appendChild(box);
 

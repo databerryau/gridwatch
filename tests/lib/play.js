@@ -147,6 +147,7 @@ function controlOf(doc, e) {
   if (c === 'true' || (e.tagName === 'INPUT' && e.type === 'checkbox' && e.checked)) st.push('on');
   if (sel === 'true') st.push('selected');
   if (e.classList.contains('lifted')) st.push('ARMED');
+  if (e.getAttribute('aria-expanded') === 'true') st.push('open'); // Q-47: a help it opened shows (its close is no silent press)
   if (doc.activeElement === e) st.push('focus');
   let up = e.parent;
   while (up && up.tagName && !up.id) up = up.parent;
@@ -445,7 +446,7 @@ export function openGame(o = {}) {
   /**
    * What the player sees, one line per thing: CLOCK (and mode, chips), BRIEFING, ALARMS (the panel: its tile and what it means), LINE (the objective),
    * WATCH, CARD, END, TOAST (blue or RED), BALANCE, DIAL, N-1, NOTE (desk notes, blue or RED), TRAY (the cards), then CTRL lines:
-   * every visible control as id "label"=value [disabled,pressed,on,selected,ARMED,focus].
+   * every visible control as id "label"=value [disabled,pressed,on,selected,ARMED,open,focus].
    * opts.controls: false leaves the CTRL lines out; opts.aria: true adds the screen-reader live region.
    */
   function look(opts = {}) {

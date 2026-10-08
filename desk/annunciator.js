@@ -77,10 +77,10 @@ export function createAnnunciator(ctx, parent) {
     const n = box.querySelector('.dk-note'), v = ctx.vm(), help = TILE_HELP[t.id] || t.label;
     ctx.cue('button', PAN.panel);
     if (v && v.alarmsOpen) return ctx.ui({do: 'alarmsSel', id: t.id});
-    if (n && !n.hidden && n.textContent.startsWith(help)) { n.hidden = true; return ctx.ui({do: 'alarms', on: true, id: t.id}); }   // its note shows
+    if (n && !n.hidden && n.textContent.startsWith(help)) { ctx.note(box, n.textContent, 6000, 'info', b); n.hidden = true; return ctx.ui({do: 'alarms', on: true, id: t.id}); }   // its note shows: close it (Q-47), explain (Q-46)
     ctx.ui({do: 'alarmsPick', id: t.id});
     if (b.dataset.target) ctx.ui({do: 'focus', target: b.dataset.target});
-    ctx.note(box, help + ((b.dataset.state || 'normal') === 'normal' ? ' Not in alarm now.' : '') + AGAIN, 6000, 'info');   // help, not a refusal
+    ctx.note(box, help + ((b.dataset.state || 'normal') === 'normal' ? ' Not in alarm now.' : '') + AGAIN, 6000, 'info', b);   // help, not a refusal
   }
   let key = '', tiles = [];
   function build(list) {

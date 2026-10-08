@@ -52,6 +52,13 @@ const PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaAfF?,
 /** The CRT switch's title and answer while REDUCED EFFECTS is on (it is greyed). */
 export const CRT_OFF = 'CRT is off while REDUCED EFFECTS is on';
 
+/** Q-47: the popover beside its "?" (rect r): below if it fits, else on the roomier side; never over the "?". */
+export function popoverPlace(r, w, h, vw, vh) {
+  const below = vh - r.bottom, down = h <= below - 12 || below >= r.top;
+  return {left: Math.max(8, Math.min(r.left - 200, vw - w - 8)), top: down ? r.bottom + 4 : null, bottom: down ? null : vh - r.top + 4,
+    maxHeight: (down ? below : r.top) - 12};
+}
+
 // ------------------------------------------------------------------ the objective line's word (Q-18, C-10)
 
 // The level as a glyph and a word (K-22: never colour alone). By level; and by kind where the
@@ -291,6 +298,8 @@ export function bootGame(doc, deps) {
   on('annun-slot', 'pointerdown', ev => { if (!within('btn-explain', ev.target)) dismissCard(); }); // (§30.4; EXPLAIN: back on its close)
   on('btn-mute', 'click', () => { actions.ui({do: 'mute'}); });
   on('btn-help', 'click', () => actions.ui({do: 'drawer'}));
+  on('btn-drawer-close', 'click', () => actions.ui({do: 'drawer', on: false}));
+  on('btn-pop-close', 'click', () => closePopover());
   let briefAgc = true;
   const setBriefMode = agc => {
     briefAgc = agc;
@@ -337,10 +346,11 @@ export function bootGame(doc, deps) {
     return TEXT;
   }
 
-  // ---------------------------------------------------------------- "?" labels and the drawer (H-14)
+  // ---------------------------------------------------------------- "?" labels and the drawer (H-14, Q-47)
   const qButtons = new Map();
+  const shown = e => { for (let n = e; n !== doc.body; n = n.parentElement) if (!n || n.hidden) return false; return true; }; // in the page, not hidden
   function placeQs() {
-    const layer = $('q-layer');
+    const layer = $('q-layer'), hdr = $('hdr'), dr = $('drawer'), d = dr && !dr.hidden && dr.getBoundingClientRect();
     if (!layer) return;
     for (const {game: id, rows} of ANCHORS) {
       const el = $(id);
@@ -353,25 +363,25 @@ export function bootGame(doc, deps) {
         q.dataset.anchor = id;
         q.title = rows.join(' · ');
         q.setAttribute('aria-label', 'About: ' + rows.join('; '));
-        q.addEventListener('click', ev => { if (ev.stopPropagation) ev.stopPropagation(); toggleHelp(q, rows); });
+        q.setAttribute('aria-controls', 'popover');
+        q.setAttribute('aria-expanded', 'false');
+        q.addEventListener('click', () => toggleHelp(q, rows));
         qButtons.set(id, q);
-        // The header is the shell's own: its "?" sits inline right after the element. Desk,
+        // The header and the cards are the shell's own: their "?" sits inline right after the element. Desk,
         // stack and map elements get a floating badge on their top-right corner (their DOM is
         // their modules' own, so the shell never inserts into it).
-        const hdr = $('hdr');
-        if (hdr && hdr.contains(el) && el.parentElement) {
-          q.className = 'q inline';
-          const p = el.parentElement, next = p.children[Array.prototype.indexOf.call(p.children, el) + 1] || null;
-          p.insertBefore(q, next);
-          continue;
-        }
-        layer.appendChild(q);
+        if (hdr && hdr.contains(el) || el.closest('.card')) q.classList.add('inline'); else layer.appendChild(q);
       }
-      if (q.classList.contains('inline')) continue;
-      const r = el.getBoundingClientRect();
+      if (q.classList.contains('inline')) {
+        // shown with its element; back after it when that was rebuilt
+        if (!q.isConnected) { const p = el.parentElement; p.insertBefore(q, p.children[Array.prototype.indexOf.call(p.children, el) + 1] || null); }
+        q.hidden = !shown(el);
+        continue;
+      }
+      const r = el.getBoundingClientRect(), x = r.right - 26, y = r.top + 2;
       q.hidden = !(r.width > 0 && r.height > 0);
-      q.style.left = Math.round(r.right - 26) + 'px';
-      q.style.top = Math.round(r.top + 2) + 'px';
+      q.style.left = Math.round(d && x + 24 >= d.left && y <= d.bottom ? r.left + 2 : x) + 'px'; // top-left when top-right is under the drawer
+      q.style.top = Math.round(y) + 'px';
     }
   }
   function entryNodes(parent, e, headTag) {
@@ -387,33 +397,37 @@ export function bootGame(doc, deps) {
       parent.appendChild(p);
     }
   }
-  // Q-47 (§30.3.7): every "?" calls toggleHelp; only closePopover() hides #popover. (Today's behaviour: W2 fills them.)
+  // Q-47 (§30.3.7): every "?" calls toggleHelp; only closePopover() hides #popover.
   let popAnchor = null, popRows = null;
+  const expanded = (q, on) => { if (q) { q.setAttribute('aria-expanded', on); q.classList.toggle('on', on); } };
   function fillPopover() {
-    const pop = $('popover'), T = loadText();
-    pop.replaceChildren();
+    const pop = $('popover'), body = $('pop-body'), T = loadText(), de = doc.documentElement;
+    body.replaceChildren();
     for (const row of popRows) {
       const e = T && T.abstractions.find(x => x.row === row);
-      if (e) entryNodes(pop, e, 'h4'); else pop.appendChild(doc.createElement('h4')).textContent = row;
+      if (e) entryNodes(body, e, 'h4'); else body.appendChild(doc.createElement('h4')).textContent = row;
     }
+    pop.style.maxHeight = ''; // (its own height)
+    const p = popoverPlace(popAnchor.getBoundingClientRect(), pop.offsetWidth, pop.offsetHeight, de.clientWidth, de.clientHeight);
+    for (const k in p) pop.style[k] = p[k] === null ? 'auto' : p[k] + 'px';
   }
   function openPopover(anchorEl, rows) {
     const pop = $('popover');
     if (!pop) return;
-    popAnchor = anchorEl; popRows = rows;
-    fillPopover();
-    const r = anchorEl.getBoundingClientRect();
-    pop.style.left = Math.max(8, Math.round(r.left - 200)) + 'px';
-    pop.style.top = Math.round(r.bottom + 4) + 'px';
+    expanded(popAnchor, false);
+    expanded(popAnchor = anchorEl, true);
+    popRows = rows;
     pop.hidden = false;
+    fillPopover();
   }
   function closePopover() {
     const pop = $('popover');
     if (pop) pop.hidden = true;
+    expanded(popAnchor, false);
     popAnchor = null; popRows = null;
   }
   function toggleHelp(button, rows) {
-    openPopover(button, rows);
+    if (button === popAnchor) closePopover(); else openPopover(button, rows);
   }
   doc.addEventListener('click', ev => {
     const pop = $('popover');
@@ -422,20 +436,32 @@ export function bootGame(doc, deps) {
     const set = $('settings'), btn = $('btn-settings');
     if (game.ui.settingsOpen && set && !set.contains(ev.target) && !(btn && btn.contains(ev.target))) actions.ui({do: 'settings', on: false});
   });
-  let drawerShows = ''; // the textState it was built in (never frozen empty)
+  // Q-47: under 300 px tall, an index of closed <details>. Focus: CLOSE on open, back after.
+  let drawerShows = '', drawerFrom = null; // the textState and height it was built for (never frozen empty)
   function drawDrawer() {
-    const d = $('drawer');
+    const d = $('drawer'), body = $('drawer-body'), help = $('btn-help');
     if (!d) return;
-    d.hidden = !game.ui.drawer;
-    doc.body.classList.toggle('q-on', !d.hidden); // the "?" marks with it
-    if (d.hidden) return;
-    const T = loadText();
-    if (drawerShows === textState) return;
-    drawerShows = textState;
-    d.replaceChildren();
-    d.appendChild(doc.createElement('h2')).textContent = 'What GRIDWATCH simplifies, and why';
-    if (!T) d.appendChild(doc.createElement('p')).textContent = textState === 'failed' ? 'The texts could not be loaded: reload the page to try again.' : 'Loading…';
-    else for (const e of T.abstractions) entryNodes(d.appendChild(doc.createElement('article')), e, 'h4');
+    const was = !d.hidden, open = !!game.ui.drawer;
+    d.hidden = !open;
+    doc.body.classList.toggle('q-on', open); // the "?" marks with it
+    expanded(help, open);
+    if (!open) {
+      if (popAnchor && !popAnchor.classList.contains('inline')) closePopover(); // a floating badge's goes with it
+      if (was && d.contains(doc.activeElement)) (drawerFrom !== doc.body && shown(drawerFrom) ? drawerFrom : help).focus();
+      return;
+    }
+    const T = loadText(), short = d.clientHeight < 300;
+    if (drawerShows !== textState + short) {
+      drawerShows = textState + short;
+      body.replaceChildren();
+      if (!T) body.appendChild(doc.createElement('p')).textContent = textState === 'failed' ? 'The texts could not be loaded: reload the page to try again.' : 'Loading…';
+      else for (const e of T.abstractions) {
+        const det = body.appendChild(doc.createElement('article')).appendChild(doc.createElement('details'));
+        det.open = !short;
+        entryNodes(det, e, 'summary');
+      }
+    }
+    if (!was) { drawerFrom = doc.activeElement; focusEl('btn-drawer-close'); placeQs(); }
   }
 
   // Q-46: the alarm panel, mounted on its first open; panel.focus() once, on the frame it first shows.
@@ -721,7 +747,7 @@ export function bootGame(doc, deps) {
   function panelFirst(ev) {
     const t = ev.target, k = ev.key;
     if (!game.ui.alarmsOpen || mod(ev) || PANEL_KEEPS.test(k) || (k === 'M' && ev.shiftKey) || within('settings', t)) return;
-    if (!((inPanel(t) || k === 'Enter' && t.classList.contains('dk-tile')) && PANEL_OWN.test(k))) actions.ui({do: 'alarmsGoto', target: null}); // (§30.4: Enter on a tile selects it)
+    if (!((inPanel(t) || within('drawer', t) || k === 'Enter' && t.classList.contains('dk-tile')) && PANEL_OWN.test(k))) actions.ui({do: 'alarmsGoto', target: null}); // (§30.4: Enter on a tile selects it)
   }
   doc.addEventListener('keydown', escFirst, true);
   doc.addEventListener('keydown', panelFirst, true);
@@ -733,7 +759,7 @@ export function bootGame(doc, deps) {
     run(a);
   }, now, {
     // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
-    own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') || (game.ui.alarmsOpen && inPanel(ev.target) && PANEL_OWN.test(ev.key)),
+    own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') || ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
     first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
     chain: () => [mods.desk, mods.stack, mods.map],

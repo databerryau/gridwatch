@@ -51,7 +51,7 @@ test('Q-44: the texts load on the first help: badges titled from ANCHORS at once
   assert.equal($('popover').hidden, false);
   assert.equal($('popover').textContent, rows.join(''), 'the popover shows its row titles while the texts load');
   h.actions.ui({do: 'drawer'});
-  assert.equal($('drawer').textContent, 'What GRIDWATCH simplifies, and whyLoading…');
+  assert.equal($('drawer-body').textContent, 'Loading…');
   await tick();
   release();
   await tick();
