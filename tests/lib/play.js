@@ -443,7 +443,7 @@ export function openGame(o = {}) {
 
   // ---------------------------------------------------------------- reading
   /**
-   * What the player sees, one line per thing: CLOCK (and mode, chips), BRIEFING, ALARMS (the panel), LINE (the objective),
+   * What the player sees, one line per thing: CLOCK (and mode, chips), BRIEFING, ALARMS (the panel: its tile and what it means), LINE (the objective),
    * WATCH, CARD, END, TOAST (blue or RED), BALANCE, DIAL, N-1, NOTE (desk notes, blue or RED), TRAY (the cards), then CTRL lines:
    * every visible control as id "label"=value [disabled,pressed,on,selected,ARMED,focus].
    * opts.controls: false leaves the CTRL lines out; opts.aria: true adds the screen-reader live region.
@@ -457,10 +457,10 @@ export function openGame(o = {}) {
     L.push('CLOCK ' + ck + (obs && /^\d\d:\d\d$/.test(ck) ? ':' + pad(Math.floor(obs.s) % 60) : '') + ' | ' + tx('rate-text') +
       ' | ' + ['chip-lights', 'chip-cost', 'chip-co2'].map(id => tx(id)).join(' | ') + (allIn ? ' | ' + allIn : ''));
     if (!hid('briefing-card')) L.push('BRIEFING ' + tx('briefing-day') + ' ' + tx('briefing-watch'));
-    // Q-46: the alarm panel and its selection (W3 adds the explainer's first sentence)
+    // Q-46: the alarm panel, its selection and the first sentence of its explainer (#ap-means, as shown)
     if (!hid('alarm-panel')) {
-      const sel = vm && A.TILES.find(x => x.id === vm.alarmsSel);
-      L.push('ALARMS open: ' + (sel ? sel.label : vm && vm.alarmsSel ? vm.alarmsSel : '(none)'));
+      const sel = vm && A.TILES.find(x => x.id === vm.alarmsSel), first = /^.*?[.!?](?=\s|$)/.exec(tx('ap-means'));
+      L.push('ALARMS open: ' + (sel ? sel.label : vm && vm.alarmsSel ? vm.alarmsSel : '(none)') + (first ? ' · ' + first[0] : ''));
     }
     if (!hid('objective')) L.push('LINE ' + tx('objective-level') + ' ' + tx('objective-text'));
     if (!hid('watch-vignette')) L.push('WATCH ' + tx('stopwatch') + ' | ' + tx('beat-caption') + ' | ' + tx('beat-steps'));

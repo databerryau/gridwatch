@@ -414,7 +414,7 @@ test('K-16 via the shell: the respond card goes with a click on it, as with Ente
   frames(1);
   assert.equal(h.vm().mode.mode, 'RESPOND-CARD');
   assert.equal(card.hidden, false);
-  assert.equal(card.querySelectorAll('p').at(-1).textContent, 'Enter (or a click) to take the desk.');
+  assert.equal(card.querySelectorAll('p').at(-1).textContent, 'Enter (or a click) to take the desk · W explains each alarm (the clock holds).');
   assert.equal(card.querySelectorAll('button').length, 0, 'still no action on the card');
   card.click();
   frames(1);
@@ -1099,7 +1099,7 @@ test('§13.1 / §13.2 in the vm: settings in the contract shape, settingsOpen, c
   assert.deepEqual(Object.keys(vm.settings).sort(), ['alarms', 'crt', 'fx', 'hum', 'muted', 'reducedEffects', 'reducedMotion', 'volume']);
   assert.equal(vm.settingsOpen, false);
   assert.ok(Array.isArray(vm.cues));
-  for (const t of vm.alarms.tiles) assert.deepEqual(Object.keys(t).sort(), ['basePrio', 'escalated', 'flash', 'glyph', 'id', 'label', 'prio', 'state', 'target']);
+  for (const t of vm.alarms.tiles) assert.deepEqual(Object.keys(t).sort(), ['basePrio', 'escalated', 'flash', 'glyph', 'id', 'label', 'prio', 'setAtS', 'state', 'target']);
   assert.equal(h.actions.ui({do: 'cue', name: 'button'}), '');
   frames(1);
   assert.deepEqual(h.vm().cues, ['button'], 'a desk gesture\'s cue reaches the frame\'s vm (B-6)');
