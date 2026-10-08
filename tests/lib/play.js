@@ -56,7 +56,7 @@
 
 import {readFileSync} from 'node:fs';
 import {makeDocument, installGlobals} from './dom.js';
-import {bootGame} from '../../app/shell.js';
+import {bootGame, PAR_STEP_TICKS} from '../../app/shell.js';
 import {createDesk} from '../../desk/desk.js';
 import {createMap} from '../../render/map.js';
 import {createLiveStack} from '../../render/livestack.js';
@@ -391,6 +391,7 @@ export function openGame(o = {}) {
       runFrame(p, FRAME_DT, hooks);
       if (why || state.over) { midFrame = true; why = why || 'over'; break; }   // the drawn frame is this frame
       if (D.directorFrame(d, state)) saveSeen();
+      if (game.par && !game.par.done) game.par.step(PAR_STEP_TICKS); // par, a slice a frame, as the page's onFrame (Q-48)
       if (o.vm || vmDue(lineFrom)) {
         const vm = G.buildVm(game, {nowMs: t, dtS: FRAME_DT});
         if (set.has('ask') && G.newAsk(line, game.objective)) why = 'ask';

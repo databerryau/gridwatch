@@ -1,10 +1,11 @@
 // The alarm panel's hold on the clock (SPEC §9.1 Q-46, desk/README.md §30.3.12), on the real page
 // headless (tests/lib/play.js): W, EXPLAIN or a tile opens the panel and holds the clock (mode
 // ALARMS); closing it returns to exactly the run state before; Space closes it and runs; GO TO
-// leaves an ordinary pause and the focus on its target; a key pressed outside the panel closes it
-// as GO TO first; the watch and the RESPOND card wait for it, as with Space; Esc closes the
-// top-most thing first (Q-47). The panel is presentation: the day's hash never sees it. Last,
-// the stage-A skeleton of the ALL-IN score (Q-48): par stepped a slice a frame, in every mode.
+// leaves an ordinary pause and the focus on its target; any other desk key, in the panel or out,
+// closes it as GO TO first; the watch and the RESPOND card wait for it, as with Space; Esc closes
+// the top-most thing first (Q-47). The panel is presentation: the day's hash never sees it. Last,
+// the stage-A skeleton of the ALL-IN score (Q-48): par stepped a slice a frame, in every mode,
+// and the end graded against par once par has its score.
 // Sampled, not streamed: the sim jumps between moments and a frame is drawn around each press.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -120,24 +121,38 @@ test('Q-46: a held watch keeps its tick and resumes there; the RESPOND card hide
   assert.equal(p.vm().watch, null, 'the watch vignette waits, as with Space');
   p.real(0.5);
   assert.equal(p.game.state.tick, tick, 'held at the same tick');
+  // F is refused while held; a watch Esc could skip does not add "(Esc skips)": here Esc closes the panel
+  p.game.director.seen.watch = true;
+  p.keyDown('f'); p.frame(); p.keyUp('f');
+  assert.match(p.look(), /^TOAST blue FAST waits: the alarm panel holds the clock: Esc closes it$/m);
+  p.game.director.seen.watch = false;
   p.key('w');
   assert.equal(p.mode(), 'WATCH');
   assert.ok(p.vm().mode.watchS >= watchS && p.vm().mode.watchS < watchS + 1, 'the watch goes on from where it was');
   // the card
   assert.equal(p.until('card').why, 'card');
   assert.match(p.look(), /^CARD /m);
+  assert.ok(p.doc.activeElement === p.doc.body, 'nothing has the focus after the trip');
   p.key('w');
   assert.equal(p.mode(), 'ALARMS');
   assert.doesNotMatch(p.look(), /^CARD /m, 'the card hides while the panel is open');
   p.key('Escape');
   assert.equal(p.mode(), 'RESPOND-CARD');
   assert.match(p.look(), /^CARD /m, 'and returns on close');
+  assert.ok(p.doc.activeElement === p.doc.body, 'the opener was the page: the focus left the hidden panel');
   // GO TO while the card waits: the card holds the clock itself, so no pause is added
   p.key('w');
   p.h.actions.ui({do: 'alarmsGoto', target: 'lever-gta'});
   p.frame();
   assert.equal(p.game.director.paused, false);
   assert.equal(p.mode(), 'RESPOND-CARD');
+  // and Enter, after the panel opened from the page and closed, takes the card
+  p.doc.activeElement.blur();
+  p.key('w');
+  p.key('Escape');
+  p.key('Enter');
+  assert.notEqual(p.mode(), 'RESPOND-CARD', 'Enter reached the card');
+  assert.doesNotMatch(p.look(), /^CARD /m);
 });
 
 test('Q-46: in the briefing W opens without holding; TAKE THE DESK carries the hold', () => {
@@ -184,16 +199,30 @@ test('Q-47: with the map focused and the drawer open, one Esc closes the drawer 
   assert.ok(p.doc.activeElement !== map, 'with nothing open, Esc is the map\'s');
 });
 
-test('Q-46: with the panel open, 1 then S S closes it, pauses, and the START is sent; a key outside the panel closes it first', () => {
+test('Q-46: with the panel open, 1 then S S closes it, pauses, and the START is sent; any other desk key, in the panel or out, closes it first', () => {
   const p = openGame({seed: 20261004}); // a weekend: one coal unit is off
+  const starts = n => p.game.state.log.slice(n).filter(r => r.type === 'start').map(r => r.args.unit);
   p.key('w');
   assert.equal(p.doc.activeElement.id, 'btn-alarms-close');
-  const n = p.game.state.log.length;
+  let n = p.game.state.log.length;
   p.key('1');
   assert.deepEqual(held(p), {mode: 'PAUSE', open: false, paused: true, held: false});
   assert.equal(p.doc.activeElement.id, 'lever-coal');
   p.key('s'); p.key('s');
-  assert.deepEqual(p.game.state.log.slice(n).filter(r => r.type === 'start').map(r => r.args.unit), ['coal4']);
+  assert.deepEqual(starts(n), ['coal4']);
+  // S S with the focus still in the panel (where it went on opening): the first S closes it as GO TO
+  // and lets the focus go; the START then goes to the lever the player had focused, after the close
+  p.key(' ');
+  p.key('3');
+  p.key('w');
+  assert.equal(p.doc.activeElement.id, 'btn-alarms-close');
+  n = p.game.state.log.length;
+  p.key('s');
+  assert.deepEqual(held(p), {mode: 'PAUSE', open: false, paused: true, held: false});
+  assert.ok(!p.$('alarm-panel').contains(p.doc.activeElement), 'no focus left in the hidden panel');
+  assert.deepEqual(starts(n), []);
+  p.key('s');
+  assert.deepEqual(starts(n), ['gta1']);
   // the focus outside the panel: the key closes it as GO TO before anything else sees it
   p.key(' ');
   p.key('w');
@@ -211,6 +240,20 @@ test('Q-46: with the panel open, 1 then S S closes it, pauses, and the START is 
   p.$('btn-alarms-close').focus();
   for (const k of ['ArrowDown', 'Home', 'End', 'Tab', 'Enter']) p.key(k);
   assert.deepEqual(held(p), {mode: 'ALARMS', open: true, paused: true, held: true});
+  // the panel's box takes the focus (tabindex -1: a click on its text keeps the keys in it)
+  assert.equal(p.$('alarm-panel').getAttribute('tabindex'), '-1');
+  p.$('alarm-panel').focus();
+  p.key('ArrowDown');
+  assert.equal(p.game.ui.alarmsOpen, true);
+  // SETTINGS opens over the panel (`,` keeps it): its slider's keys are its own and leave the panel open
+  p.key(',');
+  assert.equal(p.doc.activeElement.id, 'set-volume');
+  p.key('ArrowRight');
+  assert.deepEqual(held(p), {mode: 'ALARMS', open: true, paused: true, held: true});
+  p.key('Escape');
+  assert.deepEqual([p.game.ui.settingsOpen, p.game.ui.alarmsOpen], [false, true], 'Esc closes SETTINGS first, the panel next');
+  p.key('Escape');
+  assert.equal(p.game.ui.alarmsOpen, false);
 });
 
 test('Q-46: the panel is presentation only: the day with it used has the same hash and log as without, and replays to it', () => {
@@ -226,7 +269,7 @@ test('Q-46: the panel is presentation only: the day with it used has the same ha
   assert.equal(hashState(G.replayGame(G.gameLog(a.game), a.game.scenario, a.game.state.tick)), hashState(a.game.state));
 });
 
-test('Q-48 skeleton: par is stepped once a frame from TAKE THE DESK in every mode (more once the day is over); game.end carries the ALL-IN', () => {
+test('Q-48 skeleton: par is stepped once a frame from TAKE THE DESK in every mode (more once the day is over); game.end carries the ALL-IN and, once par has its score, the grade', () => {
   const calls = [];
   const runner = {done: false, score: null, series: [], progress: 0, black: false, at: () => null, step(n) { calls.push(n); return false; }};
   const p = openGame({seed: 20261007, take: false, par: runner});
@@ -237,13 +280,18 @@ test('Q-48 skeleton: par is stepped once a frame from TAKE THE DESK in every mod
   p.key('w');
   p.key('Escape');
   assert.deepEqual(calls, [3000, 3000, 3000], 'PAUSE, ALARMS, PAUSE: one slice a frame');
+  // the driver's jumps step it as the page's frames do (headless parity)
+  p.key(' ');
+  p.to('+1m', {stop: []});
+  assert.ok(calls.length > 20 && calls.every(c => c === 3000), calls.length + ' slices in a minute at CRUISE');
   p.game.state.over = true;
   p.frame();
   assert.equal(calls.at(-1), 6000, 'a bigger slice once the day is over');
+  const n = calls.length;
   runner.done = true;
   p.frame();
-  assert.equal(calls.length, 4, 'nothing once par is done');
-  // the end: the player's ALL-IN now; par's and the grade arrive with par (W4)
+  assert.equal(calls.length, n, 'nothing once par is done');
+  // the end: the player's ALL-IN at once; par's ALL-IN and the grade, in place, on the frame par has its score
   const e = p.game.end, sc = e.score;
   assert.deepEqual([e.parAllIn, e.grade], [null, null]);
   assert.equal(e.allIn.supply, sc.costDollars);
@@ -252,11 +300,27 @@ test('Q-48 skeleton: par is stepped once a frame from TAKE THE DESK in every mod
   assert.equal(e.allIn.perHousehold, e.allIn.total / 1.9e6);
   assert.deepEqual(S.grade(e.allIn, e.allIn, false), {points: 1000, letter: 'A', star: true}, 'par\'s own day scores 1000');
   assert.equal(S.grade(e.allIn, null, false), null);
+  const PAR = {costDollars: 4.331e6, servedMWh: 1.1e5, lightsMWh: 0, co2tPerMWh: 0.55};
+  runner.score = PAR;
+  p.frame();
+  assert.ok(p.game.end === e && e.parAllIn.total === S.allIn(PAR, 1.9e6).total);
+  assert.deepEqual(e.grade, S.grade(e.allIn, e.parAllIn, false));
+  // a finished par passed in (end-card tests: {score, series?, black?}) grades the end at once, and its
+  // at(s) reads the series, linear between the 5-minute marks
+  const mk = (par, black) => {
+    const g = G.createGame({seed: 20261007, scenario: G.scenarioForSeed, par});
+    G.takeDesk(g);
+    g.state.over = true; g.state.black = black;
+    G.buildVm(g, {nowMs: 0});
+    return g;
+  };
+  const row = s => ({costDollars: 10 * s, servedMWh: s, lightsMWh: 0, co2tPerMWh: 0.5});
+  const f = mk({score: PAR, series: [row(0), row(300), row(600)]}, false);
+  assert.deepEqual([f.par.at(450), f.par.at(600), f.par.at(601)], [row(450), row(600), null]);
+  assert.deepEqual(f.end.grade, S.grade(f.end.allIn, S.allIn(PAR, f.households), false));
+  assert.equal(mk({score: PAR, black: true}, false).end.grade, null, 'a par day that went black gives no grade');
   // a black day is an F at once, without par; par is off by default
-  const g = G.createGame({seed: 20261007, scenario: G.scenarioForSeed});
+  const g = mk(undefined, true);
   assert.equal(g.par, null);
-  G.takeDesk(g);
-  g.state.over = true; g.state.black = true;
-  G.buildVm(g, {nowMs: 0});
   assert.deepEqual(g.end.grade, {points: 0, letter: 'F', star: false});
 });

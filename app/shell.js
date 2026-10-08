@@ -47,8 +47,8 @@ const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CA
   ALARMS: 'the alarm panel holds the clock: Esc closes it'};
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
-// Q-46: the alarm panel's own keys inside it; the keys that outside it do not close it (§30.3.6).
-const PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaA?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
+// Q-46 (§30.3.6): the alarm panel's own keys inside it; the keys that never close it (F: refused, FAST_WAIT).
+const PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaAfF?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
 /** The CRT switch's title and answer while REDUCED EFFECTS is on (it is greyed). */
 export const CRT_OFF = 'CRT is off while REDUCED EFFECTS is on';
 
@@ -225,7 +225,7 @@ export function bootGame(doc, deps) {
     const m = modeOf(game.director, game.state), say = s => showToast(s, 'info');
     if (cmd.do === 'pause' && r) say(held());
     if (cmd.do === 'fast' && cmd.on) {
-      if (r) say('FAST waits: ' + (FAST_WAIT[m.mode] || 'not now') + (m.canSkip ? ' (Esc skips)' : ''));
+      if (r) say('FAST waits: ' + (FAST_WAIT[m.mode] || 'not now') + (m.canSkip && m.mode === 'WATCH' ? ' (Esc skips)' : ''));
       else if (game.phase !== 'play' || game.state.over) say(held());
       else if (m.mode === 'PAUSE') say('FAST needs the clock running: Space');
     }
@@ -245,14 +245,21 @@ export function bootGame(doc, deps) {
     if (el && el.focus) { try { el.focus(); } catch { /* ignore */ } }
   }
 
-  // Q-46 (§30.3.4): once the panel closes, the focus goes back to its opener if shown, or to GO TO's target.
+  // Q-46 (§30.3.4): once the panel closes, the focus goes back to its opener if shown, or to GO TO's
+  // target. A focus still in the hidden panel is let go (its keys would stay the panel's).
   function focusAfterPanel(cmd) {
     let n = opener;
     if (cmd.do === 'alarmsGoto' && cmd.target) focusEl(cmd.target);
-    if (cmd.do !== 'alarms' || !n || n === doc.body) return;
-    while (n && !n.hidden && n !== doc.body) n = n.parentElement;
-    if (n === doc.body) opener.focus();
+    else if (cmd.do === 'alarms' && n && n !== doc.body) {
+      while (n && !n.hidden && n !== doc.body) n = n.parentElement;
+      if (n === doc.body) opener.focus();
+    }
+    const ae = doc.activeElement;
+    if (inPanel(ae) && ae.blur) ae.blur();
   }
+  // t is inside the element with this id (the alarm panel, SETTINGS)
+  function within(id, t) { const e = $(id); return !!(e && t && e.contains(t)); }
+  function inPanel(t) { return within('alarm-panel', t); }
 
   // ---------------------------------------------------------------- modules
   const mods = {map: null, desk: null, stack: null, errors: []};
@@ -704,34 +711,36 @@ export function bootGame(doc, deps) {
     return true;
   }
   const mod = ev => ev.ctrlKey || ev.metaKey || ev.altKey || typing(ev.target);
-  // Capture phase (§30.3.6): an Esc that closed something stops there; with the alarm panel open, a
-  // key pressed outside it first closes it as GO TO, before any control's own handler.
-  const inPanel = t => { const p = $('alarm-panel'); return !!(p && t && p.contains(t)); };
+  // Capture phase (§30.3.6): an Esc that closed something stops there; with the alarm panel open, any
+  // other desk key, inside the panel or not, first closes it as GO TO, before any control's own
+  // handler, unless the panel owns it or it lands in SETTINGS (above the panel; its keys are its own).
   function escFirst(ev) {
     if (ev.key === 'Escape' && !ev.shiftKey && !mod(ev) && closeTop()) { ev.preventDefault(); ev.stopPropagation(); }
   }
   function panelFirst(ev) {
-    if (game.ui.alarmsOpen && !mod(ev) && !inPanel(ev.target) && !PANEL_KEEPS.test(ev.key) && !(ev.key === 'M' && ev.shiftKey)) actions.ui({do: 'alarmsGoto', target: null});
+    const t = ev.target, k = ev.key;
+    if (!game.ui.alarmsOpen || mod(ev) || PANEL_KEEPS.test(k) || (k === 'M' && ev.shiftKey) || within('settings', t)) return;
+    if (!(inPanel(t) && PANEL_OWN.test(k))) actions.ui({do: 'alarmsGoto', target: null});
   }
   doc.addEventListener('keydown', escFirst, true);
   doc.addEventListener('keydown', panelFirst, true);
 
   // The page's one key listener (§13.3; the order is app/keys.js bindKeys'): text fields and
   // consumed keys are left alone, then the desk, the stack, the map, then the fallback map.
-  const inSettings = t => { const s = $('settings'); return !!(s && t && s.contains(t)); };
   const unbindKeys = bindKeys(doc, keys, () => vm, a => {
     if (game.phase === 'briefing' && a.ui && a.ui.do === 'dismissRespond') return;
     run(a);
   }, now, {
     // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
-    own: ev => (inSettings(ev.target) && ev.key !== 'Escape' && ev.key !== ',') || (inPanel(ev.target) && PANEL_OWN.test(ev.key)),
+    own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') || (game.ui.alarmsOpen && inPanel(ev.target) && PANEL_OWN.test(ev.key)),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
     first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
     chain: () => [mods.desk, mods.stack, mods.map],
-    // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows (GO TO, if open).
+    // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows.
+    // (With the alarm panel open, panelFirst has closed it before any desk key gets here.)
     used: (m, ev) => {
       const ae = doc.activeElement, desk = $('desk');
-      if (ev.type !== 'keyup' && ae && ae.id && ae !== doc.body && (ae.id !== game.ui.focus || game.ui.alarmsOpen) && desk && desk.contains(ae)) base.ui({do: 'focus', target: ae.id});
+      if (ev.type !== 'keyup' && ae && ae.id && ae !== doc.body && ae.id !== game.ui.focus && desk && desk.contains(ae)) base.ui({do: 'focus', target: ae.id});
     },
     error: e => { mods.errors.push('key: ' + (e && e.message ? e.message : e)); },
   });

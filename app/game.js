@@ -33,7 +33,7 @@ import * as W from './watch.js';
 // model has it; until then the 1a cueOfRecord.
 import * as AM from '../audio/model.js';
 import * as S from './score.js';
-import {createParRunner} from './par.js';
+import {createParRunner, seriesAt} from './par.js';
 
 const TPS = V.TICKS_PER_S;
 const EMPTY = Object.freeze([]);
@@ -208,7 +208,7 @@ function parFor(game) {
   if (!p || (game.par && game.parKey === key)) { if (!p) game.par = null; return; }
   game.parKey = key;
   game.par = p === true ? createParRunner(game.seed, game.scenario, {storage: {read: k => readJson(game.storage, k), write: (k, v) => writeJson(game.storage, k, v)}})
-    : p.step ? p : Object.assign({step: () => true, done: true, score: null, series: [], at: () => null, progress: 1, black: false}, p);
+    : p.step ? p : Object.assign({step: () => true, done: true, score: null, series: [], at(s) { return seriesAt(this.series || [], s); }, progress: 1, black: false}, p);
 }
 
 /** In-page reset (C-3): a new day (the same seed by default) on the same game object. */
@@ -764,10 +764,15 @@ export function buildVm(game, f) {
     if (tr) watch = W.watchView(game.watchMem, tr, c, state.tick, {rate: mode.rate, version: mode.watchVersion, guardMW: obs.battery.guardMW});
   }
   if (state.over && !game.end) {
-    // Q-48: par's ALL-IN and the grade are filled in place when par arrives (W4); black is an F at once
+    // Q-48: black is an F at once; par's ALL-IN and the grade are filled in place below, on the frame par has its score
     const allIn = S.allIn(obs.score, game.households);
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: state.log.length, seed: game.seed, v: SIM_VERSION,
       allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null};
+  }
+  const par = game.par, end = game.end; // (a par day that went black gives no grade)
+  if (end && !end.parAllIn && par && par.done && par.score && !par.black) {
+    end.parAllIn = S.allIn(par.score, game.households);
+    end.grade = S.grade(end.allIn, end.parAllIn, end.black);
   }
   // spoolUp: no sim record marks a machine starting (booked starts included), so it is read
   // off the unit's mode between two frames (audio/model.js cueOfModeChange).
