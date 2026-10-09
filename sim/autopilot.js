@@ -1,128 +1,6 @@
 // sim/autopilot.js: the L-0 pre-dispatch plan, PAR (the fixed reference dispatcher) and the
 // player proxies (spec L-0, S-4, S-11, S-12, P-6, O-3 "Marg runs covered controls", §6).
-//
-// STAGE B owner: "autopilot" (also tools/par.js). Contract: sim/README.md, "autopilot.js".
-// Information barrier (S-4): everything here reads ONLY observe(state) output. It must not
-// import sim/events.js, sim/weather.js or content/, and must never see state, state.ext or
-// the seed (tests/sim-lint.test.js). It may import sim/params.js (public constants) and
-// sim/step.js (runPar is the harness around decide()). runPar alone touches state: it
-// steps it, reads tick / over / log, asks step.inWatch(state) when to decide, and feeds
-// inputs through step.applyInput so it knows which were accepted (origins[]).
-//
-// Inputs par makes come in three kinds, told apart by runPar's `origins`:
-//   'plan'   the L-0 plan: ONE planLoad input at 04:30 (Phase 1a: the plan lives in state and
-//            the grid's executor moves the levers, the tie and the booked starts and stops,
-//            K-2, L-6), and planOnly's re-flows of it. The system's schedule, not a discrete
-//            action, so it is NOT paced.
-//   'replan' par's own re-dispatch after an action (below), also a planLoad from that moment.
-//            NOT paced either: the re-plan is part of the action it follows (SPEC S-4, §8.2
-//            "Par re-plans after every action"), and the player has the same RE-DISPATCH
-//            (replan(): app/system.js in the game, decision A-1; app/assist.js on the bench).
-//   'ruleN'  a discrete action from S-4 rule N (1..9), paced: at most one per
-//            PAR_ACTION_GAP_REAL_S of the reference playback (refRealSeconds). Rule 7's action
-//            is itself a planLoad (its re-dispatch).
-// planLoads wait in memo.outbox until planUpdates() returns them (runPar and the assist send
-// them right after decide()'s action).
-//
-// How par edits its plan (SPEC S-4 and §8.2):
-//   * Every discrete action AMENDS the plan (a RE-PLAN): after it, par re-dispatches its
-//     keyframes for every lever and the tie from now to 04:00 over the commitment it now
-//     has (present modes, pending plan starts, its own starts), with the latest forecast
-//     (obs.forecast, 4.5 h) and the day-ahead forecast beyond it, and sends it as a planLoad
-//     (origin 'replan'). It is not an extra discrete action; the
-//     review measured what it is worth (without any re-plan par's clean days fell from 89
-//     to 42 of 100), which is why the player gets the same RE-PLAN.
-//   * Par starts from the L-0 plan without its stops (makePlan): it decommits by rule 4 only.
-//   * Rule 7 (extension): "keep units at or below PAR_MAX_LOADING unless that would shed
-//     load" is applied by that re-dispatch; rule 7 itself fires when a unit's base point
-//     is above the limit, when AGC carries more than PAR_REBASE_MW, or when the plan misses
-//     the forecast for the coming column by more than PAR_REBASE_MW (a red or blue gap on
-//     the Live Stack, L-5). Its input is the amended plan (a planLoad), when it moves a lever
-//     in the first column and the plan over the next hour by enough.
-//   * Rule 2 (v4 form): H-4 checks N-1 twice, in minutes (R5 >= L) and in seconds (TRIP
-//     PREVIEW nadir). S-4's rule 2 names only the minutes half; v4 physics trips UFLS on
-//     an uncovered 650-800 MW loss (the integration report measured 48.7-49.2 Hz), so par
-//     also acts on the preview: it raises the GUARD (contingency FFR, as AEMO enables
-//     contingency raise FCAS for the largest risk), then starts a peaker. When anything is
-//     short now it releases the GUARD at once (the battery is then worth more to AGC).
-//   * Par's plan never exports for profit (a price-taking export at the evening peak
-//     would spend the reserve), and caps the tie import at the largest unit's planned
-//     output so the tie is not the unique largest contingency (as AEMO constrains flows),
-//     unless the P50 would otherwise be short ("unless that would shed load"). Rules 1 and
-//     2 read "maximum import" as that secure maximum.
-//   * Rule 1 acts on supply trips (unit, link). A load trip (the smelter) raises
-//     frequency, and starting a peaker would be wrong.
-//   * Rule 5 reads "hold water" as the rules lab's controller did: keep PAR_WATER_KEEP_MWH
-//     in storage until PAR_WATER_HOLD_UNTIL_H (hydro runs at its water value above that
-//     line), then a keep line falling linearly to a small reserve at PAR_WATER_EMPTY_BY_H.
-//     A shortfall may use kept water down to the reserve, never to HYDRO_STOP_MWH (where
-//     the grid unloads the station at its ramp). Rule 5's action starts every hydro machine
-//     for the release.
-//   * Rule 6's discharge compares the ENERGY price (price minus the P-7 scarcity adder)
-//     with the plan's marginal offer; outside the discharge window par recharges a battery
-//     AGC has drawn below PAR_BATT_RESERVE_FRAC (extension: primary response overnight).
-//     A discharge order past the window's end or at the reserve is ended right after rule 1
-//     (rule6End, review fix: battery orders never expire, and in rule order the end waited
-//     behind rules 2-5 while the night's pace allowed one action per ~105 grid-min).
-//   * Rule 2 raises the GUARD only as far as the battery's energy sustains it for
-//     GUARD_SUSTAIN_S (review fix); otherwise its action is the next peaker.
-//   * Rule 8 (tuning pass) makes reserve diesel an emergency: an adequacy walk over the
-//     forecast counts firm capacity honestly (units and the tie at their real limits, and an
-//     energy-limited pool of water, DR call-hours and battery energy above its reserve), arms
-//     only on a shortfall the diesel can still reach with its 20-min lead (or earlier when the
-//     shortfall is energy-driven and arming now saves the pool), calls DR on a present
-//     shortfall hydro and the battery cannot carry (saving calls for the peak), and stands the
-//     diesel down when the walk without it is clean. Rule 4 asks the stand-down first (the
-//     dearest resource). See rule8().
-//   * Rule 1, when no peaker is left to start after a supply trip and units, tie and diesel
-//     cannot carry present net demand, calls DR (the next fast block) at once: at the evening
-//     profile's pace the next action came ~7.5 grid-min later, after FOS directed shedding.
-//   * Rule 9 (extension, README §12) restores only a district whose cold load is at most
-//     L and whose estimated dip (the TRIP PREVIEW scaled by coldLoad / L) holds the K-13
-//     restore preview's line (SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ), so the restore input,
-//     which runs the real restore preview, is seldom refused. Phase 2a: the cap at L is lifted
-//     while the dispatch is spilling at least the district's pickup (in the belly L is a machine
-//     at its floor, smaller than any pickup); the estimate still decides.
-//   * planOnly re-dispatches the L-0 plan for the lit load while districts are dark
-//     (reflowLit), as NEM dispatch targets metered demand (L-0: never black with no input).
-// The S-4 pace applies to every discrete action; at the reference playback's night roll
-// (2,100x) that is one action per ~105 grid-minutes, so restores after a late shed are slow.
-//
-// Phase 2a, the belly (SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §25):
-//   * LIT OPERATIONAL DEMAND. With rooftop PV a dark district takes its roofs off with its
-//     feeder (P-12), so what is left is not a proportional slice of the operational demand. The
-//     dispatch (context), the lit-load re-flow, the adequacy walk and rule 4's evening read the
-//     present from obs.demand.litMW and a forecast column as (P50 + rooftop) x (1 - dark
-//     customers) - rooftop x (1 - dark rooftop) (litMW; darkShare; the dark rooftop share is by
-//     nameplate). With no rooftop this is the old P50 x (1 - shed).
-//   * S-14 rule 2 joins rule 6 as a union with its window: par charges whenever the price is at
-//     or below $0 or the dispatch is spilling more than SURPLUS_MIN_MW (obs.wind.autoMW +
-//     obs.solar.autoMW; C-6), while the battery has room below PAR_BATT_CHARGE_TO. The order is
-//     the present charge order plus what is still being spilled (the sim's cut is net of the
-//     order), within PAR_BATT_CHARGE_MAX_MW: free power, never fuel. An order that takes the
-//     whole spill leaves nothing spilled and a positive price, so it is HELD while the surplus
-//     still feeds it, less what it would be buying instead: thermal output above the floors,
-//     hydro, and the tie above its export limit (boughtMW). The price alone starts no order
-//     outside the window (with nothing spilled there is no free power to take); it keeps one
-//     going. On the classic day the price never reaches $0 and nothing is spilled, so the rule
-//     cannot fire there.
-//   * S-14 rule 3 as reworded (C-12): export to the cap, charge, and the dispatch curtails the
-//     rest. Nothing for par to send: its plan already takes every unit to its floor and the tie
-//     to the export limit in a surplus (clearColumn), and the sim holds back wind and solar.
-//   * S-14 rule 4 joins rule 4: once no gas unit is committed, ONE coal machine is stopped only
-//     if MSL2 is forecast for PAR_COAL_MSL2_H or more AND the evening holds N-1 without it until
-//     it could be back at minimum load (T4, the minimum down time from breaker open to the next
-//     START, then T1, auto-sync and T2: a 10:00 stop is back at 21:14). Expected never to fire on
-//     real days (MSL2 for 3 h does not occur); measured, not tuned (tools/par.js prints the count).
-//   * A battery order is counted in the dispatch only for the energy behind it (batteryOrder): a
-//     discharge until PAR_BATT_RESERVE_FRAC, a charge until full, at most the inverter less the
-//     GUARD. That is how replan() reads the PLAYER's order, and how par reads its own: a charge
-//     until PAR_BATT_CHARGE_TO, a discharge until the reserve and no later than 22:00. Par's night
-//     recharge (ordered after the charge window) is therefore in its plan; before, it was not.
-//   * Rule 7 reads AGC's request net of what the dispatch is lowering in a surplus: while wind or
-//     solar is being spilled AGC takes the units down to MIN beyond their regulating bands (C-6),
-//     which is the dispatch at work and not a plan gone stale; and a surplus the plan already
-//     shows (its negative gap) is not a miss of the forecast.
+// Contract: sim/README.md §11 autopilot.js.
 
 import {V} from './params.js';
 import {createState, step, observe, hashState, applyInput, inWatch} from './step.js';
@@ -1839,4 +1717,32 @@ export function runPar(seed, scenario, opts) {
       co2tPerMWh: sc.co2tPerMWh, servedMWh: sc.servedMWh},
     log: state.log, origins, hashes, black: state.black, plan: memo.plan, state, memo,
   };
+}
+
+// ------------------------------------------------------------------ city levers (desk/README.md §31.3.10)
+
+function knotMW(kn, t) {
+  if (t <= kn[0][0] || t >= kn[kn.length - 1][0]) return 0;
+  let i = 1;
+  while (kn[i][0] < t) i++;
+  const a = kn[i - 1], b = kn[i];
+  return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
+}
+
+/** The atS to book suburb id's lever on forecast fc (lv = obs.levers), or -1: not now. Pure. */
+export function aimFlex(fc, lv, id, lever) {
+  const sub = lv.suburbs.find(x => x.id === id), L = sub && sub[lever];
+  if (!L || L.block !== '') return -1;
+  const soak = lever === 'soak', from = soak ? V.SOAK_FROM_S : V.AIRCON_FROM_S, to = soak ? V.SOAK_TO_S : V.AIRCON_TO_S;
+  let best = -1, bestMW = 0;
+  for (let k = 0; k < fc.n; k++) {
+    const t = fc.fromS + (k + 1) * fc.stepS;
+    if (t < from || t > to) continue;
+    let mw = fc.demandP50[k];
+    for (const b of lv.blocks) if (b.suburb === id && b.lever === lever) for (const p of b.parts) mw -= knotMW(p.knots, t);
+    if (best < 0 || (soak ? mw < bestMW : mw > bestMW)) { best = k; bestMW = mw; }
+  }
+  if (best < 0 || (best === fc.n - 1 && to > fc.fromS + fc.n * fc.stepS)) return -1;
+  const at = fc.fromS + (best + 1) * fc.stepS - (soak ? V.SOAK_S : V.AIRCON_S) / 2;
+  return Math.min(L.toS, Math.max(L.fromS, Math.round(at / V.FC_STEP_S) * V.FC_STEP_S));
 }

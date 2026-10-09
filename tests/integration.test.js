@@ -28,7 +28,9 @@ test('F-6: the input vocabulary', () => {
   assert.deepEqual([...INPUT_TYPES].sort(), ['abortStop', 'armRERT', 'basePoint', 'battery', 'callDR', 'curtail', 'directShed',
     'guard', 'mode', 'restore', 'standDownRERT', 'start', 'stop', 'syncClose', 'tie',
     // Phase 1a (desk/README.md §3.2)
-    'planKey', 'planDel', 'planStart', 'planStop', 'planUnbook', 'planRejoin', 'planLoad', 'scope', 'syncTrim', 'syncAuto'].sort());
+    'planKey', 'planDel', 'planStart', 'planStop', 'planUnbook', 'planRejoin', 'planLoad', 'scope', 'syncTrim', 'syncAuto',
+    // 2b (desk/README.md §31.3.6): the city levers
+    'flex', 'flexDel'].sort());
 });
 
 test('F-6: planLoad\'s list arguments are checked for shape and order, and logged canonically (every station, fresh arrays)', () => {
@@ -70,7 +72,9 @@ test('F-6: malformed inputs are refused before they touch state, and are not log
     {type: 'curtail', kind: 'wind', pct: 50}, {type: 'battery', mode: 'charge', mw: -5}, {type: 'battery', mode: 'boost', mw: 5},
     {type: 'callDR', extra: 1}, {type: 'mode', agc: 'yes'}, {type: 'basePoint', station: 'nuclear', mw: 100},
     {type: 'restore', district: 'ZZZ9'}, {type: 'constructor'}, {type: 'toString'}, {type: '__proto__'}, {type: 'hasOwnProperty'},
-    {type: 7}, {type: 'guard', mw: 100, toString: 1}];
+    {type: 7}, {type: 'guard', mw: 100, toString: 1},
+    {type: 'flex', suburb: 'XYZ', lever: 'soak', atS: 23400}, {type: 'flex', suburb: 'HAZ', lever: 'ev', atS: 23400},
+    {type: 'flex', suburb: 'HAZ', lever: 'soak', atS: 23400.5}, {type: 'flexDel', suburb: 'HAZ', lever: 'soak'}];
   for (const input of bad) {
     const out = [];
     const r = applyInput(s, input, out);
@@ -138,7 +142,7 @@ function fuzzLog(seed, n, untilTick = V.DAY_TICKS, watchS = []) {
   const r = () => ((x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 4294967296);
   const one = a => a[Math.floor(r() * a.length)];
   const s0 = createState(seed, CLASSIC);
-  const districts = s0.city.districts.map(d => d.id);
+  const districts = s0.city.districts.map(d => d.id), suburbs = s0.scn.city.suburbs.map(x => x.id);
   const make = {
     basePoint: () => ({station: one(V.STATION_IDS), mw: Math.floor(r() * 2700)}),
     start: () => ({unit: one(V.MACHINE_IDS)}),
@@ -168,6 +172,9 @@ function fuzzLog(seed, n, untilTick = V.DAY_TICKS, watchS = []) {
     scope: () => ({unit: r() < 0.3 ? '' : one(V.MACHINE_IDS)}),
     syncTrim: () => ({unit: one(V.MACHINE_IDS), dHz: r() < 0.5 ? -V.SYNC_TRIM_HZ : V.SYNC_TRIM_HZ}),
     syncAuto: () => ({unit: one(V.MACHINE_IDS)}),
+    // 2b: the city levers (an atS sometimes off the 5-min lattice; most on it in the day's windows)
+    flex: () => ({suburb: one(suburbs), lever: one(['soak', 'aircon']), atS: r() < 0.2 ? Math.floor(r() * V.DAY_S) : V.FC_STEP_S * Math.floor(r() * 288)}),
+    flexDel: () => ({suburb: one(suburbs), lever: one(['soak', 'aircon']), atS: V.FC_STEP_S * Math.floor(r() * 288)}),
   };
   assert.deepEqual(Object.keys(make).sort(), [...INPUT_TYPES].sort(), 'the fuzzer covers every input type');
   const log = [];
@@ -428,7 +435,8 @@ test('K-15 through step(): inputs of every type during a watch are refused, neve
     {type: 'planStart', unit: 'gtb1', atS: TRIP_S + 600}, {type: 'planStop', unit: 'ccgt1', atS: TRIP_S + 7200},
     {type: 'planUnbook', unit: 'gtb1'}, {type: 'planRejoin', station: 'coal', keep: true},
     {type: 'planLoad', fromS: TRIP_S + 60, stations: {coal: [[TRIP_S + 600, 1800]]}, tie: [], starts: [], stops: []},
-    {type: 'scope', unit: 'gtc1'}, {type: 'syncTrim', unit: 'gtc1', dHz: V.SYNC_TRIM_HZ}, {type: 'syncAuto', unit: 'gtc1'}];
+    {type: 'scope', unit: 'gtc1'}, {type: 'syncTrim', unit: 'gtc1', dHz: V.SYNC_TRIM_HZ}, {type: 'syncAuto', unit: 'gtc1'},
+    {type: 'flex', suburb: 'HAZ', lever: 'soak', atS: 23400}, {type: 'flexDel', suburb: 'HAZ', lever: 'soak', atS: 23400}];
   assert.deepEqual(tries.map(x => x.type).sort(), [...INPUT_TYPES].sort(), 'every input type is tried');
   let refused = 0;
   while (a.tick < endTick) {

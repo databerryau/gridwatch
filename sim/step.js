@@ -93,7 +93,8 @@ export function createState(seed, scenario) {
   const ha = evs.find(e => e.type === 'heatAnnounce');
   const c = scn.commitment;
   const units = fleet.buildUnits(scn);
-  const nSub = scn.city.suburbs.length;
+  const nSub = scn.city.suburbs.length, ids = x => x.suburbs.map(y => y.id) + '';
+  if (scn.levers && ids(scn.levers) !== ids(scn.city)) throw new Error('createState: levers.suburbs must follow city.suburbs');
   const state = {
     v: SIM_VERSION, seed, scenarioId: scn.id, tick: 0, over: false, black: false,
     scn, scnHash: canonicalHash(scn),
@@ -106,7 +107,8 @@ export function createState(seed, scenario) {
     day: {temp: regime.temp === 'MILD' ? 'MILD' : 'HOT', weekend: !!(scn.day && scn.day.weekend)},
     env: {s: 0, h: 0, demandMW: 0, underlyingMW: 0, windAvailMW: 0, solarAvailMW: 0, windFrac: 0, clearness: 0,
       heatActive: false, heatMult: 1, tempC: 0, neighbourPrice: 0, exportLimitMW: 0,
-      rooftopMW: 0, roofSubMW: zeros(nSub), roofClearFrac: ones(nSub)}, // Phase 2a: as if every inverter were connected
+      rooftopMW: 0, roofSubMW: zeros(nSub), roofClearFrac: ones(nSub), // Phase 2a: as if every inverter were connected
+      flexMW: 0, flexSubMW: zeros(nSub), reliefSubMW: zeros(nSub)}, // 2b: city flex, as if lit
     msl: {level: 0, minMW: 0, atS: -1, sinceS: -1}, // P-4 (Phase 2a, C-9): events.mslSecond, every MSL_CHECK_S; never written with no rooftop
     control: {mode: c.mode, modeLocked: false},
     stations: fleet.buildStations(units),
@@ -141,6 +143,7 @@ export function createState(seed, scenario) {
     conts: [], contIdx: -1, news: [], log: [],
     plan: grid.newPlan(),                // L-0, L-4, L-6 (Phase 1a): keyframes and bookings; grid.planSecond executes them
     scope: {unit: '', nextAutoTick: -1}, // K-12: the unit on the synchroscope ('' none); the next syncAuto close tick
+    levers: {rev: 0, patience: scn.levers ? scn.levers.suburbs.map(x => x.patience) : [], blocks: []}, // 2b (U-2, U-4)
   };
   state.phys.ekMWs = fleet.ekMWs(state);
   weather.sampleSecond(state);
@@ -224,6 +227,9 @@ const SHAPES = {
   scope: {unit: 'unitOrNone'},
   syncTrim: {unit: 'unit', dHz: 'trim'},
   syncAuto: {unit: 'unit'},
+  // 2b: the city levers
+  flex: {suburb: 'suburb', lever: ['soak', 'aircon'], atS: 'second'},
+  flexDel: {suburb: 'suburb', lever: ['soak', 'aircon'], atS: 'second'},
 };
 export const INPUT_TYPES = Object.freeze(Object.keys(SHAPES));
 // Arguments a caller may leave out; the canonical copy (and so the log) always carries them.
@@ -254,6 +260,7 @@ function argProblem(state, kind, v) {
     case 'unit': return V.MACHINE_IDS.includes(v) ? '' : 'unknown unit';
     case 'unitOrNone': return v === '' || V.MACHINE_IDS.includes(v) ? '' : 'unknown unit (\'\' closes the scope)';
     case 'district': return state.city.districts.some(d => d.id === v) ? '' : 'unknown district';
+    case 'suburb': return state.scn.city.suburbs.some(x => x.id === v) ? '' : 'unknown suburb';
     case 'mw': return finite(v) && v >= 0 ? '' : 'must be a finite MW >= 0';
     case 'guard': return finite(v) && v >= 0 && v <= V.BATT_MW && v % V.GUARD_STEP_MW === 0 ? ''
       : 'must be 0..' + V.BATT_MW + ' MW in ' + V.GUARD_STEP_MW + '-MW steps';
@@ -436,8 +443,8 @@ export function observe(state, opts) {
   const s = Math.floor(state.tick / TPS), env = state.env, ph = state.phys, b = state.battery, t = state.tie;
   const cont = state.contIdx >= 0 ? state.conts[state.contIdx] : null;
   const windOut = state.ren.windMW * (1 - state.ofgs.trippedFrac);
-  // Phase 2a (desk/README.md §19.2, §19.3): G is the total before rooftop; roof the scenario's block.
-  const city = state.city, roof = state.scn.rooftop, totalMW = env.demandMW + env.rooftopMW;
+  // Phase 2a (desk/README.md §19.2, §19.3): G0 is the total before rooftop, flex out; roof the scenario's block.
+  const city = state.city, roof = state.scn.rooftop, totalMW = fleet.baseLoadMW(state);
   return {
     v: state.v, scenarioId: state.scenarioId, tick: state.tick, s, clock: clockOf(state.scn, s),
     over: state.over, black: state.black, mode: state.control.mode,
@@ -451,7 +458,7 @@ export function observe(state, opts) {
       renPfrMW: ph.renPfrMW, roofPfrMW: ph.roofPfrMW},
     demand: {nowMW: env.demandMW, servedMW: ph.servedMW, shedMW: ph.shedMW, heatActive: env.heatActive, tempC: env.tempC,
       underlyingMW: env.underlyingMW, rooftopMW: env.rooftopMW, litMW: fleet.litDemandMW(state),
-      unservedMW: totalMW * city.shedFrac},
+      unservedMW: totalMW * city.shedFrac, flexMW: env.flexMW},
     units: state.units.map(u => {
       const m = V.MACHINES[u.k];
       const r = {id: u.id, station: u.station, name: m.name, cls: m.cls, mode: u.mode, sync: u.sync, timerS: u.timerS,
@@ -508,7 +515,18 @@ export function observe(state, opts) {
         clearness: env.roofClearFrac[j]}))},
     msl: pick(state.msl, MSL_KEYS),
     day: {temp: state.day.temp, weekend: state.day.weekend},
+    levers: leversView(state),
   };
+}
+
+// observe().levers (README §8)
+function leversView(state) {
+  const L = state.levers, sl = state.scn.levers;
+  return {rev: L.rev, offered: sl ? sl.menu[state.day.temp].slice() : [],
+    suburbs: sl ? sl.suburbs.map((x, j) => ({id: x.id, patience: L.patience[j],
+      soak: grid.leverView(state, j, 'soak'), aircon: grid.leverView(state, j, 'aircon')})) : [],
+    blocks: L.blocks.map(b => ({suburb: b.suburb, lever: b.lever, atS: b.atS, endS: b.endS, effMW: b.effMW, cost: b.cost,
+      del: grid.flexDelBlock(state, b), parts: weather.flexParts(b, b.effMW)}))};
 }
 
 // ------------------------------------------------------------------ hashState (F-2)

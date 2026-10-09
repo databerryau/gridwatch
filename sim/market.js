@@ -217,8 +217,7 @@ function clearInto(state, p) {
 
 /**
  * P-5..P-8 price for the current second. Market demand = the lit operational demand
- * fleet.litDemandMW(state) (Phase 2a: G x (1 - city.shedFrac) less the rooftop PV connected, G =
- * env.demandMW + env.rooftopMW; env.demandMW x (1 - city.shedFrac) with no rooftop) +
+ * fleet.litDemandMW(state) (on G0 = fleet.baseLoadMW, README §5 city) +
  * city.coldLoadMW, minus tie.flowMW and battery.schedMW (the scheduled
  * flows, P-5; RERT MW are NOT subtracted, P-8). Price = offer of the block where the running
  * total first covers market demand, plus scarcityAdder(sec.r5MW / sec.lMW) (x =
@@ -344,7 +343,15 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
     cost.battWear += acc.battAbsMWs / S_PER_H * V.BATT_WEAR_PER_MWH;
     cost.dr += state.dr.mw * h * DR_PRICE;
     cost.rert += rertMWh * V.RERT_COST;
-    // cost.flex: city-flexibility payments arrive with U-6 (Phase 2).
+    // U-6 (2b): air-con relief delivered, on its suburb's lit districts only; the soak is unpaid.
+    const rs = state.env.reliefSubMW, ds = state.city.districts;
+    let fx = 0;
+    for (let j = 0; j < rs.length; j++) fx += rs[j];
+    if (fx > 0) {
+      fx = 0;
+      for (let d = 0; d < ds.length; d++) if (!ds[d].dark) fx += rs[ds[d].sub] * ds[d].roofFrac;
+      cost.flex += fx * h * V.AIRCON_PRICE;
+    }
     sc.co2t += co2 + rertMWh * V.RERT_CO2;
     sc.marketBill += state.price.mwh * servedMWh; // information only (S-2): never in CUSTOMER COST
     sc.starts = starts;

@@ -135,8 +135,9 @@ test('Q-48: grade: a black day is an F at once; no par, or nothing to compare, i
   assert.deepEqual(grade(allIn(better, 0), par, false).star, true, 'beating par');
 });
 
-test('Q-48 / H-12: shedding is never cheaper than the reserves: VCR > the price cap > RERT\'s price > DR\'s price', () => {
-  assert.ok(V.VCR > V.PRICE_CAP && V.PRICE_CAP > V.RERT_COST && V.RERT_COST > V.DR_PRICE, [V.VCR, V.PRICE_CAP, V.RERT_COST, V.DR_PRICE].join(' > '));
+test('Q-48 / H-12: shedding is never cheaper than the reserves: VCR > the price cap > RERT\'s price > DR\'s price (Q-55: > air-con\'s > the soak\'s)', () => {
+  assert.ok(V.VCR > V.PRICE_CAP && V.PRICE_CAP > V.RERT_COST && V.RERT_COST > V.DR_PRICE && V.DR_PRICE > V.AIRCON_PRICE &&
+    V.AIRCON_PRICE > V.SOAK_PRICE, [V.VCR, V.PRICE_CAP, V.RERT_COST, V.DR_PRICE, V.AIRCON_PRICE, V.SOAK_PRICE].join(' > '));
 });
 
 // ------------------------------------------------------------------ app/par.js: par in the page
