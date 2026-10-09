@@ -2650,14 +2650,14 @@ nothing else. At stage C, after the wave-2 merge: the masked diff again, then `v
 levers change par's game days) and one more re-record; only hash cells and the Build line may move
 on CLASSIC. SPEC §6 and risk 11 quote `tools/perf.mjs`, never the golden's machine line.
 
-
-**31.9.14 The order of work, as run.** Stage A's sim half and wave 1 are one agent,  (branch
-): the sim headers (Q-49), every sim shape (§31.3.1–§31.3.7, §31.3.9, ) and then the
-behaviour (§31.5, §31.9.2), in that order of commits. Stage A's app half is a second agent, (branch ), in parallel: the other six headers,  on demand, §31.3.8 and the app
-items of §31.9.1 and §31.9.3. Eager shares:  ≤ 4.2 KB,  ≤ 0.8 KB (base and wave 1's 5.0 KB
-together).  is dropped (the skyline already carries past flex; nothing draws past
-bands in 2b). The integrator merges both, runs  once, bumps  and
-re-records the golden; then wave 2.
+**31.9.14 The order of work, as run.** Stage A's sim half and wave 1 are one agent, `sim` (branch
+`2b-sim`): the sim headers (Q-49), every sim shape (§31.3.1–§31.3.7, §31.3.9, `aimFlex`) and then
+the behaviour (§31.5, §31.9.2), in that order of commits. Stage A's app half is a second agent,
+`app` (branch `2b-app`), in parallel: the other six headers, `app/perf.js` on demand, §31.3.8 and
+the app items of §31.9.1 and §31.9.3. Eager shares: `sim` ≤ 4.2 KB, `app` ≤ 0.8 KB (base and
+wave 1's 5.0 KB together). `vm.hist.flex` is dropped (the skyline already carries past flex;
+nothing draws past bands in 2b). The integrator merges both, runs `node --test` once, bumps
+`v4-core-2b.0` and re-records the golden; then wave 2.
 
 ### 31.10 Stage C measures (the integrator, once each, after the wave-2 merge)
 
