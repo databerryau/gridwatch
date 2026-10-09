@@ -93,7 +93,8 @@ export function createState(seed, scenario) {
   const ha = evs.find(e => e.type === 'heatAnnounce');
   const c = scn.commitment;
   const units = fleet.buildUnits(scn);
-  const nSub = scn.city.suburbs.length;
+  const nSub = scn.city.suburbs.length, ids = x => x.suburbs.map(y => y.id) + '';
+  if (scn.levers && ids(scn.levers) !== ids(scn.city)) throw new Error('createState: levers.suburbs must follow city.suburbs');
   const state = {
     v: SIM_VERSION, seed, scenarioId: scn.id, tick: 0, over: false, black: false,
     scn, scnHash: canonicalHash(scn),
@@ -442,7 +443,7 @@ export function observe(state, opts) {
   const s = Math.floor(state.tick / TPS), env = state.env, ph = state.phys, b = state.battery, t = state.tie;
   const cont = state.contIdx >= 0 ? state.conts[state.contIdx] : null;
   const windOut = state.ren.windMW * (1 - state.ofgs.trippedFrac);
-  // Phase 2a (desk/README.md §19.2, §19.3): G is the total before rooftop; roof the scenario's block.
+  // Phase 2a (desk/README.md §19.2, §19.3): G0 is the total before rooftop, flex out; roof the scenario's block.
   const city = state.city, roof = state.scn.rooftop, totalMW = fleet.baseLoadMW(state);
   return {
     v: state.v, scenarioId: state.scenarioId, tick: state.tick, s, clock: clockOf(state.scn, s),

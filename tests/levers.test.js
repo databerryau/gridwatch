@@ -12,7 +12,7 @@ import {createState, step, applyInput, observe, hashState, replay} from '../sim/
 import * as fleet from '../sim/fleet.js';
 import * as physics from '../sim/physics.js';
 import {V} from '../sim/params.js';
-import {CLASSIC, DESK} from '../content/scenarios.js';
+import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {injectTrip} from './lib/sim-helpers.js';
 
 const R = V.FLEX_RAMP_S, STEP = V.FC_STEP_S, TPS = V.TICKS_PER_S;
@@ -166,6 +166,7 @@ test('§31.3.6: every refusal, word for word (sim/README.md §6); a refused inpu
   assert.equal(book(createState(2, DESK), 'HAZ', 'soak', at(10, 30)), 'levers open at 04:30', 'the briefing');
   const mild = deskAt(1, 5);
   assert.equal(mild.day.temp, 'MILD');
+  assert.equal(book(createState(1, DESK), 'TAL', 'aircon', at(19, 30)), 'levers open at 04:30', 'the clock before the menu (§6 order)');
   assert.equal(book(mild, 'TAL', 'aircon', at(19, 30)), NOT_OFFERED, 'Q-51: no air-con on a MILD day');
   assert.equal(book(mild, 'TAL', 'soak', at(10, 30)), '', 'the soak every day');
   const s = deskAt(2, 5);
@@ -274,6 +275,17 @@ test('§31.3.7: observe().levers: what is offered, each suburb\'s {mw, cost, fro
   assert.deepEqual(observe(createState(2, CLASSIC)).levers, {rev: 0, offered: [], suburbs: [], blocks: []});
 });
 
+test('§31.3.1: levers.suburbs list the city\'s suburbs in its order (grid and step index both by the city index); createState refuses any other list', () => {
+  for (const scn of [DESK, DESK_WEEKEND]) assert.deepEqual(scn.levers.suburbs.map(x => x.id), scn.city.suburbs.map(x => x.id), scn.id);
+  const bad = JSON.parse(JSON.stringify(DESK));
+  bad.levers.suburbs.reverse();
+  assert.throws(() => createState(2, bad), /levers\.suburbs must follow city\.suburbs/, 'another order');
+  bad.levers.suburbs.reverse().pop();
+  assert.throws(() => createState(2, bad), /levers\.suburbs must follow city\.suburbs/, 'a subset');
+  bad.levers.suburbs = DESK.levers.suburbs;
+  assert.equal(createState(2, bad).levers.patience.length, 6);
+});
+
 test('K-15 / F-6 (2b): flex and flexDel on DESK are refused in the watch (applyInput\'s rule) and after the day', () => {
   const s = injectTrip(createState(2, DESK), V.PLAYER_START_S + 60);
   while (s.contIdx < 0) step(s);
@@ -287,24 +299,30 @@ test('K-15 / F-6 (2b): flex and flexDel on DESK are refused in the watch (applyI
   assert.equal(book(s, 'SOL', 'soak', at(10, 30)), 'the day is over');
 });
 
-test('F-6 / F-2 (2b): replay of a day with bookings and cancels is bit-identical; the log holds the inputs as given (never rewritten)', () => {
-  const s = createState(2, DESK), want = [];
-  const inputs = new Map([[at(4, 31), [{type: 'flex', suburb: 'HAZ', lever: 'soak', atS: at(10, 30)}, {type: 'flex', suburb: 'TAL', lever: 'aircon', atS: at(19, 30)},
-    {type: 'flex', suburb: 'TAL', lever: 'aircon', atS: at(15)}, {type: 'flex', suburb: 'RED', lever: 'soak', atS: at(10, 1)}]],
-  [at(4, 40), [{type: 'flexDel', suburb: 'TAL', lever: 'aircon', atS: at(15)}, {type: 'flex', suburb: 'SAL', lever: 'soak', atS: at(10)}]],
-  [at(4, 50), [{type: 'flex', suburb: 'TAL', lever: 'aircon', atS: at(16)}, {type: 'flexDel', suburb: 'HAZ', lever: 'soak', atS: at(10, 30)}]]]);
-  while (s.tick < at(5) * TPS) {
-    const x = s.tick % TPS === 0 ? inputs.get(s.tick / TPS) : undefined;
-    if (x) for (const i of x) if (applyInput(s, i).ok) want.push(i);
+test('F-6 / F-2 (2b): replay of a day with bookings and cancels is bit-identical, with soak, pre-cool and paid relief flowing; the log holds the inputs as given (never rewritten)', () => {
+  const s = createState(2, DESK), want = [], no = [];
+  const f = (suburb, lever, atS) => ({type: 'flex', suburb, lever, atS}), d = (suburb, lever, atS) => ({type: 'flexDel', suburb, lever, atS});
+  const inputs = new Map([ // by tick: two land mid-second
+    [at(4, 31) * TPS, [f('HAZ', 'soak', at(10, 30)), f('TAL', 'aircon', at(19, 30)), f('TAL', 'aircon', at(15)), f('RED', 'soak', at(10, 1))]],
+    [at(4, 40) * TPS, [d('TAL', 'aircon', at(15)), f('SAL', 'soak', at(10))]],
+    [at(4, 50) * TPS, [f('TAL', 'aircon', at(16)), d('HAZ', 'soak', at(10, 30))]],
+    [at(5) * TPS + 7, [f('HAR', 'aircon', at(15)), f('RED', 'soak', at(10, 30))]],
+    [at(10, 1) * TPS, [d('SAL', 'soak', at(10))]],
+    [at(13, 59) * TPS + 3, [d('TAL', 'aircon', at(16)), f('SOL', 'aircon', at(15, 30))]]]);
+  while (!s.over && s.tick < at(15, 5) * TPS) {
+    const x = inputs.get(s.tick);
+    if (x) for (const i of x) { const r = applyInput(s, i); if (r.ok) want.push(i); else no.push(r.reason); }
     step(s);
   }
-  assert.equal(want.length, 7, 'one refused: RED off the lattice');
+  assert.deepEqual(no, [WINDOW, UNDER], 'refused, not logged: RED off the lattice, SAL\'s soak under way');
+  assert.equal(want.length, 11);
   assert.deepEqual(s.log.map(r => Object.assign({type: r.type}, r.args)), want, 'logged as given');
-  assert.deepEqual(s.levers.patience, [70, 90, 60, 50, 15, 80]);
+  assert.deepEqual(s.levers.patience, [60, 90, 60, 40, 30, 80]);
+  assert.ok(!s.black && s.env.reliefSubMW[3] > 0 && s.env.flexMW !== 0 && s.score.cost.flex > 0, 'HAR\'s relief paid, SOL\'s pre-cool on');
   const r = replay(2, DESK, s.log, {untilTick: s.tick});
   assert.equal(r.tick, s.tick);
   assert.equal(hashState(r), hashState(s));
-  assert.equal(JSON.stringify(r.levers), JSON.stringify(s.levers));
+  assert.equal(JSON.stringify(r), JSON.stringify(s));
 });
 
 // ------------------------------------------------------------------ I4: neutral with no block

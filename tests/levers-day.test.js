@@ -240,8 +240,7 @@ test('U-6 / §31.3.12: cost.flex pays AIRCON_PRICE per MWh of relief delivered o
   assert.ok(s.env.flexMW > 0, 'pre-cool is load');
   assert.equal(settle(), 0, 'pre-cool is not paid');
   s.tick = at(12) * TPS; sampleSecond(s);
-  assert.equal(settle(), 0, 'the soak is not paid (SOAK_PRICE 0)');
-  assert.ok(V.DR_PRICE > V.AIRCON_PRICE && V.AIRCON_PRICE > V.SOAK_PRICE, 'Q-55 ladder');
+  assert.equal(settle(), 0, 'the soak is not paid (SOAK_PRICE 0)'); // the Q-55 price ladder: tests/score.test.js
 });
 
 // ONE par morning on a mild weekend (DESK_WEEKEND seed 8, 10:30), shared by the tests below as JSON copies.
