@@ -1,37 +1,5 @@
 // app/keys.js: the K-23 key map for the game (next.html). app/input.js stays the bench's.
-//
-// createKeys() is a small state machine (S S / X X within 2 s, D / E / F holds); keyDown,
-// keyUp and poll return ACTIONS, never touching the DOM or the sim:
-//   {ui: {...}}           a presentation command (actions.ui)
-//   {input: {...}}        a sim input (actions.input)
-//   {redispatch: true}    RE-DISPATCH (actions.redispatch)
-// bindKeys(doc, keys, getVm, run, now, route) attaches it to a document: the page's ONE key
-// listener. Its order (desk/README.md §13.3), so that the same key never acts twice:
-//   1. a key typed into a text field, or already consumed by a focused control (it called
-//      preventDefault: the desk's controls handle their own arrows, S S and so on), or one the
-//      shell says is not the game's (route.own: the settings popover's sliders), is left alone;
-//      so is anything with Ctrl / Meta / Alt (browser shortcuts are never game keys);
-//   2. route.first(ev) (the shell: Enter on the briefing card);
-//   3. each module of route.chain() that has key(ev), in order: the desk, the Live Stack, the
-//      map. The first that returns true used the key: preventDefault, stop;
-//   4. this file's map, the fallback that makes every K-23 key work from anywhere.
-// D and E holds are the desk's while a desk with key() is mounted (keys.holds = false): the
-// fallback then neither times nor fires them.
-//
-// | 1-8                     focus COAL / CCGT / GT·A / GT·B / GT·C / hydro / battery / tie
-// | ↑ ↓ (Shift fine), PgUp/PgDn   move the focused lever (±10 / ±1 MW, next detent) or wheel
-// | S S / X X               START / STOP the focused station's next machine (guarded: twice in 2 s)
-// | P                       rejoin the plan (HAND)
-// | [ ] C U                 slip lower / raise, close the breaker, auto-sync (the open scope)
-// | R                       restore bay (←/→ and Enter are the bay's own)
-// | A, Shift+A              ACK, SILENCE
-// | D, E (hold 0.6 s)       industrial DR, reserve diesel key
-// | T, M, L, Tab            trip preview, tray (again: its LOG), Live Stack (again: expand), map
-// | Space, Esc, F (hold)    pause, skip the watch (after a full one), fast (doing nothing: a blue toast says why)
-// | Enter                   dismiss the respond card
-// | ?                       the abstractions drawer; Shift+M mute
-// | ,                       the SETTINGS popover (B-7)
-// | W                       EXPLAIN: the alarm panel opens (the clock holds) or closes (Q-46)
+// Contract: desk/README.md §31.8 app/keys.js.
 
 import {V} from '../sim/params.js';
 

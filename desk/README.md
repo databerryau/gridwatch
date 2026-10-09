@@ -2477,6 +2477,311 @@ Stage A moves here the leading header comments of `app/objective.js`, `desk/desk
 subsection each (the sim files' headers go to `sim/README.md` §11, under their modules). Each file
 keeps its first line and a pointer to its subsection.
 
+#### app/objective.js
+
+```text
+app/objective.js: the desk's standing objective (SPEC §9.1 Q-18; Phase 2a: desk/README.md
+C-10, §21.4). Pure and DOM-free.
+
+In the game the commitment is the player's: which units run, and when. The dispatch of the
+units they have committed is automatic (app/system.js). This module reads what the player
+can (observe() and the plan view) and says, in one line, what the desk needs next: nothing;
+a unit to start, by when, and how long it takes; a unit to stop, what that saves and when to
+bring it back; the battery to charge or discharge; the levers handed back; a feeder to close.
+It never acts. Every decision it names has a lead time, and it says by when.
+
+The look-ahead is a CAPACITY check, not the plan's own red columns: for each forecast column,
+what the committed fleet could give (machines on, starting or booked by then, at the plan's
+loading; hydro for the water it has; the tie; the wind and sun forecast) against the forecast
+demand plus a margin. The plan's red columns move with every 5-minute dispatch; whether
+enough plant is committed does not. Three margins (MW above the P50 forecast):
+  MARGIN_MW         the forecast's own error: under it the desk is short of a safe margin
+  COMMIT_MARGIN_MW  what the evening needs to ride through one trip: under it a unit is asked for
+                    (the trip's part counts the water at any hour: a trip is what the gorge is kept for)
+  MARGIN_MW + the largest single loss   what must remain before a unit may be stopped, with the
+                    water held until 15:30 as for any plan (§21.4 STOP condition 1)
+so a unit the line asked for is never one it then asks to stop. What the desk can really give
+(every unit at its limits from where it is, the water, the tie at its limit; capacityGap real)
+says whether it is short NOW.
+
+  objective(obs, {edited, planview, proj?, dayAhead?}) -> {level, kind, text, targets, action, startBy, short, long}
+    level   'ok' | 'plan' (act later, or worth doing) | 'act' (act now) | 'crit' (short already)
+    kind    which line it is (desk/README.md §19.5): 'watch' | 'held' | 'short' | 'commit' | 'restore' |
+            'spare' | 'stop' | 'battery' | 'quiet'
+    targets control ids to light (desk/README.md §5)
+    action  the sim input (or {redispatch: true}) that answers it now, or null. The game never
+            sends it: the hint-following player (tests/lib/follow.js) does, to prove that a
+            player who does only what this line says gets through the day and does it well.
+    short   the capacity shortfall the line is about {atS, endS, mw}, or the first one in the
+            4.5-h window, or null
+    long    the spill ahead {atS, endS, mw} or null (planview's first blue run)
+    saving  (STOP lines) the dollars the line quotes
+
+Branch order (§21.4): watch, held, short-now, commit-now, restore, spare, stop, battery,
+commit-later, quiet. A line that asks for nothing yet (a start more than ACT_WITHIN_S away, a
+feeder that cannot close yet, spare that nothing can add, the reserve diesel on its way) gives
+way to a lower branch that has something to do now; among lines that ask for something, the
+order above decides; then a critical line; then the first that has something to say. Between
+commit-now and restore sits the shortfall no start can reach (shortAhead): what every committed
+MW cannot give within the hour is the battery's to carry, and demand response's when it is more
+than the battery holds; the reserve diesel only beyond both.
+
+The line says what is true (the wave-3 review): a shortfall is in the present tense only when the
+desk at its limits (the real check) is short in the next minutes, otherwise it is what the hour
+lacks against a safe margin; "Enough plant is committed" only with no column short of a trip's
+worth of spare by THIN_MW; a STOP's saving says it rests on nothing tripping before the unit is
+back; a unit on its way off counts down its ramp and the T4 slope until its breaker opens.
+
+The line is pure, so "never thrash" is kept by state, not by a clock: a STOP is not proposed
+while another unit is on its way down or has been down under STOP_GAP_S; a battery order is
+proposed only from idle (or to raise a charge by what is still being spilled, or to end one at
+the reserve or at the window's end), with bands between the levels that start and end it, and
+none in the quarter hour before the evening's own order. (The shortfall branches raise a
+discharge as an evening gap grows: each order is sized for the gap 20 min ahead.)
+
+  consequence(obs, target, {planview, dayAhead}) -> {target, text, level} | null
+    what a guarded press would do, said before it is made (C-10): target is
+    'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
+
+  steady(held, next, s) -> {line, seenS, sinceS}
+    the line as the desk shows it: a line whose deadline or figure moves with each forecast while
+    what it asks for and its other words stay the same is kept as it was said, and a quiet line
+    for STEADY_QUIET_S against another quiet line (the game holds `held`; the objective itself
+    stays pure, and the action a line carries is never held back or changed).
+```
+
+#### desk/desk.js
+
+```text
+desk/desk.js: the desk (desk/README.md §6, §13-§14.2; SPEC §4.2-§4.3, K-17 panel sizes).
+
+  const desk = createDesk(doc, root, actions, opts?);   // root: the #desk element the shell sizes; opts.annunSlot (Q-45)
+  desk.update(vm);          // every frame, after the ticks (reads the view model only, §5)
+  desk.key(ev);             // the shell forwards every keydown/keyup here first (§13.3); true = the desk acted
+  desk.focus(id);           // focus a desk control by its §5 id (also done when vm.focus changes)
+  desk.slots.stack          // the #stack-slot element the Live Stack (#stack) mounts into (render/livestack.js)
+  desk.el                   // the desk's own container
+
+Four columns at the 1280×300 floor (232 / 424 / 336 / 256 px + 8-px gutters): the frequency
+dial over the imbalance bar and N-1 gauge; the lever bank over the hydro wheel, battery dial,
+tie knob and the AGC / RE-DISPATCH keys; the Live Stack slot over the procedure bay; the
+message tray over the emergency row; the annunciator in the plan bar (§30.4). Every input goes through
+actions.input (never assumed accepted: refusals show on the control for a moment); the desk
+is locked while vm.mode.locked (the watch) except ACK and SILENCE. Time for guards, holds and
+the synchroscope's 8-s AUTO comes from vm.frame.nowMs (or opts.now), never from timers.
+
+Keys (K-23, §13.3). desk.key returns true exactly when it acted; the shell then stops. (D and E
+always return true: both holds are the desk's, so the shell never starts its own.)
+  desk.key (from anywhere):
+    1-8        focus COAL / CCGT / GT·A / GT·B / GT·C / hydro wheel / battery dial / tie knob
+    G          focus the GUARD ring            V   focus the AGC/HAND key
+    K          focus DIRECT SHED (while shown) N   RE-DISPATCH (as a press of its key)
+    O          open the first READY unit's synchroscope (an offered one first); again: close the scope
+    [ ] C U    slip lower / raise, close the breaker, auto-sync      B   the bypass key (HAND only)
+    R          the restore bay (focus its list)
+    A, Shift+A ACK, SILENCE                    D, E (hold 0.6 s)   industrial DR, reserve diesel
+    S S / X X  start / stop a machine of the focused station (guarded), P / Shift+P rejoin the plan (HAND)
+    Enter      presses the focused desk button (tiles, cards, guards, tabs, ...); not while the RESPOND card is up
+  The focused control, natively (it calls preventDefault, so the shell does nothing more):
+    lever        ↑↓ ±10 MW, Shift ±1 (Shift+↑ crosses the 96% gate), PgUp/PgDn detent, Home/End
+    hydro wheel  ←→ (or ↑↓) 1%, Shift 10%, PgUp/PgDn 10%, Home/End
+    battery dial ←→ mode CHARGE / IDLE / DISCHARGE, ↑↓ magnitude 50 MW, Shift 10, Ctrl 1, Home/End
+    GUARD ring   ←→ / ↑↓ one 50-MW detent, Home/End
+    tie knob     ←→ / ↑↓ 50 MW, Shift 10, Ctrl 1, PgUp/PgDn detent, Home/End
+    RERT, DR     Enter or Space held 0.6 s (RERT: the first press lifts the cover)
+    DIRECT SHED  Enter lifts the cover, Enter again within 2 s commits (or hold 0.6 s)
+    restore list ←→ / ↑↓ choose a district, Enter closes its breaker
+    tray         ←→ / ↑↓ move between the cards' buttons and LOG
+  T, M, L, Tab, Space, Esc, F and ? stay the shell's (app/keys.js).
+Foley (K-20): gestures emit actions.ui({do:'cue', name, pan}) on real changes only (ctx.cue).
+
+C-10 (Phase 2a, desk/README.md §19.5): the desk tells the shell which START / STOP guard the
+player is considering, actions.ui({do: 'consider', target: 'guard-start-<unit>' |
+'guard-stop-<unit>' | null}), and only when the answer changes. A lifted guard wins, then the
+focused one, then the hovered one; null when none. A commit counts as a drop. A lift made by
+key (S / X on a lever: nothing is hovered and the lever, not the guard, has the focus) is held
+CONSIDER_HOLD_MS after its cover drops, so a keyboard player has time to read what the press
+would do (the cover itself still drops after 2 s). "Focused" is the keyboard's focus: the
+focus a mouse click leaves on a guard is not counted (makeConsider says how), so after a
+pointer lift or commit the target clears when the pointer leaves. The shell shows vm.consider
+in the objective line; the desk only names the guard. After a new day (obs.tick going back)
+the target is sent again, because the shell clears its copy. K-3: a cover going up or down
+sends {do: 'armed', target, on}.
+```
+
+#### render/map.js
+
+```text
+render/map.js: the living isometric city map (desk/README.md §7, §14.3; SPEC G-1..G-5).
+One screen canvas; the scene is drawn on a fixed BASE_W x BASE_H offscreen canvas and
+blitted at an integer scale (render/mapdata.js scaleFor), letterboxed with the ground and
+sky colours, never sky under the ground. Reads the view model only (vm.obs, vm.mode,
+vm.hover, vm.glow, vm.alarms, vm.settings.reducedMotion). Math.random is cosmetic only (F-3).
+
+  const map = createMap(document, root, actions);   // root: the #map box
+  map.update(vm);                                   // every frame
+  map.key(ev);                                      // the shell forwards keys (§13.3); true when it acted
+
+What it shows
+  G-2  one silhouette per technology (shapes are data in mapdata.js PLANT_PARTS): coal =
+       hyperbolic cooling towers, banded stacks, a coal pile; CCGT = two boxy HRSGs with
+       stubby stacks; GTs = a shed and one stack each; hydro = a dam wall, a spillway and
+       penstocks; battery = rows of white containers; tie = tall lattice pylons marching off
+       the west edge; wind turbines on the ridge; solar rows on the plain. Labels on hover,
+       focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
+       target}); vm.hover rings the plant back. A click: see the click listener (Q-41).
+  G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
+       west; long warm light and long shadows at sunset; lit windows at night, as many as
+       the city is using (underlying demand). Rooftop PV
+       (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
+       layer, cached) and a glint on them each frame: per suburb, as bright as its output
+       over its capacity (cloud dims it) and as the light; never on a dark district, on a
+       relit one only as its inverters ramp back; a static pattern under reduced motion.
+  G-4  weatherOf(obs): heat = haze on the horizon + a bleached warm palette + shimmer;
+       storm = two layers of dark cloud, slanted rain and rain sheets, a darker ground,
+       turbines feathered at cut-out; cloud front = grey cloud and soft shadows drifting
+       over the suburbs. All three are drawn static under reduced motion.
+  G-5  a shed district goes dark block by block (90 ms each) and gets a hatched outline; a
+       tripped machine smokes, strobes red and carries a ✕ for its whole lockout; rotors slow
+       in the watch; the watch spotlight (B-5) dims everything but the cause.
+
+Keys (map focused; tabindex 0): ←/→ cycle the plants then the suburbs (sets the hover and
+shows the label), Home the first, Esc leaves.
+
+Cost: the sky, the terrain (with the plants), the city (with its rooftop panels) and the
+cloud strips are cached on their own canvases and redrawn only when the light bucket, the
+weather bucket or a district's dark blocks change; a frame is a few blits plus the moving
+parts. The glint is one path and one fill per suburb from typed arrays laid out once.
+```
+
+#### render/livestack.js
+
+```text
+render/livestack.js: the Live Stack (desk/README.md §7; SPEC §4.4, L-1..L-9, K-18).
+A desk screen: the next 4.5 h as a skyline of forecast demand (P50 + LIKELY RANGE band) on
+a fixed 0-9,000 MW axis, each source a coloured layer in P-6 cost order, red/amber gaps,
+ghosts for off units from their earliest-start line, and drag handles that write the plan
+(planKey / planStart / planDel / planUnbook through actions.input). Reads the view model
+only; the plan maths is app/planview.js.
+
+  const stack = createLiveStack(document, root, actions);   // once
+  stack.update(vm);                                         // every frame, after the ticks
+
+View-model inputs: vm.obs (with obs.plan), vm.mode.locked (read-only during the watch, L-7),
+vm.stackExpanded (L-4 overlay over the map), vm.hover / vm.glow (cross-highlight, L-9),
+vm.hist (past columns: {demand: [{s, mw}], rooftop: [{s, mw}], stations: {<layer id>: [{s, mw}]}},
+layer ids = station ids + wind, solar, tie (signed), battery (signed), rert, dr; absent: no past
+drawn; app/game.js sends column means with colFromS / colS instead: planview.pastFromHist reads both).
+
+Phase 2a, the belly (desk/README.md §21.5; shown always until the first-shift face of L-2, 2e):
+  L-2  the silhouette: a faint line at operational + rooftop above the operational skyline,
+       past columns included, and the rooftop bite between the two hatched sun-yellow (sparse
+       "\\\", no fill), with the word ROOFTOP in the big layout. Nothing is drawn while the
+       rooftop is under 1 MW (night; the CLASSIC scenario).
+  C-11 blue SURPLUS columns where proj.surplusMW > SURPLUS_MIN_MW (planview.blueRuns): what
+       will be spilled, standing on the demand line (over exports and charging) with a minimum
+       height, GAP_MARK.blue's pattern, glyph and word, and a hover line that says what to do.
+       Blue is never a kind in proj.gap.
+  P-9  the price through format.priceText; a negative price in its own colour, with the word SPILL
+       while power is being spilled now (wind.autoMW + solar.autoMW > SURPLUS_MIN_MW).
+
+Pointer: drag a key handle or a layer's top edge (a new key there) to (time, MW); drag an off
+unit's ghost sideways to book its START; drag a booked start below the axis to unbook it.
+Drops snap to 15 min / 50 MW; an infeasible drop shows the earliest-arrival ghost instead
+(click it or press Enter to take it); a click with no drag says what to drag. Keyboard (stack focused): 1-6 select COAL, CCGT, GT·A,
+GT·B, GT·C, HYDRO (again: that station's off-unit ghost), arrows move one snap step, Enter
+drops, Delete removes the selected key, Esc clears, L expands. The element listens for its
+own keys and stops them, so the handle needs no key() for the shell to forward (§13.3).
+
+K-22 (status is never colour only): a red gap (short of P50) is hatched "\\\" and carries a
+"!" over each run; an amber gap (inside the likely range) is hatched "///" and carries a "~";
+a blue surplus is barred "|||" and carries a "+" and, where the run is wide enough, the word
+SURPLUS (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture
+says (stackSummary: the gaps, then the surplus runs and the rooftop), refreshed at most once
+per real second.
+```
+
+#### app/keys.js
+
+```text
+app/keys.js: the K-23 key map for the game (next.html). app/input.js stays the bench's.
+
+createKeys() is a small state machine (S S / X X within 2 s, D / E / F holds); keyDown,
+keyUp and poll return ACTIONS, never touching the DOM or the sim:
+  {ui: {...}}           a presentation command (actions.ui)
+  {input: {...}}        a sim input (actions.input)
+  {redispatch: true}    RE-DISPATCH (actions.redispatch)
+bindKeys(doc, keys, getVm, run, now, route) attaches it to a document: the page's ONE key
+listener. Its order (desk/README.md §13.3), so that the same key never acts twice:
+  1. a key typed into a text field, or already consumed by a focused control (it called
+     preventDefault: the desk's controls handle their own arrows, S S and so on), or one the
+     shell says is not the game's (route.own: the settings popover's sliders), is left alone;
+     so is anything with Ctrl / Meta / Alt (browser shortcuts are never game keys);
+  2. route.first(ev) (the shell: Enter on the briefing card);
+  3. each module of route.chain() that has key(ev), in order: the desk, the Live Stack, the
+     map. The first that returns true used the key: preventDefault, stop;
+  4. this file's map, the fallback that makes every K-23 key work from anywhere.
+D and E holds are the desk's while a desk with key() is mounted (keys.holds = false): the
+fallback then neither times nor fires them.
+
+| 1-8                     focus COAL / CCGT / GT·A / GT·B / GT·C / hydro / battery / tie
+| ↑ ↓ (Shift fine), PgUp/PgDn   move the focused lever (±10 / ±1 MW, next detent) or wheel
+| S S / X X               START / STOP the focused station's next machine (guarded: twice in 2 s)
+| P                       rejoin the plan (HAND)
+| [ ] C U                 slip lower / raise, close the breaker, auto-sync (the open scope)
+| R                       restore bay (←/→ and Enter are the bay's own)
+| A, Shift+A              ACK, SILENCE
+| D, E (hold 0.6 s)       industrial DR, reserve diesel key
+| T, M, L, Tab            trip preview, tray (again: its LOG), Live Stack (again: expand), map
+| Space, Esc, F (hold)    pause, skip the watch (after a full one), fast (doing nothing: a blue toast says why)
+| Enter                   dismiss the respond card
+| ?                       the abstractions drawer; Shift+M mute
+| ,                       the SETTINGS popover (B-7)
+| W                       EXPLAIN: the alarm panel opens (the clock holds) or closes (Q-46)
+```
+
+#### app/alarms.js
+
+```text
+app/alarms.js: the K-8 annunciator model and the K-21 priority of each tile (Phase 1b:
+desk/README.md §11 B-1, B-2, B-3). Pure and DOM-free; desk/annunciator.js draws
+`alarmsView()` (vm.alarms).
+
+Twelve tiles (4 x 3). Phase 2a (desk/README.md C-9): MIN GEN is real (the dispatch is spilling
+wind and sun now); the MSL levels are tray cards (app/tray.js), not a thirteenth tile. Each has one BASE priority and a
+target control id (a click or Enter focuses it). Analogue tiles have separate set and clear
+thresholds (K-8), event tiles are set by what happened (a contingency, a UFLS stage, news).
+
+Escalation (B-1): UNDER FREQ and OVER FREQ are P2 tiles (`escalates: true`). While the
+frequency is outside the containment band (49.5-50.5 Hz) the tile is escalated: the view
+gives it `prio: 'P1'` and `escalated: true`, and it sounds the horn. An acknowledged tile
+that escalates flashes again (it is worse news than the one acknowledged).
+
+States (ISA-18.1 sequence R, ring-back, visual only; B-2): normal -> alarm (new: flashes
+fast, sounds by priority) -> ACK -> ackd (steady) -> condition clears -> normal (dark). An
+alarm that clears before ACK is 'cleared' (flashes slowly, the ring-back) until ACK returns
+it to normal. SILENCE stops the sound only. The flash rates are the desk's (2.5 / 0.8 Hz).
+
+Sound (K-21, B-3). A SOUNDING is one alarm sound started: the horn (the highest effective
+priority among the tiles that start it is P1) or one chime (P2); P3 tiles are silent here
+(their tray card makes the soft tick). One sounding per update at most. `a.audible` counts
+soundings (K-8's accept: "the competent proxy triggers <= 8 audible alarms per daily").
+RE-SOUNDS are the same alarm heard again and count in `a.repeats`, never in `a.audible`:
+  * the horn every HORN_REPEAT_S real s while a P1 alarm is unacknowledged and not silenced;
+  * one chime P2_REPEAT_S real s after a P2 tile sounded, if it is still unacknowledged
+    (and not silenced, and no horn is going);
+  * the horn starting on a tile that escalates inside its own hold-off (below).
+No tile starts a NEW sounding within RESOUND_HOLDOFF_S real s of its last one (K-8 accept):
+an alarm that sets again inside that window flashes at once and is held; if it is still
+unacknowledged when the window ends it sounds then. During the watch every sound is held
+the same way; tiles still unacknowledged sound once when the watch ends. So with the alarm
+panel open (ctx.hold, Q-46).
+
+Inputs: updateAlarms(a, x, ctx) reads a small snapshot `x` built by alarmInput(obs) in the
+game, or alarmInputFromState(state) in headless runs (tests; they must agree). Frequency
+extremes between two updates come from sampleTick() (called after every tick): a frame at
+120x spans ~100 ticks, and a dip below 49.85 Hz inside it must still set UNDER FREQ.
+```
 
 ### 31.9 After the contract review (workflow `wf_3f02ecb7-0c6`; these override §31.1–§31.7 where they differ)
 

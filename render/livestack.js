@@ -1,45 +1,5 @@
 // render/livestack.js: the Live Stack (desk/README.md §7; SPEC §4.4, L-1..L-9, K-18).
-// A desk screen: the next 4.5 h as a skyline of forecast demand (P50 + LIKELY RANGE band) on
-// a fixed 0-9,000 MW axis, each source a coloured layer in P-6 cost order, red/amber gaps,
-// ghosts for off units from their earliest-start line, and drag handles that write the plan
-// (planKey / planStart / planDel / planUnbook through actions.input). Reads the view model
-// only; the plan maths is app/planview.js.
-//
-//   const stack = createLiveStack(document, root, actions);   // once
-//   stack.update(vm);                                         // every frame, after the ticks
-//
-// View-model inputs: vm.obs (with obs.plan), vm.mode.locked (read-only during the watch, L-7),
-// vm.stackExpanded (L-4 overlay over the map), vm.hover / vm.glow (cross-highlight, L-9),
-// vm.hist (past columns: {demand: [{s, mw}], rooftop: [{s, mw}], stations: {<layer id>: [{s, mw}]}},
-// layer ids = station ids + wind, solar, tie (signed), battery (signed), rert, dr; absent: no past
-// drawn; app/game.js sends column means with colFromS / colS instead: planview.pastFromHist reads both).
-//
-// Phase 2a, the belly (desk/README.md §21.5; shown always until the first-shift face of L-2, 2e):
-//   L-2  the silhouette: a faint line at operational + rooftop above the operational skyline,
-//        past columns included, and the rooftop bite between the two hatched sun-yellow (sparse
-//        "\\\", no fill), with the word ROOFTOP in the big layout. Nothing is drawn while the
-//        rooftop is under 1 MW (night; the CLASSIC scenario).
-//   C-11 blue SURPLUS columns where proj.surplusMW > SURPLUS_MIN_MW (planview.blueRuns): what
-//        will be spilled, standing on the demand line (over exports and charging) with a minimum
-//        height, GAP_MARK.blue's pattern, glyph and word, and a hover line that says what to do.
-//        Blue is never a kind in proj.gap.
-//   P-9  the price through format.priceText; a negative price in its own colour, with the word SPILL
-//        while power is being spilled now (wind.autoMW + solar.autoMW > SURPLUS_MIN_MW).
-//
-// Pointer: drag a key handle or a layer's top edge (a new key there) to (time, MW); drag an off
-// unit's ghost sideways to book its START; drag a booked start below the axis to unbook it.
-// Drops snap to 15 min / 50 MW; an infeasible drop shows the earliest-arrival ghost instead
-// (click it or press Enter to take it); a click with no drag says what to drag. Keyboard (stack focused): 1-6 select COAL, CCGT, GT·A,
-// GT·B, GT·C, HYDRO (again: that station's off-unit ghost), arrows move one snap step, Enter
-// drops, Delete removes the selected key, Esc clears, L expands. The element listens for its
-// own keys and stops them, so the handle needs no key() for the shell to forward (§13.3).
-//
-// K-22 (status is never colour only): a red gap (short of P50) is hatched "\\\" and carries a
-// "!" over each run; an amber gap (inside the likely range) is hatched "///" and carries a "~";
-// a blue surplus is barred "|||" and carries a "+" and, where the run is wide enough, the word
-// SURPLUS (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture
-// says (stackSummary: the gaps, then the surplus runs and the rooftop), refreshed at most once
-// per real second.
+// Contract: desk/README.md §31.8 render/livestack.js.
 
 import {V} from '../sim/params.js';
 import * as PV from '../app/planview.js';

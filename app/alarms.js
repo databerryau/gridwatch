@@ -1,41 +1,7 @@
 // app/alarms.js: the K-8 annunciator model and the K-21 priority of each tile (Phase 1b:
 // desk/README.md §11 B-1, B-2, B-3). Pure and DOM-free; desk/annunciator.js draws
 // `alarmsView()` (vm.alarms).
-//
-// Twelve tiles (4 x 3). Phase 2a (desk/README.md C-9): MIN GEN is real (the dispatch is spilling
-// wind and sun now); the MSL levels are tray cards (app/tray.js), not a thirteenth tile. Each has one BASE priority and a
-// target control id (a click or Enter focuses it). Analogue tiles have separate set and clear
-// thresholds (K-8), event tiles are set by what happened (a contingency, a UFLS stage, news).
-//
-// Escalation (B-1): UNDER FREQ and OVER FREQ are P2 tiles (`escalates: true`). While the
-// frequency is outside the containment band (49.5-50.5 Hz) the tile is escalated: the view
-// gives it `prio: 'P1'` and `escalated: true`, and it sounds the horn. An acknowledged tile
-// that escalates flashes again (it is worse news than the one acknowledged).
-//
-// States (ISA-18.1 sequence R, ring-back, visual only; B-2): normal -> alarm (new: flashes
-// fast, sounds by priority) -> ACK -> ackd (steady) -> condition clears -> normal (dark). An
-// alarm that clears before ACK is 'cleared' (flashes slowly, the ring-back) until ACK returns
-// it to normal. SILENCE stops the sound only. The flash rates are the desk's (2.5 / 0.8 Hz).
-//
-// Sound (K-21, B-3). A SOUNDING is one alarm sound started: the horn (the highest effective
-// priority among the tiles that start it is P1) or one chime (P2); P3 tiles are silent here
-// (their tray card makes the soft tick). One sounding per update at most. `a.audible` counts
-// soundings (K-8's accept: "the competent proxy triggers <= 8 audible alarms per daily").
-// RE-SOUNDS are the same alarm heard again and count in `a.repeats`, never in `a.audible`:
-//   * the horn every HORN_REPEAT_S real s while a P1 alarm is unacknowledged and not silenced;
-//   * one chime P2_REPEAT_S real s after a P2 tile sounded, if it is still unacknowledged
-//     (and not silenced, and no horn is going);
-//   * the horn starting on a tile that escalates inside its own hold-off (below).
-// No tile starts a NEW sounding within RESOUND_HOLDOFF_S real s of its last one (K-8 accept):
-// an alarm that sets again inside that window flashes at once and is held; if it is still
-// unacknowledged when the window ends it sounds then. During the watch every sound is held
-// the same way; tiles still unacknowledged sound once when the watch ends. So with the alarm
-// panel open (ctx.hold, Q-46).
-//
-// Inputs: updateAlarms(a, x, ctx) reads a small snapshot `x` built by alarmInput(obs) in the
-// game, or alarmInputFromState(state) in headless runs (tests; they must agree). Frequency
-// extremes between two updates come from sampleTick() (called after every tick): a frame at
-// 120x spans ~100 ticks, and a dip below 49.85 Hz inside it must still set UNDER FREQ.
+// Contract: desk/README.md §31.8 app/alarms.js.
 
 import {V} from '../sim/params.js';
 import {hourOfDay} from '../sim/weather.js';
