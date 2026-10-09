@@ -2331,14 +2331,14 @@ levers:   (new, after day)
 - No field may derive from `ext` (S-4).
 
 **31.3.8 The app's side** (stage A, complete):
-- `G.ui {do: 'suburb', id}`: an id opens that card (or switches to it); the open card's own id
-  or `id: null` closes it; with no `id` key (H) it toggles: closed → open the suburb `vm.glow`
+- `G.ui {do: 'suburb', id}`: an id opens that card (or switches to it) and never closes it;
+  `id: null` closes it; with no `id` key (H) it toggles: closed → open the suburb `vm.glow`
   names (`suburb-<ID>`), else the last opened, else the first in city order. With the alarm
   panel open it closes the panel as GO TO does, then opens the card.
 - `G.ui {do: 'focus', target: 'suburb-<ID>'}` opens that card. The map's hover sends
   `{do: 'hover', target: 'suburb-<ID>'}`.
-- `vm.suburb`: the open card's id or `null`, cleared in `resetDay`. `vm.hist.flex`: past flex
-  per history column, a sibling of `vm.hist.stations` (never a station key). `vm.dayAhead`: the
+- `vm.suburb`: the open card's id or `null`, cleared in `resetDay`. (No `vm.hist.flex`:
+  dropped, §31.9.14.) `vm.dayAhead`: the
   game's latest forecast to 04:00 (`game.dayAhead`; `null` until the line first runs).
 - Ids (desk/README §5's list gains them): `suburb-<ID>` (a suburb on the map, and its card),
   `city-<ID>-soak`, `city-<ID>-aircon` (the card's presses), `suburb-card` (the container).
@@ -2813,7 +2813,7 @@ derived (S14); I3 and I3b (P2, S4/P1); `flexAt`'s signature (P6); the money form
 - `tests/state.test.js`: `OBS_SHAPE` (top level, `demand`, `forecast`, `levers`); the `levers`
   list paths (`levers.suburbs[]`, `.soak`, `.aircon`, `levers.blocks[]`, `.parts[]`) go in the DESK
   shape test with a block pushed into `state.levers.blocks` directly; repair its `demand` literal.
-- `tests/lib/vm-fixture.js`: `baseVm` gains `suburb: null, dayAhead: null`, `hist.flex: []`.
+- `tests/lib/vm-fixture.js`: `baseVm` gains `suburb: null, dayAhead: null`.
 - `tests/baseline-v4.test.js`: move the end-of-day hash assertion after the D-9 timing, so a
   hash-only change never hides S-4 pace or D-9 (one moved line, named in the report).
 - `app/perf.js` on demand: the `?debug` handle's `perf` becomes a getter; `tests/next.test.js`
@@ -2836,8 +2836,8 @@ derived (S14); I3 and I3b (P2, S4/P1); `flexAt`'s signature (P6); the money form
   ignores `ev.repeat`. Exception: a click on a dark suburb focuses the RESTORE bay and opens the
   card without taking the focus.
 - **Geometry (F3).** `#suburb-card`: `position: fixed; left: 32px` (clear of the map's "?");
-  `top: calc(var(--hdr) + 8px)`; `width: 400px`; `max-height` down to 8 px above `#planbar` (about
-  226 px at 1280×600); `overflow-y: auto` only as a last resort. The card's inner CSS is injected by
+  `top: calc(var(--hdr) + 8px)`; `width: 400px`; `max-height` down to 8 px above `#planbar` (194 px
+  at 1280×600, as built); `overflow-y: auto` only as a last resort. The card's inner CSS is injected by
   `app/suburbcard.js` (as `app/alarmpanel.js` does); `next.html` holds only the container rule.
 - `KIND_WORD.city` carries the route, e.g. `'◇ SUBURB (H)'` (a glyph the charset test allows),
   outside the line's 170 characters (F7); assert it beside the other `objectiveWord` checks.
