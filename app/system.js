@@ -72,7 +72,7 @@ export function commitSig(obs) {
   let dark = 0;
   for (const d of obs.districts) if (d.dark) dark++;
   const b = obs.battery;
-  return s + '|' + dark + (obs.tie.tripped ? 'T' : '') + '|' + b.mode + b.orderMW + (b.fullHold ? 'F' : '') + 'g' + b.guardMW;
+  return s + '|' + dark + (obs.tie.tripped ? 'T' : '') + '|' + b.mode + b.orderMW + (b.fullHold ? 'F' : '') + 'g' + b.guardMW + 'L' + obs.levers.rev; // 2b: a booking or cancel
 }
 
 function playerInputs(sys, state, s) {
