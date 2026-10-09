@@ -86,7 +86,6 @@ test('S-4 pace: at most one discrete action per 3 real s of the reference playba
   const clock = workClock();
   const r = runPar(SEED, CLASSIC);
   const secs = clock();
-  assert.equal(hex(hashState(r.state)), goldenRow(SEED).hash, 'runPar plays the golden\'s day on seed ' + SEED + ': ' + RERECORD);
   const conts = observe(r.state).contingencies;
   // 'plan' is the L-0 plan; 'replan' is par's re-dispatched schedule after an action (the
   // RE-PLAN, part of the action it follows: SPEC S-4 and §8.2). Every other input is a
@@ -126,6 +125,7 @@ test('S-4 pace: at most one discrete action per 3 real s of the reference playba
   }
   assert.ok(got <= limit, 'a par day costs ' + got.toFixed(2) + ' yardstick units per tick (' + secs.toFixed(2) + ' s here), budget ' +
     limit.toFixed(2) + ' (2 x 1.6 s on the owner\'s laptop)');
+  assert.equal(hex(hashState(r.state)), goldenRow(SEED).hash, 'runPar plays the golden\'s day on seed ' + SEED + ': ' + RERECORD);
 });
 
 test('v4 baseline: par\'s day on seed 4, by the tool\'s own parDay, gives section 3.1\'s row of tools/baseline-v4.golden.md, all 22 columns (shed, cost, the battery, H-8 containment probes from SECURE states, H-4 alarm agreement, end-of-day hash)', {timeout: 120000}, async () => {

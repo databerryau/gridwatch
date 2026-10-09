@@ -1718,3 +1718,32 @@ export function runPar(seed, scenario, opts) {
     log: state.log, origins, hashes, black: state.black, plan: memo.plan, state, memo,
   };
 }
+
+// ------------------------------------------------------------------ city levers (desk/README.md §31.3.10)
+
+// MW of knots [[s, mw], ...] at t: linear between them, 0 outside.
+function knotMW(kn, t) {
+  if (t <= kn[0][0] || t >= kn[kn.length - 1][0]) return 0;
+  let i = 1;
+  while (kn[i][0] < t) i++;
+  const a = kn[i - 1], b = kn[i];
+  return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
+}
+
+/** The atS to book suburb id's lever on forecast fc (lv = obs.levers), or -1: not now. Pure. */
+export function aimFlex(fc, lv, id, lever) {
+  const sub = lv.suburbs.find(x => x.id === id), L = sub && sub[lever];
+  if (!L || L.block !== '') return -1;
+  const soak = lever === 'soak', from = soak ? V.SOAK_FROM_S : V.AIRCON_FROM_S, to = soak ? V.SOAK_TO_S : V.AIRCON_TO_S;
+  let best = -1, bestMW = 0;
+  for (let k = 0; k < fc.n; k++) {
+    const t = fc.fromS + (k + 1) * fc.stepS;
+    if (t < from || t > to) continue;
+    let mw = fc.demandP50[k];
+    for (const b of lv.blocks) if (b.suburb === id && b.lever === lever) for (const p of b.parts) mw -= knotMW(p.knots, t);
+    if (best < 0 || (soak ? mw < bestMW : mw > bestMW)) { best = k; bestMW = mw; }
+  }
+  if (best < 0 || (best === fc.n - 1 && to > fc.fromS + fc.n * fc.stepS)) return -1;
+  const at = fc.fromS + (best + 1) * fc.stepS - (soak ? V.SOAK_S : V.AIRCON_S) / 2;
+  return Math.min(L.toS, Math.max(L.fromS, Math.round(at / V.FC_STEP_S) * V.FC_STEP_S));
+}

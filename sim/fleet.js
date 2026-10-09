@@ -88,7 +88,7 @@ export function buildCity(scn) {
       });
     }
   }
-  return {districts, shedFrac: 0, coldLoadMW: 0, lastRestoreS: -V.DAY_S, roofDarkMW: 0, roofOffMW: 0};
+  return {districts, shedFrac: 0, coldLoadMW: 0, lastRestoreS: -V.DAY_S, roofDarkMW: 0, roofOffMW: 0, flexDarkMW: 0};
 }
 
 /** A fresh per-second accumulator (README §5 "acc"). */

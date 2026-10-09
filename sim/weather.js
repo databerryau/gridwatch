@@ -332,6 +332,55 @@ export function sampleSecond(state) {
   env.exportLimitMW = exportLimitMW(h);
 }
 
+// ------------------------------------------------------------------ city flex (U-2, U-3; desk/README.md §31.3.5)
+
+const R = V.FLEX_RAMP_S, NF = V.SOAK_NIGHT_FROM_S, NT = V.SOAK_NIGHT_TO_S, AC = V.AIRCON_S;
+const SOAK_K = ['core', 'night'], AC_K = ['precool', 'core', 'snapback'];
+// MW per MW of the block: the night fall, pre-cool and snapback peaks (energies of §31.3.5)
+const NIGHT_X = (V.SOAK_S - R) / (NT - NF - R), PRE_X = V.PRECOOL_FRAC * (AC - R) / (V.PRECOOL_S - R);
+const SNAP_X = 2 * V.SNAPBACK_FRAC * (AC - R) / V.SNAPBACK_S;
+const PT = [0, 0, 0, 0, 0]; // scratch: part knot times t0..t3, then its MW
+
+// Part j of a block (lever, atS, MW m) into PT; returns its kind, or '' past the last.
+function part(lever, atS, m, j) {
+  const soak = lever === 'soak', k = (soak ? SOAK_K : AC_K)[j];
+  if (!k) return '';
+  let a = atS, d = atS + AC, v = 0 - m;
+  if (soak) { if (j) { a = NF; d = NT; v = 0 - m * NIGHT_X; } else { d = atS + V.SOAK_S; v = m; } }
+  else if (!j) { a = atS - V.PRECOOL_S; d = atS; v = m * PRE_X; }
+  else if (j === 2) { a = atS + AC; d = a + V.SNAPBACK_S; v = m * SNAP_X; }
+  PT[0] = a; PT[1] = a + R; PT[2] = k === 'snapback' ? a + R : d - R; PT[3] = d; PT[4] = v;
+  return k;
+}
+
+// MW of the part in PT at second s.
+function partMW(s) {
+  if (s <= PT[0] || s >= PT[3]) return 0;
+  return PT[4] * (s < PT[1] ? (s - PT[0]) / (PT[1] - PT[0]) : s <= PT[2] ? 1 : (PT[3] - s) / (PT[3] - PT[2]));
+}
+
+/** A block's parts as {kind, knots: [[s, mw], ...]}, on the 300-s lattice (U-3). */
+export function flexParts(b, effMW) {
+  const out = [];
+  for (let j = 0, k; (k = part(b.lever, b.atS, effMW, j)); j++) {
+    const kn = [[PT[0], 0], [PT[1], PT[4]], [PT[2], PT[4]], [PT[3], 0]];
+    if (PT[2] === PT[1]) kn.splice(2, 1);
+    out.push({kind: k, knots: kn});
+  }
+  return out;
+}
+
+/** Flex MW at s of `blocks` in their order; '' filters nothing. Allocates nothing. */
+export function flexAt(blocks, s, suburb = '', kind = '', lever = '') {
+  let mw = 0;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if ((suburb && b.suburb !== suburb) || (lever && b.lever !== lever)) continue;
+    for (let j = 0, k; (k = part(b.lever, b.atS, b.effMW, j)); j++) if (!kind || k === kind) mw += partMW(s);
+  }
+  return mw;
+}
+
 // ------------------------------------------------------------------ forecast (stage B: events)
 
 function announced(state, kind) {
@@ -481,7 +530,7 @@ export function forecast(state, horizonS, stepS) {
   const sm = state.smelter;
   const smPending = !sm.returning && sm.returnS > s0 && sm.loadMW < V.SMELTER_MW - V.MW_EPS;
   const out = {fromS: s0, stepS, n, demandP50: [], demandP10: [], demandP90: [], windMW: [], solarMW: [],
-    neighbourPrice: [], exportLimitMW: [], underlyingP50: [], rooftopMW: []};
+    neighbourPrice: [], exportLimitMW: [], underlyingP50: [], rooftopMW: [], flexMW: []};
   let dev = env.underlyingMW - underlyingBaseMW(scn, day, env.h) * heatMultAt(heat, s0);
   let wind = env.windFrac, clear = env.clearness, varOU = 0, decay = 1, t = s0;
   // Rooftop (P-2, C-5): the suburbs' capacity-weighted clearness now, and the cloud process.
@@ -543,6 +592,7 @@ export function forecast(state, horizonS, stepS) {
     out.exportLimitMW.push(exportLimitMW(h));
     out.underlyingP50.push(under);
     out.rooftopMW.push(roofMW);
+    out.flexMW.push(0); // 2b stage A: zero columns
   }
   return out;
 }

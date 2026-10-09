@@ -189,6 +189,8 @@ export const CLASSIC = {
     rotation: ['SOL3', 'HAZ4', 'RED5', 'HAR3', 'TAL3', 'SAL4', 'SOL4', 'HAZ5', 'RED6', 'HAR4', 'TAL4', 'SAL5', 'SOL5',
       'RED7', 'TAL5', 'SAL6'],
   },
+
+  levers: null, // U-2: no city levers on the classic day
 };
 
 // Deep-frozen: a test or tool that edits a scenario in place would leak into every later
@@ -239,6 +241,19 @@ export const DESK = Object.assign({}, CLASSIC, {
     note: 'table: the classic (hot-day) temperatures (' + LEG + ' L286), which also drive P-3\'s cooling load on MILD days. mildTable: what a MILD day displays (desk/README.md C-3): game values, display only.',
     table: [[0, 26], [4, 23], [6, 22], [9, 27], [12, 32], [15, 35], [17, 36], [19, 33], [22, 29], [24, 26]],
     mildTable: [[0, 19], [4, 16], [6, 15], [9, 19], [12, 23], [15, 25], [17, 25], [19, 23], [22, 20], [24, 19]],
+  },
+  levers: {
+    simplified: true,
+    note: 'U-1 lever MW and start patience (game values); menu: Q-51.',
+    menu: {MILD: ['soak'], HOT: ['soak', 'aircon']},
+    suburbs: [
+      {id: 'SOL', soakMW: 60, airconMW: 25, patience: 70},
+      {id: 'HAZ', soakMW: 140, airconMW: 15, patience: 90},
+      {id: 'RED', soakMW: 110, airconMW: 45, patience: 60},
+      {id: 'HAR', soakMW: 20, airconMW: 40, patience: 50},
+      {id: 'TAL', soakMW: 90, airconMW: 15, patience: 40},
+      {id: 'SAL', soakMW: 60, airconMW: 10, patience: 80},
+    ],
   },
 });
 

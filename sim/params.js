@@ -461,6 +461,28 @@ export const P = {
   PAR_COAL_MSL2_H: src(3, 'h', 'S-14 rule 4 (desk/README.md C-12): par decommits a coal machine only if MSL2 is forecast for at least 3 h (and the evening holds N-1 without it). Counted over the 4.5-h forecast\'s 5-minute columns at or below MSL2_MW (+ MSL_TIE_OUT_MW in a column where the tie is still out, as the MSL notice counts it): 36 of the 54, not necessarily in one run; the present second is not a column and is not counted.'),
   PAR_COAL_STOPS_DAY: simp(1, 'stops per day', 'S-14 rule 4 says "a coal machine": par stops at most this many coal machines in a day. A machine stopped at 10:00 is not back at minimum load before 21:14 (T4, the 8-h minimum down time from breaker open to the next START, then T1, auto-sync and T2), so a second stop is a different decision that the rule does not make.'),
   // ---- phase 2a "par" block: end
+  //
+  // ---- phase 2b "levers" block: begin (desk/README.md §31; the reasons are in §31.1)
+  FLEX_RAMP_S: simp(900, 's', 'Switch-on diversity; trials randomise 15-60 min'),
+  SOAK_FROM_H: src(10, 'h', 'SAPN solar sponge window'),
+  SOAK_TO_H: src(15, 'h', 'SAPN solar sponge window'),
+  SOAK_S: simp(14400, 's', '4 h x 480 MW: about U-2\'s 1.9-GWh cap'),
+  SOAK_NIGHT_FROM_H: simp(22, 'h', 'Night heating, inside the sim day'),
+  SOAK_NIGHT_TO_H: simp(28, 'h', 'Night heating, inside the sim day'),
+  AIRCON_FROM_H: simp(15, 'h', 'Relief window'),
+  AIRCON_TO_H: simp(21, 'h', 'Relief window'),
+  AIRCON_S: src(5400, 's', 'U-2 (relief <= 1.5 h)'),
+  PRECOOL_S: src(3600, 's', 'U-2', UNVERIFIED),
+  PRECOOL_FRAC: src(0.5, 'x relief energy', 'U-2', UNVERIFIED),
+  SNAPBACK_S: src(5400, 's', 'SDG&E 2008 / SCE 2019 (17-50%)'),
+  SNAPBACK_FRAC: src(0.4, 'x relief energy', 'SDG&E 2008 / SCE 2019 (17-50%)'),
+  PATIENCE_AIRCON: simp(10, 'patience', 'U-4 (game)'),
+  PATIENCE_REPEAT: simp(5, 'patience', 'U-4 (game)'),
+  PATIENCE_FULL: simp(50, 'patience', 'U-4 (game)'),
+  PATIENCE_LOCK: simp(25, 'patience', 'U-4 (game)'),
+  SOAK_PRICE: simp(0, '$/MWh', 'U-6'),
+  AIRCON_PRICE: simp(400, '$/MWh', 'U-6'),
+  // ---- phase 2b "levers" block: end
 };
 
 // ------------------------------------------------------------------ plain values
@@ -497,6 +519,7 @@ v.DAY_TICKS = v.DAY_S * v.TICKS_PER_S;
 v.SERIES_LEN = v.DAY_S / v.SERIES_STEP_S + 1;
 v.PLAYER_START_S = (v.PLAYER_START_H - v.DAY_START_H) * S_PER_H;
 v.PLAYER_START_TICK = v.PLAYER_START_S * v.TICKS_PER_S;
+for (const k of ['SOAK_FROM', 'SOAK_TO', 'SOAK_NIGHT_FROM', 'SOAK_NIGHT_TO', 'AIRCON_FROM', 'AIRCON_TO']) v[k + '_S'] = (v[k + '_H'] - v.DAY_START_H) * S_PER_H;
 
 // Stations keyed by id, and one row per machine with everything the hot loops need
 // precomputed (per-second ramp, H x S, dead time in ticks, lag coefficient, bands).

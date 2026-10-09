@@ -235,6 +235,8 @@ function stepUnit(state, i, out) {
 
 // ------------------------------------------------------------------ applyCommand
 
+const NOT_OFFERED = 'not offered today'; // 2b: city levers (sim/README.md §6)
+
 /** District index by id, or -1. */
 function districtIndex(state, id) {
   const ds = state.city.districts;
@@ -490,9 +492,20 @@ export function applyCommand(state, cmd, out) {
       log(state, out, 'crit', 'DIRECT_SHED', 'DIRECT SHED: district ' + state.city.districts[d].id + ' off supply.');
       return '';
     }
+    case 'flex': case 'flexDel': return state.scn.levers ? STAGE : NOT_OFFERED; // 2b stage A
     default:
       return 'unknown command';
   }
+}
+
+const STAGE = 'levers are wired in wave 1';
+/** observe().levers.suburbs[j].soak / .aircon: {mw, cost, fromS, toS, block} (desk/README.md §31.3.7). */
+export function leverView(state, j, lever) { // eslint-disable-line no-unused-vars
+  return {mw: 0, cost: 0, fromS: -1, toS: -1, block: STAGE};
+}
+/** observe().levers.blocks[].del: '' when a flexDel of block b would be accepted now, else the refusal. */
+export function flexDelBlock(state, b) { // eslint-disable-line no-unused-vars
+  return STAGE;
 }
 
 // ------------------------------------------------------------------ unitsSecond

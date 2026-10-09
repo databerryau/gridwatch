@@ -173,12 +173,12 @@ const OBS_SHAPE = {
   '': ['v', 'scenarioId', 'tick', 's', 'clock', 'over', 'black', 'mode', 'modeLocked', 'inWatch', 'inRespond', 'f',
     'balance', 'demand', 'units', 'stations', 'battery', 'tie', 'wind', 'solar', 'sky', 'hydro', 'dr', 'rert', 'smelter', 'sec',
     'fos', 'agc', 'price', 'score', 'districts', 'news', 'contingency', 'contingencies', 'forecast', 'dayAhead', 'plan', 'scope',
-    'rooftop', 'msl', 'day'],
+    'rooftop', 'msl', 'day', 'levers'],
   clock: ['h', 'hh', 'mm', 'ss', 'text'],
   f: ['hz', 'devHz', 'rocofHzS', 'ekGWs'],
   balance: ['schedSupplyMW', 'supplyMW', 'servedMW', 'loadMW', 'imbalanceMW', 'inertiaMW', 'governorsMW', 'batteryPfrMW',
     'guardMW', 'loadReliefMW', 'shedMW', 'renPfrMW', 'roofPfrMW'],
-  demand: ['nowMW', 'servedMW', 'shedMW', 'heatActive', 'tempC', 'underlyingMW', 'rooftopMW', 'litMW', 'unservedMW'],
+  demand: ['nowMW', 'servedMW', 'shedMW', 'heatActive', 'tempC', 'underlyingMW', 'rooftopMW', 'litMW', 'unservedMW', 'flexMW'],
   sky: ['clearness', 'windFrac'],
   'units[]': ['id', 'station', 'name', 'cls', 'mode', 'sync', 'timerS', 'outMW', 'schedMW', 'basePointMW', 'agcTrimMW',
     'govMW', 'availMW', 'minMW', 'ratingMW', 'rampMWMin', 'offer', 'startToMinS', 'hotS', 'starts', 'upForS', 'downForS',
@@ -211,7 +211,7 @@ const OBS_SHAPE = {
   'contingency.caught': ['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW', 'inverterMW'],
   'contingencies[]': ['n', 'startS', 'cause', 'id', 'lostMW', 'watchEndS', 'backInBandS'],
   forecast: ['fromS', 'stepS', 'n', 'demandP50', 'demandP10', 'demandP90', 'windMW', 'solarMW', 'neighbourPrice', 'exportLimitMW',
-    'underlyingP50', 'rooftopMW'],
+    'underlyingP50', 'rooftopMW', 'flexMW'],
   // Phase 1a (desk/README.md §3): the plan in state and the synchroscope.
   plan: ['madeAtS', 'rev', 'stations', 'tie', 'starts', 'stops'],
   'plan.stations[]': ['id', 'man', 'doneS', 'clampedMW', 'keys'],
@@ -225,6 +225,16 @@ const OBS_SHAPE = {
   'rooftop.suburbs[]': ['id', 'mw', 'capMW', 'clearness'],
   msl: ['level', 'minMW', 'atS', 'sinceS'],
   day: ['temp', 'weekend'],
+  // 2b (desk/README.md §31.3.7): the city levers; its lists are empty on CLASSIC (LEVER_SHAPE: the DESK test).
+  levers: ['rev', 'offered', 'suburbs', 'blocks'],
+};
+const LV_KEYS = ['mw', 'cost', 'fromS', 'toS', 'block'];
+const LEVER_SHAPE = {
+  'levers.suburbs[]': ['id', 'patience', 'soak', 'aircon'],
+  'levers.suburbs[].soak': LV_KEYS,
+  'levers.suburbs[].aircon': LV_KEYS,
+  'levers.blocks[]': ['suburb', 'lever', 'atS', 'endS', 'effMW', 'cost', 'del', 'parts'],
+  'levers.blocks[].parts[]': ['kind', 'knots'],
 };
 
 test('README §8: the observe() shape is frozen (every key list, including dayAhead and a contingency)', async () => {
@@ -519,16 +529,21 @@ test('README §8 (DESK): the same frozen shape on a day with rooftop, and the Ph
   const s = goTo(createState(8, DESK), 7 * 3600); // 11:00 on a MILD day (its potline trips at 12:23)
   s.city.roofOffMW = 120; s.city.roofDarkMW = 80; s.phys.roofPfrMW = 40; s.phys.renPfrMW = 7; s.city.shedFrac = 0.06; // as the grid job will keep them
   s.msl = {level: 2, minMW: 1287.4, atS: 33000, sinceS: 32100};
+  s.levers.blocks.push({suburb: 'HAZ', lever: 'soak', atS: 23400, endS: 23400 + V.SOAK_S, effMW: 140, cost: 0}); // 2b: a block, so every list has an entry
+  s.levers.rev += 1;
   const o = observe(s, {dayAhead: true}), e = s.env, roof = s.scn.rooftop;
-  for (const path of ['', 'balance', 'demand', 'wind', 'solar', 'score', 'districts[]', 'forecast', 'rooftop', 'rooftop.suburbs[]', 'msl', 'day']) {
+  const shape = Object.assign({}, OBS_SHAPE, LEVER_SHAPE);
+  for (const path of ['', 'balance', 'demand', 'wind', 'solar', 'score', 'districts[]', 'forecast', 'rooftop', 'rooftop.suburbs[]', 'msl', 'day',
+    ...Object.keys(OBS_SHAPE).filter(k => k.startsWith('levers')), ...Object.keys(LEVER_SHAPE)]) {
     const obj = path === '' ? o : path.split('.').reduce((x, k) => (k.endsWith('[]') ? x[k.slice(0, -2)][0] : x[k]), o);
-    assert.deepEqual(Object.keys(obj), OBS_SHAPE[path], 'obs.' + (path || '(top)'));
+    assert.deepEqual(Object.keys(obj), shape[path], 'obs.' + (path || '(top)'));
   }
   assert.deepEqual(Object.keys(o.dayAhead), OBS_SHAPE.forecast);
   assert.ok(e.rooftopMW > 2500, 'a sunny morning: ' + e.rooftopMW);
   assert.deepEqual(o.demand, {nowMW: e.demandMW, servedMW: s.phys.servedMW, shedMW: s.phys.shedMW, heatActive: false, tempC: e.tempC,
-    underlyingMW: e.underlyingMW, rooftopMW: e.rooftopMW, litMW: litDemandMW(s), unservedMW: (e.demandMW + e.rooftopMW) * 0.06});
-  assert.equal(o.demand.nowMW, o.demand.underlyingMW - o.demand.rooftopMW - (V.SMELTER_MW - o.smelter.loadMW), 'P-1 holds in obs');
+    underlyingMW: e.underlyingMW, rooftopMW: e.rooftopMW, litMW: litDemandMW(s), unservedMW: (e.demandMW + e.rooftopMW - e.flexMW) * 0.06,
+    flexMW: e.flexMW});
+  assert.equal(o.demand.nowMW, o.demand.underlyingMW + o.demand.flexMW - o.demand.rooftopMW - (V.SMELTER_MW - o.smelter.loadMW), 'P-1 holds in obs');
   assert.deepEqual([o.balance.renPfrMW, o.balance.roofPfrMW], [7, 40]);
   assert.deepEqual(o.rooftop, {mw: e.rooftopMW - 120 - 40, availMW: e.rooftopMW, capMW: 5000, offMW: 120,
     suburbs: s.scn.city.suburbs.map((sub, j) => ({id: sub.id, mw: e.roofSubMW[j], capMW: 5000 * roof.share[j], clearness: e.roofClearFrac[j]}))});
