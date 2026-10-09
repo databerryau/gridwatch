@@ -274,7 +274,10 @@ Control and target ids (stable; tiles, tray buttons and glow sets use them):
 `lever-coal lever-ccgt lever-gta lever-gtb lever-gtc wheel-hydro dial-battery ring-guard
 knob-tie key-rert btn-dr key-shed key-agc btn-redispatch guard-start-<unit>
 guard-stop-<unit> bay-sync bay-restore gauge-n1 dial-freq bar-imbalance annunciator tray
-stack map`.
+stack map suburb-<ID> suburb-card city-<ID>-soak city-<ID>-aircon`.
+
+2b (§31.3.8): `suburb-<ID>` is a suburb on the map and its card (bare id `HAZ` in `vm.suburb`),
+`suburb-card` the card itself, `city-<ID>-soak` and `city-<ID>-aircon` the card's presses.
 
 ---
 
@@ -569,6 +572,7 @@ every control needs a keyboard route and a way to reach it:
 | Live Stack | L (again: expand); number selects a layer, arrows move one snap step, Enter drops (L-4, already there) | — |
 | map | Tab from the stack, or focus; ←→ cycles plants and suburbs (sets the hover cross-highlight and shows the label), Esc leaves | — |
 | settings | `,` | native sliders and checkboxes |
+| suburb card (2b, Q-56) | H (opens the line's or the hovered suburb, else the last, else the first; again: closes), or a click on a suburb | its own arrows, Enter, Tab; Esc or H closes |
 
 Free letters the desk agent may claim for new routes: G, O, B, K, V, N. Document every key in
 the file header and in `aria-keyshortcuts`. The shell forwards every key to `desk.key` first,
@@ -915,6 +919,7 @@ through `content/text.js` entries with `params` paths.
 * capacityShort(obs, fc = obs.forecast)         // any forecast-shaped object
 * objective(obs, ctx): ctx += dayAhead          // observe(state, {dayAhead: true}).dayAhead, on the objective's 30-s cadence
 * vm.objective += kind, long                    // kind: 'watch' | 'held' | 'short' | 'commit' | 'restore' | 'spare' | 'stop' | 'battery' | 'quiet'
+                                                //   | 'city' (2b, Q-59: the city levers; KIND_WORD '◇ SUBURB (H)')
                                                 // long: {atS, endS, mw} | null, the spill ahead (PV.blueRuns(proj)[0])
   vm.objective.action += {type: 'stop', unit} | {type: 'battery', mode, mw} | {type: 'standDownRERT'}   (sim inputs; the game never sends them)
 * vm.consider = {target, text, level} | null    // C-10; level 'plan' | 'crit'; shown in #objective in place of the objective, word '? IF PRESSED'
@@ -2738,6 +2743,7 @@ fallback then neither times nor fires them.
 | ?                       the abstractions drawer; Shift+M mute
 | ,                       the SETTINGS popover (B-7)
 | W                       EXPLAIN: the alarm panel opens (the clock holds) or closes (Q-46)
+| H                       the suburb card opens or closes (Q-56; a held H does not repeat)
 ```
 
 #### app/alarms.js

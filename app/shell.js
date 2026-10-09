@@ -48,7 +48,7 @@ const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CA
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
 // Q-46 (§30.3.6): the alarm panel's own keys inside it; the keys that never close it (F: refused, FAST_WAIT).
-const PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaAfF?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
+const SUB = /^suburb-/, PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaAfF?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
 /** The CRT switch's title and answer while REDUCED EFFECTS is on (it is greyed). */
 export const CRT_OFF = 'CRT is off while REDUCED EFFECTS is on';
 
@@ -72,6 +72,7 @@ const KIND_WORD = Object.freeze({
   battery: {plan: '◇ BATTERY', act: '▶ BATTERY', crit: '▶ BATTERY'},
   spare: {plan: '◷ SPARE', crit: '▶ ACT NOW'},
   restore: {plan: '◷ DARK', crit: '▶ ACT NOW'},
+  city: {plan: '◇ SUBURB (H)', act: '▶ SUBURB (H)', crit: '▶ SUBURB (H)'}, // Q-59
 });
 /** The word beside a consequence line (C-10): what a guarded press would do. */
 export const CONSIDER_WORD = '? IF PRESSED';
@@ -185,7 +186,7 @@ const SET_CHECKS = {reducedMotion: 'set-rm', reducedEffects: 'set-fxlow', crt: '
  *   raf: false to skip startRaf (tests call handle.frame(dtS) themselves). matchMedia: the
  *   system's prefers-reduced-motion is read through it (default: globalThis.matchMedia when
  *   present; null: no system preference).
- *   text, alarmPanel, endCard (Q-44, §30.9), perf (Q-49, ?perf only): the module (tests), a loader of it, or absent: imported on first need.
+ *   text, alarmPanel, endCard (Q-44, §30.9), perf (Q-49, ?perf only), suburbCard: the module (tests), a loader of it, or absent: imported on first need.
  * @returns {object} handle {game, actions, frame(dtS), vm(), audio, mods, keys, perf, live, loadText(), closeTop(), unbind()}
  */
 export function bootGame(doc, deps) {
@@ -211,17 +212,20 @@ export function bootGame(doc, deps) {
   // ---------------------------------------------------------------- actions (desk/README.md §4)
   const base = G.makeActions(game);
   let opener = null; // Q-46: the focus when the alarm panel opened
+  let cardFrom = null, cardShown = null; // Q-56: the suburb card's opener, and whose focus it took
   const actions = {
     input: x => { const r = base.input(x); if (r) showToast('Refused: ' + r); return r; },
     redispatch: () => { const r = base.redispatch(); if (r) showToast('RE-DISPATCH: ' + r); return r; },
     ui: cmd => {
       const inTray = cmd && cmd.do === 'tray' && $('tray') && $('tray').contains(doc.activeElement);
-      const wasOpen = !!game.ui.alarmsOpen;
+      const wasOpen = !!game.ui.alarmsOpen, wasCard = game.ui.suburb;
       if (cmd && cmd.do === 'alarms' && !wasOpen) opener = doc.activeElement;
       const r = base.ui(cmd);
       if (cmd) answer(cmd, r, inTray);
-      if (cmd && cmd.do === 'focus' && cmd.target) focusEl(cmd.target);
+      if (!wasCard && game.ui.suburb) cardFrom = doc.activeElement;
+      if (cmd && cmd.do === 'focus' && cmd.target && !r) focusEl(cmd.target);
       else if (cmd && wasOpen && !game.ui.alarmsOpen) focusAfterPanel(cmd);
+      if (wasCard && !game.ui.suburb) cardBack();
       if (cmd && (cmd.do === 'drawer')) drawDrawer();
       if (cmd && (cmd.do === 'settings' || cmd.do === 'set' || cmd.do === 'mute')) drawSettings(G.settingsView(game), game.ui.settingsOpen);
       return r;
@@ -242,6 +246,7 @@ export function bootGame(doc, deps) {
       else if (m.mode === 'PAUSE') say('FAST needs the clock running: Space');
     }
     if (cmd.do === 'skipWatch' && r && m.mode === 'WATCH') say('The first watch plays through: Esc skips from the next trip');
+    if (r && /^(suburb|focus|alarmsGoto)$/.test(cmd.do)) say(r);
     // M: onto the tray's newest message; M again (the keys in the tray): its LOG opens or closes.
     if (cmd.do === 'tray') {
       const log = $('btn-log');
@@ -250,6 +255,7 @@ export function bootGame(doc, deps) {
   }
 
   function focusEl(id) {
+    if (SUB.test(id)) { cardShown = null; return; }
     let el = $(id);
     // A box a browser cannot focus (#map: no tabindex) hands the focus to its focusable child
     // (the map's .citymap, which takes the keys).
@@ -488,6 +494,29 @@ export function bootGame(doc, deps) {
     try { panel.update(v); if (!panelShown) { panelShown = true; panel.focus(); } } catch (e) { err('alarm panel', e); }
   }
 
+  // Q-56 (§31.9.1, §31.9.3; a dark suburb's click: RESTORE keeps the focus)
+  let card = null, cardState = '';
+  function drawSuburbCard(v) {
+    const box = $('suburb-card'), on = !!v.suburb && !v.mode.locked;
+    if (!box) return;
+    if (box.hidden === on) box.hidden = !on;
+    if (!on) { if (!v.suburb) cardShown = null; if (box.contains(doc.activeElement)) doc.activeElement.blur(); return; }
+    if (!cardState) {
+      cardState = 'loading';
+      box.textContent = 'Loading…';
+      lazy(o.suburbCard, () => import('./suburbcard.js'), m => { box.replaceChildren(); card = m.createSuburbCard(doc, box, actions, {toast: showToast, loadText, toggleHelp}); },
+        e => { box.textContent = 'The suburb card could not be loaded. Esc or H closes it.'; err('suburb card', e); });
+    }
+    if (!card) return;
+    try { card.update(v); if (cardShown !== v.suburb) { cardShown = v.suburb; if (!within('bay-restore', doc.activeElement)) card.focus(); } } catch (e) { err('suburb card', e); }
+  }
+  function cardBack() {
+    const n = cardFrom, a = doc.activeElement;
+    if (!within('suburb-card', a)) return;
+    a.blur();
+    if (n && n !== doc.body) shown(n) ? n.focus() : focusEl('map');
+  }
+
   // ---------------------------------------------------------------- overlays
   /** kind 'info': an answer to a press that did nothing (blue, Q-41); else a refusal (red). */
   function showToast(text, kind) {
@@ -692,7 +721,7 @@ export function bootGame(doc, deps) {
     if (mods.stack) timed('stack', () => mods.stack.update(vm));
     timed('shell', () => {
       drawHeader(vm); drawObjective(vm); drawSettings(vm.settings, vm.settingsOpen); drawWatch(vm); drawRespond(vm); drawEnd(vm); placeStack(vm);
-      drawAlarmPanel(vm);
+      drawAlarmPanel(vm); drawSuburbCard(vm);
       announce(vm, t1);
       const b = $('briefing-card');
       if (b) b.hidden = vm.phase !== 'briefing';
@@ -721,11 +750,12 @@ export function bootGame(doc, deps) {
     else if (a.redispatch) actions.redispatch();
   }
 
-  // Q-47: Esc closes the top-most first: popover, SETTINGS, drawer, alarm panel, a desk note (W2).
+  // Q-47: Esc closes the top-most first: popover, SETTINGS, drawer, alarm panel, suburb card, a desk note (W2).
   function closeTop() {
     const pop = $('popover'), u = game.ui, d = mods.desk;
     if (pop && !pop.hidden) closePopover();
     else if (u.settingsOpen || u.drawer || u.alarmsOpen) actions.ui(u.settingsOpen ? {do: 'settings', on: false} : u.drawer ? {do: 'drawer', on: false} : {do: 'alarms', on: false});
+    else if (u.suburb && !modeOf(game.director, game.state).locked) actions.ui({do: 'suburb', id: null});
     else return !!(d && d.closeHelp && d.closeHelp());
     return true;
   }
@@ -751,7 +781,8 @@ export function bootGame(doc, deps) {
     run(a);
   }, now, {
     // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
-    own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') || ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)),
+    own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
+      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target) || within('suburb-card', ev.target)) && PANEL_OWN.test(ev.key)),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
     first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
     chain: () => [mods.desk, mods.stack, mods.map],

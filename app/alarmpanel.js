@@ -27,6 +27,7 @@
 // tests/alarmpanel.test.js checks all of it.
 
 import {ALARM_HELP} from '../content/alarmhelp.js';
+import {CLASSIC} from '../content/scenarios.js';
 import {STATION_SHORT, unitLabel, clockOf, setText, setAttr, setCls} from '../desk/util.js';
 
 const COLS = 4, NOTE_MS = 4000;
@@ -37,11 +38,12 @@ export const READOUT = /^(dial-freq|bar-imbalance|gauge-n1|annunciator)$/;
 // GO TO <the control as the desk labels it> (desk/README.md §5 ids)
 const NAMES = {stack: 'LIVE STACK', tray: 'MESSAGES', 'dial-battery': 'BATTERY', 'ring-guard': 'GUARD ring', 'wheel-hydro': 'HYDRO wheel',
   'knob-tie': 'TIE knob', 'bay-restore': 'RESTORE bay', 'bay-sync': 'SYNC bay', 'btn-redispatch': 'RE-DISPATCH', 'btn-dr': 'DR',
-  'key-rert': 'reserve diesel', 'key-shed': 'DIRECT SHED', map: 'map'};
+  'key-rert': 'reserve diesel', 'key-shed': 'DIRECT SHED', map: 'map', 'suburb-card': 'SUBURBS'};
 /** The name GO TO gives a control id. */
 export function controlName(id) {
   const m = /^(lever|guard-start|guard-stop)-(\w+)$/.exec(id || '');
-  return NAMES[id] || (!m ? String(id) : m[1] === 'lever' ? (STATION_SHORT[m[2]] || m[2]) + ' lever' : (m[1] === 'guard-stop' ? 'STOP ' : 'START ') + unitLabel(m[2]));
+  const sb = CLASSIC.city.suburbs.find(s => 'suburb-' + s.id === id); // (Q-56: suburb-<ID>, by its name)
+  return NAMES[id] || (sb ? sb.name : !m ? String(id) :m[1] === 'lever' ? (STATION_SHORT[m[2]] || m[2]) + ' lever' : (m[1] === 'guard-stop' ? 'STOP ' : 'START ') + unitLabel(m[2]));
 }
 /** The plan line's first control (not a readout) while it asks to act now (▶ ACT NOW, ‼ URGENT: app/shell.js objectiveWord), else null. */
 export const planTarget = o => (o && (o.level === 'act' || o.level === 'crit') && o.kind !== 'watch' && o.kind !== 'battery' &&
