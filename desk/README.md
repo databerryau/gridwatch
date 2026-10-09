@@ -2986,3 +2986,49 @@ nothing draws past bands in 2b). The integrator merges both, runs `node --test` 
    cycles, and its ALL-IN against par on mild spill days (Q-58's "+5").
 4. `node tools/perf.mjs`; `node --test` once (< 60 s).
 5. The golden (§31.9.13); one browser pass, one pane, at 1280×600, 1280×720 and 1920×1080.
+
+### 31.11 Round 1 record (2026-10-09) and what changes for wave 2
+
+Round 1 (workflow `wf_d912efc0-9ec`) merged as `682c32a` (`sim`: builder, two reviewers, a fix
+pass; 9 findings, 8 fixed, 1 handed to the integrator) and `a1da41f` (`app`: 13 findings, 10
+fixed, 2 rejected, 1 contract text). `v4-core-2b.0`, golden re-recorded (`a951e9a`; masked diff:
+the Build line, the K-15 row "0 of 810 … all 27 types" and the machine lines only). Whole suite
+before the re-record: 718 tests, 716 pass (the two golden hash compares), 37.2 s.
+
+**First visit** (`node tools/perf.mjs`): 404,388 B before 2b → the sim's headers −7,097 B, the
+app's headers −7,864 B, `app/perf.js` on demand −1,749 B, the sim's shapes and behaviour
++4,237 B (share 4,301 B), the app's glue +818 B (share 819 B) → **383.6 KB, 16.4 KB left**. Wave 2's
+shares (par 1.2, view 1.4, card 0.8, objective 1.0 KB) leave about 12 KB for 2c–2e.
+
+**The sim as built** (deviations from §31.3, accepted):
+- `flexAt(blocks, s, suburb, kind, lever)` has a fifth argument, `lever` (`''` = all).
+- `sampleSecond` fills `flexMW`, `flexSubMW` and `reliefSubMW` in one pass, bit-identical to
+  `flexAt` (tested); `flexAt` skips blocks outside their span.
+- Blocks are sorted by (`atS`, suburb index): the lever can never decide (soaks start by 11:00,
+  air-con from 15:00).
+- An air-con `LV`'s `[fromS, toS]` is the latest open run between that suburb's blocks (after its
+  last cycle if that fits, else before it); a start in an earlier open run is still accepted.
+- `block` includes "levers open at 04:30" but not the watch or the day over, which stay
+  `applyInput`'s (as `startBlock` does). `flexDel` before 04:30 answers "no such block".
+- `grid.log()` takes an object of extra fields; new exports `grid.leverView`, `grid.flexDelBlock`;
+  `createState` throws unless `levers.suburbs` follows `city.suburbs` in order.
+- `cost.flex` loops a suburb's districts only while its relief is non-zero (no scratch array).
+- Tests: `tests/levers.test.js` (13 tests, 2.1 s alone) and `tests/levers-day.test.js` (8, 1.2 s),
+  including a replay of a DESK day to 15:05 with 13 bookings and cancels, bit-identical.
+- Refusal order (sim/README §6): levers null → "levers open at 04:30" → the menu's "not offered
+  today" → locked and the rest.
+
+**The app as built:**
+- The card's own keys are `CARD_OWN = /^(Arrow\w+|Page\w+|Home|End|Enter|Tab|[sxp])$/i` in
+  `app/shell.js` (S, X and P too, so no lever key leaks out of the card). **The card agent adds
+  `-` and `=` there.** H is in `PANEL_KEEPS` (H closes the alarm panel and keeps the card).
+- `vm.focus` never names a suburb or the card. A `{do: 'suburb', id}` sent while RESTORE has the
+  focus (the map's dark-suburb click) opens the card without taking the focus; every other open
+  takes it. A malformed falsy id closes the card.
+- The stub's close press is `btn-suburb-close` (a kept id in §5). `#suburb-card`'s max-height is
+  `calc(100vh - var(--desk-h) - var(--hdr) - 74px)`: 194 px at 1280×600, 8 px above `#planbar`.
+- `app/shell.js` has **no eager slack** left in the app's share; the card agent's 0.8 KB is its own.
+- `tests/cardshell.test.js` (5 tests, 1.2 s) passes to the card agent from wave 2.
+
+**Owners added for wave 2:** the "blue with a soak booked" planview row is **view**'s (in
+`tests/planview.test.js` or its own file); `tests/cardshell.test.js` is **card**'s.
