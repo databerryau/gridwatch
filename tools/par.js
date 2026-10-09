@@ -29,6 +29,9 @@
 // the weekend), the minimum operational demand, the hours at a negative price, the MWh spilled
 // (all of score.spillMWh, and the dispatch's automatic cut alone), the peak frequency, the
 // highest MSL level and rule 4's coal stops; the summary groups them by day type.
+// 2b (desk/README.md §31.6, S-14 rules 1 and 5): each row also carries soakDays and airconDays (1
+// when the proxy booked any block of that lever), soakMWh and reliefMWh (the booked cores' energy,
+// effMW x (block length - FLEX_RAMP_S)) and flexDollars (score.cost.flex: the air-con payments).
 'use strict';
 const path = require('path');
 const {fork} = require('child_process');
@@ -152,6 +155,8 @@ function runOne(S, scenario, seed, proxy, withActions, probe) {
   r.origins.forEach(o => { if (/^rule/.test(o)) byRule[o] = (byRule[o] || 0) + 1; });
   const fin = x => (Number.isFinite(x) ? x : null);
   const rule4Stops = r.log.filter((x, i) => x.type === 'stop' && r.origins[i] === 'rule4');
+  const blocks = st.levers.blocks, has = lever => (blocks.some(b => b.lever === lever) ? 1 : 0);
+  const coreMWh = (lever, S) => blocks.reduce((a, b) => a + (b.lever === lever ? b.effMW * (S - V.FLEX_RAMP_S) / V.S_PER_H : 0), 0);
   const row = {
     seed, proxy, scenario: scenario.id, weather: st.ext.regime.cls, day: dayType(st), black: r.black, endsAt: hhmm(V, st.tick),
     unservedMWh: sc.unservedMWh, uflsMWh: sc.uflsMWh, directedMWh: sc.directedMWh, firstShed: firstShed < 0 ? '' : hhmm(V, firstShed),
@@ -167,6 +172,9 @@ function runOne(S, scenario, seed, proxy, withActions, probe) {
     battEndMWh: st.battery.socMWh,
     // Q-48: the rest of what app/score.js's allIn reads (costDollars and co2tPerMWh are above)
     servedMWh: sc.servedMWh, lightsMWh: sc.lightsMWh, saidiMin: sc.saidiMin, saifi: sc.saifi, maifi: sc.maifi,
+    // 2b: the city levers par booked (S-14 rules 1 and 5; origins rule6 and rule8)
+    soakDays: has('soak'), airconDays: has('aircon'), soakMWh: coreMWh('soak', V.SOAK_S), reliefMWh: coreMWh('aircon', V.AIRCON_S),
+    flexDollars: sc.cost.flex,
   };
   if (probe) row.probe = Object.assign({}, P, {worst: fin(P.worst), unitWorst: fin(P.unitWorst), linkWorst: fin(P.linkWorst)});
   if (withActions) {
@@ -263,6 +271,9 @@ function summary(title, rows) {
       (sum('coalStops') ? '; coal on seeds ' + rows.filter(r => r.coalStops).map(r => r.seed).join(', ') : '')],
     ['rule 6 charge orders (mean per day)', f2(mean(rows.map(r => r.charges)))],
     ['discrete actions (mean per day)', f1(mean(rows.map(r => r.actions))) + '; rule 7 ' + f1(mean(rows.map(r => r.byRule.rule7 || 0)))],
+    ['soakDays / airconDays (S-14 rules 1, 5)', sum('soakDays') + ' / ' + sum('airconDays') +
+      (sum('soakDays') + sum('airconDays') ? '; seeds ' + rows.filter(r => r.soakDays || r.airconDays).map(r => r.seed).join(', ') : '')],
+    ['soakMWh / reliefMWh / flexDollars (all seeds)', f1(sum('soakMWh')) + ' / ' + f1(sum('reliefMWh')) + ' / $' + Math.round(sum('flexDollars'))],
   ].map(([k, v]) => ({k, v})), [['measure', r => r.k], ['value', r => r.v]]);
   // Phase 2a: the belly by day type (P-3 minimum demand, P-9 negative-price hours, C-6 spill, C-7 peak, P-4 MSL).
   const types = [...new Set(rows.map(r => r.day))].sort();
@@ -276,10 +287,10 @@ function summary(title, rows) {
       neg: f2(median(neg)) + ' / ' + f2(mean(neg)) + ' / ' + f2(Math.max(...neg)), negDays: g.filter(r => r.negPriceH > 0).length,
       spill: f1(mean(g.map(r => r.spillMWh))) + ' / ' + f1(mean(g.map(r => r.autoSpillMWh))) + ' / ' + f1(Math.max(...g.map(r => r.autoSpillMWh))),
       hz: f3(hi.maxHz) + ' (seed ' + hi.seed + ')', msl: [1, 2, 3].map(l => g.filter(r => r.msl === l).length).join(' / '),
-      cost: f3(median(g.map(r => r.centsPerKWh)))};
+      cost: f3(median(g.map(r => r.centsPerKWh))), lev: g.filter(r => r.soakDays).length + ' / ' + g.filter(r => r.airconDays).length};
   }), [['day type', r => r.d], ['n', r => r.n], ['clean', r => r.clean], ['black', r => r.black], ['RERT', r => r.rert],
     ['min operational demand MW (median / lowest)', r => r.minDem], ['price < $0, h (median / mean / max)', r => r.neg], ['days with any', r => r.negDays],
-    ['spilled MWh (score mean / automatic cut mean / max)', r => r.spill], ['peak Hz', r => r.hz], ['days at MSL 1 / 2 / 3', r => r.msl], ['c/kWh (median)', r => r.cost]]);
+    ['spilled MWh (score mean / automatic cut mean / max)', r => r.spill], ['peak Hz', r => r.hz], ['days at MSL 1 / 2 / 3', r => r.msl], ['c/kWh (median)', r => r.cost], ['soak / air-con days', r => r.lev]]);
   if (rows.some(r => r.probe)) {
     const tot = k => rows.reduce((a, r) => a + (r.probe ? r.probe[k] : 0), 0);
     const worst = k => { const xs = rows.filter(r => r.probe && r.probe[k] !== null).map(r => [r.probe[k], r.seed]).sort((a, b) => a[0] - b[0]); return xs.length ? f3(xs[0][0]) + ' Hz (seed ' + xs[0][1] + ')' : '-'; };
@@ -370,6 +381,7 @@ async function main() {
       ['RERT', r => (r.rert ? 'yes' : '')], ['DR', r => r.drCalls], ['c/kWh', r => f3(r.centsPerKWh)], ['tCO2/MWh', r => f3(r.co2tPerMWh)],
       ['minDem', r => f1(r.minDemandMW) + ' ' + r.minDemandAt], ['neg h', r => f2(r.negPriceH)], ['spill', r => f1(r.spillMWh)], ['auto', r => f1(r.autoSpillMWh)],
       ['maxHz', r => f3(r.maxHz)], ['MSL', r => r.msl || ''], ['coalStop', r => r.coalStops || ''],
+      ['soakMWh', r => (r.soakDays ? f1(r.soakMWh) : '')], ['reliefMWh', r => (r.airconDays ? f1(r.reliefMWh) : '')],
       ['trips', r => r.trips], ['actions', r => r.actions], ['s', r => f2(r.secs)]];
     if (o.grade) cols.push(['grade', r => r.grade]);
     if (vsBy) cols.push([o.vs + ' c/kWh', r => f3(vsBy.get(r.seed).centsPerKWh)]);
