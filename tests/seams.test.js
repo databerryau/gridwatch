@@ -57,7 +57,7 @@ test('C-11 blueRuns: runs of projected spill above SURPLUS_MIN_MW, in the shape 
 
 test('§19.5 the objective line carries kind and long; capacityShort takes any forecast', () => {
   const {vm, obs} = deskDayVm({seed: 7, untilH: 5});
-  const KINDS = ['watch', 'held', 'short', 'commit', 'restore', 'spare', 'stop', 'battery', 'quiet'];
+  const KINDS = ['watch', 'held', 'short', 'commit', 'restore', 'spare', 'stop', 'battery', 'city', 'quiet'];
   assert.ok(KINDS.includes(vm.objective.kind), vm.objective.kind);
   assert.ok('long' in vm.objective);
   const proj = PV.project(obs);

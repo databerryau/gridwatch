@@ -2514,7 +2514,7 @@ says whether it is short NOW.
   objective(obs, {edited, planview, proj?, dayAhead?}) -> {level, kind, text, targets, action, startBy, short, long}
     level   'ok' | 'plan' (act later, or worth doing) | 'act' (act now) | 'crit' (short already)
     kind    which line it is (desk/README.md §19.5): 'watch' | 'held' | 'short' | 'commit' | 'restore' |
-            'spare' | 'stop' | 'battery' | 'quiet'
+            'spare' | 'stop' | 'battery' | 'city' | 'quiet'
     targets control ids to light (desk/README.md §5)
     action  the sim input (or {redispatch: true}) that answers it now, or null. The game never
             sends it: the hint-following player (tests/lib/follow.js) does, to prove that a
@@ -2524,14 +2524,63 @@ says whether it is short NOW.
     long    the spill ahead {atS, endS, mw} or null (planview's first blue run)
     saving  (STOP lines) the dollars the line quotes
 
-Branch order (§21.4): watch, held, short-now, commit-now, restore, spare, stop, battery,
-commit-later, quiet. A line that asks for nothing yet (a start more than ACT_WITHIN_S away, a
-feeder that cannot close yet, spare that nothing can add, the reserve diesel on its way) gives
-way to a lower branch that has something to do now; among lines that ask for something, the
-order above decides; then a critical line; then the first that has something to say. Between
-commit-now and restore sits the shortfall no start can reach (shortAhead): what every committed
-MW cannot give within the hour is the battery's to carry, and demand response's when it is more
-than the battery holds; the reserve diesel only beyond both.
+Branch order (§21.4; 2b §31.9.8): watch, held, short-now, commit-now, shortAhead, air-con,
+restore, spare, stop, battery, soak, commit-later, quiet. A line that asks for nothing yet (a
+start more than ACT_WITHIN_S away, a feeder that cannot close yet, spare that nothing can add,
+the reserve diesel on its way) gives way to a lower branch that has something to do now; among
+lines that ask for something, the order above decides; then a critical line; then the first that
+has something to say. Between commit-now and restore sits the shortfall no start can reach
+(shortAhead): what every committed MW cannot give within the hour is the battery's to carry, and
+demand response's when it is more than the battery holds; the reserve diesel only beyond both.
+
+The city levers (2b, Q-59, §31.9.8): kind 'city', targets ['suburb-<ID>'], the action the full
+flex input {type: 'flex', suburb, lever, atS} with atS from aimFlex (sim/autopilot.js) over the
+day-ahead (or the 4.5-h forecast; -1 is "not now": no line), startBy the booking's deadline
+(the soak's atS, the air-con's pre-cool start), level 'act' once that is within ACT_WITHIN_S
+(+ leadS), else 'plan'. Eligibility only through observe().levers' block (a suburb is free when
+its lever's block is ''). One suburb per line; the next is named once the forecast carries the
+booking.
+  soak (after battery: a battery order due now shows first; before commit-later) when either
+    (a) an MSL notice stands with its low ahead (obs.msl.level >= 1, atS > now), and some
+        column of the 4.5-h forecast in 10:00-15:00 is still at or under MSL1_MW + MSL_CLEAR_MW
+        (the notice is re-checked only every MSL_CHECK_S, so a soak booked since would not clear
+        it until then: without this, a player who books at once would be asked for a suburb a
+        minute until the next check). It names
+        the free suburb with the most soak MW (par's rule 1). The tie-out lift of the thresholds
+        is left out (the line stops a little early while the tie is out; it never over-books);
+    (b) else, spill the battery will not take: the projection's spill plus the present charge
+        order per column, the battery modelled as battery() charges it (up to min(ratedMW -
+        guardMW, PAR_BATT_CHARGE_MAX_MW) a column, from the earliest blue column, its present
+        order in every column, until (capMWh - socMWh) / BATT_CHARGE_EFF is used); the largest
+        excess in 10:00-15:00 above SURPLUS_MIN_MW names the free suburb with the most soak MW
+        at or under it, else the smallest.
+    Text: "MSL1: demand falls to about 1,550 MW at 12:40. Book a HOT WATER SOAK in Old Hazelton,
+    10:35–14:35 (140 MW): it lifts the low; tonight's heating falls by as much." or "The
+    battery cannot take all of noon's spill. Book … : tanks take the rest; tonight's heating
+    falls by as much." (Q-52: the night's heating falls by the booked energy.)
+  air-con (right after shortAhead) only when lookAhead names no unit (a start beats air-con),
+    shortAhead's soon does not hold, and for the first run of the real gap (capacityGap real,
+    over the day-ahead) at or after the suburb's fromS: no gap column in the aimed pre-cool
+    [atS - PRECOOL_S, atS], the run's largest column inside the core [atS, atS + AIRCON_S], and
+    the run more than the battery holds (its largest column above ratedMW, or its MWh above the
+    charge over the reserve): where demand response would be called (Q-59 "before DR"; air-con
+    is $400/MWh against DR's $1,400). The free suburb with the most relief MW that passes.
+    Text: "From about 18:30 demand is more than every unit can give. Book an AIR-CON CYCLE in
+    Redgum Flats, 18:30–20:00 (45 MW): pre-cool from 17:30; 40% comes back after."
+Every city line fits LINE_MAX_CHARS with Tallowood Heights and the widest figures
+(tests/objective-levers.test.js).
+
+(The GUARD line asks once for the most the battery can hold for a trip, PAR_GUARD_MAX_MW: a step
+is worth less the higher the ring already is. Measured at 04:31 on the 11 seeds of both day
+scenarios: the first 100 MW 0.025 to 0.104 Hz on the trip preview, then 0.021 to 0.062, 0.014 to
+0.041, 0.011 to 0.030. A line sized on a step's worth asked twice: 300 MW, then 400.)
+(After a trip the fired GUARD gives its whole ring for GUARD_SUSTAIN_S; a belly trip is smaller
+than the ring, so while it is still giving and frequency is above the normal band the line turns it
+down to 0 (par's rule 2 does the same), raises no ring while it is fired, holds the battery
+branch's charge orders out of the MW it gave up, and raises it back once it has re-armed, within
+the hour of the trip. Measured on desk-weekend seed 20261017, coal 1 at minimum, 240 MW, tripping
+at 14:08:40 under a 400-MW GUARD: 478 s above 50.15 Hz in the next 900 s before, 49 s after.)
+(Both moved here from the file in 2b, Q-49.)
 
 The line says what is true (the wave-3 review): a shortfall is in the present tense only when the
 desk at its limits (the real check) is short in the next minutes, otherwise it is what the hour
