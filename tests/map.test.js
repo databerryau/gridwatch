@@ -366,7 +366,7 @@ test('K-23: the map is focusable; arrows cycle the plants then the suburbs with 
     assert.equal(map.debug.labels.length, 1, 'the label shows');
     assert.equal(map.debug.labels[0].id, order[i]);
   }
-  assert.equal(ui[ui.length - 1].target, null, 'a suburb has no lever: the hover target clears');
+  assert.deepEqual(ui[ui.length - 1], {do: 'hover', target: 'suburb-SAL'}, 'a suburb\'s hover names it (Q-57: suburb-<ID>)');
   assert.equal(map.key(ev('ArrowRight')), true);
   assert.equal(map.debug.hoverId, order[0], 'wraps');
   assert.equal(map.key(ev('ArrowLeft')), true);
@@ -919,7 +919,7 @@ test('L-9 / C-10: a plant lights for guard-stop-<unit> as for guard-start-<unit>
   for (const m of V.MACHINES) assert.equal(rings(['guard-stop-' + m.id]), 1, m.id);
 });
 
-test('Q-41: every click on the map answers: a plant its control, a dark suburb the RESTORE bay, the rest a blue label for 4 s', async () => {
+test('Q-41 / Q-56: every click on the map answers: a plant its control, a suburb its card (a dark one the RESTORE bay first), the rest a blue label for 4 s', async () => {
   const {map, ui, cv} = mount(1280, 268);
   const vm = baseVm(observe(createState(5, DESK_WEEKEND))); // 04:00, cheap: no day run
   for (const d of vm.obs.districts) d.dark = d.suburb === 'SAL';
@@ -933,7 +933,7 @@ test('Q-41: every click on the map answers: a plant its control, a dark suburb t
   assert.deepEqual(ui.pop(), {do: 'focus', target: 'lever-ccgt'}, 'a plant still focuses its control');
   assert.deepEqual(shown(), []);
   at('sub:SAL');
-  assert.deepEqual(ui.pop(), {do: 'focus', target: 'bay-restore'}, 'a dark suburb: to the RESTORE bay');
+  assert.deepEqual(ui.splice(-2), [{do: 'focus', target: 'bay-restore'}, {do: 'suburb', id: 'SAL'}], 'a dark suburb: the RESTORE bay, then its card');
   assert.deepEqual(shown(), []);
   const n = ui.length;
   at('wind');
@@ -943,14 +943,15 @@ test('Q-41: every click on the map answers: a plant its control, a dark suburb t
   at('solar');
   assert.match(shown()[0], /^SUNPLAIN SOLAR [\d,]+ MW: the sun sets it, not the desk$/);
   at('sub:RED');
-  const draws = vm.obs.districts.filter(d => d.suburb === 'RED').reduce((a, d) => a + d.coldLoadMW, 0);
-  assert.deepEqual(shown(), [mapPinText(vm.obs, 'sub:RED')]);
-  assert.match(shown()[0], /^REDGUM FLATS draws [\d,]+ MW; roofs make 120 MW$/);
-  assert.equal(Number(/draws ([\d,]+)/.exec(shown()[0])[1].replace(/,/g, '')), Math.round(draws), 'what its feeders carry, as the RESTORE bay counts it');
+  assert.deepEqual(ui.pop(), {do: 'suburb', id: 'RED'}, 'a lit suburb opens its card');
+  assert.deepEqual(shown(), [], 'and pins no label: the card carries its draw and roofs (§31.9.10)');
+  const draws = vm.obs.districts.filter(d => d.suburb === 'RED').reduce((a, d) => a + d.coldLoadMW, 0), said = mapPinText(vm.obs, 'sub:RED');
+  assert.match(said, /^REDGUM FLATS draws [\d,]+ MW; roofs make 120 MW$/, 'the old label\'s text, kept for the card');
+  assert.equal(Number(/draws ([\d,]+)/.exec(said)[1].replace(/,/g, '')), Math.round(draws), 'what its feeders carry, as the RESTORE bay counts it');
   assert.equal(map.debug.pick(150, 185), null, 'open ground');
   click(150, 185);
   assert.deepEqual(shown(), ['Click a plant for its control, a suburb for its load']);
-  assert.equal(ui.length, n, 'wind, solar, a lit suburb and the ground send nothing (no control over them)');
+  assert.equal(ui.length, n, 'wind, solar and the ground send nothing (no control over them)');
   vm.frame.nowMs += 4000;
   assert.deepEqual(shown(), [], 'the label goes after 4 s');
   // the pin never pushes a grid alarm off the map: two suburbs dark, wind pinned, COAL hovered
