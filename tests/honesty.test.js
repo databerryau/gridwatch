@@ -161,6 +161,16 @@ test('H-15: no real company or agency names in the game', () => {
   assert.doesNotMatch(HTML, /meridian|alcoa|snowy|\bbom\b/i);
 });
 
+test('H-15 (U-1): the game day\'s suburbs and the suburb card\'s lines name no real company or agency, and no suburb shares a plant\'s name', async () => {
+  const {DESK} = await import('../content/scenarios.js'), {V} = await import('../sim/params.js'), {WIT} = await import('../app/suburbcard.js');
+  const places = Object.values(V.STATIONS).map(s => s.name.replace(/ (coal|CCGT|hydro)$/, '').toLowerCase()); // Mt Hazel, Riverton, Greyfell Gorge, GT·A...
+  assert.ok(places.includes('mt hazel') && places.length === 6, places.join());
+  for (const s of DESK.city.suburbs) {
+    assert.doesNotMatch(s.name + ' ' + WIT[s.id], /meridian|alcoa|snowy|\bbom\b|tesla|powerwall/i, s.id);
+    for (const p of places) assert.ok(!s.name.toLowerCase().includes(p) && !p.includes(s.name.toLowerCase()), s.name + ' / ' + p);
+  }
+});
+
 test('H-16: the restore rule is stated and alarms are rate-limited', () => {
   assert.match(HTML, /more than 400 MW spare, for 15 sim-minutes/);
   const beeps = [];
