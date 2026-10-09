@@ -65,6 +65,8 @@ const mildShare = DESK.weather.mildShare, hotShare = 1 - DESK.weather.heatShare 
 /** START to breaker close in AGC mode, in minutes: the run-up to full speed plus the auto-sync delay. */
 const startToSyncMin = st => st.t1Min + V.AUTO_SYNC_S / V.S_PER_MIN;
 const mslStep = (a, b) => num(a - b);
+/** 2b: a lever's MW summed over the game day's suburbs (U-1). */
+const sumOf = k => DESK.levers.suburbs.reduce((a, s) => a + s[k], 0);
 
 // The K-12 synchroscope's speed, from the sim's Phase 1a params (desk/README.md §3.3) once
 // they exist; until the sim branch merges, the Phase 0.2 stub's text.
@@ -446,18 +448,60 @@ const ABSTRACTIONS = [
     params: ['COLD_LOAD_AFTER_S', 'COLD_LOAD_FACTOR', 'COLD_LOAD_DECAY_S', 'ROOF_RECONNECT_S', 'ROOF_RAMP_S'],
   },
   {
+    // 2b (desk/README.md §31): the household levers join DR; U-1 MW, U-4 patience, U-6 prices.
     id: 'city-levers', row: 'City levers\' MW, costs and patience.', anchorId: 'dr-panel', game: 'btn-dr',
-    real: 'Demand-response programs differ, and customers opt out.',
-    ours: 'Phase 0.2 has one city lever, industrial DR: ' + num(V.DR_MW) + ' MW for ' + minutes(V.DR_DURATION_S) +
-      ' min at ' + usd(V.DR_PRICE) + '/MWh, ' + num(V.DR_CALLS) + ' calls a day, shedding and returning at ' +
-      num(V.DR_RAMP_MW_MIN) + ' MW/min. Household levers come in Phase 2.',
-    why: 'Playable.',
-    params: ['DR_MW', 'DR_DURATION_S', 'DR_PRICE', 'DR_CALLS', 'DR_RAMP_MW_MIN'],
+    real: 'Demand-response programs differ, and customers opt out: about 0.3% of homes left South Australia\'s ' +
+      'hot-water trial, and about 13% of thermostats are overridden in an air-con event, more as events run longer.',
+    ours: 'Industrial DR: ' + num(V.DR_MW) + ' MW for ' + minutes(V.DR_DURATION_S) + ' min at ' + usd(V.DR_PRICE) + '/MWh, ' +
+      num(V.DR_CALLS) + ' calls a day, shedding and returning at ' + num(V.DR_RAMP_MW_MIN) + ' MW/min. Each suburb\'s card ' +
+      '(click it, or H) books its HOT WATER SOAK (' + num(sumOf('soakMW')) + ' MW across the city, every day, no payment) and, ' +
+      'on hot days, its AIR-CON CYCLE (' + num(sumOf('airconMW')) + ' MW, ' + usd(V.AIRCON_PRICE) + '/MWh relieved). A cycle ' +
+      'costs the suburb ' + num(V.PATIENCE_AIRCON) + ' patience, ' + num(V.PATIENCE_REPEAT) + ' more for each cycle it has ' +
+      'booked; a soak costs none. Below ' + num(V.PATIENCE_FULL) + ' a suburb responds less (at ' + num(V.PATIENCE_FULL - 10) +
+      ', ' + pct((2 * V.PATIENCE_FULL - 10) / (2 * V.PATIENCE_FULL)) + '%); below ' + num(V.PATIENCE_LOCK) + ' its air-con ' +
+      'locks for the day; a cancel refunds that cycle\'s cost. Patience does not recover within a day.',
+    why: 'The ladder is real: air-con is cheaper than DR, dearer than a running gas turbine, so it is a reliability tool. ' +
+      'Patience makes a second cycle in one suburb cost more and give less. Its magnitudes are game tuning.',
+    params: ['DR_MW', 'DR_DURATION_S', 'DR_PRICE', 'DR_CALLS', 'DR_RAMP_MW_MIN', 'AIRCON_PRICE', 'PATIENCE_AIRCON', 'PATIENCE_REPEAT',
+      'PATIENCE_FULL', 'PATIENCE_LOCK'],
+  },
+  {
+    // 2b (Q-52): the card's "?" beside HOT WATER SOAK (app/suburbcard.js LEVERS.soak.row).
+    id: 'hot-water-soak', row: 'A hot-water soak moves that night\'s heating to noon.', anchorId: 'hot-water-soak', ui: 'drawer',
+    game: 'drawer', specPending: true,
+    real: 'Networks switch controlled-load hot water by relay. South Australia\'s solar sponge heated tanks 10:00–15:00 ' +
+      '(09:30–16:30 from 1 July 2025), and Sydney\'s and western Victoria\'s networks moved controlled load into the day in ' +
+      '2024–25. AEMO calls on controlled load at MSL3, and networks turn hot water on in minimum-demand events.',
+    ours: 'One block a suburb a day: its soak MW (' + num(sumOf('soakMW')) + ' MW across the city) for ' + num(V.SOAK_S / V.S_PER_H) +
+      ' h, starting ' + hhmm(V.SOAK_FROM_H) + '–' + hhmm(V.SOAK_TO_H - V.SOAK_S / V.S_PER_H) + ' on a 5-minute mark, with ' +
+      minutes(V.FLEX_RAMP_S) + '-minute ramps. That night\'s heating falls by the energy it took, spread over ' +
+      hhmm(V.SOAK_NIGHT_FROM_H) + '–' + hhmm(V.SOAK_NIGHT_TO_H) + '. No payment (' + usd(V.SOAK_PRICE) + '/MWh) and no patience: ' +
+      'relays switch the tanks. It can be cancelled until it starts. A dark district\'s soak stops; tank losses are ignored.',
+    why: 'Its reward is the night fuel the sim then saves, so nothing is counted twice; noon\'s spill goes into tanks or the ' +
+      'battery, and choosing is yours.',
+    params: ['SOAK_S', 'SOAK_FROM_H', 'SOAK_TO_H', 'SOAK_NIGHT_FROM_H', 'SOAK_NIGHT_TO_H', 'FLEX_RAMP_S', 'SOAK_PRICE'],
+  },
+  {
+    // 2b (Q-53): the card's "?" beside AIR-CON CYCLE (app/suburbcard.js LEVERS.aircon.row).
+    id: 'aircon-cycle', row: 'An air-con cycle pre-cools, relieves, then snaps back.', anchorId: 'aircon-cycle', ui: 'drawer',
+    game: 'drawer', specPending: true,
+    real: 'Queensland\'s PeakSmart can cap 155,738 air-cons at 50% for about 107 MW, in events around 16:00–19:00. After an ' +
+      'event the load comes back: 17–35% of the energy relieved in one 2008 trial, about 40–50% in a 2019 one, most of it ' +
+      'in the first hour.',
+    ours: 'Hot days only (a mild day has no cooling load). Relief for ' + minutes(V.AIRCON_S) + ' min at the suburb\'s air-con MW (' +
+      num(sumOf('airconMW')) + ' MW across the city), starting ' + hhmm(V.AIRCON_FROM_H) + '–' +
+      hhmm(V.AIRCON_TO_H - V.AIRCON_S / V.S_PER_H) + '. Pre-cool always runs in the ' + minutes(V.PRECOOL_S) + ' min before, ' +
+      'adding ' + pct(V.PRECOOL_FRAC) + '% of the energy relieved; the snapback returns ' + pct(V.SNAPBACK_FRAC) + '% over the ' +
+      minutes(V.SNAPBACK_S) + ' min after, front-loaded. Customers are paid ' + usd(V.AIRCON_PRICE) + '/MWh relieved in lit ' +
+      'districts. It can be cancelled until pre-cool starts. The card says whether the relief covers the evening peak.',
+    why: 'Aim is the decision: centred on the peak, the snapback lands after it; early, it lands on it. ' + pct(V.SNAPBACK_FRAC) +
+      '% is inside the measured range and still punishes a bad aim.',
+    params: ['AIRCON_S', 'AIRCON_FROM_H', 'AIRCON_TO_H', 'PRECOOL_S', 'PRECOOL_FRAC', 'SNAPBACK_S', 'SNAPBACK_FRAC', 'AIRCON_PRICE'],
   },
   {
     id: 'hot-water-hold', row: 'HOT WATER HOLD is 80 MW', anchorId: 'hot-water-hold', game: 'drawer', ui: 'drawer',
     real: 'Energex alone held 777 MW of hot-water and pool load on 25 May 2021.',
-    ours: 'Not in Phase 0.2: the hold is a Phase 2 city lever (U-2).',
+    ours: 'Not on this desk yet: the hold is one of Phase 3\'s city levers (U-2).',
     why: 'It keeps the hold one lever among several; real controlled load is about ten times bigger.',
     params: [],
   },
