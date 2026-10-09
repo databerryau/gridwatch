@@ -157,7 +157,7 @@ function boot(query = '?seed=7&perf', over = {}) {
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
   // (Q-44: the page loads the texts and the alarm panel on demand; here they are passed up front)
   const h = bootGame(doc, Object.assign({createDesk: mods.createDesk, createMap: mods.createMap, createLiveStack: mods.createLiveStack,
-    system, search: query, storage: null, audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard}, over));
+    system, search: query, storage: null, audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard, perf: PF}, over));
   restore();
   const frames = (n, dtS = 1 / 60) => { for (let i = 0; i < n; i++) { t += dtS * 1000; h.frame(dtS); } };
   const key = (k, extra) => doc.dispatch('keydown', Object.assign({key: k}, extra));
@@ -1088,6 +1088,8 @@ test('F-11: the ?perf overlay shows the budget marks; ?debug exposes the boot ha
     assert.equal(globalThis.gridwatch, dbg.h, 'the handle bootGame returned');
     assert.equal(typeof globalThis.gridwatch.frame, 'function');
     assert.equal(dbg.$('perf').hidden, true, '?debug alone shows no overlay');
+    assert.equal(dbg.h.perf, null, 'Q-49: app/perf.js loads only under ?perf');
+    assert.equal(typeof plain.h.perf.n, 'number', 'the handle\'s perf is a getter');
   } finally {
     delete globalThis.gridwatch;
   }

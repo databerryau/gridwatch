@@ -27,7 +27,6 @@ import * as G from './game.js';
 import {allIn, grade} from './score.js';
 import {startRaf} from './loop.js';
 import {createKeys, bindKeys, poll as pollKeys, typing} from './keys.js';
-import {createPerf, perfFrame, renderPerf} from './perf.js';
 import {createAudio} from '../audio/audio.js';
 import {ANCHORS} from '../content/anchors.js';
 import {badgeText, lightsText, centsText, co2Text, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
@@ -182,11 +181,11 @@ const SET_CHECKS = {reducedMotion: 'set-rm', reducedEffects: 'set-fxlow', crt: '
  * @param {{createDesk?:function, createLiveStack?:function, createMap?:function, system?:object, planview?:object,
  *   search?:string, storage?:object|null, audioWin?:object, raf?:boolean, now?:function():number, date?:Date,
  *   matchMedia?:function(string):{matches:boolean}|null, text?:object|function, alarmPanel?:object|function,
- *   endCard?:object|function, par?:boolean|object}} deps
+ *   endCard?:object|function, perf?:object|function, par?:boolean|object}} deps
  *   raf: false to skip startRaf (tests call handle.frame(dtS) themselves). matchMedia: the
  *   system's prefers-reduced-motion is read through it (default: globalThis.matchMedia when
  *   present; null: no system preference).
- *   text, alarmPanel, endCard (Q-44, §30.9): the module (tests), a loader of it, or absent: imported on first need.
+ *   text, alarmPanel, endCard (Q-44, §30.9), perf (Q-49, ?perf only): the module (tests), a loader of it, or absent: imported on first need.
  * @returns {object} handle {game, actions, frame(dtS), vm(), audio, mods, keys, perf, live, loadText(), closeTop(), unbind()}
  */
 export function bootGame(doc, deps) {
@@ -204,7 +203,7 @@ export function bootGame(doc, deps) {
     startPaused: o.startPaused, par: o.par,
     storage: o.storage === undefined ? safeStorage() : o.storage, reducedMotion: () => !!(rmQuery && rmQuery.matches)});
   const audio = createAudio(o.audioWin === undefined ? globalThis : o.audioWin);
-  const perf = query.has('perf') ? createPerf() : null;
+  let perf = null, PF = null; // Q-49: app/perf.js, on demand under ?perf
   const keys = createKeys();
   const live = createLive();
   let vm = null, lastPerfDraw = -1e9, toastUntil = 0, qNext = 0;
@@ -352,6 +351,7 @@ export function bootGame(doc, deps) {
       e => { textState = 'failed'; err('text', e); redrawHelp(); });
     return TEXT;
   }
+  if (query.has('perf')) lazy(o.perf, () => import('./perf.js'), m => { PF = m; perf = m.createPerf(); }, e => err('perf', e));
 
   // ---------------------------------------------------------------- "?" labels and the drawer (H-14, Q-47)
   const qButtons = new Map();
@@ -704,11 +704,11 @@ export function bootGame(doc, deps) {
     });
     timed('audio', () => audio.update(vm));
     if (perf) {
-      perfFrame(perf, {frameMs: now() - t0, simMs: t1 - t0, ticks, rate: vm.mode.rate, draw: drawMs});
+      PF.perfFrame(perf, {frameMs: now() - t0, simMs: t1 - t0, ticks, rate: vm.mode.rate, draw: drawMs});
       if (t1 - lastPerfDraw > 500) {
         lastPerfDraw = t1;
         const el = $('perf');
-        if (el) { el.hidden = false; renderPerf(el, perf); }
+        if (el) { el.hidden = false; PF.renderPerf(el, perf); }
       }
     }
     return ticks;
@@ -772,7 +772,8 @@ export function bootGame(doc, deps) {
   if (mods.errors.length) showToast(mods.errors[0]);
 
   const handle = {
-    game, actions, audio, mods, keys, perf, live, loadText, closeTop,
+    game, actions, audio, mods, keys, live, loadText, closeTop,
+    get perf() { return perf; },
     frame: onFrame,
     vm: () => vm,
     unbind() { unbindKeys(); for (const f of [escFirst, panelFirst]) doc.removeEventListener('keydown', f, true); if (stopRaf) stopRaf(); },
