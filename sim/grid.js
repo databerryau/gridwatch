@@ -301,7 +301,7 @@ function shedNextRotation(state, out) {
  *     already standing down (before it arrives it simply cancels).
  *   restore {district}: restorePermissive(state, d, {preview: true}) must be '' (the K-13
  *     restore preview runs here, on the input only); fleet.setDistrictDark(..., false);
- *     district.surgeMW = coldLoad - its present share of the total before rooftop (>= 0; P-12:
+ *     district.surgeMW = coldLoad - its share of G0 - its flex share (>= 0; P-12, 2b I3:
  *     coldLoad is the undelayed underlying pickup, the district's rooftop waits ROOF_RECONNECT_S
  *     and then ramps back over ROOF_RAMP_S); city.lastRestoreS = s; fleet.rearmUfls for its
  *     stage; emit {kind:'restore', district, mw: coldLoad}.

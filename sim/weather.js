@@ -291,8 +291,8 @@ function seriesAtStep(arr, s, stepS) {
  *        grid second (2b: flex, sim/README.md §5 env). THE operational total every consumer reads.
  * With no rooftop (ext.rooftop null: capacityMW 0) rooftopMW is 0, roofSubMW zeros and
  * roofClearFrac ones, and on a HOT weekday every value is bit-identical to the classic day's.
- * Reads: tick, seed, scn, ext, day, smelter.loadMW. Writes: env.* only (env.roofSubMW and
- * env.roofClearFrac in place: no allocation).
+ * Reads: tick, seed, scn, ext, day, smelter.loadMW, levers.blocks. Writes: env.* only (the
+ * per-suburb arrays in place: no allocation).
  */
 export function sampleSecond(state) {
   const s = Math.floor(state.tick / TPS);
@@ -502,11 +502,11 @@ function smelterLoadAt(sm, pending, t) {
  * (state.news). Never reads state.ext.
  *
  * Returns {fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[],
- * neighbourPrice[], exportLimitMW[], underlyingP50[], rooftopMW[]}, column k (0-based) at grid
- * second fromS + (k + 1) * stepS. neighbourPrice and exportLimitMW are the public daily shapes
+ * neighbourPrice[], exportLimitMW[], underlyingP50[], rooftopMW[], flexMW[]}, column k (0-based) at
+ * grid second fromS + (k + 1) * stepS. neighbourPrice and exportLimitMW are the public daily shapes
  * (P-6, F-13), exact, for the tie's merit order in the L-0 plan. Phase 2a (desk/README.md §19.3):
- * demandP50 / P10 / P90 are OPERATIONAL demand (P-1); underlyingP50 = demandP50 + rooftopMW +
- * the smelter's expected missing load at that column; rooftopMW is the rooftop forecast as if
+ * demandP50 / P10 / P90 are OPERATIONAL demand (P-1, with flex); underlyingP50 = demandP50 -
+ * flexMW + rooftopMW + the smelter's expected missing load (2b: README §8); rooftopMW is as if
  * every inverter were connected, after the heat derate (0 in every column on a scenario with
  * no rooftop). horizonS may run to the end of the sim day (observe's dayAhead).
  *
@@ -517,13 +517,12 @@ function smelterLoadAt(sm, pending, t) {
  *     affine in k, so one weighted value is exact), drifting from its present value toward the
  *     scenario's mean (an announced heatwave's clear skies from its onset) at the regional
  *     sky's revert rate, x the heat derate inside the ANNOUNCED heat window;
- *   demand P50 = underlying P50 - rooftop - the smelter's expected missing load;
+ *   demand P50 = underlying P50 + flex (the booked blocks, flexAt) - rooftop - the smelter's
+ *     expected missing load;
  *   P10 / P90 = P50 -+ Z_P90 x sd(lead), where sd is the forecast error of the scenario's
  *     own demand-noise process (an OU series: var grows as sigma^2 (1 - a^2L) / (1 - a^2)
  *     with a = 1 - revertPerMin) plus the per-second wobble (FINE_NOISE_MW, at the target
- *     and carried from the origin) plus the rooftop's (below). sd is 0 at lead 0 (L-2). This
- *     replaces the stage A band P50 x (1 -+ Z sigma(lead)) with FC_SIGMA_NEAR..FAR, which
- *     is not calibrated to the sim's truth (see the stage B report, CONTRACT NOTES);
+ *     and carried from the origin) plus the rooftop's (below). sd is 0 at lead 0 (L-2; README §11);
  *   wind and clearness drift from the present toward the climatological mean, or toward
  *     the announced regime (storm surge then cut-out risk; drought; cloud front inside its
  *     warned window; heat's clear skies), with time constant FC_DRIFT_TAU_S.

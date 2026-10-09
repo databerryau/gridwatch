@@ -812,8 +812,8 @@ day          = {temp, weekend}                   // public (C-2); capacity-0 sce
 env         += rooftopMW,                        // every suburb, as if every inverter were connected; 0 at capacity 0
                roofSubMW: [nSub],                // zeros at capacity 0
                roofClearFrac: [nSub]             // ones at capacity 0
-               // identity each grid second (P-1, flex = 0 in 2a):
-               //   demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW)
+               // identity each grid second (P-1; flex = 0 in 2a, 2b adds env.flexMW: §31.3.4 I1):
+               //   demandMW = underlyingMW + flexMW - rooftopMW - (SMELTER_MW - smelter.loadMW)
                // env.demandMW stays THE operational total: what tests poke and every consumer reads
 city        += roofDarkMW,                       // rooftop MW off because its district is dark
                roofOffMW                         // off in total: dark, or relit and still waiting / ramping
@@ -836,15 +836,15 @@ conts[].pre, conts[].caught, previewTrip's caught += inverterMW   (last key)
 `fleet.refreshRoof(state)`, recomputes `roofDarkMW` and `roofOffMW` over all districts from
 `env.roofSubMW`; `setDistrictDark` calls it and so does `grid.fosSecond` beside `refreshColdLoad`.
 
-Formulas `sim/physics.js` and `sim/market.js` share. With rooftop zero and the C-7 flags off every
-one equals today's value exactly; keep the operation order as written:
+Formulas `sim/physics.js` and `sim/market.js` share. With rooftop and flex zero and the C-7 flags
+off every one equals today's value exactly; keep the operation order as written:
 
 ```
-G        = env.demandMW + env.rooftopMW                         // the total before rooftop
-relay shed (phys.shedMW)  = G * shedFrac - city.roofDarkMW
-served   (phys.servedMW)  = G * (1 - shedFrac) - (env.rooftopMW - city.roofOffMW) + coldLoadMW - dr.mw
-unserved rate             = G * shedFrac                        // into acc.unservedMWs -> score.unservedMWh
-fleet.litDemandMW(state)  = G * (1 - shedFrac) - (env.rooftopMW - city.roofOffMW)   // market demand's first term; obs.demand.litMW
+G0       = fleet.baseLoadMW(state) = env.demandMW + env.rooftopMW - env.flexMW   // before rooftop, flex out (2b, §31.3.4 I2)
+relay shed (phys.shedMW)  = G0 * shedFrac + city.flexDarkMW - city.roofDarkMW
+served   (phys.servedMW)  = G0 * (1 - shedFrac) + (env.flexMW - city.flexDarkMW) - (env.rooftopMW - city.roofOffMW) + coldLoadMW - dr.mw
+unserved rate             = G0 * shedFrac                       // into acc.unservedMWs -> score.unservedMWh
+fleet.litDemandMW(state)  = G0 * (1 - shedFrac) + (env.flexMW - city.flexDarkMW) - (env.rooftopMW - city.roofOffMW)   // market demand's first term; obs.demand.litMW
 
 C-7 readouts (pure functions of state and the tick's start frequency f, except the hold):
 renPfrMW  = min(out, max(0, f - F0 - GOV_DEADBAND_HZ) / (GOV_DROOP * F0) * (WIND_MW * (1 - ofgs.trippedFrac) + SOLAR_MW))
@@ -865,8 +865,9 @@ solarAutoMW`, to `score.spillMWh`. `obs.wind.outMW` / `solar.outMW` are after th
 and the automatic cut, before the frequency response.
 
 `fleet.districtColdLoadMW(state, d)` keeps its signature: for a dark district, the **undelayed
-underlying pickup** (G × share × the cold factor, no rooftop netted off); for a lit one, its net
-load now. The previewTrip backup, save and restore gain every field above that the engine or
+underlying pickup** (G0 × share × the cold factor, no rooftop netted off); for a lit one, its net
+load now; both add the district's `flexShare = env.flexSubMW[sub] × roofFrac` (2b, §31.3.4 I3), and
+the restore surge is `max(0, coldMW − G0 × share − flexShare)`. The previewTrip backup, save and restore gain every field above that the engine or
 `setDistrictDark` writes, in the change that makes them written.
 
 ### 19.3 `observe()` additions, in this order (exact expressions)
@@ -876,14 +877,14 @@ balance   += renPfrMW, roofPfrMW                              (after shedMW)
 demand    += underlyingMW, rooftopMW, litMW, unservedMW       (after tempC)
              // nowMW = env.demandMW; underlyingMW = env.underlyingMW; rooftopMW = env.rooftopMW (as if connected,
              // so nowMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW) holds in obs);
-             // litMW = fleet.litDemandMW(state); unservedMW = G * shedFrac
+             // litMW = fleet.litDemandMW(state); unservedMW = G0 * shedFrac
 wind      += autoMW        solar += autoMW                    (last)
 score     += spillMWh                                         (after starts; §30.7 adds saidiMin, saifi, maifi after it)
 districts[] += reconnectS                                     (last; the number, passed through)
 contingency.pre, contingency.caught += inverterMW             (last)
 forecast, dayAhead += underlyingP50, rooftopMW                (after exportLimitMW; arrays of length n)
              // demandP50 / P10 / P90 stay OPERATIONAL; rooftopMW as if connected, after the heat derate;
-             // underlyingP50 = demandP50 + rooftopMW + the smelter's expected missing load; solarMW stays utility-only
+             // underlyingP50 = demandP50 - flexMW (2b, §31.3.7) + rooftopMW + the smelter's expected missing load; solarMW stays utility-only
 top level, after scope:
 rooftop    = {mw, availMW, capMW, offMW, suburbs}
              // availMW = env.rooftopMW; offMW = city.roofOffMW; mw = availMW - offMW - phys.roofPfrMW (generating now);

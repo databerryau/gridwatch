@@ -217,8 +217,7 @@ function clearInto(state, p) {
 
 /**
  * P-5..P-8 price for the current second. Market demand = the lit operational demand
- * fleet.litDemandMW(state) (Phase 2a: G x (1 - city.shedFrac) less the rooftop PV connected, G =
- * env.demandMW + env.rooftopMW; env.demandMW x (1 - city.shedFrac) with no rooftop) +
+ * fleet.litDemandMW(state) (on G0 = fleet.baseLoadMW, README §5 city) +
  * city.coldLoadMW, minus tie.flowMW and battery.schedMW (the scheduled
  * flows, P-5; RERT MW are NOT subtracted, P-8). Price = offer of the block where the running
  * total first covers market demand, plus scarcityAdder(sec.r5MW / sec.lMW) (x =

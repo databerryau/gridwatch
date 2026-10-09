@@ -10,7 +10,8 @@
 //   - city.shedFrac === sum of district.share over dark districts
 //   - city.roofDarkMW / roofOffMW === the rooftop PV off with dark districts / off in total (dark,
 //     or relit and still waiting or ramping back), from env.roofSubMW (Phase 2a: P-12, C-8;
-//     refreshRoof, called by setDistrictDark and once a grid second by grid.fosSecond)
+//     refreshRoof, called by setDistrictDark and once a grid second by grid.fosSecond); 2b:
+//     city.flexDarkMW === the dark districts' flex shares, from env.flexSubMW
 //   - ufls.operated[k] is true iff stage k's districts were shed by UFLS and not re-armed
 //   - ofgs.trippedFrac === (number of tripped OFGS stages) x OFGS_STAGE_FRAC
 //   - a contingency record is opened for every trip larger than EVENT_THRESHOLD_MW (K-15)
@@ -317,7 +318,7 @@ export function tripSmelter(state, offS, out) {
  * a relight sets it to that second + ROOF_RECONNECT_S, the second its inverters START ramping
  * back, so a restore picks up the full underlying load first. Then refreshRoof, also when
  * physics calls mid-second (a UFLS stage).
- * Reads: tick, city, env.roofSubMW. Writes: districts[d].{dark, shedBy, darkSinceS, restoredAtS,
+ * Reads: tick, city, env.{roofSubMW, flexSubMW}. Writes: districts[d].{dark, shedBy, darkSinceS, restoredAtS,
  * reconnectS}, city.shedFrac, and what refreshRoof writes.
  */
 export function setDistrictDark(state, d, dark, why) {
