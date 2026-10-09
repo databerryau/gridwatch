@@ -2653,12 +2653,33 @@ What it shows
        in the watch; the watch spotlight (B-5) dims everything but the cause.
 
 Keys (map focused; tabindex 0): ←/→ cycle the plants then the suburbs (sets the hover and
-shows the label), Home the first, Esc leaves.
+shows the label), Home the first, Enter opens the hovered suburb's card (not while the RESPOND
+card is up: Enter is its), Esc leaves.
 
 Cost: the sky, the terrain (with the plants), the city (with its rooftop panels) and the
 cloud strips are cached on their own canvases and redrawn only when the light bucket, the
 weather bucket or a district's dark blocks change; a frame is a few blits plus the moving
 parts. The glint is one path and one fill per suburb from typed arrays laid out once.
+
+Phase 2b, the city levers (desk/README.md §31; Q-56, Q-57, §31.9.10). Also reads vm.suburb
+and obs.levers.
+  Click   a suburb sends actions.ui({do: 'suburb', id}); one with a dark district sends
+          {do: 'focus', target: 'bay-restore'} first (Q-42), and the shell then opens the card
+          without taking the focus off RESTORE. Enter on a hovered suburb does the same. A
+          suburb click no longer pins the blue label: the card carries its draw and roofs
+          (mapPinText still says them, for the card). Wind, solar and the ground still pin.
+  Hover   a suburb sends {do: 'hover', target: 'suburb-<ID>'} (the stack and H read it).
+  Overlay per frame, never in the cached layers (a booking redraws nothing cached):
+          - a blue rectangle round vm.suburb (none while vm.mode.locked: the card is hidden);
+          - the glow ring for a glowing 'suburb-<ID>' (the objective names it), as a plant's;
+          - the white hover ring for the pointer's suburb or vm.hover 'suburb-<ID>' (a band
+            hovered on the stack);
+          - suburbTag(obs.levers, id, s), top left in the suburb on a dark plate: '◷ HH:MM',
+            the start of its first block not yet over; then, after its first air-con booking
+            today or while locked, its patience: '☺ 80' at or above PATIENCE_FULL (full
+            response), '☹ 40' below it (the response falls), '☹ 15 LOCKED' under
+            PATIENCE_LOCK. A glyph and a number, never colour alone (K-22). A booking that
+            was cancelled refunds its patience and shows none.
 ```
 
 #### render/livestack.js
@@ -2706,6 +2727,27 @@ a blue surplus is barred "|||" and carries a "+" and, where the run is wide enou
 SURPLUS (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture
 says (stackSummary: the gaps, then the surplus runs and the rooftop), refreshed at most once
 per real second.
+
+Phase 2b, the city levers (desk/README.md §31; U-3, Q-50, Q-57). The skyline already carries
+every booked MW (flex is in the forecast's P50), so the stack draws where each block is, not
+what it does:
+  band    each block's core (obs.levers.blocks[].parts, the sim's knots) over the future
+          columns inside it: a band at least SURPLUS_MIN_PX (4 px) tall along the skyline,
+          load added (the soak) under the skyline, relief (air-con) over it; several stack
+          outward in block order. One pattern for every suburb, a K-22 pattern no other mark
+          uses: a pale fill with dark rows ("≡"); no suburb colours. In the big layout the suburb's code
+          on a plate just beyond the band (clear of the skyline) at its first column, shifted
+          right by its stacking level.
+  ghosts  pre-cool, snapback and the night fall, the same minimum height on the same side
+          rule, as a dashed line along their outer edge (the off units' dash).
+          Heights are the part's plateau MW (ramps not drawn): at the floor (63 MW a pixel)
+          nearly every block is the 4-px minimum anyway.
+  hover   a band or a ghost names its block (blockText: lever, suburb, MW, core times) and
+          sends {do: 'hover', target: 'suburb-<ID>'}, so the map rings the suburb. Hover
+          only: a press there takes what is under it, and nothing drags a block in 2b (the
+          card's steps do).
+  text    stackSummary adds "Booked: <block>." for each block whose core is not over.
+  redraw  signature() includes obs.levers.rev: a booking or a cancel while paused redraws.
 ```
 
 #### app/keys.js
