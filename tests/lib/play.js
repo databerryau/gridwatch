@@ -73,6 +73,8 @@ import {SCENARIOS} from '../../content/scenarios.js';
 import {TEXT} from '../../content/text.js';
 import * as alarmPanel from '../../app/alarmpanel.js';
 import * as endCard from '../../app/endcard.js';
+import * as perf from '../../app/perf.js';
+import * as suburbCard from '../../app/suburbcard.js';
 
 const NEXT = readFileSync(new URL('../../next.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S, TICK_S = 1 / TPS, DAY_S = V.DAY_S;
@@ -212,7 +214,7 @@ export function openGame(o = {}) {
   try {
     h = bootGame(doc, {createDesk, createMap, createLiveStack, system, planview, scenario, commit: o.commit || 'player',
       startPaused: o.startPaused === undefined ? true : o.startPaused, search: '?seed=' + seed, storage: o.storage === undefined ? null : o.storage,
-      audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard, par: o.par});
+      audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard, perf, suburbCard, par: o.par});
   } finally { restore(); }
   const game = h.game, $ = id => doc.getElementById(id);
   let hovered = null, lastLook = '';

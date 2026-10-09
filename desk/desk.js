@@ -1,57 +1,5 @@
 // desk/desk.js: the desk (desk/README.md §6, §13-§14.2; SPEC §4.2-§4.3, K-17 panel sizes).
-//
-//   const desk = createDesk(doc, root, actions, opts?);   // root: the #desk element the shell sizes; opts.annunSlot (Q-45)
-//   desk.update(vm);          // every frame, after the ticks (reads the view model only, §5)
-//   desk.key(ev);             // the shell forwards every keydown/keyup here first (§13.3); true = the desk acted
-//   desk.focus(id);           // focus a desk control by its §5 id (also done when vm.focus changes)
-//   desk.slots.stack          // the #stack-slot element the Live Stack (#stack) mounts into (render/livestack.js)
-//   desk.el                   // the desk's own container
-//
-// Four columns at the 1280×300 floor (232 / 424 / 336 / 256 px + 8-px gutters): the frequency
-// dial over the imbalance bar and N-1 gauge; the lever bank over the hydro wheel, battery dial,
-// tie knob and the AGC / RE-DISPATCH keys; the Live Stack slot over the procedure bay; the
-// message tray over the emergency row; the annunciator in the plan bar (§30.4). Every input goes through
-// actions.input (never assumed accepted: refusals show on the control for a moment); the desk
-// is locked while vm.mode.locked (the watch) except ACK and SILENCE. Time for guards, holds and
-// the synchroscope's 8-s AUTO comes from vm.frame.nowMs (or opts.now), never from timers.
-//
-// Keys (K-23, §13.3). desk.key returns true exactly when it acted; the shell then stops. (D and E
-// always return true: both holds are the desk's, so the shell never starts its own.)
-//   desk.key (from anywhere):
-//     1-8        focus COAL / CCGT / GT·A / GT·B / GT·C / hydro wheel / battery dial / tie knob
-//     G          focus the GUARD ring            V   focus the AGC/HAND key
-//     K          focus DIRECT SHED (while shown) N   RE-DISPATCH (as a press of its key)
-//     O          open the first READY unit's synchroscope (an offered one first); again: close the scope
-//     [ ] C U    slip lower / raise, close the breaker, auto-sync      B   the bypass key (HAND only)
-//     R          the restore bay (focus its list)
-//     A, Shift+A ACK, SILENCE                    D, E (hold 0.6 s)   industrial DR, reserve diesel
-//     S S / X X  start / stop a machine of the focused station (guarded), P / Shift+P rejoin the plan (HAND)
-//     Enter      presses the focused desk button (tiles, cards, guards, tabs, ...); not while the RESPOND card is up
-//   The focused control, natively (it calls preventDefault, so the shell does nothing more):
-//     lever        ↑↓ ±10 MW, Shift ±1 (Shift+↑ crosses the 96% gate), PgUp/PgDn detent, Home/End
-//     hydro wheel  ←→ (or ↑↓) 1%, Shift 10%, PgUp/PgDn 10%, Home/End
-//     battery dial ←→ mode CHARGE / IDLE / DISCHARGE, ↑↓ magnitude 50 MW, Shift 10, Ctrl 1, Home/End
-//     GUARD ring   ←→ / ↑↓ one 50-MW detent, Home/End
-//     tie knob     ←→ / ↑↓ 50 MW, Shift 10, Ctrl 1, PgUp/PgDn detent, Home/End
-//     RERT, DR     Enter or Space held 0.6 s (RERT: the first press lifts the cover)
-//     DIRECT SHED  Enter lifts the cover, Enter again within 2 s commits (or hold 0.6 s)
-//     restore list ←→ / ↑↓ choose a district, Enter closes its breaker
-//     tray         ←→ / ↑↓ move between the cards' buttons and LOG
-//   T, M, L, Tab, Space, Esc, F and ? stay the shell's (app/keys.js).
-// Foley (K-20): gestures emit actions.ui({do:'cue', name, pan}) on real changes only (ctx.cue).
-//
-// C-10 (Phase 2a, desk/README.md §19.5): the desk tells the shell which START / STOP guard the
-// player is considering, actions.ui({do: 'consider', target: 'guard-start-<unit>' |
-// 'guard-stop-<unit>' | null}), and only when the answer changes. A lifted guard wins, then the
-// focused one, then the hovered one; null when none. A commit counts as a drop. A lift made by
-// key (S / X on a lever: nothing is hovered and the lever, not the guard, has the focus) is held
-// CONSIDER_HOLD_MS after its cover drops, so a keyboard player has time to read what the press
-// would do (the cover itself still drops after 2 s). "Focused" is the keyboard's focus: the
-// focus a mouse click leaves on a guard is not counted (makeConsider says how), so after a
-// pointer lift or commit the target clears when the pointer leaves. The shell shows vm.consider
-// in the objective line; the desk only names the guard. After a new day (obs.tick going back)
-// the target is sent again, because the shell clears its copy. K-3: a cover going up or down
-// sends {do: 'armed', target, on}.
+// Contract: desk/README.md §31.8 desk/desk.js.
 
 import {createLevers} from './levers.js';
 import {createHydroWheel, createBatteryDial, createTieKnob} from './rotary.js';
@@ -354,7 +302,7 @@ export function createDesk(doc, root, actions, opts = {}) {
   }
 
   /**
-   * The desk's keys (the header lists them). The shell forwards every keydown and keyup here
+   * The desk's keys (§31.8 lists them). The shell forwards every keydown and keyup here
    * before its own map (§13.3). Returns true exactly when the desk acted on the key.
    */
   function key(ev) {

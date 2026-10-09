@@ -1,43 +1,5 @@
 // render/map.js: the living isometric city map (desk/README.md §7, §14.3; SPEC G-1..G-5).
-// One screen canvas; the scene is drawn on a fixed BASE_W x BASE_H offscreen canvas and
-// blitted at an integer scale (render/mapdata.js scaleFor), letterboxed with the ground and
-// sky colours, never sky under the ground. Reads the view model only (vm.obs, vm.mode,
-// vm.hover, vm.glow, vm.alarms, vm.settings.reducedMotion). Math.random is cosmetic only (F-3).
-//
-//   const map = createMap(document, root, actions);   // root: the #map box
-//   map.update(vm);                                   // every frame
-//   map.key(ev);                                      // the shell forwards keys (§13.3); true when it acted
-//
-// What it shows
-//   G-2  one silhouette per technology (shapes are data in mapdata.js PLANT_PARTS): coal =
-//        hyperbolic cooling towers, banded stacks, a coal pile; CCGT = two boxy HRSGs with
-//        stubby stacks; GTs = a shed and one stack each; hydro = a dam wall, a spillway and
-//        penstocks; battery = rows of white containers; tie = tall lattice pylons marching off
-//        the west edge; wind turbines on the ridge; solar rows on the plain. Labels on hover,
-//        focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
-//        target}); vm.hover rings the plant back. A click: see the click listener (Q-41).
-//   G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
-//        west; long warm light and long shadows at sunset; lit windows at night, as many as
-//        the city is using (underlying demand). Rooftop PV
-//        (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
-//        layer, cached) and a glint on them each frame: per suburb, as bright as its output
-//        over its capacity (cloud dims it) and as the light; never on a dark district, on a
-//        relit one only as its inverters ramp back; a static pattern under reduced motion.
-//   G-4  weatherOf(obs): heat = haze on the horizon + a bleached warm palette + shimmer;
-//        storm = two layers of dark cloud, slanted rain and rain sheets, a darker ground,
-//        turbines feathered at cut-out; cloud front = grey cloud and soft shadows drifting
-//        over the suburbs. All three are drawn static under reduced motion.
-//   G-5  a shed district goes dark block by block (90 ms each) and gets a hatched outline; a
-//        tripped machine smokes, strobes red and carries a ✕ for its whole lockout; rotors slow
-//        in the watch; the watch spotlight (B-5) dims everything but the cause.
-//
-// Keys (map focused; tabindex 0): ←/→ cycle the plants then the suburbs (sets the hover and
-// shows the label), Home the first, Esc leaves.
-//
-// Cost: the sky, the terrain (with the plants), the city (with its rooftop panels) and the
-// cloud strips are cached on their own canvases and redrawn only when the light bucket, the
-// weather bucket or a district's dark blocks change; a frame is a few blits plus the moving
-// parts. The glint is one path and one fill per suburb from typed arrays laid out once.
+// Contract: desk/README.md §31.8 render/map.js.
 
 import {V} from '../sim/params.js';
 import {BASE_W, BASE_H, HORIZON_Y, COLOURS, UI, SUBURBS, SUBSTATIONS, TRUNKS, PLANTS, PLANT_PARTS, WIND_TURBINES, TURBINE_H,

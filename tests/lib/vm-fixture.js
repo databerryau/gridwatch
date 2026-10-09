@@ -50,6 +50,7 @@ export function baseVm(obs, over) {
     offers: [], respond: null, glow: new Set(),
     hist: {freq: [], stations: {}, demand: []},
     settings: {volume: 0.5, muted: true},
+    suburb: null, dayAhead: null, // (desk/README.md §31.3.8)
   };
   return Object.assign(vm, over || {});
 }

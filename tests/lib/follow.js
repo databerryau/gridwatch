@@ -20,7 +20,7 @@ import {objective as standingObjective} from '../../app/objective.js';
 const TPS = V.TICKS_PER_S;
 const tickAt = h => Math.round((h - V.DAY_START_H) * V.S_PER_H * TPS);
 /** Inputs after which the game re-dispatches in the same call. */
-export const REDISPATCH_AFTER = new Set(['start', 'stop', 'abortStop', 'battery', 'guard']);
+export const REDISPATCH_AFTER = new Set(['start', 'stop', 'abortStop', 'battery', 'guard', 'flex', 'flexDel']);
 
 /**
  * @param {number} seed

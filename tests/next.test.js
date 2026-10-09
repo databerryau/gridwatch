@@ -28,6 +28,7 @@ import {REDISPATCH_AFTER as FOLLOWER_REDISPATCH_AFTER} from './lib/follow.js';
 import {TEXT} from '../content/text.js';
 import * as alarmPanel from '../app/alarmpanel.js';
 import * as endCard from '../app/endcard.js';
+import * as suburbCard from '../app/suburbcard.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const TPS = V.TICKS_PER_S;
@@ -157,7 +158,7 @@ function boot(query = '?seed=7&perf', over = {}) {
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
   // (Q-44: the page loads the texts and the alarm panel on demand; here they are passed up front)
   const h = bootGame(doc, Object.assign({createDesk: mods.createDesk, createMap: mods.createMap, createLiveStack: mods.createLiveStack,
-    system, search: query, storage: null, audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard}, over));
+    system, search: query, storage: null, audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard, perf: PF, suburbCard}, over));
   restore();
   const frames = (n, dtS = 1 / 60) => { for (let i = 0; i < n; i++) { t += dtS * 1000; h.frame(dtS); } };
   const key = (k, extra) => doc.dispatch('keydown', Object.assign({key: k}, extra));
@@ -726,12 +727,15 @@ test('Q-18 / K-22: the word beside the objective is by level, and by kind where 
   assert.equal(objectiveWord({kind: 'spare', level: 'plan'}), '◷ SPARE');
   assert.equal(objectiveWord({kind: 'restore', level: 'plan'}), '◷ DARK');
   assert.equal(objectiveWord({kind: 'watch', level: 'act'}), '◉ WATCH');
+  // Q-59 (§31.9.1): the city line's word carries its route, H (outside the line's LINE_MAX_CHARS)
+  assert.equal(objectiveWord({kind: 'city', level: 'plan'}), '◇ SUBURB (H)');
+  for (const level of ['plan', 'act', 'crit']) assert.match(objectiveWord({kind: 'city', level}), /^[◇▶] SUBURB \(H\)$/, 'city ' + level);
   for (const kind of ['stop', 'battery', 'spare', 'restore', 'watch']) for (const level of ['ok', 'plan', 'act', 'crit']) {
     const w = objectiveWord({kind, level});
     assert.ok(w.length > 2 && !/URGENT/.test(w), kind + ' ' + level + ': ' + w);
     assert.match(w, /^\S [A-Z ]+$/, 'a glyph and a word, never colour alone: ' + w);
   }
-  for (const kind of ['quiet', 'commit', 'short', 'held', 'stop', 'battery', 'spare', 'restore', 'watch']) {
+  for (const kind of ['quiet', 'commit', 'short', 'held', 'stop', 'battery', 'spare', 'restore', 'watch', 'city']) {
     for (const level of ['ok', 'plan', 'act', 'crit']) assert.doesNotMatch(objectiveWord({kind, level}), /SHORT/, 'the BALANCE bar\'s word: ' + kind + ' ' + level);
   }
   assert.equal(objectiveWord(null), '');
@@ -832,9 +836,9 @@ test('C-10 via the shell: while a guard is under the player\'s hand the line say
   assert.equal(sysGame.$('objective').hidden, true);
 });
 
-test('§21.4: in player mode an accepted start, stop, abortStop, battery or guard input is followed by the system\'s re-dispatch in the same call', () => {
+test('§21.4: in player mode an accepted start, stop, abortStop, battery, guard, flex or flexDel input is followed by the system\'s re-dispatch in the same call', () => {
   assert.deepEqual([...G.REDISPATCH_AFTER].sort(), [...FOLLOWER_REDISPATCH_AFTER].sort(), 'the game and the test player (tests/lib/follow.js) in step');
-  assert.deepEqual([...G.REDISPATCH_AFTER].sort(), ['abortStop', 'battery', 'guard', 'start', 'stop']);
+  assert.deepEqual([...G.REDISPATCH_AFTER].sort(), ['abortStop', 'battery', 'flex', 'flexDel', 'guard', 'start', 'stop']);
   const {$, h, system, frames} = boot('?seed=7', {commit: 'player'});
   $('btn-take').click();
   frames(3);
@@ -1088,6 +1092,8 @@ test('F-11: the ?perf overlay shows the budget marks; ?debug exposes the boot ha
     assert.equal(globalThis.gridwatch, dbg.h, 'the handle bootGame returned');
     assert.equal(typeof globalThis.gridwatch.frame, 'function');
     assert.equal(dbg.$('perf').hidden, true, '?debug alone shows no overlay');
+    assert.equal(dbg.h.perf, null, 'Q-49: app/perf.js loads only under ?perf');
+    assert.equal(typeof plain.h.perf.n, 'number', 'the handle\'s perf is a getter');
   } finally {
     delete globalThis.gridwatch;
   }
