@@ -29,6 +29,10 @@
 //   key=K                   a key press (Enter, Escape, Space, s, Shift+A, ArrowUp...), + 1 frame
 //   hold=K:S                hold a key for S real seconds (D, E, F)
 //   send=JSON               a sim input through the page's actions, e.g. send={"type":"start","unit":"gta1"}
+//   suburb=ID               open a suburb's card as a map click does (SOL HAZ RED HAR TAL SAL; suburb= closes it),
+//                           then press its rows: press=city-HAZ-soak (BOOK), city-RED-aircon, city-HAZ-soak-earlier /
+//                           -later (◀ ▶), city-HAZ-soak-cancel-1030 (CANCEL the 10:30 block), city-HAZ-restore; look
+//                           shows it as a SUBURB line. Keys in the card: ←/→ suburb, ↑/↓ row, - = time, Enter
 //   timeline=FROM-TO/EVERY  look() every EVERY (30m) from FROM to TO, plus every event; prints the
 //                           changed lines (presses Enter at each RESPOND card)
 //   state                   tick, grid time, mode, contingencies, inputs logged
@@ -116,6 +120,7 @@ for (const step of rest) {
       case 'key': { const k = keyOf(arg); p.key(k.key, k.extra); out = p.clock() + ' ' + p.mode(); break; }
       case 'hold': { const [k, s] = arg.split(':'); p.hold(keyOf(k).key, Number(s || 1)); out = p.clock() + ' ' + p.mode(); break; }
       case 'send': out = 'refused: ' + (p.send(JSON.parse(arg)) || '(accepted)'); break;
+      case 'suburb': out = p.suburb(arg || null) || (arg ? 'card open: ' + arg : 'card closed'); break;
       case 'state': {
         const s = p.game.state;
         out = 'tick ' + s.tick + ' · ' + p.clock() + ' · ' + p.mode() + ' · contingencies ' + s.conts.length + ' · inputs ' + s.log.length + (s.over ? ' · OVER' : '');

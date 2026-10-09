@@ -66,7 +66,7 @@ test('§31.4 step 4 / §31.9.1: H opens (focus in) and H closes (focus back); a 
   assert.equal(p.vm().suburb, CITY[0], 'a held H does not toggle');
   // the card's keys are its own: with the card focused, no key reaches the lever vm.focus still names (arrows, PgUp/PgDn, S S, X X, P)
   const log = p.game.state.log.length;
-  for (const k of ['ArrowDown', 'PageDown', 'PageUp', 's', 's', 'x', 'x', 'p', 'S', 'S']) p.key(k);
+  for (const k of ['ArrowDown', 'PageDown', 'PageUp', 's', 's', 'x', 'x', 'p', 'S', 'S', '-', '=']) p.key(k);
   p.key('ArrowUp', {shiftKey: true});
   p.key('P', {shiftKey: true});
   assert.equal(p.game.state.log.length, log, 'no input sent');
