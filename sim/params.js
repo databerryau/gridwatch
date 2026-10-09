@@ -1,17 +1,5 @@
 // sim/params.js: every model constant of the v4 core (spec F-13).
-//
-// Each constant is a record {value, unit, src} or {value, unit, simplified: true, note}.
-// Constants still unconfirmed (spec §8.3) also carry `unverified: true`. A record whose value
-// is uncertain within a stated band carries `range: [lo, hi]` (H-8: "every parameter inside
-// its §8 range"; tests/params.test.js checks that the value lies inside it).
-// No other file under sim/ may contain a numeric literal apart from 0, 1, 2, 50, 60 and
-// array indices (tests/params.test.js). Code reads plain values through `V`, which mirrors
-// `P` with each record replaced by its value, plus derived tables (V.MACHINES, V.STATIONS).
-//
-// Stage A (architect) owns this file. Stage B agents may ADD records (with src or
-// simplified), each ONLY between its own two marker lines at the end of P, so four parallel
-// branches merge without conflicts. Changing a value is tuning. Only the integration owner
-// bumps SIM_VERSION (once per merged change set, not per agent).
+// Contract: sim/README.md §11 params.js.
 
 // 0.2.0: stages A and B (3876c98). 0.2.1: the tuning pass (owner decisions D1-D3: GT·C 2 x 300 MW,
 // minimum down time after planned stops only, par's RERT walk, the preview margins, the restore

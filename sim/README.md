@@ -794,6 +794,27 @@ Only `weather.sampleSecond` and `events.applyDue` read `ext`, and only for the p
 `ext.regime.temp` is read once, by `createState`.
 Nothing reads `ext` to anticipate the future.
 
+### params.js
+
+**The file's header** (moved from `sim/params.js` verbatim, Q-49; desk/README.md §31):
+
+```text
+sim/params.js: every model constant of the v4 core (spec F-13).
+
+Each constant is a record {value, unit, src} or {value, unit, simplified: true, note}.
+Constants still unconfirmed (spec §8.3) also carry `unverified: true`. A record whose value
+is uncertain within a stated band carries `range: [lo, hi]` (H-8: "every parameter inside
+its §8 range"; tests/params.test.js checks that the value lies inside it).
+No other file under sim/ may contain a numeric literal apart from 0, 1, 2, 50, 60 and
+array indices (tests/params.test.js). Code reads plain values through `V`, which mirrors
+`P` with each record replaced by its value, plus derived tables (V.MACHINES, V.STATIONS).
+
+Stage A (architect) owns this file. Stage B agents may ADD records (with src or
+simplified), each ONLY between its own two marker lines at the end of P, so four parallel
+branches merge without conflicts. Changing a value is tuning. Only the integration owner
+bumps SIM_VERSION (once per merged change set, not per agent).
+```
+
 ### fleet.js (A, done, frozen; Phase 2a: the grid job's roof bookkeeping)
 
 Phase 2a wave 1 (desk/README.md §19.2, §21.2; P-12, C-8, C-7) changed four rows: `preTrip`
@@ -1024,6 +1045,74 @@ Spec IDs: H-8 (RoCoF 1%, inertia raises nadir >= 0.2 Hz, containment, 10-s run <
 Phase 2a: P-12, C-8 (net blocks, unserved on the underlying load), C-7 (H-8 / risk 10: the
 inverters' over-frequency response). `tests/belly.test.js` holds the Phase 2a cases.
 
+**The file's header** (moved from `sim/physics.js` verbatim, Q-49; desk/README.md §31):
+
+```text
+sim/physics.js: the one frequency engine (spec H-8, H-6, H-7, H-10, F-4, K-10, K-15).
+
+STAGE B owner: "physics". Contract: sim/README.md, section "physics.js".
+Used by live play (tick), the TRIP PREVIEW and SECURE check (previewTrip), the watch,
+restore previews (K-13, Phase 1a), par and tests. There is no second engine: tick() and
+previewTrip() both run advance() below, on state (the preview between a save and an exact
+restore).
+
+Rules for this file:
+  - tick() allocates nothing and calls no transcendental Math function (risk 5). Event
+    records (ufls, ofgs, black) are the only objects it creates, and they are rare.
+  - Constants come from V (sim/params.js), hoisted to module scope below.
+  - Per-machine constants are in V.MACHINES[k] (govDeadTicks, govAlpha, govCapMW,
+    govGainMWperHz, ekMWs, ...), copied into flat module arrays.
+  - previewTrip() leaves `state` exactly as it found it and never clones it (a JSON clone
+    alone costs ~0.26 ms): it saves every field the engine can write into ONE module-level
+    backup built once, runs on state, and restores them in a finally (integration: running
+    on a separate scratch object made the tick engine polymorphic, ~90 ns per live tick).
+    Its result depends only on its inputs.
+  - Relays go through fleet.operateUfls / fleet.setOfgsStage; districts through fleet.
+
+Modelling choices inside the README contract (each is labelled in params.js):
+  - Relay and collapse timers count whole ticks (timer = n x PHYS_DT), so 0.30 s is exactly
+    15 ticks and no float drift moves a relay by a tick.
+  - Collapse bands (H-7) count time BELOW each band's upper edge (47.5 Hz for 2 s, 48.0 Hz
+    for 20 s), as generator under-frequency protection does ("f < X for t"); a dip from the
+    47.5-48 band into the 47-47.5 band keeps the 20-s timer running instead of resetting it.
+    Instant black uses both the tick's start and end frequency.
+  - GUARD (K-5): the FFR layer follows a target (guardMW while sustained, a linear ramp-off
+    after GUARD_SUSTAIN_S, 0 when spent) at guardMW / GUARD_DELIVERY_S upward and at
+    BATT_MW / GUARD_WITHDRAW_S downward, so it is full exactly GUARD_DELIVERY_S after the
+    trigger and turning the ring down mid-sustain never steps the output (params
+    GUARD_WITHDRAW_S). The guard reads the live ring (battery.guardMW).
+  - H-10 re-engagement: while ufSuspend, charging comes back in proportion between
+    UF_SUSPEND_HZ and UF_RESUME_HZ (params UF_RESUME_LINEAR), so the release is not undone
+    by a step at 49.90 Hz.
+  - PFR anti-windup: battery.pfrMW is the lag state AFTER the inverter / SoC trim.
+  - acc.fMinHz/fMaxHz/fSumHz use the frequency at the START of each tick (the same f the
+    tick's readouts and relays use, and the one pushed into fHist). acc.battOutMWs is the
+    signed net output (+ discharge), acc.battChargeMWs the charge drawn (>= 0) and
+    acc.battAbsMWs the throughput |out|, all in MW x s.
+  - A contingency record's extremeHz is judged on each traced tick's START frequency (the
+    value phys.fHz showed after the previous step), extremeTick is that tick, and caught =
+    that tick's readouts minus pre, so a UFLS stage operating at the extreme is counted.
+
+Phase 2a (desk/README.md §19.2; P-12, C-8, C-7), each labelled in params.js:
+  - Load on NET blocks: G = env.demandMW + env.rooftopMW is the total before rooftop. The relay
+    MW (phys.shedMW, the ufls record) is the dark districts' net load, G x shedFrac -
+    city.roofDarkMW (near zero or negative at a sunny noon); the unserved RATE is their
+    underlying load, G x shedFrac, into acc.unservedMWs. fleet.refreshRoof keeps the two city
+    sums, so the tick has no district loop. With rooftop zero every term is today's value.
+    One labelled case: a stage that sheds a district relit under ROOF_RECONNECT_S + ROOF_RAMP_S
+    ago. Its `ufls` record nets only the rooftop the district had connected (what the relays
+    took off); phys.shedMW keeps the formula above (all of its rooftop), so for that stage
+    caught.uflsMW is short of the relief by the rooftop that was still off (README §7).
+  - C-7, lowering only: wind and utility solar back off on over-frequency (REN_PFR_ON: droop on
+    rating beyond the governor deadband, capped by present output, no lag); rooftop inverters
+    back off between ROOF_FW_START_HZ and ROOF_FW_ZERO_HZ and HOLD the lowest value reached
+    (phys.roofHoldFrac) until f is back under start - hysteresis, then return at 1 /
+    ROOF_RAMP_S of their connected output a second (ROOF_FW_ON). Both are readouts of this
+    tick's START frequency (the hold apart), enter the K-11 identity and the contingency trace
+    (caught.inverterMW), and run in the preview too. The wind and solar backed off is spilled
+    energy (acc.spillMWs).
+```
+
 ### grid.js (B "grid")
 
 `applyCommand(state, cmd, out) -> ''|reason`, `unitsSecond`, `agcSecond`, `dispatchSecond`,
@@ -1188,6 +1277,50 @@ rules:
   cold load, which passed restores whose surge set off UFLS again; the unused
   `RESTORE_R5_RATIO` was removed in the review-fix pass) and the cold-load surge (`surgeMW`
   decaying linearly over 10 min into `city.coldLoadMW`); no procedure bay yet.
+
+**The file's header** (moved from `sim/grid.js` verbatim, Q-49; desk/README.md §31):
+
+```text
+sim/grid.js: the 1-second grid update and every player command's semantics
+(spec F-2, F-13, H-1, H-2, H-4, H-10, H-11, K-1, K-2, K-3, K-5..K-7, K-12/K-13 stubs, S-11).
+
+STAGE B owner: "grid". Contract: sim/README.md, section "grid.js". Phase 1a (sim agent) added
+the plan's executor and edits (L-0, L-4, L-6, K-2 HAND/MAN), the K-12 synchroscope, DIRECT
+SHED's gate (A-3) and N-1 over both credible contingencies (A-2): see the sections below.
+step() calls, at every grid-second boundary and in this order:
+  planSecond (right after events.applyDue) -> unitsSecond -> agcSecond -> dispatchSecond ->
+  fosSecond -> securitySecond
+(after market.settleSecond, events.applyDue and weather.sampleSecond; before market.priceSecond),
+and syncTick on the tick a syncAuto close is due (state.scope.nextAutoTick).
+Trips, breakers, districts, relays and base points go through sim/fleet.js, which keeps
+the invariants listed at the top of that file.
+
+Division of labour inside the second: unitsSecond owns timers and mode transitions
+(start profile, auto-sync, stop profile, lockouts, heat derate, hot trips, water, tie
+lockout, RERT lead, OFGS reconnect, FULL-HOLD); dispatchSecond owns every MW that moves
+(schedules at ramps and along the T2/T4 profiles, battery, tie, renewables, RERT, DR). The
+profiles' transitions are driven by schedMW reaching MIN or the breaker-open level, so
+timerS is a countdown for display (and the market's stack) that never gates the physics.
+
+Choices this file makes where the contract is loose (see the final report, CONTRACT NOTES):
+  * Sync block = min(SYNC_BLOCK_FRAC x rating, MIN) and breaker-open level =
+    min(BREAKER_OPEN_FRAC x rating, MIN): hydro (MIN 0) closes at 0 MW and is 'on' at once,
+    and unloads to 0 before its breaker opens (params t4Min note).
+  * Battery schedule near empty or full tapers to what the dispatch ramp can still bring
+    to zero with the energy left (P <= sqrt(2 x ramp x energy)): an energy management
+    limit, so an empty battery never drops its whole schedule in one tick. Affects only
+    the last few MWh.
+  * Directed shedding (player and FOS) takes the lit rotation district that was restored
+    longest ago (never shed first), ties by rotation index: true rotation, so a district
+    just restored is not the next one shed. On a fresh day that is the lowest rot.
+  * The tie's export cap limits the target; the flow reaches a lower cap at the tie ramp
+    (as a dispatch interval would), never as a step.
+
+Phase 2a wave 1 (desk/README.md §21.2; owner "grid"): automatic curtailment in dispatchSecond
+with AGC's unmet lowering request (C-6; the section before dispatchSecond), AGC lowering the
+units to MIN before the battery while the dispatch is spilling (agcCycle), the roof refresh
+in fosSecond and the restore surge on the total before rooftop (P-12, C-8).
+```
 
 ### market.js (B "market + events")
 
@@ -1358,6 +1491,136 @@ state, memo}`. JSDoc has the details. The contract:
   par"), and each STOP line's quoted saving against the realised difference: the same day with
   that STOP skipped, which is the line asked about an observation in which that unit is not free
   to stop (its `stopBlock` set) until the day next started it, so every other branch is followed.
+
+**The file's header** (moved from `sim/autopilot.js` verbatim, Q-49; desk/README.md §31):
+
+```text
+sim/autopilot.js: the L-0 pre-dispatch plan, PAR (the fixed reference dispatcher) and the
+player proxies (spec L-0, S-4, S-11, S-12, P-6, O-3 "Marg runs covered controls", §6).
+
+STAGE B owner: "autopilot" (also tools/par.js). Contract: sim/README.md, "autopilot.js".
+Information barrier (S-4): everything here reads ONLY observe(state) output. It must not
+import sim/events.js, sim/weather.js or content/, and must never see state, state.ext or
+the seed (tests/sim-lint.test.js). It may import sim/params.js (public constants) and
+sim/step.js (runPar is the harness around decide()). runPar alone touches state: it
+steps it, reads tick / over / log, asks step.inWatch(state) when to decide, and feeds
+inputs through step.applyInput so it knows which were accepted (origins[]).
+
+Inputs par makes come in three kinds, told apart by runPar's `origins`:
+  'plan'   the L-0 plan: ONE planLoad input at 04:30 (Phase 1a: the plan lives in state and
+           the grid's executor moves the levers, the tie and the booked starts and stops,
+           K-2, L-6), and planOnly's re-flows of it. The system's schedule, not a discrete
+           action, so it is NOT paced.
+  'replan' par's own re-dispatch after an action (below), also a planLoad from that moment.
+           NOT paced either: the re-plan is part of the action it follows (SPEC S-4, §8.2
+           "Par re-plans after every action"), and the player has the same RE-DISPATCH
+           (replan(): app/system.js in the game, decision A-1; app/assist.js on the bench).
+  'ruleN'  a discrete action from S-4 rule N (1..9), paced: at most one per
+           PAR_ACTION_GAP_REAL_S of the reference playback (refRealSeconds). Rule 7's action
+           is itself a planLoad (its re-dispatch).
+planLoads wait in memo.outbox until planUpdates() returns them (runPar and the assist send
+them right after decide()'s action).
+
+How par edits its plan (SPEC S-4 and §8.2):
+  * Every discrete action AMENDS the plan (a RE-PLAN): after it, par re-dispatches its
+    keyframes for every lever and the tie from now to 04:00 over the commitment it now
+    has (present modes, pending plan starts, its own starts), with the latest forecast
+    (obs.forecast, 4.5 h) and the day-ahead forecast beyond it, and sends it as a planLoad
+    (origin 'replan'). It is not an extra discrete action; the
+    review measured what it is worth (without any re-plan par's clean days fell from 89
+    to 42 of 100), which is why the player gets the same RE-PLAN.
+  * Par starts from the L-0 plan without its stops (makePlan): it decommits by rule 4 only.
+  * Rule 7 (extension): "keep units at or below PAR_MAX_LOADING unless that would shed
+    load" is applied by that re-dispatch; rule 7 itself fires when a unit's base point
+    is above the limit, when AGC carries more than PAR_REBASE_MW, or when the plan misses
+    the forecast for the coming column by more than PAR_REBASE_MW (a red or blue gap on
+    the Live Stack, L-5). Its input is the amended plan (a planLoad), when it moves a lever
+    in the first column and the plan over the next hour by enough.
+  * Rule 2 (v4 form): H-4 checks N-1 twice, in minutes (R5 >= L) and in seconds (TRIP
+    PREVIEW nadir). S-4's rule 2 names only the minutes half; v4 physics trips UFLS on
+    an uncovered 650-800 MW loss (the integration report measured 48.7-49.2 Hz), so par
+    also acts on the preview: it raises the GUARD (contingency FFR, as AEMO enables
+    contingency raise FCAS for the largest risk), then starts a peaker. When anything is
+    short now it releases the GUARD at once (the battery is then worth more to AGC).
+  * Par's plan never exports for profit (a price-taking export at the evening peak
+    would spend the reserve), and caps the tie import at the largest unit's planned
+    output so the tie is not the unique largest contingency (as AEMO constrains flows),
+    unless the P50 would otherwise be short ("unless that would shed load"). Rules 1 and
+    2 read "maximum import" as that secure maximum.
+  * Rule 1 acts on supply trips (unit, link). A load trip (the smelter) raises
+    frequency, and starting a peaker would be wrong.
+  * Rule 5 reads "hold water" as the rules lab's controller did: keep PAR_WATER_KEEP_MWH
+    in storage until PAR_WATER_HOLD_UNTIL_H (hydro runs at its water value above that
+    line), then a keep line falling linearly to a small reserve at PAR_WATER_EMPTY_BY_H.
+    A shortfall may use kept water down to the reserve, never to HYDRO_STOP_MWH (where
+    the grid unloads the station at its ramp). Rule 5's action starts every hydro machine
+    for the release.
+  * Rule 6's discharge compares the ENERGY price (price minus the P-7 scarcity adder)
+    with the plan's marginal offer; outside the discharge window par recharges a battery
+    AGC has drawn below PAR_BATT_RESERVE_FRAC (extension: primary response overnight).
+    A discharge order past the window's end or at the reserve is ended right after rule 1
+    (rule6End, review fix: battery orders never expire, and in rule order the end waited
+    behind rules 2-5 while the night's pace allowed one action per ~105 grid-min).
+  * Rule 2 raises the GUARD only as far as the battery's energy sustains it for
+    GUARD_SUSTAIN_S (review fix); otherwise its action is the next peaker.
+  * Rule 8 (tuning pass) makes reserve diesel an emergency: an adequacy walk over the
+    forecast counts firm capacity honestly (units and the tie at their real limits, and an
+    energy-limited pool of water, DR call-hours and battery energy above its reserve), arms
+    only on a shortfall the diesel can still reach with its 20-min lead (or earlier when the
+    shortfall is energy-driven and arming now saves the pool), calls DR on a present
+    shortfall hydro and the battery cannot carry (saving calls for the peak), and stands the
+    diesel down when the walk without it is clean. Rule 4 asks the stand-down first (the
+    dearest resource). See rule8().
+  * Rule 1, when no peaker is left to start after a supply trip and units, tie and diesel
+    cannot carry present net demand, calls DR (the next fast block) at once: at the evening
+    profile's pace the next action came ~7.5 grid-min later, after FOS directed shedding.
+  * Rule 9 (extension, README §12) restores only a district whose cold load is at most
+    L and whose estimated dip (the TRIP PREVIEW scaled by coldLoad / L) holds the K-13
+    restore preview's line (SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ), so the restore input,
+    which runs the real restore preview, is seldom refused. Phase 2a: the cap at L is lifted
+    while the dispatch is spilling at least the district's pickup (in the belly L is a machine
+    at its floor, smaller than any pickup); the estimate still decides.
+  * planOnly re-dispatches the L-0 plan for the lit load while districts are dark
+    (reflowLit), as NEM dispatch targets metered demand (L-0: never black with no input).
+The S-4 pace applies to every discrete action; at the reference playback's night roll
+(2,100x) that is one action per ~105 grid-minutes, so restores after a late shed are slow.
+
+Phase 2a, the belly (SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §25):
+  * LIT OPERATIONAL DEMAND. With rooftop PV a dark district takes its roofs off with its
+    feeder (P-12), so what is left is not a proportional slice of the operational demand. The
+    dispatch (context), the lit-load re-flow, the adequacy walk and rule 4's evening read the
+    present from obs.demand.litMW and a forecast column as (P50 + rooftop) x (1 - dark
+    customers) - rooftop x (1 - dark rooftop) (litMW; darkShare; the dark rooftop share is by
+    nameplate). With no rooftop this is the old P50 x (1 - shed).
+  * S-14 rule 2 joins rule 6 as a union with its window: par charges whenever the price is at
+    or below $0 or the dispatch is spilling more than SURPLUS_MIN_MW (obs.wind.autoMW +
+    obs.solar.autoMW; C-6), while the battery has room below PAR_BATT_CHARGE_TO. The order is
+    the present charge order plus what is still being spilled (the sim's cut is net of the
+    order), within PAR_BATT_CHARGE_MAX_MW: free power, never fuel. An order that takes the
+    whole spill leaves nothing spilled and a positive price, so it is HELD while the surplus
+    still feeds it, less what it would be buying instead: thermal output above the floors,
+    hydro, and the tie above its export limit (boughtMW). The price alone starts no order
+    outside the window (with nothing spilled there is no free power to take); it keeps one
+    going. On the classic day the price never reaches $0 and nothing is spilled, so the rule
+    cannot fire there.
+  * S-14 rule 3 as reworded (C-12): export to the cap, charge, and the dispatch curtails the
+    rest. Nothing for par to send: its plan already takes every unit to its floor and the tie
+    to the export limit in a surplus (clearColumn), and the sim holds back wind and solar.
+  * S-14 rule 4 joins rule 4: once no gas unit is committed, ONE coal machine is stopped only
+    if MSL2 is forecast for PAR_COAL_MSL2_H or more AND the evening holds N-1 without it until
+    it could be back at minimum load (T4, the minimum down time from breaker open to the next
+    START, then T1, auto-sync and T2: a 10:00 stop is back at 21:14). Expected never to fire on
+    real days (MSL2 for 3 h does not occur); measured, not tuned (tools/par.js prints the count).
+  * A battery order is counted in the dispatch only for the energy behind it (batteryOrder): a
+    discharge until PAR_BATT_RESERVE_FRAC, a charge until full, at most the inverter less the
+    GUARD. That is how replan() reads the PLAYER's order, and how par reads its own: a charge
+    until PAR_BATT_CHARGE_TO, a discharge until the reserve and no later than 22:00. Par's night
+    recharge (ordered after the charge window) is therefore in its plan; before, it was not.
+  * Rule 7 reads AGC's request net of what the dispatch is lowering in a surplus: while wind or
+    solar is being spilled AGC takes the units down to MIN beyond their regulating bands (C-6),
+    which is the dispatch at work and not a plan gone stale; and a surplus the plan already
+    shows (its negative gap) is not a miss of the forecast.
+```
 
 ### step.js (A, kept by "integration")
 

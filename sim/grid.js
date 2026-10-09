@@ -1,42 +1,6 @@
 // sim/grid.js: the 1-second grid update and every player command's semantics
 // (spec F-2, F-13, H-1, H-2, H-4, H-10, H-11, K-1, K-2, K-3, K-5..K-7, K-12/K-13 stubs, S-11).
-//
-// STAGE B owner: "grid". Contract: sim/README.md, section "grid.js". Phase 1a (sim agent) added
-// the plan's executor and edits (L-0, L-4, L-6, K-2 HAND/MAN), the K-12 synchroscope, DIRECT
-// SHED's gate (A-3) and N-1 over both credible contingencies (A-2): see the sections below.
-// step() calls, at every grid-second boundary and in this order:
-//   planSecond (right after events.applyDue) -> unitsSecond -> agcSecond -> dispatchSecond ->
-//   fosSecond -> securitySecond
-// (after market.settleSecond, events.applyDue and weather.sampleSecond; before market.priceSecond),
-// and syncTick on the tick a syncAuto close is due (state.scope.nextAutoTick).
-// Trips, breakers, districts, relays and base points go through sim/fleet.js, which keeps
-// the invariants listed at the top of that file.
-//
-// Division of labour inside the second: unitsSecond owns timers and mode transitions
-// (start profile, auto-sync, stop profile, lockouts, heat derate, hot trips, water, tie
-// lockout, RERT lead, OFGS reconnect, FULL-HOLD); dispatchSecond owns every MW that moves
-// (schedules at ramps and along the T2/T4 profiles, battery, tie, renewables, RERT, DR). The
-// profiles' transitions are driven by schedMW reaching MIN or the breaker-open level, so
-// timerS is a countdown for display (and the market's stack) that never gates the physics.
-//
-// Choices this file makes where the contract is loose (see the final report, CONTRACT NOTES):
-//   * Sync block = min(SYNC_BLOCK_FRAC x rating, MIN) and breaker-open level =
-//     min(BREAKER_OPEN_FRAC x rating, MIN): hydro (MIN 0) closes at 0 MW and is 'on' at once,
-//     and unloads to 0 before its breaker opens (params t4Min note).
-//   * Battery schedule near empty or full tapers to what the dispatch ramp can still bring
-//     to zero with the energy left (P <= sqrt(2 x ramp x energy)): an energy management
-//     limit, so an empty battery never drops its whole schedule in one tick. Affects only
-//     the last few MWh.
-//   * Directed shedding (player and FOS) takes the lit rotation district that was restored
-//     longest ago (never shed first), ties by rotation index: true rotation, so a district
-//     just restored is not the next one shed. On a fresh day that is the lowest rot.
-//   * The tie's export cap limits the target; the flow reaches a lower cap at the tie ramp
-//     (as a dispatch interval would), never as a step.
-//
-// Phase 2a wave 1 (desk/README.md §21.2; owner "grid"): automatic curtailment in dispatchSecond
-// with AGC's unmet lowering request (C-6; the section before dispatchSecond), AGC lowering the
-// units to MIN before the battery while the dispatch is spilling (agcCycle), the roof refresh
-// in fosSecond and the restore surge on the total before rooftop (P-12, C-8).
+// Contract: sim/README.md §11 grid.js.
 
 import {V} from './params.js';
 import * as fleet from './fleet.js';
