@@ -302,7 +302,7 @@ export function createDesk(doc, root, actions, opts = {}) {
   }
 
   /**
-   * The desk's keys (the header lists them). The shell forwards every keydown and keyup here
+   * The desk's keys (§31.8 lists them). The shell forwards every keydown and keyup here
    * before its own map (§13.3). Returns true exactly when the desk acted on the key.
    */
   function key(ev) {

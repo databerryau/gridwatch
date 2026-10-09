@@ -48,7 +48,7 @@ const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CA
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
 // Q-46 (§30.3.6): the alarm panel's own keys inside it; the keys that never close it (F: refused, FAST_WAIT).
-const SUB = /^suburb-/, PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaAfF?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
+const SUB = /^suburb-/, CARD_OWN = /^(Arrow\w+|Page\w+|Home|End|Enter|Tab|[sxp])$/i, PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaAfFhH?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
 /** The CRT switch's title and answer while REDUCED EFFECTS is on (it is greyed). */
 export const CRT_OFF = 'CRT is off while REDUCED EFFECTS is on';
 
@@ -72,7 +72,7 @@ const KIND_WORD = Object.freeze({
   battery: {plan: '◇ BATTERY', act: '▶ BATTERY', crit: '▶ BATTERY'},
   spare: {plan: '◷ SPARE', crit: '▶ ACT NOW'},
   restore: {plan: '◷ DARK', crit: '▶ ACT NOW'},
-  city: {plan: '◇ SUBURB (H)', act: '▶ SUBURB (H)', crit: '▶ SUBURB (H)'}, // Q-59
+  city: {plan: '◇ SUBURB (H)', act: '▶ SUBURB (H)', crit: '▶ SUBURB (H)'},
 });
 /** The word beside a consequence line (C-10): what a guarded press would do. */
 export const CONSIDER_WORD = '? IF PRESSED';
@@ -182,11 +182,11 @@ const SET_CHECKS = {reducedMotion: 'set-rm', reducedEffects: 'set-fxlow', crt: '
  * @param {{createDesk?:function, createLiveStack?:function, createMap?:function, system?:object, planview?:object,
  *   search?:string, storage?:object|null, audioWin?:object, raf?:boolean, now?:function():number, date?:Date,
  *   matchMedia?:function(string):{matches:boolean}|null, text?:object|function, alarmPanel?:object|function,
- *   endCard?:object|function, perf?:object|function, par?:boolean|object}} deps
+ *   endCard?:object|function, perf?:object|function, suburbCard?:object|function, par?:boolean|object}} deps
  *   raf: false to skip startRaf (tests call handle.frame(dtS) themselves). matchMedia: the
  *   system's prefers-reduced-motion is read through it (default: globalThis.matchMedia when
  *   present; null: no system preference).
- *   text, alarmPanel, endCard (Q-44, §30.9), perf (Q-49, ?perf only), suburbCard: the module (tests), a loader of it, or absent: imported on first need.
+ *   text, alarmPanel, endCard (Q-44, §30.9), perf (?perf), suburbCard: the module (tests), a loader of it, or absent: imported on first need.
  * @returns {object} handle {game, actions, frame(dtS), vm(), audio, mods, keys, perf, live, loadText(), closeTop(), unbind()}
  */
 export function bootGame(doc, deps) {
@@ -204,7 +204,7 @@ export function bootGame(doc, deps) {
     startPaused: o.startPaused, par: o.par,
     storage: o.storage === undefined ? safeStorage() : o.storage, reducedMotion: () => !!(rmQuery && rmQuery.matches)});
   const audio = createAudio(o.audioWin === undefined ? globalThis : o.audioWin);
-  let perf = null, PF = null; // Q-49: app/perf.js, on demand under ?perf
+  let perf = null, PF = null;
   const keys = createKeys();
   const live = createLive();
   let vm = null, lastPerfDraw = -1e9, toastUntil = 0, qNext = 0;
@@ -212,7 +212,7 @@ export function bootGame(doc, deps) {
   // ---------------------------------------------------------------- actions (desk/README.md §4)
   const base = G.makeActions(game);
   let opener = null; // Q-46: the focus when the alarm panel opened
-  let cardFrom = null, cardShown = null; // Q-56: the suburb card's opener, and whose focus it took
+  let cardFrom = null, cardTake;
   const actions = {
     input: x => { const r = base.input(x); if (r) showToast('Refused: ' + r); return r; },
     redispatch: () => { const r = base.redispatch(); if (r) showToast('RE-DISPATCH: ' + r); return r; },
@@ -225,6 +225,7 @@ export function bootGame(doc, deps) {
       if (!wasCard && game.ui.suburb) cardFrom = doc.activeElement;
       if (cmd && cmd.do === 'focus' && cmd.target && !r) focusEl(cmd.target);
       else if (cmd && wasOpen && !game.ui.alarmsOpen) focusAfterPanel(cmd);
+      if (!r && game.ui.suburb && cmd && cmd.do === 'suburb') cardTake = !(cmd.id && within('bay-restore', doc.activeElement));
       if (wasCard && !game.ui.suburb) cardBack();
       if (cmd && (cmd.do === 'drawer')) drawDrawer();
       if (cmd && (cmd.do === 'settings' || cmd.do === 'set' || cmd.do === 'mute')) drawSettings(G.settingsView(game), game.ui.settingsOpen);
@@ -246,7 +247,7 @@ export function bootGame(doc, deps) {
       else if (m.mode === 'PAUSE') say('FAST needs the clock running: Space');
     }
     if (cmd.do === 'skipWatch' && r && m.mode === 'WATCH') say('The first watch plays through: Esc skips from the next trip');
-    if (r && /^(suburb|focus|alarmsGoto)$/.test(cmd.do)) say(r);
+    if (r && (cmd.do === 'suburb' || SUB.test(cmd.target))) say(r);
     // M: onto the tray's newest message; M again (the keys in the tray): its LOG opens or closes.
     if (cmd.do === 'tray') {
       const log = $('btn-log');
@@ -255,7 +256,7 @@ export function bootGame(doc, deps) {
   }
 
   function focusEl(id) {
-    if (SUB.test(id)) { cardShown = null; return; }
+    if (SUB.test(id)) { cardTake = true; return; }
     let el = $(id);
     // A box a browser cannot focus (#map: no tabindex) hands the focus to its focusable child
     // (the map's .citymap, which takes the keys).
@@ -494,13 +495,12 @@ export function bootGame(doc, deps) {
     try { panel.update(v); if (!panelShown) { panelShown = true; panel.focus(); } } catch (e) { err('alarm panel', e); }
   }
 
-  // Q-56 (§31.9.1, §31.9.3; a dark suburb's click: RESTORE keeps the focus)
   let card = null, cardState = '';
   function drawSuburbCard(v) {
     const box = $('suburb-card'), on = !!v.suburb && !v.mode.locked;
     if (!box) return;
     if (box.hidden === on) box.hidden = !on;
-    if (!on) { if (!v.suburb) cardShown = null; if (box.contains(doc.activeElement)) doc.activeElement.blur(); return; }
+    if (!on) { if (box.contains(doc.activeElement)) doc.activeElement.blur(); return; }
     if (!cardState) {
       cardState = 'loading';
       box.textContent = 'Loading…';
@@ -508,7 +508,7 @@ export function bootGame(doc, deps) {
         e => { box.textContent = 'The suburb card could not be loaded. Esc or H closes it.'; err('suburb card', e); });
     }
     if (!card) return;
-    try { card.update(v); if (cardShown !== v.suburb) { cardShown = v.suburb; if (!within('bay-restore', doc.activeElement)) card.focus(); } } catch (e) { err('suburb card', e); }
+    try { card.update(v); if (cardTake) { cardTake = false; card.focus(); } } catch (e) { err('suburb card', e); }
   }
   function cardBack() {
     const n = cardFrom, a = doc.activeElement;
@@ -782,7 +782,7 @@ export function bootGame(doc, deps) {
   }, now, {
     // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
-      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target) || within('suburb-card', ev.target)) && PANEL_OWN.test(ev.key)),
+      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key)),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
     first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
     chain: () => [mods.desk, mods.stack, mods.map],

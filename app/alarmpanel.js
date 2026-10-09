@@ -43,7 +43,7 @@ const NAMES = {stack: 'LIVE STACK', tray: 'MESSAGES', 'dial-battery': 'BATTERY',
 export function controlName(id) {
   const m = /^(lever|guard-start|guard-stop)-(\w+)$/.exec(id || '');
   const sb = CLASSIC.city.suburbs.find(s => 'suburb-' + s.id === id); // (Q-56: suburb-<ID>, by its name)
-  return NAMES[id] || (sb ? sb.name : !m ? String(id) :m[1] === 'lever' ? (STATION_SHORT[m[2]] || m[2]) + ' lever' : (m[1] === 'guard-stop' ? 'STOP ' : 'START ') + unitLabel(m[2]));
+  return NAMES[id] || (sb ? sb.name : !m ? String(id) : m[1] === 'lever' ? (STATION_SHORT[m[2]] || m[2]) + ' lever' : (m[1] === 'guard-stop' ? 'STOP ' : 'START ') + unitLabel(m[2]));
 }
 /** The plan line's first control (not a readout) while it asks to act now (▶ ACT NOW, ‼ URGENT: app/shell.js objectiveWord), else null. */
 export const planTarget = o => (o && (o.level === 'act' || o.level === 'crit') && o.kind !== 'watch' && o.kind !== 'battery' &&

@@ -235,7 +235,7 @@ export function resetDay(game, seed) {
   game.phase = 'briefing';
   game.agc = true;
   Object.assign(game.ui, {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null,
-    trayOpen: false, consider: null, armed: null, alarmsOpen: false, alarmsSel: null, alarmsPick: null, suburb: null, suburbLast: null}); // (Q-56)
+    trayOpen: false, consider: null, armed: null, alarmsOpen: false, alarmsSel: null, alarmsPick: null, suburb: null, suburbLast: null});
   game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = [];
   game.offers = []; game.offered = {}; game.offersToday = 0;
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
@@ -494,17 +494,16 @@ export function redispatch(game) {
 
 const isTile = id => A.TILES.some(t => t.id === id);
 
-// Q-56 (§31.9.1): id null closes; undefined is H's pick
 function suburbCard(game, id) {
   const u = game.ui, ids = game.scenario.city.suburbs.map(s => s.id), of = t => ids.find(x => 'suburb-' + x === t);
   if (D.modeOf(game.director, game.state).locked) return 'The suburb card is back after the watch';
   if (id === undefined) id = (game.objective && game.objective.targets.map(of).find(Boolean)) || of(u.hover) || u.suburbLast || ids[0];
-  if (id !== null && !ids.includes(id)) return 'no such suburb';
+  if (id && !ids.includes(id)) return 'no such suburb';
   u.suburb = id;
   if (id) u.suburbLast = id;
   return '';
 }
-const cardFor = (game, t) => /^suburb-/.test(t) ? suburbCard(game, t === 'suburb-card' ? game.ui.suburb || undefined : t.slice(7)) : '';
+const SUB = /^suburb-/, cardFor = (game, t) => SUB.test(t) ? suburbCard(game, t === 'suburb-card' ? game.ui.suburb || undefined : t.slice(7)) : '';
 
 /**
  * A presentation command (never a sim input). Returns '' (done) or why nothing happened. The
@@ -515,10 +514,10 @@ export function ui(game, cmd) {
   const d = game.director, state = game.state, u = game.ui, play = game.phase === 'play' && !state.over;
   const close = () => { u.alarmsOpen = false; u.alarmsSel = null; d.held = false; };
   switch (cmd && cmd.do) {
-    case 'focus': if (u.alarmsOpen) return ui(game, {do: 'alarmsGoto', target: cmd.target}); u.focus = cmd.target || null; return cardFor(game, cmd.target);
-    case 'suburb': { // (H toggles)
+    case 'focus': if (u.alarmsOpen) return ui(game, {do: 'alarmsGoto', target: cmd.target}); if (!SUB.test(cmd.target)) u.focus = cmd.target || null; return cardFor(game, cmd.target);
+    case 'suburb': {
       const id = 'id' in cmd ? cmd.id : u.suburb && !u.alarmsOpen ? null : undefined;
-      if (u.alarmsOpen) ui(game, {do: 'alarmsGoto', target: null});
+      if (u.alarmsOpen && !D.modeOf(d, state).locked) ui(game, {do: 'alarmsGoto', target: null});
       return suburbCard(game, id);
     }
     case 'alarms':
@@ -532,7 +531,7 @@ export function ui(game, cmd) {
     case 'alarmsGoto':
       close();
       if (play && !D.respondCardOpen(d, state)) d.paused = true; // (a waiting RESPOND card holds the clock itself)
-      if (cmd.target) u.focus = cmd.target;
+      if (cmd.target && !SUB.test(cmd.target)) u.focus = cmd.target;
       return cardFor(game, cmd.target);
     case 'hover': u.hover = cmd.target || null; u.hoverGlow = Array.isArray(cmd.glow) ? cmd.glow.slice() : []; return '';
     case 'ack': A.ackAll(game.alarms); return '';
@@ -822,7 +821,7 @@ export function buildVm(game, f) {
     // the guard with its cover up, or null; levers held by hand
     armed: game.ui.armed, held: game.commit === 'player' && heldByHand(game),
     alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
-    suburb: game.ui.suburb, dayAhead: game.dayAhead, // §31.3.8
+    suburb: game.ui.suburb, dayAhead: game.dayAhead,
   };
 }
 

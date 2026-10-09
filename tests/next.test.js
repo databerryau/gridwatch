@@ -836,7 +836,7 @@ test('C-10 via the shell: while a guard is under the player\'s hand the line say
   assert.equal(sysGame.$('objective').hidden, true);
 });
 
-test('§21.4: in player mode an accepted start, stop, abortStop, battery or guard input is followed by the system\'s re-dispatch in the same call', () => {
+test('§21.4: in player mode an accepted start, stop, abortStop, battery, guard, flex or flexDel input is followed by the system\'s re-dispatch in the same call', () => {
   assert.deepEqual([...G.REDISPATCH_AFTER].sort(), [...FOLLOWER_REDISPATCH_AFTER].sort(), 'the game and the test player (tests/lib/follow.js) in step');
   assert.deepEqual([...G.REDISPATCH_AFTER].sort(), ['abortStop', 'battery', 'flex', 'flexDel', 'guard', 'start', 'stop']);
   const {$, h, system, frames} = boot('?seed=7', {commit: 'player'});

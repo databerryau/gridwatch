@@ -66,7 +66,7 @@ export function keyDown(k, ev, vm, nowMs) {
   if (key === '?') return {ui: {do: 'drawer'}};
   if (key === ',') return {ui: {do: 'settings'}};
   if (lower === 'w') return ev.repeat ? null : {ui: {do: 'alarms'}};
-  if (lower === 'h') return ev.repeat ? null : {ui: {do: 'suburb'}}; // Q-56
+  if (lower === 'h') return ev.repeat ? null : {ui: {do: 'suburb'}};
   if (key === 'M' && ev.shiftKey) return {ui: {do: 'mute'}};
   if (key >= '1' && key <= '8' && key.length === 1) return {ui: {do: 'focus', target: FOCUS_KEYS[key.charCodeAt(0) - 49]}};
   if (lower === 'a') return ev.shiftKey ? {ui: {do: 'silence'}} : {ui: {do: 'ack'}};
@@ -133,7 +133,7 @@ export function typing(t) {
 }
 
 /**
- * Listen on `doc` (the order is in the file header). run(action) performs one fallback action.
+ * Listen on `doc` (the order: desk/README.md §31.8). run(action) performs one fallback action.
  * @param {{own?:function(Event):boolean, first?:function(Event):boolean, chain?:function():Array<object|null>,
  *   used?:function(object, Event):void, error?:function(Error):void}} [route]
  *   own(ev): true when the key belongs to something outside the game (left alone);

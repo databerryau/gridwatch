@@ -274,10 +274,11 @@ Control and target ids (stable; tiles, tray buttons and glow sets use them):
 `lever-coal lever-ccgt lever-gta lever-gtb lever-gtc wheel-hydro dial-battery ring-guard
 knob-tie key-rert btn-dr key-shed key-agc btn-redispatch guard-start-<unit>
 guard-stop-<unit> bay-sync bay-restore gauge-n1 dial-freq bar-imbalance annunciator tray
-stack map suburb-<ID> suburb-card city-<ID>-soak city-<ID>-aircon`.
+stack map suburb-<ID> suburb-card btn-suburb-close city-<ID>-soak city-<ID>-aircon`.
 
 2b (§31.3.8): `suburb-<ID>` is a suburb on the map and its card (bare id `HAZ` in `vm.suburb`),
-`suburb-card` the card itself, `city-<ID>-soak` and `city-<ID>-aircon` the card's presses.
+`suburb-card` the card itself, `btn-suburb-close` its ✕ (wave 2 keeps it: tests/cardshell.test.js
+presses it), `city-<ID>-soak` and `city-<ID>-aircon` the card's presses.
 
 ---
 
@@ -379,7 +380,7 @@ bounding-box test proves no building sits outside the terrain.
   0.9/1.4/2.2 kHz, 120 ms decay, thud). ≤32 nodes. `audio/model.js` holds the pure parts
   (partial frequencies from f, envelopes) for tests.
 * **`app/perf.js`**: `?perf` overlay: frame ms p50/p95, sim ms, draw ms per module, ticks per
-  frame (F-11).
+  frame (F-11); on demand under `?perf` (Q-49).
 * **`content/text.js`**: new §8.2 entries for A-1 (RE-DISPATCH), the synchroscope's speed,
   and the anchors of the new desk elements (H-14).
 
@@ -572,10 +573,10 @@ every control needs a keyboard route and a way to reach it:
 | Live Stack | L (again: expand); number selects a layer, arrows move one snap step, Enter drops (L-4, already there) | — |
 | map | Tab from the stack, or focus; ←→ cycles plants and suburbs (sets the hover cross-highlight and shows the label), Esc leaves | — |
 | settings | `,` | native sliders and checkboxes |
-| suburb card (2b, Q-56) | H (opens the line's or the hovered suburb, else the last, else the first; again: closes), or a click on a suburb | its own arrows, Enter, Tab; Esc or H closes |
+| suburb card (2b, Q-56) | H (opens the line's or the hovered suburb, else the last, else the first; again: closes), or a click on a suburb | its own arrows, PgUp/PgDn, Home, End, Enter, Tab (S, X and P do nothing there, so the lever behind it never moves); Esc or H closes |
 
 Free letters the desk agent may claim for new routes: G, O, B, K, V, N. Document every key in
-the file header and in `aria-keyshortcuts`. The shell forwards every key to `desk.key` first,
+its §31.8 subsection (Q-49) and in `aria-keyshortcuts`. The shell forwards every key to `desk.key` first,
 so desk-claimed keys just work without the shell knowing them.
 
 Roles: levers, wheel, ring, knob, magnitude = `role="slider"` with `aria-valuemin/max/now` and
