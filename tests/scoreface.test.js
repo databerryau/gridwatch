@@ -115,6 +115,7 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.equal(hhSpan.title, 'per household of the city\'s 1.9M (unverified); real networks also count businesses');
   const lines = b.lines();
   assert.ok(lines.includes('Biggest gap to par: SUPPLY +' + dollars(you.supply - par.supply) + ' (more or dearer plant than par\'s)'), lines.join('\n'));
+  { const c = boot({par: {score: Object.assign({}, PAR, {cost: Object.assign({}, sc.cost, {flex: 1})})}}); c.take(); c.over(); assert.ok(c.lines().some(l => /^Biggest gap to par: SUPPLY \+\S+ \(more or dearer plant, or city payments, than par's\)$/.test(l)), c.lines().join('\n')); } // §31.9.11: either day paid the city
   assert.ok(lines.includes('Score = 1000 × par\'s ALL-IN ÷ yours. Par is GRIDWATCH\'s own autopilot on this same day.'));
   assert.deepEqual(b.$('end-reliability').querySelectorAll('p').map(p => squash(p.textContent)),
     ['SAIDI 0.0 min · SAIFI 0.00 · MAIFI 0.00 per household today (par: SAIDI 0.0 min)', 'No household was off for more than 3 minutes. ?']);
