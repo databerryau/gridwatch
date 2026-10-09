@@ -18,7 +18,9 @@
 // directed shedding passing over a district feeding back; MSL's tie rise per column; par's belly
 // rules and every battery order counted for its energy.
 // 2a.2: score gains SAIDI, SAIFI and MAIFI (Q-48); only state hashes move.
-export const SIM_VERSION = 'v4-core-2a.2';
+// 2b.0: the city levers in the sim (desk/README.md §31): flex in demand and the forecast,
+// patience, flex/flexDel; classic has no levers, so only hashes move.
+export const SIM_VERSION = 'v4-core-2b.0';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);
