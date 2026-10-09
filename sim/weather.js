@@ -287,8 +287,8 @@ function seriesAtStep(arr, s, stepS) {
  *        (1 - k_j)) x (1 - (1 - heatFactor) x r(s)), with k_j = roofClearFrac[j] read from
  *        ext.rooftop and r(s) = heatRampAt(ext.heat, s); rooftopMW is their sum, as if every
  *        inverter were connected (fleet.refreshRoof keeps what is off with dark districts);
- *   P-1  demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW), every grid
- *        second (flex = 0 in 2a). demandMW stays THE operational total every consumer reads.
+ *   P-1  demandMW = underlyingMW + flexMW - rooftopMW - (SMELTER_MW - smelter.loadMW), every
+ *        grid second (2b: flex, sim/README.md §5 env). THE operational total every consumer reads.
  * With no rooftop (ext.rooftop null: capacityMW 0) rooftopMW is 0, roofSubMW zeros and
  * roofClearFrac ones, and on a HOT weekday every value is bit-identical to the classic day's.
  * Reads: tick, seed, scn, ext, day, smelter.loadMW. Writes: env.* only (env.roofSubMW and
@@ -319,7 +319,19 @@ export function sampleSecond(state) {
     }
   }
   env.rooftopMW = rooftopMW;
-  env.demandMW = env.underlyingMW - rooftopMW - (V.SMELTER_MW - state.smelter.loadMW); // the P-1 identity
+  // 2b: flex as if lit, per suburb and the relief (= flexAt), in one pass
+  const B = state.levers.blocks, fs = env.flexSubMW, rs = env.reliefSubMW, subs = scn.city.suburbs;
+  let fl = 0;
+  for (let j = 0; j < fs.length; j++) fs[j] = rs[j] = 0;
+  for (let i = 0; i < B.length; i++) {
+    const b = B[i], v = blockMW(b, s, '');
+    let j = 0;
+    while (subs[j].id !== b.suburb) j++;
+    fl += v; fs[j] += v;
+    if (b.lever === 'aircon') rs[j] -= blockMW(b, s, 'core');
+  }
+  env.flexMW = fl;
+  env.demandMW = env.underlyingMW + fl - rooftopMW - (V.SMELTER_MW - state.smelter.loadMW); // the P-1 identity
   env.windFrac = seriesAt(ext.series.windPm, s) / PM;
   env.windAvailMW = V.WIND_MW * env.windFrac;
   env.clearness = seriesAt(ext.series.clearPm, s) / PM;
@@ -332,16 +344,15 @@ export function sampleSecond(state) {
   env.exportLimitMW = exportLimitMW(h);
 }
 
-// ------------------------------------------------------------------ city flex (U-2, U-3; desk/README.md §31.3.5)
+// ------------------------------------------------------------------ city flex (2b; sim/README.md §5 levers)
 
 const R = V.FLEX_RAMP_S, NF = V.SOAK_NIGHT_FROM_S, NT = V.SOAK_NIGHT_TO_S, AC = V.AIRCON_S;
 const SOAK_K = ['core', 'night'], AC_K = ['precool', 'core', 'snapback'];
-// MW per MW of the block: the night fall, pre-cool and snapback peaks (energies of §31.3.5)
 const NIGHT_X = (V.SOAK_S - R) / (NT - NF - R), PRE_X = V.PRECOOL_FRAC * (AC - R) / (V.PRECOOL_S - R);
 const SNAP_X = 2 * V.SNAPBACK_FRAC * (AC - R) / V.SNAPBACK_S;
-const PT = [0, 0, 0, 0, 0]; // scratch: part knot times t0..t3, then its MW
+const PT = [0, 0, 0, 0, 0]; // scratch: knot times t0..t3, MW
 
-// Part j of a block (lever, atS, MW m) into PT; returns its kind, or '' past the last.
+// Part j of a block into PT; its kind, or '' past the last.
 function part(lever, atS, m, j) {
   const soak = lever === 'soak', k = (soak ? SOAK_K : AC_K)[j];
   if (!k) return '';
@@ -353,7 +364,6 @@ function part(lever, atS, m, j) {
   return k;
 }
 
-// MW of the part in PT at second s.
 function partMW(s) {
   if (s <= PT[0] || s >= PT[3]) return 0;
   return PT[4] * (s < PT[1] ? (s - PT[0]) / (PT[1] - PT[0]) : s <= PT[2] ? 1 : (PT[3] - s) / (PT[3] - PT[2]));
@@ -370,13 +380,19 @@ export function flexParts(b, effMW) {
   return out;
 }
 
+function blockMW(b, s, kind) {
+  let mw = 0;
+  if (b.lever === 'soak' ? (s <= b.atS || s >= b.endS) && (s <= NF || s >= NT) : s <= b.atS - V.PRECOOL_S || s >= b.endS + V.SNAPBACK_S) return mw;
+  for (let j = 0, k; (k = part(b.lever, b.atS, b.effMW, j)); j++) if (!kind || k === kind) mw += partMW(s);
+  return mw;
+}
+
 /** Flex MW at s of `blocks` in their order; '' filters nothing. Allocates nothing. */
 export function flexAt(blocks, s, suburb = '', kind = '', lever = '') {
   let mw = 0;
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
-    if ((suburb && b.suburb !== suburb) || (lever && b.lever !== lever)) continue;
-    for (let j = 0, k; (k = part(b.lever, b.atS, b.effMW, j)); j++) if (!kind || k === kind) mw += partMW(s);
+    if ((!suburb || b.suburb === suburb) && (!lever || b.lever === lever)) mw += blockMW(b, s, kind);
   }
   return mw;
 }
@@ -527,7 +543,7 @@ export function forecast(state, horizonS, stepS) {
   const wPlan = windPlan(state), cPlan = clearPlan(state, heatNews);
   const noise = scn.demand.noise, windMu = scn.wind.mu, clearMu = scn.cloud.mu;
   const sig2 = noise.sigmaMW * noise.sigmaMW, fine2 = V.FINE_NOISE_MW * V.FINE_NOISE_MW;
-  const sm = state.smelter;
+  const sm = state.smelter, blocks = state.levers.blocks;
   const smPending = !sm.returning && sm.returnS > s0 && sm.loadMW < V.SMELTER_MW - V.MW_EPS;
   const out = {fromS: s0, stepS, n, demandP50: [], demandP10: [], demandP90: [], windMW: [], solarMW: [],
     neighbourPrice: [], exportLimitMW: [], underlyingP50: [], rooftopMW: [], flexMW: []};
@@ -581,7 +597,8 @@ export function forecast(state, horizonS, stepS) {
       roofMW = clearSky * (1 - roof.cloudBite * (1 - part.k));
       roofVar = perK * perK * (part.vR + share2 * (part.vL + locStat2 * lag * lag));
     }
-    const p50 = under - roofMW - (V.SMELTER_MW - smelterLoadAt(sm, smPending, s));
+    const fl = flexAt(blocks, s);
+    const p50 = under + fl - roofMW - (V.SMELTER_MW - smelterLoadAt(sm, smPending, s));
     const band = V.Z_P90 * Math.sqrt(varOU + fine2 * (1 + decay * decay) + roofVar);
     out.demandP50.push(p50);
     out.demandP10.push(p50 - band);
@@ -592,7 +609,7 @@ export function forecast(state, horizonS, stepS) {
     out.exportLimitMW.push(exportLimitMW(h));
     out.underlyingP50.push(under);
     out.rooftopMW.push(roofMW);
-    out.flexMW.push(0); // 2b stage A: zero columns
+    out.flexMW.push(fl);
   }
   return out;
 }

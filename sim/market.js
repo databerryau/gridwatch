@@ -344,7 +344,15 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
     cost.battWear += acc.battAbsMWs / S_PER_H * V.BATT_WEAR_PER_MWH;
     cost.dr += state.dr.mw * h * DR_PRICE;
     cost.rert += rertMWh * V.RERT_COST;
-    // cost.flex: city-flexibility payments arrive with U-6 (Phase 2).
+    // U-6 (2b): air-con relief delivered, on its suburb's lit districts only; the soak is unpaid.
+    const rs = state.env.reliefSubMW, ds = state.city.districts;
+    let fx = 0;
+    for (let j = 0; j < rs.length; j++) fx += rs[j];
+    if (fx > 0) {
+      fx = 0;
+      for (let d = 0; d < ds.length; d++) if (!ds[d].dark) fx += rs[ds[d].sub] * ds[d].roofFrac;
+      cost.flex += fx * h * V.AIRCON_PRICE;
+    }
     sc.co2t += co2 + rertMWh * V.RERT_CO2;
     sc.marketBill += state.price.mwh * servedMWh; // information only (S-2): never in CUSTOMER COST
     sc.starts = starts;

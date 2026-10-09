@@ -84,8 +84,8 @@ function curtailedMW(curtMW, availMW, limitPct, step) {
   return (c > availMW ? availMW : c < 0 ? 0 : c) + 0;
 }
 
-function log(state, out, sev, code, msg) {
-  out.push({tick: state.tick, kind: 'log', sev, code, msg});
+function log(state, out, sev, code, msg, x) {
+  out.push(Object.assign({tick: state.tick, kind: 'log', sev, code, msg}, x));
 }
 
 const nameOf = i => M[i].name;
@@ -235,8 +235,6 @@ function stepUnit(state, i, out) {
 
 // ------------------------------------------------------------------ applyCommand
 
-const NOT_OFFERED = 'not offered today'; // 2b: city levers (sim/README.md §6)
-
 /** District index by id, or -1. */
 function districtIndex(state, id) {
   const ds = state.city.districts;
@@ -281,7 +279,7 @@ function shedNextRotation(state, out) {
  * (step logs cmd after this returns), and must not touch its other fields. Command types:
  * basePoint, start, stop, abortStop, syncClose, battery, guard, tie, curtail, callDR,
  * armRERT, standDownRERT, restore, directShed, and (Phase 1a) planKey, planDel, planStart,
- * planStop, planUnbook, planRejoin, planLoad, scope, syncTrim, syncAuto ('mode' is step's).
+ * planStop, planUnbook, planRejoin, planLoad, scope, syncTrim, syncAuto, (2b) flex, flexDel ('mode' is step's).
  * See README §6 (it has the Phase 1a rules; the plan section below has the details). Key rules:
  *   basePoint {station, mw}: accepted always. Every 'on' machine of the station gets an
  *     equal share, fleet.setBasePoint(state, i, mw / onCount) (machines of one station have
@@ -472,8 +470,8 @@ export function applyCommand(state, cmd, out) {
       if (why) return why;
       const dist = state.city.districts[d];
       const coldMW = fleet.districtColdLoadMW(state, d);
-      // the surge is the pickup beyond its underlying share (P-12: its rooftop is still off, fleet.setDistrictDark)
-      const surge = Math.max(0, coldMW - (state.env.demandMW + state.env.rooftopMW) * dist.share) + 0;
+      // the surge is the pickup beyond its underlying share and its flex share (P-12, 2b I3: only the cold factor)
+      const surge = Math.max(0, coldMW - fleet.baseLoadMW(state) * dist.share - state.env.flexSubMW[dist.sub] * dist.roofFrac) + 0;
       fleet.setDistrictDark(state, d, false, null);
       dist.surgeMW = surge;
       state.city.lastRestoreS = s;
@@ -492,20 +490,92 @@ export function applyCommand(state, cmd, out) {
       log(state, out, 'crit', 'DIRECT_SHED', 'DIRECT SHED: district ' + state.city.districts[d].id + ' off supply.');
       return '';
     }
-    case 'flex': case 'flexDel': return state.scn.levers ? STAGE : NOT_OFFERED; // 2b stage A
+    case 'flex': case 'flexDel': return flexCmd(state, cmd, s, out);
     default:
       return 'unknown command';
   }
 }
 
-const STAGE = 'levers are wired in wave 1';
-/** observe().levers.suburbs[j].soak / .aircon: {mw, cost, fromS, toS, block} (desk/README.md §31.3.7). */
-export function leverView(state, j, lever) { // eslint-disable-line no-unused-vars
-  return {mw: 0, cost: 0, fromS: -1, toS: -1, block: STAGE};
+// ------------------------------------------------------------------ city levers (2b; sim/README.md §5 levers, §6)
+
+const LV_STEP = V.FC_STEP_S, PRE = V.PRECOOL_S, AC = V.AIRCON_S, LOCK = V.PATIENCE_LOCK, FULL = V.PATIENCE_FULL;
+const LV_FROM = {soak: V.SOAK_FROM_S, aircon: V.AIRCON_FROM_S}, LV_TO = {soak: V.SOAK_TO_S - V.SOAK_S, aircon: V.AIRCON_TO_S - AC};
+const LV_LEAD = {soak: 0, aircon: PRE}, LV_WORD = {soak: 'hot water soak', aircon: 'air-con cycle'};
+const NOT_OFFERED = 'not offered today', L_OPEN = 'levers open at 04:30', L_LOCKED = 'air-con locked: patience below ' + LOCK,
+  L_SOAKED = 'one soak a day: already booked', L_WINDOW = 'not a 5-minute mark in the window',
+  L_LATE = 'too late: it would start in the past', L_OVERLAP = 'overlaps another air-con block of this suburb',
+  L_NONE = 'no such block', L_UNDER = 'under way: too late to cancel';
+const pad2 = n => String(n).padStart(2, '0');
+const hm = s => pad2(Math.floor(s / S_PER_H) + V.DAY_START_H) + ':' + pad2(s % S_PER_H / S_PER_MIN);
+const mine = (b, id, lever) => b.suburb === id && b.lever === lever;
+
+// '' if suburb j may book `lever` today, else why not.
+function leverPre(state, j, lever) {
+  const sl = state.scn.levers;
+  if (!sl) return NOT_OFFERED;
+  if (state.tick < V.PLAYER_START_TICK) return L_OPEN;
+  if (!sl.menu[state.day.temp].includes(lever)) return NOT_OFFERED;
+  if (lever === 'aircon') return state.levers.patience[j] < LOCK ? L_LOCKED : '';
+  return state.levers.blocks.some(b => mine(b, sl.suburbs[j].id, lever)) ? L_SOAKED : '';
 }
-/** observe().levers.blocks[].del: '' when a flexDel of block b would be accepted now, else the refusal. */
-export function flexDelBlock(state, b) { // eslint-disable-line no-unused-vars
-  return STAGE;
+
+/** observe().levers.suburbs[j][lever]: {mw, cost, fromS, toS, block} (sim/README.md §8). */
+export function leverView(state, j, lever) {
+  const x = state.scn.levers.suburbs[j], L = state.levers, p = L.patience[j], soak = lever === 'soak';
+  let block = leverPre(state, j, lever), hi = LV_TO[lever];
+  let lo = Math.max(LV_FROM[lever], Math.ceil((secondOf(state) + LV_LEAD[lever]) / LV_STEP) * LV_STEP);
+  if (!block && lo > hi) block = L_LATE;
+  for (let i = L.blocks.length; i-- && !block;) { // the latest open run
+    const b = L.blocks[i];
+    if (!mine(b, x.id, lever)) continue;
+    if (Math.max(lo, b.endS + PRE) <= hi) { lo = Math.max(lo, b.endS + PRE); break; }
+    hi = b.atS - PRE - AC;
+  }
+  if (!block && lo > hi) block = L_OVERLAP;
+  return {mw: soak ? x.soakMW : x.airconMW * (p < FULL ? (FULL + p) / (2 * FULL) : 1),
+    cost: soak ? 0 : V.PATIENCE_AIRCON + V.PATIENCE_REPEAT * L.blocks.filter(b => mine(b, x.id, lever)).length,
+    fromS: block ? -1 : lo, toS: block ? -1 : hi, block};
+}
+
+/** observe().levers.blocks[].del: '' or why its flexDel is refused now. */
+export const flexDelBlock = (state, b) => (secondOf(state) >= b.atS - LV_LEAD[b.lever] ? L_UNDER : '');
+
+// flex / flexDel (sim/README.md §6): book or cancel a block, with patience and its records (U-4).
+function flexCmd(state, cmd, s, out) {
+  const L = state.levers, subs = state.scn.city.suburbs, lever = cmd.lever, atS = cmd.atS, id = cmd.suburb;
+  if (!state.scn.levers) return NOT_OFFERED;
+  const j = subs.findIndex(x => x.id === id), name = subs[j].name + ': ' + LV_WORD[lever];
+  let b = null, delta = 0;
+  if (cmd.type === 'flex') {
+    const why = leverPre(state, j, lever);
+    if (why) return why;
+    if (atS % LV_STEP || atS < LV_FROM[lever] || atS > LV_TO[lever]) return L_WINDOW;
+    if (atS - LV_LEAD[lever] < s) return L_LATE;
+    if (L.blocks.some(x => mine(x, id, lever) && (atS >= x.atS ? atS - PRE < x.endS : x.atS - PRE < atS + AC))) return L_OVERLAP;
+    const v = leverView(state, j, lever), si = x => subs.findIndex(z => z.id === x.suburb);
+    b = {suburb: id, lever, atS, endS: atS + (lever === 'soak' ? V.SOAK_S : AC), effMW: v.mw, cost: v.cost};
+    L.blocks.push(b);
+    L.blocks.sort((x, y) => x.atS - y.atS || si(x) - si(y));
+    log(state, out, 'info', 'FLEX_BOOK', name + ' booked for ' + hm(atS) + ' (' + Math.round(v.mw) + ' MW).',
+      {suburb: id, lever, atS, endS: b.endS, effMW: v.mw});
+    delta = 0 - v.cost;
+  } else {
+    const i = L.blocks.findIndex(x => mine(x, id, lever) && x.atS === atS);
+    if (i < 0) return L_NONE;
+    b = L.blocks[i];
+    if (flexDelBlock(state, b)) return L_UNDER;
+    L.blocks.splice(i, 1);
+    log(state, out, 'info', 'FLEX_DEL', name + ' for ' + hm(atS) + ' cancelled.', {suburb: id, lever, atS});
+    delta = b.cost;
+  }
+  L.rev += 1;
+  if (delta) {
+    const P = L.patience, was = P[j], p = P[j] = was + delta, n = subs[j].name;
+    log(state, out, 'info', 'PATIENCE', n + ' patience ' + p + (delta > 0 ? ' (+' + delta + ': cancel).' : ' (' + delta + ': air-con).'),
+      {suburb: id, patience: p, delta, cause: delta > 0 ? 'cancel' : 'aircon'});
+    if (p < LOCK && was >= LOCK) log(state, out, 'info', 'PATIENCE_LOCK', n + ': air-con locked.', {suburb: id, patience: p});
+  }
+  return '';
 }
 
 // ------------------------------------------------------------------ unitsSecond

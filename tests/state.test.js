@@ -553,7 +553,8 @@ test('README §8 (DESK): the same frozen shape on a day with rooftop, and the Ph
   assert.deepEqual(o.day, {temp: 'MILD', weekend: false});
   for (const fc of [o.forecast, o.dayAhead]) {
     assert.ok(fc.rooftopMW[0] > 2500 && fc.rooftopMW.every(x => x >= 0));
-    fc.underlyingP50.forEach((u, k) => assert.ok(Math.abs(u - fc.demandP50[k] - fc.rooftopMW[k]) < 1e-9, 'column ' + k + ' (the potline is on)'));
+    fc.underlyingP50.forEach((u, k) => assert.ok(Math.abs(u + fc.flexMW[k] - fc.demandP50[k] - fc.rooftopMW[k]) < 1e-9, 'column ' + k + ' (the potline is on; 2b: flex in P50)'));
+    assert.ok(fc.flexMW.some(x => x > 0), 'the pushed soak is in the columns');
   }
   assert.equal(o.dayAhead.rooftopMW[o.dayAhead.n - 1], 0, 'no sun at 04:00 tomorrow');
   // Fresh copies: the view never hands out state's arrays.

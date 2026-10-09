@@ -1721,7 +1721,6 @@ export function runPar(seed, scenario, opts) {
 
 // ------------------------------------------------------------------ city levers (desk/README.md §31.3.10)
 
-// MW of knots [[s, mw], ...] at t: linear between them, 0 outside.
 function knotMW(kn, t) {
   if (t <= kn[0][0] || t >= kn[kn.length - 1][0]) return 0;
   let i = 1;

@@ -107,7 +107,7 @@ export function createState(seed, scenario) {
     env: {s: 0, h: 0, demandMW: 0, underlyingMW: 0, windAvailMW: 0, solarAvailMW: 0, windFrac: 0, clearness: 0,
       heatActive: false, heatMult: 1, tempC: 0, neighbourPrice: 0, exportLimitMW: 0,
       rooftopMW: 0, roofSubMW: zeros(nSub), roofClearFrac: ones(nSub), // Phase 2a: as if every inverter were connected
-      flexMW: 0, flexSubMW: zeros(nSub), reliefSubMW: zeros(nSub)}, // 2b (desk/README.md §31.3.3): city flex, as if lit
+      flexMW: 0, flexSubMW: zeros(nSub), reliefSubMW: zeros(nSub)}, // 2b: city flex, as if lit
     msl: {level: 0, minMW: 0, atS: -1, sinceS: -1}, // P-4 (Phase 2a, C-9): events.mslSecond, every MSL_CHECK_S; never written with no rooftop
     control: {mode: c.mode, modeLocked: false},
     stations: fleet.buildStations(units),
@@ -226,7 +226,7 @@ const SHAPES = {
   scope: {unit: 'unitOrNone'},
   syncTrim: {unit: 'unit', dHz: 'trim'},
   syncAuto: {unit: 'unit'},
-  // 2b (desk/README.md §31.3.6): the city levers.
+  // 2b: the city levers
   flex: {suburb: 'suburb', lever: ['soak', 'aircon'], atS: 'second'},
   flexDel: {suburb: 'suburb', lever: ['soak', 'aircon'], atS: 'second'},
 };
@@ -443,7 +443,7 @@ export function observe(state, opts) {
   const cont = state.contIdx >= 0 ? state.conts[state.contIdx] : null;
   const windOut = state.ren.windMW * (1 - state.ofgs.trippedFrac);
   // Phase 2a (desk/README.md §19.2, §19.3): G is the total before rooftop; roof the scenario's block.
-  const city = state.city, roof = state.scn.rooftop, totalMW = env.demandMW + env.rooftopMW;
+  const city = state.city, roof = state.scn.rooftop, totalMW = fleet.baseLoadMW(state);
   return {
     v: state.v, scenarioId: state.scenarioId, tick: state.tick, s, clock: clockOf(state.scn, s),
     over: state.over, black: state.black, mode: state.control.mode,
@@ -518,7 +518,7 @@ export function observe(state, opts) {
   };
 }
 
-// observe().levers (desk/README.md §31.3.7): eligibility from grid, shapes from weather.flexParts.
+// observe().levers (README §8)
 function leversView(state) {
   const L = state.levers, sl = state.scn.levers;
   return {rev: L.rev, offered: sl ? sl.menu[state.day.temp].slice() : [],

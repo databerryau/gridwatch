@@ -466,6 +466,11 @@ servedMW = G x (1 - shedFrac) - (env.rooftopMW - city.roofOffMW) + city.coldLoad
 unserved = G x shedFrac                                         the dark customers' own load -> acc.unservedMWs
 ```
 
+2b (desk/README.md §31.3.4 I2, I3): G is `G0 = fleet.baseLoadMW(state)` (flex out), and the dark
+districts' flex shares stop: `shedMW = G0 x shedFrac + city.flexDarkMW - city.roofDarkMW`,
+`servedMW = G0 x (1 - shedFrac) + (env.flexMW - city.flexDarkMW) - (env.rooftopMW - city.roofOffMW)
++ city.coldLoadMW - dr.mw`, `unserved = G0 x shedFrac` (flex is never unserved). Exact when flex is 0.
+
 The inverters' over-frequency response (C-7; lowering only, labelled; flags `REN_PFR_ON`,
 `ROOF_FW_ON`), from the tick's START frequency f and this tick's state after the relays:
 
@@ -629,6 +634,17 @@ An input is `{type, ...args}`. `applyInput(state, input, out)` (step.js) runs:
 | `syncAuto` | `unit` | unit `ready`; AGC (HAND has no auto-synchroniser) | K-12 AUTO: trims the slip to +`SYNC_AUTO_SLIP_HZ` and closes cleanly on the next pass through 0 degrees (the close command at the tick 80 ms before it; `scope.nextAutoTick`) |
 | `flex` | `suburb` (an id of `scn.city.suburbs`: a shape check only), `lever` soak/aircon, `atS` (whole s) | 2b (desk/README.md §31.3.6): the lever offered today (`scn.levers.menu[day.temp]`; never on a scenario with `levers: null`), from 04:30; air-con not locked; one soak per suburb a day; `atS` on the 5-min lattice inside the lever's start window (soak `SOAK_FROM_S`..`SOAK_TO_S - SOAK_S`, air-con `AIRCON_FROM_S`..`AIRCON_TO_S - AIRCON_S`); its first knot not in the past; for any two air-con blocks of a suburb the later's `atS - PRECOOL_S` >= the earlier's `endS` | inserts the block (`effMW` and `cost` fixed now; never rewritten: the log holds only the input), charges the patience, `rev` + 1; `FLEX_BOOK` and `PATIENCE` records (§7) |
 | `flexDel` | `suburb`, `lever`, `atS` | that suburb's block of that lever at exactly `atS`, not under way | removes it, refunds its `cost`; `rev` + 1; `FLEX_DEL` (and `PATIENCE` with cause `'cancel'` when cost > 0) |
+
+The levers' refusals (2b, `grid.applyCommand`; exact strings, which `obs.levers` repeats as `block`
+and `del`), in the order they are checked after `applyInput`'s shape, day-over and watch rules:
+`flex`: `'not offered today'` (a scenario with `levers: null`, or the lever not on today's menu),
+`'levers open at 04:30'` (before `PLAYER_START_TICK`), `'air-con locked: patience below 25'`,
+`'one soak a day: already booked'`, `'not a 5-minute mark in the window'` (off the lattice or
+outside the start window), `'too late: it would start in the past'` (its first knot before now),
+`'overlaps another air-con block of this suburb'`; `flexDel`: `'not offered today'` (`levers:
+null`), `'no such block'`, `'under way: too late to cancel'` (now at or after its first knot). The
+`block` of an LV is `'too late: ...'` when the window's last start has gone and `'overlaps ...'` when
+the suburb's air-con blocks leave no run open; [fromS, toS] is then the latest open run.
 
 `ack`, `silence`, pause, rate, FAST, skip, focus, expand and scope *offers* are **not** sim inputs
 (presentation only).
@@ -849,6 +865,13 @@ Reads and writes per stage B module (a write through a `fleet.js` action counts 
 | weather (`forecast`) | `scn` (incl. `scn.rooftop` and its cloud process, the public `scn.events` timings), `day`, `env` (incl. `roofClearFrac`), `news`, `smelter.{loadMW, returning, returnS}` (the announced return) | nothing |
 | autopilot | `observe()` output only (Phase 2a: also `demand.litMW`, `rooftop`, `districts[].suburb`, `forecast.rooftopMW`, `wind` / `solar` `.autoMW`, `units[].agcTrimMW`, `tie.exportLimitMW` and `.flowMW`, `msl`) | its own memo (incl. `belly`, `coalStops`) |
 | step | everything (orchestration) | `tick`, `over`, `log`, `control`, `sec.dirty`; `createState` also writes `ext.rooftop` (`weather.prerollRooftop`) and `day` (once, from `ext.regime.temp` and `scn.day`); `gridSecond` calls `events.mslSecond` |
+
+2b (desk/README.md §31) adds to the table: weather (`sampleSecond`) reads `levers.blocks` and writes
+`env.{flexMW, flexSubMW, reliefSubMW}` (the last two in place); weather (`forecast`) reads
+`levers.blocks`; grid writes `levers.*` (the `flex` / `flexDel` inputs; reads `scn.levers`, `day`);
+fleet (`refreshRoof`) writes `city.flexDarkMW`, which physics, the market (through `litDemandMW`)
+and observe read with `env.flexMW`; the market reads `env.reliefSubMW` (`cost.flex`); physics'
+preview backup carries `city.flexDarkMW`.
 
 Only `weather.sampleSecond` and `events.applyDue` read `ext`, and only for the present second;
 `ext.regime.temp` is read once, by `createState`.
@@ -2021,3 +2044,41 @@ units in the first seconds), larger than `PREVIEW_MARGIN_HZ` (0.05); A-2 off has
 of miss (49.463 Hz). Raising the margin could cost S-12's heat target (75/100, exactly on it), so it is
 left for stage C and the owner. Seed 4's par day is slow in every build (4.8 s here, 2.5 s in
 0.2.2); on the median the plan executor and planLoad logs add ~0.18 s and A-2's second preview ~0.14 s.
+
+### Phase 2b, the city levers (agent `sim`: stage A's sim half and wave 1; desk/README.md §31)
+
+Built: the four sim headers moved to §11 (Q-49); `scn.levers` (DESK; CLASSIC `null`), the phase 2b
+"levers" params block, `levers` and the env/city flex fields (§5), the `flex` / `flexDel` inputs and
+the `'suburb'` arg kind (§6), the records (§7), `observe()`'s `demand.flexMW`, forecast `flexMW[]` and
+`levers` (§8); `weather.flexParts` / `flexAt`, `autopilot.aimFlex` (pure, for par, the card and the
+objective); flex in P-1 and the forecast (Q-50), `fleet.baseLoadMW` (G0) at every G site, the dark
+districts' flex shares (`city.flexDarkMW`, in the preview backup), patience (Q-54) and `cost.flex`
+(U-6). Tests: `tests/levers.test.js` (shapes, the aim, inputs, every refusal, patience, observe,
+replay, I4) and `tests/levers-day.test.js` (I1-I3b, I5, money, the night fall, the blue row, MSL).
+
+Choices where desk/README.md §31 is loose (the contract wins where it is explicit):
+1. `cost.flex` takes each suburb's lit share in a district loop of its own that runs only while
+   some relief is non-zero (`Σ over lit districts of reliefSubMW[sub] x roofFrac`, the §31.3.12
+   formula): no scratch array, nothing on the 22.5 h a day without relief, never per tick.
+2. `sampleSecond` fills `flexMW`, `flexSubMW` and `reliefSubMW` in one pass over the blocks, equal to
+   `flexAt` bit for bit (tested); `flexAt` skips a block outside its span. Measured (6 blocks, a
+   whole day of `sampleSecond`): +25-35 ms against no block, which costs a zeroing loop only.
+3. Blocks sort by (atS, the suburb's city index); the lever key never decides (a suburb's soak
+   starts by 11:00, its air-con from 15:00), so the comparator leaves it out.
+4. An LV's `[fromS, toS]` is the LATEST run the suburb's air-con blocks leave open (after its last
+   cycle when that fits, else before it: two fit when the first starts by 17:00). Every start in
+   it is accepted; a start in an earlier open run is accepted too (the overlap rule in either order).
+5. `block` carries `'levers open at 04:30'` in the briefing, but not the watch or the day over
+   (`applyInput`'s, as `units[].startBlock` leaves them out). `flexDel` before 04:30 needs no rule
+   (no block can exist): `'no such block'`.
+6. The night fall's D is the booked energy over 22:00-04:00 (a district dark during the soak is
+   ignored, Q-52's simplification); a district dark at night stops its share of the fall too.
+7. `grid`'s `log()` takes an optional object of fields (the four lever records use it).
+
+Measured: first visit 404,388 B before Q-49, 397,291 B after it (-7,097 B), 401,505 B after the
+shapes and the behaviour (+4,214 B, the agent's share 4.2 KB; about 0.4 KB of it is net of two
+fleet.js JSDoc blocks and physics' step-7 JSDoc rewritten short, their formulas now here in §5).
+`node tools/baseline-v4.js --quick` against the commit before the shapes, hash cells masked: the
+Build line and section 1's K-15 input-types row ("0 of 810 ... all 27 types") only. A whole
+`desk` seed-2 par day with six bookings: 2.3 s CPU against 2.1 s without (par plays a different
+day); CLASSIC seed 4 unchanged (2.5 s).
