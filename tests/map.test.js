@@ -950,7 +950,7 @@ test('Q-41 / Q-56: every click on the map answers: a plant its control, a suburb
   assert.equal(Number(/draws ([\d,]+)/.exec(said)[1].replace(/,/g, '')), Math.round(draws), 'what its feeders carry, as the RESTORE bay counts it');
   assert.equal(map.debug.pick(150, 185), null, 'open ground');
   click(150, 185);
-  assert.deepEqual(shown(), ['Click a plant for its control, a suburb for its load']);
+  assert.deepEqual(shown(), ['Click a plant for its control, a suburb for its card']);
   assert.equal(ui.length, n, 'wind, solar and the ground send nothing (no control over them)');
   vm.frame.nowMs += 4000;
   assert.deepEqual(shown(), [], 'the label goes after 4 s');

@@ -192,7 +192,7 @@ export const mapKeyOrder = () => KEY_ORDER.slice();
 export function mapPinText(obs, id) {
   const p = PLANTS.find(q => q.id === id), sb = SUBURBS.find(q => 'sub:' + q.id === id);
   if (p) return p.label + ' ' + fmtMW(obs[id].outMW) + ' MW: the ' + (id === 'wind' ? 'wind' : 'sun') + ' sets it, not the desk';
-  if (!sb) return 'Click a plant for its control, a suburb for its load';
+  if (!sb) return 'Click a plant for its control, a suburb for its card';
   let mw = 0;
   for (const d of obs.districts || []) if (d.suburb === sb.id) mw += d.coldLoadMW;
   const r = ((obs.rooftop && obs.rooftop.suburbs) || []).find(q => q.id === sb.id), roof = r ? Math.round(r.mw) : 0;
@@ -251,16 +251,16 @@ export function mapSummary(vm, hoverId) {
   if (p) {
     const us = obs.units.filter(u => u.station === p.id), on = us.filter(u => u.sync).length;
     parts.push('On ' + p.label + (us.length ? ': ' + on + ' of ' + us.length + ' machines on' : '') + '.');
-  } else if (sb) parts.push('On ' + sb.name + ': Enter opens its card.');
+  } else if (sb) parts.push('On ' + [sb.name, obs.levers && suburbTag(obs.levers, sb.id, obs.s)].join(' ').trim() + ': Enter opens its card.');
   else parts.push('Left and right arrows step through the plants and suburbs.');
   return parts.join(' ');
 }
 
-/** Q-57 (pure): a suburb's mark: its next block's start, its patience after an air-con booking or while locked. */
+/** Q-57 (pure): a suburb's mark: its next block, its patience after an air-con booking or while locked. */
 export function suburbTag(lv, id, s) {
   const p = (lv.suburbs.find(q => q.id === id) || {}).patience;
   let at = '', air = false;
-  for (const b of lv.blocks) if (b.suburb === id) { air ||= b.lever === 'aircon'; if (!at && b.endS > s) at = '◷ ' + clockText(b.atS, false); }
+  for (const b of lv.blocks) if (b.suburb === id) { air ||= b.lever === 'aircon'; if (!at && b.endS > s) at = (b.lever === 'soak' ? 'SOAK ' : 'AIR ') + clockText(b.atS, false); }
   return air || p < V.PATIENCE_LOCK ? (at && at + ' ') + (p < V.PATIENCE_FULL ? '☹ ' : '☺ ') + p + (p < V.PATIENCE_LOCK ? ' LOCKED' : '') : at;
 }
 
@@ -1003,10 +1003,10 @@ export function createMap(doc, root, actions) {
     // Q-57: suburbs (per frame, never cached)
     ctx.font = LABEL_FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
     for (const sb of SUBURBS) {
-      const id = sb.id, b = sb.box, x = sx(b[0]), y = sy(b[1]), tag = obs.levers ? suburbTag(obs.levers, id, obs.s) : '';
+      const id = sb.id, b = sb.box, x = sx(b[0]), y = sy(b[1]), tag = obs.levers && !watch ? suburbTag(obs.levers, id, obs.s) : '';
       if (glow && glow.has('suburb-' + id)) { ring(ctx, b, pulse, 2); fx.rings++; }
       if (hoverId === 'sub:' + id || vm.hover === 'suburb-' + id) ring(ctx, b, UI.bright, 1.5);
-      if (vm.suburb === id && !(vm.mode && vm.mode.locked)) { ctx.strokeStyle = UI.blue; ctx.lineWidth = 2; ctx.strokeRect(x - 3, y - 3, b[2] * layout.scale + 6, b[3] * layout.scale + 6); }
+      if (vm.suburb === id && !watch) { ctx.strokeStyle = UI.blue; ctx.lineWidth = 2; ctx.strokeRect(x - 3, y - 3, b[2] * layout.scale + 6, b[3] * layout.scale + 6); }
       if (tag) {
         ctx.fillStyle = 'rgba(13,17,23,0.82)'; ctx.fillRect(x + 3, y + 3, ctx.measureText(tag).width + 6, 13);
         ctx.fillStyle = UI.bright; ctx.fillText(tag, x + 6, y + 4);
@@ -1139,23 +1139,19 @@ export function createMap(doc, root, actions) {
   }
 
   cv.addEventListener('pointermove', ev => { const id = pick(baseAt(ev)); if (id || !byKey) { byKey = false; kbdIdx = KEY_ORDER.indexOf(id); setHover(id); } });
-  // Every click answers (Q-41): a plant's control, a suburb its card, else a blue label
-  cv.addEventListener('click', ev => {
-    const b = baseAt(ev), id = pick(b), p = PLANTS.find(q => q.id === id);
+  // Every press answers (Q-41): a plant's control, a suburb its card, else a blue label
+  function press(id, b) {
+    const p = PLANTS.find(q => q.id === id);
     pin = null;
     if (p && p.target) return actions.ui({do: 'focus', target: p.target});
     if (!vm) return;
     if (/^sub:/.test(id)) return openSuburb(id);
     if (b) { pin = {id: id || 'map', x: b.x, y: b.y, untilMs: lastMs + PIN_MS}; ariaAt = -1e9; }
-  });
+  }
+  cv.addEventListener('click', ev => { const b = baseAt(ev); press(pick(b), b); });
   cv.addEventListener('pointerleave', () => { if (!byKey) setHover(null); }); // a hover set by the keys stays until Esc or blur
 
-  /**
-   * K-23: the map's keys, when it has the focus: ←/→ step through the plants then the suburbs
-   * (the same hover the pointer sets, so the lever lights and the label shows), Home the first,
-   * Enter opens a hovered suburb's card, Esc leaves. Returns true exactly when it acted; the map's own keydown listener calls it and
-   * stops the event, so a key forwarded by the shell never acts twice.
-   */
+  /** K-23: the map's keys when it has the focus (§31.8 render/map.js); true exactly when it acted. */
   function key(ev) {
     if (!ev || (ev.type && ev.type !== 'keydown') || ev.defaultPrevented || ev.altKey || ev.ctrlKey || ev.metaKey) return false;
     if (doc.activeElement !== el) return false;
@@ -1167,7 +1163,7 @@ export function createMap(doc, root, actions) {
       return true;
     }
     if (k === 'Escape') { kbdIdx = -1; byKey = false; setHover(null); if (el.blur) el.blur(); return true; }
-    if (k === 'Enter' && /^sub:/.test(hoverId) && vm && !vm.respond) { openSuburb(hoverId); return true; }
+    if (k === 'Enter' && hoverId && vm && !vm.respond && vm.phase !== 'briefing') { press(hoverId, {}); return true; }
     return false;
   }
 

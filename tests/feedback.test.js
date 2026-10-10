@@ -259,7 +259,7 @@ test('every press answers: the quiet desk, levers, guards, rotaries, emergency, 
   // the map: a plant focuses its control; a suburb opens its card (Q-56); wind, solar, the ground answer with a label
   act(p, () => mapClick(p, 'ccgt'), /lever-ccgt "[^"]*"=\d+ \[[^\]]*focus/, 'map-click', 'a click on RIVERTON CCGT');
   act(p, () => mapClick(p, 'sub:RED'), () => p.game.ui.suburb === 'RED', 'map-click', 'a click on sub:RED (its card)'); p.key('h'); // (H closes it: Esc below is the map's)
-  for (const [id, re] of [['wind', /the wind sets it, not the desk/], ['solar', /the sun sets it, not the desk/], ['ground', /Click a plant for its control, a suburb for its load/]]) {
+  for (const [id, re] of [['wind', /the wind sets it, not the desk/], ['solar', /the sun sets it, not the desk/], ['ground', /Click a plant for its control, a suburb for its card/]]) {
     act(p, () => mapClick(p, id), () => re.test(mapLabel(p)), 'map-click', 'a click on ' + id);
   }
   const citymap = p.h.mods.map.el;

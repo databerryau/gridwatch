@@ -25,6 +25,7 @@ const ROOF_HATCH = 'rgba(241,211,92,0.32)', SILHOUETTE = 'rgba(230,237,243,0.5)'
 const NAMES = {coal: 'COAL', ccgt: 'CCGT', gta: 'GT·A', gtb: 'GT·B', gtc: 'GT·C', hydro: 'HYDRO', wind: 'WIND', solar: 'SOLAR',
   tie: 'TIE', battery: 'BATTERY', rert: 'DIESEL', dr: 'DR'};
 const LEVER = {soak: 'HOT WATER SOAK', aircon: 'AIR-CON CYCLE'};
+const PART = {precool: '\nPRE-COOL: load added before it', snapback: '\nSNAPBACK: load returning after it', night: '\nNIGHT HEATING: lower by what it soaked'};
 
 /** K-23 (Q-57): an obs.levers block in words. */
 export const blockText = b => LEVER[b.lever] + ' ' + SUBURBS.find(q => q.id === b.suburb).name + ' ' + fmtMW(Math.round(b.effMW)) + ' MW ' +
@@ -75,7 +76,7 @@ export function stackSummary(proj, obs, locked) {
   if (roof && (roof[0] > ROOF_MIN_MW || roof[far] > ROOF_MIN_MW)) {
     say.push('Rooftop solar meets ' + fmtMW(Math.round(roof[0])) + ' MW of demand now, ' + fmtMW(Math.round(roof[far])) + ' MW by ' + clockText(proj.times[far], false) + '.');
   }
-  for (const b of (obs.levers || {blocks: []}).blocks) if (b.endS > obs.s) say.push('Booked: ' + blockText(b) + '.');
+  for (const b of (obs.levers || {blocks: []}).blocks) if (b.endS > obs.s && b.atS < proj.times[far]) say.push('Booked: ' + blockText(b) + '.');
   return say.join(' ');
 }
 
@@ -409,7 +410,7 @@ export function createLiveStack(doc, root, actions) {
     }
   }
 
-  // Q-57: a band per booked core along the skyline (rows; load below, relief above), its code in the big layout; other parts dashed
+  // Q-57: a band per booked core along the skyline (rows; load below, relief above) with its code; other parts dashed
   function drawCity(ctx, xs) {
     const n = proj.n, up = new Float64Array(n), dn = new Float64Array(n);
     flex = [];
@@ -419,7 +420,7 @@ export function createLiveStack(doc, root, actions) {
       for (let k = 0; k < n; k++) {
         const t = proj.times[k];
         if (t <= kn[0][0] || t >= kn[kn.length - 1][0]) continue;
-        flex.push({b, core, f, x: xs[k], w: xs[k + 1] - xs[k], k, h, y: G.y(proj.p50[k]) + (v > 0 ? A[k] : -A[k] - h), o: v > 0 ? h : 0, lvl: A[k] / SURPLUS_MIN_PX | 0});
+        flex.push({b, core, part: p.kind, f, x: xs[k], w: xs[k + 1] - xs[k], k, h, y: G.y(proj.p50[k]) + (v > 0 ? A[k] : -A[k] - h), o: v > 0 ? h : 0, lvl: A[k] / SURPLUS_MIN_PX | 0});
         A[k] += h; f = false;
       }
     }
@@ -433,7 +434,7 @@ export function createLiveStack(doc, root, actions) {
     for (const r of flex) if (!r.core) { ctx.moveTo(r.x, r.y + r.o); ctx.lineTo(r.x + r.w, r.y + r.o); }
     ctx.stroke(); ctx.setLineDash([]);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    if (G.big) for (const r of flex) if (r.f) {
+    for (const r of flex) if (r.f) {
       const x = r.x + 16 + r.lvl * 30, y = r.o ? r.y + r.h + 7 : r.y - 7;
       ctx.fillStyle = UI.bg; ctx.fillRect(x - 14, y - 6, 28, 12);
       ctx.fillStyle = UI.bright; ctx.fillText(r.b.suburb, x, y);
@@ -715,10 +716,7 @@ export function createLiveStack(doc, root, actions) {
     return {x: (ev.clientX - r.left) * W / (r.width || W), y: (ev.clientY - r.top) * H / (r.height || H)};
   }
 
-  /**
-   * What is under (x, y): a handle, a ghost, a layer edge, a layer body or a gap; for a hover
-   * (forHover) also a blue surplus column or the rooftop bite, which a press never grabs.
-   */
+  /** What is under (x, y); a hover's priorities: §31.8 render/livestack.js. */
   function hitTest(x, y, forHover) {
     if (!G || !proj) return null;
     const half = HIT_PX / 2;
@@ -728,13 +726,9 @@ export function createLiveStack(doc, root, actions) {
       if (Math.abs(x - gx) <= half) return {kind: 'pending'};
     }
     const ahead = !(x < G.x(vm.obs.s) - 2 || x > G.x1 + 2);
-    // A hover inside a blue column says what will be spilled (C-11), whatever lies under it: the
-    // column stands on the top of the stack, where the top layer's key handles and its edge are.
-    // A press there still takes the handle or the edge (forHover false): blue is never dragged.
-    if (forHover && ahead) {
+    if (forHover && ahead && proj.blue) {
       const kb = colOf(G.t(x));
-      for (const r of flex) if (r.k === kb && y >= r.y - 1 && y <= r.y + r.h + 1) return {kind: 'flex', b: r.b};
-      if (proj.blue && proj.blue[kb] && y >= surplusTop(kb) && y <= G.y(proj.p50[kb] + proj.exports[kb] + proj.charging[kb])) return {kind: 'surplus', k: kb};
+      if (proj.blue[kb] && y >= surplusTop(kb) && y <= G.y(proj.p50[kb] + proj.exports[kb] + proj.charging[kb])) return {kind: 'surplus', k: kb};
     }
     let best = null, bd = Infinity;
     for (const h of handles) {
@@ -758,6 +752,7 @@ export function createLiveStack(doc, root, actions) {
       const ya = G.y(gk === 'red' ? proj.p50[k] : proj.p90[k]), yb = G.y(proj.supply[k]);
       if (forHover ? y >= ya - 2 && y <= yb + 2 : y >= ya - 1 && y <= yb - 3) return {kind: 'gap', k, color: gk};
     }
+    if (forHover) for (const r of flex) if (r.k === k && y >= r.y - 1 && y <= r.y + r.h + 1) return {kind: 'flex', b: r.b, part: r.part};
     for (const gh of ghosts) {
       const h = Math.max(HIT_PX, gh.h), cy = gh.y + gh.h / 2;
       if (x >= gh.x - half && x <= G.x1 && Math.abs(y - cy) <= h / 2 && (!edge || Math.abs(y - cy) < ed)) return gh;
@@ -905,7 +900,7 @@ export function createLiveStack(doc, root, actions) {
     if (!h || h.kind === 'empty' || h.kind === 'past') { tip.hidden = true; sendHover(null); return; }
     const obs = vm.obs;
     let text = '';
-    if (h.kind === 'flex') { text = blockText(h.b); sendHover({do: 'hover', target: 'suburb-' + h.b.suburb}); } // the map rings it (L-9)
+    if (h.kind === 'flex') { text = blockText(h.b) + (PART[h.part] || ''); sendHover({do: 'hover', target: 'suburb-' + h.b.suburb}); } // the map rings it (L-9)
     else if (h.kind === 'surplus') {
       // C-11: what the blue means and the two things that save it
       hoverBlue = blues.find(r => h.k >= r.k0 && h.k <= r.k1) || null;

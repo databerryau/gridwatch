@@ -1,9 +1,10 @@
 // The city levers on the map and the Live Stack (desk/README.md §31.6 view, §31.9.10; SPEC U-3,
 // Q-56, Q-57). The map: a suburb's click and Enter open its card (a dark one through the RESTORE
-// bay), its hover names it, the overlay rings the open card's suburb and a glowing one and tags a
-// booked suburb and its patience, per frame. The stack: a band >= 4 px along the skyline over
-// each booked core in one pattern, the other parts dashed, the code in the big layout, the
-// redraw on a booking while paused, the hover and the text alternative naming each block.
+// bay; Enter not in the briefing), its hover names it, the overlay rings the open card's suburb and
+// a glowing one and tags a booked suburb with its lever and patience, per frame, not in the watch.
+// The stack: a band >= 4 px along the skyline over each booked core in one pattern with its code,
+// the other parts dashed, the redraw on a booking while paused, the hover (each part named, after
+// the handles and the gaps) and the text alternative naming each block it shows.
 // States are reached at 04:30 by booking or by pushing blocks (§31.9.12), never by a day run.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -103,16 +104,16 @@ test('Q-57 / §31.3.11: a soak booked while paused redraws the stack; each core 
   const k = cores.find(r => r.b.suburb === 'SOL' && cores.some(q => q.b.suburb === 'RED' && q.k === r.k)).k;
   const [red, sol] = ['RED', 'SOL'].map(id => cores.find(r => r.b.suburb === id && r.k === k));
   assert.ok(Math.abs(sol.y - (red.y + red.h)) < 1e-9, 'stacked, not overdrawn');
-  // drawn: the same fill for both (no suburb colours) and rows (K-22: a pattern of its own); no code at the floor
+  // drawn: the same fill for both (no suburb colours) and rows (K-22: a pattern of its own); each band's code once, at the floor too (K-22)
   const bands = log.rects.filter(r => r.style === BAND);
   assert.equal(bands.length, cores.length);
   assert.ok(bands.every(r => r.h >= 4));
-  assert.ok(!log.texts.includes('RED') && !log.texts.includes('SOL'), 'the code is for the big layout');
-  // the text alternative and the hover name each block
+  assert.deepEqual(log.texts.filter(t => t === 'RED' || t === 'SOL' || t === 'HAZ').sort(), ['RED', 'SOL']);
+  // the text alternative names each block the picture shows (K-23): not HAZ's 10:30, beyond the 4.5 h
   const said = stackSummary(P, obs, false);
-  for (const b of obs.levers.blocks) assert.ok(said.includes('Booked: ' + blockText(b) + '.'), said);
+  for (const b of obs.levers.blocks) assert.equal(said.includes('Booked: ' + blockText(b) + '.'), b.suburb !== 'HAZ', b.suburb + ': ' + said);
   assert.match(said, / Booked: HOT WATER SOAK Redgum Flats 110 MW 05:30 to 09:30\./);
-  assert.match(said, / Booked: HOT WATER SOAK Old Hazelton 140 MW 10:30 to 14:30\.$/);
+  assert.ok(!said.includes('Old Hazelton'), said);
   const later = structuredClone(obs);
   later.s += 15; // the next redraw, a real second on (the label is refreshed at most once a second)
   stack.update(baseVm(later, {frame: {nowMs: vm.frame.nowMs + 1500, dtS: 1 / 60, alpha: 0}}));
@@ -121,7 +122,7 @@ test('Q-57 / §31.3.11: a soak booked while paused redraws the stack; each core 
   assert.deepEqual(doc.canvasStats.bad, []);
 });
 
-test('Q-57: air-con: the relief band above the skyline, pre-cool and snapback dashed below it, the night fall dashed above; codes in the big layout; the hover names the block and rings its suburb', () => {
+test('Q-57: air-con: the relief band above the skyline, pre-cool and snapback dashed below it, the night fall dashed above; codes in both layouts; the hover names the block and its part, rings its suburb, and yields to a red gap', () => {
   const st = at0430(2);
   assert.equal(st.day.temp, 'HOT');
   poke(st, 'TAL', 'aircon', at(6), 13.5);   // pre-cool 05:00, relief 06:00-07:30, snapback to 09:00
@@ -145,22 +146,44 @@ test('Q-57: air-con: the relief band above the skyline, pre-cool and snapback da
     // every ghost is dashed, on its outer edge
     for (const r of [...below, ...fall]) assert.ok(log.dashed.some(s => s[0] === r.x && s[1] === r.y + r.o && s[2] === r.x + r.w), 'dashed at ' + P.times[r.k]);
     assert.equal(F.filter(r => !r.core).length, below.length + fall.length);
-    // the code: the big layout only, once per band
+    // the code: once per band, in both layouts
     const codes = log.texts.filter(t => t === 'TAL' || t === 'HAZ');
-    assert.deepEqual(codes.sort(), w > 600 ? ['HAZ', 'TAL'] : []);
+    assert.deepEqual(codes.sort(), ['HAZ', 'TAL']);
     // the hover: a relief column names the block, rings TAL on the map (L-9) and never grabs (no drag in 2b)
-    const r = relief[Math.floor(relief.length / 2)], x = r.x + r.w / 2, y = r.y + r.h / 2;
+    // (its top: the morning is SHORT under it, and the red gap's hover reaches 2 px over the skyline)
+    const r = relief[Math.floor(relief.length / 2)], x = r.x + r.w / 2, y = r.y + 1;
+    assert.equal(P.gap[r.k], 'red');
     cv.dispatch('pointermove', {clientX: x, clientY: y});
     const tip = stack.el.querySelector('.livestack-tip');
     assert.equal(tip.textContent, blockText(obs.levers.blocks.find(b => b.suburb === 'TAL')));
     assert.match(tip.textContent, /^AIR-CON CYCLE Tallowood Heights 14 MW 06:00 to 07:30$/);
     assert.deepEqual(ui[ui.length - 1], {do: 'hover', target: 'suburb-TAL'});
     assert.notEqual((stack.debug.hitTest(x, y) || {}).kind, 'flex', 'a press never takes a band');
+    // a ghost's hover names its part under the block (U-2's rebound) where no handle or gap claims the point (V-9; the
+    // HOT morning is SHORT nearly throughout at 04:30, so at the floor, a column of each part that hovers as its block)
+    if (w < 600) for (const [rows, re] of [[below.filter(q => P.times[q.k] < at(6)), /^AIR-CON CYCLE Tallowood Heights 14 MW 06:00 to 07:30\nPRE-COOL: /],
+      [below.filter(q => P.times[q.k] > at(7, 30)), /^AIR-CON CYCLE Tallowood Heights 14 MW 06:00 to 07:30\nSNAPBACK: load returning after it$/],
+      [fall, /^HOT WATER SOAK Old Hazelton 140 MW 05:00 to 09:00\nNIGHT HEATING: /]]) {
+      const q = rows.find(c => stack.debug.hitTest(c.x + c.w / 2, c.y + c.h / 2, true).kind === 'flex');
+      assert.ok(q, re.source);
+      cv.dispatch('pointermove', {clientX: q.x + q.w / 2, clientY: q.y + q.h / 2});
+      assert.match(tip.textContent, re);
+    }
     assert.deepEqual(doc.canvasStats.bad, []);
   }
+  // V-9: a red SHORT column under the snapback still hovers as the gap (its L-9 glow), as a press takes it
+  const short = structuredClone(obs), fc = short.forecast;
+  for (let k = 0; k < fc.demandP50.length; k++) if (fc.fromS + (k + 1) * fc.stepS > at(7, 45) && fc.fromS + (k + 1) * fc.stepS < at(8, 45)) fc.demandP50[k] += 2500;
+  const {stack, cv} = mountStack();
+  stack.update(baseVm(short));
+  const P = stack.debug.proj, q = stack.debug.flex.find(r => r.part === 'snapback' && P.gap[r.k] === 'red');
+  assert.ok(q, 'a red column under the snapback');
+  assert.equal(stack.debug.hitTest(q.x + q.w / 2, q.y + q.h / 2, true).kind, 'gap');
+  cv.dispatch('pointermove', {clientX: q.x + q.w / 2, clientY: q.y + q.h / 2});
+  assert.match(stack.el.querySelector('.livestack-tip').textContent, /^SHORT /);
 });
 
-test('Q-56: the map routes a suburb\'s click and Enter to its card (a dark one through the RESTORE bay, Q-42); its hover names suburb-<ID>', () => {
+test('Q-56: the map routes a suburb\'s click and Enter to its card (a dark one through the RESTORE bay, Q-42); its hover names suburb-<ID>; Enter on a plant is its click; RESPOND and the briefing keep Enter', () => {
   const {map, ui, cv} = mountMap();
   const vm = baseVm(observe(createState(1, DESK)));   // 04:00: no day run
   vm.obs.districts.find(d => d.suburb === 'SOL').dark = true;
@@ -176,13 +199,19 @@ test('Q-56: the map routes a suburb\'s click and Enter to its card (a dark one t
   assert.deepEqual(ui.splice(0), [{do: 'hover', target: 'suburb-TAL'}]);
   cv.dispatch('pointerleave', {});
   assert.deepEqual(ui.splice(0), [{do: 'hover', target: null}]);
-  // the keyboard: Enter on the suburb the arrows reached, the same commands; not on a plant
+  // the keyboard: Enter presses what the arrows reached as a click does (Q-42: never silent)
   assert.match(map.el.getAttribute('aria-keyshortcuts'), /\bEnter\b/);
   map.el.focus();
   const key = k => map.key({type: 'keydown', key: k});
   assert.equal(key('Home'), true);
   ui.splice(0);
-  assert.equal(key('Enter'), false, 'a plant: Enter is not the map\'s');
+  assert.equal(key('Enter'), true);
+  assert.deepEqual(ui.splice(0), [{do: 'focus', target: 'lever-coal'}], 'a plant: its control');
+  while (map.debug.hoverId !== 'wind') key('ArrowRight');
+  ui.splice(0);
+  assert.equal(key('Enter'), true);
+  assert.equal(map.debug.pin.id, 'wind', 'wind: its label');
+  assert.deepEqual(ui, []);
   while (map.debug.hoverId !== 'sub:SOL') key('ArrowRight');
   assert.equal(mapSummary(vm, 'sub:SOL').endsWith('On Solstice Rise: Enter opens its card.'), true);
   ui.splice(0);
@@ -192,13 +221,15 @@ test('Q-56: the map routes a suburb\'s click and Enter to its card (a dark one t
   ui.splice(0);
   key('Enter');
   assert.deepEqual(ui.splice(0), [{do: 'suburb', id: 'RED'}]);
-  // the RESPOND card keeps Enter
+  // the RESPOND card keeps Enter, and so does the briefing (Enter takes the desk)
   map.update(baseVm(vm.obs, {respond: {cause: 'unit'}}));
+  assert.equal(key('Enter'), false);
+  map.update(baseVm(vm.obs, {phase: 'briefing'}));
   assert.equal(key('Enter'), false);
   assert.deepEqual(ui, []);
 });
 
-test('Q-57 / §31.9.10: the map rings the open card\'s suburb and a glowing one, tags a booked suburb and its patience (after an air-con booking, or locked), per frame: no cached layer rebuilds', () => {
+test('Q-57 / §31.9.10: the map rings the open card\'s suburb and a glowing one, tags a booked suburb with its lever and patience (after an air-con booking, or locked), per frame, not in the watch: no cached layer rebuilds', () => {
   const st = at0430(2);
   book(st, 'SOL', 'soak', at(10));
   book(st, 'HAZ', 'aircon', at(19));
@@ -208,10 +239,11 @@ test('Q-57 / §31.9.10: the map rings the open card\'s suburb and a glowing one,
   book(st, 'HAR', 'aircon', at(16));
   applyInput(st, {type: 'flexDel', suburb: 'HAR', lever: 'aircon', atS: at(16)}, []);   // booked and cancelled: patience back
   const obs = observe(st), lv = obs.levers, tag = id => suburbTag(lv, id, obs.s);
-  assert.equal(tag('SOL'), '◷ 10:00', 'a soak: the mark, no patience');
-  assert.equal(tag('HAZ'), '◷ 19:00 ☺ 80', 'patience after its first air-con booking');
-  assert.equal(tag('TAL'), '◷ 15:00 ☹ 15 LOCKED', 'Q-54: 40 - 10 - 15, under 25');
-  assert.equal(tag('HAR'), '◷ 10:30', 'cancelled: no air-con booked, patience 50 not shown');
+  assert.equal(tag('SOL'), 'SOAK 10:00', 'a soak: the mark, no patience');
+  assert.equal(tag('HAZ'), 'AIR 19:00 ☺ 80', 'patience after its first air-con booking');
+  assert.equal(tag('TAL'), 'AIR 15:00 ☹ 15 LOCKED', 'Q-54: 40 - 10 - 15, under 25');
+  assert.equal(tag('HAR'), 'SOAK 10:30', 'cancelled: no air-con booked, patience 50 not shown');
+  assert.ok(mapSummary(baseVm(obs), 'sub:TAL').endsWith(' On Tallowood Heights AIR 15:00 ☹ 15 LOCKED: Enter opens its card.'), 'K-23: the hovered suburb\'s mark in words');
   assert.equal(tag('RED'), '');
   assert.equal(suburbTag(lv, 'TAL', at(21)), '☹ 15 LOCKED', 'the blocks over: the patience stays');
   assert.equal(suburbTag(lv, 'SOL', at(14)), '', 'its soak over');
@@ -224,15 +256,17 @@ test('Q-57 / §31.9.10: the map rings the open card\'s suburb and a glowing one,
   frame({suburb: 'RED'});
   const b = D.SUBURBS.find(s => s.id === 'RED').box;
   assert.deepEqual(log.frames.filter(f => f.style === D.UI.blue).map(f => [f.x, f.y]), [[L.dx + b[0] * L.scale - 3, L.dy + (b[1] - L.srcY) * L.scale - 3]], 'the open card\'s suburb');
-  for (const t of ['◷ 10:00', '◷ 19:00 ☺ 80', '◷ 15:00 ☹ 15 LOCKED', '◷ 10:30']) assert.ok(log.texts.includes(t), t + ' in ' + log.texts);
+  const tags = ['SOAK 10:00', 'AIR 19:00 ☺ 80', 'AIR 15:00 ☹ 15 LOCKED', 'SOAK 10:30'];
+  for (const t of tags) assert.ok(log.texts.includes(t), t + ' in ' + log.texts);
   frame({suburb: 'RED', mode: {mode: 'WATCH', rate: 0.15, watchS: 1, locked: true}});
   assert.equal(log.frames.filter(f => f.style === D.UI.blue).length, 0, 'hidden with the card in the watch');
+  assert.deepEqual(log.texts.filter(t => tags.includes(t)), [], 'and the tags (the spotlight dims all but the cause)');
   frame({suburb: null, mode: {mode: 'CRUISE', rate: 120, watchS: -1, locked: false}, glow: new Set(['suburb-SAL', 'suburb-HAZ'])});
   assert.equal(map.debug.fx.rings, 2, 'a glowing suburb rings (the objective names it)');
   // a new booking shows on the next frame, from the overlay alone
   book(st, 'RED', 'aircon', at(18));
   vm.obs = observe(st);
   frame({glow: new Set()});
-  assert.ok(log.texts.includes('◷ 18:00 ☺ 50'), log.texts.join('|'));
+  assert.ok(log.texts.includes('AIR 18:00 ☺ 50'), log.texts.join('|'));
   assert.deepEqual(map.debug.rebuilds, r0, 'no cached layer redrawn');
 });
