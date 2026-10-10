@@ -68,12 +68,21 @@ test('S-14 rule 1 (Q-58): on the MSL1 notice par soaks the free suburb with the 
   for (const p of ['lean', 'planOnly']) assert.deepEqual(flexOut(morning(() => {}, p).d), [], p);
 });
 
-test('S-14 rule 1: not on spill alone, not without a notice ahead, not before the minimum is in view (aimFlex -1 waits), not against the pace, never in a watch', () => {
+test('S-14 rule 1: not on spill alone, not without a notice ahead in the soak window, not from rule 6\'s window end, not before the minimum is in view (aimFlex -1 waits), not against the pace, never in a watch', () => {
   // No notice (level 0), or a notice for the present second (a potline trip: a measured value).
   let r = morning(obs => { obs.msl.level = 0; });
   assert.deepEqual(r.d, []);
   r = morning(obs => { obs.msl.atS = obs.s; });
   assert.deepEqual(r.d, []);
+  // A notice outside the soak window (a tie-out morning's 09:45) is the battery's, as the tray says; 10:00 is in.
+  r = morning(obs => { obs.msl.atS = S_AT(9, 45); });
+  assert.deepEqual(r.d, []);
+  r = morning(obs => { obs.msl.atS = V.SOAK_FROM_S; });
+  assert.equal(flexOut(r.d).length, 1);
+  // Ending a discharge outside its window (rule6End, right after rule 1) is the battery's branch only, never a soak.
+  r = morning(obs => { Object.assign(obs.battery, {mode: 'discharge', orderMW: 100}); });
+  assert.deepEqual(r.d, [{type: 'battery', mode: 'idle', mw: 0}]);
+  assert.equal(r.memo.lastOrigin, 'rule6');
   // Spill alone: the battery takes it (S-14 rule 2), no soak.
   r = morning(obs => { obs.msl.level = 0; obs.solar.autoMW = 400; obs.price.mwh = -20; obs.battery.socMWh = 500; });
   assert.equal(r.d.length, 1);

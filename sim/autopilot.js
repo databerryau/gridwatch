@@ -1250,9 +1250,9 @@ function freeMost(lv, lever) {
   return x;
 }
 const flexInput = (x, lever, atS) => ({type: 'flex', suburb: x.id, lever, atS});
-// S-14 rule 1 (first in rule 6): on the MSL1 notice, soak at the forecast minimum; aimFlex -1: wait.
+// S-14 rule 1 (first in rule 6): on an MSL1 notice ahead in the soak window (the tray's test), soak at the forecast minimum; aimFlex -1: wait.
 function soak(obs) {
-  const m = obs.msl, x = m.level >= 1 && m.atS > obs.s ? freeMost(obs.levers, 'soak') : null;
+  const m = obs.msl, x = m.level >= 1 && m.atS > obs.s && m.atS >= V.SOAK_FROM_S && m.atS <= V.SOAK_TO_S ? freeMost(obs.levers, 'soak') : null;
   const at = x ? aimFlex(obs.forecast, obs.levers, x.id, 'soak') : -1;
   return at < 0 ? null : flexInput(x, 'soak', at);
 }

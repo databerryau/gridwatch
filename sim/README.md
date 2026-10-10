@@ -1586,7 +1586,9 @@ state, memo}`, and (2b) `aimFlex(fc, lv, id, lever) -> atS | -1`, the pure aim o
     evening from the moment they are booked. `app/system.js` `commitSig` gains `obs.levers.rev`:
     in player mode a booking or cancel re-flows the plan at the system's next look (<= 60 s).
   * *S-14 rule 1, first in rule 6* (`soak`; origin `'rule6'`): on the MSL1 notice (`obs.msl.level
-    >= 1 && obs.msl.atS > obs.s`: a notice ahead, not a measured present minimum), book a soak for
+    >= 1 && obs.msl.atS > obs.s`: a notice ahead, not a measured present minimum) whose `atS` lies
+    in the soak window `[SOAK_FROM_S, SOAK_TO_S]` (the tray's test, desk/README §31.9.7: a tie-out
+    morning's notice for 09:45 is the battery's, not a soak's; fix pass PAR-1), book a soak for
     the free suburb with the most effective soak MW (`block === ''`; the largest `mw`, city order
     on a tie), at `aimFlex(obs.forecast, obs.levers, id, 'soak')`; -1 means wait (the battery's
     branch decides as before). One suburb per decision while the notice stands; never on spill
