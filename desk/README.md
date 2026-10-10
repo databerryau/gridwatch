@@ -2952,7 +2952,8 @@ cycles and a soak scroll, the last resort):
   NAME · 420k homes · ✕ (btn-suburb-close)
   n DARK: [RESTORE] (city-<ID>-restore: focus bay-restore; the card stays)   only with dark districts
   “U-1's dry wit”
-  patience 40: 90% respond (all respond from 50; air-con locked under 25) · draws <lit MW> · roofs <MW>
+  patience 40: 90% respond (all respond from 50; air-con locked under 25; only on a day air-con
+    is offered, else "patience 40": it scales air-con alone, P2) · draws <lit MW> · roofs <MW>
   per offered lever (obs.levers.offered; on a MILD day "AIR-CON CYCLE: hot days only (…)"):
     each booked block: SOAK 10:30–14:30 booked|under way|done: tonight's heating −525 MWh   [CANCEL]
                        AIR-CON 18:45–20:15 booked: pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience −10 [CANCEL]

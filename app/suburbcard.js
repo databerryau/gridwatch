@@ -208,8 +208,8 @@ export function createSuburbCard(doc, root, actions, deps) {
       setText(homes, Math.round(s.households / 1e3) + 'k homes');
       if (E.dark) setText(E.dark.firstChild, dark + ' DARK:');
       const roof = (obs.rooftop.suburbs.find(q => q.id === id) || {mw: 0}).mw, p = sub ? sub.patience : -1;
-      setText(E.st, (sub ? 'patience ' + p + ': ' + (p < V.PATIENCE_LOCK ? 'air-con locked' : p < V.PATIENCE_FULL ?
-        Math.round(100 * (V.PATIENCE_FULL + p) / (2 * V.PATIENCE_FULL)) + '% respond' : 'all respond') + ' · ' : '') +
+      setText(E.st, (sub ? 'patience ' + p + (lv.offered.includes('aircon') ? ': ' + (p < V.PATIENCE_LOCK ? 'air-con locked' : p < V.PATIENCE_FULL ?
+        Math.round(100 * (V.PATIENCE_FULL + p) / (2 * V.PATIENCE_FULL)) + '% respond' : 'all respond') : '') + ' · ' : '') +
         'draws ' + mw(ds.reduce((a, d) => a + (d.dark ? 0 : d.coldLoadMW), 0)) + ' MW · roofs ' + mw(roof) + ' MW');
       for (const lever in E.lv) {
         const R = E.lv[lever], L = sub[lever], fc = v.dayAhead || obs.forecast, last = lv.blocks.filter(b => b.suburb === id && b.lever === lever).pop();
