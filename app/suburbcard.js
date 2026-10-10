@@ -44,9 +44,9 @@ export function verdict(fc, lv, id, atS, effMW) {
   }
   if (peak < 0) return '';
   const P = partsOf('aircon', atS, effMW), band = cols.filter(c => c[1] >= pk - PEAK_BAND_MW), on = k => band.some(c => at(P[k], c[0]) > 0);
-  const t = ' the ' + hm(Math.round(peak / STEP_S) * STEP_S) + ' peak';
-  return at(P.core, peak) > 1e-9 - effMW ? '✕ relief misses' + t : on('precool') ? '✕ pre-cool lands on' + t : on('snapback') ? '✕ snapback lands on' + t
-    : '✓ relief ' + hm(atS) + '–' + hm(atS + V.AIRCON_S) + ' covers' + t + '; snapback after it';
+  const t = ' the ' + hm(Math.round(peak / STEP_S) * STEP_S) + ' peak', r = ' relief ' + hm(atS) + '–' + hm(atS + V.AIRCON_S);
+  return at(P.core, peak) > 1e-9 - effMW ? '✕' + r + ' misses' + t : on('precool') ? '✕' + r + ': pre-cool lands on' + t : on('snapback') ? '✕' + r + ': snapback lands on' + t
+    : '✓' + r + ' covers' + t + '; snapback after it';
 }
 
 /**

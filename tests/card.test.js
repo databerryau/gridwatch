@@ -45,17 +45,17 @@ test('§31.9.4: the verdict on the line aimFlex uses: ✓ at its default aim, th
   const a = aimFlex(fc, L, 'RED', 'aircon');
   assert.equal(a, at(19), 'aimFlex centres the relief on the 19:45 top');
   assert.equal(v(a), '✓ relief 19:00–20:30 covers the 19:45 peak; snapback after it');
-  assert.equal(v(RED.toS), '✕ pre-cool lands on the 19:45 peak', 'atS = toS: full relief at the top, pre-cool on the band before it');
-  assert.equal(v(at(17, 45)), '✕ relief misses the 19:45 peak', 'centred on a pre-PV peak');
-  assert.equal(v(RED.fromS), '✕ relief misses the 19:45 peak', 'atS = fromS');
-  assert.equal(v(at(18, 30)), '✕ snapback lands on the 19:45 peak', 'the relief covers the top, its snapback the band after it');
+  assert.equal(v(RED.toS), '✕ relief 19:30–21:00: pre-cool lands on the 19:45 peak', 'atS = toS: full relief at the top, pre-cool on the band before it');
+  assert.equal(v(at(17, 45)), '✕ relief 17:45–19:15 misses the 19:45 peak', 'centred on a pre-PV peak');
+  assert.equal(v(RED.fromS), '✕ relief 15:00–16:30 misses the 19:45 peak', 'atS = fromS');
+  assert.equal(v(at(18, 30)), '✕ relief 18:30–20:00: snapback lands on the 19:45 peak', 'the relief covers the top, its snapback the band after it');
   // the line is P50 (booked flex in it) less this suburb's own air-con blocks: its own dent does not move the peak; another suburb's does
   const own = {suburb: 'RED', lever: 'aircon', atS: at(19), endS: at(20, 30), effMW: 400, cost: 10, del: ''}, dented = plateau();
   own.parts = flexParts(own, 400);
   dented.demandP50 = dented.demandP50.map((m, k) => m + own.parts.reduce((x, q) => x + knotAt(q.knots)((k + 1) * V.FC_STEP_S), 0));
   assert.equal(verdict(dented, {suburbs: L.suburbs, blocks: [own]}, 'RED', at(19), 45), v(at(19)), 'its own block taken out of the line');
   assert.equal(aimFlex(dented, {suburbs: L.suburbs, blocks: [own]}, 'RED', 'aircon'), at(19), 'aimFlex reads the same line (2b final review P7: one helper, aimLineMW)');
-  assert.equal(verdict(dented, {suburbs: L.suburbs, blocks: [Object.assign({}, own, {suburb: 'HAR'})]}, 'RED', at(19), 45), '✕ relief misses the 19:00 peak',
+  assert.equal(verdict(dented, {suburbs: L.suburbs, blocks: [Object.assign({}, own, {suburb: 'HAR'})]}, 'RED', at(19), 45), '✕ relief 19:00–20:30 misses the 19:00 peak',
     'another suburb\'s relief stays in the line: the peak left is at 19:00');
   assert.equal(verdict(Object.assign({}, fc, {n: 100}), L, 'RED', at(19), 45), '', 'no column in 15:00-21:00: no verdict');
 });
@@ -119,6 +119,8 @@ test('Q-52-Q-54 booked ahead at 04:30: BOOK sends flex at the aim and the row li
   assert.ok(card(p).includes('AIR-CON ' + span(aim, V.AIRCON_S) + ' booked: pre-cool from ' + hm(aim - V.PRECOOL_S) + ' · snapback to ' +
     hm(aim + V.AIRCON_S + V.SNAPBACK_S) + ' · $6,750 · patience −10'), card(p) + ': the booked row names the pre-cool, when CANCEL ends');
   assert.ok(card(p).includes('patience 30: 80% respond') && card(p).includes('AIR-CON CYCLE −12 MW'), 'the next cycle at 80%');
+  const nx = /AIR-CON CYCLE −12 MW (\d\d:\d\d–\d\d:\d\d) /.exec(card(p))[1];
+  assert.match(card(p), new RegExp('✕ relief ' + nx + ' misses the \\d\\d:\\d\\d peak$'), 'the verdict names the relief it judges: the next aim, not the booked one (P1)');
   assert.ok(p.$('city-TAL-aircon-cancel-' + hm(aim).replace(':', '')));
   assert.equal(p.vm().tray.cards.length, cards, 'no tray card for a booking');
   assert.deepEqual(p.vm().tray.log.slice(-2).map(e => e.from + ': ' + e.text), ['CITY DESK: Tallowood Heights: air-con cycle booked for ' + hm(aim) + ' (14 MW).',

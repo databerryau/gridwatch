@@ -3071,7 +3071,9 @@ within `PEAK_BAND_MW = 100` of it (a constant local to the card). Each part is e
 band's column times by interpolating its knots. ✓ "relief HH:MM–HH:MM covers the HH:MM peak;
 snapback after it" only when the core is at its full −effMW at the peak column and pre-cool and
 snapback are 0 MW at every band column; else ✕ naming the first failure, in this order: "relief
-misses the HH:MM peak", "pre-cool lands on the HH:MM peak", "snapback lands on the HH:MM peak".
+HH:MM–HH:MM misses the HH:MM peak", "relief HH:MM–HH:MM: pre-cool lands on the HH:MM peak",
+"relief HH:MM–HH:MM: snapback lands on the HH:MM peak" (2b final review P1: every verdict names
+the relief it judges, so after a booking the next aim's ✕ does not read as the booked cycle's).
 `tests/card.test.js` covers the four states on poked blocks (the `aimFlex` default ✓; `atS = toS`
 pre-cool on; `atS` at the pre-PV peak, relief misses; `atS = fromS`, relief misses).
 
