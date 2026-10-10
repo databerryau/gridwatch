@@ -10,7 +10,7 @@ import {V} from '../sim/params.js';
 import {aimFlex} from '../sim/autopilot.js';
 import {flexParts} from '../sim/weather.js';
 import {setDistrictDark} from '../sim/fleet.js';
-import {SEEN_KEY} from '../app/game.js';
+import {SEEN_KEY, resetDay} from '../app/game.js';
 import {createSuburbCard, verdict, WIT, LEVERS, PEAK_BAND_MW} from '../app/suburbcard.js';
 import * as T from '../app/tray.js';
 import {TEXT} from '../content/text.js';
@@ -115,7 +115,8 @@ test('Q-52-Q-54 booked ahead at 04:30: BOOK sends flex at the aim and the row li
   p.click('city-TAL-aircon');
   assert.deepEqual(flexLog(p), ['flex TAL aircon ' + hm(aim)]);
   assert.equal(lv(p, 'TAL').patience, 30);
-  assert.ok(card(p).includes('AIR-CON ' + span(aim, V.AIRCON_S) + ' booked: snapback to ' + hm(aim + V.AIRCON_S + V.SNAPBACK_S) + ' · $6,750 · patience −10'), card(p));
+  assert.ok(card(p).includes('AIR-CON ' + span(aim, V.AIRCON_S) + ' booked: pre-cool from ' + hm(aim - V.PRECOOL_S) + ' · snapback to ' +
+    hm(aim + V.AIRCON_S + V.SNAPBACK_S) + ' · $6,750 · patience −10'), card(p) + ': the booked row names the pre-cool, when CANCEL ends');
   assert.ok(card(p).includes('patience 30: 80% respond') && card(p).includes('AIR-CON CYCLE −12 MW'), 'the next cycle at 80%');
   assert.ok(p.$('city-TAL-aircon-cancel-' + hm(aim).replace(':', '')));
   assert.equal(p.vm().tray.cards.length, cards, 'no tray card for a booking');
@@ -151,7 +152,7 @@ test('Q-52-Q-54 booked ahead at 04:30: BOOK sends flex at the aim and the row li
   assert.deepEqual(p.h.mods.errors, []);
 });
 
-test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing, the watch, the day over, locked, outside the window, under way; then the rest answers with what was sent', () => {
+test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing, the watch, the day over, locked, outside the window, under way (- = too); a cycle\'s verdict only while it can be cancelled, under way through its snapback; then the rest answers with what was sent', () => {
   const p = openGame({seed: HOT});
   p.suburb('HAZ');
   const base = p.vm(), doc = makeDocument(NEXT), root = doc.getElementById('suburb-card'), ins = [], said = [];
@@ -173,17 +174,29 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   const blk = {suburb: 'HAZ', lever: 'soak', atS: at(10, 30), endS: at(14, 30), effMW: 140, cost: 0, del: ''}, x = doc.getElementById.bind(doc);
   blk.parts = flexParts(blk, 140);
   const booked = del => vm(v => { v.obs.levers.blocks.push(Object.assign({}, blk, {del})); Object.assign(v.obs.levers.suburbs[1].soak, {block: 'one soak a day: already booked', fromS: -1, toS: -1}); });
+  const eq = (on, want, why) => { const n = said.length; x(on).focus(); root.dispatch('keydown', {key: '='}); assert.deepEqual(said.slice(n), [want], why); };
   booked('');
   assert.deepEqual([x('city-HAZ-soak-cancel-1030').parentElement.firstChild.textContent, x('city-HAZ-soak-cancel-1030').getAttribute('aria-disabled')],
     ['SOAK 10:30–14:30 booked: tonight\'s heating −525 MWh', 'false']);
+  eq('city-HAZ-soak', 'info booked for 10:30: CANCEL, then BOOK the new time', 'a booked block is never moved in place');
   booked('under way: too late to cancel');
   assert.deepEqual([x('city-HAZ-soak-cancel-1030').parentElement.firstChild.textContent, x('city-HAZ-soak-cancel-1030').getAttribute('aria-disabled')],
     ['SOAK 10:30–14:30 under way: tonight\'s heating −525 MWh', 'true'], 'the same block, now under way (no rebuild)');
   x('city-HAZ-soak-cancel-1030').click();
   assert.equal(said.at(-1), 'info under way: too late to cancel');
-  doc.getElementById('city-HAZ-soak').focus();
-  root.dispatch('keydown', {key: '='});
-  assert.equal(said.at(-1), 'info booked for 10:30: CANCEL, then BOOK the new time', 'a booked block is never moved in place');
+  for (const on of ['city-HAZ-soak', 'city-HAZ-soak-cancel-1030']) eq(on, 'info under way: too late to cancel', on + ': - = on a block under way say why, not "CANCEL, then BOOK"');
+  // an air-con cycle: its verdict while it can be cancelled, none once its pre-cool starts; under way through its snapback
+  const cyc = {suburb: 'HAZ', lever: 'aircon', atS: at(18), endS: at(19, 30), effMW: 40, cost: 10}, line = () => x('city-HAZ-aircon').parentElement.parentElement.children.at(-1).textContent;
+  cyc.parts = flexParts(cyc, 40);
+  const cycle = (del, s) => vm(v => { v.obs.s = s; v.obs.levers.blocks.push(Object.assign({}, cyc, {del})); Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
+  cycle('', base.obs.s);
+  assert.match(line(), /^[✓✕] /, 'a booked cycle that can be cancelled: its verdict');
+  cycle('under way: too late to cancel', at(20));
+  assert.deepEqual([line(), x('city-HAZ-aircon-cancel-1800').parentElement.firstChild.textContent], ['',
+    'AIR-CON 18:00–19:30 under way: pre-cool from 17:00 · snapback to 21:00 · ' + /\$[\d.,k]+/.exec(x('city-HAZ-aircon-cancel-1800').parentElement.firstChild.textContent)[0] + ' · patience −10'],
+    'started: no verdict on a line that has moved past its peak; its snapback still runs');
+  cycle('under way: too late to cancel', at(21));
+  assert.match(x('city-HAZ-aircon-cancel-1800').parentElement.firstChild.textContent, /^AIR-CON 18:00–19:30 done: /, 'after the snapback: done');
   assert.equal(ins.length, 0, 'nothing sent');
   // accepted: BOOK sends at the aim; for COMMIT_LOCK_MS the whole row answers with what was sent; then it acts again
   vm(() => {});
@@ -199,12 +212,15 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   assert.equal(ins.length, 2);
 });
 
-test('Q-56 in play: the briefing sends nothing; a dark suburb\'s card says so first and RESTORE focuses the bay; a pushed block under way: CANCEL answers in blue; the watch hides the card and a press there sends nothing; the day over', () => {
+test('Q-56 in play: the briefing sends nothing and Enter in the card takes the desk; a dark suburb\'s card says so first and RESTORE focuses the bay; a pushed block under way: CANCEL answers in blue; the watch hides the card and a press there sends nothing; the day over', () => {
   const b = openGame({seed: HOT, take: false});
   b.suburb('HAZ');
   b.click('city-HAZ-soak');
   assert.equal(toast(b), 'blue Take the desk first: Enter.');
   assert.deepEqual(flexLog(b), []);
+  assert.equal(b.doc.activeElement.id, 'city-HAZ-soak');
+  b.key('Enter');
+  assert.deepEqual([b.vm().phase, flexLog(b)], ['play', []], 'Enter in the card takes the desk, as the answer says (Q-41)');
   const seen = {getItem: k => (k === SEEN_KEY ? JSON.stringify({watch: true}) : null), setItem() {}};
   const p = openGame({seed: HOT, storage: seen}), st = p.game.state;
   setDistrictDark(st, st.city.districts.findIndex(x => x.suburb === 'RED'), true, 'directed');
@@ -243,12 +259,20 @@ test('Q-56 in play: the briefing sends nothing; a dark suburb\'s card says so fi
   assert.deepEqual(p.h.mods.errors, []);
 });
 
-test('Q-51 a mild day offers the soak only, and the card says why; Q-60 the tray: bookings and patience are LOG lines (no card, no cue), a lock an info card; the "?" rows are drawer texts', () => {
+test('Q-51 a mild day offers the soak only, and the card says why; a new attempt forgets the aim; Q-60 the tray: bookings and patience are LOG lines (no card, no cue), a lock an info card; the "?" rows are drawer texts', () => {
   const p = openGame({seed: MILD});
   p.suburb('SOL');
   assert.deepEqual(p.vm().obs.levers.offered, ['soak']);
   assert.ok(card(p).endsWith('AIR-CON CYCLE: hot days only (a mild day has no cooling load to relieve)'));
   assert.equal(p.$('city-SOL-aircon'), null);
+  // PLAY THIS DAY AGAIN (resetDay, as the end card's again): a new attempt forgets the player's aim
+  const a0 = aimFlex(p.vm().dayAhead, p.vm().obs.levers, 'SOL', 'soak'), shows = () => card(p).includes(' MW ' + span(a0, V.SOAK_S) + ' ');
+  assert.ok(shows());
+  p.click(a0 < lv(p, 'SOL').soak.toS ? 'city-SOL-soak-later' : 'city-SOL-soak-earlier');
+  assert.ok(!shows(), 'the player\'s aim');
+  resetDay(p.game);
+  p.frame().click('btn-agc').click('btn-take').suburb('SOL');
+  assert.ok(shows(), card(p));
   const tr = T.createTray(), r = (code, x) => Object.assign({tick: at(5) * TPS, kind: 'log', sev: 'info', code, msg: code + ' msg'}, x);
   assert.deepEqual(T.trayRecords(tr, [r('FLEX_BOOK'), r('FLEX_DEL'), r('PATIENCE', {suburb: 'TAL', patience: 30})]), []);
   assert.deepEqual([tr.cards.length, T.trayView(tr).log.map(e => e.from + ' ' + e.time + ' ' + e.text)],

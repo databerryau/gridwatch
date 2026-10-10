@@ -42,10 +42,11 @@ test('Q-41 the card\'s presses: BOOK (soak, air-con), ◀ ▶ and their ends, BO
   p.real(1.05, 0.35);
   click(p, 'city-HAZ-soak', /^TOAST blue Old Hazelton: one soak a day: already booked$/m, 'BOOK on a booked soak');
   click(p, 'city-HAZ-soak-cancel-1000', /^SUBURB .*HOT WATER SOAK \+140 MW 10:00–14:00 takes/m, 'CANCEL');
-  click(p, 'city-HAZ-aircon', /^SUBURB .*AIR-CON \d\d:\d\d–\d\d:\d\d booked: snapback/m, 'BOOK air-con');
+  click(p, 'city-HAZ-aircon', /^SUBURB .*AIR-CON \d\d:\d\d–\d\d:\d\d booked: pre-cool from \d\d:\d\d · snapback/m, 'BOOK air-con');
   assert.deepEqual(flexes(p), ['flex', 'flexDel', 'flex']);
   click(p, 'q-aircon', /^POPOVER An air-con cycle pre-cools, relieves, then snaps back\./m, '"?"');
   click(p, 'q-aircon', /^CTRL .*q-aircon "\?"/m, '"?" again closes it');
+  click(p, 'q-soak', /^POPOVER A hot-water soak moves/m, '"?" (soak)');
   // the keys, with the focus in the card
   p.$('city-HAZ-aircon').focus();
   tap(p, 'ArrowUp', /^CTRL .*\[focus\]/m);
@@ -53,6 +54,8 @@ test('Q-41 the card\'s presses: BOOK (soak, air-con), ◀ ▶ and their ends, BO
   tap(p, '=', /^SUBURB /m);
   tap(p, '-', /^SUBURB /m);
   tap(p, 'ArrowRight', /^SUBURB REDGUM FLATS /m);
+  assert.doesNotMatch(p.look(), /^POPOVER/m, 'Q-47: the "?" popover goes with its suburb\'s rows');
+  click(p, 'q-soak', /^POPOVER A hot-water soak moves/m, 'the new suburb\'s "?"');
   tap(p, 'ArrowRight', /^SUBURB HARBOURSIDE 250k homes 1 DARK: /m);
   click(p, 'city-HAR-restore', /^CTRL .*bay-restore "[^"]*RESTORE" \[[^\]]*focus/m, 'RESTORE');
   p.$('city-HAR-soak').focus();
@@ -60,6 +63,12 @@ test('Q-41 the card\'s presses: BOOK (soak, air-con), ◀ ▶ and their ends, BO
   assert.equal(flexes(p).length, 4);
   click(p, 'btn-suburb-close', null, '✕');
   assert.equal(p.vm().suburb, null);
+  // H closes the card, and the popover of its "?" with it (Q-47)
+  p.suburb('HAZ');
+  p.click('q-aircon');
+  assert.match(p.look(), /^POPOVER /m);
+  p.key('h');
+  assert.deepEqual([p.vm().suburb, /^POPOVER/m.test(p.look())], [null, false]);
   assert.deepEqual(p.h.mods.errors, []);
 });
 

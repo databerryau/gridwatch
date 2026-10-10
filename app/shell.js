@@ -500,7 +500,7 @@ export function bootGame(doc, deps) {
     const box = $('suburb-card'), on = !!v.suburb && !v.mode.locked;
     if (!box) return;
     if (box.hidden === on) box.hidden = !on;
-    if (!on && box.contains(doc.activeElement)) doc.activeElement.blur();
+    if (!on) { if (box.contains(doc.activeElement)) doc.activeElement.blur(); if (box.contains(popAnchor)) closePopover(); }
     if (!v.suburb) return; // (kept up to date while the watch hides it: its pre-checks read the latest vm)
     if (!cardState) {
       cardState = 'loading';
@@ -509,7 +509,7 @@ export function bootGame(doc, deps) {
         e => { box.textContent = 'The suburb card could not be loaded. Esc or H closes it.'; err('suburb card', e); });
     }
     if (!card) return;
-    try { card.update(v); if (cardTake && on) { cardTake = false; card.focus(); } } catch (e) { err('suburb card', e); }
+    try { card.update(v, game.state); if (cardTake && on) { cardTake = false; card.focus(); } } catch (e) { err('suburb card', e); }
   }
   function cardBack() {
     const n = cardFrom, a = doc.activeElement;
@@ -783,7 +783,7 @@ export function bootGame(doc, deps) {
   }, now, {
     // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
-      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key)),
+      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
     first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
     chain: () => [mods.desk, mods.stack, mods.map],

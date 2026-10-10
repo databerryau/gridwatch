@@ -32,9 +32,9 @@ test('F-11: next.html loads nothing the legacy game or the tools need (no tools/
 
 // Q-44: the modules that load on demand, each with its gzip -9 cap (bytes; their owners: W5 the
 // texts and the end card (§30.9), W3 the alarm panel and its explainers; Q-49: the ?perf overlay; Q-56: the suburb card, 2b's card;
-// 2b raised the texts 17 -> 18.5 KB (the city levers' three entries) and the card 6 -> 7 KB).
+// 2b raised the texts 17 -> 18.5 KB (the city levers' three entries)).
 const ON_DEMAND = Object.freeze({'content/text.js': 18.5 * 1024, 'app/alarmpanel.js': 6 * 1024, 'content/alarmhelp.js': 5 * 1024, 'app/endcard.js': 5 * 1024,
-  'app/perf.js': 2 * 1024, 'app/suburbcard.js': 7 * 1024});
+  'app/perf.js': 2 * 1024, 'app/suburbcard.js': 6 * 1024});
 
 test('Q-44: the on-demand modules stay out of the first visit, are the only ones loaded by import(), bring only each other, and keep their caps', () => {
   const first = new Set(firstVisit('next.html').map(f => f.path));
