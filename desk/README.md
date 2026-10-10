@@ -571,7 +571,7 @@ every control needs a keyboard route and a way to reach it:
 | annunciator | A / Shift+A; tiles are buttons (Enter focuses the target) | — |
 | tray | M; cards' buttons are buttons | — |
 | Live Stack | L (again: expand); number selects a layer, arrows move one snap step, Enter drops (L-4, already there) | — |
-| map | Tab from the stack, or focus; ←→ cycles plants and suburbs (sets the hover cross-highlight and shows the label), Esc leaves | — |
+| map | Tab from the stack, or focus; ←→ cycles plants and suburbs (sets the hover cross-highlight and shows the label); Enter presses the hovered plant or suburb as a click does (a suburb opens its card; not under RESPOND or in the briefing, 2b); Esc leaves | — |
 | settings | `,` | native sliders and checkboxes |
 | suburb card (2b, Q-56) | H (opens the line's or the hovered suburb, else the last, else the first; again: closes), or a click on a suburb | its own arrows, PgUp/PgDn, Home, End, Enter, Tab (S, X and P do nothing there, so the lever behind it never moves); Esc or H closes |
 
@@ -1533,7 +1533,8 @@ a second agent. Three findings were real and major; the rest were minor or docs.
 * **Blue with the player's terms on** is a default-suite row now (DR and a DISCHARGE order, then a
   CHARGE order, against the cut the sim then makes: within 0.4 MW in every column). Any new C-6
   term (2b's soak, air-con cycling) goes into `sim/grid.js` `surplusMW`, `app/planview.js` and
-  this row.
+  this row. (Superseded for 2b by §31 Q-50: flex is in operational demand, not a C-6 term; only
+  the row gained a soak case.)
 
 **Fixed, the app** (`app/objective.js`, `app/system.js`, `app/game.js`, `render/livestack.js`,
 `tools/perf.mjs`, tests):
@@ -2447,7 +2448,8 @@ names the block.
 **card.** Fill `app/suburbcard.js` as Q-56 says: rows read `obs.levers` and aim with `aimFlex`
 over `vm.dayAhead` (or the forecast); the verdict line reads the no-flex line (`demandP50 −
 flexMW`); pre-checks answer in blue without sending (locked, outside the window, under way, the
-watch, the briefing, the day over, a dark suburb's RESTORE first); BOOK and CANCEL send `flex` /
+watch, the briefing, the day over; a suburb with dark districts shows its RESTORE line first and
+still books, Q-50); BOOK and CANCEL send `flex` /
 `flexDel` (CANCEL only while that block's `del === ''`); ◀ ▶ steer only the unbooked aim, and
 on a booked block answer in blue ("booked for HH:MM: CANCEL, then BOOK the new time"). Keys inside the card: ←/→ suburb,
 ↑/↓ row, `-`/`=` time, Enter press, Esc close (in `closeTop`'s order), documented. The tray
@@ -3105,6 +3107,16 @@ words). Otherwise the cards stay as today. Both checks use the record and params
 - Every city line names the suburb and the lever; the route is in the kind's word (31.9.1); the
   named suburb glows. Tests check the longest name (Tallowood Heights) and widest figures fit
   `LINE_MAX_CHARS`.
+- **As built after wave 2's review (these amend the bullets above):** a city line not yet due
+  (`plan`) waits behind any line with something to do now and behind a critical line, ahead of
+  lines with nothing to do; once `act` it keeps its place. Trigger (a) is the soak window's
+  minimum of the line's own projection at or below `MSL1_MW + MSL_CLEAR_MW`, with
+  `MSL_TIE_OUT_MW` added in columns before the tie's return (as `sim/events.js` does); trigger (b)
+  counts the excess only inside the aimed block's span. The air-con branch walks every gap run
+  from the suburb's `fromS`, and before 15:30 counts the battery at the charge it is planned to
+  reach (`max(socMWh, CHARGE_TO_MWH) − RESERVE_MWH`).
+- **Par's rule 1 (Q-58), as built:** the MSL1 notice ahead **with its `atS` inside the soak
+  window** (`SOAK_FROM_S`..`SOAK_TO_S`), the same test the tray uses (31.9.7).
 
 **31.9.9 Par (S6, S11, B13).**
 - `preDispatch` stores the day-ahead line **without** flex: `P.fc.p50[k] = fc.demandP50[j] −

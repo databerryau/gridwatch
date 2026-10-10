@@ -45,14 +45,20 @@ types; Phase 2a): each row carries the day type, the minimum operational demand,
 negative price, the MWh spilled, the peak frequency, the highest MSL level and rule 4's coal
 stops, and the summary groups them by day type. `--probe` trips both credible contingencies in a
 copy of each SECURE state (H-8), as the baseline does on the classic day; `--rows FILE` writes
-every row as a JSON line. `tools/baseline-v4.js` and its golden stay on the classic day, which
-has no rooftop PV: it is the regression anchor.
+every row as a JSON line. From 2b (desk/README.md §31.6) each row also carries `soakDays` and
+`airconDays` (1 when the proxy booked any block of that lever), `soakMWh` and `reliefMWh` (the
+booked cores' energy, effMW × (block length − FLEX_RAMP_S), not metered) and `flexDollars`
+(`score.cost.flex`); the summary adds their totals and a "soak / air-con days" column by day
+type. `tools/baseline-v4.js` and its golden stay on the classic day, which has no rooftop PV: it
+is the regression anchor.
 
 `tools/follow.mjs` runs the hint-following player (`tests/lib/follow.js`: a day in which the
 only inputs are the ones the objective line proposes) over a seed range, with par's day beside
 it: unserved energy, cost by key, the battery at 16:30, and for each STOP line it followed the
-saving the line quoted against the realised difference. `--no-follow` is the day with no input
-at all, which must fail.
+saving the line quoted against the realised difference. Since 2b it also counts the soaks and
+air-con cycles the player booked and gives the day's ALL-IN beside par's, with the points
+(1000 × par's ÷ yours) and, per day type, the days soaked or cycled and the median points
+(desk/README.md §31.10 item 3). `--no-follow` is the day with no input at all, which must fail.
 
 `tools/baseline-v4.js` (Exit Phase 0) prints four sections: fixed probes (physics, the H-7
 desk-lab midday case, STOP, the import step at 13:00 and 18:30, rate invariance through
