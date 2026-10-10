@@ -154,12 +154,19 @@ function litColumns(fc, D) {
  * Plan column k (at grid second t) as lit operational demand from the plan's DAY-AHEAD columns,
  * for the hours beyond the 4.5-h forecast. A heatwave announced after the plan was made lifts the
  * underlying demand (P50 + rooftop) by HEAT_DEMAND_UPLIFT inside its window; the roofs' own heat
- * derate is left out (the autopilot cannot read the scenario's factor).
+ * derate is left out (the autopilot cannot read the scenario's factor). Then it adds the booked
+ * flex of lv.blocks at t (P.fc.p50 has none; the heat never multiplies it).
  */
-function litDayAhead(P, k, t, heat, D) {
+function litDayAhead(P, k, t, heat, D, lv) {
   const roof = P.fc.roof ? P.fc.roof[k] : 0;
   const late = heat !== null && heat.atS > P.madeAtS && t >= heat.fromS && t < heat.toS;
-  return litMW((P.fc.p50[k] + roof) * (late ? 1 + HEAT_UP : 1) - roof, roof, D);
+  return litMW((P.fc.p50[k] + roof) * (late ? 1 + HEAT_UP : 1) - roof + flexOf(lv, t), roof, D);
+}
+/** 2b: the booked flex at t (obs.levers.blocks' knots; sim/README §11). */
+function flexOf(lv, t) {
+  let mw = 0;
+  for (const b of lv.blocks) for (const p of b.parts) mw += knotMW(p.knots, t);
+  return mw;
 }
 
 // ------------------------------------------------------------------ reference playback (D-2, D-5)
@@ -353,7 +360,7 @@ function context(obs, P, k0, par, memo, keepStops) {
     let price = fcAt(fc.neighbourPrice, obs.tie.neighbourPrice, fn, lead);
     let expLim = fcAt(fc.exportLimitMW, obs.tie.exportLimitMW, fn, lead);
     if (lit === null) { // beyond the 4.5-h forecast: the day-ahead values (litDayAhead: with an announced heatwave)
-      lit = litDayAhead(P, k, t, heat, D);
+      lit = litDayAhead(P, k, t, heat, D, obs.levers);
       wind = P.fc.wind[k]; solar = P.fc.solar[k]; price = P.fc.price[k]; expLim = P.fc.expLim[k];
     }
     let other = 0;
@@ -758,9 +765,9 @@ export function preDispatch(obs) {
   const fc = obs.dayAhead || obs.forecast;
   const P = newPlan(obs.s);
   const last = Math.max(0, fc.n - 1), roof = roofColumn(fc);
-  for (let k = 0; k < P.n; k++) {
+  for (let k = 0; k < P.n; k++) { // p50 without flex: litDayAhead adds the booked flex (2b)
     const j = Math.min(k, last);
-    P.fc.p50[k] = fc.demandP50[j]; P.fc.wind[k] = fc.windMW[j]; P.fc.solar[k] = fc.solarMW[j];
+    P.fc.p50[k] = fc.demandP50[j] - fc.flexMW[j]; P.fc.wind[k] = fc.windMW[j]; P.fc.solar[k] = fc.solarMW[j];
     P.fc.price[k] = fc.neighbourPrice[j]; P.fc.expLim[k] = fc.exportLimitMW[j]; P.fc.roof[k] = roof[j];
   }
   // The day-ahead columns fall exactly on the plan grid: use them as the forecast here.
@@ -1110,7 +1117,7 @@ function eveningHolds(obs, memo, without, backS) {
     if (t > backS) break;
     let lit = fcAt(A.lit, obs.demand.litMW, fc.n, lead), wind = fcAt(fc.windMW, obs.wind.availMW, fc.n, lead);
     let solar = fcAt(fc.solarMW, obs.solar.availMW, fc.n, lead);
-    if (lit === null) { lit = litDayAhead(P, k, t, A.heat, A.dark); wind = P.fc.wind[k]; solar = P.fc.solar[k]; }
+    if (lit === null) { lit = litDayAhead(P, k, t, A.heat, A.dark, obs.levers); wind = P.fc.wind[k]; solar = P.fc.solar[k]; }
     let thermal = 0, hydro = 0, big = 0;
     for (let j = 0; j < NU; j++) {
       if (j === without || A.onAt[j] < 0 || A.onAt[j] > t) continue;
@@ -1152,7 +1159,8 @@ function rule5(obs, memo) {
 // Extension: outside the discharge window, a battery AGC has drawn below its reserve
 // (PAR_BATT_RESERVE_FRAC) is charged back to it while nothing is short, so the night is not
 // run without primary response (H-8).
-function rule6(obs, memo) {
+const rule6 = (obs, memo) => soak(obs) || order6(obs, memo);
+function order6(obs, memo) {
   const b = obs.battery, now = obs.s;
   const lim = Math.max(0, b.ratedMW - b.guardMW);
   let mode = 'idle', mw = 0, belly = false;
@@ -1232,7 +1240,37 @@ function rule6End(obs, memo) {
   const b = obs.battery, now = obs.s;
   if (b.mode !== 'discharge' || b.orderMW <= EPS) return null;
   if (now >= DIS_FROM_S && now < DIS_TO_S && b.socMWh > BATT_RESERVE_MWH) return null;
-  return rule6(obs, memo);
+  return order6(obs, memo);
+}
+
+// 2b, S-14 rules 1 and 5 (Q-58, desk/README §31.9.9; sim/README §11): one suburb per decision.
+/** The free suburb with the most effective MW of `lever` (eligibility by `block` only), or null. */
+function freeMost(lv, lever) {
+  let x = null;
+  for (const s of lv.suburbs) if (s[lever].block === '' && (!x || s[lever].mw > x[lever].mw)) x = s;
+  return x;
+}
+const flexInput = (x, lever, atS) => ({type: 'flex', suburb: x.id, lever, atS});
+// S-14 rule 1 (first in rule 6): an MSL1 notice ahead in the soak window (the tray's test); aimFlex -1: wait.
+function soak(obs) {
+  const m = obs.msl, x = m.level >= 1 && m.atS > obs.s && m.atS >= V.SOAK_FROM_S && m.atS <= V.SOAK_TO_S ? freeMost(obs.levers, 'soak') : null;
+  const at = x ? aimFlex(obs.forecast, obs.levers, x.id, 'soak') : -1;
+  return at < 0 ? null : flexInput(x, 'soak', at);
+}
+// S-14 rule 5 (rule 8, before armRERT; par, competent, commitAll): air-con aimed at the peak, only when
+// the walk's first short step at or after atS is in the relief, none in its pre-cool hour, none within
+// PRECOOL_S of now (DR's and RERT's).
+function aircon(obs, memo, W) {
+  const x = PROXIES[memo.proxy].rules.includes('rule6') ? freeMost(obs.levers, 'aircon') : null;
+  const at = x ? aimFlex(obs.forecast, obs.levers, x.id, 'aircon') : -1;
+  if (at < 0) return null;
+  for (let k = 1; k < W.un.length; k++) {
+    const t = obs.s + k * obs.forecast.stepS;
+    if (!(W.un[k] > EPS)) continue;
+    if (t <= obs.s + V.PRECOOL_S || t >= at - V.PRECOOL_S && t <= at) return null;
+    if (t > at) return t <= at + V.AIRCON_S ? flexInput(x, 'aircon', at) : null;
+  }
+  return null;
 }
 
 // Rule 7 (with its extension): keep units at or below PAR_MAX_LOADING unless that would
@@ -1403,6 +1441,8 @@ function rule8(obs, memo) {
     }
     if (call) return {type: 'callDR'};
   }
+  const ac = aircon(obs, memo, W0);
+  if (ac) return ac;
   if (!rert.armed) {
     let arm = shortAt(W0, kLead, kLook) >= 0;
     if (!arm) {
@@ -1512,11 +1552,15 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
  *     PAR_DECOMMIT_CLEAR_MIN and N-1 still holds
  *   5 hold water until PAR_WATER_HOLD_UNTIL_H, then release linearly to PAR_WATER_EMPTY_BY_H
  *   6 charge the battery to PAR_BATT_CHARGE_TO during PAR_BATT_CHARGE_H; discharge by merit
- *     order (when obs.price.mwh exceeds the plan's marginal offer) during PAR_BATT_DISCHARGE_H
+ *     order (when obs.price.mwh exceeds the plan's marginal offer) during PAR_BATT_DISCHARGE_H;
+ *     first (2b, S-14 rule 1) on an MSL1 notice ahead in the soak window, soak the free suburb
+ *     with the most soak MW (aimFlex)
  *   7 keep units at or below PAR_MAX_LOADING unless that would shed load (and re-dispatch
  *     the plan when it has drifted off the forecast, see the file header)
  *   8 pre-arm RERT when the projected PAR_RERT_LOOKAHEAD_MIN shortfall is within
- *     PAR_RERT_MARGIN_MW of firm capacity; call DR on a present shortfall
+ *     PAR_RERT_MARGIN_MW of firm capacity; call DR on a present shortfall; before arming (2b,
+ *     S-14 rule 5, not lean) cycle the free suburb with the most relief when it lands on the
+ *     walk's first short step (none in its pre-cool hour or within the hour)
  *   9 (extension, README §12: S-4 has no restore rule and H-6 forbids automatic restore)
  *     restore one dark district whose obs.districts[].restoreBlock is '': the lowest UFLS
  *     stage first, then rotation order (rot). The K-13 permissive holds all the thresholds.

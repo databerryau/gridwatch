@@ -1546,7 +1546,7 @@ state, memo}`, and (2b) `aimFlex(fc, lv, id, lever) -> atS | -1`, the pure aim o
     its secure import, less the largest single loss, cover the lit net demand plus
     `PAR_COMMIT_MARGIN_MW`. Expected never to fire on the game's days; `tools/par.js` counts it.
   * *S-14 rule 3* (as reworded: export to the cap, charge, the dispatch curtails the rest) needs
-    no input from par. *Rules 1 and 5* wait for the city levers (2b).
+    no input from par. *Rules 1 and 5* arrived with the city levers (2b, below).
   * *A battery order in the dispatch* (`batteryOrder`) counts for the energy behind it: a
     discharge until `PAR_BATT_RESERVE_FRAC`, a charge until full, at most the inverter less the
     GUARD. That is the player's order (through `replan()`, whose memory runs no rule 6) and par's
@@ -1570,6 +1570,43 @@ state, memo}`, and (2b) `aimFlex(fc, lv, id, lever) -> atS | -1`, the pure aim o
   * *Rule 7* reads `agc.requestMW` net of the units' lowering trims while the dispatch is spilling
     (AGC then takes them to MIN beyond their bands, C-6: the dispatch at work, not drift), and a
     surplus the plan itself shows for the coming column is not a miss of the forecast.
+* **The city levers** (2b: SPEC S-14 rules 1 and 5; desk/README.md Q-58, §31.9.9; agent `par`).
+  Flex is operational demand (Q-50), so every forecast par reads already carries the booked
+  blocks; what par adds:
+  * *The day-ahead line without flex.* `preDispatch` stores `plan.fc.p50 = dayAhead.demandP50 -
+    dayAhead.flexMW` (its own first dispatch still reads the forecast with the flex, so a block
+    booked on the paused desk at 04:30 counts once). Beyond the 4.5-h forecast `litDayAhead(P, k,
+    t, heat, D, obs.levers)` lifts that line for a late heatwave and THEN adds the flex of
+    `obs.levers.blocks` at the column time (`flexOf`: their parts' knots, interpolated), inside
+    `litMW`: dark districts take flex pro rata with their customers (as a forecast column's flex
+    does in `litColumns`; not by suburb), the heat never multiplies flex, and
+    every column carries flex from exactly one source (the forecast inside 4.5 h, the blocks
+    beyond). So the soak's night fall (22:00-04:00) and an evening air-con block booked at noon
+    are in par's plan, the game's player-mode dispatch, the lit-load re-flow and rule 4's
+    evening from the moment they are booked. `app/system.js` `commitSig` gains `obs.levers.rev`:
+    in player mode a booking or cancel re-flows the plan at the system's next look (<= 60 s).
+  * *S-14 rule 1, first in rule 6* (`soak`; origin `'rule6'`): on the MSL1 notice (`obs.msl.level
+    >= 1 && obs.msl.atS > obs.s`: a notice ahead, not a measured present minimum) whose `atS` lies
+    in the soak window `[SOAK_FROM_S, SOAK_TO_S]` (the tray's test, desk/README §31.9.7: a tie-out
+    morning's notice for 09:45 is the battery's, not a soak's; fix pass PAR-1), book a soak for
+    the free suburb with the most effective soak MW (`block === ''`; the largest `mw`, city order
+    on a tie), at `aimFlex(obs.forecast, obs.levers, id, 'soak')`; -1 means wait (the battery's
+    branch decides as before). One suburb per decision while the notice stands; never on spill
+    alone. Rule 6's window end (`rule6End`) calls the battery branch only (`order6`), never the soak.
+  * *S-14 rule 5, in rule 8* (`aircon`; origin `'rule8'`), after the present-gap DR branch and
+    before `armRERT`, for the proxies that run rule 6 (par, competent, commitAll; lean never sends
+    flex): the free suburb with the most effective relief (`mw`: U-1 MW x the response at its
+    patience), aimed with `aimFlex(..., 'aircon')` (-1: wait). It books only when the adequacy
+    walk (`W0`, RERT as armed) has a short step, the first short step at or after `atS` lies in
+    `(atS, atS + AIRCON_S]`, none lies in the pre-cool hour `[atS - PRECOOL_S, atS]`, and none lies
+    within `PRECOOL_S` of now (those are DR's and RERT's). Otherwise rule 8 goes on to `armRERT`
+    as before. The next decision re-walks with the block in the forecast (relief, pre-cool and
+    snapback), so a second suburb or the diesel follows only if the evening is still short.
+  * No memo flag: eligibility is `obs.levers` alone (`block`, `fromS`, `toS`), as for the card
+    and the objective. On CLASSIC (`levers: null`) nothing here changes a value: no block, no
+    notice, no suburb.
+  * `tools/par.js` rows: `soakDays`, `airconDays` (1 when any block of that lever was booked),
+    `soakMWh`, `reliefMWh` (the booked cores' energy) and `flexDollars` (`score.cost.flex`).
 * **Proxies** (`opts.proxy`): `par`; `planOnly` (the plan, nothing else: the L-0 accept);
   `doNothing` (no input at all: F-3); `lean` (plan + rules 1, 2, 7, 8, 9); `competent` (plan +
   rules 1-9 at `PROXY_COMPETENT_GAP_REAL_S`: H-1(b), F-3, K-8); `commitAll` (S-11: START every

@@ -180,6 +180,7 @@ test('§21.3 commitSig: the dispatch is made over the battery\'s mode, order and
   const other = poke => { const x = JSON.parse(JSON.stringify(obs)); poke(x); return commitSig(x); };
   assert.notEqual(other(x => { x.districts[3].dark = true; }), sig);
   assert.notEqual(other(x => { x.tie.tripped = true; }), sig);
+  assert.notEqual(other(x => { x.levers.rev += 1; }), sig, '2b: a lever booked or cancelled (desk/README.md §31.3.11)');
 });
 
 test('§21.3 player mode: a battery order re-flows the plan at the system\'s next look, not at the next 5-minute dispatch; the plan carries it', () => {
