@@ -468,7 +468,7 @@ const ABSTRACTIONS = [
   {
     // 2b (Q-52): the card's "?" beside HOT WATER SOAK (app/suburbcard.js LEVERS.soak.row).
     id: 'hot-water-soak', row: 'A hot-water soak moves that night\'s heating to noon.', anchorId: 'hot-water-soak', ui: 'drawer',
-    game: 'drawer', specPending: true,
+    game: 'drawer',
     real: 'Networks switch controlled-load hot water by relay. South Australia\'s solar sponge heated tanks 10:00–15:00 ' +
       '(09:30–16:30 from 1 July 2025), and Sydney\'s and western Victoria\'s networks moved controlled load into the day in ' +
       '2024–25. AEMO calls on controlled load at MSL3, and networks turn hot water on in minimum-demand events.',
@@ -484,7 +484,7 @@ const ABSTRACTIONS = [
   {
     // 2b (Q-53): the card's "?" beside AIR-CON CYCLE (app/suburbcard.js LEVERS.aircon.row).
     id: 'aircon-cycle', row: 'An air-con cycle pre-cools, relieves, then snaps back.', anchorId: 'aircon-cycle', ui: 'drawer',
-    game: 'drawer', specPending: true,
+    game: 'drawer',
     real: 'Queensland\'s PeakSmart can cap 155,738 air-cons at 50% for about 107 MW, in events around 16:00–19:00. After an ' +
       'event the load comes back: 17–35% of the energy relieved in one 2008 trial, about 40–50% in a 2019 one, most of it ' +
       'in the first hour.',
