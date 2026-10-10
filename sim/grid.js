@@ -505,6 +505,7 @@ const NOT_OFFERED = 'not offered today', L_OPEN = 'levers open at 04:30', L_LOCK
   L_SOAKED = 'one soak a day: already booked', L_WINDOW = 'not a 5-minute mark in the window',
   L_LATE = 'too late: it would start in the past', L_OVERLAP = 'overlaps another air-con block of this suburb',
   L_NONE = 'no such block', L_UNDER = 'under way: too late to cancel';
+export const LEVER_WHY = Object.freeze({late: L_LATE, overlap: L_OVERLAP}); // (P4: the card's words)
 const pad2 = n => String(n).padStart(2, '0');
 const hm = s => pad2(Math.floor(s / S_PER_H) + V.DAY_START_H) + ':' + pad2(s % S_PER_H / S_PER_MIN);
 const mine = (b, id, lever) => b.suburb === id && b.lever === lever;

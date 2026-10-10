@@ -2985,8 +2985,12 @@ CANCEL: "booked: OLD HAZELTON soak 10:30–14:30"); then ◀ ▶ step (blue "ear
 BOOK the new time", or that block's del once it is under way); BOOK and CANCEL answer in blue
 and send nothing in the briefing ("Take the desk first: Enter."), after the day ("Day over:
 …"), in the watch ("desk locked while the grid catches itself"), on LV.block ("<Suburb>:
-air-con locked: patience below 25", "… too late: it would start in the past", "… one soak a
-day: already booked") and on a block under way (its del). A refusal from the sim stays the
+air-con locked: patience below 25", "… too late today: soaks start by 11:00", "… one soak a
+day: already booked") and on a block under way (its del). LV.block is said as a standing status
+(the aim row, BOOK, ◀ ▶): its window reasons (sim/grid.js LEVER_WHY) in the card's words, "too
+late today: soaks start by 11:00", "too late today: cycles start by 19:30 (pre-cool from 18:30)"
+and "no room today for another cycle around the booked one", the rest as the sim says them
+(2b final review P4: the sim's strings refuse a proposed time, and nothing was proposed). A refusal from the sim stays the
 shell's red toast. "Outside the window" is LV.block's: the card never holds an aim outside
 [fromS, toS]. A suburb with dark districts shows its "n DARK: RESTORE" line first and still
 books (Q-50: a dark district's flex just stops; eligibility only through LV.block, §31.3.7),

@@ -173,7 +173,13 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   vm(v => { Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'air-con locked: patience below 25', fromS: -1, toS: -1}); });
   assert.equal(book('aircon'), 'info Old Hazelton: air-con locked: patience below 25');
   vm(v => { Object.assign(v.obs.levers.suburbs[1].soak, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
-  assert.equal(book(), 'info Old Hazelton: too late: it would start in the past', 'outside the window');
+  assert.equal(book(), 'info Old Hazelton: too late today: soaks start by 11:00', 'outside the window');
+  // the window's two reasons as a standing status say what holds, not a refusal of a time nobody proposed (P4)
+  const words = lever => { const r = doc.getElementById('city-HAZ-' + lever).parentElement, g = r.parentElement.children; return g[g.indexOf(r) + 1].textContent; };
+  vm(v => { Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
+  assert.equal(words('aircon'), 'too late today: cycles start by 19:30 (pre-cool from 18:30)');
+  vm(v => { Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'overlaps another air-con block of this suburb', fromS: -1, toS: -1}); });
+  assert.equal(words('aircon'), 'no room today for another cycle around the booked one');
   const blk = {suburb: 'HAZ', lever: 'soak', atS: at(10, 30), endS: at(14, 30), effMW: 140, cost: 0, del: ''}, x = doc.getElementById.bind(doc);
   blk.parts = flexParts(blk, 140);
   const booked = del => vm(v => { v.obs.levers.blocks.push(Object.assign({}, blk, {del})); Object.assign(v.obs.levers.suburbs[1].soak, {block: 'one soak a day: already booked', fromS: -1, toS: -1}); });

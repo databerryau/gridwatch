@@ -1223,7 +1223,8 @@ H-4; pure), `restorePermissive(state, d) -> ''|reason` (pure). Phase 1a: `newPla
 `planSecond(state, out)` (the plan's executor), `syncAt(u, tick) -> {slipHz, phaseDeg}` (pure),
 `syncTick(state, out)`, `SYNC_BLOCKED`, `REFUSAL_CUES`. 2b (desk/README.md §31.3.7):
 `leverView(state, j, lever) -> {mw, cost, fromS, toS, block}` and `flexDelBlock(state, b) ->
-''|reason` (pure; step.js builds `observe().levers` from them). Details in the JSDoc and in §5-6.
+''|reason` (pure; step.js builds `observe().levers` from them); `LEVER_WHY {late, overlap}`, the
+window's two `block` strings (the card says them as standing words). Details in the JSDoc and in §5-6.
 Key rules:
 
 * **The plan's executor** (Phase 1a, `planSecond`, right after `events.applyDue`): booked STOPs,
