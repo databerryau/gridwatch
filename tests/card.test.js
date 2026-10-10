@@ -213,6 +213,35 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   assert.equal(ins.length, 2);
 });
 
+test('S1 (2b final review): with no aim of the player\'s, BOOK sends the shown city line\'s time (a soak line names any suburb\'s, an air-con line only its own); else aimFlex\'s, held within a 5-min step (a poked vm)', () => {
+  const p = openGame({seed: HOT});
+  p.suburb('HAZ');
+  const base = p.vm(), doc = makeDocument(NEXT), root = doc.getElementById('suburb-card'), ins = [];
+  let now = 0;
+  root.hidden = false;
+  const c = createSuburbCard(doc, root, {ui: () => '', input: x => { ins.push(x); return ''; }}, {toast() {}, loadText() {}, toggleHelp() {}, now: () => (now += 2000)});
+  // the day-ahead with a dip at column k (the soak centres its 4 h on it), and an optional city line
+  const vm = (k, line) => { const v = Object.assign({}, base, {dayAhead: JSON.parse(JSON.stringify(base.dayAhead)), objective: line || null}); v.dayAhead.demandP50[k] -= 5000; c.update(v); return v; };
+  const sent = (lever = 'soak') => { doc.getElementById('city-HAZ-' + lever).click(); return ins.at(-1).atS; };
+  const k = Math.round((at(12, 30) - base.dayAhead.fromS) / V.FC_STEP_S) - 1, aim = v => aimFlex(v.dayAhead, v.obs.levers, 'HAZ', 'soak');
+  const a0 = aim(vm(k)), a1 = aim(vm(k + 1)), a2 = aim(vm(k + 2));
+  assert.deepEqual([a1 - a0, a2 - a0], [300, 600], 'the dip a column later: aimFlex a step later');
+  vm(k);
+  assert.equal(sent(), a0);
+  vm(k + 1);
+  assert.equal(sent(), a0, 'one step away: held');
+  vm(k + 2);
+  assert.equal(sent(), a2, 'two steps: the new aim');
+  const line = (suburb, lever, atS) => ({kind: 'city', level: 'plan', text: '', targets: ['suburb-' + suburb], action: {type: 'flex', suburb, lever, atS}});
+  vm(k, line('RED', 'soak', a0 + 900));
+  assert.equal(sent(), a0 + 900, 'a soak line for another suburb: free suburbs aim alike');
+  const ac = aimFlex(base.dayAhead, base.obs.levers, 'HAZ', 'aircon');
+  vm(k, line('RED', 'aircon', ac + 900));
+  assert.equal(sent('aircon'), ac, 'another suburb\'s air-con line: not this one\'s');
+  vm(k, line('HAZ', 'aircon', ac + 900));
+  assert.equal(sent('aircon'), ac + 900, 'its own');
+});
+
 test('Q-56 in play: the briefing sends nothing and Enter in the card takes the desk; a dark suburb\'s card says so first and RESTORE focuses the bay; a pushed block under way: CANCEL answers in blue; the watch hides the card and a press there sends nothing; the day over', () => {
   const b = openGame({seed: HOT, take: false});
   b.suburb('HAZ');

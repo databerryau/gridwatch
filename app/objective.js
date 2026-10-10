@@ -347,11 +347,11 @@ function tripped(c) {
 
 /**
  * @param {object} obs observe(state)
- * @param {{edited?:boolean, planview:object, proj?:object, dayAhead?:object|null, leadS?:number}} ctx edited: the
+ * @param {{edited?:boolean, planview:object, proj?:object, dayAhead?:object|null, leadS?:number, held?:object}} ctx edited: the
  *   player holds levers by hand (app/system.js sys.edited); planview: app/planview.js; proj: its
  *   project(obs) if the caller already has it; dayAhead: observe(state, {dayAhead: true}).dayAhead,
  *   the forecast to 04:00 (without it the line looks 4.5 h ahead only); leadS: grid seconds more
- *   to a START's ACT_WITHIN_S (the game's reading time; default 0)
+ *   to a START's ACT_WITHIN_S (the game's reading time; default 0); held: the shown line (S1)
  */
 export function objective(obs, ctx) {
   const PV = ctx.planview;
@@ -362,7 +362,7 @@ export function objective(obs, ctx) {
   const day = ctx.dayAhead || obs.forecast;
   const reds = PV.redRuns(proj);
   const long = (PV.blueRuns ? PV.blueRuns(proj)[0] : null) || null;
-  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV, act: ACT_WITHIN_S + (ctx.leadS || 0)};
+  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV, act: ACT_WITHIN_S + (ctx.leadS || 0), held: ctx.held || null};
   // the plan's largest deficit in the columns within NOW_S (never a later column of the same red run)
   X.redNowMW = 0;
   for (let k = 0; k < proj.n && proj.times[k] - s <= NOW_S; k++) if (proj.gap[k] === 'red' && proj.deficit[k] > X.redNowMW) X.redNowMW = proj.deficit[k];
@@ -728,6 +728,11 @@ function shortAhead(X, line) {
   return line({level: 'act', kind: 'short', text: head + '. Discharge the battery at ' + mwText(mw) + '.', targets: ['dial-battery'], action: {type: 'battery', mode: 'discharge', mw}, startBy: s});
 }
 
+// S1: an aim within a step of keep (in L's window) stays keep (fc starts off the lattice)
+export const stick = (a, keep, L) => (a >= 0 && keep >= L.fromS && keep <= L.toS && Math.abs(a - keep) <= V.FC_STEP_S ? keep : a);
+// line o's atS for this lever (a soak: any suburb's), else -1
+export const cityAim = (o, lever, id) => { const a = o && o.kind === 'city' && o.action; return a && a.lever === lever && (lever === 'soak' || a.suburb === id) ? a.atS : -1; };
+
 // A city line (Q-59; §31.8).
 function city(X, line, x, lever, atS, head, tail) {
   const soak = lever === 'soak', by = soak ? atS : atS - V.PRECOOL_S, lv = X.obs.levers;
@@ -746,7 +751,7 @@ function aircon(X, line) {
   const R = capacityGap(X.obs, X.day, {real: true}), h = R.stepS / S_PER_H;
   const held = (X.s < CHARGE_BY_S ? Math.max(b.socMWh, CHARGE_TO_MWH) : b.socMWh) - RESERVE_MWH;
   for (const x of free) {
-    const atS = aimFlex(X.day, lv, x.id, 'aircon');
+    const atS = stick(aimFlex(X.day, lv, x.id, 'aircon'), cityAim(X.held, 'aircon', x.id), x.aircon);
     for (let run, from = atS < 0 ? Infinity : x.aircon.fromS; (run = firstRun(R, from)); from = run.endS + R.stepS) {
       let pre = 0, topS = 0, mwh = 0;
       for (let k = 0; k < R.n; k++) {
@@ -1096,7 +1101,7 @@ function gasSetsPrice(obs) {
 // 7b. HOT WATER SOAK (§31.8): free suburbs aim alike.
 function soak(X, line) {
   const obs = X.obs, b = obs.battery, P = X.proj, d = obs.forecast.demandP50, free = freeFor(obs.levers, 'soak'), h = FC_MARK_S / S_PER_H;
-  const atS = free.length ? aimFlex(X.day, obs.levers, free[0].id, 'soak') : -1, back = obs.tie.tripped ? X.s + obs.tie.lockoutS : -1;
+  const atS = free.length ? stick(aimFlex(X.day, obs.levers, free[0].id, 'soak'), cityAim(X.held, 'soak'), free[0].soak) : -1, back = obs.tie.tripped ? X.s + obs.tie.lockoutS : -1;
   if (atS < 0) return null;
   const top = Math.min(b.ratedMW - b.guardMW, V.PAR_BATT_CHARGE_MAX_MW);
   let lo = -1, m = Infinity, ex = 0, room = (b.capMWh - b.socMWh) / V.BATT_CHARGE_EFF;

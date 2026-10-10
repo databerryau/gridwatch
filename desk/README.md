@@ -2540,7 +2540,11 @@ holds; the reserve diesel only beyond both.
 
 The city levers (2b, Q-59, §31.9.8): kind 'city', targets ['suburb-<ID>'], the action the full
 flex input {type: 'flex', suburb, lever, atS} with atS from aimFlex (sim/autopilot.js) over the
-day-ahead (or the 4.5-h forecast; -1 is "not now": no line), startBy the booking's deadline
+day-ahead (or the 4.5-h forecast; -1 is "not now": no line), kept at the shown line's atS while
+aimFlex is within one 5-minute step of it (`stick`, `cityAim`; ctx.held, the game passes
+game.objective; the forecast starts at obs.s, off the lattice, so its extreme column slides and
+aimFlex alone flips between two marks every few grid minutes: 2b final review S1; tests/lib/follow.js
+and the tools pass none), startBy the booking's deadline
 (the soak's atS, the air-con's pre-cool start), level 'act' once that is within ACT_WITHIN_S
 (+ leadS), else 'plan'. Eligibility only through observe().levers' block (a suburb is free when
 its lever's block is ''). One suburb per line; the next is named once the forecast carries the
@@ -2936,7 +2940,8 @@ inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch a
                     focus across a rebuild and closes a popover its old "?" held (Q-47; the shell
                     closes it when the card hides); a block's booked / under way / done each frame;
                     the aim, its words and the verdict only when the line (fromS, n), lv.rev, the LV,
-                    the player's aim, patience or the last block's del change; names the dialog
+                    the player's aim, patience, the last block's del or the shown city line's atS
+                    change; names the dialog
                     (aria-label) by its suburb
   card.focus()      the first row's press (RESTORE, else the first CANCEL or BOOK), else ✕
   verdict(fc, lv, id, atS, effMW) -> '✓ …' | '✕ …' | ''   §31.9.4, pure (tests)
@@ -2963,8 +2968,11 @@ cycles and a soak scroll, the last resort):
       that cycle can still be cancelled (none once it starts: the day-ahead then has only the
       columns after now, and its "peak" would creep past the real one)
 
-The aim: the player's (◀ ▶, - =: 15-min steps) kept inside [fromS, toS], else aimFlex over
-vm.dayAhead || obs.forecast (fromS while it says -1). BOOK forgets it; CANCEL leaves the
+The aim: the player's (◀ ▶, - =: 15-min steps) kept inside [fromS, toS], else the shown city
+line's atS for this lever (vm.objective; a soak line's for any suburb, an air-con line's for its
+own: after "◇ SUBURB (H)" or "▶ SUBURB (H)" BOOK sends what the line says), else aimFlex over
+vm.dayAhead || obs.forecast (fromS while it says -1), kept within one 5-minute step of the card's
+last default (objective.js stick; 2b final review S1). BOOK forgets it; CANCEL leaves the
 cancelled block's time as the aim to re-aim from. A booked block is never moved in place.
 Energies and times come from sim/weather.js flexParts (the sim's own shapes); the payment is
 the core's MWh × AIRCON_PRICE (lit districts; dark ones are not paid).

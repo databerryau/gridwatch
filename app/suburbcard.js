@@ -4,6 +4,7 @@ import {V} from '../sim/params.js';
 import {SCENARIOS, CLASSIC} from '../content/scenarios.js';
 import {aimFlex, aimLineMW, knotMW as at} from '../sim/autopilot.js';
 import {flexParts} from '../sim/weather.js';
+import {stick, cityAim} from './objective.js';
 import {el, setText, setAttr, setCls, setHidden, clockOf as hm, COMMIT_LOCK_MS} from '../desk/util.js';
 import {mw, dollars} from '../render/format.js';
 
@@ -66,17 +67,18 @@ export function createSuburbCard(doc, root, actions, deps) {
   box.append(head, body);
   root.appendChild(box);
   root.addEventListener('keydown', key);
-  let vm = null, shape = '', E = null, day, aims = {}, rests = {}; // E: the built rows of the open suburb
+  let vm = null, shape = '', E = null, day, aims = {}, dflt = {}, rests = {}; // E: the built rows of the open suburb
   const say = s => deps.toast(s, 'info'), now = () => (deps.now ? deps.now() : vm.frame.nowMs);
   const cityOf = v => (SCENARIOS[v.obs.scenarioId] || CLASSIC).city.suburbs;
   const subOf = v => v.obs.levers.suburbs.find(s => s.id === v.suburb);
   const btn = (text, id, f, row) => { const b = el(doc, 'button', '', text); b.type = 'button'; if (id) b.id = id; if (row) b.dataset.row = '1'; b.addEventListener('click', f); return b; };
 
-  // the aim of the next booking: the player's (kept inside [fromS, toS]), else aimFlex's on the line's day-ahead
+  // the next booking's aim in [fromS, toS]: the player's, the line's, else aimFlex's held within a step (S1)
   function aimOf(v, lever, L) {
     if (L.block) return -1;
-    let a = aims[v.suburb + lever];
-    if (a === undefined) a = aimFlex(v.dayAhead || v.obs.forecast, v.obs.levers, v.suburb, lever);
+    const d = v.suburb + lever;
+    let a = aims[d];
+    if (a === undefined && (a = cityAim(v.objective, lever, v.suburb)) < 0) a = dflt[d] = stick(aimFlex(v.dayAhead || v.obs.forecast, v.obs.levers, v.suburb, lever), dflt[d] ?? -1, L);
     return Math.min(L.toS, Math.max(L.fromS, a));
   }
   const span = (lever, a) => hm(a) + '–' + hm(a + (lever === 'soak' ? V.SOAK_S : V.AIRCON_S));
@@ -195,7 +197,7 @@ export function createSuburbCard(doc, root, actions, deps) {
     el: box,
     update(v, d) {
       vm = v;
-      if (d !== day) { day = d; aims = {}; rests = {}; shape = ''; } // (a new attempt)
+      if (d !== day) { day = d; aims = {}; dflt = {}; rests = {}; shape = ''; } // (a new attempt)
       const id = v.suburb, s = cityOf(v).find(q => q.id === id);
       if (!s) return;
       const obs = v.obs, sub = subOf(v), lv = obs.levers, ds = obs.districts.filter(d => d.suburb === id), dark = ds.filter(d => d.dark).length;
@@ -218,7 +220,7 @@ export function createSuburbCard(doc, root, actions, deps) {
           setAttr(c, 'aria-disabled', u);
         }
         // (the aim, its words and the verdict only when what they read changes)
-        const k = [fc.fromS, fc.n, lv.rev, L.mw, L.cost, L.fromS, L.toS, L.block, aims[id + lever], p, last && last.del].join();
+        const k = [fc.fromS, fc.n, lv.rev, L.mw, L.cost, L.fromS, L.toS, L.block, aims[id + lever], p, last && last.del, cityAim(v.objective, lever, id)].join();
         if (R.k === k) continue;
         R.k = k;
         const a = aimOf(v, lever, L);
