@@ -292,7 +292,7 @@ function bellyOf(obs, o = {}) {
   Object.assign(obs.battery, {mode: 'idle', orderMW: 0, schedMW: 0, outMW: 0, agcTrimMW: 0});
   Object.assign(obs.rert, {armed: false, leadS: 0, outMW: 0, standingDown: false});
   Object.assign(obs.dr, {activeS: 0, mw: 0});
-  Object.assign(obs.tie, {tripped: false, lockoutS: 0}, o.tie);
+  Object.assign(obs.tie, {tripped: false, lockoutS: 0, setMW: -V.TIE_MAX_MW}, o.tie); // the plan exports all it may (V-1)
   if (o.edit) o.edit(obs);
   return obs;
 }
@@ -324,6 +324,11 @@ test('C-11: proj.surplusMW is must-run + wind and solar after the LIMIT - (P50 +
     if (Pt.times[k] < t.s + 3000 - 300) assert.ok(Math.abs(Pt.surplusMW[k] - Math.max(0, bellyMW(k) + room(k))) < 1e-6, 'tie out at column ' + k);
     if (Pt.times[k] > t.s + 3000 + 300) assert.ok(Math.abs(Pt.surplusMW[k] - Math.max(0, bellyMW(k))) < 1e-6, 'tie back at column ' + k);
   }
+  // the room is the export the plan sets (2b final review V-1): 100 MW exported, then a key to import
+  // 200 MW from column 30 (an import is no room); the rest of the cap is spilled, as the sim's cut does
+  const lo = bellyOf(await evening(), {tie: {setMW: -100}, edit: o => o.plan.tie.keys.push({atS: o.forecast.fromS + 31 * 300, mw: 200})});
+  const Pl = PV.project(lo);
+  for (let k = 0; k < Pl.n; k++) assert.ok(Math.abs(Pl.surplusMW[k] - Math.max(0, bellyMW(k) + room(k) - (k < 30 ? 100 : 0))) < 1e-6, 'the plan\'s export at column ' + k + ': ' + Pl.surplusMW[k]);
   // a CHARGE order is room for as long as the battery has room; AGC's trim on an idle battery is not.
   // In the deep belly (spilling from column 0) 200 MW into 425 MWh of room at 85% lasts 2.5 h = 30 columns:
   // the spill is 200 MW less in every one of them and whole again once the battery is full.
@@ -537,8 +542,9 @@ test('C-11 on a real mild weekend (no input, 11:00): the projected spill is the 
 // free replacement and the battery line). The row above compares them with no input, where every
 // term the player sets is zero; this one turns those terms on (the wave-2 merge, N-1: DR and a
 // DISCHARGE order were missing from the projection, 350 and 200 MW low, and no test saw it).
-// THE RULE: any new C-6 term (2b's hot-water soak, air-con cycling, ...) goes into sim/grid.js
-// surplusMW, into app/planview.js proj.surplusMW, and into this row.
+// THE RULE: any new C-6 term goes into sim/grid.js surplusMW, into app/planview.js proj.surplusMW,
+// and into this row. 2b's city flex is not a new term (Q-50): it is in operational demand and the
+// forecast's P50, so the row after this one checks that it is counted once.
 test('C-11 with the player\'s terms on (DR and a DISCHARGE order; a CHARGE order): the projected spill is still the cut the sim then makes', async () => {
   const {step, observe, applyInput} = await import('../sim/step.js');
   const SYS = await import('../app/system.js');
@@ -577,6 +583,56 @@ test('C-11 with the player\'s terms on (DR and a DISCHARGE order; a CHARGE order
     const N0 = PV.project(none), moved = Math.max(...T.surplusMW.map((v, k) => Math.abs(v - N0.surplusMW[k])));
     assert.ok(Math.min(...cut) > V.SURPLUS_MIN_MW && moved >= 140, what + ': the sim spills through the half hour (' + Math.min(...cut).toFixed(0) + ' MW at least) and the orders move the projection by up to ' + moved.toFixed(0) + ' MW');
   }
+});
+
+test('C-11 with a soak booked (2b, Q-50; desk/README §28 and §31): the flex is counted once, in P50, and the projected spill is still the cut the sim then makes', async () => {
+  // The mild weekend at 11:00: every suburb's hot-water soak booked from now (480 MW once ramped),
+  // 21 minutes of the system's dispatch, then the half hour the sim plays with that plan HELD: with
+  // a soak the belly is shallow, the dispatch exports under the tie's limit and re-writes the tie
+  // every few minutes, and the projection draws the plan of the moment (2b final review V-1:
+  // measured per minute over 40 min with the system on, 5 min ahead, the spill's error p90
+  // 84 -> 37 MW once the room is the plan's export; the rest is the next dispatch).
+  const {step, observe, applyInput} = await import('../sim/step.js');
+  const SYS = await import('../app/system.js');
+  const TPS = V.TICKS_PER_S, NK = 6;
+  const {st, sys} = await mildWeekend();
+  for (const x of st.scn.levers.suburbs) assert.ok(applyInput(st, {type: 'flex', suburb: x.id, lever: 'soak', atS: st.tick / TPS}, []).ok, x.id);
+  const settled = st.tick + 21 * 60 * TPS;
+  while (st.tick < settled) step(st, SYS.systemInputs(sys, st));
+  const obs = observe(st), P = PV.project(obs), flex = obs.forecast.flexMW;
+  assert.ok(flex.slice(0, NK).every(v => v === 480), 'the forecast carries the soaks');
+  const cut = new Float64Array(NK), wind = new Float64Array(NK), solar = new Float64Array(NK), lit = new Float64Array(NK), exp = new Float64Array(NK), cnt = new Float64Array(NK);
+  while (st.tick <= (P.times[NK - 1] + 30) * TPS) {
+    step(st, []);
+    if (st.tick % TPS) continue;
+    const s = st.tick / TPS, k = Math.round((s - P.fromS) / PV.COL_S) - 1;
+    if (k < 0 || k >= NK || Math.abs(s - P.times[k]) > 30) continue;
+    const o = observe(st);
+    cut[k] += o.wind.autoMW + o.solar.autoMW; wind[k] += o.wind.availMW; solar[k] += o.solar.availMW; lit[k] += o.demand.litMW; exp[k] += Math.max(0, -o.tie.flowMW); cnt[k]++;
+  }
+  assert.equal(st.conts.length, 0, 'the fixture: no contingency inside the half hour');
+  for (let k = 0; k < NK; k++) { cut[k] /= cnt[k]; wind[k] /= cnt[k]; solar[k] /= cnt[k]; lit[k] /= cnt[k]; exp[k] /= cnt[k]; }
+  // (1) The arithmetic, told what then happened: the wind, the sun and the lit demand (the soaks in
+  // it). Within 3 MW (the cut's ramp to 0 inside the minute); a second flex term would be 480 MW out.
+  // The room is the plan's export, not the tie's limit: at +10 min the sim spills 72 MW exporting
+  // 183 of 300, where a room at the limit reads 0 (V-1).
+  const told = structuredClone(obs);
+  for (let k = 0; k < NK; k++) { told.forecast.windMW[k] = wind[k]; told.forecast.solarMW[k] = solar[k]; told.forecast.demandP50[k] = lit[k]; }
+  const T = PV.project(told);
+  for (let k = 0; k < NK; k++) assert.ok(Math.abs(T.surplusMW[k] - cut[k]) <= 3, '+' + (k + 1) * 5 + ' min: projected ' + T.surplusMW[k].toFixed(1) + ' MW, the sim cut ' + cut[k].toFixed(1) + ' MW');
+  assert.ok(cut.some((c, k) => c > V.SURPLUS_MIN_MW && exp[k] < obs.forecast.exportLimitMW[k] - 100), 'a spill with the tie exporting 100 MW under its limit: ' + Array.from(exp, Math.round));
+  // (2) Once, at its full size: without the flex in P50 the spill is larger by exactly the flex wherever both spill
+  const none = structuredClone(told);
+  for (let k = 0; k < NK; k++) none.forecast.demandP50[k] -= flex[k];
+  const N0 = PV.project(none);
+  let both = 0;
+  for (let k = 0; k < NK; k++) if (T.surplusMW[k] > 0) { both++; assert.ok(Math.abs(N0.surplusMW[k] - T.surplusMW[k] - flex[k]) < 1e-6, '+' + (k + 1) * 5 + ' min'); }
+  assert.ok(both >= 2 && Math.max(...cut) > V.SURPLUS_MIN_MW, 'the sim still spills in ' + both + ' columns');
+  // (3) On its own forecast, the stack's blue shrinks by the soak
+  const dry = structuredClone(obs);
+  for (let k = 0; k < P.n; k++) dry.forecast.demandP50[k] -= flex[k];
+  const blue = Q => Q.blue.subarray(0, NK).reduce((a, b) => a + b, 0);
+  assert.ok(blue(P) < blue(PV.project(dry)), 'blue columns in the hour: ' + blue(P) + ' with the soaks, ' + blue(PV.project(dry)) + ' without');
 });
 
 test('planview imports only sim/params.js and uses no Math.random', () => {

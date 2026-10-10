@@ -1,48 +1,10 @@
 // render/map.js: the living isometric city map (desk/README.md §7, §14.3; SPEC G-1..G-5).
-// One screen canvas; the scene is drawn on a fixed BASE_W x BASE_H offscreen canvas and
-// blitted at an integer scale (render/mapdata.js scaleFor), letterboxed with the ground and
-// sky colours, never sky under the ground. Reads the view model only (vm.obs, vm.mode,
-// vm.hover, vm.glow, vm.alarms, vm.settings.reducedMotion). Math.random is cosmetic only (F-3).
-//
-//   const map = createMap(document, root, actions);   // root: the #map box
-//   map.update(vm);                                   // every frame
-//   map.key(ev);                                      // the shell forwards keys (§13.3); true when it acted
-//
-// What it shows
-//   G-2  one silhouette per technology (shapes are data in mapdata.js PLANT_PARTS): coal =
-//        hyperbolic cooling towers, banded stacks, a coal pile; CCGT = two boxy HRSGs with
-//        stubby stacks; GTs = a shed and one stack each; hydro = a dam wall, a spillway and
-//        penstocks; battery = rows of white containers; tie = tall lattice pylons marching off
-//        the west edge; wind turbines on the ridge; solar rows on the plain. Labels on hover,
-//        focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
-//        target}); vm.hover rings the plant back. A click: see the click listener (Q-41).
-//   G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
-//        west; long warm light and long shadows at sunset; lit windows at night, as many as
-//        the city is using (underlying demand). Rooftop PV
-//        (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
-//        layer, cached) and a glint on them each frame: per suburb, as bright as its output
-//        over its capacity (cloud dims it) and as the light; never on a dark district, on a
-//        relit one only as its inverters ramp back; a static pattern under reduced motion.
-//   G-4  weatherOf(obs): heat = haze on the horizon + a bleached warm palette + shimmer;
-//        storm = two layers of dark cloud, slanted rain and rain sheets, a darker ground,
-//        turbines feathered at cut-out; cloud front = grey cloud and soft shadows drifting
-//        over the suburbs. All three are drawn static under reduced motion.
-//   G-5  a shed district goes dark block by block (90 ms each) and gets a hatched outline; a
-//        tripped machine smokes, strobes red and carries a ✕ for its whole lockout; rotors slow
-//        in the watch; the watch spotlight (B-5) dims everything but the cause.
-//
-// Keys (map focused; tabindex 0): ←/→ cycle the plants then the suburbs (sets the hover and
-// shows the label), Home the first, Esc leaves.
-//
-// Cost: the sky, the terrain (with the plants), the city (with its rooftop panels) and the
-// cloud strips are cached on their own canvases and redrawn only when the light bucket, the
-// weather bucket or a district's dark blocks change; a frame is a few blits plus the moving
-// parts. The glint is one path and one fill per suburb from typed arrays laid out once.
+// Contract: desk/README.md §31.8 render/map.js.
 
 import {V} from '../sim/params.js';
 import {BASE_W, BASE_H, HORIZON_Y, COLOURS, UI, SUBURBS, SUBSTATIONS, TRUNKS, PLANTS, PLANT_PARTS, WIND_TURBINES, TURBINE_H,
   SOLAR_ROWS, SOLAR_ROW_W, RIDGE, LAKE, RIVER, BAY, ROADS, FIELDS, TREES, ROOF_PV, districtBlocks, roofPanels, backToFront, hash01, scaleFor} from './mapdata.js';
-import {mw as fmtMW} from './format.js';
+import {mw as fmtMW, clockText} from './format.js';
 
 export const MAX_REST_LABELS = 3;
 const BLOCK_MS = 90;          // G-5: one block goes dark (or relights) every 90 ms
@@ -230,7 +192,7 @@ export const mapKeyOrder = () => KEY_ORDER.slice();
 export function mapPinText(obs, id) {
   const p = PLANTS.find(q => q.id === id), sb = SUBURBS.find(q => 'sub:' + q.id === id);
   if (p) return p.label + ' ' + fmtMW(obs[id].outMW) + ' MW: the ' + (id === 'wind' ? 'wind' : 'sun') + ' sets it, not the desk';
-  if (!sb) return 'Click a plant for its control, a suburb for its load';
+  if (!sb) return 'Click a plant for its control, a suburb for its card';
   let mw = 0;
   for (const d of obs.districts || []) if (d.suburb === sb.id) mw += d.coldLoadMW;
   const r = ((obs.rooftop && obs.rooftop.suburbs) || []).find(q => q.id === sb.id), roof = r ? Math.round(r.mw) : 0;
@@ -289,9 +251,17 @@ export function mapSummary(vm, hoverId) {
   if (p) {
     const us = obs.units.filter(u => u.station === p.id), on = us.filter(u => u.sync).length;
     parts.push('On ' + p.label + (us.length ? ': ' + on + ' of ' + us.length + ' machines on' : '') + '.');
-  } else if (sb) parts.push('On ' + sb.name + '.');
+  } else if (sb) parts.push('On ' + [sb.name, obs.levers && suburbTag(obs.levers, sb.id, obs.s)].join(' ').trim() + ': Enter opens its card.');
   else parts.push('Left and right arrows step through the plants and suburbs.');
   return parts.join(' ');
+}
+
+/** Q-57 (pure): a suburb's mark: its next block, its patience after an air-con booking or while locked. */
+export function suburbTag(lv, id, s) {
+  const p = (lv.suburbs.find(q => q.id === id) || {}).patience;
+  let at = '', air = false;
+  for (const b of lv.blocks) if (b.suburb === id) { air ||= b.lever === 'aircon'; if (!at && b.endS > s) at = (b.lever === 'soak' ? 'SOAK ' : 'AIR ') + clockText(b.atS, false); }
+  return air || p < V.PATIENCE_LOCK ? (at && at + ' ') + (p < V.PATIENCE_FULL ? '☹ ' : '☺ ') + p + (p < V.PATIENCE_LOCK ? ' LOCKED' : '') : at;
 }
 
 // ------------------------------------------------------------------ the map
@@ -308,7 +278,7 @@ export function createMap(doc, root, actions) {
   el.setAttribute('role', 'application');
   el.setAttribute('aria-roledescription', 'map');
   el.setAttribute('tabindex', '0');
-  el.setAttribute('aria-keyshortcuts', 'ArrowLeft ArrowRight Home Escape');
+  el.setAttribute('aria-keyshortcuts', 'ArrowLeft ArrowRight Home Enter Escape');
   el.setAttribute('aria-label', 'Map of the city and its power stations');
   el.style.position = 'relative'; el.style.width = '100%'; el.style.height = '100%'; el.style.overflow = 'hidden';
   const cv = doc.createElement('canvas');
@@ -1019,18 +989,29 @@ export function createMap(doc, root, actions) {
     }
     // glow rings (L-9 / K-16), hover rings, labels (G-2)
     fx.rings = 0;
-    const glow = vm.glow && typeof vm.glow.has === 'function' ? vm.glow : null;
+    const glow = vm.glow && typeof vm.glow.has === 'function' ? vm.glow : null, pulse = step(GLOW_RING, rm ? 1 : 0.6 + 0.4 * Math.abs(Math.sin(nowMs / 500))); // <= 1 Hz
     for (let pi = 0; pi < PLANTS.length; pi++) {
       const p = PLANTS[pi];
       if (glow && glow.size) {
         // a plant lights for its lever or for a START or STOP guard of one of its machines (C-10)
         let lit = !!p.target && glow.has(p.target);
         if (!lit) for (const ids of GUARD_IDS[pi]) if (glow.has(ids[0]) || glow.has(ids[1])) { lit = true; break; }
-        if (lit) { ring(ctx, p.box, step(GLOW_RING, rm ? 1 : 0.6 + 0.4 * Math.abs(Math.sin(nowMs / 500))), 2); fx.rings++; } // <= 1 Hz
+        if (lit) { ring(ctx, p.box, pulse, 2); fx.rings++; }
       }
       if ((vm.hover && p.target === vm.hover) || hoverId === p.id) ring(ctx, p.box, UI.bright, 1.5);
     }
-    if (hoverId && hoverId.startsWith('sub:')) ring(ctx, boxOf(hoverId), UI.bright, 1.5);
+    // Q-57: suburbs (per frame, never cached)
+    ctx.font = LABEL_FONT; ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    for (const sb of SUBURBS) {
+      const id = sb.id, b = sb.box, x = sx(b[0]), y = sy(b[1]), tag = obs.levers && !watch ? suburbTag(obs.levers, id, obs.s) : '';
+      if (glow && glow.has('suburb-' + id)) { ring(ctx, b, pulse, 2); fx.rings++; }
+      if (hoverId === 'sub:' + id || vm.hover === 'suburb-' + id) ring(ctx, b, UI.bright, 1.5);
+      if (vm.suburb === id && !watch) { ctx.strokeStyle = UI.blue; ctx.lineWidth = 2; ctx.strokeRect(x - 3, y - 3, b[2] * layout.scale + 6, b[3] * layout.scale + 6); }
+      if (tag) {
+        ctx.fillStyle = 'rgba(13,17,23,0.82)'; ctx.fillRect(x + 3, y + 3, ctx.measureText(tag).width + 6, 13);
+        ctx.fillStyle = UI.bright; ctx.fillText(tag, x + 6, y + 4);
+      }
+    }
     if (pin && nowMs > pin.untilMs) pin = null;
     const lk = (hoverId || '') + '|' + (vm.hover || '') + '|' + (pin ? pin.id + pin.untilMs : '');
     if (lk !== labelsKey || nowMs - labelsAt > 120 || nowMs < labelsAt) { labels = mapLabels(vm, hoverId, pin && pin.id); labelsKey = lk; labelsAt = nowMs; }
@@ -1146,28 +1127,31 @@ export function createMap(doc, root, actions) {
     if (id !== hoverId) ariaAt = -1e9; // say it on the next frame
     hoverId = id;
     const p = PLANTS.find(q => q.id === id);
-    const target = p && p.target ? p.target : null;
+    const target = p && p.target ? p.target : /^sub:/.test(id) ? 'suburb-' + id.slice(4) : null;
     if (target !== sentTarget) { sentTarget = target; actions.ui({do: 'hover', target}); }
     cv.style.cursor = id ? 'pointer' : 'default';
   }
 
+  // Q-56: a suburb's card; a dark one focuses the RESTORE bay first (Q-42)
+  function openSuburb(id) {
+    if (vm.obs.districts.some(d => d.dark && 'sub:' + d.suburb === id)) actions.ui({do: 'focus', target: 'bay-restore'});
+    actions.ui({do: 'suburb', id: id.slice(4)});
+  }
+
   cv.addEventListener('pointermove', ev => { const id = pick(baseAt(ev)); if (id || !byKey) { byKey = false; kbdIdx = KEY_ORDER.indexOf(id); setHover(id); } });
-  // Every click answers (Q-41): a plant's control, a dark suburb the RESTORE bay, else a blue label
-  cv.addEventListener('click', ev => {
-    const b = baseAt(ev), id = pick(b), p = PLANTS.find(q => q.id === id);
+  // Every press answers (Q-41): a plant's control, a suburb its card, else a blue label
+  function press(id, b) {
+    const p = PLANTS.find(q => q.id === id);
     pin = null;
     if (p && p.target) return actions.ui({do: 'focus', target: p.target});
-    if (id && vm && vm.obs.districts.some(d => d.dark && 'sub:' + d.suburb === id)) return actions.ui({do: 'focus', target: 'bay-restore'});
-    if (b && vm) { pin = {id: id || 'map', x: b.x, y: b.y, untilMs: lastMs + PIN_MS}; ariaAt = -1e9; }
-  });
+    if (!vm) return;
+    if (/^sub:/.test(id)) return openSuburb(id);
+    if (b) { pin = {id: id || 'map', x: b.x, y: b.y, untilMs: lastMs + PIN_MS}; ariaAt = -1e9; }
+  }
+  cv.addEventListener('click', ev => { const b = baseAt(ev); press(pick(b), b); });
   cv.addEventListener('pointerleave', () => { if (!byKey) setHover(null); }); // a hover set by the keys stays until Esc or blur
 
-  /**
-   * K-23: the map's keys, when it has the focus: ←/→ step through the plants then the suburbs
-   * (the same hover the pointer sets, so the lever lights and the label shows), Home the first,
-   * Esc leaves. Returns true exactly when it acted; the map's own keydown listener calls it and
-   * stops the event, so a key forwarded by the shell never acts twice.
-   */
+  /** K-23: the map's keys when it has the focus (§31.8 render/map.js); true exactly when it acted. */
   function key(ev) {
     if (!ev || (ev.type && ev.type !== 'keydown') || ev.defaultPrevented || ev.altKey || ev.ctrlKey || ev.metaKey) return false;
     if (doc.activeElement !== el) return false;
@@ -1179,6 +1163,7 @@ export function createMap(doc, root, actions) {
       return true;
     }
     if (k === 'Escape') { kbdIdx = -1; byKey = false; setHover(null); if (el.blur) el.blur(); return true; }
+    if (k === 'Enter' && hoverId && vm && !vm.respond && vm.phase !== 'briefing') { press(hoverId, {}); return true; }
     return false;
   }
 

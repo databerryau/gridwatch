@@ -1,42 +1,6 @@
 // sim/grid.js: the 1-second grid update and every player command's semantics
 // (spec F-2, F-13, H-1, H-2, H-4, H-10, H-11, K-1, K-2, K-3, K-5..K-7, K-12/K-13 stubs, S-11).
-//
-// STAGE B owner: "grid". Contract: sim/README.md, section "grid.js". Phase 1a (sim agent) added
-// the plan's executor and edits (L-0, L-4, L-6, K-2 HAND/MAN), the K-12 synchroscope, DIRECT
-// SHED's gate (A-3) and N-1 over both credible contingencies (A-2): see the sections below.
-// step() calls, at every grid-second boundary and in this order:
-//   planSecond (right after events.applyDue) -> unitsSecond -> agcSecond -> dispatchSecond ->
-//   fosSecond -> securitySecond
-// (after market.settleSecond, events.applyDue and weather.sampleSecond; before market.priceSecond),
-// and syncTick on the tick a syncAuto close is due (state.scope.nextAutoTick).
-// Trips, breakers, districts, relays and base points go through sim/fleet.js, which keeps
-// the invariants listed at the top of that file.
-//
-// Division of labour inside the second: unitsSecond owns timers and mode transitions
-// (start profile, auto-sync, stop profile, lockouts, heat derate, hot trips, water, tie
-// lockout, RERT lead, OFGS reconnect, FULL-HOLD); dispatchSecond owns every MW that moves
-// (schedules at ramps and along the T2/T4 profiles, battery, tie, renewables, RERT, DR). The
-// profiles' transitions are driven by schedMW reaching MIN or the breaker-open level, so
-// timerS is a countdown for display (and the market's stack) that never gates the physics.
-//
-// Choices this file makes where the contract is loose (see the final report, CONTRACT NOTES):
-//   * Sync block = min(SYNC_BLOCK_FRAC x rating, MIN) and breaker-open level =
-//     min(BREAKER_OPEN_FRAC x rating, MIN): hydro (MIN 0) closes at 0 MW and is 'on' at once,
-//     and unloads to 0 before its breaker opens (params t4Min note).
-//   * Battery schedule near empty or full tapers to what the dispatch ramp can still bring
-//     to zero with the energy left (P <= sqrt(2 x ramp x energy)): an energy management
-//     limit, so an empty battery never drops its whole schedule in one tick. Affects only
-//     the last few MWh.
-//   * Directed shedding (player and FOS) takes the lit rotation district that was restored
-//     longest ago (never shed first), ties by rotation index: true rotation, so a district
-//     just restored is not the next one shed. On a fresh day that is the lowest rot.
-//   * The tie's export cap limits the target; the flow reaches a lower cap at the tie ramp
-//     (as a dispatch interval would), never as a step.
-//
-// Phase 2a wave 1 (desk/README.md §21.2; owner "grid"): automatic curtailment in dispatchSecond
-// with AGC's unmet lowering request (C-6; the section before dispatchSecond), AGC lowering the
-// units to MIN before the battery while the dispatch is spilling (agcCycle), the roof refresh
-// in fosSecond and the restore surge on the total before rooftop (P-12, C-8).
+// Contract: sim/README.md §11 grid.js.
 
 import {V} from './params.js';
 import * as fleet from './fleet.js';
@@ -120,8 +84,8 @@ function curtailedMW(curtMW, availMW, limitPct, step) {
   return (c > availMW ? availMW : c < 0 ? 0 : c) + 0;
 }
 
-function log(state, out, sev, code, msg) {
-  out.push({tick: state.tick, kind: 'log', sev, code, msg});
+function log(state, out, sev, code, msg, x) {
+  out.push(Object.assign({tick: state.tick, kind: 'log', sev, code, msg}, x));
 }
 
 const nameOf = i => M[i].name;
@@ -315,7 +279,7 @@ function shedNextRotation(state, out) {
  * (step logs cmd after this returns), and must not touch its other fields. Command types:
  * basePoint, start, stop, abortStop, syncClose, battery, guard, tie, curtail, callDR,
  * armRERT, standDownRERT, restore, directShed, and (Phase 1a) planKey, planDel, planStart,
- * planStop, planUnbook, planRejoin, planLoad, scope, syncTrim, syncAuto ('mode' is step's).
+ * planStop, planUnbook, planRejoin, planLoad, scope, syncTrim, syncAuto, (2b) flex, flexDel ('mode' is step's).
  * See README §6 (it has the Phase 1a rules; the plan section below has the details). Key rules:
  *   basePoint {station, mw}: accepted always. Every 'on' machine of the station gets an
  *     equal share, fleet.setBasePoint(state, i, mw / onCount) (machines of one station have
@@ -337,7 +301,7 @@ function shedNextRotation(state, out) {
  *     already standing down (before it arrives it simply cancels).
  *   restore {district}: restorePermissive(state, d, {preview: true}) must be '' (the K-13
  *     restore preview runs here, on the input only); fleet.setDistrictDark(..., false);
- *     district.surgeMW = coldLoad - its present share of the total before rooftop (>= 0; P-12:
+ *     district.surgeMW = coldLoad - its share of G0 - its flex share (>= 0; P-12, 2b I3:
  *     coldLoad is the undelayed underlying pickup, the district's rooftop waits ROOF_RECONNECT_S
  *     and then ramps back over ROOF_RAMP_S); city.lastRestoreS = s; fleet.rearmUfls for its
  *     stage; emit {kind:'restore', district, mw: coldLoad}.
@@ -506,8 +470,8 @@ export function applyCommand(state, cmd, out) {
       if (why) return why;
       const dist = state.city.districts[d];
       const coldMW = fleet.districtColdLoadMW(state, d);
-      // the surge is the pickup beyond its underlying share (P-12: its rooftop is still off, fleet.setDistrictDark)
-      const surge = Math.max(0, coldMW - (state.env.demandMW + state.env.rooftopMW) * dist.share) + 0;
+      // the surge is the pickup beyond its underlying share and its flex share (P-12, 2b I3: only the cold factor)
+      const surge = Math.max(0, coldMW - fleet.baseLoadMW(state) * dist.share - state.env.flexSubMW[dist.sub] * dist.roofFrac) + 0;
       fleet.setDistrictDark(state, d, false, null);
       dist.surgeMW = surge;
       state.city.lastRestoreS = s;
@@ -526,9 +490,93 @@ export function applyCommand(state, cmd, out) {
       log(state, out, 'crit', 'DIRECT_SHED', 'DIRECT SHED: district ' + state.city.districts[d].id + ' off supply.');
       return '';
     }
+    case 'flex': case 'flexDel': return flexCmd(state, cmd, s, out);
     default:
       return 'unknown command';
   }
+}
+
+// ------------------------------------------------------------------ city levers (2b; sim/README.md §5 levers, §6)
+
+const LV_STEP = V.FC_STEP_S, PRE = V.PRECOOL_S, AC = V.AIRCON_S, LOCK = V.PATIENCE_LOCK, FULL = V.PATIENCE_FULL;
+const LV_FROM = {soak: V.SOAK_FROM_S, aircon: V.AIRCON_FROM_S}, LV_TO = {soak: V.SOAK_TO_S - V.SOAK_S, aircon: V.AIRCON_TO_S - AC};
+const LV_LEAD = {soak: 0, aircon: PRE}, LV_WORD = {soak: 'hot water soak', aircon: 'air-con cycle'};
+const NOT_OFFERED = 'not offered today', L_OPEN = 'levers open at 04:30', L_LOCKED = 'air-con locked: patience below ' + LOCK,
+  L_SOAKED = 'one soak a day: already booked', L_WINDOW = 'not a 5-minute mark in the window',
+  L_LATE = 'too late: it would start in the past', L_OVERLAP = 'overlaps another air-con block of this suburb',
+  L_NONE = 'no such block', L_UNDER = 'under way: too late to cancel';
+export const LEVER_WHY = Object.freeze({late: L_LATE, overlap: L_OVERLAP}); // (P4: the card's words)
+const pad2 = n => String(n).padStart(2, '0');
+const hm = s => pad2(Math.floor(s / S_PER_H) + V.DAY_START_H) + ':' + pad2(s % S_PER_H / S_PER_MIN);
+const mine = (b, id, lever) => b.suburb === id && b.lever === lever;
+
+// '' if suburb j may book `lever` today, else why not.
+function leverPre(state, j, lever) {
+  const sl = state.scn.levers;
+  if (!sl) return NOT_OFFERED;
+  if (state.tick < V.PLAYER_START_TICK) return L_OPEN;
+  if (!sl.menu[state.day.temp].includes(lever)) return NOT_OFFERED;
+  if (lever === 'aircon') return state.levers.patience[j] < LOCK ? L_LOCKED : '';
+  return state.levers.blocks.some(b => mine(b, sl.suburbs[j].id, lever)) ? L_SOAKED : '';
+}
+
+/** observe().levers.suburbs[j][lever]: {mw, cost, fromS, toS, block} (sim/README.md §8). */
+export function leverView(state, j, lever) {
+  const x = state.scn.levers.suburbs[j], L = state.levers, p = L.patience[j], soak = lever === 'soak';
+  let block = leverPre(state, j, lever), hi = LV_TO[lever];
+  let lo = Math.max(LV_FROM[lever], Math.ceil((secondOf(state) + LV_LEAD[lever]) / LV_STEP) * LV_STEP);
+  if (!block && lo > hi) block = L_LATE;
+  for (let i = L.blocks.length; i-- && !block;) { // the latest open run
+    const b = L.blocks[i];
+    if (!mine(b, x.id, lever)) continue;
+    if (Math.max(lo, b.endS + PRE) <= hi) { lo = Math.max(lo, b.endS + PRE); break; }
+    hi = b.atS - PRE - AC;
+  }
+  if (!block && lo > hi) block = L_OVERLAP;
+  return {mw: soak ? x.soakMW : x.airconMW * (p < FULL ? (FULL + p) / (2 * FULL) : 1),
+    cost: soak ? 0 : V.PATIENCE_AIRCON + V.PATIENCE_REPEAT * L.blocks.filter(b => mine(b, x.id, lever)).length,
+    fromS: block ? -1 : lo, toS: block ? -1 : hi, block};
+}
+
+/** observe().levers.blocks[].del: '' or why its flexDel is refused now. */
+export const flexDelBlock = (state, b) => (secondOf(state) >= b.atS - LV_LEAD[b.lever] ? L_UNDER : '');
+
+// flex / flexDel (sim/README.md §6): book or cancel a block, with patience and its records (U-4).
+function flexCmd(state, cmd, s, out) {
+  const L = state.levers, subs = state.scn.city.suburbs, lever = cmd.lever, atS = cmd.atS, id = cmd.suburb;
+  if (!state.scn.levers) return NOT_OFFERED;
+  const j = subs.findIndex(x => x.id === id), name = subs[j].name + ': ' + LV_WORD[lever];
+  let b = null, delta = 0;
+  if (cmd.type === 'flex') {
+    const why = leverPre(state, j, lever);
+    if (why) return why;
+    if (atS % LV_STEP || atS < LV_FROM[lever] || atS > LV_TO[lever]) return L_WINDOW;
+    if (atS - LV_LEAD[lever] < s) return L_LATE;
+    if (L.blocks.some(x => mine(x, id, lever) && (atS >= x.atS ? atS - PRE < x.endS : x.atS - PRE < atS + AC))) return L_OVERLAP;
+    const v = leverView(state, j, lever), si = x => subs.findIndex(z => z.id === x.suburb);
+    b = {suburb: id, lever, atS, endS: atS + (lever === 'soak' ? V.SOAK_S : AC), effMW: v.mw, cost: v.cost};
+    L.blocks.push(b);
+    L.blocks.sort((x, y) => x.atS - y.atS || si(x) - si(y));
+    log(state, out, 'info', 'FLEX_BOOK', name + ' booked for ' + hm(atS) + ' (' + Math.round(v.mw) + ' MW).',
+      {suburb: id, lever, atS, endS: b.endS, effMW: v.mw});
+    delta = 0 - v.cost;
+  } else {
+    const i = L.blocks.findIndex(x => mine(x, id, lever) && x.atS === atS);
+    if (i < 0) return L_NONE;
+    b = L.blocks[i];
+    if (flexDelBlock(state, b)) return L_UNDER;
+    L.blocks.splice(i, 1);
+    log(state, out, 'info', 'FLEX_DEL', name + ' for ' + hm(atS) + ' cancelled.', {suburb: id, lever, atS});
+    delta = b.cost;
+  }
+  L.rev += 1;
+  if (delta) {
+    const P = L.patience, was = P[j], p = P[j] = was + delta, n = subs[j].name;
+    log(state, out, 'info', 'PATIENCE', n + ' patience ' + p + (delta > 0 ? ' (+' + delta + ': cancel).' : ' (' + delta + ': air-con).'),
+      {suburb: id, patience: p, delta, cause: delta > 0 ? 'cancel' : 'aircon'});
+    if (p < LOCK && was >= LOCK) log(state, out, 'info', 'PATIENCE_LOCK', n + ': air-con locked.', {suburb: id, patience: p});
+  }
+  return '';
 }
 
 // ------------------------------------------------------------------ unitsSecond

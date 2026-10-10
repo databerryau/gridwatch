@@ -460,7 +460,8 @@ function fixedProbes(S) {
       {type: 'planStart', unit: 'gtb1', atS: V.PLAYER_START_S + 600}, {type: 'planStop', unit: 'ccgt1', atS: V.PLAYER_START_S + 7200},
       {type: 'planUnbook', unit: 'gtb1'}, {type: 'planRejoin', station: 'coal', keep: true},
       {type: 'planLoad', fromS: V.PLAYER_START_S + 120, stations: {coal: [[V.PLAYER_START_S + 600, 1800]]}, tie: [], starts: [], stops: []},
-      {type: 'scope', unit: 'gtc1'}, {type: 'syncTrim', unit: 'gtc1', dHz: V.SYNC_TRIM_HZ}, {type: 'syncAuto', unit: 'gtc1'}];
+      {type: 'scope', unit: 'gtc1'}, {type: 'syncTrim', unit: 'gtc1', dHz: V.SYNC_TRIM_HZ}, {type: 'syncAuto', unit: 'gtc1'},
+      {type: 'flex', suburb: 'HAZ', lever: 'soak', atS: V.SOAK_FROM_S}, {type: 'flexDel', suburb: 'HAZ', lever: 'soak', atS: V.SOAK_FROM_S}];
     let tried = 0, accepted = 0;
     const end = s.conts[s.contIdx].watchEndTick;
     while (s.tick < end) {

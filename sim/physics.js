@@ -1,66 +1,5 @@
 // sim/physics.js: the one frequency engine (spec H-8, H-6, H-7, H-10, F-4, K-10, K-15).
-//
-// STAGE B owner: "physics". Contract: sim/README.md, section "physics.js".
-// Used by live play (tick), the TRIP PREVIEW and SECURE check (previewTrip), the watch,
-// restore previews (K-13, Phase 1a), par and tests. There is no second engine: tick() and
-// previewTrip() both run advance() below, on state (the preview between a save and an exact
-// restore).
-//
-// Rules for this file:
-//   - tick() allocates nothing and calls no transcendental Math function (risk 5). Event
-//     records (ufls, ofgs, black) are the only objects it creates, and they are rare.
-//   - Constants come from V (sim/params.js), hoisted to module scope below.
-//   - Per-machine constants are in V.MACHINES[k] (govDeadTicks, govAlpha, govCapMW,
-//     govGainMWperHz, ekMWs, ...), copied into flat module arrays.
-//   - previewTrip() leaves `state` exactly as it found it and never clones it (a JSON clone
-//     alone costs ~0.26 ms): it saves every field the engine can write into ONE module-level
-//     backup built once, runs on state, and restores them in a finally (integration: running
-//     on a separate scratch object made the tick engine polymorphic, ~90 ns per live tick).
-//     Its result depends only on its inputs.
-//   - Relays go through fleet.operateUfls / fleet.setOfgsStage; districts through fleet.
-//
-// Modelling choices inside the README contract (each is labelled in params.js):
-//   - Relay and collapse timers count whole ticks (timer = n x PHYS_DT), so 0.30 s is exactly
-//     15 ticks and no float drift moves a relay by a tick.
-//   - Collapse bands (H-7) count time BELOW each band's upper edge (47.5 Hz for 2 s, 48.0 Hz
-//     for 20 s), as generator under-frequency protection does ("f < X for t"); a dip from the
-//     47.5-48 band into the 47-47.5 band keeps the 20-s timer running instead of resetting it.
-//     Instant black uses both the tick's start and end frequency.
-//   - GUARD (K-5): the FFR layer follows a target (guardMW while sustained, a linear ramp-off
-//     after GUARD_SUSTAIN_S, 0 when spent) at guardMW / GUARD_DELIVERY_S upward and at
-//     BATT_MW / GUARD_WITHDRAW_S downward, so it is full exactly GUARD_DELIVERY_S after the
-//     trigger and turning the ring down mid-sustain never steps the output (params
-//     GUARD_WITHDRAW_S). The guard reads the live ring (battery.guardMW).
-//   - H-10 re-engagement: while ufSuspend, charging comes back in proportion between
-//     UF_SUSPEND_HZ and UF_RESUME_HZ (params UF_RESUME_LINEAR), so the release is not undone
-//     by a step at 49.90 Hz.
-//   - PFR anti-windup: battery.pfrMW is the lag state AFTER the inverter / SoC trim.
-//   - acc.fMinHz/fMaxHz/fSumHz use the frequency at the START of each tick (the same f the
-//     tick's readouts and relays use, and the one pushed into fHist). acc.battOutMWs is the
-//     signed net output (+ discharge), acc.battChargeMWs the charge drawn (>= 0) and
-//     acc.battAbsMWs the throughput |out|, all in MW x s.
-//   - A contingency record's extremeHz is judged on each traced tick's START frequency (the
-//     value phys.fHz showed after the previous step), extremeTick is that tick, and caught =
-//     that tick's readouts minus pre, so a UFLS stage operating at the extreme is counted.
-//
-// Phase 2a (desk/README.md §19.2; P-12, C-8, C-7), each labelled in params.js:
-//   - Load on NET blocks: G = env.demandMW + env.rooftopMW is the total before rooftop. The relay
-//     MW (phys.shedMW, the ufls record) is the dark districts' net load, G x shedFrac -
-//     city.roofDarkMW (near zero or negative at a sunny noon); the unserved RATE is their
-//     underlying load, G x shedFrac, into acc.unservedMWs. fleet.refreshRoof keeps the two city
-//     sums, so the tick has no district loop. With rooftop zero every term is today's value.
-//     One labelled case: a stage that sheds a district relit under ROOF_RECONNECT_S + ROOF_RAMP_S
-//     ago. Its `ufls` record nets only the rooftop the district had connected (what the relays
-//     took off); phys.shedMW keeps the formula above (all of its rooftop), so for that stage
-//     caught.uflsMW is short of the relief by the rooftop that was still off (README §7).
-//   - C-7, lowering only: wind and utility solar back off on over-frequency (REN_PFR_ON: droop on
-//     rating beyond the governor deadband, capped by present output, no lag); rooftop inverters
-//     back off between ROOF_FW_START_HZ and ROOF_FW_ZERO_HZ and HOLD the lowest value reached
-//     (phys.roofHoldFrac) until f is back under start - hysteresis, then return at 1 /
-//     ROOF_RAMP_S of their connected output a second (ROOF_FW_ON). Both are readouts of this
-//     tick's START frequency (the hold apart), enter the K-11 identity and the contingency trace
-//     (caught.inverterMW), and run in the preview too. The wind and solar backed off is spilled
-//     energy (acc.spillMWs).
+// Contract: sim/README.md §11 physics.js.
 
 import {V} from './params.js';
 import * as fleet from './fleet.js';
@@ -292,14 +231,15 @@ function advance(S, out, emit) {
       if (f < UFLS_HZ[k]) {
         const n = Math.round(timer[k] / DT) + 1;
         if (n >= UFLS_TICKS) {
-          const before = S.city.shedFrac, offBefore = S.city.roofOffMW;
+          const before = S.city.shedFrac, offBefore = S.city.roofOffMW, fdBefore = S.city.flexDarkMW;
           const ids = fleet.operateUfls(S, k);
           stagesNow++;
           // the record's MW is the stage's NET load (P-12): the rooftop its districts had CONNECTED
           // went with them (the change of roofOffMW: a district relit under ROOF_RECONNECT_S +
           // ROOF_RAMP_S ago had part or all of its rooftop off already, as the `shed` record nets it)
           if (emit) out.push({tick: t, kind: 'ufls', stage: k + 1, districts: ids,
-            mw: (S.env.demandMW + S.env.rooftopMW) * (S.city.shedFrac - before) - (S.city.roofOffMW - offBefore) + 0, cue: 'clack'});
+            mw: fleet.baseLoadMW(S) * (S.city.shedFrac - before) + (S.city.flexDarkMW - fdBefore) - (S.city.roofOffMW - offBefore) + 0,
+            cue: 'clack'});
         } else timer[k] = n * DT;
       } else if (timer[k] !== 0) timer[k] = 0;
     }
@@ -323,10 +263,11 @@ function advance(S, out, emit) {
   // districts' rooftop (roofDarkMW) went with their feeders and what is off in total (roofOffMW:
   // dark, or relit and reconnecting) is load the grid sees again. served, shed (the relay MW:
   // net), darkLoad (the unserved rate: underlying), load relief (positive when f < F0: load falls).
-  const env = S.env, city = S.city, roof = env.rooftopMW;
-  const total = env.demandMW + roof, shedFrac = city.shedFrac;
-  const shed = total * shedFrac - city.roofDarkMW + 0;
-  const served = total * (1 - shedFrac) - (roof - city.roofOffMW) + city.coldLoadMW - S.dr.mw + 0;
+  // 2b: G0, flex out; the dark districts' flex shares stop (README §5 phys)
+  const env = S.env, city = S.city, roof = env.rooftopMW, fd = city.flexDarkMW;
+  const total = fleet.baseLoadMW(S), shedFrac = city.shedFrac;
+  const shed = total * shedFrac + fd - city.roofDarkMW + 0;
+  const served = total * (1 - shedFrac) + (env.flexMW - fd) - (roof - city.roofOffMW) + city.coldLoadMW - S.dr.mw + 0;
   const darkLoad = total * shedFrac;
   const relief = served * LOAD_RELIEF * (F0 - f) / F0 + 0;
 
@@ -436,12 +377,8 @@ function advance(S, out, emit) {
  *   6. UFLS relays (H-6): per stage timer while f < threshold (reset if f recovers first); at
  *      UFLS_DELAY_S call fleet.operateUfls(state, k) and emit {kind:'ufls', stage, districts,
  *      mw, cue:'clack'}; OFGS stages (H-7) via fleet.setOfgsStage(state, k, true)
- *   7. load on net blocks (Phase 2a: P-12, C-8), G = env.demandMW + env.rooftopMW:
- *      shed (the relay MW) = G * city.shedFrac - city.roofDarkMW;
- *      served = G * (1 - city.shedFrac) - (env.rooftopMW - city.roofOffMW) + city.coldLoadMW - dr.mw;
- *      the unserved rate = G * city.shedFrac (the dark customers' underlying load);
- *      load relief = served * LOAD_RELIEF * (F0 - f) / F0   (positive when f < F0: load falls)
- *      With rooftop zero these are env.demandMW * shedFrac and env.demandMW * (1 - shedFrac) + ...
+ *   7. load on net blocks (P-12, C-8; 2b flex): the sim/README.md §5 phys formulas on G0 =
+ *      fleet.baseLoadMW; load relief = served * LOAD_RELIEF * (F0 - f) / F0 (> 0 when f < F0)
  *      The inverters' over-frequency response (C-7; lowering only, flags REN_PFR_ON / ROOF_FW_ON):
  *      renPfrMW = min(out, max(0, f - F0 - GOV_DEADBAND_HZ) / (GOV_DROOP * F0) * (WIND_MW *
  *      (1 - ofgs.trippedFrac) + SOLAR_MW)), out = wind after OFGS + utility solar as scheduled;
@@ -463,7 +400,7 @@ function advance(S, out, emit) {
  *      acc.unservedMWs adds the unserved rate and acc.spillMWs renPfrMW, each x PHYS_DT.
  * (Steps 3-5 run in the order units, then battery; the result is the same, as neither
  * reads the other.) See the header of this file for the modelling choices.
- * Reads (Phase 2a, besides README §11): env.{demandMW, rooftopMW}, city.{roofDarkMW, roofOffMW},
+ * Reads (Phase 2a, 2b, besides README §11): env.{demandMW, rooftopMW, flexMW}, city.{roofDarkMW, roofOffMW, flexDarkMW},
  * phys.roofHoldFrac. Writes: phys.{renPfrMW, roofPfrMW, roofHoldFrac}, acc.{unservedMWs,
  * spillMWs}, conts[contIdx].caught.inverterMW; reconnectS and the two city sums via
  * fleet.operateUfls.
@@ -500,7 +437,7 @@ const BK = {
   units: M.map(() => ({mode: 'off', sync: false, schedMW: 0, govMW: 0, outMW: 0})),
   battery: {schedMW: 0, guardMW: 0, pfrMW: 0, ffrMW: 0, ffrFiredTick: -1, outMW: 0, socMWh: 0, ufSuspend: false},
   tieFlowMW: 0, demandMW: 0,
-  districts: [], shedFrac: 0, coldLoadMW: 0, roofDarkMW: 0, roofOffMW: 0,
+  districts: [], shedFrac: 0, coldLoadMW: 0, roofDarkMW: 0, roofOffMW: 0, flexDarkMW: 0, // 2b (I3b)
   uflsTimerS: zeros(NUF), uflsOperated: falses(NUF),
   ofgsTimerS: zeros(NOF), ofgsTripped: falses(NOF), ofgsTrippedFrac: 0,
   bandS: zeros(NB), storageMWh: 0,
@@ -546,7 +483,7 @@ function save(state) {
     z.dark = a.dark; z.shedBy = a.shedBy; z.darkSinceS = a.darkSinceS; z.restoredAtS = a.restoredAtS; z.reconnectS = a.reconnectS;
   }
   BK.shedFrac = state.city.shedFrac; BK.coldLoadMW = state.city.coldLoadMW;
-  BK.roofDarkMW = state.city.roofDarkMW; BK.roofOffMW = state.city.roofOffMW;
+  BK.roofDarkMW = state.city.roofDarkMW; BK.roofOffMW = state.city.roofOffMW; BK.flexDarkMW = state.city.flexDarkMW;
   for (let k = 0; k < NUF; k++) { BK.uflsTimerS[k] = state.ufls.timerS[k]; BK.uflsOperated[k] = state.ufls.operated[k]; }
   for (let k = 0; k < NOF; k++) { BK.ofgsTimerS[k] = state.ofgs.timerS[k]; BK.ofgsTripped[k] = state.ofgs.tripped[k]; }
   BK.ofgsTrippedFrac = state.ofgs.trippedFrac;
@@ -578,7 +515,7 @@ function restore(state) {
     a.dark = z.dark; a.shedBy = z.shedBy; a.darkSinceS = z.darkSinceS; a.restoredAtS = z.restoredAtS; a.reconnectS = z.reconnectS;
   }
   state.city.shedFrac = BK.shedFrac; state.city.coldLoadMW = BK.coldLoadMW;
-  state.city.roofDarkMW = BK.roofDarkMW; state.city.roofOffMW = BK.roofOffMW;
+  state.city.roofDarkMW = BK.roofDarkMW; state.city.roofOffMW = BK.roofOffMW; state.city.flexDarkMW = BK.flexDarkMW;
   for (let k = 0; k < NUF; k++) { state.ufls.timerS[k] = BK.uflsTimerS[k]; state.ufls.operated[k] = BK.uflsOperated[k]; }
   for (let k = 0; k < NOF; k++) { state.ofgs.timerS[k] = BK.ofgsTimerS[k]; state.ofgs.tripped[k] = BK.ofgsTripped[k]; }
   state.ofgs.trippedFrac = BK.ofgsTrippedFrac;
@@ -656,12 +593,13 @@ function run(state, kind, ui, di, target, guardMW) {
   let lost = 0;
   // A district restore first: its cold load is on the true demand (before the guard offset): the
   // undelayed underlying pickup (P-12: its rooftop waits ROOF_RECONNECT_S, past the horizon).
+  const env = state.env, g0 = BK.demandMW + env.rooftopMW - env.flexMW; // G0 from the backup (I3b)
   if (kind === 'district') {
     const dist = state.city.districts[di];
     if (dist.dark) {
       lost = fleet.districtColdLoadMW(state, di);
       fleet.setDistrictDark(state, di, false, null);
-      const surge = lost - (state.env.demandMW + state.env.rooftopMW) * dist.share;
+      const surge = lost - g0 * dist.share - env.flexSubMW[dist.sub] * dist.roofFrac; // only the cold factor (I3)
       if (surge > 0) state.city.coldLoadMW += surge;
       if (dist.uflsStage > 0) fleet.rearmUfls(state, dist.uflsStage - 1);
     }
@@ -700,7 +638,8 @@ function run(state, kind, ui, di, target, guardMW) {
   pre.guardMW = bb.ffrMW; pre.governorsMW = p.govTotalMW; pre.loadReliefMW = p.loadReliefMW;
   // a restored district's MW are the event (lostMW), not a UFLS response: shed baseline without it
   // (the relay MW are net: its rooftop leaves city.roofDarkMW with it)
-  pre.uflsMW = p.shedMW - ((BK.demandMW + state.env.rooftopMW) * (BK.shedFrac - state.city.shedFrac) - (BK.roofDarkMW - state.city.roofDarkMW));
+  pre.uflsMW = p.shedMW - (g0 * (BK.shedFrac - state.city.shedFrac) + (BK.flexDarkMW - state.city.flexDarkMW) -
+    (BK.roofDarkMW - state.city.roofDarkMW));
   pre.inverterMW = 0 - (p.renPfrMW + p.roofPfrMW);
   cg.inertiaMW = 0; cg.batteryMW = 0; cg.guardMW = 0; cg.governorsMW = 0; cg.loadReliefMW = 0; cg.uflsMW = 0; cg.inverterMW = 0;
   state.conts = SCONTS; state.contIdx = 0;

@@ -459,7 +459,8 @@ test('K-9: every record kind that makes a warning card offers a one-click jump t
 
 test('MSL cards: MARKET NOTICE, the forecast minimum and its time and the one thing this desk can do; <= 25 words; a focus-only button; never "below X"', () => {
   const ids = contractIds();
-  const nowS = (9 - V.DAY_START_H) * V.S_PER_H, noonS = (12 + 40 / 60 - V.DAY_START_H) * V.S_PER_H;
+  // (2b, §31.9.7: from 11:30, after the last soak start, the cards are as before; in the soak window before it, below)
+  const nowS = (11.5 - V.DAY_START_H) * V.S_PER_H, noonS = (12 + 40 / 60 - V.DAY_START_H) * V.S_PER_H;
   const rec = (level, atS, minMW = 1540.4) => ({tick: nowS * TPS, kind: 'log', sev: ['good', 'info', 'warn', 'crit'][level], code: level ? 'MSL' + level : 'MSL_CLEAR',
     msg: 'MSL' + Math.max(1, level) + ' notice: lowest forecast demand 1,540 MW at 12:40. MSL1 is 1,600 MW.', level, minMW, atS});
   const c1 = T.cardOf(rec(1, noonS)), c2 = T.cardOf(rec(2, noonS, 1262)), c3 = T.cardOf(rec(3, noonS, 980)), c0 = T.cardOf(rec(0, noonS, 1712));
@@ -489,6 +490,23 @@ test('MSL cards: MARKET NOTICE, the forecast minimum and its time and the one th
   // a minimum that is not at midday (the small hours of a mild night) does not say noon
   assert.equal(T.cardOf(rec(1, (27.5 - V.DAY_START_H) * V.S_PER_H)).text, 'Lowest demand 1,540 MW at 03:30. Power spilled then can go into the battery: charge it on the spill.');
   for (const c of [T.cardOf(rec(1, nowS)), T.cardOf(rec(0, nowS, 1712))]) assert.ok(c.text.split(/\s+/).length <= T.MAX_WORDS, c.text);
+  // Q-60 (§31.9.7): a minimum in the soak window (10:00-15:00) noticed while a soak can still start (by 11:00): MSL1 and MSL2
+  // name the soak (MSL1 keeps its battery advice) and their one button opens the suburb card; MSL3 and the clear do not
+  const early = (level, atS, minMW) => Object.assign(rec(level, atS, minMW), {tick: (9 - V.DAY_START_H) * V.S_PER_H * TPS});
+  const s1 = T.cardOf(early(1, noonS)), s2 = T.cardOf(early(2, noonS, 1262)), s1now = T.cardOf(early(1, (10.5 - V.DAY_START_H) * V.S_PER_H));
+  assert.equal(s1.text, 'Lowest demand 1,540 MW at 12:40. A hot-water soak takes the spill: book one, and charge the battery on it.');
+  assert.equal(s2.text, 'Lowest demand 1,262 MW at 12:40. Make room: book a hot-water soak, charge the battery, and stop a gas unit if one is running.');
+  assert.deepEqual([s1.button, s2.button], [{label: 'SUBURBS', target: 'suburb-card'}, {label: 'SUBURBS', target: 'suburb-card'}]);
+  // a low that is now (a potline trip in the window): par's rule 1 and the line's trigger (a) book nothing for it, nor does the card (S2)
+  const in10 = (10.5 - V.DAY_START_H) * V.S_PER_H, lowNow = T.cardOf(Object.assign(rec(1, in10), {tick: in10 * TPS}));
+  assert.deepEqual([lowNow.text, lowNow.button.target], ['Demand is at its lowest now, 1,540 MW. Charge the battery if it has room.', 'dial-battery']);
+  assert.ok(ids.has('suburb-card'));
+  assert.equal(T.cardOf(early(3, noonS, 980)).text, c3.text);
+  assert.equal(T.cardOf(early(1, (16 - V.DAY_START_H) * V.S_PER_H)).button.target, 'dial-battery', 'a minimum after the window');
+  for (const c of [s1, s2, s1now, T.cardOf(Object.assign(early(2, noonS, 1262), {tick: (10.5 - V.DAY_START_H) * V.S_PER_H * TPS, atS: (10.5 - V.DAY_START_H) * V.S_PER_H}))]) {
+    assert.ok(c.text.split(/\s+/).length <= T.MAX_WORDS, c.text);
+    assert.doesNotMatch(c.text, /below|backstop|MSL\d/i);
+  }
   // in the tray: one card per change of level, the warnings ring twice, and the keys differ
   const tr = T.createTray();
   assert.deepEqual(T.trayRecords(tr, [rec(1, noonS)]), ['tick'], 'MSL1 is information: a tick, no ring');

@@ -255,7 +255,7 @@ export function project(obs, opts = {}) {
   const rertOut = new Float64Array(n), drOut = new Float64Array(n);
   // Phase 2a (C-11): what the sim's automatic cut counts as must-run (the floor blocks of
   // sim/grid.js surplusMW) and whether the tie can export, sampled with the columns.
-  const floorOut = new Float64Array(n), tieDown = new Uint8Array(n);
+  const floorOut = new Float64Array(n), tieDown = new Uint8Array(n), setOut = new Float64Array(n);
   const hydroJ = SIDS.indexOf('hydro');
   let k = 0;
   const expLimAt = t => {
@@ -313,7 +313,7 @@ export function project(obs, opts = {}) {
       // loading, unloading or shutting down (H-1); nothing off line has output
       let fl = 0;
       for (const x of S.mach) fl += x.mode === 'on' ? x.m.minMW : x.out;
-      floorOut[k] = fl; tieDown[k] = T.tripped ? 1 : 0;
+      floorOut[k] = fl; tieDown[k] = T.tripped ? 1 : 0; setOut[k] = T.set;
       k++;
     }
   }
@@ -347,10 +347,10 @@ export function project(obs, opts = {}) {
   //
   // C-11: blue is the sim's own cut (sim/grid.js surplusMW, C-6) on the projection: must-run
   // (the floor blocks above, and reserve diesel on line) + forecast wind and utility solar after
-  // the manual LIMIT, less what can take it: P50 demand, the tie exporting at its cap
-  // (fc.exportLimitMW; nothing while the tie is tripped) and the charge stepped from the present
-  // battery ORDER (AGC's trim is not room, as in the sim). So it is what will be wasted whatever
-  // the dispatch does with the tie: the part only a STOP or a CHARGE order can save. Its own
+  // the manual LIMIT, less what can take it: P50 demand, the export the plan sets on the tie
+  // (its keys from obs.tie.setMW, capped by fc.exportLimitMW; nothing while the tie is tripped:
+  // a dispatch that exports under the cap spills the rest, 2b final review V-1) and the charge
+  // stepped from the present battery ORDER (AGC's trim is not room, as in the sim). Its own
   // array, never a kind in proj.gap; from P50, not P10, in 2a.
   const rooftop = new Float64Array(n), surplusMW = new Float64Array(n);
   for (let q = 0; q < n; q++) {
@@ -361,7 +361,7 @@ export function project(obs, opts = {}) {
     rooftop[q] = fc.rooftopMW && Number.isFinite(fc.rooftopMW[q]) ? fc.rooftopMW[q] : 0;
     deficit[q] = fc.demandP50[q] - supply[q];
     gap[q] = supply[q] < fc.demandP50[q] - GAP_MIN_MW ? 'red' : supply[q] < fc.demandP90[q] - GAP_MIN_MW ? 'amber' : '';
-    const room = tieDown[q] ? 0 : fc.exportLimitMW ? fc.exportLimitMW[q] : V.TIE_MAX_MW;
+    const room = tieDown[q] ? 0 : Math.min(fc.exportLimitMW ? fc.exportLimitMW[q] : V.TIE_MAX_MW, Math.max(0, -setOut[q]));
     // DR called and a battery ordered to DISCHARGE both push supply onto a grid that is already
     // full, and the sim's cut counts them (measured 350 and 200 MW low without these two terms).
     const spill = floorOut[q] + rertOut[q] + wind[q] + solar[q] + drOut[q] + battDis[q] - (fc.demandP50[q] + room + battChg[q]);

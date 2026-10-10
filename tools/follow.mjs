@@ -16,10 +16,13 @@
 // --no-stops (skip the STOP re-runs) | --lines | -j/--workers N | --json (one JSON line per seed).
 //
 // Per seed: the day type, black or not, unserved MWh, score.cost by key, the cost the §21.4
-// accept compares (fuel + no-load + starts + tie + battery wear: RERT and DR are excluded, they
-// are set by when the diesel was armed, not by the plan) and par's cost on the same seed beside
-// it (a day that ends black, the player's or par's, is left out of the "dearer than par" count:
-// its cost stops when it does). For each STOP line the player followed (line.kind === 'stop' with
+// accept compares (fuel + no-load + starts + tie + battery wear + the city's payments, flex: RERT
+// and DR are excluded, they are set by when the diesel was armed, not by the plan) and par's cost
+// on the same seed beside it (a day that ends black, the player's or par's, is left out of the
+// "dearer than par" count: its cost stops when it does). The city levers (2b, desk/README.md
+// §31.10): the soaks and air-con cycles the player booked, and the day's ALL-IN (app/score.js, the
+// end card's) beside par's, with the points 1000 x par's / yours (n/a when par's day went black;
+// a black day of the player's is 0, as the end card's F). For each STOP line the player followed (line.kind === 'stop' with
 // an accepted action): the saving the line quoted against the REALISED difference, which is the
 // same day with that one STOP skipped minus the day as played, on the accept's cost. Skipped
 // means: from the STOP's minute until the original day next started the unit, the line is asked
@@ -39,11 +42,12 @@ import {objective as standingObjective} from '../app/objective.js';
 import {runPar} from '../sim/autopilot.js';
 import {getScenario} from '../content/scenarios.js';
 import {V, SIM_VERSION} from '../sim/params.js';
+import {allIn, grade} from '../app/score.js';
 
 const FILE = fileURLToPath(import.meta.url);
 const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'];
-/** The cost keys the §21.4 accept compares: what the plan decides (not the emergency resources). */
-export const PLAN_COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear'];
+/** The cost keys the §21.4 accept compares: what the plan decides (not the emergency resources; the city's payments are, §31.6). */
+export const PLAN_COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'flex'];
 export const planCost = cost => PLAN_COST_KEYS.reduce((a, k) => a + cost[k], 0);
 const totalCost = cost => COST_KEYS.reduce((a, k) => a + (cost[k] || 0), 0);
 /** 16:30, the start of the evening discharge window (PAR_BATT_DISCHARGE_H): where the battery's level is compared. */
@@ -178,6 +182,11 @@ export function followSeed(scenario, seed, o) {
   row.refused = day.said.length - row.actions;
   row.kinds = kinds;
   row.battAt1630 = batt;
+  // the city levers booked (2b) and the day's ALL-IN (Q-48)
+  const flex = lever => day.said.filter(x => x.accepted && x.action.type === 'flex' && x.action.lever === lever).length;
+  row.soaks = flex('soak'); row.aircons = flex('aircon');
+  const hh = scenario.city.suburbs.reduce((a, x) => a + x.households, 0), you = allIn(day.score, hh);
+  row.allIn = you.total;
   if (o.lines) row.lines = day.said.map(x => hhmm(x.s) + ' [' + x.level + ' ' + x.kind + (x.accepted ? '' : ' REFUSED') + '] ' + JSON.stringify(x.action) + '  ' + x.text);
   row.stops = [];
   if (o.stops !== false && o.follow !== false) {
@@ -191,8 +200,10 @@ export function followSeed(scenario, seed, o) {
     const until = o.untilH === undefined ? undefined : Math.round((o.untilH - V.DAY_START_H) * V.S_PER_H * V.TICKS_PER_S);
     let parBatt = null;
     const p = runPar(seed, scenario, {untilTick: until, onStep: st => { if (parBatt === null && st.tick >= EVENING_S * V.TICKS_PER_S) parBatt = st.battery.socMWh; }});
+    const pa = allIn(p.score, hh), g = p.black ? null : grade(you, pa, day.st.black);
     row.par = {black: p.black, unservedMWh: p.score.unservedMWh, cost: Object.fromEntries(COST_KEYS.map(k => [k, p.score.cost[k] || 0])),
-      planCost: planCost(p.score.cost), totalCost: totalCost(p.score.cost), battAt1630: parBatt};
+      planCost: planCost(p.score.cost), totalCost: totalCost(p.score.cost), battAt1630: parBatt, allIn: pa.total};
+    row.points = g ? g.points : null;
   }
   row.secs = Number(process.hrtime.bigint() - t0) / 1e9;
   return row;
@@ -238,8 +249,10 @@ function table(rows, cols) {
 function report(o, scenario, rows, wallS) {
   console.log('\n' + (o.follow ? 'the hint-following player' : 'a day with no input') + ' on ' + scenario.id + ' (SIM ' + SIM_VERSION + '), ' + rows.length + ' seeds, wall ' + wallS.toFixed(0) + ' s; costs in $1,000');
   const cols = [['seed', r => r.seed], ['day', r => r.day], ['black', r => (r.black ? 'BLACK ' + r.endsAt : '')], ['unserved MWh', r => f1(r.unservedMWh)],
-    ...COST_KEYS.map(k => [k, r => k$(r.cost[k])]), ['plan cost', r => k$(r.planCost)], ['total', r => k$(r.totalCost)]];
-  if (o.par) cols.push(['par plan cost', r => k$(r.par.planCost)], ['par total', r => k$(r.par.totalCost)], ['par unserved', r => f1(r.par.unservedMWh) + (r.par.black ? ' BLACK' : '')]);
+    ...COST_KEYS.map(k => [k, r => k$(r.cost[k])]), ['plan cost', r => k$(r.planCost)], ['total', r => k$(r.totalCost)], ['soak / air-con', r => r.soaks + ' / ' + r.aircons],
+    ['ALL-IN', r => k$(r.allIn)]];
+  if (o.par) cols.push(['par plan cost', r => k$(r.par.planCost)], ['par total', r => k$(r.par.totalCost)], ['par ALL-IN', r => k$(r.par.allIn)], ['points', r => r.points ?? 'n/a'],
+    ['par unserved', r => f1(r.par.unservedMWh) + (r.par.black ? ' BLACK' : '')]);
   cols.push(['batt 16:30 MWh', r => f1(r.battAt1630) + (o.par ? ' / par ' + f1(r.par.battAt1630) : '')], ['actions', r => r.actions], ['STOPs', r => r.stops.length], ['s', r => r.secs.toFixed(1)]);
   table(rows, cols);
   if (o.lines) for (const r of rows) console.log('\nseed ' + r.seed + ' (' + r.day + '): lines that carried an action\n  ' + (r.lines.join('\n  ') || '(none)'));
@@ -258,13 +271,15 @@ function report(o, scenario, rows, wallS) {
   table(types.concat(types.length > 1 ? ['all'] : []).map(d => {
     const g = d === 'all' ? rows : rows.filter(r => r.day === d);
     const clean = g.filter(r => r.unservedMWh === 0 && !r.black).length, black = g.filter(r => r.black);
-    const dp = o.par ? dearerThanPar(g) : null;
+    const dp = o.par ? dearerThanPar(g) : null, pts = g.filter(r => r.points !== null && r.points !== undefined).map(r => r.points);
     return {d, n: g.length, clean: clean + ' (' + pct(clean, g.length) + ')', black: black.length + (black.length ? ': ' + black.map(r => r.seed).join(', ') : ''),
       un: f1(median(g.map(r => r.unservedMWh))) + ' / ' + f1(Math.max(...g.map(r => r.unservedMWh))), plan: k$(median(g.map(r => r.planCost))), total: k$(median(g.map(r => r.totalCost))),
       par: o.par ? k$(median(g.map(r => r.par.planCost))) + ' / ' + k$(median(g.map(r => r.par.totalCost))) : '-', dearer: dp ? dp.dearer + ' of ' + dp.of + (dp.na ? ' (' + dp.na + ' black: n/a)' : '') : '-',
-      stops: g.reduce((a, r) => a + r.stops.length, 0)};
+      stops: g.reduce((a, r) => a + r.stops.length, 0), city: g.filter(r => r.soaks).length + ' / ' + g.filter(r => r.aircons).length,
+      pts: pts.length ? median(pts) + ' (' + Math.min(...pts) + '-' + Math.max(...pts) + ')' : '-'};
   }), [['day type', r => r.d], ['n', r => r.n], ['zero unserved', r => r.clean], ['black', r => r.black], ['unserved MWh (median / max)', r => r.un],
-    ['plan cost (median)', r => r.plan], ['total (median)', r => r.total], ['par plan / total (median)', r => r.par], ['player dearer than par (plan cost)', r => r.dearer], ['STOPs', r => r.stops]]);
+    ['plan cost (median)', r => r.plan], ['total (median)', r => r.total], ['par plan / total (median)', r => r.par], ['player dearer than par (plan cost)', r => r.dearer], ['STOPs', r => r.stops],
+    ['days soaked / cycled', r => r.city], ['ALL-IN points (median, range)', r => r.pts]]);
 }
 
 async function main() {

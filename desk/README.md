@@ -274,7 +274,11 @@ Control and target ids (stable; tiles, tray buttons and glow sets use them):
 `lever-coal lever-ccgt lever-gta lever-gtb lever-gtc wheel-hydro dial-battery ring-guard
 knob-tie key-rert btn-dr key-shed key-agc btn-redispatch guard-start-<unit>
 guard-stop-<unit> bay-sync bay-restore gauge-n1 dial-freq bar-imbalance annunciator tray
-stack map`.
+stack map suburb-<ID> suburb-card btn-suburb-close city-<ID>-soak city-<ID>-aircon`.
+
+2b (§31.3.8): `suburb-<ID>` is a suburb on the map and its card (bare id `HAZ` in `vm.suburb`),
+`suburb-card` the card itself, `btn-suburb-close` its ✕ (wave 2 keeps it: tests/cardshell.test.js
+presses it), `city-<ID>-soak` and `city-<ID>-aircon` the card's presses.
 
 ---
 
@@ -376,7 +380,7 @@ bounding-box test proves no building sits outside the terrain.
   0.9/1.4/2.2 kHz, 120 ms decay, thud). ≤32 nodes. `audio/model.js` holds the pure parts
   (partial frequencies from f, envelopes) for tests.
 * **`app/perf.js`**: `?perf` overlay: frame ms p50/p95, sim ms, draw ms per module, ticks per
-  frame (F-11).
+  frame (F-11); on demand under `?perf` (Q-49).
 * **`content/text.js`**: new §8.2 entries for A-1 (RE-DISPATCH), the synchroscope's speed,
   and the anchors of the new desk elements (H-14).
 
@@ -567,11 +571,12 @@ every control needs a keyboard route and a way to reach it:
 | annunciator | A / Shift+A; tiles are buttons (Enter focuses the target) | — |
 | tray | M; cards' buttons are buttons | — |
 | Live Stack | L (again: expand); number selects a layer, arrows move one snap step, Enter drops (L-4, already there) | — |
-| map | Tab from the stack, or focus; ←→ cycles plants and suburbs (sets the hover cross-highlight and shows the label), Esc leaves | — |
+| map | Tab from the stack, or focus; ←→ cycles plants and suburbs (sets the hover cross-highlight and shows the label); Enter presses the hovered plant or suburb as a click does (a suburb opens its card; not under RESPOND or in the briefing, 2b); Esc leaves | — |
 | settings | `,` | native sliders and checkboxes |
+| suburb card (2b, Q-56) | H (opens the line's or the hovered suburb, else the last, else the first; again: closes), or a click on a suburb | ←/→ the previous / next suburb, ↑/↓ its row presses (RESTORE, CANCEL, BOOK), - / = the focused row's time by 15 min, Enter presses (in the briefing it takes the desk); PgUp/PgDn, Home, End, Tab, S, X and P are kept from the desk (the lever behind it never moves); Esc or H closes |
 
-Free letters the desk agent may claim for new routes: G, O, B, K, V, N. Document every key in
-the file header and in `aria-keyshortcuts`. The shell forwards every key to `desk.key` first,
+Letters still free for new routes: I, J, Y (G, O, B, K, V, N are the desk's; H is the suburb card's). Document every key in
+its §31.8 subsection (Q-49) and in `aria-keyshortcuts`. The shell forwards every key to `desk.key` first,
 so desk-claimed keys just work without the shell knowing them.
 
 Roles: levers, wheel, ring, knob, magnitude = `role="slider"` with `aria-valuemin/max/now` and
@@ -773,7 +778,7 @@ written; where a line here is oddly specific, a measurement is behind it.
 | C-8 | P-12: what does a block shed, what counts as unserved, do reverse-flowing blocks trip? | Relay MW (`phys.shedMW`, the `ufls` / `shed` records) is the dark districts' **net** load and may be near zero or negative at noon. **Unserved energy is the dark customers' underlying load** (their rooftop is off with the feeder): a new accumulator `acc.unservedMWs`. Blocks are static and trip regardless of flow (labelled: South Australia has disarmed reverse-flowing circuits since 2021). Restored inverters wait `ROOF_RECONNECT_S` (60 s) and then ramp over `ROOF_RAMP_S` (360 s), so a restore picks up the full underlying load first. | The static scheme is the AEMO concern the spec cites (Victoria, 28 Nov 2021: 26%). LIGHTS ON must not fall because the sun is out. |
 | C-9 | What do the MSL thresholds test, and where do notices live? The spec lists a 13th tile; the panel is 4 × 3 and twelve is pinned in three places. | `state.msl`: the minimum forecast operational demand (P50) over the 4.5-h window (and now), against MSL1/2/3 = 1,600 / 1,300 / 1,000 MW, each **raised by 300 MW while the tie is out** (no export sink). A `log` record on every change of level; never a news item (news is weather). **Twelve tiles stay**: MIN GEN becomes real (power is being spilled now); MSL levels are MARKET NOTICE tray cards that say the one thing this desk can do, and at MSL2 and MSL3 the objective's STOP is a security call, not a saving. Most MSL1 notices will follow a contingency (tie out, potline off); stage C rewords P-4's lead clause. | AEMO's floors vary with the network; "MSL3 only with a noon contingency" then holds for a tie trip too. A tile for a forecast would chatter (K-8: ≤ 8 alarms a day). |
 | C-10 | The player's belly decision (Q-18's gap: "every unit is committed by midday, nothing is ever stopped"; "no warning before a press"). | The objective line gains **STOP** ("RIVERTON CCGT 2 is not needed until 16:10. Stop it: saves about $41,000. Start it again by 15:21."), **BATTERY** (charge while power is being spilled or the price is ≤ $0; charge before the evening when the evening needs it; discharge when gas is setting the price or the plan is short), a reserve-diesel stand-down, and a **commit-later** line for the hours beyond the 4.5-h window. It looks to the end of the day (`dayAhead`). Gas only: never coal, never hydro. **Before any guarded press**, hovering, focusing or lifting a START / STOP guard shows what the press will do (`vm.consider`): "STOP MT HAZEL 3: off the grid in 1 h 10, and not back at minimum load before 21:14. Tonight's peak would be 420 MW short." | A decision with a lead time, told plainly, on every day type: fuel saved now against a restart later; free power stored against power spilled. The coal lever's trap is real and is now said before the press. |
-| C-11 | L-5's blue over-reports (it counts price-taking imports: 10 blue columns at $26 with nothing spilled). | Blue = **projected spill**, the same arithmetic as C-6 on the projection: committed minimums + forecast wind and utility solar (after the manual LIMIT) − (P50 + export room + the charge `project()` steps from the present battery order), where > `SURPLUS_MIN_MW` (50). Export room is `fc.exportLimitMW[q]`, 0 while the tie is tripped. Its own array and run list (`proj.surplusMW`, `blueRuns`), never a kind in `proj.gap`. From P50, not P10, in 2a. | Blue should mean "this will be wasted": the thing the player can act on. It then agrees with what the sim spills. |
+| C-11 | L-5's blue over-reports (it counts price-taking imports: 10 blue columns at $26 with nothing spilled). | Blue = **projected spill**, the same arithmetic as C-6 on the projection: committed minimums + forecast wind and utility solar (after the manual LIMIT) − (P50 + export room + the charge `project()` steps from the present battery order), where > `SURPLUS_MIN_MW` (50). Export room is `fc.exportLimitMW[q]`, 0 while the tie is tripped (2b final review V-1: the export the plan sets on the tie, capped by `fc.exportLimitMW[q]`; a plan that exports under the cap spills the rest). Its own array and run list (`proj.surplusMW`, `blueRuns`), never a kind in `proj.gap`. From P50, not P10, in 2a. | Blue should mean "this will be wasted": the thing the player can act on. It then agrees with what the sim spills. |
 | C-12 | S-14 as written; minimum down time. | Rule 2 (charge when the price ≤ $0) joins `rule6` as a union with its window. Rule 3 is reworded: export to the cap, charge, and the dispatch curtails the rest (C-6): nothing for par to send (the neighbour's price is never negative, so the rule as written cannot fire). Rule 4 (coal) joins `rule4`: stop one coal machine only if MSL2 is forecast for ≥ 3 h **and** the evening holds N-1 without it; it is expected never to fire on real days (report the count; do not tune it to fire). Rules 1 and 5 wait for 2b. Origins stay `rule1`–`rule9`. Minimum down time keeps the code's convention: from breaker open to the next START order (54 min longer for coal, 39 min for a CCGT, than breaker to breaker): a coal STOP at 10:00 is back at minimum load at 21:14, one at 05:00 at 17:54. Every text computes it from the unit's own times; stage C rewrites SPEC P-9's sentence and labels it. | Buildable, measurable, and no new rule names for the tests to chase. |
 | C-13 | `SIM_VERSION`, the golden. | Stage A: `v4-core-2a.0` (new state shape; CLASSIC numbers unchanged, only hashes) and a golden re-record. The integrator re-records again at the wave-1 merge (C-7 moves CLASSIC), so wave 2 starts green. Stage C: `v4-core-2a.1` after tuning. **No wave agent bumps the version or re-records the golden.** | One generated file, one writer. |
 | C-14 | Is a do-nothing weekend allowed to pass? (On a mild weekend the DESK 04:00 fleet nearly covers the evening.) | No. `desk-weekend` has its own, leaner 04:00 commitment: **coal 4 off since Friday night** (three coal at 540 MW, CCGT 1 at 480 MW, hydro balancing). The weekend's lead-time decision: bring the fourth coal machine back by mid-afternoon (cheap all evening, but another 240 MW of minimum in tomorrow's belly), or run gas tonight. The no-input day must fail on both scenarios; stage C tunes the commitment (scenario data only) if it does not. | Q-18: the best move must never be to touch nothing. Coal units are decommitted over low-demand weekends. |
@@ -812,8 +817,8 @@ day          = {temp, weekend}                   // public (C-2); capacity-0 sce
 env         += rooftopMW,                        // every suburb, as if every inverter were connected; 0 at capacity 0
                roofSubMW: [nSub],                // zeros at capacity 0
                roofClearFrac: [nSub]             // ones at capacity 0
-               // identity each grid second (P-1, flex = 0 in 2a):
-               //   demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW)
+               // identity each grid second (P-1; flex = 0 in 2a, 2b adds env.flexMW: §31.3.4 I1):
+               //   demandMW = underlyingMW + flexMW - rooftopMW - (SMELTER_MW - smelter.loadMW)
                // env.demandMW stays THE operational total: what tests poke and every consumer reads
 city        += roofDarkMW,                       // rooftop MW off because its district is dark
                roofOffMW                         // off in total: dark, or relit and still waiting / ramping
@@ -836,15 +841,15 @@ conts[].pre, conts[].caught, previewTrip's caught += inverterMW   (last key)
 `fleet.refreshRoof(state)`, recomputes `roofDarkMW` and `roofOffMW` over all districts from
 `env.roofSubMW`; `setDistrictDark` calls it and so does `grid.fosSecond` beside `refreshColdLoad`.
 
-Formulas `sim/physics.js` and `sim/market.js` share. With rooftop zero and the C-7 flags off every
-one equals today's value exactly; keep the operation order as written:
+Formulas `sim/physics.js` and `sim/market.js` share. With rooftop and flex zero and the C-7 flags
+off every one equals today's value exactly; keep the operation order as written:
 
 ```
-G        = env.demandMW + env.rooftopMW                         // the total before rooftop
-relay shed (phys.shedMW)  = G * shedFrac - city.roofDarkMW
-served   (phys.servedMW)  = G * (1 - shedFrac) - (env.rooftopMW - city.roofOffMW) + coldLoadMW - dr.mw
-unserved rate             = G * shedFrac                        // into acc.unservedMWs -> score.unservedMWh
-fleet.litDemandMW(state)  = G * (1 - shedFrac) - (env.rooftopMW - city.roofOffMW)   // market demand's first term; obs.demand.litMW
+G0       = fleet.baseLoadMW(state) = env.demandMW + env.rooftopMW - env.flexMW   // before rooftop, flex out (2b, §31.3.4 I2)
+relay shed (phys.shedMW)  = G0 * shedFrac + city.flexDarkMW - city.roofDarkMW
+served   (phys.servedMW)  = G0 * (1 - shedFrac) + (env.flexMW - city.flexDarkMW) - (env.rooftopMW - city.roofOffMW) + coldLoadMW - dr.mw
+unserved rate             = G0 * shedFrac                       // into acc.unservedMWs -> score.unservedMWh
+fleet.litDemandMW(state)  = G0 * (1 - shedFrac) + (env.flexMW - city.flexDarkMW) - (env.rooftopMW - city.roofOffMW)   // market demand's first term; obs.demand.litMW
 
 C-7 readouts (pure functions of state and the tick's start frequency f, except the hold):
 renPfrMW  = min(out, max(0, f - F0 - GOV_DEADBAND_HZ) / (GOV_DROOP * F0) * (WIND_MW * (1 - ofgs.trippedFrac) + SOLAR_MW))
@@ -865,8 +870,9 @@ solarAutoMW`, to `score.spillMWh`. `obs.wind.outMW` / `solar.outMW` are after th
 and the automatic cut, before the frequency response.
 
 `fleet.districtColdLoadMW(state, d)` keeps its signature: for a dark district, the **undelayed
-underlying pickup** (G × share × the cold factor, no rooftop netted off); for a lit one, its net
-load now. The previewTrip backup, save and restore gain every field above that the engine or
+underlying pickup** (G0 × share × the cold factor, no rooftop netted off); for a lit one, its net
+load now; both add the district's `flexShare = env.flexSubMW[sub] × roofFrac` (2b, §31.3.4 I3), and
+the restore surge is `max(0, coldMW − G0 × share − flexShare)`. The previewTrip backup, save and restore gain every field above that the engine or
 `setDistrictDark` writes, in the change that makes them written.
 
 ### 19.3 `observe()` additions, in this order (exact expressions)
@@ -875,15 +881,15 @@ load now. The previewTrip backup, save and restore gain every field above that t
 balance   += renPfrMW, roofPfrMW                              (after shedMW)
 demand    += underlyingMW, rooftopMW, litMW, unservedMW       (after tempC)
              // nowMW = env.demandMW; underlyingMW = env.underlyingMW; rooftopMW = env.rooftopMW (as if connected,
-             // so nowMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW) holds in obs);
-             // litMW = fleet.litDemandMW(state); unservedMW = G * shedFrac
+             // so nowMW = underlyingMW + flexMW - rooftopMW - (SMELTER_MW - smelter.loadMW) holds in obs, flexMW from 2b);
+             // litMW = fleet.litDemandMW(state); unservedMW = G0 * shedFrac
 wind      += autoMW        solar += autoMW                    (last)
 score     += spillMWh                                         (after starts; §30.7 adds saidiMin, saifi, maifi after it)
 districts[] += reconnectS                                     (last; the number, passed through)
 contingency.pre, contingency.caught += inverterMW             (last)
 forecast, dayAhead += underlyingP50, rooftopMW                (after exportLimitMW; arrays of length n)
              // demandP50 / P10 / P90 stay OPERATIONAL; rooftopMW as if connected, after the heat derate;
-             // underlyingP50 = demandP50 + rooftopMW + the smelter's expected missing load; solarMW stays utility-only
+             // underlyingP50 = demandP50 - flexMW (2b, §31.3.7) + rooftopMW + the smelter's expected missing load; solarMW stays utility-only
 top level, after scope:
 rooftop    = {mw, availMW, capMW, offMW, suburbs}
              // availMW = env.rooftopMW; offMW = city.roofOffMW; mw = availMW - offMW - phys.roofPfrMW (generating now);
@@ -915,6 +921,7 @@ through `content/text.js` entries with `params` paths.
 * capacityShort(obs, fc = obs.forecast)         // any forecast-shaped object
 * objective(obs, ctx): ctx += dayAhead          // observe(state, {dayAhead: true}).dayAhead, on the objective's 30-s cadence
 * vm.objective += kind, long                    // kind: 'watch' | 'held' | 'short' | 'commit' | 'restore' | 'spare' | 'stop' | 'battery' | 'quiet'
+                                                //   | 'city' (2b, Q-59: the city levers; KIND_WORD '◇ SUBURB (H)')
                                                 // long: {atS, endS, mw} | null, the spill ahead (PV.blueRuns(proj)[0])
   vm.objective.action += {type: 'stop', unit} | {type: 'battery', mode, mw} | {type: 'standDownRERT'}   (sim inputs; the game never sends them)
 * vm.consider = {target, text, level} | null    // C-10; level 'plan' | 'crit'; shown in #objective in place of the objective, word '? IF PRESSED'
@@ -1526,7 +1533,8 @@ a second agent. Three findings were real and major; the rest were minor or docs.
 * **Blue with the player's terms on** is a default-suite row now (DR and a DISCHARGE order, then a
   CHARGE order, against the cut the sim then makes: within 0.4 MW in every column). Any new C-6
   term (2b's soak, air-con cycling) goes into `sim/grid.js` `surplusMW`, `app/planview.js` and
-  this row.
+  this row. (Superseded for 2b by §31 Q-50: flex is in operational demand, not a C-6 term; only
+  the row gained a soak case.)
 
 **Fixed, the app** (`app/objective.js`, `app/system.js`, `app/game.js`, `render/livestack.js`,
 `tools/perf.mjs`, tests):
@@ -2080,3 +2088,1262 @@ Changes for the wave (they override §30.2–§30.7 where they differ):
   `app/shell.js`: Esc, Space, W, A, Shift+A, ?, `,`, Shift+M, F) and keys inside SETTINGS.
 - **Budget after the wave:** about 394 KB if every agent stays inside its share, leaving about
   6 KB for slices 2b–2e. Risk 11 is eased, not closed; the integrator records the measured figure.
+
+---
+
+# Slice 2b: the city levers (contract)
+
+## 31. The city levers: HOT WATER SOAK at noon, AIR-CON CYCLE in the evening (contract, 2026-10-09)
+
+The owner, 2026-10-09: "let's go with the next feature please". By the Phase 2 slice table that
+is **2b, the city levers**: SPEC U-1 (six suburbs), U-2 (levers; Phase 2 ships HOT WATER SOAK
+and AIR-CON CYCLE with pre-cool), U-3 (flex on the Live Stack), U-4 (patience), U-6 (customer
+cost) and S-14 rules 1 and 5 (par soaks on an MSL1 forecast; par aims evening flex at the
+operational peak).
+
+How we read it (workflow `wf_29727424-408`: seven readers and two critics; reports kept in the
+session scratchpad, `u2b/`):
+- **The model already has its slots.** P-1's `flex` term (`sim/weather.js`, built as 0),
+  `score.cost.flex` (`sim/market.js`, never accrued), the forecast that every consumer reads,
+  and the S-4 barrier that makes par read `observe()` only.
+- **Flex goes into operational demand and the forecast, nowhere else (Q-50).** Then the blue
+  SURPLUS run, the gaps, the price, the MSL notices, par's plan and the objective line all
+  answer a booking the next frame, with no second term to keep in step. desk/README §28's line
+  "any new C-6 term (2b's soak, air-con cycling) goes into `surplusMW`, `app/planview.js` and
+  this row" is **superseded**: a second term would count the flex twice. Only the test row
+  stays (blue with a soak booked).
+- **True-scale flex is too small to see.** At the 1280×600 floor the stack is about 63 MW a
+  pixel; one suburb's air-con relief is under a pixel and its snapback under half. So the stack
+  marks blocks with a minimum-height band and a code, and the card says the rebound in words.
+- **The first visit cannot hold 2b as things stand.** 5,212 B are left; 2b costs about 6.5–9 KB
+  eager even written tersely (2a's yardstick: 20–26 B of gzip per net line of sim code, 54 B per
+  params record). 154 KB of the 395 KB first visit is comments (Q-49).
+- **The spec has gaps 2b must close:** who picks the levers by day type; the soak cap
+  contradicts itself (U-2 "cap", U-4 "−15 if exceeded"; a full tank cannot take more); the
+  soak's "credit" has no value and any positive value double counts the night fuel the sim
+  already saves; when and where "that night's heating falls"; pre-cool optional or not; patience
+  recovery erases start patience by mid-afternoon; the ticker and the petition have no surface
+  until U-8. Decisions Q-49–Q-60 close them.
+
+Realism, checked (spec-realism report; sources go to SPEC §8.1 at stage C):
+- **Hot water.** SA Power Networks' solar sponge was 10:00–15:00 (now 09:30–16:30 from 1 Jul
+  2025); Ausgrid and Powercor moved controlled load to daytime in 2024–25. Scaling the UNSW/PLUS
+  ES estimate (10.5 GWh/day shiftable across the NEM, ~4 M tanks) to 1.9 M households gives
+  about 2 GWh/day, against U-2's 1.9 GWh: the soak MW and the cap are plausible. AEMO's MSL
+  framework calls on controlled load at **MSL3**; DNSPs also turn hot water on in MSL events.
+  A soak par books at MSL1 is foresight, labelled.
+- **Air-con.** PeakSmart: 155,738 air-cons, 107 MW at a 50% cap, events about 16:00–19:00.
+  Measured snapback is 17–35% of the event energy (SDG&E 2008) to about 40–50% (SCE 2019), and
+  front-loaded; U-2's 60% is the top of the field. Relief exists only where air-cons run, and a
+  MILD day (P-3) has removed its cooling load.
+- **Patience.** Opt-outs are real: 0.3% for the SA hot-water trial, about 13% thermostat
+  overrides that grow with event length. The magnitudes are game tuning (U-4 says so).
+
+### 31.1 Decisions (owner-delegated, "most fun within realism"; SPEC §9.1 at stage C)
+
+| # | Decision | Why |
+|---|---|---|
+| **Q-49** | **Budget: prose leaves the shipped files before the wave.** Stage A moves the leading header comment of the ten largest first-visit files (`sim/autopilot.js`, `sim/physics.js`, `app/objective.js`, `desk/desk.js`, `render/map.js`, `render/livestack.js`, `sim/grid.js`, `app/keys.js`, `sim/params.js`, `app/alarms.js`; about 16.0 KB gzip) into the READMEs, each file keeping its first line and a pointer; `app/perf.js` loads on demand under `?perf` (−1.8 KB). F-11 stays 400 KB. Every 2b agent writes **terse** code (one-line comments, params notes ≤ 80 characters, the reasoning in the READMEs) and keeps to its eager share (§31.2). | Keeps F-11 literally true with no build step (C-1) and no change the player can see, and leaves about 14 KB for 2c–2e. Raising F-11 stays the owner's call if they would rather keep the headers in the files. |
+| **Q-50** | **Flex is operational demand.** A booked block's MW is added to `env.demandMW` and to the forecast's P50/P10/P90 (P-1: op = U × heat + flex − R + noise), and to nothing else. It is never in `underlyingMW` and never unserved (S-1): a dark district's flex simply stops, suburb by suburb. | Every press answers on instruments the player already reads: blue shrinks, a gap closes, the MSL card clears. One term, so nothing double counts. |
+| **Q-51** | **The menu by day type:** HOT WATER SOAK every day; AIR-CON CYCLE on HOT days only (a heatwave reads HOT). Data in the scenario (`levers.menu`), keyed by `day.temp`; the director (2c) may take it over. | A MILD day has no cooling load to relieve (P-3 removed it), so the lever would relieve load that is not there. MILD days become a belly puzzle and HOT days an evening one, and a stranger sees one or two levers a day (U-2's "≤ 3, by day type"). |
+| **Q-52** | **HOT WATER SOAK:** one block per suburb per day, **4 h**, starting 10:00–11:00 on a 5-minute mark (the 10:00–15:00 window), 15-min ramps, at the suburb's U-1 MW (no patience factor: the tanks are switched by relay). **That night's heating falls by the booked energy, spread over 22:00–04:00** (simplified: it ignores standing losses and districts dark during the soak). No patience cost, no payment (SOAK_PRICE 0). A booking can be cancelled until its first MW, not after. The 1.9-GWh cap is structural: six 4-h blocks are 1.8 GWh delivered, so there is no cap bookkeeping and no "−15". | The real choice is how much of noon's spill goes into tanks rather than the battery, and the soak's reward arrives as the night fuel the sim saves. No credit, so nothing is counted twice and the lever does not always pay. A fixed block lets the player decide by suburb, without a form. |
+| **Q-53** | **AIR-CON CYCLE (pre-cool bundled):** relief **1.5 h** at the suburb's U-1 MW × its response, starting 15:00–19:30 on a 5-minute mark (ending by 21:00). Pre-cool always runs in the hour before (+50% of the relieved energy). The **snapback returns 40% of the relieved energy over the 1.5 h after, front-loaded** (falling linearly). 15-min ramps. A suburb may be cycled again once its last relief has ended (a later cycle's pre-cool may run over the earlier snapback; so two cycles fit when the first starts by 17:00), if its patience allows. Customers are paid $400/MWh of relief delivered (lit). A booking can be cancelled until its pre-cool starts, not after. | Aim is the decision: centred on the operational peak (19:30 on the measured days) the snapback lands after it; centred on the pre-PV peak (18:40–18:55) it lands on it. 40% is inside the measured 17–50% and still punishes a bad aim. A bundled pre-cool removes an option that was strictly worse as written. |
+| **Q-54** | **Patience:** each suburb starts at its U-1 value. An air-con booking costs 10, plus 5 for each air-con block that suburb has booked at the time; a soak costs 0. An air-con booking delivers × (PATIENCE_FULL + p) / (2 · PATIENCE_FULL) (= 0.5 + p/100) when the suburb's patience p before it is below 50; `effMW` is fixed at booking. The suburb's air-con is locked while its patience is below 25. A cancel refunds that block's own stored cost (so a refund can lift a lock, and a re-booking is priced afresh). Every change is a `PATIENCE` record with its cause. **No recovery, no petition and no ticker in 2b:** recovery moves to W-2 (Week mode, where it matters across days); the petition and U-4's "≥ 3 ticker lines" move to U-8 (the ticker, Phase 3). | Patience bites on a second cycle (a suburb fits two in the window): Tallowood (40) delivers 90% the first time and 80% the second, and ends the day at 15; Harbourside (50) delivers 100% then 90%. "+5 per idle hour" from 04:30 would erase every start value by 16:30. |
+| **Q-55** | **Costs (U-6):** `AIRCON_PRICE` $400/MWh relieved, `SOAK_PRICE` $0, both labelled simplified. The Phase 3 rows (EV, VPP, backstop) are not added until their levers are. Pre-cool and snapback energy is bought like any other load. | The ladder reads AIR-CON $400 < DR $1,400 < RERT $16,000 < VCR $30,000. Air-con loses money against a running gas turbine, so it is a reliability tool, not a habit. |
+| **Q-56** | **The suburb card.** A click on any suburb (or Enter on a keyboard-hovered suburb, or **H**) opens its card on the left of the map; it loads on demand (Q-44 pattern). It shows the suburb's name, households, personality line, patience, its draw and its roofs (the old click label), one row per offered lever: each booked block of it (times, the consequence in words, and CANCEL until it is under way), then, while a booking is possible, the aim for the next one (◀ ▶ 15-min steps inside `[fromS, toS]`, BOOK, its MW and cost). The consequence: tonight's heating fall for the soak; pre-cool, snapback, payment and patience for air-con. For air-con a verdict line (§31.9.4). **A booked block is never moved in place:** CANCEL, re-aim, BOOK. A click on a suburb with dark districts keeps Q-42 (it focuses the RESTORE bay) and also opens the card, which shows an "n DARK: RESTORE" line first without taking the focus. The card does not hold the clock and hides during the watch (§31.9.3). It never sends in the briefing, the watch or after the day: those answer in blue. | One place per suburb, reachable by mouse and keyboard, and one press per lever with the aim pre-filled. The verdict line carries U-2's rebound lesson that the stack cannot draw. |
+| **Q-57** | **Stack and map.** The skyline carries flex already (Q-50). Each booked block adds a band at least 4 px tall along the skyline over its core, in one "city flex" pattern with the suburb's code; pre-cool, snapback and the night fall are dashed ghosts. **No drag in time in 2b** (the card's steps do it; U-3's drag waits for 2d or Phase 3). **No suburb colours** (twelve layer and four status colours are taken; K-22 needs a pattern and a code anyway). The map shows a booked mark on a suburb and its patience when below 50, and glows a suburb the objective names. | Readable at the floor without adding hues; the band says where the block is, the skyline says what it does. |
+| **Q-58** | **Par (S-14 rules 1 and 5), narrow.** Rule 1 sits first in `rule6`: on the MSL1 notice (`obs.msl.level ≥ 1 && obs.msl.atS > obs.s`) it soaks the offered, free suburb with the most effective soak MW, aimed at the forecast minimum, one suburb per decision while the notice stands. Rule 5 sits in `rule8`, after its present-gap DR branch and before `armRERT`: when the walk is short in the evening and air-con is offered, it cycles the free suburb with the most effective relief, aimed at the operational peak of the no-flex line, one per decision, and re-walks before arming RERT. Origins stay `rule6` and `rule8`. Par does not soak on spill alone. | Par stays a fair reference: a stranger who never opens the card is not punished, and a player who soaks noon's spill earns a reachable edge (about +5 ALL-IN points on a spill day). |
+| **Q-59** | **The objective line names the levers.** A new kind `city`: a soak line beside `battery` when a spill run or an MSL1 notice lies ahead in the soak window and an offered suburb is free; an air-con branch inside `shortAhead`, before DR. Targets are `suburb-<ID>`; `action` is the full `flex` input. | Before 2e's introductions, the line is the only way a stranger learns the card exists. It offers air-con only against a shortfall, never as an evening habit, so it does not teach a points trap. |
+| **Q-60** | **The tray.** The MSL1 and MSL2 cards name the soak and carry a SUBURBS button that opens the card (presentation only, K-9). `PATIENCE` and `FLEX_*` records go to the LOG through a new log-only route; a suburb locking is an info card. | The notice says the one thing this desk can do about it (P-4), and U-4's "every change logs a cause" is visible. |
+
+### 31.2 Who builds what, and in what order
+
+Stage A (`base`) ends like 2a's: the integrator merges `2b-base` into `city-levers`, bumps
+`SIM_VERSION` to `v4-core-2b.0` (the shapes, neutral values) and re-records the golden, so wave 1
+(`sim`) starts green. Wave 1 adds no state field, so on CLASSIC its golden cells, hashes
+included, stay those of `v4-core-2b.0`. Then wave 2 runs four agents in parallel on the merged
+sim. Stage C integrates, measures and does the one browser pass. Every
+agent works in its own worktree **fast-forwarded to the branch it builds on** (agent worktrees
+branch from `main`: `git merge --ff-only <branch>` first) and commits on a named branch.
+
+| Owner | Builds on | Files (region) | Eager share |
+|---|---|---|---|
+| **base** (stage A) | `city-levers` | Q-49 header moves (the ten files' leading comments → `sim/README.md` §11 for sim files, desk/README §31.8 for the others) and `app/perf.js` on demand (`app/shell.js`, `tests/budget.test.js`, `tests/next.test.js`, `tests/lib/play.js`); `content/scenarios.js` (`levers`); `sim/params.js` (2b block); `sim/step.js` (state, `SHAPES`, `'suburb'` kind, `observe()` keys); `sim/grid.js` (the two `applyCommand` cases, refusing); `sim/weather.js` (`flexParts`, `flexAt`, zero columns); `sim/autopilot.js` (`aimFlex` only); `app/game.js` (§31.3.8); `app/keys.js` (H); `app/shell.js` (`KIND_WORD`, card mount, `closeTop`); `next.html` (`#suburb-card`); new `app/suburbcard.js` (stub); lists in `tests/state.test.js`, `tests/integration.test.js`, `tests/lib/follow.js`, `tests/next.test.js`, `tools/baseline-v4.js`; `sim/README.md` §5–§8; desk/README §5 ids | ≤ 1.5 KB net of the trims |
+| **sim** (wave 1) | `2b-base` | `sim/weather.js`, `sim/fleet.js`, `sim/physics.js`, `sim/grid.js`, `sim/market.js`, `sim/events.js`, `sim/step.js` (fills only), `sim/README.md`; new `tests/levers.test.js`; deliberate edits in `tests/rooftop.test.js`, `tests/state.test.js`, `tests/market.test.js`, `tests/score.test.js`, `tests/belly.test.js` | ≤ 3.0 KB |
+| **par** (wave 2) | `city-levers` after the merge | `sim/autopilot.js` (rules; `aimFlex`'s body only if a bug), `app/system.js` (`commitSig`), `tools/par.js` (counters); new `tests/par-levers.test.js`; deliberate edits in `tests/autopilot.test.js`, `tests/system.test.js` | ≤ 1.2 KB |
+| **view** (wave 2) | same | `render/map.js`, `render/mapdata.js`, `render/livestack.js`, `app/planview.js` (only if a helper is needed); new `tests/city-view.test.js`; edits in `tests/map.test.js` (the lit-suburb line), `tests/livestack.test.js`, `tests/feedback.test.js` (the two suburb-click lines only) | ≤ 1.4 KB |
+| **card** (wave 2) | same | `app/suburbcard.js` (fill), `app/shell.js` (the card's mount, own keys, focus; nothing else), `next.html` (card CSS), `app/tray.js`, `content/text.js` (+ its cap), `content/anchors.js` (append), `tests/lib/play.js`, `tools/play.mjs`, `tools/README.md`; new `tests/card.test.js`, new `tests/feedback-city.test.js`; edits in `tests/alarms.test.js` (the MSL card lines), `tests/honesty.test.js` (suburb names), `tests/budget.test.js` (caps), `tests/help.test.js`, `tests/keys.test.js` | ≤ 0.8 KB (the rest on demand) |
+| **objective** (wave 2) | same | `app/objective.js`, `tools/follow.mjs`; new `tests/objective-levers.test.js`; edits in `tests/objective.test.js` (kind lists), `tests/seams.test.js` (kind list), `tests/system.test.js` (`PLAN_COST_KEYS` line only) | ≤ 1.0 KB |
+| **integrator** (stage C) | all | merges, `SIM_VERSION`, golden, SPEC.md, desk/README §31.10–§31.11, tools runs, browser pass | — |
+
+Rules for all: never change a §31.3 shape (a needed change is reported, and the integrator
+amends this section); never touch another owner's file or region (if you must, one line, named
+in your report). New tests go in your own new file; edit an existing test only to repair an
+assertion your change breaks deliberately, naming the line. Pre-existing overruns
+(`feedback.test.js` 7.6 s alone, `integration.test.js` 6.3 s, `objective.test.js` 6.0 s, the
+K-8 accept in `alarms.test.js`) are exempt unless you add time to them: add only list entries
+there.
+
+### 31.3 The shared shapes (stage A makes every one real; nobody changes them later)
+
+**31.3.1 Scenario data** (`content/scenarios.js`). `DESK` (and so `DESK_WEEKEND`) gains a
+top-level `levers`; `CLASSIC` gets an explicit `levers: null` (no code infers "none" from
+absence). Suburbs in the city's order, keyed by id:
+```js
+levers: {
+  menu: {MILD: ['soak'], HOT: ['soak', 'aircon']},
+  suburbs: [
+    {id: 'SOL', soakMW: 60, airconMW: 25, patience: 70},
+    {id: 'HAZ', soakMW: 140, airconMW: 15, patience: 90},
+    {id: 'RED', soakMW: 110, airconMW: 45, patience: 60},
+    {id: 'HAR', soakMW: 20, airconMW: 40, patience: 50},
+    {id: 'TAL', soakMW: 90, airconMW: 15, patience: 40},
+    {id: 'SAL', soakMW: 60, airconMW: 10, patience: 80},
+  ],
+},
+```
+The suburbs' personality lines (U-1) live with the card's texts (on demand), not here.
+
+**31.3.2 Params** (`sim/params.js`, a `// ---- phase 2b "levers" (desk/README §31)` block after
+the 2a block). Clock times as unwrapped hours with derived seconds after 04:00, as
+`PLAYER_START_H` / `PLAYER_START_S` are. Every derived time is a multiple of `FC_STEP_S`. Notes
+≤ 80 characters; the reasons live here in §31.1.
+
+| Key | Value | Kind |
+|---|---|---|
+| `FLEX_RAMP_S` | 900 | simplified (switch-on diversity; trials randomise 15–60 min) |
+| `SOAK_FROM_H`, `SOAK_TO_H` → `_S` | 10, 15 | src SAPN solar sponge window |
+| `SOAK_S` | 14,400 | simplified (4 h × 480 MW ≈ U-2's 1.9-GWh cap) |
+| `SOAK_NIGHT_FROM_H`, `SOAK_NIGHT_TO_H` → `_S` | 22, 28 | simplified (night heating, inside the sim day) |
+| `AIRCON_FROM_H`, `AIRCON_TO_H` → `_S` | 15, 21 | simplified (relief window) |
+| `AIRCON_S` | 5,400 | U-2 (≤ 1.5 h) |
+| `PRECOOL_S`, `PRECOOL_FRAC` | 3,600, 0.5 | U-2; unverified |
+| `SNAPBACK_S`, `SNAPBACK_FRAC` | 5,400, 0.4 | src SDG&E 2008 / SCE 2019 (17–50%) |
+| `PATIENCE_AIRCON`, `PATIENCE_REPEAT` | 10, 5 | U-4 (game) |
+| `PATIENCE_FULL`, `PATIENCE_LOCK` | 50, 25 | U-4 (game) |
+| `SOAK_PRICE`, `AIRCON_PRICE` | 0, 400 | U-6, simplified |
+
+**31.3.3 State** (`createState`; plain JSON, fixed keys, sparse):
+```
+levers: {rev: 0, patience: [nSub], blocks: []}   // [] arrays on CLASSIC
+  block: {suburb: 'HAZ', lever: 'soak' | 'aircon', atS, endS, effMW, cost}   // cost: the patience it took
+         sorted by (atS, suburb's city index, lever); atS/endS: core start/end (s after 04:00)
+env.flexMW            // present flex, as if every district were lit (signed)
+env.flexSubMW[nSub]   // the same per suburb
+env.reliefSubMW[nSub] // ≥ 0: the core air-con relief alone, per suburb (what is paid)
+city.flexDarkMW       // Σ over dark districts of their suburb's flex share (fleet's district loop)
+```
+`rev` rises on every accepted booking or cancel. A suburb's next air-con cost counts its
+air-con blocks in `blocks` (a cancel removes one). Locked is derived (patience < `PATIENCE_LOCK`);
+there is no lock flag.
+
+**31.3.4 Invariants** (wave 1 proves each in `tests/levers.test.js`):
+- **I1 (P-1):** `env.demandMW = env.underlyingMW + env.flexMW − env.rooftopMW − smelterGap`
+  every grid second, in that association order (exact when flex is 0).
+- **I2 (S-1):** unserved accrues on `G0 × shedFrac`, where `G0 = fleet.baseLoadMW(state) =
+  env.demandMW + env.rooftopMW − env.flexMW`. Every site that computes `G` today uses the one
+  helper.
+- **I3 (P-12):** a district's flex share is `flexShare = env.flexSubMW[sub] · roofFrac` (signed;
+  `roofFrac` = 1 / the suburb's district count, fleet.js). `city.flexDarkMW` = Σ over dark
+  districts of `flexShare`, kept in `fleet.refreshRoof`'s loop. A dark district's flex stops and
+  resumes at relight only through the fall of `flexDarkMW`. Lit demand is the lit districts' net
+  load plus `env.flexMW − city.flexDarkMW`. `fleet.districtColdLoadMW` adds `flexShare` in both
+  branches (lit: `G0·share + flexShare − roof…`; dark: `G0·share (× the cold factor) +
+  flexShare`), and the restore surge (grid.js and the preview's, physics.js) is
+  `max(0, coldMW − G0·share − flexShare)`: only the cold factor is surge, the whole pickup is
+  `coldMW`. So the R5 permissive, the `restore` record, the preview's `lostMW` and
+  `obs.districts[].coldLoadMW` all show the true pickup. The UFLS record adds `ΔflexDarkMW`; the
+  preview's shed baseline adds `BK.flexDarkMW − city.flexDarkMW`. desk/README §19.2's cold-load
+  line is amended to match.
+- **I3b (previews leave no trace):** `city.flexDarkMW` (and any field the new code in
+  `setDistrictDark`/`refreshRoof` writes) joins physics.js's backup `BK`, `save()` and
+  `restore()`. In the preview, G is taken from the backup (`BK.demandMW + env.rooftopMW −
+  env.flexMW`), not `baseLoadMW(state)` (a guard override has already offset `env.demandMW`).
+  Test: with a soak core and an air-con core under way and a district of each suburb dark (one
+  relit and waiting), every preview kind of belly.test.js, a unit preview that operates UFLS and
+  `grid.restorePermissive(s, d, {preview: true})` each leave `hashState` and the JSON unchanged,
+  and caught sums to `lostMW`.
+- **I4 (neutral):** on `CLASSIC`, and on any day with no block, every value except the state
+  hash is bit-identical to `b6bd6c2`.
+- **I5 (the forecast):** `forecast.flexMW[k]` is the booked flex at column time
+  `fromS + (k + 1) · stepS` (the convention every consumer uses; a reader got it 5 minutes
+  wrong). `demandP50/P10/P90` include it; `underlyingP50` does not. `dayAhead` the same.
+- **I6 (U-3):** each part's integral equals its §31.3.5 energy within 1%, on the sim's knots
+  and on the forecast columns.
+
+**31.3.5 Shapes of a block** (the sim is their only author). `flexParts(block, effMW)` →
+`[{kind, knots: [[s, mw], …]}]`, exported pure from `sim/weather.js`; every knot on the 300-s
+lattice, every part starts and ends at 0 MW. `R = FLEX_RAMP_S`.
+
+| Lever | Part | Knots | Energy |
+|---|---|---|---|
+| soak | `core` (+) | atS:0 → atS+R:M → endS−R:M → endS:0 (endS = atS + SOAK_S) | E = M·(SOAK_S − R) |
+| soak | `night` (−) | 22:00:0 → +R:−D → 04:00−R:−D → 04:00:0 | −E (D from E) |
+| aircon | `precool` (+) | atS−PRECOOL_S:0 → +R:P → atS−R:P → atS:0 | PRECOOL_FRAC · Er |
+| aircon | `core` (−) | atS:0 → atS+R:−M → endS−R:−M → endS:0 (endS = atS + AIRCON_S) | −Er, Er = M·(AIRCON_S − R) |
+| aircon | `snapback` (+) | endS:0 → endS+R:S → endS+SNAPBACK_S:0 | SNAPBACK_FRAC · Er |
+
+`flexAt(blocks, s, suburb = '', kind = '') → MW` sums the parts of `blocks` at `s` in their
+sorted order, filtered by suburb id and part kind (`''` = all), without allocating:
+`env.flexMW` and `forecast.flexMW[k]` use `flexAt(blocks, s)`, `flexSubMW[i]` uses
+`flexAt(blocks, s, id)`, `reliefSubMW[i]` is `−flexAt(blocks, s, id, 'core')` over air-con
+blocks (or with a lever filter, the sim's choice; keep the signature compatible). A block is **under way** from its
+first knot (soak: `atS`; air-con: `atS − PRECOOL_S`).
+
+**31.3.6 Inputs** (`SHAPES`, sim/README §6):
+```
+flex    {suburb: 'suburb', lever: ['soak', 'aircon'], atS: 'second'}
+flexDel {suburb: 'suburb', lever: ['soak', 'aircon'], atS: 'second'}
+```
+- A new arg kind `'suburb'`: an id in `state.scn.city.suburbs`, a shape check only, like
+  `'district'`. A scenario with `levers: null` (CLASSIC) is refused in `grid.applyCommand` as not
+  offered, so `applyInput`'s over-day and watch refusals come first on every scenario.
+- **No rewrites:** `atS` off the 5-minute lattice is refused, never snapped (so replay is a fixed
+  point). `effMW` = U-1 MW × response is computed at booking and stored; the log holds only the
+  input.
+- Refused (exact strings fixed by wave 1 and listed in sim/README §6; stage A refuses both with
+  `'levers are wired in wave 1'`): before 04:30; not offered today; locked; soak already booked;
+  off the lattice or outside the window; too late (its first knot would be in the past);
+  overlaps another air-con block of that suburb (for any two, the later's `atS − PRECOOL_S` must
+  be ≥ the earlier's `endS`, whatever the booking order); `flexDel` of no such block; `flexDel`
+  under way. The
+  watch's and the over-day's refusals stay `applyInput`'s.
+- In `REDISPATCH_AFTER` (`app/game.js`, `tests/lib/follow.js`, `tests/next.test.js`, together).
+  **Not** in `app/system.js` `EDITS` or `HAND_EDITS`, **not** in `FUZZ_TYPES`. In
+  `tests/integration.test.js` (`INPUT_TYPES`, the watch's tries, malformed examples) and in
+  `tools/baseline-v4.js`'s tries.
+
+**31.3.7 `observe()`** (`OBS_SHAPE` and sim/README §8 change together):
+```
+demand:   + flexMW                       (after unservedMW; = env.flexMW)
+forecast: + flexMW[]                     (after rooftopMW; dayAhead the same)
+levers:   (new, after day)
+  {rev, offered: ['soak', …],
+   suburbs: [{id, patience, soak: LV, aircon: LV}],          // city order; [] on CLASSIC
+   blocks:  [{suburb, lever, atS, endS, effMW, cost, del, parts: [{kind, knots}]}]}
+  del: '' when a flexDel of that block would pass grid's checks now, else the exact refusal
+       (the watch's and the day over's stay applyInput's, as for block: 2b final review D7)
+  LV = {mw, cost, fromS, toS, block}
+```
+- `mw`: what a booking now would deliver (U-1 MW × response); `cost`: the patience it would
+  cost; `fromS`/`toS`: the earliest and latest `atS` a booking now may take (on the lattice; −1
+  when none); `block`: `''` when a booking in `[fromS, toS]` would be accepted, else the exact
+  reason one would be refused (the watch and the day over left to applyInput, §31.11). **The card,
+  par and the objective check eligibility only through
+  `block`, `fromS` and `toS`**, never by re-deriving the rules.
+- No field may derive from `ext` (S-4).
+
+**31.3.8 The app's side** (stage A, complete):
+- `G.ui {do: 'suburb', id}`: an id opens that card (or switches to it) and never closes it;
+  `id: null` closes it; with no `id` key (H) it toggles: closed → open the suburb `vm.glow`
+  names (`suburb-<ID>`), else the last opened, else the first in city order. With the alarm
+  panel open it closes the panel as GO TO does, then opens the card.
+- `G.ui {do: 'focus', target: 'suburb-<ID>'}` opens that card. The map's hover sends
+  `{do: 'hover', target: 'suburb-<ID>'}`.
+- `vm.suburb`: the open card's id or `null`, cleared in `resetDay`. (No `vm.hist.flex`:
+  dropped, §31.9.14.) `vm.dayAhead`: the
+  game's latest forecast to 04:00 (`game.dayAhead`; `null` until the line first runs).
+- Ids (desk/README §5's list gains them): `suburb-<ID>` (a suburb on the map, and its card),
+  `city-<ID>-soak`, `city-<ID>-aircon` (the card's presses), `suburb-card` (the container).
+- The objective's kind `city` has a `KIND_WORD` entry in `app/shell.js` (a glyph the charset
+  test allows) and is listed in desk/README §19.5.
+- **H** opens and closes the card (`app/keys.js`, `{ui: {do: 'suburb'}}`; documented in the
+  keys header, desk/README §13.3 and SPEC K-23 at stage C). H, I, J and Y were the free letters.
+- `#suburb-card` in `next.html`: `role="dialog"`, hidden, on the left of the map region (the
+  drawer covers the right), z-index 11 (below the respond card's 12), not class `card` (the
+  `placeQs` trap). The shell mounts it like the alarm panel: `drawSuburbCard(vm)` through
+  `lazy(o.suburbCard, () => import('./suburbcard.js'), …)`, "Loading…" until it arrives. `closeTop`
+  learns it: popover → settings → drawer → alarm panel → **suburb card** → desk note.
+- `app/suburbcard.js` exports `createSuburbCard(doc, root, actions, deps) → {update(vm), el}`.
+  Stage A's stub shows the suburb's name and a ✕; wave 2's card fills it. `tests/budget.test.js`
+  names it on demand with a 6-KB cap; `tests/lib/play.js` and `tests/next.test.js` pass it
+  statically.
+- **Inputs never go out from the card in the briefing** (a pre-existing bug: an accepted input in
+  the briefing defeats a HAND choice; its own task).
+
+**31.3.9 Records** (sim/README §7): `{tick, kind: 'log', sev, code, msg, …}` with
+- `FLEX_BOOK` (info): `suburb, lever, atS, endS, effMW`;
+- `FLEX_DEL` (info): `suburb, lever, atS`;
+- `PATIENCE` (info): `suburb, patience, delta, cause` (`'aircon'` or `'cancel'`);
+- `PATIENCE_LOCK` (info): `suburb, patience`.
+`news[]` stays weather only.
+
+**31.3.10 Aim** (`sim/autopilot.js`, pure, stage A complete): `aimFlex(fc, lv, id, lever) → atS
+| −1`, where `fc` is any forecast object (`obs.forecast` or `dayAhead`) and `lv` is
+`obs.levers`. **The line it aims on** is `demandP50` less this suburb's own blocks of this lever
+(their `parts` interpolated at the column times), so other suburbs' booked flex counts and a
+second suburb aims at the peak (or the minimum) that is left: snapbacks do not stack. Only
+columns whose time `fc.fromS + (k + 1)·fc.stepS` lies inside the lever's window are searched
+(soak 10:00–15:00, air-con 15:00–21:00). Soak: centre the 4-h core on the lowest such column;
+air-con: centre the relief on the highest. Round to the lattice (`Math.round(x / V.FC_STEP_S) ·
+V.FC_STEP_S`) and clamp to that lever's `[fromS, toS]`. Return −1 when `block` is not `''`, when
+no column of `fc` is inside the window, or when the extreme is `fc`'s last column while the
+window runs past it (not yet in view: objective.js's `rising` test). Callers read −1 as "not
+now". Par aims over `obs.forecast` (it holds no day-ahead after its plan); the card and the
+objective over `vm.dayAhead || obs.forecast`.
+
+**31.3.11 Redraw and re-flow keys.** `render/livestack.js` `signature()` and `app/system.js`
+`commitSig` include `obs.levers.rev`. The map's per-frame overlay reads `vm.suburb` and the
+levers block, never the cached city layers' keys.
+
+**31.3.12 Money** (wave 1, `sim/market.js` `settleSecond`): `cost.flex += Σ_i
+env.reliefSubMW[i] · (lit districts of suburb i ÷ its districts) · h · AIRCON_PRICE`, the lit
+count taken in `settleSecond`'s own per-second district loop with a module scratch array (no
+allocation; `splitShed`'s precedent). The soak term is omitted while `SOAK_PRICE` is 0 (pricing
+it later needs its own field). Pre-cool and snapback energy is bought as load. `tests/score.test.js`'s ladder gains `DR_PRICE >
+AIRCON_PRICE > SOAK_PRICE`.
+
+**31.3.13 Versions.** Nobody but the integrator bumps `SIM_VERSION` or re-records the golden.
+After stage A + wave 1: `v4-core-2b.0`, golden re-recorded (masked diff: hash cells, the build
+line, section 1's input-types row, the first-visit line). CLASSIC stays lever-free, so no other
+cell may move; if one does, it is a bug.
+
+### 31.4 Stage A (base): steps, in commits
+
+1. **Q-49.** Move the ten headers (each file keeps its first line plus `// Contract: <README
+   §>.`); `app/perf.js` on demand (`ON_DEMAND` entry with its cap; `tests/next.test.js` and
+   `tests/lib/play.js` pass `deps.perf` statically). Measure with `node tools/perf.mjs` before
+   and after and put both figures in the commit message. Nothing else in this commit.
+2. Scenario data and params (§31.3.1–§31.3.2).
+3. State, `SHAPES`, the `'suburb'` kind, the refusing `applyCommand` cases, `observe()` keys
+   with neutral values (`levers.suburbs[].*.block = 'levers are wired in wave 1'`, `fromS`/`toS`
+   −1, `flexMW` 0 and zero columns), `flexParts`/`flexAt` complete and unit-tested, `aimFlex`
+   complete and unit-tested, the test-list edits, sim/README §5–§8.
+4. The app's side (§31.3.8), with a test that H, a map-style `{do:'suburb', id}`, a second press
+   and Esc open and close the stub card, and that `focus suburb-HAZ` opens it.
+5. Gate: `node --test` once; `tests/baseline-v4.test.js` may fail **only** on the hash cells
+   (check the masked diff with `node tools/baseline-v4.js --quick`, desk/README §22) and say so.
+
+### 31.5 Wave 1 (sim)
+
+Make the levers real in the sim and nowhere else: I1–I6, the refusals, patience and its
+records, `observe()`'s `levers` filled (`mw`, `cost`, `fromS`, `toS`, `block`, `parts`),
+`demand.flexMW` and the forecast columns, `cost.flex`. Per-tick code allocates nothing and
+loops no districts (the district sum belongs in fleet's existing per-second district loop).
+`tests/levers.test.js` (≤ 6 s alone) covers: I1–I6; a dark district's soak stops and is not
+unserved; cost on lit relief only; each refusal string; patience scaling, lock and refund, each
+change a `PATIENCE` record; replay of a day with bookings and cancels is bit-identical; a soak
+booked on a mild noon shrinks `wind.autoMW + solar.autoMW` (the blue row of desk/README §28);
+the forecast minimum rises by the soak and the MSL notice can clear; CLASSIC neutral (I4).
+
+### 31.6 Wave 2
+
+**par.** S-14 rules 1 and 5 as Q-58 says, aimed with `aimFlex`; `litDayAhead` adds booked flex
+beyond the 4.5-h window from `obs.levers.blocks` (its heat uplift never multiplies flex); memo
+flags are plain JSON and tolerated when absent; `commitSig` gains `obs.levers.rev`;
+`tools/par.js` rows gain `flexDollars`, `soakMWh`, `reliefMWh`, `soakDays`, `airconDays`.
+`tests/par-levers.test.js`: each rule fires on a poked observation and not otherwise, aims
+where §31.3.10 says, books only through `block === ''`, respects pace, never in a watch; the
+`/^rule[1-9]$/` origins hold. Deliberate edits to the exact `decide()` assertions in
+`tests/autopilot.test.js`, named. Do not run `tools/par.js` over many seeds (the integrator
+does, once).
+
+**view.** The map: a click on any suburb sends `{do: 'suburb', id}`; Enter on a
+keyboard-hovered suburb the same (`aria-keyshortcuts`); hover sends `{do: 'hover', target:
+'suburb-<ID>'}`; the overlay rings `vm.suburb` and a glowing `suburb-<ID>`, marks a booked
+suburb and shows patience below 50 (K-22: a number or glyph, not colour alone; per frame, never
+in the cached layers). The stack: the band and ghosts of Q-57; `stackSummary` and the hover
+text name each block; `signature()` gains `obs.levers.rev`. `tests/city-view.test.js`: a soak
+booked while paused redraws; the band is ≥ 4 px at the floor; the click routes; the summary
+names the block.
+
+**card.** Fill `app/suburbcard.js` as Q-56 says: rows read `obs.levers` and aim with `aimFlex`
+over `vm.dayAhead` (or the forecast); the verdict line reads the no-flex line (`demandP50 −
+flexMW`); pre-checks answer in blue without sending (locked, outside the window, under way, the
+watch, the briefing, the day over; a suburb with dark districts shows its RESTORE line first and
+still books, Q-50); BOOK and CANCEL send `flex` /
+`flexDel` (CANCEL only while that block's `del === ''`); ◀ ▶ steer only the unbooked aim, and
+on a booked block answer in blue ("booked for HH:MM: CANCEL, then BOOK the new time"). Keys inside the card: ←/→ suburb,
+↑/↓ row, `-`/`=` time, Enter press, Esc close (in `closeTop`'s order), documented. The tray
+(Q-60). Help texts: rewrite `city-levers`, add `hot-water-soak` and `aircon-cycle` (§8.2,
+`specPending: true`), anchors appended in order, `content/text.js`'s cap raised as needed. The
+play driver gets a `SUBURB` look line and the card's presses. `tests/card.test.js` and
+`tests/feedback-city.test.js` (every new press answers, Q-41/Q-42, each ≤ 6 s alone).
+
+**objective.** Q-59's two branches; `LINE_MAX_CHARS` holds; the line says what is true
+(pre-cool first, the snapback's share). `PLAN_COST_KEYS` gains `flex`.
+`tests/objective-levers.test.js` on poked observations (no whole days).
+
+### 31.7 Done means (every agent)
+
+- [ ] Your new tests and the ones your change can affect pass: `npm run test:changed` (`--list`
+      first) once before reporting; in the loop, name files. Never the whole suite in a loop
+      (stage A runs it once at its gate).
+- [ ] Each new test file ≤ 6 s alone, each test ≤ 2.5 s; report the times.
+- [ ] `node tools/perf.mjs` once at the end: report your eager growth against your share. An
+      `import()` added: `node --test tests/budget.test.js` by name.
+- [ ] No browser, no server. Headless through `tests/lib/play.js` / `tools/play.mjs`.
+- [ ] Sim rules: plain JSON state, every constant a params record, no transcendental functions
+      in per-tick code, autopilot reads only `observe()` and `V`.
+- [ ] No `SIM_VERSION` bump, no golden re-record, no SPEC.md edit (card: only the §8.2 rows
+      `tests/text.test.js` needs). No statistics tools over many seeds (CLAUDE.md).
+- [ ] Commit on your named branch with plain-English subjects naming the U/S/Q ids. Report what
+      you built, every deviation from this section, every line outside your region, measurements,
+      red tests outside your files, your test count.
+
+### 31.8 Module headers (moved from the files, Q-49)
+
+Stage A moves here the leading header comments of `app/objective.js`, `desk/desk.js`,
+`render/map.js`, `render/livestack.js`, `app/keys.js` and `app/alarms.js`, verbatim, one
+subsection each (the sim files' headers go to `sim/README.md` §11, under their modules). Each file
+keeps its first line and a pointer to its subsection.
+
+#### app/objective.js
+
+```text
+app/objective.js: the desk's standing objective (SPEC §9.1 Q-18; Phase 2a: desk/README.md
+C-10, §21.4). Pure and DOM-free.
+
+In the game the commitment is the player's: which units run, and when. The dispatch of the
+units they have committed is automatic (app/system.js). This module reads what the player
+can (observe() and the plan view) and says, in one line, what the desk needs next: nothing;
+a unit to start, by when, and how long it takes; a unit to stop, what that saves and when to
+bring it back; the battery to charge or discharge; the levers handed back; a feeder to close.
+It never acts. Every decision it names has a lead time, and it says by when.
+
+The look-ahead is a CAPACITY check, not the plan's own red columns: for each forecast column,
+what the committed fleet could give (machines on, starting or booked by then, at the plan's
+loading; hydro for the water it has; the tie; the wind and sun forecast) against the forecast
+demand plus a margin. The plan's red columns move with every 5-minute dispatch; whether
+enough plant is committed does not. Three margins (MW above the P50 forecast):
+  MARGIN_MW         the forecast's own error: under it the desk is short of a safe margin
+  COMMIT_MARGIN_MW  what the evening needs to ride through one trip: under it a unit is asked for
+                    (the trip's part counts the water at any hour: a trip is what the gorge is kept for)
+  MARGIN_MW + the largest single loss   what must remain before a unit may be stopped, with the
+                    water held until 15:30 as for any plan (§21.4 STOP condition 1)
+so a unit the line asked for is never one it then asks to stop. What the desk can really give
+(every unit at its limits from where it is, the water, the tie at its limit; capacityGap real)
+says whether it is short NOW.
+
+  objective(obs, {edited, planview, proj?, dayAhead?}) -> {level, kind, text, targets, action, startBy, short, long}
+    level   'ok' | 'plan' (act later, or worth doing) | 'act' (act now) | 'crit' (short already)
+    kind    which line it is (desk/README.md §19.5): 'watch' | 'held' | 'short' | 'commit' | 'restore' |
+            'spare' | 'stop' | 'battery' | 'city' | 'quiet'
+    targets control ids to light (desk/README.md §5)
+    action  the sim input (or {redispatch: true}) that answers it now, or null. The game never
+            sends it: the hint-following player (tests/lib/follow.js) does, to prove that a
+            player who does only what this line says gets through the day and does it well.
+    short   the capacity shortfall the line is about {atS, endS, mw}, or the first one in the
+            4.5-h window, or null
+    long    the spill ahead {atS, endS, mw} or null (planview's first blue run)
+    saving  (STOP lines) the dollars the line quotes
+
+Branch order (§21.4; 2b §31.9.8): watch, held, short-now, commit-now, shortAhead, air-con,
+restore, spare, stop, battery, soak, commit-later, quiet. A line that asks for nothing yet (a
+start more than ACT_WITHIN_S away, a feeder that cannot close yet, spare that nothing can add,
+the reserve diesel on its way) gives way to a lower branch that has something to do now; among
+lines that ask for something, the order above decides; then a critical line; then a city line not
+yet due (level 'plan': it carries its action, so a player may book ahead, but a booking hours away
+never hides a feeder to close, a GUARD to raise or a battery order; once due, 'act', it keeps its
+place in the order); then the first that has something to say. Between commit-now and restore
+sits the shortfall no start can reach (shortAhead): what every committed MW cannot give within
+the hour is the battery's to carry, and demand response's when it is more than the battery
+holds; the reserve diesel only beyond both.
+
+The city levers (2b, Q-59, §31.9.8): kind 'city', targets ['suburb-<ID>'], the action the full
+flex input {type: 'flex', suburb, lever, atS} with atS from aimFlex (sim/autopilot.js) over the
+day-ahead (or the 4.5-h forecast; -1 is "not now": no line), kept at the shown line's atS while
+aimFlex is within one 5-minute step of it (`stick`, `cityAim`; ctx.held, the game passes
+game.objective; the forecast starts at obs.s, off the lattice, so its extreme column slides and
+aimFlex alone flips between two marks every few grid minutes: 2b final review S1; tests/lib/follow.js
+and the tools pass none), startBy the booking's deadline
+(the soak's atS, the air-con's pre-cool start), level 'act' once that is within ACT_WITHIN_S
+(+ leadS), else 'plan'. Eligibility only through observe().levers' block (a suburb is free when
+its lever's block is ''). One suburb per line; the next is named once the forecast carries the
+booking.
+  soak (after battery: a battery order due now shows first; before commit-later), aimed once:
+  every free suburb has no soak of its own, so aimFlex gives them all the same atS. When either
+    (a) an MSL notice stands with its low ahead (obs.msl.level >= 1, atS > now), and some
+        column of the 4.5-h forecast in 10:00-15:00 is still at or under MSL1_MW + MSL_CLEAR_MW,
+        raised by MSL_TIE_OUT_MW in a column before the tie's return as sim/events.js raises it
+        (the notice is re-checked only every MSL_CHECK_S, so a soak booked since would not clear
+        it until then: without this, a player who books at once would be asked for a suburb a
+        minute until the next check). It names the free suburb with the most soak MW (par's
+        rule 1); the low it quotes is that column, the one nearest its threshold;
+    (b) else, spill the battery will not take: the projection's spill plus the present charge
+        order per column, the battery modelled as battery() charges it (up to min(ratedMW -
+        guardMW, PAR_BATT_CHARGE_MAX_MW) a column, from the earliest blue column, its present
+        order in every column, until (capMWh - socMWh) / BATT_CHARGE_EFF is used); the largest
+        excess inside the aimed block's span (atS, atS + SOAK_S) above SURPLUS_MIN_MW names the
+        free suburb with the most soak MW at or under it, else the smallest. Spill outside the
+        span is not the soak's to take (on a MILD 06:30 aimed at 11:00, spill at 10:00-10:55
+        gives no line; the line comes once the projection reaches the span).
+    Text: "MSL1: demand falls to about 1,550 MW at 12:40. Book a HOT WATER SOAK in Old Hazelton,
+    10:35–14:35 (140 MW): it lifts the low; tonight's heating falls by as much." or "The
+    battery cannot take all of noon's spill. Book … : tanks take the rest; tonight's heating
+    falls by as much." (Q-52: the night's heating falls by the booked energy.)
+  air-con (right after shortAhead) only when lookAhead names no unit (a start beats air-con),
+    shortAhead's soon does not hold, and for a run of the real gap (capacityGap real, over the
+    day-ahead) at or after the suburb's fromS (each run in turn: a smaller, earlier one does not
+    hide the evening's): no gap column in the aimed pre-cool [atS - PRECOOL_S, atS], the run's
+    largest column inside the core [atS, atS + AIRCON_S], and the run more than the battery holds
+    (its largest column above ratedMW, or its MWh above the charge over the reserve, where before
+    15:30 (PAR_BATT_CHARGE_H) the charge counts at least PAR_BATT_CHARGE_TO: battery() fills it by
+    then on any day with an evening gap): where demand response would be called (Q-59 "before DR";
+    air-con is $400/MWh against DR's $1,400). The free suburb with the most relief MW that passes.
+    Text: "From about 18:30 committed units fall short. Book an AIR-CON CYCLE in Redgum Flats,
+    18:30–20:00 (45 MW): pre-cool from 17:30; 40% of the relief comes back after." ("committed":
+    a unit that is off but cannot reach the gap may exist; the 40% is of the relieved energy.)
+Every city line fits LINE_MAX_CHARS with Tallowood Heights and the widest figures
+(tests/objective-levers.test.js).
+
+(The GUARD line asks once for the most the battery can hold for a trip, PAR_GUARD_MAX_MW: a step
+is worth less the higher the ring already is. Measured at 04:31 on the 11 seeds of both day
+scenarios: the first 100 MW 0.025 to 0.104 Hz on the trip preview, then 0.021 to 0.062, 0.014 to
+0.041, 0.011 to 0.030. A line sized on a step's worth asked twice: 300 MW, then 400.)
+(After a trip the fired GUARD gives its whole ring for GUARD_SUSTAIN_S; a belly trip is smaller
+than the ring, so while it is still giving and frequency is above the normal band the line turns it
+down to 0 (par's rule 2 does the same), raises no ring while it is fired, holds the battery
+branch's charge orders out of the MW it gave up, and raises it back once it has re-armed, within
+the hour of the trip. Measured on desk-weekend seed 20261017, coal 1 at minimum, 240 MW, tripping
+at 14:08:40 under a 400-MW GUARD: 478 s above 50.15 Hz in the next 900 s before, 49 s after.)
+(Both moved here from the file in 2b, Q-49.)
+
+The line says what is true (the wave-3 review): a shortfall is in the present tense only when the
+desk at its limits (the real check) is short in the next minutes, otherwise it is what the hour
+lacks against a safe margin; "Enough plant is committed" only with no column short of a trip's
+worth of spare by THIN_MW; a STOP's saving says it rests on nothing tripping before the unit is
+back; a unit on its way off counts down its ramp and the T4 slope until its breaker opens.
+
+The line is pure, so "never thrash" is kept by state, not by a clock: a STOP is not proposed
+while another unit is on its way down or has been down under STOP_GAP_S; a battery order is
+proposed only from idle (or to raise a charge by what is still being spilled, or to end one at
+the reserve or at the window's end), with bands between the levels that start and end it, and
+none in the quarter hour before the evening's own order. (The shortfall branches raise a
+discharge as an evening gap grows: each order is sized for the gap 20 min ahead.)
+
+  consequence(obs, target, {planview, dayAhead}) -> {target, text, level} | null
+    what a guarded press would do, said before it is made (C-10): target is
+    'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
+
+  steady(held, next, s) -> {line, seenS, sinceS}
+    the line as the desk shows it: a line whose deadline or figure moves with each forecast while
+    what it asks for and its other words stay the same is kept as it was said, and a quiet line
+    for STEADY_QUIET_S against another quiet line (the game holds `held`; the objective itself
+    stays pure, and the action a line carries is never held back or changed).
+```
+
+#### desk/desk.js
+
+```text
+desk/desk.js: the desk (desk/README.md §6, §13-§14.2; SPEC §4.2-§4.3, K-17 panel sizes).
+
+  const desk = createDesk(doc, root, actions, opts?);   // root: the #desk element the shell sizes; opts.annunSlot (Q-45)
+  desk.update(vm);          // every frame, after the ticks (reads the view model only, §5)
+  desk.key(ev);             // the shell forwards every keydown/keyup here first (§13.3); true = the desk acted
+  desk.focus(id);           // focus a desk control by its §5 id (also done when vm.focus changes)
+  desk.slots.stack          // the #stack-slot element the Live Stack (#stack) mounts into (render/livestack.js)
+  desk.el                   // the desk's own container
+
+Four columns at the 1280×300 floor (232 / 424 / 336 / 256 px + 8-px gutters): the frequency
+dial over the imbalance bar and N-1 gauge; the lever bank over the hydro wheel, battery dial,
+tie knob and the AGC / RE-DISPATCH keys; the Live Stack slot over the procedure bay; the
+message tray over the emergency row; the annunciator in the plan bar (§30.4). Every input goes through
+actions.input (never assumed accepted: refusals show on the control for a moment); the desk
+is locked while vm.mode.locked (the watch) except ACK and SILENCE. Time for guards, holds and
+the synchroscope's 8-s AUTO comes from vm.frame.nowMs (or opts.now), never from timers.
+
+Keys (K-23, §13.3). desk.key returns true exactly when it acted; the shell then stops. (D and E
+always return true: both holds are the desk's, so the shell never starts its own.)
+  desk.key (from anywhere):
+    1-8        focus COAL / CCGT / GT·A / GT·B / GT·C / hydro wheel / battery dial / tie knob
+    G          focus the GUARD ring            V   focus the AGC/HAND key
+    K          focus DIRECT SHED (while shown) N   RE-DISPATCH (as a press of its key)
+    O          open the first READY unit's synchroscope (an offered one first); again: close the scope
+    [ ] C U    slip lower / raise, close the breaker, auto-sync      B   the bypass key (HAND only)
+    R          the restore bay (focus its list)
+    A, Shift+A ACK, SILENCE                    D, E (hold 0.6 s)   industrial DR, reserve diesel
+    S S / X X  start / stop a machine of the focused station (guarded), P / Shift+P rejoin the plan (HAND)
+    Enter      presses the focused desk button (tiles, cards, guards, tabs, ...); not while the RESPOND card is up
+  The focused control, natively (it calls preventDefault, so the shell does nothing more):
+    lever        ↑↓ ±10 MW, Shift ±1 (Shift+↑ crosses the 96% gate), PgUp/PgDn detent, Home/End
+    hydro wheel  ←→ (or ↑↓) 1%, Shift 10%, PgUp/PgDn 10%, Home/End
+    battery dial ←→ mode CHARGE / IDLE / DISCHARGE, ↑↓ magnitude 50 MW, Shift 10, Ctrl 1, Home/End
+    GUARD ring   ←→ / ↑↓ one 50-MW detent, Home/End
+    tie knob     ←→ / ↑↓ 50 MW, Shift 10, Ctrl 1, PgUp/PgDn detent, Home/End
+    RERT, DR     Enter or Space held 0.6 s (RERT: the first press lifts the cover)
+    DIRECT SHED  Enter lifts the cover, Enter again within 2 s commits (or hold 0.6 s)
+    restore list ←→ / ↑↓ choose a district, Enter closes its breaker
+    tray         ←→ / ↑↓ move between the cards' buttons and LOG
+  T, M, L, Tab, Space, Esc, F and ? stay the shell's (app/keys.js).
+Foley (K-20): gestures emit actions.ui({do:'cue', name, pan}) on real changes only (ctx.cue).
+
+C-10 (Phase 2a, desk/README.md §19.5): the desk tells the shell which START / STOP guard the
+player is considering, actions.ui({do: 'consider', target: 'guard-start-<unit>' |
+'guard-stop-<unit>' | null}), and only when the answer changes. A lifted guard wins, then the
+focused one, then the hovered one; null when none. A commit counts as a drop. A lift made by
+key (S / X on a lever: nothing is hovered and the lever, not the guard, has the focus) is held
+CONSIDER_HOLD_MS after its cover drops, so a keyboard player has time to read what the press
+would do (the cover itself still drops after 2 s). "Focused" is the keyboard's focus: the
+focus a mouse click leaves on a guard is not counted (makeConsider says how), so after a
+pointer lift or commit the target clears when the pointer leaves. The shell shows vm.consider
+in the objective line; the desk only names the guard. After a new day (obs.tick going back)
+the target is sent again, because the shell clears its copy. K-3: a cover going up or down
+sends {do: 'armed', target, on}.
+```
+
+#### render/map.js
+
+```text
+render/map.js: the living isometric city map (desk/README.md §7, §14.3; SPEC G-1..G-5).
+One screen canvas; the scene is drawn on a fixed BASE_W x BASE_H offscreen canvas and
+blitted at an integer scale (render/mapdata.js scaleFor), letterboxed with the ground and
+sky colours, never sky under the ground. Reads the view model only (vm.obs, vm.mode,
+vm.hover, vm.glow, vm.alarms, vm.settings.reducedMotion). Math.random is cosmetic only (F-3).
+
+  const map = createMap(document, root, actions);   // root: the #map box
+  map.update(vm);                                   // every frame
+  map.key(ev);                                      // the shell forwards keys (§13.3); true when it acted
+
+What it shows
+  G-2  one silhouette per technology (shapes are data in mapdata.js PLANT_PARTS): coal =
+       hyperbolic cooling towers, banded stacks, a coal pile; CCGT = two boxy HRSGs with
+       stubby stacks; GTs = a shed and one stack each; hydro = a dam wall, a spillway and
+       penstocks; battery = rows of white containers; tie = tall lattice pylons marching off
+       the west edge; wind turbines on the ridge; solar rows on the plain. Labels on hover,
+       focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
+       target}); vm.hover rings the plant back. A click: see the click listener (Q-41).
+  G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
+       west; long warm light and long shadows at sunset; lit windows at night, as many as
+       the city is using (underlying demand). Rooftop PV
+       (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
+       layer, cached) and a glint on them each frame: per suburb, as bright as its output
+       over its capacity (cloud dims it) and as the light; never on a dark district, on a
+       relit one only as its inverters ramp back; a static pattern under reduced motion.
+  G-4  weatherOf(obs): heat = haze on the horizon + a bleached warm palette + shimmer;
+       storm = two layers of dark cloud, slanted rain and rain sheets, a darker ground,
+       turbines feathered at cut-out; cloud front = grey cloud and soft shadows drifting
+       over the suburbs. All three are drawn static under reduced motion.
+  G-5  a shed district goes dark block by block (90 ms each) and gets a hatched outline; a
+       tripped machine smokes, strobes red and carries a ✕ for its whole lockout; rotors slow
+       in the watch; the watch spotlight (B-5) dims everything but the cause.
+
+Keys (map focused; tabindex 0): ←/→ cycle the plants then the suburbs (sets the hover and
+shows the label), Home the first, Enter presses the hovered one as a click does (a plant's
+control, wind's or solar's label, a suburb's card; not while the RESPOND card is up or in the
+briefing: Enter is theirs, dismiss and TAKE THE DESK), Esc leaves. key() returns true exactly
+when it acted; the map's own keydown listener calls it and stops the event, so a key forwarded
+by the shell never acts twice.
+
+Cost: the sky, the terrain (with the plants), the city (with its rooftop panels) and the
+cloud strips are cached on their own canvases and redrawn only when the light bucket, the
+weather bucket or a district's dark blocks change; a frame is a few blits plus the moving
+parts. The glint is one path and one fill per suburb from typed arrays laid out once.
+
+Phase 2b, the city levers (desk/README.md §31; Q-56, Q-57, §31.9.10). Also reads vm.suburb
+and obs.levers.
+  Click   a suburb sends actions.ui({do: 'suburb', id}); one with a dark district sends
+          {do: 'focus', target: 'bay-restore'} first (Q-42), and the shell then opens the card
+          without taking the focus off RESTORE. Enter on a hovered suburb does the same (Keys
+          above). A suburb click no longer pins the blue label: the card carries its draw and
+          roofs (app/suburbcard.js computes them; mapPinText's suburb branch is kept for tests
+          only, since no suburb is pinned now). Wind, solar and the ground still
+          pin; the ground's says "Click a plant for its control, a suburb for its card".
+  Hover   a suburb sends {do: 'hover', target: 'suburb-<ID>'} (H reads it; the stack's
+          bands do not light for it).
+  Overlay per frame, never in the cached layers (a booking redraws nothing cached):
+          - a blue rectangle round vm.suburb (none in the watch: the card is hidden);
+          - the glow ring for a glowing 'suburb-<ID>' (the objective names it), as a plant's;
+          - the white hover ring for the pointer's suburb or vm.hover 'suburb-<ID>' (a band
+            hovered on the stack);
+          - suburbTag(obs.levers, id, s), top left in the suburb on a dark plate (none in the
+            watch: the spotlight dims all but the cause): 'SOAK HH:MM' or 'AIR HH:MM', the
+            lever and start of its first block not yet over; then, after its first air-con
+            booking today or while locked, its patience (the suburb's, whichever lever the
+            mark names): '☺ 80' at or above PATIENCE_FULL (full response), '☹ 40' below it
+            (the response falls), '☹ 15 LOCKED' under PATIENCE_LOCK. A glyph and a number,
+            never colour alone (K-22). A booking that was cancelled refunds its patience and
+            shows none. ☺ and ☹ (U+263A, U+2639) carry the Unicode Emoji property but present
+            as text by default: the stage-C browser pass checks them on Windows Chrome; if a
+            colour emoji is drawn, use 'P80', 'P40 ▼', 'P15 LOCKED'.
+  Text    mapSummary (K-23) names the hovered suburb's tag: "On <name> <tag>: Enter opens
+          its card."
+```
+
+#### render/livestack.js
+
+```text
+render/livestack.js: the Live Stack (desk/README.md §7; SPEC §4.4, L-1..L-9, K-18).
+A desk screen: the next 4.5 h as a skyline of forecast demand (P50 + LIKELY RANGE band) on
+a fixed 0-9,000 MW axis, each source a coloured layer in P-6 cost order, red/amber gaps,
+ghosts for off units from their earliest-start line, and drag handles that write the plan
+(planKey / planStart / planDel / planUnbook through actions.input). Reads the view model
+only; the plan maths is app/planview.js.
+
+  const stack = createLiveStack(document, root, actions);   // once
+  stack.update(vm);                                         // every frame, after the ticks
+
+View-model inputs: vm.obs (with obs.plan), vm.mode.locked (read-only during the watch, L-7),
+vm.stackExpanded (L-4 overlay over the map), vm.hover / vm.glow (cross-highlight, L-9),
+vm.hist (past columns: {demand: [{s, mw}], rooftop: [{s, mw}], stations: {<layer id>: [{s, mw}]}},
+layer ids = station ids + wind, solar, tie (signed), battery (signed), rert, dr; absent: no past
+drawn; app/game.js sends column means with colFromS / colS instead: planview.pastFromHist reads both).
+
+Phase 2a, the belly (desk/README.md §21.5; shown always until the first-shift face of L-2, 2e):
+  L-2  the silhouette: a faint line at operational + rooftop above the operational skyline,
+       past columns included, and the rooftop bite between the two hatched sun-yellow (sparse
+       "\\\", no fill), with the word ROOFTOP in the big layout. Nothing is drawn while the
+       rooftop is under 1 MW (night; the CLASSIC scenario).
+  C-11 blue SURPLUS columns where proj.surplusMW > SURPLUS_MIN_MW (planview.blueRuns): what
+       will be spilled, standing on the demand line (over exports and charging) with a minimum
+       height, GAP_MARK.blue's pattern, glyph and word, and a hover line that says what to do.
+       Blue is never a kind in proj.gap.
+  P-9  the price through format.priceText; a negative price in its own colour, with the word SPILL
+       while power is being spilled now (wind.autoMW + solar.autoMW > SURPLUS_MIN_MW).
+
+Pointer: drag a key handle or a layer's top edge (a new key there) to (time, MW); drag an off
+unit's ghost sideways to book its START; drag a booked start below the axis to unbook it.
+Drops snap to 15 min / 50 MW; an infeasible drop shows the earliest-arrival ghost instead
+(click it or press Enter to take it); a click with no drag says what to drag. Keyboard (stack focused): 1-6 select COAL, CCGT, GT·A,
+GT·B, GT·C, HYDRO (again: that station's off-unit ghost), arrows move one snap step, Enter
+drops, Delete removes the selected key, Esc clears, L expands. The element listens for its
+own keys and stops them, so the handle needs no key() for the shell to forward (§13.3).
+
+K-22 (status is never colour only): a red gap (short of P50) is hatched "\\\" and carries a
+"!" over each run; an amber gap (inside the likely range) is hatched "///" and carries a "~";
+a blue surplus is barred "|||" and carries a "+" and, where the run is wide enough, the word
+SURPLUS (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture
+says (stackSummary: the gaps, then the surplus runs and the rooftop), refreshed at most once
+per real second.
+
+Phase 2b, the city levers (desk/README.md §31; U-3, Q-50, Q-57). The skyline already carries
+every booked MW (flex is in the forecast's P50), so the stack draws where each block is, not
+what it does:
+  band    each block's core (obs.levers.blocks[].parts, the sim's knots) over the future
+          columns inside it: a band at least SURPLUS_MIN_PX (4 px) tall along the skyline,
+          load added (the soak) under the skyline, relief (air-con) over it; several stack
+          outward in block order. One pattern for every suburb, a K-22 pattern no other mark
+          uses: a pale fill with dark rows ("≡"); no suburb colours. The suburb's code (K-22:
+          one pattern, so the code tells the bands apart), in both layouts, on a plate just
+          beyond the band (clear of the skyline) at its first column, shifted right by its
+          stacking level.
+  ghosts  pre-cool, snapback and the night fall, the same minimum height on the same side
+          rule, as a dashed line along their outer edge (the off units' dash).
+          Heights are the part's plateau MW (ramps not drawn): at the floor (63 MW a pixel)
+          nearly every block is the 4-px minimum anyway.
+  hover   a band or a ghost names its block (blockText: lever, suburb, MW, core times), a
+          ghost also its part on a second line (PRE-COOL: load added before it; SNAPBACK: load
+          returning after it; NIGHT HEATING: lower by what it soaked: U-2's rebound, which
+          the dashed line alone cannot say), and sends {do: 'hover', target: 'suburb-<ID>'},
+          so the map rings the suburb. Hover only: a press there takes what is under it, and
+          nothing drags a block in 2b (the card's steps do).
+  text    stackSummary adds "Booked: <block>." for each block with a part drawn (a column inside
+          its knots, as drawCity tests it), "Booked: <block> (its snapback)." (or pre-cool, night
+          heating) when only its ghosts are (K-23: what the picture shows; later ones are on the
+          map's tags; 2b final review P5).
+  hitTest what is under (x, y): a handle, a ghost, a layer edge, a layer body or a gap; for a
+          hover (forHover) also a blue surplus column, a block or the rooftop bite, which a
+          press never grabs. A hover's order: the pending ghost; a blue column (C-11), whatever
+          lies under it (the column stands on the top of the stack, where the top layer's key
+          handles and its edge are; a press there still takes the handle or the edge: blue is
+          never dragged); a handle; a gap (its L-9 hover, 2 px of slack over the skyline); a
+          block's band or ghost; then the off-unit ghosts, the edges, the layers, the rooftop.
+          So along the skyline a handle or a red gap (what a press takes there) wins over a
+          band: the hover never names a block where the press does something else, but over
+          a SHORT run a relief band hovers only in its top pixels.
+  redraw  signature() includes obs.levers.rev: a booking or a cancel while paused redraws.
+```
+
+#### app/keys.js
+
+```text
+app/keys.js: the K-23 key map for the game (next.html). app/input.js stays the bench's.
+
+createKeys() is a small state machine (S S / X X within 2 s, D / E / F holds); keyDown,
+keyUp and poll return ACTIONS, never touching the DOM or the sim:
+  {ui: {...}}           a presentation command (actions.ui)
+  {input: {...}}        a sim input (actions.input)
+  {redispatch: true}    RE-DISPATCH (actions.redispatch)
+bindKeys(doc, keys, getVm, run, now, route) attaches it to a document: the page's ONE key
+listener. Its order (desk/README.md §13.3), so that the same key never acts twice:
+  1. a key typed into a text field, or already consumed by a focused control (it called
+     preventDefault: the desk's controls handle their own arrows, S S and so on), or one the
+     shell says is not the game's (route.own: the settings popover's sliders), is left alone;
+     so is anything with Ctrl / Meta / Alt (browser shortcuts are never game keys);
+  2. route.first(ev) (the shell: Enter on the briefing card);
+  3. each module of route.chain() that has key(ev), in order: the desk, the Live Stack, the
+     map. The first that returns true used the key: preventDefault, stop;
+  4. this file's map, the fallback that makes every K-23 key work from anywhere.
+D and E holds are the desk's while a desk with key() is mounted (keys.holds = false): the
+fallback then neither times nor fires them.
+
+| 1-8                     focus COAL / CCGT / GT·A / GT·B / GT·C / hydro / battery / tie
+| ↑ ↓ (Shift fine), PgUp/PgDn   move the focused lever (±10 / ±1 MW, next detent) or wheel
+| S S / X X               START / STOP the focused station's next machine (guarded: twice in 2 s)
+| P                       rejoin the plan (HAND)
+| [ ] C U                 slip lower / raise, close the breaker, auto-sync (the open scope)
+| R                       restore bay (←/→ and Enter are the bay's own)
+| A, Shift+A              ACK, SILENCE
+| D, E (hold 0.6 s)       industrial DR, reserve diesel key
+| T, M, L, Tab            trip preview, tray (again: its LOG), Live Stack (again: expand), map
+| Space, Esc, F (hold)    pause, skip the watch (after a full one), fast (doing nothing: a blue toast says why)
+| Enter                   dismiss the respond card
+| ?                       the abstractions drawer; Shift+M mute
+| ,                       the SETTINGS popover (B-7)
+| W                       EXPLAIN: the alarm panel opens (the clock holds) or closes (Q-46)
+| H                       the suburb card opens or closes (Q-56; a held H does not repeat)
+```
+
+#### app/alarms.js
+
+```text
+app/alarms.js: the K-8 annunciator model and the K-21 priority of each tile (Phase 1b:
+desk/README.md §11 B-1, B-2, B-3). Pure and DOM-free; desk/annunciator.js draws
+`alarmsView()` (vm.alarms).
+
+Twelve tiles (4 x 3). Phase 2a (desk/README.md C-9): MIN GEN is real (the dispatch is spilling
+wind and sun now); the MSL levels are tray cards (app/tray.js), not a thirteenth tile. Each has one BASE priority and a
+target control id (a click or Enter focuses it). Analogue tiles have separate set and clear
+thresholds (K-8), event tiles are set by what happened (a contingency, a UFLS stage, news).
+
+Escalation (B-1): UNDER FREQ and OVER FREQ are P2 tiles (`escalates: true`). While the
+frequency is outside the containment band (49.5-50.5 Hz) the tile is escalated: the view
+gives it `prio: 'P1'` and `escalated: true`, and it sounds the horn. An acknowledged tile
+that escalates flashes again (it is worse news than the one acknowledged).
+
+States (ISA-18.1 sequence R, ring-back, visual only; B-2): normal -> alarm (new: flashes
+fast, sounds by priority) -> ACK -> ackd (steady) -> condition clears -> normal (dark). An
+alarm that clears before ACK is 'cleared' (flashes slowly, the ring-back) until ACK returns
+it to normal. SILENCE stops the sound only. The flash rates are the desk's (2.5 / 0.8 Hz).
+
+Sound (K-21, B-3). A SOUNDING is one alarm sound started: the horn (the highest effective
+priority among the tiles that start it is P1) or one chime (P2); P3 tiles are silent here
+(their tray card makes the soft tick). One sounding per update at most. `a.audible` counts
+soundings (K-8's accept: "the competent proxy triggers <= 8 audible alarms per daily").
+RE-SOUNDS are the same alarm heard again and count in `a.repeats`, never in `a.audible`:
+  * the horn every HORN_REPEAT_S real s while a P1 alarm is unacknowledged and not silenced;
+  * one chime P2_REPEAT_S real s after a P2 tile sounded, if it is still unacknowledged
+    (and not silenced, and no horn is going);
+  * the horn starting on a tile that escalates inside its own hold-off (below).
+No tile starts a NEW sounding within RESOUND_HOLDOFF_S real s of its last one (K-8 accept):
+an alarm that sets again inside that window flashes at once and is held; if it is still
+unacknowledged when the window ends it sounds then. During the watch every sound is held
+the same way; tiles still unacknowledged sound once when the watch ends. So with the alarm
+panel open (ctx.hold, Q-46).
+
+Inputs: updateAlarms(a, x, ctx) reads a small snapshot `x` built by alarmInput(obs) in the
+game, or alarmInputFromState(state) in headless runs (tests; they must agree). Frequency
+extremes between two updates come from sampleTick() (called after every tick): a frame at
+120x spans ~100 ticks, and a dip below 49.85 Hz inside it must still set UNDER FREQ.
+```
+
+#### app/suburbcard.js
+
+(2b, the card agent; written here, not in the file, Q-49.)
+
+```text
+app/suburbcard.js: a suburb's card (SPEC §9.1 Q-56; §31.6 card, §31.9.3-§31.9.7). On demand (Q-44,
+cap 6 KB in tests/budget.test.js); its CSS is injected once (#sc-css). Presentation and two sim
+inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch and the focus.
+
+  const card = createSuburbCard(doc, root, actions, {toast, loadText, toggleHelp, now});
+  card.update(vm, day)  every frame while vm.suburb is set, also while the watch hides it (its pre-checks
+                    read the latest vm); day is the attempt (the shell passes game.state): a new one
+                    (PLAY THIS DAY AGAIN) forgets the player's aims and the rests; builds its rows when
+                    the suburb, the offer, a dark district or the blocks change, keeps a focused row's
+                    focus across a rebuild and closes a popover its old "?" held (Q-47; the shell
+                    closes it when the card hides); a block's booked / under way / done each frame;
+                    the aim, its words and the verdict only when the line (fromS, n), lv.rev, the LV,
+                    the player's aim, patience, the last block's del or the shown city line's atS
+                    change; names the dialog
+                    (aria-label) by its suburb
+  card.focus()      the first row's press (RESTORE, else the first CANCEL or BOOK), else ✕
+  verdict(fc, lv, id, atS, effMW) -> '✓ …' | '✕ …' | ''   §31.9.4, pure (tests)
+  WIT, LEVERS, PEAK_BAND_MW   the U-1 lines, each lever's name and "?" row, the band (100 MW)
+
+What it shows, top down (1280×600 gives it 194 px; a HOT day with both levers fits, and one
+booked block with them; two booked cycles and a soak scroll, the last resort, and the verdict
+sits under its aim so the words scroll first. 2b final review P6, computed from the CSS, not yet
+seen in a browser: lines 14.85 px, buttons 24 px; a HOT card ~180 px before the trims, ~210 px
+with a booked cycle's two-line row; padding 4 px, p margins 0 and .sc-r 2 px take 20 px off):
+  NAME · 420k homes · ✕ (btn-suburb-close)
+  n DARK: [RESTORE] (city-<ID>-restore: focus bay-restore; the card stays)   only with dark districts
+  “U-1's dry wit”
+  patience 40: 90% respond (all respond from 50; air-con locked under 25; only on a day air-con
+    is offered, else "patience 40": it scales air-con alone, P2) · draws <lit MW> · roofs <MW>
+  per offered lever (obs.levers.offered; on a MILD day "AIR-CON CYCLE: hot days only (…)"):
+    each booked block: SOAK 10:30–14:30 booked|under way|done: tonight's heating −525 MWh   [CANCEL]
+                       AIR-CON 18:45–20:15 booked: pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience −10 [CANCEL]
+      (CANCEL city-<ID>-<lever>-cancel-HHMM; dimmed, aria-disabled, once its del is not '': under
+      way from the soak's first MW or the cycle's pre-cool, so the row names the pre-cool; done
+      after the soak's end or the cycle's snapback)
+    the aim: HOT WATER SOAK +140 MW [◀] 10:30–14:30 [▶] [BOOK] [?]   (BOOK = city-<ID>-<lever>,
+      ◀ ▶ = -earlier / -later, ? = q-<lever>: deps.toggleHelp(q, [LEVERS[lever].row]))
+    air-con: the verdict of the aim, or of the suburb's last booked cycle when it cannot book and
+      that cycle can still be cancelled (none once it starts: the day-ahead then has only the
+      columns after now, and its "peak" would creep past the real one)
+    what it does: takes 525 MWh at noon; tonight's heating −525 MWh · no payment
+                  pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience 60 → 50
+      or, when LV.block is not '', that reason in blue (◀ ▶ hidden, BOOK dimmed)
+
+The aim: the player's (◀ ▶, - =: 15-min steps) kept inside [fromS, toS], else the shown city
+line's atS for this lever (vm.objective; a soak line's for any suburb, an air-con line's for its
+own: after "◇ SUBURB (H)" or "▶ SUBURB (H)" BOOK sends what the line says), else aimFlex over
+vm.dayAhead || obs.forecast (fromS while it says -1), kept within one 5-minute step of the card's
+last default (objective.js stick; 2b final review S1). BOOK forgets it; CANCEL leaves the
+cancelled block's time as the aim to re-aim from. A booked block is never moved in place.
+Energies and times come from sim/weather.js flexParts (the sim's own shapes); the payment is
+the core's MWh × AIRCON_PRICE (lit districts; dark ones are not paid).
+
+A press (BOOK, CANCEL, ◀ ▶): the row's rest first (COMMIT_LOCK_MS after an accepted BOOK or
+CANCEL: "booked: OLD HAZELTON soak 10:30–14:30"); then ◀ ▶ step (blue "earliest 10:00" /
+"latest 11:00" at the ends; on a booked soak or a focused block "booked for HH:MM: CANCEL, then
+BOOK the new time", or that block's del once it is under way); BOOK and CANCEL answer in blue
+and send nothing in the briefing ("Take the desk first: Enter."), after the day ("Day over:
+…"), in the watch ("desk locked while the grid catches itself"), on LV.block ("<Suburb>:
+air-con locked: patience below 25", "… too late today: soaks start by 11:00", "… one soak a
+day: already booked") and on a block under way (its del). LV.block is said as a standing status
+(the aim row, BOOK, ◀ ▶): its window reasons (sim/grid.js LEVER_WHY) in the card's words, "too
+late today: soaks start by 11:00", "too late today: cycles start by 19:30 (pre-cool from 18:30)"
+and "no room today for another cycle around the booked one", the rest as the sim says them
+(2b final review P4: the sim's strings refuse a proposed time, and nothing was proposed). A refusal from the sim stays the
+shell's red toast. "Outside the window" is LV.block's: the card never holds an aim outside
+[fromS, toS]. A suburb with dark districts shows its "n DARK: RESTORE" line first and still
+books (Q-50: a dark district's flex just stops; eligibility only through LV.block, §31.3.7),
+so §31.6's "a dark suburb's RESTORE first" is that line, not a blue refusal.
+
+Keys (the card's root; CARD_OWN in app/shell.js keeps them from the desk, the stack, the map
+and the fallback): ←/→ the previous / next suburb in city order (wrapping; the new card takes
+the focus), ↑/↓ the row presses (RESTORE, CANCEL, BOOK), - and = the time of the focused row's
+lever, Enter presses the focused button (preventDefault; never on ev.repeat), except in the
+briefing, where it goes on to the shell and takes the desk (app/shell.js own lets it through),
+as BOOK's blue answer says. Esc and H stay the shell's (closeTop's order; H toggles); Tab is
+the browser's.
+```
+
+### 31.9 After the contract review (workflow `wf_3f02ecb7-0c6`; these override §31.1–§31.7 where they differ)
+
+Four lenses (seams, physics, the player, buildability) found 70 issues; a skeptic refuted 7 and
+confirmed 3 blockers and 22 majors. The fixes already written into §31.1–§31.3 above: the
+`'suburb'` kind is a shape check only (S1/B1); no block is moved in place, blocks carry `cost` and
+`del` (F1/S8/P3/P4); the soak has no patience factor (F18); the overlap rule (P9); the lock is
+derived (S14); I3 and I3b (P2, S4/P1); `flexAt`'s signature (P6); the money formula (P5/S5);
+`aimFlex` (S7/B10/P8/F16); the golden after stage A (B7). The rest:
+
+**31.9.1 Stage A, also.**
+- `content/scenarios.js`: the `levers` block's first keys are `simplified: true, note: '…'` (F-13,
+  `tests/params.test.js`), as `city`'s are; `createState` strips them, so `state.scn.levers` is
+  exactly `{menu, suburbs}`.
+- `tests/integration.test.js`: the F-6 vocabulary list, the fuzzer's `make` table (`flex`/`flexDel`
+  generators: a suburb from `s0.scn.city.suburbs`, a lever, an `atS` sometimes off the lattice),
+  the K-15 watch tries (CLASSIC seed 2 with a valid id, e.g. `{type: 'flex', suburb: 'HAZ', lever:
+  'soak', atS: 23400}`, refused for the watch), malformed examples (unknown suburb, unknown lever,
+  non-integer `atS`). New input types change the fuzzer's `one(INPUT_TYPES)` picks; that is
+  expected (those tests compare runs with each other, not with fixed values).
+- `tests/state.test.js`: `OBS_SHAPE` (top level, `demand`, `forecast`, `levers`); the `levers`
+  list paths (`levers.suburbs[]`, `.soak`, `.aircon`, `levers.blocks[]`, `.parts[]`) go in the DESK
+  shape test with a block pushed into `state.levers.blocks` directly; repair its `demand` literal.
+- `tests/lib/vm-fixture.js`: `baseVm` gains `suburb: null, dayAhead: null`.
+- `tests/baseline-v4.test.js`: move the end-of-day hash assertion after the D-9 timing, so a
+  hash-only change never hides S-4 pace or D-9 (one moved line, named in the report).
+- `app/perf.js` on demand: the `?debug` handle's `perf` becomes a getter; `tests/next.test.js`
+  passes `perf` in `boot()`'s defaults.
+- `app/alarmpanel.js` `NAMES` gains `'suburb-card': 'SUBURBS'` and a branch naming `suburb-<ID>`
+  by the suburb's name (one line each).
+- **Ids and focus targets.** `vm.suburb` and `{do: 'suburb', id}` use the bare id (`'HAZ'`).
+  `focus suburb-<ID>` opens that card; `focus suburb-card` opens the card as H does (the suburb
+  the objective's targets or the hover name, else the last opened (kept in `game.ui`, cleared in
+  `resetDay`), else the first in city order) and **never closes it**. `{do: 'alarmsGoto'}`
+  honours both (close and pause as today, then open). One helper serves both. A map click
+  (`{do: 'suburb', id}` with an id) opens or switches and **never closes**; only ✕, Esc, H and
+  `id: null` close (F10: a double click must not close what it opened).
+- **Focus (F2).** `createSuburbCard(doc, root, actions, deps) → {update(vm), focus(), el}`;
+  `deps = {toast, loadText, toggleHelp}` (the end card's pattern). The shell records the opener
+  when a command opens the card from closed, calls `card.focus()` on the frame it first shows or
+  switches suburb, and on close returns the focus to the opener if still shown, else to the map;
+  a focus left in the hidden card is blurred. Keys whose target is inside `#suburb-card` are the
+  card's (an `own` route like `PANEL_OWN`), so the app's fallback and the map never see them. H
+  ignores `ev.repeat`. Exception: a click on a dark suburb focuses the RESTORE bay and opens the
+  card without taking the focus.
+- **Geometry (F3).** `#suburb-card`: `position: fixed; left: 32px` (clear of the map's "?");
+  `top: calc(var(--hdr) + 8px)`; `width: 400px`; `max-height` down to 8 px above `#planbar` (194 px
+  at 1280×600, as built); `overflow-y: auto` only as a last resort. The card's inner CSS is injected by
+  `app/suburbcard.js` (as `app/alarmpanel.js` does); `next.html` holds only the container rule.
+- `KIND_WORD.city` carries the route, e.g. `'◇ SUBURB (H)'` (a glyph the charset test allows),
+  outside the line's 170 characters (F7); assert it beside the other `objectiveWord` checks.
+- Step 4's test also covers: H moves the focus into the card and a second H returns it; a held H
+  does not toggle; `focus suburb-card` and `alarmsGoto suburb-HAZ` open it; ArrowDown with the card
+  focused sends no input.
+
+**31.9.2 The sim (wave 1), also.** The night fall follows the booked energy; a levers test pins it
+for a district dark through the soak (P10). The MSL notice answers at its next 5-minute check, not
+the next frame (P11): the "notice can clear" test steps to the next `MSL_CHECK_S`. `flex`/`flexDel`
+in a watch on DESK are refused by `applyInput`'s watch rule (a test). Eager share **≤ 2.4 KB**.
+
+**31.9.3 The card in the watch (F4).** `#suburb-card` is hidden while `vm.mode.locked` (the whole
+watch, paused or skipped), with `vm.suburb` kept, and shows again when the lock ends. While
+hidden, `closeTop` passes over it, so Esc still skips the watch; H and `{do: 'suburb'}` answer in
+blue ("the suburb card is back after the watch"). Stage A builds this; `tests/card.test.js`
+checks it with `injectTrip` (never by walking the day).
+
+**31.9.4 The verdict line (F5).** Computed on the line `aimFlex` uses for that suburb, over
+`vm.dayAhead || obs.forecast`. The peak is that line's highest column in 15:00–21:00 (labelled at
+the nearest quarter hour, as the objective's quiet line does); the peak band is every column there
+within `PEAK_BAND_MW = 100` of it (a constant local to the card). Each part is evaluated at the
+band's column times by interpolating its knots. ✓ "relief HH:MM–HH:MM covers the HH:MM peak;
+snapback after it" only when the core is at its full −effMW at the peak column and pre-cool and
+snapback are 0 MW at every band column; else ✕ naming the first failure, in this order: "relief
+HH:MM–HH:MM misses the HH:MM peak", "relief HH:MM–HH:MM: pre-cool lands on the HH:MM peak",
+"relief HH:MM–HH:MM: snapback lands on the HH:MM peak" (2b final review P1: every verdict names
+the relief it judges, so after a booking the next aim's ✕ does not read as the booked cycle's).
+`tests/card.test.js` covers the four states on poked blocks (the `aimFlex` default ✓; `atS = toS`
+pre-cool on; `atS` at the pre-PV peak, relief misses; `atS = fromS`, relief misses).
+
+**31.9.5 One press, one answer (F10).** After an accepted BOOK or CANCEL, that row rests
+`COMMIT_LOCK_MS` (`desk/util.js`, 1 real s on the shell's `now()`); a press in the rest sends
+nothing and answers in blue with what was sent ("booked: OLD HAZELTON soak 10:30–14:30"). The
+card's keydown calls `preventDefault()` on Enter (no native click) and acts only when
+`!ev.repeat`. `tests/feedback-city.test.js`: two presses leave one FLEX_BOOK; a repeat Enter sends
+nothing; after the rest a press cancels.
+
+**31.9.6 Help inside the card (F8, S19).** New text entries `hot-water-soak` and `aircon-cycle`
+are `ui: 'drawer', game: 'drawer'` (the end card's pattern). The card draws its own inline "?"
+per lever row (`button.q.inline`, `aria-controls="popover"`, `deps.toggleHelp(q, [row])`).
+`content/anchors.js` does not change; no anchor may name `suburb-card`, `suburb-<ID>` or
+`city-<ID>-*` (`#q-layer`, z 7, is under the card). `city-levers` is rewritten in place and keeps
+its `btn-dr` anchor.
+
+**31.9.7 The tray (F12, B3).** The MSL1 and MSL2 cards keep one button (K-9). When the record's
+`atS` lies in the soak window, after its tick (a low ahead, not now: par's rule 1 and the line's
+trigger (a) ask the same; 2b final review S2), and its tick is no later than the last soak start
+(`SOAK_TO_S − SOAK_S`), the text names the hot-water soak and the button becomes SUBURBS with
+target `suburb-card`, replacing TO THE BATTERY / SEE THE STACK (MSL1 keeps its battery advice in
+words). Otherwise the cards stay as today. Both checks use the record and params only.
+`desk/tray.js` is unchanged. Deliberate edits in `tests/alarms.test.js` (the target list; the
+`soak` ban lifted for in-window MSL1/MSL2 only).
+
+**31.9.8 The objective line (F13, S11, F7).**
+- **Soak branch:** after `battery`, before `commitLater`, so a battery order due now shows first.
+  Triggers: (a) the MSL1 notice ahead (`obs.msl.level >= 1 && obs.msl.atS > obs.s`), booking as
+  par's rule 1 does until it clears; (b) spill the battery will not take: over the projection's
+  columns in the soak window, model the battery as `battery()` charges it (per column up to
+  `min(ratedMW − guardMW, PAR_BATT_CHARGE_MAX_MW)` less the present order, filling greedily from
+  the earliest blue column until its room `(capMWh − socMWh) / BATT_CHARGE_EFF` is used); the line
+  shows while the largest excess column is above `SURPLUS_MIN_MW`, naming the free suburb with the
+  largest effective soak MW ≤ that excess (else the smallest). It always carries the full `flex`
+  action. The text says it takes the noon power the battery cannot.
+- **Air-con branch:** its own branch right after `shortAhead` (unchanged: the next hour belongs to
+  the battery and DR), only when `lookAhead` names no unit for the gap (a start beats air-con),
+  and only for a run of the real gap at or after the suburb's `fromS` where the aimed block's
+  pre-cool `[atS − PRECOOL_S, atS]` has no gap column above 0 and the run's largest column falls
+  inside its core. Never while `shortAhead`'s `soon` holds. One suburb at a time.
+- Every city line names the suburb and the lever; the route is in the kind's word (31.9.1); the
+  named suburb glows. Tests check the longest name (Tallowood Heights) and widest figures fit
+  `LINE_MAX_CHARS`.
+- **As built after wave 2's review (these amend the bullets above):** a city line not yet due
+  (`plan`) waits behind any line with something to do now and behind a critical line, ahead of
+  lines with nothing to do; once `act` it keeps its place. Trigger (a) is the soak window's
+  minimum of the line's own projection at or below `MSL1_MW + MSL_CLEAR_MW`, with
+  `MSL_TIE_OUT_MW` added in columns before the tie's return (as `sim/events.js` does); trigger (b)
+  counts the excess only inside the aimed block's span. The air-con branch walks every gap run
+  from the suburb's `fromS`, and before 15:30 counts the battery at the charge it is planned to
+  reach (`max(socMWh, CHARGE_TO_MWH) − RESERVE_MWH`).
+- **Par's rule 1 (Q-58), as built:** the MSL1 notice ahead **with its `atS` inside the soak
+  window** (`SOAK_FROM_S`..`SOAK_TO_S`), the same test the tray uses (31.9.7).
+
+**31.9.9 Par (S6, S11, B13).**
+- `preDispatch` stores the day-ahead line **without** flex: `P.fc.p50[k] = fc.demandP50[j] −
+  fc.flexMW[j]` (its own first dispatch still reads `fc`, so a block booked on the paused desk at
+  04:30 counts once). `litDayAhead(P, k, t, heat, D, lv)` uplifts that line for heat and then adds
+  the flex of `lv.blocks` at the column time inside `litMW`. Every column carries flex from exactly
+  one source. Test: a plan made after a booking gives the same `context()` cover beyond 4.5 h as a
+  plan made before it and re-planned (within 1 MW), also under a late heatwave.
+- **Rule 5 books only when** the walk is uncovered at some column at or after `fromS`, no column
+  in `[atS − PRECOOL_S, atS]` is uncovered, and the first uncovered column at or after `atS` lies
+  in `[atS, atS + AIRCON_S]`; and `aimFlex` returned ≥ 0. Otherwise it falls through to `armRERT`
+  as today. An uncovered column within `PRECOOL_S` of now stays DR's and RERT's.
+- Rules 1 and 5 run only for the proxies that plan ahead (par, competent, commitAll), gated as
+  `batteryOrder` gates rule 6; a test shows lean never sends `flex`.
+- `tests/system.test.js`: par edits only the `commitSig` test lines; the objective only the
+  `PLAN_COST_KEYS` line and the `planCost` example.
+
+**31.9.10 The map (F17, S9, F14, B16).** The map shows a suburb's patience after its first air-con
+booking today or when it is locked (a glyph and the number, e.g. "☹ 30"); the card always shows it
+with what it does ("patience 40: 90% respond"). A suburb click no longer pins the blue label (the
+card carries draw and roofs); `mapPinText` keeps its ground text. View's deliberate test edits:
+`tests/map.test.js` :369 (hover sends `suburb-<ID>`), :922 (title), :935–937 (a dark suburb sends
+the RESTORE focus, then the card), :945–953 (a lit suburb opens the card); `tests/feedback.test.js`
+:261–262 and :377 only.
+
+**31.9.11 The end card (F15).** When either day paid `cost.flex`, SUPPLY's reason reads "more or
+dearer plant, or city payments, than par's". `app/endcard.js` (that sentence) and
+`tests/scoreface.test.js` (its line) join the card agent's files.
+
+**31.9.12 Tests, time and bytes (B4, B8, B11, B15).**
+- **Selecting tests:** right after `git merge --ff-only <branch>`, record `BASE=$(git rev-parse
+  HEAD)`; run `node tools/changed-tests.mjs --base $BASE --list`, then without `--list`, once
+  before reporting. Wave 2 adds `-- --test-concurrency=2` (four agents at once on a small PC).
+  Never the bare `npm run test:changed` (it diffs against main: 45 of 47 files). Stage A's
+  `node --test` gate is its only full run.
+- **Reach states by booking ahead and poking, never by walking the day.** BOOK, CANCEL, ◀ ▶,
+  outside the window, locked and the verdict all run before 06:00; "under way" by pushing a block
+  whose first knot is at or before now into `state.levers.blocks` (sorted, `rev + 1`) or by one
+  shared jump; the watch by `injectTrip`.
+- **Eager shares (measured with `node tools/perf.mjs` against the commit you built on; the Q-49
+  trims are not counted):** base ≤ 2.6 KB, sim ≤ 2.4 KB, par ≤ 1.2 KB, view ≤ 1.4 KB, card ≤ 0.8 KB,
+  objective ≤ 1.0 KB: **2b ≤ 9.4 KB**. The ten headers free about 14.8 KB, not 16.0; with perf.js,
+  about 16.6 KB.
+- **Shared helpers:** `tests/lib/play.js` is the card's (others report a needed extension);
+  `tests/lib/vm-fixture.js` is stage A's. Each wave owner may edit its own modules' subsections of
+  §31.8 and `sim/README.md` §11. The params header is its leading comment run (the
+  `SIM_VERSION` changelog stays beside `SIM_VERSION`). H is documented in §31.8's keys table,
+  desk/README §13.3 and SPEC K-23 (stage C).
+
+**31.9.13 Versions (B12, S20).** Stage A: `v4-core-2b.0` (§31.2). Before each re-record, run
+`node tools/baseline-v4.js --quick` at the parent commit and at yours and diff section 1 and the
+§3.1 rows of seeds 1–2 with `0x[0-9a-f]{8}` masked: expected the Build line and the K-15 types row,
+nothing else. At stage C, after the wave-2 merge: the masked diff again, then `v4-core-2b.1` (par's
+levers change par's game days) and one more re-record; only hash cells and the Build line may move
+on CLASSIC. SPEC §6 and risk 11 quote `tools/perf.mjs`, never the golden's machine line.
+
+**31.9.14 The order of work, as run.** Stage A's sim half and wave 1 are one agent, `sim` (branch
+`2b-sim`): the sim headers (Q-49), every sim shape (§31.3.1–§31.3.7, §31.3.9, `aimFlex`) and then
+the behaviour (§31.5, §31.9.2), in that order of commits. Stage A's app half is a second agent,
+`app` (branch `2b-app`), in parallel: the other six headers, `app/perf.js` on demand, §31.3.8 and
+the app items of §31.9.1 and §31.9.3. Eager shares: `sim` ≤ 4.2 KB, `app` ≤ 0.8 KB (base and
+wave 1's 5.0 KB together). `vm.hist.flex` is dropped (the skyline already carries past flex;
+nothing draws past bands in 2b). The integrator merges both, runs `node --test` once, bumps
+`v4-core-2b.0` and re-records the golden; then wave 2.
+
+### 31.10 Stage C measures (the integrator, once each, after the wave-2 merge)
+
+1. `node tools/par.js --scenario desk --seeds 1-200 -j 4 --probe --quiet`, the same for
+   `desk-weekend`, and `--heat 100` on both. Gates: zero shed on ≥ 85% of raw seeds and ≥ 75% of
+   heat seeds; RERT armed on ≤ 25%; MSL3 never except after a noon contingency; no black day.
+   Report soakDays, airconDays, soakMWh, reliefMWh, flexDollars beside 2a's figures (§28).
+2. `node tools/par.js --scenario desk,desk-weekend --seeds 1-100 -j 4 --proxy
+   competent,lean,commitAll --allin`. Gates: competent ≥ 70% A; lean ≤ 40% A (fills S-12's "not
+   measured yet (2b / 2d)" row); commitAll loses A on ≥ 30%. `LETTERS` stay unless a gate fails.
+3. `node tools/follow.mjs` on the accept lists for `desk` and `desk-weekend` (the follower still
+   gets through; `--no-follow` still fails), with the city lines on; report how often it soaks and
+   cycles, and its ALL-IN against par on mild spill days (Q-58's "+5").
+4. `node tools/perf.mjs`; `node --test` once (< 60 s).
+5. The golden (§31.9.13); one browser pass, one pane, at 1280×600, 1280×720 and 1920×1080.
+
+### 31.11 Round 1 record (2026-10-09) and what changes for wave 2
+
+Round 1 (workflow `wf_d912efc0-9ec`) merged as `682c32a` (`sim`: builder, two reviewers, a fix
+pass; 9 findings, 8 fixed, 1 handed to the integrator) and `a1da41f` (`app`: 13 findings, 10
+fixed, 2 rejected, 1 contract text). `v4-core-2b.0`, golden re-recorded (`a951e9a`; masked diff:
+the Build line, the K-15 row "0 of 810 … all 27 types" and the machine lines only). Whole suite
+before the re-record: 718 tests, 716 pass (the two golden hash compares), 37.2 s.
+
+**First visit** (`node tools/perf.mjs`): 404,388 B before 2b → the sim's headers −7,097 B, the
+app's headers −7,864 B, `app/perf.js` on demand −1,749 B, the sim's shapes and behaviour
++4,237 B (share 4,301 B), the app's glue +818 B (share 819 B) → **383.6 KB, 16.4 KB left**. Wave 2's
+shares (par 1.2, view 1.4, card 0.8, objective 1.0 KB) leave about 12 KB for 2c–2e.
+
+**The sim as built** (deviations from §31.3, accepted):
+- `flexAt(blocks, s, suburb, kind, lever)` has a fifth argument, `lever` (`''` = all).
+- `sampleSecond` fills `flexMW`, `flexSubMW` and `reliefSubMW` in one pass, bit-identical to
+  `flexAt` (tested); `flexAt` skips blocks outside their span.
+- Blocks are sorted by (`atS`, suburb index): the lever can never decide (soaks start by 11:00,
+  air-con from 15:00).
+- An air-con `LV`'s `[fromS, toS]` is the latest open run between that suburb's blocks (after its
+  last cycle if that fits, else before it); a start in an earlier open run is still accepted.
+- `block` includes "levers open at 04:30" but not the watch or the day over, which stay
+  `applyInput`'s (as `startBlock` does). `flexDel` before 04:30 answers "no such block".
+- `grid.log()` takes an object of extra fields; new exports `grid.leverView`, `grid.flexDelBlock`;
+  `createState` throws unless `levers.suburbs` follows `city.suburbs` in order.
+- `cost.flex` runs one loop over every district, only while some suburb's relief is non-zero,
+  summing `reliefSubMW[sub] × roofFrac` over the lit ones (no scratch array).
+- Tests: `tests/levers.test.js` (13 tests, 2.1 s alone) and `tests/levers-day.test.js` (8, 1.2 s),
+  including a replay of a DESK day to 15:05 with 13 bookings and cancels, bit-identical.
+- Refusal order (sim/README §6): levers null → "levers open at 04:30" → the menu's "not offered
+  today" → locked and the rest.
+
+**The app as built:**
+- The card's own keys are `CARD_OWN = /^(Arrow\w+|Page\w+|Home|End|Enter|Tab|[sxp])$/i` in
+  `app/shell.js` (S, X and P too, so no lever key leaks out of the card). **The card agent adds
+  `-` and `=` there.** H is in `PANEL_KEEPS` (H closes the alarm panel and keeps the card).
+- `vm.focus` never names a suburb or the card. A `{do: 'suburb', id}` sent while RESTORE has the
+  focus (the map's dark-suburb click) opens the card without taking the focus; every other open
+  takes it. A malformed falsy id closes the card.
+- The stub's close press is `btn-suburb-close` (a kept id in §5). `#suburb-card`'s max-height is
+  `calc(100vh - var(--desk-h) - var(--hdr) - 74px)`: 194 px at 1280×600, 8 px above `#planbar`.
+- `app/shell.js` has **no eager slack** left in the app's share; the card agent's 0.8 KB is its own.
+- `tests/cardshell.test.js` (5 tests, 1.2 s) passes to the card agent from wave 2.
+
+**Owners added for wave 2:** the "blue with a soak booked" planview row is **view**'s (in
+`tests/planview.test.js` or its own file); `tests/cardshell.test.js` is **card**'s.
+
+### 31.12 Wave 2 and stage C record (2026-10-10)
+
+Wave 2 (workflow `wf_47646134-efa`, cut short by a usage limit after three builders; resumed as
+`wf_3d04cce3-ac0`, which finished the card in its worktree and ran every review and fix pass)
+merged as `73dec4f` (par: 4 findings, 3 fixed, 1 a docs line done at stage C), `bf50118` (view:
+13, 11 fixed, 2 handed on), `6696ba5` (card: 12, 11 fixed, 1 contract text) and `b079738`
+(objective: 11, all fixed or amended). Whole suite after the merge: **747 tests, all pass,
+40.9 s**. The final whole-branch review (`wf_fbb6570e-761`) and its fix pass are recorded
+below.
+
+**Stage C measures (§31.10), on `v4-core-2b.0` + wave 2:**
+
+| | `desk` | `desk-weekend` | Gate | 2a (§28) |
+|---|---|---|---|---|
+| Zero unserved, 200 raw seeds | 191 (95.5%) | 195 (97.5%) | ≥ 85% | 191 / 195 |
+| Forced heat, 100 seeds | 86 | 98 | ≥ 75% | 85 / 98 |
+| RERT armed, raw | 14 (7.0%) | 1 (0.5%) | ≤ 25% | 15 / 1 |
+| Black days | 0 | 0 | 0 | 0 |
+| SECURE states holding 49.5 Hz, raw | 6,481 of 6,481 | 6,684 of 6,685 (49.497 Hz, seed 106) | all | 6,495 / 6,684 of 6,685 |
+| Par's soak days / air-con days, raw | 0 / 1 | 1 / 0 | — | — |
+| Par's soak / air-con days, heat | 0 / 8 | 0 / 1 | — | — |
+| MSL3 | never | never | only after a noon contingency | never |
+| SECURE states holding 49.5 Hz, forced heat | 2,078 of 2,080 (49.478 Hz, seed 465) | 2,667 of 2,667 | all | `main` gives the same two misses on seed 465 (2,068 of 2,070): pre-existing, not 2b's |
+
+Par uses the levers rarely, as Q-58 intends: rule 1 needs an MSL1 notice whose minimum lies in the
+soak window (one weekend day in 200), and rule 5 a shortfall its pre-cool does not land on (one
+weekday in 200, eight forced-heat days). On `desk` raw, 106 MWh relieved for $42,500.
+
+**ALL-IN letters** (`--proxy competent,lean,commitAll --allin`, 200 days): competent A on 154
+(77%, gate ≥ 70%); commitAll loses A on 191 (95.5%, gate ≥ 30%); **lean A on 96 (48%, gate
+≤ 40%: not met)**, as at Q-48 (48.5%), so the 2b levers do not move it; `LETTERS` stay
+A ≥ 962, B ≥ 684, C ≥ 351. Par's median ALL-IN $9.746M (desk seed 55).
+
+**The follower** (`tools/follow.mjs`, the accept lists): `desk` 11 of 11 days with nothing
+unserved, `desk-weekend` 12 of 12, none black; the no-input day still fails 11 of 11. It soaks
+all six suburbs on every MILD day (and once on a HOT weekend) and never cycles air-con. ALL-IN
+points against par: MILD median 1,015 (991–1,068) on weekdays and 1,021 (1,009–1,089) on weekends;
+HOT 979–1,024 except `desk` seed 3 (621: the follower arms the reserve diesel, as in 2a §28).
+That is Q-58's edge: on mild days a player who soaks beats par.
+
+**The final review** (`wf_fbb6570e-761`: seams, docs truth, the player; each major checked by a
+skeptic): 16 confirmed (1 major, 15 minor), none refuted; one fix pass (`2b-final`, merged as
+`81561a7`) fixed them and V-1:
+- **S1, aims that flickered.** `aimFlex` searches columns at `env.s`-based times, so its rounded
+  aim flipped between two 5-minute marks about every 2.5 real s at 120×, and the card and the line
+  kept changing their time. Now the line keeps an aim within one 5-minute step of the one it
+  shows (`stick`, `cityAim` in `app/objective.js`; `game.js` passes `held`), and the card books
+  the shown line's time (else its own held default). `aimFlex` is unchanged. Followed DESK seed 7,
+  06:30, 60 samples: 12 and 11 changes before, 0 after.
+- **V-1, the stack's blue with soaks.** The projection's export room is now the planned tie
+  export (`obs.plan.tie` from `obs.tie.setMW`, capped by `exportLimitMW`, 0 while tripped). The
+  90th-percentile error of blue against the sim's cut, 5 minutes ahead, fell from 84 to 37 MW; the
+  rest is the system re-dispatching the tie every few minutes.
+- Smaller: the tray names the soak only for a low still ahead and MSL2's words say "a gas unit
+  if one is running"; every ✕ verdict names its relief; a MILD card makes no air-con response
+  claim; the card's refusal strings read as the player's words (`grid.LEVER_WHY`); the stack's
+  text names blocks drawn only as ghosts; the card is 20 px shorter and its verdict sits under its
+  aim (190 of 194 px at 1280×600 with a booked cycle); one shared `knotMW`/`aimLineMW` in
+  `sim/autopilot.js`; READMEs and the air-con help made true.
+
+**The browser pass** (one pane, port 8653, seed 7, a HOT `desk` day, 1280×600, 1280×720 and
+1920×1080): the card opens on the left, fits (188 px with a booked cycle, ≤ 194), hides no "?",
+and its verdict and costs read right ("$22.5k" for 45 MW × 1.25 h × $400); the patience glyph
+draws as a plain text character, not a colour emoji; the soak's band shows along the skyline.
+**Found and fixed (`f5f1c74`):** a soak's code plate sat under its band, beneath the plan's key
+handles, and could not be read; every code now sits above the skyline.
+
+**Versions and totals:** `v4-core-2b.1`, golden re-recorded (masked diff: the Build line and the
+machine lines only). Whole suite 749 tests, all pass. First visit **387.8 KB** (394.9 before 2b):
+Q-49's moves freed 16.7 KB, 2b added about 9.2 KB (cap 9.4), **12.2 KB left for 2c–2e**. On
+demand: `app/suburbcard.js` 6,098 of 6,144 B, `content/text.js` 18,180 B (cap 18.5 KB),
+`app/perf.js` 1,821 B. The follower re-run after the final fixes gives the same days (MILD median
+1,015 / 1,021, every day clean).
+
+**Open after 2b** (none blocks the slice):
+- The lean proxy's 48% A (S-5's ≤ 40%), carried from Q-48.
+- No drag in time on the stack (U-3), no suburb colours, no ticker or petition (U-8), no patience
+  recovery (W-2): decided out of 2b (Q-54, Q-57).
+- The pre-existing briefing bug: an input accepted in the briefing sets `modeLocked`, so a HAND
+  choice is lost (the card never sends in the briefing).

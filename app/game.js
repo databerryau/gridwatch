@@ -55,7 +55,7 @@ export const LINE_REACT_S = 13;
  * read as a shortfall (or a surplus) on the stack and in the objective until the system's next
  * look. tests/lib/follow.js mirrors this set for the hint-following player: keep the two in step.
  */
-export const REDISPATCH_AFTER = Object.freeze(['start', 'stop', 'abortStop', 'battery', 'guard']);
+export const REDISPATCH_AFTER = Object.freeze(['start', 'stop', 'abortStop', 'battery', 'guard', 'flex', 'flexDel']);
 /** K-12 offers: at most this many a day (K-12 accept). */
 export const MAX_OFFERS = 3;
 /** Storage keys (C-8: every access is wrapped; the game plays with storage blocked). */
@@ -235,7 +235,7 @@ export function resetDay(game, seed) {
   game.phase = 'briefing';
   game.agc = true;
   Object.assign(game.ui, {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null,
-    trayOpen: false, consider: null, armed: null, alarmsOpen: false, alarmsSel: null, alarmsPick: null});
+    trayOpen: false, consider: null, armed: null, alarmsOpen: false, alarmsSel: null, alarmsPick: null, suburb: null, suburbLast: null});
   game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = [];
   game.offers = []; game.offered = {}; game.offersToday = 0;
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
@@ -494,6 +494,17 @@ export function redispatch(game) {
 
 const isTile = id => A.TILES.some(t => t.id === id);
 
+function suburbCard(game, id) {
+  const u = game.ui, ids = game.scenario.city.suburbs.map(s => s.id), of = t => ids.find(x => 'suburb-' + x === t);
+  if (D.modeOf(game.director, game.state).locked) return 'The suburb card is back after the watch';
+  if (id === undefined) id = (game.objective && game.objective.targets.map(of).find(Boolean)) || of(u.hover) || u.suburbLast || ids[0];
+  if (id && !ids.includes(id)) return 'no such suburb';
+  u.suburb = id;
+  if (id) u.suburbLast = id;
+  return '';
+}
+const SUB = /^suburb-/, cardFor = (game, t) => SUB.test(t) ? suburbCard(game, t === 'suburb-card' ? game.ui.suburb || undefined : t.slice(7)) : '';
+
 /**
  * A presentation command (never a sim input). Returns '' (done) or why nothing happened. The
  * alarm panel's: alarms, alarmsSel, alarmsPick (a tile pressed while closed), alarmsGoto (Q-46, §30.3.3).
@@ -503,7 +514,12 @@ export function ui(game, cmd) {
   const d = game.director, state = game.state, u = game.ui, play = game.phase === 'play' && !state.over;
   const close = () => { u.alarmsOpen = false; u.alarmsSel = null; d.held = false; };
   switch (cmd && cmd.do) {
-    case 'focus': if (u.alarmsOpen) return ui(game, {do: 'alarmsGoto', target: cmd.target}); u.focus = cmd.target || null; return '';
+    case 'focus': if (u.alarmsOpen) return ui(game, {do: 'alarmsGoto', target: cmd.target}); if (!SUB.test(cmd.target)) u.focus = cmd.target || null; return cardFor(game, cmd.target);
+    case 'suburb': {
+      const id = 'id' in cmd ? cmd.id : u.suburb && !u.alarmsOpen ? null : undefined;
+      if (u.alarmsOpen && !D.modeOf(d, state).locked) ui(game, {do: 'alarmsGoto', target: null});
+      return suburbCard(game, id);
+    }
     case 'alarms':
       if (!(cmd.on === undefined ? !u.alarmsOpen : cmd.on)) { close(); return ''; }
       u.alarmsOpen = true;
@@ -515,8 +531,8 @@ export function ui(game, cmd) {
     case 'alarmsGoto':
       close();
       if (play && !D.respondCardOpen(d, state)) d.paused = true; // (a waiting RESPOND card holds the clock itself)
-      if (cmd.target) u.focus = cmd.target;
-      return '';
+      if (cmd.target && !SUB.test(cmd.target)) u.focus = cmd.target;
+      return cardFor(game, cmd.target);
     case 'hover': u.hover = cmd.target || null; u.hoverGlow = Array.isArray(cmd.glow) ? cmd.glow.slice() : []; return '';
     case 'ack': A.ackAll(game.alarms); return '';
     case 'silence': A.silence(game.alarms); return '';
@@ -725,7 +741,7 @@ export function buildVm(game, f) {
         // projection once per line (F-11: the objective and its STOP saving read the same one).
         game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
         const proj = game.planview.project(obs);
-        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: d.speed * LINE_REACT_S});
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: d.speed * LINE_REACT_S, held: game.objective});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s);
@@ -805,6 +821,7 @@ export function buildVm(game, f) {
     // the guard with its cover up, or null; levers held by hand
     armed: game.ui.armed, held: game.commit === 'player' && heldByHand(game),
     alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
+    suburb: game.ui.suburb, dayAhead: game.dayAhead,
   };
 }
 

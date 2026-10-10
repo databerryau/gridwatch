@@ -45,14 +45,20 @@ types; Phase 2a): each row carries the day type, the minimum operational demand,
 negative price, the MWh spilled, the peak frequency, the highest MSL level and rule 4's coal
 stops, and the summary groups them by day type. `--probe` trips both credible contingencies in a
 copy of each SECURE state (H-8), as the baseline does on the classic day; `--rows FILE` writes
-every row as a JSON line. `tools/baseline-v4.js` and its golden stay on the classic day, which
-has no rooftop PV: it is the regression anchor.
+every row as a JSON line. From 2b (desk/README.md §31.6) each row also carries `soakDays` and
+`airconDays` (1 when the proxy booked any block of that lever), `soakMWh` and `reliefMWh` (the
+booked cores' energy, effMW × (block length − FLEX_RAMP_S), not metered) and `flexDollars`
+(`score.cost.flex`); the summary adds their totals and a "soak / air-con days" column by day
+type. `tools/baseline-v4.js` and its golden stay on the classic day, which has no rooftop PV: it
+is the regression anchor.
 
 `tools/follow.mjs` runs the hint-following player (`tests/lib/follow.js`: a day in which the
 only inputs are the ones the objective line proposes) over a seed range, with par's day beside
 it: unserved energy, cost by key, the battery at 16:30, and for each STOP line it followed the
-saving the line quoted against the realised difference. `--no-follow` is the day with no input
-at all, which must fail.
+saving the line quoted against the realised difference. Since 2b it also counts the soaks and
+air-con cycles the player booked and gives the day's ALL-IN beside par's, with the points
+(1000 × par's ÷ yours) and, per day type, the days soaked or cycled and the median points
+(desk/README.md §31.10 item 3). `--no-follow` is the day with no input at all, which must fail.
 
 `tools/baseline-v4.js` (Exit Phase 0) prints four sections: fixed probes (physics, the H-7
 desk-lab midday case, STOP, the import step at 13:00 and 18:30, rate invariance through
@@ -69,8 +75,14 @@ is no slow test tier (SPEC Q-40). `--help` lists the flags.
 ```
 node tools/play.mjs 20261007 to=15:40 until=trip look real=5 diff key=Enter to=+30m diff
 node tools/play.mjs 20261007 timeline=04:30-04:00/30m     # the whole day, every 30 min and every event (~8 s)
+node tools/play.mjs 20261007 suburb=RED look press=city-RED-aircon press=city-RED-soak   # book ahead on a suburb's card at 04:30
 node tools/play.mjs --help
 ```
+
+`suburb=ID` opens a suburb's card as a map click does (`suburb(id)` in the library); `look`
+shows it as a `SUBURB` line and its presses as CTRL lines: `city-<ID>-soak` and
+`city-<ID>-aircon` (BOOK), `-earlier` / `-later` (◀ ▶), `-cancel-HHMM` (CANCEL a block),
+`city-<ID>-restore`. Book ahead at 04:30 rather than jumping to the window (desk/README §31.9.12).
 
 `tools/play.mjs` is the command line of `tests/lib/play.js` (`openGame()`): next.html booted with
 every real module in the stand-in DOM, driven by jumps (`to`, `until`) that play the page's
