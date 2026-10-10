@@ -259,9 +259,9 @@ test('tools/follow.mjs: a STOP line\'s quoted saving is read from the line; the 
   assert.equal(quotedSaving({text: 'Stop it.', action: {type: 'stop', unit: 'ccgt2', saving: 9000}}), 9000);
   assert.equal(quotedSaving({text: 'Stop RIVERTON CCGT 2: it is in the way of the sun.'}), null);
   assert.equal(quotedSaving({}), null);
-  // The cost the §21.4 accept compares leaves the emergency resources out.
-  assert.deepEqual(PLAN_COST_KEYS, ['fuel', 'noLoad', 'starts', 'tie', 'battWear']);
-  assert.equal(planCost({fuel: 5, noLoad: 4, starts: 3, tie: 2, battWear: 1, dr: 100, rert: 1000, flex: 10000}), 15);
+  // The cost the §21.4 accept compares leaves the emergency resources out; the city's payments are the plan's (§31.6).
+  assert.deepEqual(PLAN_COST_KEYS, ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'flex']);
+  assert.equal(planCost({fuel: 5, noLoad: 4, starts: 3, tie: 2, battWear: 1, dr: 100, rert: 1000, flex: 10000}), 10015);
   const said = [
     {s: 100, kind: 'commit', accepted: true, action: {type: 'start', unit: 'ccgt2'}},
     {s: 200, kind: 'stop', accepted: true, action: {type: 'stop', unit: 'ccgt2'}, text: 'saves about $20,000'},

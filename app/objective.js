@@ -6,6 +6,7 @@ import {V} from '../sim/params.js';
 import {SCENARIOS} from '../content/scenarios.js';
 import {clockText, priceText} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
+import {aimFlex} from '../sim/autopilot.js';
 
 /** The objective line and the consequence line are one line each: at most this many characters (§21.4). */
 export const LINE_MAX_CHARS = 170;
@@ -45,16 +46,7 @@ export const BATT_MIN_H = 1 / 6, BATT_AHEAD_STEP_MW = 100;
 export const BATT_EASE_MW = 200;
 /** The reserve diesel is stood down when this share of the battery's and demand response's energy would carry what is left. */
 export const RERT_STANDDOWN_FRAC = 0.5;
-// (The GUARD line asks once for the most the battery can hold for a trip, PAR_GUARD_MAX_MW: a step
-// is worth less the higher the ring already is. Measured at 04:31 on the 11 seeds of both day
-// scenarios: the first 100 MW 0.025 to 0.104 Hz on the trip preview, then 0.021 to 0.062, 0.014 to
-// 0.041, 0.011 to 0.030. A line sized on a step's worth asked twice: 300 MW, then 400.)
-// (After a trip the fired GUARD gives its whole ring for GUARD_SUSTAIN_S; a belly trip is smaller
-// than the ring, so while it is still giving and frequency is above the normal band the line turns it
-// down to 0 (par's rule 2 does the same), raises no ring while it is fired, holds the battery
-// branch's charge orders out of the MW it gave up, and raises it back once it has re-armed, within
-// the hour of the trip. Measured on desk-weekend seed 20261017, coal 1 at minimum, 240 MW, tripping
-// at 14:08:40 under a 400-MW GUARD: 478 s above 50.15 Hz in the next 900 s before, 49 s after.)
+// (The GUARD's measurements: desk/README.md §31.8 app/objective.js.)
 /** The look-ahead counts what a unit can reach within this long of a column (grid seconds); see capacityGap. */
 export const RAMP_HEAD_S = 1800;
 
@@ -391,18 +383,16 @@ export function objective(obs, ctx) {
 
   // 3-9. The first branch with something to do now; else the first critical one (the reserve diesel
   // on its way: said, but never in place of what the battery can do meanwhile); else the first with
-  // something to say.
-  let passive = null, crit = null;
-  for (const branch of [commitNow, shortAhead, restore, spare, stop, battery, commitLater]) {
+  // something to say. A city line not yet due comes after both.
+  let passive = null, crit = null, ask = null;
+  for (const branch of [commitNow, shortAhead, aircon, restore, spare, stop, battery, soak, commitLater]) {
     const x = branch(X, line);
     if (!x) continue;
-    if (x.action) return x;
-    if (x.level === 'crit') { if (!crit) crit = x; } else if (!passive) passive = x;
+    if (x.action && (x.kind !== 'city' || x.level === 'act')) return x;
+    if (x.action) ask = ask || x; else if (x.level === 'crit') crit = crit || x; else passive = passive || x;
   }
-  if (crit || passive) return crit || passive;
-
   // 10. Quiet.
-  return quiet(X, line, !!ctx.dayAhead);
+  return crit || ask || passive || quiet(X, line, !!ctx.dayAhead);
 }
 
 /** Demand within this of the present counts as no higher (MW): the line says "about N MW" to the 100. */
@@ -738,6 +728,41 @@ function shortAhead(X, line) {
   return line({level: 'act', kind: 'short', text: head + '. Discharge the battery at ' + mwText(mw) + '.', targets: ['dial-battery'], action: {type: 'battery', mode: 'discharge', mw}, startBy: s});
 }
 
+// A city line (Q-59; §31.8).
+function city(X, line, x, lever, atS, head, tail) {
+  const soak = lever === 'soak', by = soak ? atS : atS - V.PRECOOL_S, lv = X.obs.levers;
+  return line({level: by - X.s <= X.act ? 'act' : 'plan', kind: 'city', targets: ['suburb-' + x.id], action: {type: 'flex', suburb: x.id, lever, atS}, startBy: by,
+    text: head + (soak ? 'Book a HOT WATER SOAK in ' : 'Book an AIR-CON CYCLE in ') + SCENARIOS[X.obs.scenarioId].city.suburbs[lv.suburbs.indexOf(x)].name + ', ' + at(atS) + '–' +
+      at(atS + (soak ? V.SOAK_S : V.AIRCON_S)) + ' (' + Math.round(x[lever].mw) + ' MW): ' + tail});
+}
+
+// Free suburbs, the most MW first.
+const freeFor = (lv, lever) => lv.suburbs.filter(x => x[lever].block === '').sort((a, c) => c[lever].mw - a[lever].mw);
+
+// 3c. AIR-CON CYCLE (§31.8).
+function aircon(X, line) {
+  const A = lookAhead(X), b = X.obs.battery, lv = X.obs.levers, free = freeFor(lv, 'aircon');
+  if (!free.length || (A && A.unit) || realShort(X).soonMW >= BATT_MIN_MW) return null;
+  const R = capacityGap(X.obs, X.day, {real: true}), h = R.stepS / S_PER_H;
+  const held = (X.s < CHARGE_BY_S ? Math.max(b.socMWh, CHARGE_TO_MWH) : b.socMWh) - RESERVE_MWH;
+  for (const x of free) {
+    const atS = aimFlex(X.day, lv, x.id, 'aircon');
+    for (let run, from = atS < 0 ? Infinity : x.aircon.fromS; (run = firstRun(R, from)); from = run.endS + R.stepS) {
+      let pre = 0, topS = 0, mwh = 0;
+      for (let k = 0; k < R.n; k++) {
+        const t = R.fromS + (k + 1) * R.stepS, g = R.gap[k];
+        if (t >= atS - V.PRECOOL_S && t <= atS && g > 0) pre = 1;
+        if (t >= run.atS && t <= run.endS) { mwh += g * h; if (g === run.mw && !topS) topS = t; }
+      }
+      if (!pre && topS >= atS && topS <= atS + V.AIRCON_S && (run.mw > b.ratedMW || mwh > held)) {
+        return city(X, line, x, 'aircon', atS, 'From about ' + atMark(run.crossS) + ' committed units fall short. ',
+          'pre-cool from ' + at(atS - V.PRECOOL_S) + '; ' + Math.round(100 * V.SNAPBACK_FRAC) + '% of the relief comes back after.');
+      }
+    }
+  }
+  return null;
+}
+
 // A run as the line carries it (the public shape of capacityShort).
 const pub = run => ({atS: run.atS, endS: run.endS, mw: run.mw});
 
@@ -1066,6 +1091,27 @@ function gasSetsPrice(obs) {
   const u = obs.units.find(x => x.id === obs.price.marginalId);
   if (u) return GAS.has(u.cls) || u.station === 'hydro';
   return obs.price.mwh - obs.price.adder >= V.STATIONS.ccgt.offer;
+}
+
+// 7b. HOT WATER SOAK (§31.8): free suburbs aim alike.
+function soak(X, line) {
+  const obs = X.obs, b = obs.battery, P = X.proj, d = obs.forecast.demandP50, free = freeFor(obs.levers, 'soak'), h = FC_MARK_S / S_PER_H;
+  const atS = free.length ? aimFlex(X.day, obs.levers, free[0].id, 'soak') : -1, back = obs.tie.tripped ? X.s + obs.tie.lockoutS : -1;
+  if (atS < 0) return null;
+  const top = Math.min(b.ratedMW - b.guardMW, V.PAR_BATT_CHARGE_MAX_MW);
+  let lo = -1, m = Infinity, ex = 0, room = (b.capMWh - b.socMWh) / V.BATT_CHARGE_EFF;
+  for (let k = 0; k < P.n; k++) {
+    const t = P.times[k], sp = P.surplusMW[k], c = P.charging[k], take = Math.max(0, Math.min(sp > V.SURPLUS_MIN_MW ? Math.max(top, c) : c, sp + c, room / h));
+    const u = d[k] - (t <= back ? V.MSL_TIE_OUT_MW : 0);
+    room -= take * h;
+    if (t > atS && t < atS + V.SOAK_S) ex = Math.max(ex, sp + c - take);
+    if (t >= V.SOAK_FROM_S && t <= V.SOAK_TO_S && u < m) { lo = k; m = u; }
+  }
+  const msl = obs.msl.level > 0 && obs.msl.atS > X.s && m <= V.MSL1_MW + V.MSL_CLEAR_MW;
+  if (!msl && !(ex > V.SURPLUS_MIN_MW)) return null;
+  const x = msl ? free[0] : free.find(u => u.soak.mw <= ex) || free[free.length - 1];
+  return city(X, line, x, 'soak', atS, msl ? 'MSL' + obs.msl.level + ': demand falls to about ' + figure(d[lo]) + ' at ' + atMark(P.times[lo]) + '. '
+    : 'The battery cannot take all of noon\'s spill. ', (msl ? 'it lifts the low' : 'tanks take the rest') + '; tonight\'s heating falls by as much.');
 }
 
 // 8. A shortfall beyond the 4.5-h window: what to start next, and by when.

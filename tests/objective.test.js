@@ -200,7 +200,7 @@ test('a MILD morning to 13:00 (seed 8): the follower starts the CCGT for the mor
   const orders = day.said.filter(x => x.accepted && x.kind === 'battery' && x.action.type === 'battery');
   for (let i = 1; i < orders.length; i++) assert.ok(orders[i].s - orders[i - 1].s >= 900, 'battery orders ' + at(orders[i - 1].s) + ' and ' + at(orders[i].s));
   // every line carries a kind the shell knows, and (i) holds on the morning
-  for (const x of lines) assert.ok(['watch', 'held', 'short', 'commit', 'restore', 'spare', 'stop', 'battery', 'quiet'].includes(x.kind), x.kind);
+  for (const x of lines) assert.ok(['watch', 'held', 'short', 'commit', 'restore', 'spare', 'stop', 'battery', 'city', 'quiet'].includes(x.kind), x.kind);
   assert.equal(O.LINE_MAX_CHARS, 170, '§21.4: one line, at most 170 characters (the objective\'s own checks and these tests read the one constant)');
   lineChecks(lines, day.said, 'seed ' + MILD_SEED);
   // (what the STOP and BATTERY lines are worth over the whole day is accept e: tools/follow.mjs)
