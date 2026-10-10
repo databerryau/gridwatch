@@ -20,7 +20,9 @@
 // 2a.2: score gains SAIDI, SAIFI and MAIFI (Q-48); only state hashes move.
 // 2b.0: the city levers in the sim (desk/README.md §31): flex in demand and the forecast,
 // patience, flex/flexDel; classic has no levers, so only hashes move.
-export const SIM_VERSION = 'v4-core-2b.0';
+// 2b.1: par's lever rules (S-14 rules 1 and 5) and the end of slice 2b (desk/README.md §31.12);
+// classic still has no levers.
+export const SIM_VERSION = 'v4-core-2b.1';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);
