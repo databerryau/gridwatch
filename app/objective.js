@@ -383,18 +383,16 @@ export function objective(obs, ctx) {
 
   // 3-9. The first branch with something to do now; else the first critical one (the reserve diesel
   // on its way: said, but never in place of what the battery can do meanwhile); else the first with
-  // something to say.
-  let passive = null, crit = null;
+  // something to say. A city line not yet due comes after both.
+  let passive = null, crit = null, ask = null;
   for (const branch of [commitNow, shortAhead, aircon, restore, spare, stop, battery, soak, commitLater]) {
     const x = branch(X, line);
     if (!x) continue;
-    if (x.action) return x;
-    if (x.level === 'crit') { if (!crit) crit = x; } else if (!passive) passive = x;
+    if (x.action && (x.kind !== 'city' || x.level === 'act')) return x;
+    if (x.action) ask = ask || x; else if (x.level === 'crit') crit = crit || x; else passive = passive || x;
   }
-  if (crit || passive) return crit || passive;
-
   // 10. Quiet.
-  return quiet(X, line, !!ctx.dayAhead);
+  return crit || ask || passive || quiet(X, line, !!ctx.dayAhead);
 }
 
 /** Demand within this of the present counts as no higher (MW): the line says "about N MW" to the 100. */
@@ -730,34 +728,36 @@ function shortAhead(X, line) {
   return line({level: 'act', kind: 'short', text: head + '. Discharge the battery at ' + mwText(mw) + '.', targets: ['dial-battery'], action: {type: 'battery', mode: 'discharge', mw}, startBy: s});
 }
 
-// A city line (Q-59): suburb x's lever at atS (aimFlex); 'act' once its deadline is within X.act.
+// A city line (Q-59; §31.8).
 function city(X, line, x, lever, atS, head, tail) {
-  const soak = lever === 'soak', by = soak ? atS : atS - V.PRECOOL_S;
+  const soak = lever === 'soak', by = soak ? atS : atS - V.PRECOOL_S, lv = X.obs.levers;
   return line({level: by - X.s <= X.act ? 'act' : 'plan', kind: 'city', targets: ['suburb-' + x.id], action: {type: 'flex', suburb: x.id, lever, atS}, startBy: by,
-    text: head + (soak ? 'Book a HOT WATER SOAK in ' : 'Book an AIR-CON CYCLE in ') + SCENARIOS[X.obs.scenarioId].city.suburbs.find(u => u.id === x.id).name + ', ' + at(atS) + '–' +
+    text: head + (soak ? 'Book a HOT WATER SOAK in ' : 'Book an AIR-CON CYCLE in ') + SCENARIOS[X.obs.scenarioId].city.suburbs[lv.suburbs.indexOf(x)].name + ', ' + at(atS) + '–' +
       at(atS + (soak ? V.SOAK_S : V.AIRCON_S)) + ' (' + Math.round(x[lever].mw) + ' MW): ' + tail});
 }
 
-// The suburbs free for a lever, the most MW first.
+// Free suburbs, the most MW first.
 const freeFor = (lv, lever) => lv.suburbs.filter(x => x[lever].block === '').sort((a, c) => c[lever].mw - a[lever].mw);
 
-// 3c. AIR-CON CYCLE (§31.9.8): a shortfall no start reaches, past the hour, more than the battery holds; its peak in the core, none in the pre-cool.
+// 3c. AIR-CON CYCLE (§31.8).
 function aircon(X, line) {
   const A = lookAhead(X), b = X.obs.battery, lv = X.obs.levers, free = freeFor(lv, 'aircon');
   if (!free.length || (A && A.unit) || realShort(X).soonMW >= BATT_MIN_MW) return null;
   const R = capacityGap(X.obs, X.day, {real: true}), h = R.stepS / S_PER_H;
+  const held = (X.s < CHARGE_BY_S ? Math.max(b.socMWh, CHARGE_TO_MWH) : b.socMWh) - RESERVE_MWH;
   for (const x of free) {
-    const atS = aimFlex(X.day, lv, x.id, 'aircon'), run = atS >= 0 && firstRun(R, x.aircon.fromS);
-    if (!run) continue;
-    let pre = 0, top = 0, topS = 0, mwh = 0;
-    for (let k = 0; k < R.n; k++) {
-      const t = R.fromS + (k + 1) * R.stepS, g = R.gap[k];
-      if (t >= atS - V.PRECOOL_S && t <= atS && g > 0) pre = 1;
-      if (t >= run.atS && t <= run.endS) { mwh += g * h; if (g > top) { top = g; topS = t; } }
-    }
-    if (!pre && topS >= atS && topS <= atS + V.AIRCON_S && (top > b.ratedMW || mwh > b.socMWh - RESERVE_MWH)) {
-      return city(X, line, x, 'aircon', atS, 'From about ' + atMark(run.crossS) + ' demand is more than every unit can give. ',
-        'pre-cool from ' + at(atS - V.PRECOOL_S) + '; ' + Math.round(100 * V.SNAPBACK_FRAC) + '% comes back after.');
+    const atS = aimFlex(X.day, lv, x.id, 'aircon');
+    for (let run, from = atS < 0 ? Infinity : x.aircon.fromS; (run = firstRun(R, from)); from = run.endS + R.stepS) {
+      let pre = 0, topS = 0, mwh = 0;
+      for (let k = 0; k < R.n; k++) {
+        const t = R.fromS + (k + 1) * R.stepS, g = R.gap[k];
+        if (t >= atS - V.PRECOOL_S && t <= atS && g > 0) pre = 1;
+        if (t >= run.atS && t <= run.endS) { mwh += g * h; if (g === run.mw && !topS) topS = t; }
+      }
+      if (!pre && topS >= atS && topS <= atS + V.AIRCON_S && (run.mw > b.ratedMW || mwh > held)) {
+        return city(X, line, x, 'aircon', atS, 'From about ' + atMark(run.crossS) + ' committed units fall short. ',
+          'pre-cool from ' + at(atS - V.PRECOOL_S) + '; ' + Math.round(100 * V.SNAPBACK_FRAC) + '% of the relief comes back after.');
+      }
     }
   }
   return null;
@@ -1093,22 +1093,24 @@ function gasSetsPrice(obs) {
   return obs.price.mwh - obs.price.adder >= V.STATIONS.ccgt.offer;
 }
 
-// 7b. HOT WATER SOAK (§31.9.8): an MSL notice ahead until the window's forecast clears it (the notice lags), the most MW;
-// else spill the battery will not take as battery() charges it, the most MW under it.
+// 7b. HOT WATER SOAK (§31.8): free suburbs aim alike.
 function soak(X, line) {
   const obs = X.obs, b = obs.battery, P = X.proj, d = obs.forecast.demandP50, free = freeFor(obs.levers, 'soak'), h = FC_MARK_S / S_PER_H;
-  if (!free.length) return null;
+  const atS = free.length ? aimFlex(X.day, obs.levers, free[0].id, 'soak') : -1, back = obs.tie.tripped ? X.s + obs.tie.lockoutS : -1;
+  if (atS < 0) return null;
   const top = Math.min(b.ratedMW - b.guardMW, V.PAR_BATT_CHARGE_MAX_MW);
-  let lo = -1, ex = 0, room = (b.capMWh - b.socMWh) / V.BATT_CHARGE_EFF;
+  let lo = -1, m = Infinity, ex = 0, room = (b.capMWh - b.socMWh) / V.BATT_CHARGE_EFF;
   for (let k = 0; k < P.n; k++) {
-    const sp = P.surplusMW[k], c = P.charging[k], take = Math.max(0, Math.min(sp > V.SURPLUS_MIN_MW ? Math.max(top, c) : c, sp + c, room / h));
+    const t = P.times[k], sp = P.surplusMW[k], c = P.charging[k], take = Math.max(0, Math.min(sp > V.SURPLUS_MIN_MW ? Math.max(top, c) : c, sp + c, room / h));
+    const u = d[k] - (t <= back ? V.MSL_TIE_OUT_MW : 0);
     room -= take * h;
-    if (P.times[k] >= V.SOAK_FROM_S && P.times[k] <= V.SOAK_TO_S) { ex = Math.max(ex, sp + c - take); if (lo < 0 || d[k] < d[lo]) lo = k; }
+    if (t > atS && t < atS + V.SOAK_S) ex = Math.max(ex, sp + c - take);
+    if (t >= V.SOAK_FROM_S && t <= V.SOAK_TO_S && u < m) { lo = k; m = u; }
   }
-  const msl = obs.msl.level > 0 && obs.msl.atS > X.s && lo >= 0 && d[lo] <= V.MSL1_MW + V.MSL_CLEAR_MW;
+  const msl = obs.msl.level > 0 && obs.msl.atS > X.s && m <= V.MSL1_MW + V.MSL_CLEAR_MW;
   if (!msl && !(ex > V.SURPLUS_MIN_MW)) return null;
-  const x = msl ? free[0] : free.find(u => u.soak.mw <= ex) || free[free.length - 1], atS = aimFlex(X.day, obs.levers, x.id, 'soak');
-  return atS < 0 ? null : city(X, line, x, 'soak', atS, msl ? 'MSL' + obs.msl.level + ': demand falls to about ' + figure(d[lo]) + ' at ' + atMark(P.times[lo]) + '. '
+  const x = msl ? free[0] : free.find(u => u.soak.mw <= ex) || free[free.length - 1];
+  return city(X, line, x, 'soak', atS, msl ? 'MSL' + obs.msl.level + ': demand falls to about ' + figure(d[lo]) + ' at ' + atMark(P.times[lo]) + '. '
     : 'The battery cannot take all of noon\'s spill. ', (msl ? 'it lifts the low' : 'tanks take the rest') + '; tonight\'s heating falls by as much.');
 }
 

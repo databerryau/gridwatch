@@ -2528,10 +2528,13 @@ Branch order (§21.4; 2b §31.9.8): watch, held, short-now, commit-now, shortAhe
 restore, spare, stop, battery, soak, commit-later, quiet. A line that asks for nothing yet (a
 start more than ACT_WITHIN_S away, a feeder that cannot close yet, spare that nothing can add,
 the reserve diesel on its way) gives way to a lower branch that has something to do now; among
-lines that ask for something, the order above decides; then a critical line; then the first that
-has something to say. Between commit-now and restore sits the shortfall no start can reach
-(shortAhead): what every committed MW cannot give within the hour is the battery's to carry, and
-demand response's when it is more than the battery holds; the reserve diesel only beyond both.
+lines that ask for something, the order above decides; then a critical line; then a city line not
+yet due (level 'plan': it carries its action, so a player may book ahead, but a booking hours away
+never hides a feeder to close, a GUARD to raise or a battery order; once due, 'act', it keeps its
+place in the order); then the first that has something to say. Between commit-now and restore
+sits the shortfall no start can reach (shortAhead): what every committed MW cannot give within
+the hour is the battery's to carry, and demand response's when it is more than the battery
+holds; the reserve diesel only beyond both.
 
 The city levers (2b, Q-59, §31.9.8): kind 'city', targets ['suburb-<ID>'], the action the full
 flex input {type: 'flex', suburb, lever, atS} with atS from aimFlex (sim/autopilot.js) over the
@@ -2540,33 +2543,39 @@ day-ahead (or the 4.5-h forecast; -1 is "not now": no line), startBy the booking
 (+ leadS), else 'plan'. Eligibility only through observe().levers' block (a suburb is free when
 its lever's block is ''). One suburb per line; the next is named once the forecast carries the
 booking.
-  soak (after battery: a battery order due now shows first; before commit-later) when either
+  soak (after battery: a battery order due now shows first; before commit-later), aimed once:
+  every free suburb has no soak of its own, so aimFlex gives them all the same atS. When either
     (a) an MSL notice stands with its low ahead (obs.msl.level >= 1, atS > now), and some
-        column of the 4.5-h forecast in 10:00-15:00 is still at or under MSL1_MW + MSL_CLEAR_MW
+        column of the 4.5-h forecast in 10:00-15:00 is still at or under MSL1_MW + MSL_CLEAR_MW,
+        raised by MSL_TIE_OUT_MW in a column before the tie's return as sim/events.js raises it
         (the notice is re-checked only every MSL_CHECK_S, so a soak booked since would not clear
         it until then: without this, a player who books at once would be asked for a suburb a
-        minute until the next check). It names
-        the free suburb with the most soak MW (par's rule 1). The tie-out lift of the thresholds
-        is left out (the line stops a little early while the tie is out; it never over-books);
+        minute until the next check). It names the free suburb with the most soak MW (par's
+        rule 1); the low it quotes is that column, the one nearest its threshold;
     (b) else, spill the battery will not take: the projection's spill plus the present charge
         order per column, the battery modelled as battery() charges it (up to min(ratedMW -
         guardMW, PAR_BATT_CHARGE_MAX_MW) a column, from the earliest blue column, its present
         order in every column, until (capMWh - socMWh) / BATT_CHARGE_EFF is used); the largest
-        excess in 10:00-15:00 above SURPLUS_MIN_MW names the free suburb with the most soak MW
-        at or under it, else the smallest.
+        excess inside the aimed block's span (atS, atS + SOAK_S) above SURPLUS_MIN_MW names the
+        free suburb with the most soak MW at or under it, else the smallest. Spill outside the
+        span is not the soak's to take (on a MILD 06:30 aimed at 11:00, spill at 10:00-10:55
+        gives no line; the line comes once the projection reaches the span).
     Text: "MSL1: demand falls to about 1,550 MW at 12:40. Book a HOT WATER SOAK in Old Hazelton,
     10:35–14:35 (140 MW): it lifts the low; tonight's heating falls by as much." or "The
     battery cannot take all of noon's spill. Book … : tanks take the rest; tonight's heating
     falls by as much." (Q-52: the night's heating falls by the booked energy.)
   air-con (right after shortAhead) only when lookAhead names no unit (a start beats air-con),
-    shortAhead's soon does not hold, and for the first run of the real gap (capacityGap real,
-    over the day-ahead) at or after the suburb's fromS: no gap column in the aimed pre-cool
-    [atS - PRECOOL_S, atS], the run's largest column inside the core [atS, atS + AIRCON_S], and
-    the run more than the battery holds (its largest column above ratedMW, or its MWh above the
-    charge over the reserve): where demand response would be called (Q-59 "before DR"; air-con
-    is $400/MWh against DR's $1,400). The free suburb with the most relief MW that passes.
-    Text: "From about 18:30 demand is more than every unit can give. Book an AIR-CON CYCLE in
-    Redgum Flats, 18:30–20:00 (45 MW): pre-cool from 17:30; 40% comes back after."
+    shortAhead's soon does not hold, and for a run of the real gap (capacityGap real, over the
+    day-ahead) at or after the suburb's fromS (each run in turn: a smaller, earlier one does not
+    hide the evening's): no gap column in the aimed pre-cool [atS - PRECOOL_S, atS], the run's
+    largest column inside the core [atS, atS + AIRCON_S], and the run more than the battery holds
+    (its largest column above ratedMW, or its MWh above the charge over the reserve, where before
+    15:30 (PAR_BATT_CHARGE_H) the charge counts at least PAR_BATT_CHARGE_TO: battery() fills it by
+    then on any day with an evening gap): where demand response would be called (Q-59 "before DR";
+    air-con is $400/MWh against DR's $1,400). The free suburb with the most relief MW that passes.
+    Text: "From about 18:30 committed units fall short. Book an AIR-CON CYCLE in Redgum Flats,
+    18:30–20:00 (45 MW): pre-cool from 17:30; 40% of the relief comes back after." ("committed":
+    a unit that is off but cannot reach the gap may exist; the 40% is of the relieved energy.)
 Every city line fits LINE_MAX_CHARS with Tallowood Heights and the widest figures
 (tests/objective-levers.test.js).
 
