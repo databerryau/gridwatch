@@ -70,12 +70,12 @@ test('Q-56 at 04:30 on a hot day: name, homes, wit, patience with what it does, 
   assert.match(w, /^✓ relief .* covers the 19:30 peak; snapback after it$/, 'the default aim is right on this day');
   assert.equal(card(p), 'REDGUM FLATS 420k homes “' + WIT.RED + '” patience 60: all respond · draws ' + /draws ([\d,]+) MW/.exec(card(p))[1] +
     ' MW · roofs 0 MW HOT WATER SOAK +110 MW ' + span(soak, V.SOAK_S) + ' takes 413 MWh at noon; tonight\'s heating −413 MWh · no payment ' +
-    'AIR-CON CYCLE −45 MW ' + span(aim, V.AIRCON_S) + ' pre-cool from ' + hm(aim - V.PRECOOL_S) + ' · snapback to ' + hm(aim + V.AIRCON_S + V.SNAPBACK_S) +
-    ' · $22.5k · patience 60 → 50 ' + w);
+    'AIR-CON CYCLE −45 MW ' + span(aim, V.AIRCON_S) + ' ' + w + ' pre-cool from ' + hm(aim - V.PRECOOL_S) + ' · snapback to ' + hm(aim + V.AIRCON_S + V.SNAPBACK_S) +
+    ' · $22.5k · patience 60 → 50', 'the verdict right under its aim (P6: what scrolls at the floor is the words)');
   assert.equal(p.doc.activeElement.id, 'city-RED-soak', 'opened: the first row takes the focus');
   // ▶ steps 15 min (the verdict follows), ◀ back; at the ends they answer in blue and stay
   p.click('city-RED-aircon-later');
-  assert.ok(card(p).includes('−45 MW ' + span(aim + 900, V.AIRCON_S) + ' ') && card(p).endsWith(verdict(p.vm().dayAhead, p.vm().obs.levers, 'RED', aim + 900, 45)));
+  assert.ok(card(p).includes('−45 MW ' + span(aim + 900, V.AIRCON_S) + ' ' + verdict(p.vm().dayAhead, p.vm().obs.levers, 'RED', aim + 900, 45) + ' pre-cool'));
   p.click('city-RED-aircon-earlier');
   assert.ok(card(p).includes('−45 MW ' + span(aim, V.AIRCON_S) + ' '));
   for (let i = 0; i < 4; i++) p.click('city-RED-soak-earlier');
@@ -120,7 +120,7 @@ test('Q-52-Q-54 booked ahead at 04:30: BOOK sends flex at the aim and the row li
     hm(aim + V.AIRCON_S + V.SNAPBACK_S) + ' · $6,750 · patience −10'), card(p) + ': the booked row names the pre-cool, when CANCEL ends');
   assert.ok(card(p).includes('patience 30: 80% respond') && card(p).includes('AIR-CON CYCLE −12 MW'), 'the next cycle at 80%');
   const nx = /AIR-CON CYCLE −12 MW (\d\d:\d\d–\d\d:\d\d) /.exec(card(p))[1];
-  assert.match(card(p), new RegExp('✕ relief ' + nx + ' misses the \\d\\d:\\d\\d peak$'), 'the verdict names the relief it judges: the next aim, not the booked one (P1)');
+  assert.match(card(p), new RegExp('AIR-CON CYCLE −12 MW ' + nx + ' ✕ relief ' + nx + ' misses the \\d\\d:\\d\\d peak pre-cool '), 'the verdict names the relief it judges: the next aim, not the booked one (P1)');
   assert.ok(p.$('city-TAL-aircon-cancel-' + hm(aim).replace(':', '')));
   assert.equal(p.vm().tray.cards.length, cards, 'no tray card for a booking');
   assert.deepEqual(p.vm().tray.log.slice(-2).map(e => e.from + ': ' + e.text), ['CITY DESK: Tallowood Heights: air-con cycle booked for ' + hm(aim) + ' (14 MW).',
@@ -131,7 +131,7 @@ test('Q-52-Q-54 booked ahead at 04:30: BOOK sends flex at the aim and the row li
   p.click('city-TAL-aircon');
   assert.equal(flexLog(p).length, 2);
   assert.deepEqual([lv(p, 'TAL').patience, lv(p, 'TAL').aircon.block], [15, 'air-con locked: patience below 25']);
-  assert.ok(card(p).includes('patience 15: air-con locked') && card(p).includes('AIR-CON CYCLE −10 MW air-con locked: patience below 25'), card(p));
+  assert.ok(card(p).includes('patience 15: air-con locked') && /AIR-CON CYCLE −10 MW ✓ [^·]* air-con locked: patience below 25$/.test(card(p)), card(p) + ': the last cycle\'s verdict, then why no more');
   const lock = p.vm().tray.cards.at(-1);
   assert.deepEqual([lock.from, lock.sev, lock.text, lock.button.label, lock.button.target], ['CITY DESK', 'info',
     'Tallowood Heights: air-con locked. A cancel refunds a cycle\'s patience.', 'TO THE SUBURB', 'suburb-TAL']);
@@ -175,7 +175,7 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   vm(v => { Object.assign(v.obs.levers.suburbs[1].soak, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
   assert.equal(book(), 'info Old Hazelton: too late today: soaks start by 11:00', 'outside the window');
   // the window's two reasons as a standing status say what holds, not a refusal of a time nobody proposed (P4)
-  const words = lever => { const r = doc.getElementById('city-HAZ-' + lever).parentElement, g = r.parentElement.children; return g[g.indexOf(r) + 1].textContent; };
+  const words = lever => doc.getElementById('city-HAZ-' + lever).parentElement.parentElement.children.at(-1).textContent;
   vm(v => { Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
   assert.equal(words('aircon'), 'too late today: cycles start by 19:30 (pre-cool from 18:30)');
   vm(v => { Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'overlaps another air-con block of this suburb', fromS: -1, toS: -1}); });
@@ -195,7 +195,7 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   assert.equal(said.at(-1), 'info under way: too late to cancel');
   for (const on of ['city-HAZ-soak', 'city-HAZ-soak-cancel-1030']) eq(on, 'info under way: too late to cancel', on + ': - = on a block under way say why, not "CANCEL, then BOOK"');
   // an air-con cycle: its verdict while it can be cancelled, none once its pre-cool starts; under way through its snapback
-  const cyc = {suburb: 'HAZ', lever: 'aircon', atS: at(18), endS: at(19, 30), effMW: 40, cost: 10}, line = () => x('city-HAZ-aircon').parentElement.parentElement.children.at(-1).textContent;
+  const cyc = {suburb: 'HAZ', lever: 'aircon', atS: at(18), endS: at(19, 30), effMW: 40, cost: 10}, line = () => { const r = x('city-HAZ-aircon').parentElement, g = r.parentElement.children; return g[g.indexOf(r) + 1].textContent; };
   cyc.parts = flexParts(cyc, 40);
   const cycle = (del, s) => vm(v => { v.obs.s = s; v.obs.levers.blocks.push(Object.assign({}, cyc, {del})); Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
   cycle('', base.obs.s);

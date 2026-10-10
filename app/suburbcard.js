@@ -19,9 +19,9 @@ export const LEVERS = Object.freeze({soak: {name: 'HOT WATER SOAK', word: 'soak'
   aircon: {name: 'AIR-CON CYCLE', word: 'air-con', row: 'An air-con cycle pre-cools, relieves, then snaps back.'}});
 /** §31.9.4: columns within this of the evening peak are its band. */
 export const PEAK_BAND_MW = 100;
-const STEP_S = 900, CSS = '#suburb-card .sc{padding:6px 10px 8px;font-size:11px}#suburb-card .sc-h,#suburb-card .sc-r,#suburb-card .sc-b{display:flex;align-items:center;gap:5px}' +
-  '#suburb-card h2{margin:0;font:700 13px var(--mono);color:var(--bright)}#suburb-card .sc-h span{flex:1;color:var(--dim)}#suburb-card p{margin:1px 0;color:var(--dim)}' +
-  '#suburb-card .sc-r{margin-top:4px}#suburb-card .sc-r b{flex:1;font:700 11px var(--mono);color:var(--bright)}#suburb-card .sc-b span{flex:1}' +
+const STEP_S = 900, CSS = '#suburb-card .sc{padding:4px 10px;font-size:11px}#suburb-card .sc-h,#suburb-card .sc-r,#suburb-card .sc-b{display:flex;align-items:center;gap:5px}' +
+  '#suburb-card h2{margin:0;font:700 13px var(--mono);color:var(--bright)}#suburb-card .sc-h span{flex:1;color:var(--dim)}#suburb-card p{margin:0;color:var(--dim)}' +
+  '#suburb-card .sc-r{margin-top:2px}#suburb-card .sc-r b{flex:1;font:700 11px var(--mono);color:var(--bright)}#suburb-card .sc-b span{flex:1}' +
   '#suburb-card .sc-t{font:11px var(--mono);color:var(--bright)}#suburb-card .info{color:var(--blue)}#suburb-card .ok{color:var(--green)}#suburb-card .bad{color:var(--amber)}' +
   '#suburb-card button.off{opacity:.45}';
 
@@ -182,8 +182,9 @@ export function createSuburbCard(doc, root, actions, deps) {
         R.book = btn('BOOK', 'city-' + id + '-' + lever, () => press(lever, 'book'), true), q);
       R.l.setAttribute('aria-label', 'Earlier by 15 min (-)');
       R.r.setAttribute('aria-label', 'Later by 15 min (=)');
-      g.append(r, R.c = el(doc, 'p'));
+      g.appendChild(r); // (the verdict right under its aim: words scroll before it, P6)
       if (lever === 'aircon') g.appendChild(R.v = el(doc, 'p'));
+      g.appendChild(R.c = el(doc, 'p'));
     }
     const n = foc && doc.getElementById(foc);
     if (foc !== null) (n && body.contains(n) ? n : root.querySelector('[data-row]') || x).focus(); // (the focused row was rebuilt)

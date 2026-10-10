@@ -2948,8 +2948,11 @@ inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch a
   verdict(fc, lv, id, atS, effMW) -> '✓ …' | '✕ …' | ''   §31.9.4, pure (tests)
   WIT, LEVERS, PEAK_BAND_MW   the U-1 lines, each lever's name and "?" row, the band (100 MW)
 
-What it shows, top down (1280×600 gives it 194 px; a HOT day with both levers fits; two booked
-cycles and a soak scroll, the last resort):
+What it shows, top down (1280×600 gives it 194 px; a HOT day with both levers fits, and one
+booked block with them; two booked cycles and a soak scroll, the last resort, and the verdict
+sits under its aim so the words scroll first. 2b final review P6, computed from the CSS, not yet
+seen in a browser: lines 14.85 px, buttons 24 px; a HOT card ~180 px before the trims, ~210 px
+with a booked cycle's two-line row; padding 4 px, p margins 0 and .sc-r 2 px take 20 px off):
   NAME · 420k homes · ✕ (btn-suburb-close)
   n DARK: [RESTORE] (city-<ID>-restore: focus bay-restore; the card stays)   only with dark districts
   “U-1's dry wit”
@@ -2963,12 +2966,12 @@ cycles and a soak scroll, the last resort):
       after the soak's end or the cycle's snapback)
     the aim: HOT WATER SOAK +140 MW [◀] 10:30–14:30 [▶] [BOOK] [?]   (BOOK = city-<ID>-<lever>,
       ◀ ▶ = -earlier / -later, ? = q-<lever>: deps.toggleHelp(q, [LEVERS[lever].row]))
-    what it does: takes 525 MWh at noon; tonight's heating −525 MWh · no payment
-                  pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience 60 → 50
-      or, when LV.block is not '', that reason in blue (◀ ▶ hidden, BOOK dimmed)
     air-con: the verdict of the aim, or of the suburb's last booked cycle when it cannot book and
       that cycle can still be cancelled (none once it starts: the day-ahead then has only the
       columns after now, and its "peak" would creep past the real one)
+    what it does: takes 525 MWh at noon; tonight's heating −525 MWh · no payment
+                  pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience 60 → 50
+      or, when LV.block is not '', that reason in blue (◀ ▶ hidden, BOOK dimmed)
 
 The aim: the player's (◀ ▶, - =: 15-min steps) kept inside [fromS, toS], else the shown city
 line's atS for this lever (vm.objective; a soak line's for any suburb, an air-con line's for its
