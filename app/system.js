@@ -22,7 +22,8 @@
 //             start or a stop. At 04:30 it dispatches only what is running; from then it
 //             re-dispatches the committed units (the same planLoad RE-DISPATCH sends) whenever the
 //             commitment changes (a start, a stop, a booking, a unit synchronised or tripped; from
-//             Phase 2a also the battery's order or GUARD: commitSig) and
+//             Phase 2a also the battery's order or GUARD, from 2b a city lever booked or
+//             cancelled (obs.levers.rev): commitSig) and
 //             every DISPATCH_S (5 grid-minutes, as NEMDE does) for the newer forecast. Which units run, and when, is the
 //             player's plan; a day with no input runs short. A lever, tie or plan-key edit by hand
 //             still takes the levers over until RE-DISPATCH.
@@ -64,6 +65,7 @@ export function createSystem(opts) {
 // the next 5-minute dispatch (the review measured "Short 400 MW ... call DR" for two grid-minutes
 // after a CHARGE 350). FULL-HOLD is in it too: a charge order paused on a full battery is no
 // longer a load. The dispatch counts the order for the energy behind it (autopilot batteryOrder).
+// From 2b also a city lever booked or cancelled (obs.levers.rev): flex is demand the plan carries.
 export function commitSig(obs) {
   let s = '';
   for (const u of obs.units) s += u.mode === 'on' || u.mode === 'loading' ? '1' : u.mode === 'off' || u.mode === 'tripped' ? '0' : '2';
@@ -72,7 +74,7 @@ export function commitSig(obs) {
   let dark = 0;
   for (const d of obs.districts) if (d.dark) dark++;
   const b = obs.battery;
-  return s + '|' + dark + (obs.tie.tripped ? 'T' : '') + '|' + b.mode + b.orderMW + (b.fullHold ? 'F' : '') + 'g' + b.guardMW + 'L' + obs.levers.rev; // 2b: a booking or cancel
+  return s + '|' + dark + (obs.tie.tripped ? 'T' : '') + '|' + b.mode + b.orderMW + (b.fullHold ? 'F' : '') + 'g' + b.guardMW + 'L' + obs.levers.rev;
 }
 
 function playerInputs(sys, state, s) {

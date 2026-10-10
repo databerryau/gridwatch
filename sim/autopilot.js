@@ -154,14 +154,15 @@ function litColumns(fc, D) {
  * Plan column k (at grid second t) as lit operational demand from the plan's DAY-AHEAD columns,
  * for the hours beyond the 4.5-h forecast. A heatwave announced after the plan was made lifts the
  * underlying demand (P50 + rooftop) by HEAT_DEMAND_UPLIFT inside its window; the roofs' own heat
- * derate is left out (the autopilot cannot read the scenario's factor).
+ * derate is left out (the autopilot cannot read the scenario's factor). Then it adds the booked
+ * flex of lv.blocks at t (P.fc.p50 has none; the heat never multiplies it).
  */
 function litDayAhead(P, k, t, heat, D, lv) {
   const roof = P.fc.roof ? P.fc.roof[k] : 0;
   const late = heat !== null && heat.atS > P.madeAtS && t >= heat.fromS && t < heat.toS;
   return litMW((P.fc.p50[k] + roof) * (late ? 1 + HEAT_UP : 1) - roof + flexOf(lv, t), roof, D);
 }
-/** 2b: the booked flex at t (obs.levers.blocks; P.fc.p50 has none, sim/README §11). */
+/** 2b: the booked flex at t (obs.levers.blocks' knots; sim/README §11). */
 function flexOf(lv, t) {
   let mw = 0;
   for (const b of lv.blocks) for (const p of b.parts) mw += knotMW(p.knots, t);
@@ -1250,7 +1251,7 @@ function freeMost(lv, lever) {
   return x;
 }
 const flexInput = (x, lever, atS) => ({type: 'flex', suburb: x.id, lever, atS});
-// S-14 rule 1 (first in rule 6): on an MSL1 notice ahead in the soak window (the tray's test), soak at the forecast minimum; aimFlex -1: wait.
+// S-14 rule 1 (first in rule 6): an MSL1 notice ahead in the soak window (the tray's test); aimFlex -1: wait.
 function soak(obs) {
   const m = obs.msl, x = m.level >= 1 && m.atS > obs.s && m.atS >= V.SOAK_FROM_S && m.atS <= V.SOAK_TO_S ? freeMost(obs.levers, 'soak') : null;
   const at = x ? aimFlex(obs.forecast, obs.levers, x.id, 'soak') : -1;
@@ -1551,11 +1552,15 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
  *     PAR_DECOMMIT_CLEAR_MIN and N-1 still holds
  *   5 hold water until PAR_WATER_HOLD_UNTIL_H, then release linearly to PAR_WATER_EMPTY_BY_H
  *   6 charge the battery to PAR_BATT_CHARGE_TO during PAR_BATT_CHARGE_H; discharge by merit
- *     order (when obs.price.mwh exceeds the plan's marginal offer) during PAR_BATT_DISCHARGE_H
+ *     order (when obs.price.mwh exceeds the plan's marginal offer) during PAR_BATT_DISCHARGE_H;
+ *     first (2b, S-14 rule 1) on an MSL1 notice ahead in the soak window, soak the free suburb
+ *     with the most soak MW (aimFlex)
  *   7 keep units at or below PAR_MAX_LOADING unless that would shed load (and re-dispatch
  *     the plan when it has drifted off the forecast, see the file header)
  *   8 pre-arm RERT when the projected PAR_RERT_LOOKAHEAD_MIN shortfall is within
- *     PAR_RERT_MARGIN_MW of firm capacity; call DR on a present shortfall
+ *     PAR_RERT_MARGIN_MW of firm capacity; call DR on a present shortfall; before arming (2b,
+ *     S-14 rule 5, not lean) cycle the free suburb with the most relief when it lands on the
+ *     walk's first short step (none in its pre-cool hour or within the hour)
  *   9 (extension, README §12: S-4 has no restore rule and H-6 forbids automatic restore)
  *     restore one dark district whose obs.districts[].restoreBlock is '': the lowest UFLS
  *     stage first, then rotation order (rot). The K-13 permissive holds all the thresholds.
