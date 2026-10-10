@@ -607,6 +607,10 @@ test('C-11 with a soak booked (2b, Q-50; desk/README §28 and §31): the flex is
   // and the tie's export. With a soak the belly is shallow, and the dispatch exports less than the
   // tie's limit (80-260 MW of 300, measured) while the sim spills: the room is the export that
   // flowed. Within 3 MW (the cut's ramp to 0 inside the minute); a second flex term would be 480 MW out.
+  // THE OVERRIDE MASKS A GAP: the sibling rows need no export override; with soaks the dispatch
+  // under-exports and the stack's own blue under-reads the cut (the sim cuts 66 and 95 MW at +10
+  // and +30 min where the stack shows 0 and 18; the integrator's open item, desk/README §31.11).
+  // Drop the exportLimitMW line once the dispatch or planview's export term is fixed.
   const told = structuredClone(obs);
   for (let k = 0; k < NK; k++) { told.forecast.windMW[k] = wind[k]; told.forecast.solarMW[k] = solar[k]; told.forecast.demandP50[k] = lit[k]; told.forecast.exportLimitMW[k] = exp[k]; }
   const T = PV.project(told);
