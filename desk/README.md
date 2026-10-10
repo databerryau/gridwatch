@@ -573,9 +573,9 @@ every control needs a keyboard route and a way to reach it:
 | Live Stack | L (again: expand); number selects a layer, arrows move one snap step, Enter drops (L-4, already there) | — |
 | map | Tab from the stack, or focus; ←→ cycles plants and suburbs (sets the hover cross-highlight and shows the label); Enter presses the hovered plant or suburb as a click does (a suburb opens its card; not under RESPOND or in the briefing, 2b); Esc leaves | — |
 | settings | `,` | native sliders and checkboxes |
-| suburb card (2b, Q-56) | H (opens the line's or the hovered suburb, else the last, else the first; again: closes), or a click on a suburb | its own arrows, PgUp/PgDn, Home, End, Enter, Tab (S, X and P do nothing there, so the lever behind it never moves); Esc or H closes |
+| suburb card (2b, Q-56) | H (opens the line's or the hovered suburb, else the last, else the first; again: closes), or a click on a suburb | ←/→ the previous / next suburb, ↑/↓ its row presses (RESTORE, CANCEL, BOOK), - / = the focused row's time by 15 min, Enter presses (in the briefing it takes the desk); PgUp/PgDn, Home, End, Tab, S, X and P are kept from the desk (the lever behind it never moves); Esc or H closes |
 
-Free letters the desk agent may claim for new routes: G, O, B, K, V, N. Document every key in
+Letters still free for new routes: I, J, Y (G, O, B, K, V, N are the desk's; H is the suburb card's). Document every key in
 its §31.8 subsection (Q-49) and in `aria-keyshortcuts`. The shell forwards every key to `desk.key` first,
 so desk-claimed keys just work without the shell knowing them.
 
@@ -778,7 +778,7 @@ written; where a line here is oddly specific, a measurement is behind it.
 | C-8 | P-12: what does a block shed, what counts as unserved, do reverse-flowing blocks trip? | Relay MW (`phys.shedMW`, the `ufls` / `shed` records) is the dark districts' **net** load and may be near zero or negative at noon. **Unserved energy is the dark customers' underlying load** (their rooftop is off with the feeder): a new accumulator `acc.unservedMWs`. Blocks are static and trip regardless of flow (labelled: South Australia has disarmed reverse-flowing circuits since 2021). Restored inverters wait `ROOF_RECONNECT_S` (60 s) and then ramp over `ROOF_RAMP_S` (360 s), so a restore picks up the full underlying load first. | The static scheme is the AEMO concern the spec cites (Victoria, 28 Nov 2021: 26%). LIGHTS ON must not fall because the sun is out. |
 | C-9 | What do the MSL thresholds test, and where do notices live? The spec lists a 13th tile; the panel is 4 × 3 and twelve is pinned in three places. | `state.msl`: the minimum forecast operational demand (P50) over the 4.5-h window (and now), against MSL1/2/3 = 1,600 / 1,300 / 1,000 MW, each **raised by 300 MW while the tie is out** (no export sink). A `log` record on every change of level; never a news item (news is weather). **Twelve tiles stay**: MIN GEN becomes real (power is being spilled now); MSL levels are MARKET NOTICE tray cards that say the one thing this desk can do, and at MSL2 and MSL3 the objective's STOP is a security call, not a saving. Most MSL1 notices will follow a contingency (tie out, potline off); stage C rewords P-4's lead clause. | AEMO's floors vary with the network; "MSL3 only with a noon contingency" then holds for a tie trip too. A tile for a forecast would chatter (K-8: ≤ 8 alarms a day). |
 | C-10 | The player's belly decision (Q-18's gap: "every unit is committed by midday, nothing is ever stopped"; "no warning before a press"). | The objective line gains **STOP** ("RIVERTON CCGT 2 is not needed until 16:10. Stop it: saves about $41,000. Start it again by 15:21."), **BATTERY** (charge while power is being spilled or the price is ≤ $0; charge before the evening when the evening needs it; discharge when gas is setting the price or the plan is short), a reserve-diesel stand-down, and a **commit-later** line for the hours beyond the 4.5-h window. It looks to the end of the day (`dayAhead`). Gas only: never coal, never hydro. **Before any guarded press**, hovering, focusing or lifting a START / STOP guard shows what the press will do (`vm.consider`): "STOP MT HAZEL 3: off the grid in 1 h 10, and not back at minimum load before 21:14. Tonight's peak would be 420 MW short." | A decision with a lead time, told plainly, on every day type: fuel saved now against a restart later; free power stored against power spilled. The coal lever's trap is real and is now said before the press. |
-| C-11 | L-5's blue over-reports (it counts price-taking imports: 10 blue columns at $26 with nothing spilled). | Blue = **projected spill**, the same arithmetic as C-6 on the projection: committed minimums + forecast wind and utility solar (after the manual LIMIT) − (P50 + export room + the charge `project()` steps from the present battery order), where > `SURPLUS_MIN_MW` (50). Export room is `fc.exportLimitMW[q]`, 0 while the tie is tripped. Its own array and run list (`proj.surplusMW`, `blueRuns`), never a kind in `proj.gap`. From P50, not P10, in 2a. | Blue should mean "this will be wasted": the thing the player can act on. It then agrees with what the sim spills. |
+| C-11 | L-5's blue over-reports (it counts price-taking imports: 10 blue columns at $26 with nothing spilled). | Blue = **projected spill**, the same arithmetic as C-6 on the projection: committed minimums + forecast wind and utility solar (after the manual LIMIT) − (P50 + export room + the charge `project()` steps from the present battery order), where > `SURPLUS_MIN_MW` (50). Export room is `fc.exportLimitMW[q]`, 0 while the tie is tripped (2b final review V-1: the export the plan sets on the tie, capped by `fc.exportLimitMW[q]`; a plan that exports under the cap spills the rest). Its own array and run list (`proj.surplusMW`, `blueRuns`), never a kind in `proj.gap`. From P50, not P10, in 2a. | Blue should mean "this will be wasted": the thing the player can act on. It then agrees with what the sim spills. |
 | C-12 | S-14 as written; minimum down time. | Rule 2 (charge when the price ≤ $0) joins `rule6` as a union with its window. Rule 3 is reworded: export to the cap, charge, and the dispatch curtails the rest (C-6): nothing for par to send (the neighbour's price is never negative, so the rule as written cannot fire). Rule 4 (coal) joins `rule4`: stop one coal machine only if MSL2 is forecast for ≥ 3 h **and** the evening holds N-1 without it; it is expected never to fire on real days (report the count; do not tune it to fire). Rules 1 and 5 wait for 2b. Origins stay `rule1`–`rule9`. Minimum down time keeps the code's convention: from breaker open to the next START order (54 min longer for coal, 39 min for a CCGT, than breaker to breaker): a coal STOP at 10:00 is back at minimum load at 21:14, one at 05:00 at 17:54. Every text computes it from the unit's own times; stage C rewrites SPEC P-9's sentence and labels it. | Buildable, measurable, and no new rule names for the tests to chase. |
 | C-13 | `SIM_VERSION`, the golden. | Stage A: `v4-core-2a.0` (new state shape; CLASSIC numbers unchanged, only hashes) and a golden re-record. The integrator re-records again at the wave-1 merge (C-7 moves CLASSIC), so wave 2 starts green. Stage C: `v4-core-2a.1` after tuning. **No wave agent bumps the version or re-records the golden.** | One generated file, one writer. |
 | C-14 | Is a do-nothing weekend allowed to pass? (On a mild weekend the DESK 04:00 fleet nearly covers the evening.) | No. `desk-weekend` has its own, leaner 04:00 commitment: **coal 4 off since Friday night** (three coal at 540 MW, CCGT 1 at 480 MW, hydro balancing). The weekend's lead-time decision: bring the fourth coal machine back by mid-afternoon (cheap all evening, but another 240 MW of minimum in tomorrow's belly), or run gas tonight. The no-input day must fail on both scenarios; stage C tunes the commitment (scenario data only) if it does not. | Q-18: the best move must never be to touch nothing. Coal units are decommitted over low-demand weekends. |
@@ -881,7 +881,7 @@ the restore surge is `max(0, coldMW − G0 × share − flexShare)`. The preview
 balance   += renPfrMW, roofPfrMW                              (after shedMW)
 demand    += underlyingMW, rooftopMW, litMW, unservedMW       (after tempC)
              // nowMW = env.demandMW; underlyingMW = env.underlyingMW; rooftopMW = env.rooftopMW (as if connected,
-             // so nowMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW) holds in obs);
+             // so nowMW = underlyingMW + flexMW - rooftopMW - (SMELTER_MW - smelter.loadMW) holds in obs, flexMW from 2b);
              // litMW = fleet.litDemandMW(state); unservedMW = G0 * shedFrac
 wind      += autoMW        solar += autoMW                    (last)
 score     += spillMWh                                         (after starts; §30.7 adds saidiMin, saifi, maifi after it)
@@ -2321,13 +2321,15 @@ levers:   (new, after day)
   {rev, offered: ['soak', …],
    suburbs: [{id, patience, soak: LV, aircon: LV}],          // city order; [] on CLASSIC
    blocks:  [{suburb, lever, atS, endS, effMW, cost, del, parts: [{kind, knots}]}]}
-  del: '' when a flexDel of that block would be accepted now, else the exact refusal
+  del: '' when a flexDel of that block would pass grid's checks now, else the exact refusal
+       (the watch's and the day over's stay applyInput's, as for block: 2b final review D7)
   LV = {mw, cost, fromS, toS, block}
 ```
 - `mw`: what a booking now would deliver (U-1 MW × response); `cost`: the patience it would
   cost; `fromS`/`toS`: the earliest and latest `atS` a booking now may take (on the lattice; −1
   when none); `block`: `''` when a booking in `[fromS, toS]` would be accepted, else the exact
-  reason one would be refused. **The card, par and the objective check eligibility only through
+  reason one would be refused (the watch and the day over left to applyInput, §31.11). **The card,
+  par and the objective check eligibility only through
   `block`, `fromS` and `toS`**, never by re-deriving the rules.
 - No field may derive from `ext` (S-4).
 
@@ -2540,7 +2542,11 @@ holds; the reserve diesel only beyond both.
 
 The city levers (2b, Q-59, §31.9.8): kind 'city', targets ['suburb-<ID>'], the action the full
 flex input {type: 'flex', suburb, lever, atS} with atS from aimFlex (sim/autopilot.js) over the
-day-ahead (or the 4.5-h forecast; -1 is "not now": no line), startBy the booking's deadline
+day-ahead (or the 4.5-h forecast; -1 is "not now": no line), kept at the shown line's atS while
+aimFlex is within one 5-minute step of it (`stick`, `cityAim`; ctx.held, the game passes
+game.objective; the forecast starts at obs.s, off the lattice, so its extreme column slides and
+aimFlex alone flips between two marks every few grid minutes: 2b final review S1; tests/lib/follow.js
+and the tools pass none), startBy the booking's deadline
 (the soak's atS, the air-con's pre-cool start), level 'act' once that is within ACT_WITHIN_S
 (+ leadS), else 'plan'. Eligibility only through observe().levers' block (a suburb is free when
 its lever's block is ''). One suburb per line; the next is named once the forecast carries the
@@ -2730,7 +2736,8 @@ and obs.levers.
           {do: 'focus', target: 'bay-restore'} first (Q-42), and the shell then opens the card
           without taking the focus off RESTORE. Enter on a hovered suburb does the same (Keys
           above). A suburb click no longer pins the blue label: the card carries its draw and
-          roofs (mapPinText still says them, for the card). Wind, solar and the ground still
+          roofs (app/suburbcard.js computes them; mapPinText's suburb branch is kept for tests
+          only, since no suburb is pinned now). Wind, solar and the ground still
           pin; the ground's says "Click a plant for its control, a suburb for its card".
   Hover   a suburb sends {do: 'hover', target: 'suburb-<ID>'} (H reads it; the stack's
           bands do not light for it).
@@ -2820,9 +2827,10 @@ what it does:
           the dashed line alone cannot say), and sends {do: 'hover', target: 'suburb-<ID>'},
           so the map rings the suburb. Hover only: a press there takes what is under it, and
           nothing drags a block in 2b (the card's steps do).
-  text    stackSummary adds "Booked: <block>." for each block whose core is not over and
-          starts inside the 4.5 h drawn (K-23: what the picture shows; later ones are on the
-          map's tags).
+  text    stackSummary adds "Booked: <block>." for each block with a part drawn (a column inside
+          its knots, as drawCity tests it), "Booked: <block> (its snapback)." (or pre-cool, night
+          heating) when only its ghosts are (K-23: what the picture shows; later ones are on the
+          map's tags; 2b final review P5).
   hitTest what is under (x, y): a handle, a ghost, a layer edge, a layer body or a gap; for a
           hover (forHover) also a blue surplus column, a block or the rooftop bite, which a
           press never grabs. A hover's order: the pending ghost; a blue column (C-11), whatever
@@ -2936,18 +2944,23 @@ inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch a
                     focus across a rebuild and closes a popover its old "?" held (Q-47; the shell
                     closes it when the card hides); a block's booked / under way / done each frame;
                     the aim, its words and the verdict only when the line (fromS, n), lv.rev, the LV,
-                    the player's aim, patience or the last block's del change; names the dialog
+                    the player's aim, patience, the last block's del or the shown city line's atS
+                    change; names the dialog
                     (aria-label) by its suburb
   card.focus()      the first row's press (RESTORE, else the first CANCEL or BOOK), else ✕
   verdict(fc, lv, id, atS, effMW) -> '✓ …' | '✕ …' | ''   §31.9.4, pure (tests)
   WIT, LEVERS, PEAK_BAND_MW   the U-1 lines, each lever's name and "?" row, the band (100 MW)
 
-What it shows, top down (1280×600 gives it 194 px; a HOT day with both levers fits; two booked
-cycles and a soak scroll, the last resort):
+What it shows, top down (1280×600 gives it 194 px; a HOT day with both levers fits, and one
+booked block with them; two booked cycles and a soak scroll, the last resort, and the verdict
+sits under its aim so the words scroll first. 2b final review P6, computed from the CSS, not yet
+seen in a browser: lines 14.85 px, buttons 24 px; a HOT card ~180 px before the trims, ~210 px
+with a booked cycle's two-line row; padding 4 px, p margins 0 and .sc-r 2 px take 20 px off):
   NAME · 420k homes · ✕ (btn-suburb-close)
   n DARK: [RESTORE] (city-<ID>-restore: focus bay-restore; the card stays)   only with dark districts
   “U-1's dry wit”
-  patience 40: 90% respond (all respond from 50; air-con locked under 25) · draws <lit MW> · roofs <MW>
+  patience 40: 90% respond (all respond from 50; air-con locked under 25; only on a day air-con
+    is offered, else "patience 40": it scales air-con alone, P2) · draws <lit MW> · roofs <MW>
   per offered lever (obs.levers.offered; on a MILD day "AIR-CON CYCLE: hot days only (…)"):
     each booked block: SOAK 10:30–14:30 booked|under way|done: tonight's heating −525 MWh   [CANCEL]
                        AIR-CON 18:45–20:15 booked: pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience −10 [CANCEL]
@@ -2956,15 +2969,18 @@ cycles and a soak scroll, the last resort):
       after the soak's end or the cycle's snapback)
     the aim: HOT WATER SOAK +140 MW [◀] 10:30–14:30 [▶] [BOOK] [?]   (BOOK = city-<ID>-<lever>,
       ◀ ▶ = -earlier / -later, ? = q-<lever>: deps.toggleHelp(q, [LEVERS[lever].row]))
-    what it does: takes 525 MWh at noon; tonight's heating −525 MWh · no payment
-                  pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience 60 → 50
-      or, when LV.block is not '', that reason in blue (◀ ▶ hidden, BOOK dimmed)
     air-con: the verdict of the aim, or of the suburb's last booked cycle when it cannot book and
       that cycle can still be cancelled (none once it starts: the day-ahead then has only the
       columns after now, and its "peak" would creep past the real one)
+    what it does: takes 525 MWh at noon; tonight's heating −525 MWh · no payment
+                  pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience 60 → 50
+      or, when LV.block is not '', that reason in blue (◀ ▶ hidden, BOOK dimmed)
 
-The aim: the player's (◀ ▶, - =: 15-min steps) kept inside [fromS, toS], else aimFlex over
-vm.dayAhead || obs.forecast (fromS while it says -1). BOOK forgets it; CANCEL leaves the
+The aim: the player's (◀ ▶, - =: 15-min steps) kept inside [fromS, toS], else the shown city
+line's atS for this lever (vm.objective; a soak line's for any suburb, an air-con line's for its
+own: after "◇ SUBURB (H)" or "▶ SUBURB (H)" BOOK sends what the line says), else aimFlex over
+vm.dayAhead || obs.forecast (fromS while it says -1), kept within one 5-minute step of the card's
+last default (objective.js stick; 2b final review S1). BOOK forgets it; CANCEL leaves the
 cancelled block's time as the aim to re-aim from. A booked block is never moved in place.
 Energies and times come from sim/weather.js flexParts (the sim's own shapes); the payment is
 the core's MWh × AIRCON_PRICE (lit districts; dark ones are not paid).
@@ -2975,8 +2991,12 @@ CANCEL: "booked: OLD HAZELTON soak 10:30–14:30"); then ◀ ▶ step (blue "ear
 BOOK the new time", or that block's del once it is under way); BOOK and CANCEL answer in blue
 and send nothing in the briefing ("Take the desk first: Enter."), after the day ("Day over:
 …"), in the watch ("desk locked while the grid catches itself"), on LV.block ("<Suburb>:
-air-con locked: patience below 25", "… too late: it would start in the past", "… one soak a
-day: already booked") and on a block under way (its del). A refusal from the sim stays the
+air-con locked: patience below 25", "… too late today: soaks start by 11:00", "… one soak a
+day: already booked") and on a block under way (its del). LV.block is said as a standing status
+(the aim row, BOOK, ◀ ▶): its window reasons (sim/grid.js LEVER_WHY) in the card's words, "too
+late today: soaks start by 11:00", "too late today: cycles start by 19:30 (pre-cool from 18:30)"
+and "no room today for another cycle around the booked one", the rest as the sim says them
+(2b final review P4: the sim's strings refuse a proposed time, and nothing was proposed). A refusal from the sim stays the
 shell's red toast. "Outside the window" is LV.block's: the card never holds an aim outside
 [fromS, toS]. A suburb with dark districts shows its "n DARK: RESTORE" line first and still
 books (Q-50: a dark district's flex just stops; eligibility only through LV.block, §31.3.7),
@@ -3063,7 +3083,9 @@ within `PEAK_BAND_MW = 100` of it (a constant local to the card). Each part is e
 band's column times by interpolating its knots. ✓ "relief HH:MM–HH:MM covers the HH:MM peak;
 snapback after it" only when the core is at its full −effMW at the peak column and pre-cool and
 snapback are 0 MW at every band column; else ✕ naming the first failure, in this order: "relief
-misses the HH:MM peak", "pre-cool lands on the HH:MM peak", "snapback lands on the HH:MM peak".
+HH:MM–HH:MM misses the HH:MM peak", "relief HH:MM–HH:MM: pre-cool lands on the HH:MM peak",
+"relief HH:MM–HH:MM: snapback lands on the HH:MM peak" (2b final review P1: every verdict names
+the relief it judges, so after a booking the next aim's ✕ does not read as the booked cycle's).
 `tests/card.test.js` covers the four states on poked blocks (the `aimFlex` default ✓; `atS = toS`
 pre-cool on; `atS` at the pre-PV peak, relief misses; `atS = fromS`, relief misses).
 
@@ -3082,7 +3104,8 @@ per lever row (`button.q.inline`, `aria-controls="popover"`, `deps.toggleHelp(q,
 its `btn-dr` anchor.
 
 **31.9.7 The tray (F12, B3).** The MSL1 and MSL2 cards keep one button (K-9). When the record's
-`atS` lies in the soak window and its tick is no later than the last soak start
+`atS` lies in the soak window, after its tick (a low ahead, not now: par's rule 1 and the line's
+trigger (a) ask the same; 2b final review S2), and its tick is no later than the last soak start
 (`SOAK_TO_S − SOAK_S`), the text names the hot-water soak and the button becomes SUBURBS with
 target `suburb-card`, replacing TO THE BATTERY / SEE THE STACK (MSL1 keeps its battery advice in
 words). Otherwise the cards stay as today. Both checks use the record and params only.
@@ -3222,7 +3245,8 @@ shares (par 1.2, view 1.4, card 0.8, objective 1.0 KB) leave about 12 KB for 2c�
   `applyInput`'s (as `startBlock` does). `flexDel` before 04:30 answers "no such block".
 - `grid.log()` takes an object of extra fields; new exports `grid.leverView`, `grid.flexDelBlock`;
   `createState` throws unless `levers.suburbs` follows `city.suburbs` in order.
-- `cost.flex` loops a suburb's districts only while its relief is non-zero (no scratch array).
+- `cost.flex` runs one loop over every district, only while some suburb's relief is non-zero,
+  summing `reliefSubMW[sub] × roofFrac` over the lit ones (no scratch array).
 - Tests: `tests/levers.test.js` (13 tests, 2.1 s alone) and `tests/levers-day.test.js` (8, 1.2 s),
   including a replay of a DESK day to 15:05 with 13 bookings and cancels, bit-identical.
 - Refusal order (sim/README §6): levers null → "levers open at 04:30" → the menu's "not offered

@@ -741,7 +741,7 @@ export function buildVm(game, f) {
         // projection once per line (F-11: the objective and its STOP saving read the same one).
         game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
         const proj = game.planview.project(obs);
-        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: d.speed * LINE_REACT_S});
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: d.speed * LINE_REACT_S, held: game.objective});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s);

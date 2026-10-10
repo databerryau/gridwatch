@@ -2,8 +2,10 @@
 
 import {V} from '../sim/params.js';
 import {SCENARIOS, CLASSIC} from '../content/scenarios.js';
-import {aimFlex} from '../sim/autopilot.js';
+import {aimFlex, aimLineMW, knotMW as at} from '../sim/autopilot.js';
 import {flexParts} from '../sim/weather.js';
+import {LEVER_WHY} from '../sim/grid.js';
+import {stick, cityAim} from './objective.js';
 import {el, setText, setAttr, setCls, setHidden, clockOf as hm, COMMIT_LOCK_MS} from '../desk/util.js';
 import {mw, dollars} from '../render/format.js';
 
@@ -17,45 +19,38 @@ export const LEVERS = Object.freeze({soak: {name: 'HOT WATER SOAK', word: 'soak'
   aircon: {name: 'AIR-CON CYCLE', word: 'air-con', row: 'An air-con cycle pre-cools, relieves, then snaps back.'}});
 /** §31.9.4: columns within this of the evening peak are its band. */
 export const PEAK_BAND_MW = 100;
-const STEP_S = 900, CSS = '#suburb-card .sc{padding:6px 10px 8px;font-size:11px}#suburb-card .sc-h,#suburb-card .sc-r,#suburb-card .sc-b{display:flex;align-items:center;gap:5px}' +
-  '#suburb-card h2{margin:0;font:700 13px var(--mono);color:var(--bright)}#suburb-card .sc-h span{flex:1;color:var(--dim)}#suburb-card p{margin:1px 0;color:var(--dim)}' +
-  '#suburb-card .sc-r{margin-top:4px}#suburb-card .sc-r b{flex:1;font:700 11px var(--mono);color:var(--bright)}#suburb-card .sc-b span{flex:1}' +
+const STEP_S = 900, CSS = '#suburb-card .sc{padding:4px 10px;font-size:11px}#suburb-card .sc-h,#suburb-card .sc-r,#suburb-card .sc-b{display:flex;align-items:center;gap:5px}' +
+  '#suburb-card h2{margin:0;font:700 13px var(--mono);color:var(--bright)}#suburb-card .sc-h span{flex:1;color:var(--dim)}#suburb-card p{margin:0;color:var(--dim)}' +
+  '#suburb-card .sc-r{margin-top:2px}#suburb-card .sc-r b{flex:1;font:700 11px var(--mono);color:var(--bright)}#suburb-card .sc-b span{flex:1}' +
   '#suburb-card .sc-t{font:11px var(--mono);color:var(--bright)}#suburb-card .info{color:var(--blue)}#suburb-card .ok{color:var(--green)}#suburb-card .bad{color:var(--amber)}' +
   '#suburb-card button.off{opacity:.45}';
 
-// a part's MW at t (its knots, linear), and its energy (MWh)
-const at = (kn, t) => { for (let i = 1; i < kn.length; i++) if (t <= kn[i][0]) return t < kn[0][0] ? 0 : kn[i - 1][1] + (kn[i][1] - kn[i - 1][1]) * (t - kn[i - 1][0]) / (kn[i][0] - kn[i - 1][0]); return 0; };
+// LV.block as standing words (P4)
+const LAST = V.AIRCON_TO_S - V.AIRCON_S, notNow = (lever, L) => L.block === LEVER_WHY.late ? 'too late today: ' + (lever === 'soak' ? 'soaks start by ' + hm(V.SOAK_TO_S - V.SOAK_S)
+  : 'cycles start by ' + hm(LAST) + ' (pre-cool from ' + hm(LAST - V.PRECOOL_S) + ')') : L.block === LEVER_WHY.overlap ? 'no room today for another cycle around the booked one' : L.block;
+// a part's energy (MWh)
 const mwh = kn => kn.reduce((a, k, i) => (i ? a + (k[0] - kn[i - 1][0]) * (k[1] + kn[i - 1][1]) / 2 : 0), 0) / V.S_PER_H;
 const partsOf = (lever, atS, m) => Object.fromEntries(flexParts({lever, atS}, m).map(p => [p.kind, p.knots]));
 
-/**
- * §31.9.4: the air-con verdict for a relief starting at atS, on the line aimFlex aims on (fc's P50 less this
- * suburb's own air-con blocks): '✓ …' or '✕ …', '' with no column in the window.
- */
+/** §31.9.4: the air-con verdict for a relief from atS on aimFlex's line: '✓ …', '✕ …' or '' (no column in the window). */
 export function verdict(fc, lv, id, atS, effMW) {
   const cols = [];
   let pk = 0, peak = -1;
   for (let k = 0; k < fc.n; k++) {
     const t = fc.fromS + (k + 1) * fc.stepS;
     if (t < V.AIRCON_FROM_S || t > V.AIRCON_TO_S) continue;
-    let m = fc.demandP50[k];
-    for (const b of lv.blocks) if (b.suburb === id && b.lever === 'aircon') for (const p of b.parts) m -= at(p.knots, t);
+    const m = aimLineMW(fc, lv, id, 'aircon', k);
     cols.push([t, m]);
     if (peak < 0 || m > pk) { pk = m; peak = t; }
   }
   if (peak < 0) return '';
   const P = partsOf('aircon', atS, effMW), band = cols.filter(c => c[1] >= pk - PEAK_BAND_MW), on = k => band.some(c => at(P[k], c[0]) > 0);
-  const t = ' the ' + hm(Math.round(peak / STEP_S) * STEP_S) + ' peak';
-  return at(P.core, peak) > 1e-9 - effMW ? '✕ relief misses' + t : on('precool') ? '✕ pre-cool lands on' + t : on('snapback') ? '✕ snapback lands on' + t
-    : '✓ relief ' + hm(atS) + '–' + hm(atS + V.AIRCON_S) + ' covers' + t + '; snapback after it';
+  const t = ' the ' + hm(Math.round(peak / STEP_S) * STEP_S) + ' peak', r = ' relief ' + hm(atS) + '–' + hm(atS + V.AIRCON_S);
+  return at(P.core, peak) > 1e-9 - effMW ? '✕' + r + ' misses' + t : on('precool') ? '✕' + r + ': pre-cool lands on' + t : on('snapback') ? '✕' + r + ': snapback lands on' + t
+    : '✓' + r + ' covers' + t + '; snapback after it';
 }
 
-/**
- * Mount the card into `root` (#suburb-card).
- * @param {{ui:function(object):string, input:function(object):string}} actions the shell's actions
- * @param {{toast:function(string, string=), loadText:function, toggleHelp:function(Element, string[]), now?:function():number}} deps
- * @returns {{update(vm:object, day?:object):void, focus():void, el:Element}}
- */
+/** Mount the card into root (#suburb-card): its shape, deps and keys are desk/README.md §31.8's. */
 export function createSuburbCard(doc, root, actions, deps) {
   if (!doc.getElementById('sc-css')) { const st = el(doc, 'style', '', CSS); st.id = 'sc-css'; (doc.head || doc.body).appendChild(st); }
   const box = el(doc, 'div', 'sc'), head = el(doc, 'div', 'sc-h'), name = el(doc, 'h2'), homes = el(doc, 'span'), x = el(doc, 'button', '', '✕'), body = el(doc, 'div');
@@ -68,22 +63,23 @@ export function createSuburbCard(doc, root, actions, deps) {
   box.append(head, body);
   root.appendChild(box);
   root.addEventListener('keydown', key);
-  let vm = null, shape = '', E = null, day, aims = {}, rests = {}; // E: the built rows of the open suburb
+  let vm = null, shape = '', E = null, day, aims = {}, dflt = {}, rests = {}; // E: the built rows of the open suburb
   const say = s => deps.toast(s, 'info'), now = () => (deps.now ? deps.now() : vm.frame.nowMs);
   const cityOf = v => (SCENARIOS[v.obs.scenarioId] || CLASSIC).city.suburbs;
   const subOf = v => v.obs.levers.suburbs.find(s => s.id === v.suburb);
   const btn = (text, id, f, row) => { const b = el(doc, 'button', '', text); b.type = 'button'; if (id) b.id = id; if (row) b.dataset.row = '1'; b.addEventListener('click', f); return b; };
 
-  // the aim of the next booking: the player's (kept inside [fromS, toS]), else aimFlex's on the line's day-ahead
+  // the next booking's aim in [fromS, toS]: the player's, the line's, else aimFlex's held within a step (S1)
   function aimOf(v, lever, L) {
     if (L.block) return -1;
-    let a = aims[v.suburb + lever];
-    if (a === undefined) a = aimFlex(v.dayAhead || v.obs.forecast, v.obs.levers, v.suburb, lever);
+    const d = v.suburb + lever;
+    let a = aims[d];
+    if (a === undefined && (a = cityAim(v.objective, lever, v.suburb)) < 0) a = dflt[d] = stick(aimFlex(v.dayAhead || v.obs.forecast, v.obs.levers, v.suburb, lever), dflt[d] ?? -1, L);
     return Math.min(L.toS, Math.max(L.fromS, a));
   }
   const span = (lever, a) => hm(a) + '–' + hm(a + (lever === 'soak' ? V.SOAK_S : V.AIRCON_S));
   const said = (lever, a, what) => what + ': ' + name.textContent + ' ' + LEVERS[lever].word + ' ' + span(lever, a);
-  // what a block does, in words (Q-56): tonight's heating; pre-cool, snapback, payment and patience
+  // what a block does, in words (Q-56)
   function words(lever, a, m, cost, p) {
     const P = partsOf(lever, a, m);
     if (lever === 'soak') return 'takes ' + mw(mwh(P.core)) + ' MWh at noon; tonight\'s heating −' + mw(mwh(P.core)) + ' MWh · no payment';
@@ -106,7 +102,7 @@ export function createSuburbCard(doc, root, actions, deps) {
       a = b.atS;
       x = {type: 'flexDel', suburb: id, lever, atS: a};
     } else {
-      if (L.block) return say(cityOf(v).find(s => s.id === id).name + ': ' + L.block);
+      if (L.block) return say(cityOf(v).find(s => s.id === id).name + ': ' + notNow(lever, L));
       a = aimOf(v, lever, L);
       x = {type: 'flex', suburb: id, lever, atS: a};
     }
@@ -119,13 +115,13 @@ export function createSuburbCard(doc, root, actions, deps) {
     const mine = v.obs.levers.blocks.filter(q => q.suburb === v.suburb && q.lever === lever),
       blk = b ? mine.find(q => q.atS === b.atS) : L.block && lever === 'soak' && mine[mine.length - 1];
     if (blk) return say(blk.del || 'booked for ' + hm(blk.atS) + ': CANCEL, then BOOK the new time');
-    if (L.block) return say(L.block);
+    if (L.block) return say(notNow(lever, L));
     const a = aimOf(v, lever, L), n = Math.min(L.toS, Math.max(L.fromS, a + d * STEP_S));
     if (n === a) return say((d < 0 ? 'earliest ' : 'latest ') + hm(a));
     aims[v.suburb + lever] = n;
   }
 
-  // keys inside the card (desk/README.md §31.8): ←/→ suburb, ↑/↓ row, - = time, Enter press (never on repeat; in the briefing it takes the desk)
+  // keys inside the card (§31.8)
   function key(ev) {
     const k = ev.key, a = doc.activeElement;
     if (!vm || ev.ctrlKey || ev.metaKey || ev.altKey) return;
@@ -146,7 +142,7 @@ export function createSuburbCard(doc, root, actions, deps) {
     ev.preventDefault();
   }
 
-  // the rows of the open suburb: its dark line, then per offered lever its booked blocks and the aim (built when they change)
+  // the open suburb's rows: its dark line, then per lever its blocks and the aim
   function build(v, id, sub, dark) {
     const lv = v.obs.levers, foc = body.contains(doc.activeElement) ? doc.activeElement.id : null;
     for (const q of body.querySelectorAll('[aria-expanded="true"]')) deps.toggleHelp(q, []); // (Q-47)
@@ -186,8 +182,9 @@ export function createSuburbCard(doc, root, actions, deps) {
         R.book = btn('BOOK', 'city-' + id + '-' + lever, () => press(lever, 'book'), true), q);
       R.l.setAttribute('aria-label', 'Earlier by 15 min (-)');
       R.r.setAttribute('aria-label', 'Later by 15 min (=)');
-      g.append(r, R.c = el(doc, 'p'));
+      g.appendChild(r); // (the verdict right under its aim: words scroll before it, P6)
       if (lever === 'aircon') g.appendChild(R.v = el(doc, 'p'));
+      g.appendChild(R.c = el(doc, 'p'));
     }
     const n = foc && doc.getElementById(foc);
     if (foc !== null) (n && body.contains(n) ? n : root.querySelector('[data-row]') || x).focus(); // (the focused row was rebuilt)
@@ -197,7 +194,7 @@ export function createSuburbCard(doc, root, actions, deps) {
     el: box,
     update(v, d) {
       vm = v;
-      if (d !== day) { day = d; aims = {}; rests = {}; shape = ''; } // (a new attempt)
+      if (d !== day) { day = d; aims = {}; dflt = {}; rests = {}; shape = ''; } // (a new attempt)
       const id = v.suburb, s = cityOf(v).find(q => q.id === id);
       if (!s) return;
       const obs = v.obs, sub = subOf(v), lv = obs.levers, ds = obs.districts.filter(d => d.suburb === id), dark = ds.filter(d => d.dark).length;
@@ -208,8 +205,8 @@ export function createSuburbCard(doc, root, actions, deps) {
       setText(homes, Math.round(s.households / 1e3) + 'k homes');
       if (E.dark) setText(E.dark.firstChild, dark + ' DARK:');
       const roof = (obs.rooftop.suburbs.find(q => q.id === id) || {mw: 0}).mw, p = sub ? sub.patience : -1;
-      setText(E.st, (sub ? 'patience ' + p + ': ' + (p < V.PATIENCE_LOCK ? 'air-con locked' : p < V.PATIENCE_FULL ?
-        Math.round(100 * (V.PATIENCE_FULL + p) / (2 * V.PATIENCE_FULL)) + '% respond' : 'all respond') + ' · ' : '') +
+      setText(E.st, (sub ? 'patience ' + p + (lv.offered.includes('aircon') ? ': ' + (p < V.PATIENCE_LOCK ? 'air-con locked' : p < V.PATIENCE_FULL ?
+        Math.round(100 * (V.PATIENCE_FULL + p) / (2 * V.PATIENCE_FULL)) + '% respond' : 'all respond') : '') + ' · ' : '') +
         'draws ' + mw(ds.reduce((a, d) => a + (d.dark ? 0 : d.coldLoadMW), 0)) + ' MW · roofs ' + mw(roof) + ' MW');
       for (const lever in E.lv) {
         const R = E.lv[lever], L = sub[lever], fc = v.dayAhead || obs.forecast, last = lv.blocks.filter(b => b.suburb === id && b.lever === lever).pop();
@@ -220,7 +217,7 @@ export function createSuburbCard(doc, root, actions, deps) {
           setAttr(c, 'aria-disabled', u);
         }
         // (the aim, its words and the verdict only when what they read changes)
-        const k = [fc.fromS, fc.n, lv.rev, L.mw, L.cost, L.fromS, L.toS, L.block, aims[id + lever], p, last && last.del].join();
+        const k = [fc.fromS, fc.n, lv.rev, L.mw, L.cost, L.fromS, L.toS, L.block, aims[id + lever], p, last && last.del, cityAim(v.objective, lever, id)].join();
         if (R.k === k) continue;
         R.k = k;
         const a = aimOf(v, lever, L);
@@ -229,7 +226,7 @@ export function createSuburbCard(doc, root, actions, deps) {
         setCls(R.book, 'off', a < 0);
         setAttr(R.book, 'aria-disabled', a < 0);
         if (a >= 0) setText(R.t, span(lever, a));
-        setText(R.c, a < 0 ? L.block : words(lever, a, L.mw, L.cost, p));
+        setText(R.c, a < 0 ? notNow(lever, L) : words(lever, a, L.mw, L.cost, p));
         setCls(R.c, 'info', a < 0);
         if (R.v) {
           const w = a >= 0 ? verdict(fc, lv, id, a, L.mw) : last && !last.del ? verdict(fc, lv, id, last.atS, last.effMW) : '';

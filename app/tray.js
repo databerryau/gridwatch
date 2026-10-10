@@ -54,18 +54,18 @@ const clockOf = r => r.msg.replace(/ in (\d+) min\b/, (x, n) => ' at ' + hhmm(Ma
  * and MSL3 ring. Its button only focuses a control, like every card's. The card is made from the
  * record alone, so it says nothing that depends on the desk's state at that moment (whether a gas
  * unit is running, whether the battery is already charging): the objective line says that.
- * Q-60 (§31.9.7): an MSL1 or MSL2 minimum in the soak window, while a soak can still start, names the soak; SUBURBS opens the card.
+ * Q-60 (§31.9.7): an MSL1 or MSL2 minimum ahead in the soak window, while a soak can still start, names the soak; SUBURBS opens the card.
  */
 function mslCard(r) {
   const key = 'msl:' + r.code + ':' + r.tick;
   const nowS = Math.floor(r.tick / TPS), now = r.atS <= nowS;
   const low = now ? 'Demand is at its lowest now, ' + mwc(r.minMW) + ' MW.' : 'Lowest demand ' + mwc(r.minMW) + ' MW at ' + hhmm(r.atS) + '.';
   const stack = {label: 'SEE THE STACK', target: 'stack'}, sub = {label: 'SUBURBS', target: 'suburb-card'};
-  const soak = r.atS >= V.SOAK_FROM_S && r.atS <= V.SOAK_TO_S && nowS <= V.SOAK_TO_S - V.SOAK_S;
+  const soak = !now && r.atS >= V.SOAK_FROM_S && r.atS <= V.SOAK_TO_S && nowS <= V.SOAK_TO_S - V.SOAK_S;
   switch (r.level) {
-    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (soak ? ' A hot-water soak takes the spill: book one, and charge the battery ' + (now ? 'if it has room.' : 'on it.')
+    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (soak ? ' A hot-water soak takes the spill: book one, and charge the battery on it.'
       : now ? ' Charge the battery if it has room.' : ' Power spilled then can go into the battery: charge it on the spill.'), button: soak ? sub : {label: 'TO THE BATTERY', target: 'dial-battery'}};
-    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + (soak ? ' Make room: book a hot-water soak, charge the battery, and stop a running gas unit.'
+    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + (soak ? ' Make room: book a hot-water soak, charge the battery, and stop a gas unit if one is running.'
       : ' Make room: charge the battery, and stop a gas unit if one is running.'), button: soak ? sub : stack};
     case 3: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Units at minimum make more than the city uses: stop one, or frequency climbs until rooftop solar cuts back.', button: stack};
     default: return {key, from: SENDERS.market, sev: 'info', text: 'Low-demand notice cancelled: ' + (now ? 'demand is ' + mwc(r.minMW) + ' MW now, and the forecast does not go lower.'

@@ -635,7 +635,7 @@ An input is `{type, ...args}`. `applyInput(state, input, out)` (step.js) runs:
 | `scope` | `unit` ('' closes) | unit `ready`, or '' | `scope.unit`; that unit's auto-synchroniser waits while it is on the scope (A-4). The scope closes when the unit leaves 'ready' |
 | `syncTrim` | `unit`, `dHz` = +-`SYNC_TRIM_HZ` | the unit is `ready` and on the scope | speed target += dHz (within +-`SYNC_SLIP_LIMIT_HZ`); the slip moves linearly to it over `SYNC_TRIM_S`; cancels a pending `syncAuto` |
 | `syncAuto` | `unit` | unit `ready`; AGC (HAND has no auto-synchroniser) | K-12 AUTO: trims the slip to +`SYNC_AUTO_SLIP_HZ` and closes cleanly on the next pass through 0 degrees (the close command at the tick 80 ms before it; `scope.nextAutoTick`) |
-| `flex` | `suburb` (an id of `scn.city.suburbs`: a shape check only), `lever` soak/aircon, `atS` (whole s) | 2b (desk/README.md §31.3.6): the lever offered today (`scn.levers.menu[day.temp]`; never on a scenario with `levers: null`), from 04:30; air-con not locked; one soak per suburb a day; `atS` on the 5-min lattice inside the lever's start window (soak `SOAK_FROM_S`..`SOAK_TO_S - SOAK_S`, air-con `AIRCON_FROM_S`..`AIRCON_TO_S - AIRCON_S`); its first knot not in the past; for any two air-con blocks of a suburb the later's `atS - PRECOOL_S` >= the earlier's `endS` | inserts the block (`effMW` and `cost` fixed now; never rewritten: the log holds only the input), charges the patience, `rev` + 1; `FLEX_BOOK` and `PATIENCE` records (§7) |
+| `flex` | `suburb` (an id of `scn.city.suburbs`: a shape check only), `lever` soak/aircon, `atS` (whole s) | 2b (desk/README.md §31.3.6): the lever offered today (`scn.levers.menu[day.temp]`; never on a scenario with `levers: null`), from 04:30; air-con not locked; one soak per suburb a day; `atS` on the 5-min lattice inside the lever's start window (soak `SOAK_FROM_S`..`SOAK_TO_S - SOAK_S`, air-con `AIRCON_FROM_S`..`AIRCON_TO_S - AIRCON_S`); its first knot not in the past; for any two air-con blocks of a suburb the later's `atS - PRECOOL_S` >= the earlier's `endS` | inserts the block (`effMW` and `cost` fixed now; never rewritten: the log holds only the input), charges the patience, `rev` + 1; `FLEX_BOOK`, and `PATIENCE` (cause `'aircon'`) when cost > 0 (an air-con booking; a soak costs none) (§7) |
 | `flexDel` | `suburb`, `lever`, `atS` | that suburb's block of that lever at exactly `atS`, not under way | removes it, refunds its `cost`; `rev` + 1; `FLEX_DEL` (and `PATIENCE` with cause `'cancel'` when cost > 0) |
 
 The levers' refusals (2b, `grid.applyCommand`; exact strings, which `obs.levers` repeats as `block`
@@ -648,7 +648,7 @@ outside the start window), `'too late: it would start in the past'` (its first k
 `'overlaps another air-con block of this suburb'`; `flexDel`: `'not offered today'` (`levers:
 null`), `'no such block'`, `'under way: too late to cancel'` (now at or after its first knot). The
 `block` of an LV is `'too late: ...'` when the window's last start has gone and `'overlaps ...'` when
-the suburb's air-con blocks leave no run open; [fromS, toS] is then the latest open run.
+the suburb's air-con blocks leave no run open (fromS and toS are then -1); otherwise [fromS, toS] is the latest open run.
 
 `ack`, `silence`, pause, rate, FAST, skip, focus, expand and scope *offers* are **not** sim inputs
 (presentation only).
@@ -738,9 +738,9 @@ unless 'ready'); `sec` gains `previewUnitHz`, `previewLinkHz`; `plan` = {madeAtS
 Phase 2a (desk/README.md §19.3; stage A wired every key, the world job filled in `env`, `day`,
 `msl` and the forecast, and the grid job fills in what it owns: `phys`, `city`, `ren`, `score`,
 `conts`): `balance` gains `renPfrMW`, `roofPfrMW` (after `shedMW`); `demand`
-gains `underlyingMW`, `rooftopMW` (as if connected, so `nowMW = underlyingMW - rooftopMW -
-(SMELTER_MW - smelter.loadMW)` holds in obs), `litMW` (`fleet.litDemandMW`), `unservedMW`
-(`G x shedFrac`, `G = env.demandMW + env.rooftopMW`) (after `tempC`); `wind` and `solar` gain
+gains `underlyingMW`, `rooftopMW` (as if connected, so `nowMW = underlyingMW + flexMW - rooftopMW -
+(SMELTER_MW - smelter.loadMW)` holds in obs; `flexMW` is 0 before 2b), `litMW` (`fleet.litDemandMW`), `unservedMW`
+(`G0 x shedFrac`, `G0 = env.demandMW + env.rooftopMW - env.flexMW`, I2) (after `tempC`); `wind` and `solar` gain
 `autoMW` (last: `ren.windAutoMW` / `solarAutoMW` as stored); `score` gains `spillMWh` (last of
 the state keys, before the summary); `districts[]` gains `reconnectS` (last); `contingency.pre`
 and `.caught` gain `inverterMW` (last); `forecast` and `dayAhead` gain `underlyingP50[]`,
@@ -765,7 +765,7 @@ per household (a district's `share`), counted by `market.settleSecond` from `dar
 `{fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[], neighbourPrice[],
 exportLimitMW[], underlyingP50[], rooftopMW[]}` built from the scenario's climatology, the public
 kind of day (`state.day`), the present (`env`) and `news` only. (Phase 2a: `demandP50` / `P10` /
-`P90` are operational demand; `underlyingP50` = `demandP50` + `rooftopMW` + the smelter's
+`P90` are operational demand; `underlyingP50` = `demandP50` - `flexMW` (2b) + `rooftopMW` + the smelter's
 expected missing load at that column; `rooftopMW` is the rooftop forecast as if every inverter
 were connected, after the heat derate of an ANNOUNCED heat window, and 0 in every column on a
 scenario with no rooftop; §11 weather.js.)
@@ -777,8 +777,10 @@ today), suburbs[] {id, patience, soak: LV, aircon: LV} (city order; [] on CLASSI
 {suburb, lever, atS, endS, effMW, cost, del, parts[] {kind, knots}}}, with LV = {mw (what a booking
 now would deliver), cost (the patience it would take), fromS, toS (the earliest and latest atS a
 booking now may take, on the lattice; -1 when none), block ('' when a booking in [fromS, toS] would
-be accepted, else the exact §6 refusal)} and `del` '' when a `flexDel` of that block would be
-accepted now, else its refusal. The card, par and the objective read eligibility only there.
+be accepted, else the exact §6 refusal; like units[].startBlock it leaves out applyInput's watch and
+day-over refusals)} and `del` '' when a `flexDel` of that block would pass grid's checks now, else its
+refusal (the watch and the day over are applyInput's, as for block).
+The card, par and the objective read eligibility only there.
 
 `dayAhead` is `null` unless `observe(state, {dayAhead: true})`: then the same forecast to the
 end of the sim day (L-0 pre-dispatch). Neither may read `ext` (`tests/events.test.js`
@@ -972,7 +974,7 @@ own public bookings (never `ext`).
 capacity-weighted `env.roofClearFrac` (the rooftop factor is affine in k, so this is exact),
 drifting from its present value toward `cloud.mu` (toward `events.heat.clearMu` from an
 announced onset) by `regional.revertPerStep` per `cloud.stepS`, x the heat derate inside the
-announced window. `demandP50` = underlying - rooftop - the smelter's expected missing load. The
+announced window. `demandP50` = underlying + the booked flex (2b) - rooftop - the smelter's expected missing load. The
 band adds the rooftop's own forecast error, in MW at that column's sun: `(clear-sky MW x
 cloudBite)^2 x [vR(n) + S2 x (vL(n) + sL^2 x (aR^n - aL^n)^2)]`, where vR and vL are the
 regional and local variances grown over the n steps of lead (`sigma^2 (1 - a^2n) / (1 - a^2)`),
@@ -1223,7 +1225,8 @@ H-4; pure), `restorePermissive(state, d) -> ''|reason` (pure). Phase 1a: `newPla
 `planSecond(state, out)` (the plan's executor), `syncAt(u, tick) -> {slipHz, phaseDeg}` (pure),
 `syncTick(state, out)`, `SYNC_BLOCKED`, `REFUSAL_CUES`. 2b (desk/README.md §31.3.7):
 `leverView(state, j, lever) -> {mw, cost, fromS, toS, block}` and `flexDelBlock(state, b) ->
-''|reason` (pure; step.js builds `observe().levers` from them). Details in the JSDoc and in §5-6.
+''|reason` (pure; step.js builds `observe().levers` from them); `LEVER_WHY {late, overlap}`, the
+window's two `block` strings (the card says them as standing words). Details in the JSDoc and in §5-6.
 Key rules:
 
 * **The plan's executor** (Phase 1a, `planSecond`, right after `events.applyDue`): booked STOPs,
@@ -1467,7 +1470,8 @@ opts?) -> Input[]`, `createAutopilot(opts) -> memo`, `decide(obs, memo) -> Input
 `replan(obs, memo) -> planLoad|null` (the player's RE-PLAN / RE-DISPATCH), `refRealSeconds(fromS,
 toS, conts)`, `runPar(seed, scenario, opts) -> {score, summary, log, origins, hashes, black, plan,
 state, memo}`, and (2b) `aimFlex(fc, lv, id, lever) -> atS | -1`, the pure aim of desk/README.md
-§31.3.10 that par, the card and the objective share. JSDoc has the details. The contract:
+§31.3.10 that par, the card and the objective share, with `aimLineMW(fc, lv, id, lever, k)`, the line
+it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the details. The contract:
 
 * **L-0 plan.** Computed once at 04:30 from `observe(state, {dayAhead: true})`: a merit-order
   schedule for the P50 forecast net of wind and solar (P-6 offers; the tie as a price-taking block

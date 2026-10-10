@@ -11,7 +11,7 @@ import {aimFlex} from '../sim/autopilot.js';
 import {V} from '../sim/params.js';
 import {DESK, CLASSIC} from '../content/scenarios.js';
 import * as PV from '../app/planview.js';
-import {objective, capacityGap, LINE_MAX_CHARS, ACT_WITHIN_S} from '../app/objective.js';
+import {objective, capacityGap, stick, LINE_MAX_CHARS, ACT_WITHIN_S} from '../app/objective.js';
 import {followDay} from './lib/follow.js';
 
 const H = 3600;
@@ -242,4 +242,27 @@ test('Q-59: every city line fits LINE_MAX_CHARS with the longest name (Tallowood
     assert.ok(x.text.length <= LINE_MAX_CHARS, x.text.length + ': ' + x.text);
     assert.doesNotMatch(x.text, /undefined|NaN|Infinity/);
   }
+});
+
+test('S1 (2b final review): an aim within a 5-min step of the shown line\'s keeps it: sampled every 30 grid s for 30 min, the soak line and the air-con aim name one time each where aimFlex alone flips between two marks', () => {
+  // the followed HOT 06:30 (the day-ahead starts at obs.s, off the lattice, so its extreme column slides); the sim
+  // jumps 30 s between samples, the plan held; the soak line on the soak (a) row's MSL1 poke, held as the game holds it
+  const st = JSON.parse(JSON.stringify(morning(7, 6.5).st)), raw = {soak: [], aircon: []}, kept = [], said = [];
+  let held = null, keep = -1;
+  for (let i = 0; i < 60; i++) {
+    for (const end = st.tick + 30 * V.TICKS_PER_S; st.tick < end;) step(st, []);
+    const obs = observe(st, {dayAhead: true}), proj = PV.project(obs), a = aimFlex(obs.dayAhead, obs.levers, 'RED', 'aircon');
+    raw.soak.push(aimFlex(obs.dayAhead, obs.levers, 'HAZ', 'soak'));
+    raw.aircon.push(a);
+    kept.push(keep = stick(a, keep, sub(obs, 'RED').aircon));
+    Object.assign(obs.msl, {level: 1, minMW: 1550, atS: obs.s + 4 * H, sinceS: obs.s});
+    for (let k = 0; k < obs.forecast.n; k++) if (inWin(proj.times[k])) obs.forecast.demandP50[k] = 1650;
+    held = lineOf(obs, {proj, held});
+    assert.equal(held.kind, 'city', held.text);
+    said.push(held.action.atS);
+  }
+  const changes = a => a.filter((x, i) => i && x !== a[i - 1]).length;
+  assert.ok(changes(raw.soak) >= 4 && changes(raw.aircon) >= 4, 'the fixture flips: ' + changes(raw.soak) + ' and ' + changes(raw.aircon) + ' changes');
+  assert.ok(changes(said) <= 1 && changes(kept) <= 1, 'the line ' + changes(said) + ', the air-con aim ' + changes(kept));
+  assert.ok(raw.soak.includes(said[0]) && raw.aircon.includes(kept[0]), 'kept: one of the two marks');
 });

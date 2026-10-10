@@ -171,6 +171,13 @@ test('Q-57: air-con: the relief band above the skyline, pre-cool and snapback da
     }
     assert.deepEqual(doc.canvasStats.bad, []);
   }
+  // the text alternative names a block whose ghosts alone are drawn, by them (P5): the window 3 h on (07:30-12:00), TAL's
+  // snapback only; 6 h on (10:30-15:00), HAZ's night fall (moved to 07:00-13:00 above) only
+  const {stack: s2} = mountStack();
+  s2.update(baseVm(structuredClone(obs)));
+  const on = h => stackSummary(Object.assign({}, s2.debug.proj, {times: s2.debug.proj.times.map(t => t + h * 3600)}), Object.assign({}, obs, {s: obs.s + h * 3600}), false);
+  assert.match(on(3), / Booked: HOT WATER SOAK Old Hazelton 140 MW 05:00 to 09:00\. Booked: AIR-CON CYCLE Tallowood Heights 14 MW 06:00 to 07:30 \(its snapback\)\.$/);
+  assert.match(on(6), / Rooftop[^.]*\. Booked: HOT WATER SOAK Old Hazelton 140 MW 05:00 to 09:00 \(its night heating\)\.$/);
   // V-9: a red SHORT column under the snapback still hovers as the gap (its L-9 glow), as a press takes it
   const short = structuredClone(obs), fc = short.forecast;
   for (let k = 0; k < fc.demandP50.length; k++) if (fc.fromS + (k + 1) * fc.stepS > at(7, 45) && fc.fromS + (k + 1) * fc.stepS < at(8, 45)) fc.demandP50[k] += 2500;

@@ -45,16 +45,17 @@ test('§31.9.4: the verdict on the line aimFlex uses: ✓ at its default aim, th
   const a = aimFlex(fc, L, 'RED', 'aircon');
   assert.equal(a, at(19), 'aimFlex centres the relief on the 19:45 top');
   assert.equal(v(a), '✓ relief 19:00–20:30 covers the 19:45 peak; snapback after it');
-  assert.equal(v(RED.toS), '✕ pre-cool lands on the 19:45 peak', 'atS = toS: full relief at the top, pre-cool on the band before it');
-  assert.equal(v(at(17, 45)), '✕ relief misses the 19:45 peak', 'centred on a pre-PV peak');
-  assert.equal(v(RED.fromS), '✕ relief misses the 19:45 peak', 'atS = fromS');
-  assert.equal(v(at(18, 30)), '✕ snapback lands on the 19:45 peak', 'the relief covers the top, its snapback the band after it');
+  assert.equal(v(RED.toS), '✕ relief 19:30–21:00: pre-cool lands on the 19:45 peak', 'atS = toS: full relief at the top, pre-cool on the band before it');
+  assert.equal(v(at(17, 45)), '✕ relief 17:45–19:15 misses the 19:45 peak', 'centred on a pre-PV peak');
+  assert.equal(v(RED.fromS), '✕ relief 15:00–16:30 misses the 19:45 peak', 'atS = fromS');
+  assert.equal(v(at(18, 30)), '✕ relief 18:30–20:00: snapback lands on the 19:45 peak', 'the relief covers the top, its snapback the band after it');
   // the line is P50 (booked flex in it) less this suburb's own air-con blocks: its own dent does not move the peak; another suburb's does
   const own = {suburb: 'RED', lever: 'aircon', atS: at(19), endS: at(20, 30), effMW: 400, cost: 10, del: ''}, dented = plateau();
   own.parts = flexParts(own, 400);
   dented.demandP50 = dented.demandP50.map((m, k) => m + own.parts.reduce((x, q) => x + knotAt(q.knots)((k + 1) * V.FC_STEP_S), 0));
   assert.equal(verdict(dented, {suburbs: L.suburbs, blocks: [own]}, 'RED', at(19), 45), v(at(19)), 'its own block taken out of the line');
-  assert.equal(verdict(dented, {suburbs: L.suburbs, blocks: [Object.assign({}, own, {suburb: 'HAR'})]}, 'RED', at(19), 45), '✕ relief misses the 19:00 peak',
+  assert.equal(aimFlex(dented, {suburbs: L.suburbs, blocks: [own]}, 'RED', 'aircon'), at(19), 'aimFlex reads the same line (2b final review P7: one helper, aimLineMW)');
+  assert.equal(verdict(dented, {suburbs: L.suburbs, blocks: [Object.assign({}, own, {suburb: 'HAR'})]}, 'RED', at(19), 45), '✕ relief 19:00–20:30 misses the 19:00 peak',
     'another suburb\'s relief stays in the line: the peak left is at 19:00');
   assert.equal(verdict(Object.assign({}, fc, {n: 100}), L, 'RED', at(19), 45), '', 'no column in 15:00-21:00: no verdict');
 });
@@ -69,12 +70,12 @@ test('Q-56 at 04:30 on a hot day: name, homes, wit, patience with what it does, 
   assert.match(w, /^✓ relief .* covers the 19:30 peak; snapback after it$/, 'the default aim is right on this day');
   assert.equal(card(p), 'REDGUM FLATS 420k homes “' + WIT.RED + '” patience 60: all respond · draws ' + /draws ([\d,]+) MW/.exec(card(p))[1] +
     ' MW · roofs 0 MW HOT WATER SOAK +110 MW ' + span(soak, V.SOAK_S) + ' takes 413 MWh at noon; tonight\'s heating −413 MWh · no payment ' +
-    'AIR-CON CYCLE −45 MW ' + span(aim, V.AIRCON_S) + ' pre-cool from ' + hm(aim - V.PRECOOL_S) + ' · snapback to ' + hm(aim + V.AIRCON_S + V.SNAPBACK_S) +
-    ' · $22.5k · patience 60 → 50 ' + w);
+    'AIR-CON CYCLE −45 MW ' + span(aim, V.AIRCON_S) + ' ' + w + ' pre-cool from ' + hm(aim - V.PRECOOL_S) + ' · snapback to ' + hm(aim + V.AIRCON_S + V.SNAPBACK_S) +
+    ' · $22.5k · patience 60 → 50', 'the verdict right under its aim (P6: what scrolls at the floor is the words)');
   assert.equal(p.doc.activeElement.id, 'city-RED-soak', 'opened: the first row takes the focus');
   // ▶ steps 15 min (the verdict follows), ◀ back; at the ends they answer in blue and stay
   p.click('city-RED-aircon-later');
-  assert.ok(card(p).includes('−45 MW ' + span(aim + 900, V.AIRCON_S) + ' ') && card(p).endsWith(verdict(p.vm().dayAhead, p.vm().obs.levers, 'RED', aim + 900, 45)));
+  assert.ok(card(p).includes('−45 MW ' + span(aim + 900, V.AIRCON_S) + ' ' + verdict(p.vm().dayAhead, p.vm().obs.levers, 'RED', aim + 900, 45) + ' pre-cool'));
   p.click('city-RED-aircon-earlier');
   assert.ok(card(p).includes('−45 MW ' + span(aim, V.AIRCON_S) + ' '));
   for (let i = 0; i < 4; i++) p.click('city-RED-soak-earlier');
@@ -118,6 +119,8 @@ test('Q-52-Q-54 booked ahead at 04:30: BOOK sends flex at the aim and the row li
   assert.ok(card(p).includes('AIR-CON ' + span(aim, V.AIRCON_S) + ' booked: pre-cool from ' + hm(aim - V.PRECOOL_S) + ' · snapback to ' +
     hm(aim + V.AIRCON_S + V.SNAPBACK_S) + ' · $6,750 · patience −10'), card(p) + ': the booked row names the pre-cool, when CANCEL ends');
   assert.ok(card(p).includes('patience 30: 80% respond') && card(p).includes('AIR-CON CYCLE −12 MW'), 'the next cycle at 80%');
+  const nx = /AIR-CON CYCLE −12 MW (\d\d:\d\d–\d\d:\d\d) /.exec(card(p))[1];
+  assert.match(card(p), new RegExp('AIR-CON CYCLE −12 MW ' + nx + ' ✕ relief ' + nx + ' misses the \\d\\d:\\d\\d peak pre-cool '), 'the verdict names the relief it judges: the next aim, not the booked one (P1)');
   assert.ok(p.$('city-TAL-aircon-cancel-' + hm(aim).replace(':', '')));
   assert.equal(p.vm().tray.cards.length, cards, 'no tray card for a booking');
   assert.deepEqual(p.vm().tray.log.slice(-2).map(e => e.from + ': ' + e.text), ['CITY DESK: Tallowood Heights: air-con cycle booked for ' + hm(aim) + ' (14 MW).',
@@ -128,7 +131,7 @@ test('Q-52-Q-54 booked ahead at 04:30: BOOK sends flex at the aim and the row li
   p.click('city-TAL-aircon');
   assert.equal(flexLog(p).length, 2);
   assert.deepEqual([lv(p, 'TAL').patience, lv(p, 'TAL').aircon.block], [15, 'air-con locked: patience below 25']);
-  assert.ok(card(p).includes('patience 15: air-con locked') && card(p).includes('AIR-CON CYCLE −10 MW air-con locked: patience below 25'), card(p));
+  assert.ok(card(p).includes('patience 15: air-con locked') && /AIR-CON CYCLE −10 MW ✓ [^·]* air-con locked: patience below 25$/.test(card(p)), card(p) + ': the last cycle\'s verdict, then why no more');
   const lock = p.vm().tray.cards.at(-1);
   assert.deepEqual([lock.from, lock.sev, lock.text, lock.button.label, lock.button.target], ['CITY DESK', 'info',
     'Tallowood Heights: air-con locked. A cancel refunds a cycle\'s patience.', 'TO THE SUBURB', 'suburb-TAL']);
@@ -170,7 +173,13 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   vm(v => { Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'air-con locked: patience below 25', fromS: -1, toS: -1}); });
   assert.equal(book('aircon'), 'info Old Hazelton: air-con locked: patience below 25');
   vm(v => { Object.assign(v.obs.levers.suburbs[1].soak, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
-  assert.equal(book(), 'info Old Hazelton: too late: it would start in the past', 'outside the window');
+  assert.equal(book(), 'info Old Hazelton: too late today: soaks start by 11:00', 'outside the window');
+  // the window's two reasons as a standing status say what holds, not a refusal of a time nobody proposed (P4)
+  const words = lever => doc.getElementById('city-HAZ-' + lever).parentElement.parentElement.children.at(-1).textContent;
+  vm(v => { Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
+  assert.equal(words('aircon'), 'too late today: cycles start by 19:30 (pre-cool from 18:30)');
+  vm(v => { Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'overlaps another air-con block of this suburb', fromS: -1, toS: -1}); });
+  assert.equal(words('aircon'), 'no room today for another cycle around the booked one');
   const blk = {suburb: 'HAZ', lever: 'soak', atS: at(10, 30), endS: at(14, 30), effMW: 140, cost: 0, del: ''}, x = doc.getElementById.bind(doc);
   blk.parts = flexParts(blk, 140);
   const booked = del => vm(v => { v.obs.levers.blocks.push(Object.assign({}, blk, {del})); Object.assign(v.obs.levers.suburbs[1].soak, {block: 'one soak a day: already booked', fromS: -1, toS: -1}); });
@@ -186,7 +195,7 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   assert.equal(said.at(-1), 'info under way: too late to cancel');
   for (const on of ['city-HAZ-soak', 'city-HAZ-soak-cancel-1030']) eq(on, 'info under way: too late to cancel', on + ': - = on a block under way say why, not "CANCEL, then BOOK"');
   // an air-con cycle: its verdict while it can be cancelled, none once its pre-cool starts; under way through its snapback
-  const cyc = {suburb: 'HAZ', lever: 'aircon', atS: at(18), endS: at(19, 30), effMW: 40, cost: 10}, line = () => x('city-HAZ-aircon').parentElement.parentElement.children.at(-1).textContent;
+  const cyc = {suburb: 'HAZ', lever: 'aircon', atS: at(18), endS: at(19, 30), effMW: 40, cost: 10}, line = () => { const r = x('city-HAZ-aircon').parentElement, g = r.parentElement.children; return g[g.indexOf(r) + 1].textContent; };
   cyc.parts = flexParts(cyc, 40);
   const cycle = (del, s) => vm(v => { v.obs.s = s; v.obs.levers.blocks.push(Object.assign({}, cyc, {del})); Object.assign(v.obs.levers.suburbs[1].aircon, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
   cycle('', base.obs.s);
@@ -210,6 +219,35 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   now += 1;
   assert.equal(book(), '(sent)', 'after the rest it acts');
   assert.equal(ins.length, 2);
+});
+
+test('S1 (2b final review): with no aim of the player\'s, BOOK sends the shown city line\'s time (a soak line names any suburb\'s, an air-con line only its own); else aimFlex\'s, held within a 5-min step (a poked vm)', () => {
+  const p = openGame({seed: HOT});
+  p.suburb('HAZ');
+  const base = p.vm(), doc = makeDocument(NEXT), root = doc.getElementById('suburb-card'), ins = [];
+  let now = 0;
+  root.hidden = false;
+  const c = createSuburbCard(doc, root, {ui: () => '', input: x => { ins.push(x); return ''; }}, {toast() {}, loadText() {}, toggleHelp() {}, now: () => (now += 2000)});
+  // the day-ahead with a dip at column k (the soak centres its 4 h on it), and an optional city line
+  const vm = (k, line) => { const v = Object.assign({}, base, {dayAhead: JSON.parse(JSON.stringify(base.dayAhead)), objective: line || null}); v.dayAhead.demandP50[k] -= 5000; c.update(v); return v; };
+  const sent = (lever = 'soak') => { doc.getElementById('city-HAZ-' + lever).click(); return ins.at(-1).atS; };
+  const k = Math.round((at(12, 30) - base.dayAhead.fromS) / V.FC_STEP_S) - 1, aim = v => aimFlex(v.dayAhead, v.obs.levers, 'HAZ', 'soak');
+  const a0 = aim(vm(k)), a1 = aim(vm(k + 1)), a2 = aim(vm(k + 2));
+  assert.deepEqual([a1 - a0, a2 - a0], [300, 600], 'the dip a column later: aimFlex a step later');
+  vm(k);
+  assert.equal(sent(), a0);
+  vm(k + 1);
+  assert.equal(sent(), a0, 'one step away: held');
+  vm(k + 2);
+  assert.equal(sent(), a2, 'two steps: the new aim');
+  const line = (suburb, lever, atS) => ({kind: 'city', level: 'plan', text: '', targets: ['suburb-' + suburb], action: {type: 'flex', suburb, lever, atS}});
+  vm(k, line('RED', 'soak', a0 + 900));
+  assert.equal(sent(), a0 + 900, 'a soak line for another suburb: free suburbs aim alike');
+  const ac = aimFlex(base.dayAhead, base.obs.levers, 'HAZ', 'aircon');
+  vm(k, line('RED', 'aircon', ac + 900));
+  assert.equal(sent('aircon'), ac, 'another suburb\'s air-con line: not this one\'s');
+  vm(k, line('HAZ', 'aircon', ac + 900));
+  assert.equal(sent('aircon'), ac + 900, 'its own');
 });
 
 test('Q-56 in play: the briefing sends nothing and Enter in the card takes the desk; a dark suburb\'s card says so first and RESTORE focuses the bay; a pushed block under way: CANCEL answers in blue; the watch hides the card and a press there sends nothing; the day over', () => {
@@ -264,6 +302,7 @@ test('Q-51 a mild day offers the soak only, and the card says why; a new attempt
   p.suburb('SOL');
   assert.deepEqual(p.vm().obs.levers.offered, ['soak']);
   assert.ok(card(p).endsWith('AIR-CON CYCLE: hot days only (a mild day has no cooling load to relieve)'));
+  assert.match(card(p), /” patience 70 · draws /, 'patience only scales air-con: no "respond" when none is offered (P2)');
   assert.equal(p.$('city-SOL-aircon'), null);
   // PLAY THIS DAY AGAIN (resetDay, as the end card's again): a new attempt forgets the player's aim
   const a0 = aimFlex(p.vm().dayAhead, p.vm().obs.levers, 'SOL', 'soak'), shows = () => card(p).includes(' MW ' + span(a0, V.SOAK_S) + ' ');
@@ -281,7 +320,9 @@ test('Q-51 a mild day offers the soak only, and the card says why; a new attempt
   assert.equal(tr.cards[0].button.target, 'suburb-TAL');
   for (const k of ['soak', 'aircon']) {
     const e = TEXT.abstractions.find(x => x.row === LEVERS[k].row);
-    assert.ok(e && e.game === 'drawer' && e.ui === 'drawer' && e.specPending === true, k);
+    assert.ok(e && e.game === 'drawer' && e.ui === 'drawer' && !e.specPending, k); // (048e5a7: the rows are in SPEC §8.2)
   }
   assert.deepEqual(Object.keys(WIT), DESK.city.suburbs.map(x => x.id));
+  // the air-con help says the relief as the sim gives it: ramps, and less MW below full patience (D3)
+  assert.match(TEXT.abstractions.find(x => x.id === 'aircon-cycle').ours, /Relief for 90 min with 15-minute ramps, at the suburb's air-con MW \(150 MW across the city; less while its patience is below 50\)/);
 });
