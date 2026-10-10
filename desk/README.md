@@ -573,9 +573,9 @@ every control needs a keyboard route and a way to reach it:
 | Live Stack | L (again: expand); number selects a layer, arrows move one snap step, Enter drops (L-4, already there) | — |
 | map | Tab from the stack, or focus; ←→ cycles plants and suburbs (sets the hover cross-highlight and shows the label); Enter presses the hovered plant or suburb as a click does (a suburb opens its card; not under RESPOND or in the briefing, 2b); Esc leaves | — |
 | settings | `,` | native sliders and checkboxes |
-| suburb card (2b, Q-56) | H (opens the line's or the hovered suburb, else the last, else the first; again: closes), or a click on a suburb | its own arrows, PgUp/PgDn, Home, End, Enter, Tab (S, X and P do nothing there, so the lever behind it never moves); Esc or H closes |
+| suburb card (2b, Q-56) | H (opens the line's or the hovered suburb, else the last, else the first; again: closes), or a click on a suburb | ←/→ the previous / next suburb, ↑/↓ its row presses (RESTORE, CANCEL, BOOK), - / = the focused row's time by 15 min, Enter presses (in the briefing it takes the desk); PgUp/PgDn, Home, End, Tab, S, X and P are kept from the desk (the lever behind it never moves); Esc or H closes |
 
-Free letters the desk agent may claim for new routes: G, O, B, K, V, N. Document every key in
+Letters still free for new routes: I, J, Y (G, O, B, K, V, N are the desk's; H is the suburb card's). Document every key in
 its §31.8 subsection (Q-49) and in `aria-keyshortcuts`. The shell forwards every key to `desk.key` first,
 so desk-claimed keys just work without the shell knowing them.
 
@@ -881,7 +881,7 @@ the restore surge is `max(0, coldMW − G0 × share − flexShare)`. The preview
 balance   += renPfrMW, roofPfrMW                              (after shedMW)
 demand    += underlyingMW, rooftopMW, litMW, unservedMW       (after tempC)
              // nowMW = env.demandMW; underlyingMW = env.underlyingMW; rooftopMW = env.rooftopMW (as if connected,
-             // so nowMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW) holds in obs);
+             // so nowMW = underlyingMW + flexMW - rooftopMW - (SMELTER_MW - smelter.loadMW) holds in obs, flexMW from 2b);
              // litMW = fleet.litDemandMW(state); unservedMW = G0 * shedFrac
 wind      += autoMW        solar += autoMW                    (last)
 score     += spillMWh                                         (after starts; §30.7 adds saidiMin, saifi, maifi after it)
@@ -2321,13 +2321,15 @@ levers:   (new, after day)
   {rev, offered: ['soak', …],
    suburbs: [{id, patience, soak: LV, aircon: LV}],          // city order; [] on CLASSIC
    blocks:  [{suburb, lever, atS, endS, effMW, cost, del, parts: [{kind, knots}]}]}
-  del: '' when a flexDel of that block would be accepted now, else the exact refusal
+  del: '' when a flexDel of that block would pass grid's checks now, else the exact refusal
+       (the watch's and the day over's stay applyInput's, as for block: 2b final review D7)
   LV = {mw, cost, fromS, toS, block}
 ```
 - `mw`: what a booking now would deliver (U-1 MW × response); `cost`: the patience it would
   cost; `fromS`/`toS`: the earliest and latest `atS` a booking now may take (on the lattice; −1
   when none); `block`: `''` when a booking in `[fromS, toS]` would be accepted, else the exact
-  reason one would be refused. **The card, par and the objective check eligibility only through
+  reason one would be refused (the watch and the day over left to applyInput, §31.11). **The card,
+  par and the objective check eligibility only through
   `block`, `fromS` and `toS`**, never by re-deriving the rules.
 - No field may derive from `ext` (S-4).
 
@@ -2734,7 +2736,8 @@ and obs.levers.
           {do: 'focus', target: 'bay-restore'} first (Q-42), and the shell then opens the card
           without taking the focus off RESTORE. Enter on a hovered suburb does the same (Keys
           above). A suburb click no longer pins the blue label: the card carries its draw and
-          roofs (mapPinText still says them, for the card). Wind, solar and the ground still
+          roofs (app/suburbcard.js computes them; mapPinText's suburb branch is kept for tests
+          only, since no suburb is pinned now). Wind, solar and the ground still
           pin; the ground's says "Click a plant for its control, a suburb for its card".
   Hover   a suburb sends {do: 'hover', target: 'suburb-<ID>'} (H reads it; the stack's
           bands do not light for it).
@@ -3242,7 +3245,8 @@ shares (par 1.2, view 1.4, card 0.8, objective 1.0 KB) leave about 12 KB for 2c�
   `applyInput`'s (as `startBlock` does). `flexDel` before 04:30 answers "no such block".
 - `grid.log()` takes an object of extra fields; new exports `grid.leverView`, `grid.flexDelBlock`;
   `createState` throws unless `levers.suburbs` follows `city.suburbs` in order.
-- `cost.flex` loops a suburb's districts only while its relief is non-zero (no scratch array).
+- `cost.flex` runs one loop over every district, only while some suburb's relief is non-zero,
+  summing `reliefSubMW[sub] × roofFrac` over the lit ones (no scratch array).
 - Tests: `tests/levers.test.js` (13 tests, 2.1 s alone) and `tests/levers-day.test.js` (8, 1.2 s),
   including a replay of a DESK day to 15:05 with 13 bookings and cancels, bit-identical.
 - Refusal order (sim/README §6): levers null → "levers open at 04:30" → the menu's "not offered
