@@ -425,7 +425,7 @@ export function createLiveStack(doc, root, actions) {
       for (let k = 0; k < n; k++) {
         const t = proj.times[k];
         if (t <= kn[0][0] || t >= kn[kn.length - 1][0]) continue;
-        flex.push({b, core, part: p.kind, f, x: xs[k], w: xs[k + 1] - xs[k], k, h, y: G.y(proj.p50[k]) + (v > 0 ? A[k] : -A[k] - h), o: v > 0 ? h : 0, lvl: A[k] / SURPLUS_MIN_PX | 0});
+        flex.push({b, core, part: p.kind, f, x: xs[k], w: xs[k + 1] - xs[k], k, h, y: G.y(proj.p50[k]) + (v > 0 ? A[k] : -A[k] - h), o: v > 0 ? h : 0, lvl: A[k] / SURPLUS_MIN_PX | 0, top: G.y(proj.p50[k])});
         A[k] += h; f = false;
       }
     }
@@ -440,7 +440,7 @@ export function createLiveStack(doc, root, actions) {
     ctx.stroke(); ctx.setLineDash([]);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const r of flex) if (r.f) {
-      const x = r.x + 16 + r.lvl * 30, y = r.o ? r.y + r.h + 7 : r.y - 7;
+      const x = r.x + 16 + r.lvl * 30, y = (r.o ? r.top : r.y) - 7; // above the skyline: the plan's handles sit below it
       ctx.fillStyle = UI.bg; ctx.fillRect(x - 14, y - 6, 28, 12);
       ctx.fillStyle = UI.bright; ctx.fillText(r.b.suburb, x, y);
     }
