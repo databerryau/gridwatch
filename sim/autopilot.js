@@ -1765,12 +1765,21 @@ export function runPar(seed, scenario, opts) {
 
 // ------------------------------------------------------------------ city levers (desk/README.md §31.3.10)
 
-function knotMW(kn, t) {
+// a part's MW at t (its knots, linear)
+export function knotMW(kn, t) {
   if (t <= kn[0][0] || t >= kn[kn.length - 1][0]) return 0;
   let i = 1;
   while (kn[i][0] < t) i++;
   const a = kn[i - 1], b = kn[i];
   return a[1] + (b[1] - a[1]) * (t - a[0]) / (b[0] - a[0]);
+}
+
+// aimFlex's line at fc's column k: P50 less id's own blocks of this lever (the card's verdict too)
+export function aimLineMW(fc, lv, id, lever, k) {
+  const t = fc.fromS + (k + 1) * fc.stepS;
+  let mw = fc.demandP50[k];
+  for (const b of lv.blocks) if (b.suburb === id && b.lever === lever) for (const p of b.parts) mw -= knotMW(p.knots, t);
+  return mw;
 }
 
 /** The atS to book suburb id's lever on forecast fc (lv = obs.levers), or -1: not now. Pure. */
@@ -1782,8 +1791,7 @@ export function aimFlex(fc, lv, id, lever) {
   for (let k = 0; k < fc.n; k++) {
     const t = fc.fromS + (k + 1) * fc.stepS;
     if (t < from || t > to) continue;
-    let mw = fc.demandP50[k];
-    for (const b of lv.blocks) if (b.suburb === id && b.lever === lever) for (const p of b.parts) mw -= knotMW(p.knots, t);
+    const mw = aimLineMW(fc, lv, id, lever, k);
     if (best < 0 || (soak ? mw < bestMW : mw > bestMW)) { best = k; bestMW = mw; }
   }
   if (best < 0 || (best === fc.n - 1 && to > fc.fromS + fc.n * fc.stepS)) return -1;

@@ -2,7 +2,7 @@
 
 import {V} from '../sim/params.js';
 import {SCENARIOS, CLASSIC} from '../content/scenarios.js';
-import {aimFlex} from '../sim/autopilot.js';
+import {aimFlex, aimLineMW, knotMW as at} from '../sim/autopilot.js';
 import {flexParts} from '../sim/weather.js';
 import {el, setText, setAttr, setCls, setHidden, clockOf as hm, COMMIT_LOCK_MS} from '../desk/util.js';
 import {mw, dollars} from '../render/format.js';
@@ -23,8 +23,7 @@ const STEP_S = 900, CSS = '#suburb-card .sc{padding:6px 10px 8px;font-size:11px}
   '#suburb-card .sc-t{font:11px var(--mono);color:var(--bright)}#suburb-card .info{color:var(--blue)}#suburb-card .ok{color:var(--green)}#suburb-card .bad{color:var(--amber)}' +
   '#suburb-card button.off{opacity:.45}';
 
-// a part's MW at t (its knots, linear), and its energy (MWh)
-const at = (kn, t) => { for (let i = 1; i < kn.length; i++) if (t <= kn[i][0]) return t < kn[0][0] ? 0 : kn[i - 1][1] + (kn[i][1] - kn[i - 1][1]) * (t - kn[i - 1][0]) / (kn[i][0] - kn[i - 1][0]); return 0; };
+// a part's energy (MWh)
 const mwh = kn => kn.reduce((a, k, i) => (i ? a + (k[0] - kn[i - 1][0]) * (k[1] + kn[i - 1][1]) / 2 : 0), 0) / V.S_PER_H;
 const partsOf = (lever, atS, m) => Object.fromEntries(flexParts({lever, atS}, m).map(p => [p.kind, p.knots]));
 
@@ -38,8 +37,7 @@ export function verdict(fc, lv, id, atS, effMW) {
   for (let k = 0; k < fc.n; k++) {
     const t = fc.fromS + (k + 1) * fc.stepS;
     if (t < V.AIRCON_FROM_S || t > V.AIRCON_TO_S) continue;
-    let m = fc.demandP50[k];
-    for (const b of lv.blocks) if (b.suburb === id && b.lever === 'aircon') for (const p of b.parts) m -= at(p.knots, t);
+    const m = aimLineMW(fc, lv, id, 'aircon', k);
     cols.push([t, m]);
     if (peak < 0 || m > pk) { pk = m; peak = t; }
   }

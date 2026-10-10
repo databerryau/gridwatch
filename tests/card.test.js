@@ -54,6 +54,7 @@ test('§31.9.4: the verdict on the line aimFlex uses: ✓ at its default aim, th
   own.parts = flexParts(own, 400);
   dented.demandP50 = dented.demandP50.map((m, k) => m + own.parts.reduce((x, q) => x + knotAt(q.knots)((k + 1) * V.FC_STEP_S), 0));
   assert.equal(verdict(dented, {suburbs: L.suburbs, blocks: [own]}, 'RED', at(19), 45), v(at(19)), 'its own block taken out of the line');
+  assert.equal(aimFlex(dented, {suburbs: L.suburbs, blocks: [own]}, 'RED', 'aircon'), at(19), 'aimFlex reads the same line (2b final review P7: one helper, aimLineMW)');
   assert.equal(verdict(dented, {suburbs: L.suburbs, blocks: [Object.assign({}, own, {suburb: 'HAR'})]}, 'RED', at(19), 45), '✕ relief misses the 19:00 peak',
     'another suburb\'s relief stays in the line: the peak left is at 19:00');
   assert.equal(verdict(Object.assign({}, fc, {n: 100}), L, 'RED', at(19), 45), '', 'no column in 15:00-21:00: no verdict');
@@ -281,7 +282,7 @@ test('Q-51 a mild day offers the soak only, and the card says why; a new attempt
   assert.equal(tr.cards[0].button.target, 'suburb-TAL');
   for (const k of ['soak', 'aircon']) {
     const e = TEXT.abstractions.find(x => x.row === LEVERS[k].row);
-    assert.ok(e && e.game === 'drawer' && e.ui === 'drawer' && e.specPending === true, k);
+    assert.ok(e && e.game === 'drawer' && e.ui === 'drawer' && !e.specPending, k); // (048e5a7: the rows are in SPEC §8.2)
   }
   assert.deepEqual(Object.keys(WIT), DESK.city.suburbs.map(x => x.id));
 });

@@ -1467,7 +1467,8 @@ opts?) -> Input[]`, `createAutopilot(opts) -> memo`, `decide(obs, memo) -> Input
 `replan(obs, memo) -> planLoad|null` (the player's RE-PLAN / RE-DISPATCH), `refRealSeconds(fromS,
 toS, conts)`, `runPar(seed, scenario, opts) -> {score, summary, log, origins, hashes, black, plan,
 state, memo}`, and (2b) `aimFlex(fc, lv, id, lever) -> atS | -1`, the pure aim of desk/README.md
-§31.3.10 that par, the card and the objective share. JSDoc has the details. The contract:
+§31.3.10 that par, the card and the objective share, with `aimLineMW(fc, lv, id, lever, k)`, the line
+it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the details. The contract:
 
 * **L-0 plan.** Computed once at 04:30 from `observe(state, {dayAhead: true})`: a merit-order
   schedule for the P50 forecast net of wind and solar (P-6 offers; the tie as a price-taking block
