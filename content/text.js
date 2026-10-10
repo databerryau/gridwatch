@@ -459,7 +459,7 @@ const ABSTRACTIONS = [
       'costs the suburb ' + num(V.PATIENCE_AIRCON) + ' patience, ' + num(V.PATIENCE_REPEAT) + ' more for each cycle it has ' +
       'booked; a soak costs none. Below ' + num(V.PATIENCE_FULL) + ' a suburb responds less (at ' + num(V.PATIENCE_FULL - 10) +
       ', ' + pct((2 * V.PATIENCE_FULL - 10) / (2 * V.PATIENCE_FULL)) + '%); below ' + num(V.PATIENCE_LOCK) + ' its air-con ' +
-      'locks for the day; a cancel refunds that cycle\'s cost. Patience does not recover within a day.',
+      'locks; a cancel refunds that cycle\'s cost and can lift the lock. Patience does not recover within a day.',
     why: 'The ladder is real: air-con is cheaper than DR, dearer than a running gas turbine, so it is a reliability tool. ' +
       'Patience makes a second cycle in one suburb cost more and give less. Its magnitudes are game tuning.',
     params: ['DR_MW', 'DR_DURATION_S', 'DR_PRICE', 'DR_CALLS', 'DR_RAMP_MW_MIN', 'AIRCON_PRICE', 'PATIENCE_AIRCON', 'PATIENCE_REPEAT',
@@ -474,9 +474,9 @@ const ABSTRACTIONS = [
       '2024–25. AEMO calls on controlled load at MSL3, and networks turn hot water on in minimum-demand events.',
     ours: 'One block a suburb a day: its soak MW (' + num(sumOf('soakMW')) + ' MW across the city) for ' + num(V.SOAK_S / V.S_PER_H) +
       ' h, starting ' + hhmm(V.SOAK_FROM_H) + '–' + hhmm(V.SOAK_TO_H - V.SOAK_S / V.S_PER_H) + ' on a 5-minute mark, with ' +
-      minutes(V.FLEX_RAMP_S) + '-minute ramps. That night\'s heating falls by the energy it took, spread over ' +
+      minutes(V.FLEX_RAMP_S) + '-minute ramps. That night\'s heating falls by the energy booked, spread over ' +
       hhmm(V.SOAK_NIGHT_FROM_H) + '–' + hhmm(V.SOAK_NIGHT_TO_H) + '. No payment (' + usd(V.SOAK_PRICE) + '/MWh) and no patience: ' +
-      'relays switch the tanks. It can be cancelled until it starts. A dark district\'s soak stops; tank losses are ignored.',
+      'relays switch the tanks. It can be cancelled until it starts. A dark district\'s soak stops, but the night fall stays as booked; tank losses are ignored (simplified).',
     why: 'Its reward is the night fuel the sim then saves, so nothing is counted twice; noon\'s spill goes into tanks or the ' +
       'battery, and choosing is yours.',
     params: ['SOAK_S', 'SOAK_FROM_H', 'SOAK_TO_H', 'SOAK_NIGHT_FROM_H', 'SOAK_NIGHT_TO_H', 'FLEX_RAMP_S', 'SOAK_PRICE'],
