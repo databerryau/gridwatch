@@ -26,6 +26,7 @@ const NAMES = {coal: 'COAL', ccgt: 'CCGT', gta: 'GT·A', gtb: 'GT·B', gtc: 'GT�
   tie: 'TIE', battery: 'BATTERY', rert: 'DIESEL', dr: 'DR'};
 const LEVER = {soak: 'HOT WATER SOAK', aircon: 'AIR-CON CYCLE'};
 const PART = {precool: '\nPRE-COOL: load added before it', snapback: '\nSNAPBACK: load returning after it', night: '\nNIGHT HEATING: lower by what it soaked'};
+const GHOST = {precool: 'pre-cool', snapback: 'snapback', night: 'night heating'};
 
 /** K-23 (Q-57): an obs.levers block in words. */
 export const blockText = b => LEVER[b.lever] + ' ' + SUBURBS.find(q => q.id === b.suburb).name + ' ' + fmtMW(Math.round(b.effMW)) + ' MW ' +
@@ -76,7 +77,11 @@ export function stackSummary(proj, obs, locked) {
   if (roof && (roof[0] > ROOF_MIN_MW || roof[far] > ROOF_MIN_MW)) {
     say.push('Rooftop solar meets ' + fmtMW(Math.round(roof[0])) + ' MW of demand now, ' + fmtMW(Math.round(roof[far])) + ' MW by ' + clockText(proj.times[far], false) + '.');
   }
-  for (const b of (obs.levers || {blocks: []}).blocks) if (b.endS > obs.s && b.atS < proj.times[far]) say.push('Booked: ' + blockText(b) + '.');
+  // a block with a part drawn (as drawCity), by its ghosts when its core is not (P5)
+  for (const b of (obs.levers || {blocks: []}).blocks) {
+    const seen = b.parts.filter(p => proj.times.some(t => t > p.knots[0][0] && t < p.knots[p.knots.length - 1][0])).map(p => p.kind);
+    if (seen.length) say.push('Booked: ' + blockText(b) + (seen.includes('core') ? '' : ' (its ' + seen.map(k => GHOST[k]).join(' and ') + ')') + '.');
+  }
   return say.join(' ');
 }
 

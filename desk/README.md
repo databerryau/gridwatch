@@ -2824,9 +2824,10 @@ what it does:
           the dashed line alone cannot say), and sends {do: 'hover', target: 'suburb-<ID>'},
           so the map rings the suburb. Hover only: a press there takes what is under it, and
           nothing drags a block in 2b (the card's steps do).
-  text    stackSummary adds "Booked: <block>." for each block whose core is not over and
-          starts inside the 4.5 h drawn (K-23: what the picture shows; later ones are on the
-          map's tags).
+  text    stackSummary adds "Booked: <block>." for each block with a part drawn (a column inside
+          its knots, as drawCity tests it), "Booked: <block> (its snapback)." (or pre-cool, night
+          heating) when only its ghosts are (K-23: what the picture shows; later ones are on the
+          map's tags; 2b final review P5).
   hitTest what is under (x, y): a handle, a ghost, a layer edge, a layer body or a gap; for a
           hover (forHover) also a blue surplus column, a block or the rooftop bite, which a
           press never grabs. A hover's order: the pending ghost; a blue column (C-11), whatever
