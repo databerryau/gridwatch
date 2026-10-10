@@ -488,15 +488,16 @@ const ABSTRACTIONS = [
     real: 'Queensland\'s PeakSmart can cap 155,738 air-cons at 50% for about 107 MW, in events around 16:00–19:00. After an ' +
       'event the load comes back: 17–35% of the energy relieved in one 2008 trial, about 40–50% in a 2019 one, most of it ' +
       'in the first hour.',
-    ours: 'Hot days only (a mild day has no cooling load). Relief for ' + minutes(V.AIRCON_S) + ' min at the suburb\'s air-con MW (' +
-      num(sumOf('airconMW')) + ' MW across the city), starting ' + hhmm(V.AIRCON_FROM_H) + '–' +
+    ours: 'Hot days only (a mild day has no cooling load). Relief for ' + minutes(V.AIRCON_S) + ' min with ' + minutes(V.FLEX_RAMP_S) +
+      '-minute ramps, at the suburb\'s air-con MW (' + num(sumOf('airconMW')) + ' MW across the city; less while its patience is below ' +
+      num(V.PATIENCE_FULL) + '), starting ' + hhmm(V.AIRCON_FROM_H) + '–' +
       hhmm(V.AIRCON_TO_H - V.AIRCON_S / V.S_PER_H) + '. Pre-cool always runs in the ' + minutes(V.PRECOOL_S) + ' min before, ' +
       'adding ' + pct(V.PRECOOL_FRAC) + '% of the energy relieved; the snapback returns ' + pct(V.SNAPBACK_FRAC) + '% over the ' +
       minutes(V.SNAPBACK_S) + ' min after, front-loaded. Customers are paid ' + usd(V.AIRCON_PRICE) + '/MWh relieved in lit ' +
       'districts. It can be cancelled until pre-cool starts. The card says whether the relief covers the evening peak.',
     why: 'Aim is the decision: centred on the peak, the snapback lands after it; early, it lands on it. ' + pct(V.SNAPBACK_FRAC) +
       '% is inside the measured range and still punishes a bad aim.',
-    params: ['AIRCON_S', 'AIRCON_FROM_H', 'AIRCON_TO_H', 'PRECOOL_S', 'PRECOOL_FRAC', 'SNAPBACK_S', 'SNAPBACK_FRAC', 'AIRCON_PRICE'],
+    params: ['AIRCON_S', 'AIRCON_FROM_H', 'AIRCON_TO_H', 'FLEX_RAMP_S', 'PATIENCE_FULL', 'PRECOOL_S', 'PRECOOL_FRAC', 'SNAPBACK_S', 'SNAPBACK_FRAC', 'AIRCON_PRICE'],
   },
   {
     id: 'hot-water-hold', row: 'HOT WATER HOLD is 80 MW', anchorId: 'hot-water-hold', game: 'drawer', ui: 'drawer',

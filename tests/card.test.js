@@ -323,4 +323,6 @@ test('Q-51 a mild day offers the soak only, and the card says why; a new attempt
     assert.ok(e && e.game === 'drawer' && e.ui === 'drawer' && !e.specPending, k); // (048e5a7: the rows are in SPEC §8.2)
   }
   assert.deepEqual(Object.keys(WIT), DESK.city.suburbs.map(x => x.id));
+  // the air-con help says the relief as the sim gives it: ramps, and less MW below full patience (D3)
+  assert.match(TEXT.abstractions.find(x => x.id === 'aircon-cycle').ours, /Relief for 90 min with 15-minute ramps, at the suburb's air-con MW \(150 MW across the city; less while its patience is below 50\)/);
 });
