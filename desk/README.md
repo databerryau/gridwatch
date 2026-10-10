@@ -3266,3 +3266,84 @@ shares (par 1.2, view 1.4, card 0.8, objective 1.0 KB) leave about 12 KB for 2c�
 
 **Owners added for wave 2:** the "blue with a soak booked" planview row is **view**'s (in
 `tests/planview.test.js` or its own file); `tests/cardshell.test.js` is **card**'s.
+
+### 31.12 Wave 2 and stage C record (2026-10-10)
+
+Wave 2 (workflow `wf_47646134-efa`, cut short by a usage limit after three builders; resumed as
+`wf_3d04cce3-ac0`, which finished the card in its worktree and ran every review and fix pass)
+merged as `73dec4f` (par: 4 findings, 3 fixed, 1 a docs line done at stage C), `bf50118` (view:
+13, 11 fixed, 2 handed on), `6696ba5` (card: 12, 11 fixed, 1 contract text) and `b079738`
+(objective: 11, all fixed or amended). Whole suite after the merge: **747 tests, all pass,
+40.9 s**. The final whole-branch review (`wf_fbb6570e-761`) and its fix pass are recorded
+below.
+
+**Stage C measures (§31.10), on `v4-core-2b.0` + wave 2:**
+
+| | `desk` | `desk-weekend` | Gate | 2a (§28) |
+|---|---|---|---|---|
+| Zero unserved, 200 raw seeds | 191 (95.5%) | 195 (97.5%) | ≥ 85% | 191 / 195 |
+| Forced heat, 100 seeds | 86 | 98 | ≥ 75% | 85 / 98 |
+| RERT armed, raw | 14 (7.0%) | 1 (0.5%) | ≤ 25% | 15 / 1 |
+| Black days | 0 | 0 | 0 | 0 |
+| SECURE states holding 49.5 Hz, raw | 6,481 of 6,481 | 6,684 of 6,685 (49.497 Hz, seed 106) | all | 6,495 / 6,684 of 6,685 |
+| Par's soak days / air-con days, raw | 0 / 1 | 1 / 0 | — | — |
+| Par's soak / air-con days, heat | 0 / 8 | 0 / 1 | — | — |
+| MSL3 | never | never | only after a noon contingency | never |
+| SECURE states holding 49.5 Hz, forced heat | 2,078 of 2,080 (49.478 Hz, seed 465) | 2,667 of 2,667 | all | `main` gives the same two misses on seed 465 (2,068 of 2,070): pre-existing, not 2b's |
+
+Par uses the levers rarely, as Q-58 intends: rule 1 needs an MSL1 notice whose minimum lies in the
+soak window (one weekend day in 200), and rule 5 a shortfall its pre-cool does not land on (one
+weekday in 200, eight forced-heat days). On `desk` raw, 106 MWh relieved for $42,500.
+
+**ALL-IN letters** (`--proxy competent,lean,commitAll --allin`, 200 days): competent A on 154
+(77%, gate ≥ 70%); commitAll loses A on 191 (95.5%, gate ≥ 30%); **lean A on 96 (48%, gate
+≤ 40%: not met)**, as at Q-48 (48.5%), so the 2b levers do not move it; `LETTERS` stay
+A ≥ 962, B ≥ 684, C ≥ 351. Par's median ALL-IN $9.746M (desk seed 55).
+
+**The follower** (`tools/follow.mjs`, the accept lists): `desk` 11 of 11 days with nothing
+unserved, `desk-weekend` 12 of 12, none black; the no-input day still fails 11 of 11. It soaks
+all six suburbs on every MILD day (and once on a HOT weekend) and never cycles air-con. ALL-IN
+points against par: MILD median 1,015 (991–1,068) on weekdays and 1,021 (1,009–1,089) on weekends;
+HOT 979–1,024 except `desk` seed 3 (621: the follower arms the reserve diesel, as in 2a §28).
+That is Q-58's edge: on mild days a player who soaks beats par.
+
+**The final review** (`wf_fbb6570e-761`: seams, docs truth, the player; each major checked by a
+skeptic): 16 confirmed (1 major, 15 minor), none refuted; one fix pass (`2b-final`, merged as
+`81561a7`) fixed them and V-1:
+- **S1, aims that flickered.** `aimFlex` searches columns at `env.s`-based times, so its rounded
+  aim flipped between two 5-minute marks about every 2.5 real s at 120×, and the card and the line
+  kept changing their time. Now the line keeps an aim within one 5-minute step of the one it
+  shows (`stick`, `cityAim` in `app/objective.js`; `game.js` passes `held`), and the card books
+  the shown line's time (else its own held default). `aimFlex` is unchanged. Followed DESK seed 7,
+  06:30, 60 samples: 12 and 11 changes before, 0 after.
+- **V-1, the stack's blue with soaks.** The projection's export room is now the planned tie
+  export (`obs.plan.tie` from `obs.tie.setMW`, capped by `exportLimitMW`, 0 while tripped). The
+  90th-percentile error of blue against the sim's cut, 5 minutes ahead, fell from 84 to 37 MW; the
+  rest is the system re-dispatching the tie every few minutes.
+- Smaller: the tray names the soak only for a low still ahead and MSL2's words say "a gas unit
+  if one is running"; every ✕ verdict names its relief; a MILD card makes no air-con response
+  claim; the card's refusal strings read as the player's words (`grid.LEVER_WHY`); the stack's
+  text names blocks drawn only as ghosts; the card is 20 px shorter and its verdict sits under its
+  aim (190 of 194 px at 1280×600 with a booked cycle); one shared `knotMW`/`aimLineMW` in
+  `sim/autopilot.js`; READMEs and the air-con help made true.
+
+**The browser pass** (one pane, port 8653, seed 7, a HOT `desk` day, 1280×600, 1280×720 and
+1920×1080): the card opens on the left, fits (188 px with a booked cycle, ≤ 194), hides no "?",
+and its verdict and costs read right ("$22.5k" for 45 MW × 1.25 h × $400); the patience glyph
+draws as a plain text character, not a colour emoji; the soak's band shows along the skyline.
+**Found and fixed (`f5f1c74`):** a soak's code plate sat under its band, beneath the plan's key
+handles, and could not be read; every code now sits above the skyline.
+
+**Versions and totals:** `v4-core-2b.1`, golden re-recorded (masked diff: the Build line and the
+machine lines only). Whole suite 749 tests, all pass. First visit **387.8 KB** (394.9 before 2b):
+Q-49's moves freed 16.7 KB, 2b added about 9.2 KB (cap 9.4), **12.2 KB left for 2c–2e**. On
+demand: `app/suburbcard.js` 6,098 of 6,144 B, `content/text.js` 18,180 B (cap 18.5 KB),
+`app/perf.js` 1,821 B. The follower re-run after the final fixes gives the same days (MILD median
+1,015 / 1,021, every day clean).
+
+**Open after 2b** (none blocks the slice):
+- The lean proxy's 48% A (S-5's ≤ 40%), carried from Q-48.
+- No drag in time on the stack (U-3), no suburb colours, no ticker or petition (U-8), no patience
+  recovery (W-2): decided out of 2b (Q-54, Q-57).
+- The pre-existing briefing bug: an input accepted in the briefing sets `modeLocked`, so a HAND
+  choice is lost (the card never sends in the briefing).
