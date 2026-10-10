@@ -2803,7 +2803,10 @@ inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch a
   const card = createSuburbCard(doc, root, actions, {toast, loadText, toggleHelp, now});
   card.update(vm)   every frame while vm.suburb is set, also while the watch hides it (its pre-checks
                     read the latest vm); builds its rows when the suburb, the offer, a dark district
-                    or the blocks change, and keeps a focused row's focus across a rebuild
+                    or the blocks change, and keeps a focused row's focus across a rebuild; a block's
+                    booked / under way / done each frame; the aim, its words and the verdict only when
+                    the line (fromS, n), lv.rev, the LV, the player's aim or patience change; names
+                    the dialog (aria-label) by its suburb
   card.focus()      the first row's press (RESTORE, else the first CANCEL or BOOK), else ✕
   verdict(fc, lv, id, atS, effMW) -> '✓ …' | '✕ …' | ''   §31.9.4, pure (tests)
   WIT, LEVERS, PEAK_BAND_MW   the U-1 lines, each lever's name and "?" row, the band (100 MW)

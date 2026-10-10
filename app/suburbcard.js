@@ -169,7 +169,8 @@ export function createSuburbCard(doc, root, actions, deps) {
         c.dataset.at = String(b.atS);
         row.append(el(doc, 'span'), c);
         g.appendChild(row);
-        R.blocks.push({b, row, c});
+        R.blocks.push({at: b.atS, row, c, txt: lever === 'soak' ? 'tonight\'s heating −' + mw(mwh(b.parts[0].knots)) + ' MWh'
+          : words(lever, b.atS, b.effMW, b.cost).replace(/^.*?snapback/, 'snapback')});
       }
       const r = el(doc, 'div', 'sc-r'), q = el(doc, 'button', 'q inline', '?');
       q.id = 'q-' + lever;
@@ -201,6 +202,7 @@ export function createSuburbCard(doc, root, actions, deps) {
       const key = id + lv.offered + (dark ? 'd' : '') + (sub ? '' : 'x') + lv.blocks.map(b => b.suburb + b.lever + b.atS);
       if (key !== shape) { shape = key; build(v, id, sub, dark); }
       setText(name, s.name.toUpperCase());
+      setAttr(root, 'aria-label', s.name);
       setText(homes, Math.round(s.households / 1e3) + 'k homes');
       if (E.dark) setText(E.dark.firstChild, dark + ' DARK:');
       const roof = (obs.rooftop.suburbs.find(q => q.id === id) || {mw: 0}).mw, p = sub ? sub.patience : -1;
@@ -208,13 +210,18 @@ export function createSuburbCard(doc, root, actions, deps) {
         Math.round(100 * (V.PATIENCE_FULL + p) / (2 * V.PATIENCE_FULL)) + '% respond' : 'all respond') + ' · ' : '') +
         'draws ' + mw(ds.reduce((a, d) => a + (d.dark ? 0 : d.coldLoadMW), 0)) + ' MW · roofs ' + mw(roof) + ' MW');
       for (const lever in E.lv) {
-        const R = E.lv[lever], L = sub[lever], a = aimOf(v, lever, L);
-        for (const {b, row, c} of R.blocks) {
-          setText(row.firstChild, LEVERS[lever].word.toUpperCase() + ' ' + span(lever, b.atS) + (b.del === '' ? ' booked' : obs.s < b.endS ? ' under way' : ' done') +
-            ': ' + (lever === 'soak' ? 'tonight\'s heating −' + mw(mwh(b.parts[0].knots)) + ' MWh' :words(lever, b.atS, b.effMW, b.cost).replace(/^.*?snapback/, 'snapback')));
-          setCls(c, 'off', b.del !== '');
-          setAttr(c, 'aria-disabled', b.del !== '');
+        const R = E.lv[lever], L = sub[lever], fc = v.dayAhead || obs.forecast;
+        for (const {at: t, row, c, txt} of R.blocks) {
+          const b = lv.blocks.find(q => q.suburb === id && q.lever === lever && q.atS === t), u = b.del !== '';
+          setText(row.firstChild, LEVERS[lever].word.toUpperCase() + ' ' + span(lever, t) + (u ? obs.s < b.endS ? ' under way: ' : ' done: ' : ' booked: ') + txt);
+          setCls(c, 'off', u);
+          setAttr(c, 'aria-disabled', u);
         }
+        // (the aim, its words and the verdict only when what they read changes: the line, the blocks, the lever, the aim, patience)
+        const k = [fc.fromS, fc.n, lv.rev, L.mw, L.cost, L.fromS, L.toS, L.block, aims[id + lever], p].join();
+        if (R.k === k) continue;
+        R.k = k;
+        const a = aimOf(v, lever, L);
         setText(R.mw, (lever === 'soak' ? '+' : '−') + mw(L.mw) + ' MW');
         for (const e of [R.l, R.t, R.r]) setHidden(e, a < 0);
         setCls(R.book, 'off', a < 0);
@@ -223,8 +230,7 @@ export function createSuburbCard(doc, root, actions, deps) {
         setText(R.c, a < 0 ? L.block : words(lever, a, L.mw, L.cost, p));
         setCls(R.c, 'info', a < 0);
         if (R.v) {
-          const last = lv.blocks.filter(b => b.suburb === id && b.lever === lever).pop(), w = a >= 0 ? verdict(v.dayAhead || obs.forecast, lv, id, a, L.mw)
-            : last ? verdict(v.dayAhead || obs.forecast, lv, id, last.atS, last.effMW) : '';
+          const last = lv.blocks.filter(b => b.suburb === id && b.lever === lever).pop(), w = a >= 0 ? verdict(fc, lv, id, a, L.mw) : last ? verdict(fc, lv, id, last.atS, last.effMW) : '';
           setText(R.v, w);
           setCls(R.v, 'ok', w[0] === '✓');
           setCls(R.v, 'bad', w[0] === '✕');

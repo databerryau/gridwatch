@@ -170,10 +170,16 @@ test('Q-56 pre-checks answer in blue and send nothing (a poked vm): the briefing
   assert.equal(book('aircon'), 'info Old Hazelton: air-con locked: patience below 25');
   vm(v => { Object.assign(v.obs.levers.suburbs[1].soak, {block: 'too late: it would start in the past', fromS: -1, toS: -1}); });
   assert.equal(book(), 'info Old Hazelton: too late: it would start in the past', 'outside the window');
-  const blk = {suburb: 'HAZ', lever: 'soak', atS: at(10, 30), endS: at(14, 30), effMW: 140, cost: 0, del: 'under way: too late to cancel'};
+  const blk = {suburb: 'HAZ', lever: 'soak', atS: at(10, 30), endS: at(14, 30), effMW: 140, cost: 0, del: ''}, x = doc.getElementById.bind(doc);
   blk.parts = flexParts(blk, 140);
-  vm(v => { v.obs.levers.blocks.push(blk); Object.assign(v.obs.levers.suburbs[1].soak, {block: 'one soak a day: already booked', fromS: -1, toS: -1}); });
-  doc.getElementById('city-HAZ-soak-cancel-1030').click();
+  const booked = del => vm(v => { v.obs.levers.blocks.push(Object.assign({}, blk, {del})); Object.assign(v.obs.levers.suburbs[1].soak, {block: 'one soak a day: already booked', fromS: -1, toS: -1}); });
+  booked('');
+  assert.deepEqual([x('city-HAZ-soak-cancel-1030').parentElement.firstChild.textContent, x('city-HAZ-soak-cancel-1030').getAttribute('aria-disabled')],
+    ['SOAK 10:30–14:30 booked: tonight\'s heating −525 MWh', 'false']);
+  booked('under way: too late to cancel');
+  assert.deepEqual([x('city-HAZ-soak-cancel-1030').parentElement.firstChild.textContent, x('city-HAZ-soak-cancel-1030').getAttribute('aria-disabled')],
+    ['SOAK 10:30–14:30 under way: tonight\'s heating −525 MWh', 'true'], 'the same block, now under way (no rebuild)');
+  x('city-HAZ-soak-cancel-1030').click();
   assert.equal(said.at(-1), 'info under way: too late to cancel');
   doc.getElementById('city-HAZ-soak').focus();
   root.dispatch('keydown', {key: '='});
