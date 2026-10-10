@@ -3,7 +3,7 @@
 
 import {V} from '../sim/params.js';
 import * as PV from '../app/planview.js';
-import {COLOURS, UI} from './mapdata.js';
+import {COLOURS, UI, SUBURBS} from './mapdata.js';
 import {clockText, mw as fmtMW, priceText} from './format.js';
 
 export const AXIS_MAX_MW = 9000;
@@ -24,6 +24,12 @@ const ROOF_HATCH_PX = 9;
 const ROOF_HATCH = 'rgba(241,211,92,0.32)', SILHOUETTE = 'rgba(230,237,243,0.5)';
 const NAMES = {coal: 'COAL', ccgt: 'CCGT', gta: 'GT·A', gtb: 'GT·B', gtc: 'GT·C', hydro: 'HYDRO', wind: 'WIND', solar: 'SOLAR',
   tie: 'TIE', battery: 'BATTERY', rert: 'DIESEL', dr: 'DR'};
+const LEVER = {soak: 'HOT WATER SOAK', aircon: 'AIR-CON CYCLE'};
+const PART = {precool: '\nPRE-COOL: load added before it', snapback: '\nSNAPBACK: load returning after it', night: '\nNIGHT HEATING: lower by what it soaked'};
+
+/** K-23 (Q-57): an obs.levers block in words. */
+export const blockText = b => LEVER[b.lever] + ' ' + SUBURBS.find(q => q.id === b.suburb).name + ' ' + fmtMW(Math.round(b.effMW)) + ' MW ' +
+  clockText(b.atS, false) + ' to ' + clockText(b.endS, false);
 
 /** K-22: how each gap kind is told apart without colour: hatch direction and a glyph over each run. */
 export const GAP_MARK = Object.freeze({
@@ -70,6 +76,7 @@ export function stackSummary(proj, obs, locked) {
   if (roof && (roof[0] > ROOF_MIN_MW || roof[far] > ROOF_MIN_MW)) {
     say.push('Rooftop solar meets ' + fmtMW(Math.round(roof[0])) + ' MW of demand now, ' + fmtMW(Math.round(roof[far])) + ' MW by ' + clockText(proj.times[far], false) + '.');
   }
+  for (const b of (obs.levers || {blocks: []}).blocks) if (b.endS > obs.s && b.atS < proj.times[far]) say.push('Booked: ' + blockText(b) + '.');
   return say.join(' ');
 }
 
@@ -88,7 +95,8 @@ function signature(obs) {
   for (const u of obs.units) s += u.mode[0] + u.mode[1] + ',';
   const b = obs.battery, t = obs.tie, r = obs.rert;
   s += b.mode + b.orderMW + '/' + b.guardMW + '|' + t.setMW + (t.tripped ? 'T' : '') + '|' + (r.armed ? 'A' : '') + (r.standingDown ? 'D' : '') +
-    '|' + (obs.dr.activeS > 0 ? 'R' : '') + '|' + obs.wind.limitPct + '/' + obs.solar.limitPct + '|' + (obs.contingencies ? obs.contingencies.length : 0) + '|' + obs.mode;
+    '|' + (obs.dr.activeS > 0 ? 'R' : '') + '|' + obs.wind.limitPct + '/' + obs.solar.limitPct + '|' + (obs.contingencies ? obs.contingencies.length : 0) + '|' + obs.mode +
+    '|' + (obs.levers && obs.levers.rev);
   return s;
 }
 
@@ -132,7 +140,7 @@ export function createLiveStack(doc, root, actions) {
 
   let vm = null, proj = null, sig = '', G = null, handles = [], ghosts = [];
   let drag = null, sel = null, pending = null, message = null, hoverLayer = null, hoverGap = null, hoverBlue = null, sentHover = undefined, glowLocal = new Set();
-  let expanded = false, drawMs = 0, lastDrop = null, nowMs = 0, curB = null, runs = [], blues = [], ariaAt = -1e9, ariaText = '';
+  let expanded = false, drawMs = 0, lastDrop = null, nowMs = 0, curB = null, runs = [], blues = [], ariaAt = -1e9, ariaText = '', flex = [];
   // gapMarks: one 'kind:hatch:glyph' per red, amber and blue run drawn; rooftop, surplus, price: what Phase 2a drew
   const stats = {draws: 0, skips: 0, recomputes: 0, tear: null, gapMarks: [],
     rooftop: {mw: 0, future: false, past: 0, word: false}, surplus: {cols: 0, minPx: 0, word: 0}, price: {text: '', spill: false}};
@@ -402,6 +410,37 @@ export function createLiveStack(doc, root, actions) {
     }
   }
 
+  // Q-57: a band per booked core along the skyline (rows; load below, relief above) with its code; other parts dashed
+  function drawCity(ctx, xs) {
+    const n = proj.n, up = new Float64Array(n), dn = new Float64Array(n);
+    flex = [];
+    for (const b of (vm.obs.levers || {blocks: []}).blocks) for (const p of b.parts) {
+      const kn = p.knots, v = kn[1][1], h = Math.max(SURPLUS_MIN_PX, G.y(0) - G.y(Math.abs(v))), core = p.kind === 'core', A = v > 0 ? dn : up;
+      let f = core;
+      for (let k = 0; k < n; k++) {
+        const t = proj.times[k];
+        if (t <= kn[0][0] || t >= kn[kn.length - 1][0]) continue;
+        flex.push({b, core, part: p.kind, f, x: xs[k], w: xs[k + 1] - xs[k], k, h, y: G.y(proj.p50[k]) + (v > 0 ? A[k] : -A[k] - h), o: v > 0 ? h : 0, lvl: A[k] / SURPLUS_MIN_PX | 0});
+        A[k] += h; f = false;
+      }
+    }
+    ctx.fillStyle = 'rgba(230,237,243,0.6)'; ctx.strokeStyle = 'rgba(13,17,23,0.6)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (const r of flex) if (r.core) {
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+      for (let y = r.y + 1.5; y < r.y + r.h; y += 2) { ctx.moveTo(r.x, y); ctx.lineTo(r.x + r.w, y); }
+    }
+    ctx.stroke();
+    ctx.strokeStyle = UI.ghost; ctx.setLineDash([2, 2]); ctx.beginPath();
+    for (const r of flex) if (!r.core) { ctx.moveTo(r.x, r.y + r.o); ctx.lineTo(r.x + r.w, r.y + r.o); }
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (const r of flex) if (r.f) {
+      const x = r.x + 16 + r.lvl * 30, y = r.o ? r.y + r.h + 7 : r.y - 7;
+      ctx.fillStyle = UI.bg; ctx.fillRect(x - 14, y - 6, 28, 12);
+      ctx.fillStyle = UI.bright; ctx.fillText(r.b.suburb, x, y);
+    }
+  }
+
   function draw() {
     const t0 = globalThis.performance ? performance.now() : Date.now();
     const obs = vm.obs;
@@ -497,6 +536,7 @@ export function createLiveStack(doc, root, actions) {
     }
     // C-11: what will be spilled, by fill, bars, glyph and word
     drawSurplus(ctx, xs);
+    drawCity(ctx, xs);
     // skyline: P50 (L-2)
     ctx.strokeStyle = UI.skyline; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(xs[0], G.y(proj.p50[0]));
@@ -676,10 +716,7 @@ export function createLiveStack(doc, root, actions) {
     return {x: (ev.clientX - r.left) * W / (r.width || W), y: (ev.clientY - r.top) * H / (r.height || H)};
   }
 
-  /**
-   * What is under (x, y): a handle, a ghost, a layer edge, a layer body or a gap; for a hover
-   * (forHover) also a blue surplus column or the rooftop bite, which a press never grabs.
-   */
+  /** What is under (x, y); a hover's priorities: §31.8 render/livestack.js. */
   function hitTest(x, y, forHover) {
     if (!G || !proj) return null;
     const half = HIT_PX / 2;
@@ -689,9 +726,6 @@ export function createLiveStack(doc, root, actions) {
       if (Math.abs(x - gx) <= half) return {kind: 'pending'};
     }
     const ahead = !(x < G.x(vm.obs.s) - 2 || x > G.x1 + 2);
-    // A hover inside a blue column says what will be spilled (C-11), whatever lies under it: the
-    // column stands on the top of the stack, where the top layer's key handles and its edge are.
-    // A press there still takes the handle or the edge (forHover false): blue is never dragged.
     if (forHover && ahead && proj.blue) {
       const kb = colOf(G.t(x));
       if (proj.blue[kb] && y >= surplusTop(kb) && y <= G.y(proj.p50[kb] + proj.exports[kb] + proj.charging[kb])) return {kind: 'surplus', k: kb};
@@ -718,6 +752,7 @@ export function createLiveStack(doc, root, actions) {
       const ya = G.y(gk === 'red' ? proj.p50[k] : proj.p90[k]), yb = G.y(proj.supply[k]);
       if (forHover ? y >= ya - 2 && y <= yb + 2 : y >= ya - 1 && y <= yb - 3) return {kind: 'gap', k, color: gk};
     }
+    if (forHover) for (const r of flex) if (r.k === k && y >= r.y - 1 && y <= r.y + r.h + 1) return {kind: 'flex', b: r.b, part: r.part};
     for (const gh of ghosts) {
       const h = Math.max(HIT_PX, gh.h), cy = gh.y + gh.h / 2;
       if (x >= gh.x - half && x <= G.x1 && Math.abs(y - cy) <= h / 2 && (!edge || Math.abs(y - cy) < ed)) return gh;
@@ -865,7 +900,8 @@ export function createLiveStack(doc, root, actions) {
     if (!h || h.kind === 'empty' || h.kind === 'past') { tip.hidden = true; sendHover(null); return; }
     const obs = vm.obs;
     let text = '';
-    if (h.kind === 'surplus') {
+    if (h.kind === 'flex') { text = blockText(h.b) + (PART[h.part] || ''); sendHover({do: 'hover', target: 'suburb-' + h.b.suburb}); } // the map rings it (L-9)
+    else if (h.kind === 'surplus') {
       // C-11: what the blue means and the two things that save it
       hoverBlue = blues.find(r => h.k >= r.k0 && h.k <= r.k1) || null;
       text = GAP_MARK.blue.word + ' at ' + clockText(proj.times[h.k], false) + '\n' + fmtMW(Math.round(proj.surplusMW[h.k])) + ' MW will be spilled: stop a unit, or charge the battery';
@@ -1034,7 +1070,7 @@ export function createLiveStack(doc, root, actions) {
     debug: {
       get geom() { return G; }, get proj() { return proj; }, get handles() { return handles; }, get ghosts() { return ghosts; },
       get lastDrop() { return lastDrop; }, get pending() { return pending; }, get sel() { return sel; }, get drawMs() { return drawMs; },
-      get message() { return msg.textContent; }, get blues() { return blues; }, stats, hitTest: (x, y, forHover) => hitTest(x, y, forHover),
+      get message() { return msg.textContent; }, get blues() { return blues; }, get flex() { return flex; }, stats, hitTest: (x, y, forHover) => hitTest(x, y, forHover),
     },
   };
 }

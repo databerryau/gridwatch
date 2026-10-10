@@ -256,10 +256,10 @@ test('every press answers: the quiet desk, levers, guards, rotaries, emergency, 
   stackSays(p, () => p.key('1'), /^COAL: ←\/→ time, ↑\/↓ MW, Enter plans it$/, 'stack-keys', '1');
   assert.ok(p.h.mods.stack.debug.sel, 'COAL picked');
   tap(p, 'Escape', () => !p.h.mods.stack.debug.sel, 'stack-keys', {}, 'Esc on the stack (the pick, drawn on the canvas, goes)');
-  // the map: a plant focuses its control; wind, solar, a suburb, the ground answer with a label
+  // the map: a plant focuses its control; a suburb opens its card (Q-56); wind, solar, the ground answer with a label
   act(p, () => mapClick(p, 'ccgt'), /lever-ccgt "[^"]*"=\d+ \[[^\]]*focus/, 'map-click', 'a click on RIVERTON CCGT');
-  for (const [id, re] of [['wind', /the wind sets it, not the desk/], ['solar', /the sun sets it, not the desk/], ['sub:RED', /REDGUM FLATS draws [\d,]+ MW/],
-    ['ground', /Click a plant for its control, a suburb for its load/]]) {
+  act(p, () => mapClick(p, 'sub:RED'), () => p.game.ui.suburb === 'RED', 'map-click', 'a click on sub:RED (its card)'); p.key('h'); // (H closes it: Esc below is the map's)
+  for (const [id, re] of [['wind', /the wind sets it, not the desk/], ['solar', /the sun sets it, not the desk/], ['ground', /Click a plant for its control, a suburb for its card/]]) {
     act(p, () => mapClick(p, id), () => re.test(mapLabel(p)), 'map-click', 'a click on ' + id);
   }
   const citymap = p.h.mods.map.el;
@@ -374,7 +374,7 @@ test('every press answers: the shortage (15:40 SHORT: DIRECT SHED, RESTORE, a da
   assert.ok(row, 'a dark district on the RESTORE list');
   click(p, row, null, 'restore-close', 'CLOSE ' + row.id);
   const dark = p.vm().obs.districts.find(d => d.dark);
-  if (dark) act(p, () => mapClick(p, 'sub:' + dark.suburb), () => p.game.ui.focus === 'bay-restore', 'map-click', 'a click on a dark suburb');
+  if (dark) act(p, () => mapClick(p, 'sub:' + dark.suburb), () => p.game.ui.focus === 'bay-restore' && p.game.ui.suburb === dark.suburb, 'map-click', 'a click on a dark suburb (RESTORE, and its card)');
   assert.deepEqual(p.h.mods.errors, []);
 });
 
