@@ -4,7 +4,7 @@
 // Cards come from the sim's records: news (`announce`: the weather bureau), station notices
 // (trips, each START / STOP / CANCEL / ABORT, a unit at full speed, lockout releases, water), market notices (the security level
 // going SHORT or SHEDDING, reserve diesel, DR, and from Phase 2a the minimum-system-load levels,
-// P-4 / desk/README.md C-9) and the city desk (UFLS, directed shedding, restores). Each card: a sender, a grid time, <= 25 words and ONE button that only focuses a
+// P-4 / desk/README.md C-9) and the city desk (UFLS, directed shedding, restores, a suburb's air-con locking; its bookings and patience: LOG only). Each card: a sender, a grid time, <= 25 words and ONE button that only focuses a
 // control (and lights it, L-9); it never dispatches (K-9). At most 3 cards are visible; older
 // ones (information first) and cards older than CARD_TTL_S go to the LOG drawer. Warning cards ring twice (the
 // audio cue 'ring2') and never repeat: a warning's key (what it is about) is shown once a day.
@@ -50,20 +50,23 @@ const clockOf = r => r.msg.replace(/ in (\d+) min\b/, (x, n) => ' at ' + hhmm(Ma
  * An MSL notice (P-4; desk/README.md C-9, §21.4) as a MARKET NOTICE card. It says the lowest demand
  * the forecast sees and its time (or that demand is at its lowest now), and the one thing this
  * desk can do at that level; never "below X" (a level held by its hysteresis can sit above its
- * threshold), and never the soak or the backstop (not on this desk yet). MSL1 is information; MSL2
+ * threshold), and never the backstop (not on this desk yet). MSL1 is information; MSL2
  * and MSL3 ring. Its button only focuses a control, like every card's. The card is made from the
  * record alone, so it says nothing that depends on the desk's state at that moment (whether a gas
  * unit is running, whether the battery is already charging): the objective line says that.
+ * Q-60 (§31.9.7): an MSL1 or MSL2 minimum in the soak window, while a soak can still start, names the soak; SUBURBS opens the card.
  */
 function mslCard(r) {
   const key = 'msl:' + r.code + ':' + r.tick;
   const nowS = Math.floor(r.tick / TPS), now = r.atS <= nowS;
   const low = now ? 'Demand is at its lowest now, ' + mwc(r.minMW) + ' MW.' : 'Lowest demand ' + mwc(r.minMW) + ' MW at ' + hhmm(r.atS) + '.';
-  const stack = {label: 'SEE THE STACK', target: 'stack'};
+  const stack = {label: 'SEE THE STACK', target: 'stack'}, sub = {label: 'SUBURBS', target: 'suburb-card'};
+  const soak = r.atS >= V.SOAK_FROM_S && r.atS <= V.SOAK_TO_S && nowS <= V.SOAK_TO_S - V.SOAK_S;
   switch (r.level) {
-    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (now ? ' Charge the battery if it has room.' : ' Power spilled then can go into the battery: charge it on the spill.'),
-      button: {label: 'TO THE BATTERY', target: 'dial-battery'}};
-    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Make room: charge the battery, and stop a gas unit if one is running.', button: stack};
+    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (soak ? ' A hot-water soak takes the spill: book one, and charge the battery ' + (now ? 'if it has room.' : 'on it.')
+      : now ? ' Charge the battery if it has room.' : ' Power spilled then can go into the battery: charge it on the spill.'), button: soak ? sub : {label: 'TO THE BATTERY', target: 'dial-battery'}};
+    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + (soak ? ' Make room: book a hot-water soak, charge the battery, and stop a running gas unit.'
+      : ' Make room: charge the battery, and stop a gas unit if one is running.'), button: soak ? sub : stack};
     case 3: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Units at minimum make more than the city uses: stop one, or frequency climbs until rooftop solar cuts back.', button: stack};
     default: return {key, from: SENDERS.market, sev: 'info', text: 'Low-demand notice cancelled: ' + (now ? 'demand is ' + mwc(r.minMW) + ' MW now, and the forecast does not go lower.'
       : 'the lowest demand forecast is now ' + mwc(r.minMW) + ' MW, at ' + hhmm(r.atS) + '.'), button: stack};
@@ -71,8 +74,8 @@ function mslCard(r) {
 }
 
 /**
- * The card a record makes, or null. Pure (tests call it).
- * @returns {{key:string, from:string, sev:'info'|'warn', text:string, button:{label:string, target:string}}|null}
+ * The card a record makes, or null. Pure (tests call it). {log: true, from, text}: a LOG line only, no card.
+ * @returns {{key:string, from:string, sev:'info'|'warn', text:string, button:{label:string, target:string}}|{log:true, from:string, text:string}|null}
  */
 export function cardOf(r) {
   switch (r.kind) {
@@ -114,6 +117,10 @@ export function cardOf(r) {
         case 'RERT_ARMED': case 'RERT_ONLINE': return {key: 'rert:' + r.code + ':' + r.tick, from: SENDERS.market, sev: 'info', text: r.msg,
           button: {label: 'TO THE KEY', target: 'key-rert'}};
         case 'DR_CALL': return {key: 'dr:' + r.tick, from: SENDERS.market, sev: 'info', text: r.msg, button: {label: 'TO DR', target: 'btn-dr'}};
+        // Q-60: bookings, cancels and patience go to the LOG only; a suburb locking is a card
+        case 'FLEX_BOOK': case 'FLEX_DEL': case 'PATIENCE': return {log: true, from: SENDERS.city, text: r.msg};
+        case 'PATIENCE_LOCK': return {key: 'lock:' + r.suburb + ':' + r.tick, from: SENDERS.city, sev: 'info', text: r.msg + ' A cancel refunds a cycle\'s patience.',
+          button: {label: 'TO THE SUBURB', target: 'suburb-' + r.suburb}};
         case 'MSL1': case 'MSL2': case 'MSL3': case 'MSL_CLEAR': return mslCard(r);
         case 'DIRECTED_SHED': return {key: 'dshed:' + r.tick, from: SENDERS.city, sev: 'warn', text: r.msg,
           button: {label: 'TO THE GAUGE', target: 'gauge-n1'}};
@@ -144,6 +151,7 @@ export function trayRecords(tr, recs) {
   for (const r of recs) {
     const c = cardOf(r);
     if (!c) continue;
+    if (c.log) { toLog(tr, {from: c.from, atS: Math.floor(r.tick / TPS), text: c.text, sev: 'info'}); continue; }
     if (c.key) { if (tr.seen[c.key]) continue; tr.seen[c.key] = true; } // never repeats
     const card = {id: 'card' + tr.nextId++, from: c.from, atS: Math.floor(r.tick / TPS), text: words(c.text), button: c.button, sev: c.sev};
     tr.cards.push(card);

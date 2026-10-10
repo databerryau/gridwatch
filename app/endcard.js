@@ -13,9 +13,9 @@ import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/
 /** The reliability readouts' §8.2 row (content/text.js, a drawer entry): the card's "?" opens it. */
 export const RELIABILITY_ROW = 'SAIDI, SAIFI and MAIFI count the shedding you cause, per household, in grid-minutes';
 
-// An ALL-IN's parts as the card names them, and why a gap to par opens on each (d: the gap in $).
+// An ALL-IN's parts as the card names them, and why a gap to par opens on each (d: the gap in $; city: either day paid cost.flex, §31.9.11).
 const PARTS = [
-  ['SUPPLY', 'supply', () => 'more or dearer plant than par\'s'],
+  ['SUPPLY', 'supply', (d, city) => 'more or dearer plant' + (city ? ', or city payments,' : '') + ' than par\'s'],
   ['OUTAGES', 'outage', d => mw(d / V.VCR, 1) + ' MWh dark at ' + VCR_TEXT + ' each'],
   ['CARBON', 'carbon', () => 'a dirtier mix than par\'s'],
 ];
@@ -126,7 +126,8 @@ export function createEndCard(doc, root, actions, deps) {
     if (both) {
       let gap = null;
       for (const [name, k, why] of PARTS) { const d = you[k] - p[k]; if (d >= 0.5 && (!gap || d > gap.d)) gap = {name, d, why}; }
-      line(body, gap ? 'Biggest gap to par: ' + gap.name + ' ' + signed(gap.d) + ' (' + gap.why(gap.d) + ')' : 'You beat par on all three.');
+      const paid = sc => !!(sc && sc.cost && sc.cost.flex > 0), pr = deps.par();
+      line(body, gap ? 'Biggest gap to par: ' + gap.name + ' ' + signed(gap.d) + ' (' + gap.why(gap.d, paid(e.score) || paid(pr && pr.score)) + ')' : 'You beat par on all three.');
     }
     line(body, 'Score = 1000 × par\'s ALL-IN ÷ yours. Par is GRIDWATCH\'s own autopilot on this same day.');
     // (yours to the moment the grid went black, on a black day)

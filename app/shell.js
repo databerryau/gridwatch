@@ -48,7 +48,7 @@ const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CA
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
 // Q-46 (§30.3.6): the alarm panel's own keys inside it; the keys that never close it (F: refused, FAST_WAIT).
-const SUB = /^suburb-/, CARD_OWN = /^(Arrow\w+|Page\w+|Home|End|Enter|Tab|[sxp])$/i, PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaAfFhH?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
+const SUB = /^suburb-/, CARD_OWN = /^(Arrow\w+|Page\w+|Home|End|Enter|Tab|[sxp=-])$/i, PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaAfFhH?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
 /** The CRT switch's title and answer while REDUCED EFFECTS is on (it is greyed). */
 export const CRT_OFF = 'CRT is off while REDUCED EFFECTS is on';
 
@@ -500,15 +500,16 @@ export function bootGame(doc, deps) {
     const box = $('suburb-card'), on = !!v.suburb && !v.mode.locked;
     if (!box) return;
     if (box.hidden === on) box.hidden = !on;
-    if (!on) { if (box.contains(doc.activeElement)) doc.activeElement.blur(); return; }
+    if (!on) { if (box.contains(doc.activeElement)) doc.activeElement.blur(); if (box.contains(popAnchor)) closePopover(); }
+    if (!v.suburb) return; // (kept up to date while the watch hides it: its pre-checks read the latest vm)
     if (!cardState) {
       cardState = 'loading';
       box.textContent = 'Loading…';
-      lazy(o.suburbCard, () => import('./suburbcard.js'), m => { box.replaceChildren(); card = m.createSuburbCard(doc, box, actions, {toast: showToast, loadText, toggleHelp}); },
+      lazy(o.suburbCard, () => import('./suburbcard.js'), m => { box.replaceChildren(); card = m.createSuburbCard(doc, box, actions, {toast: showToast, loadText, toggleHelp, now}); },
         e => { box.textContent = 'The suburb card could not be loaded. Esc or H closes it.'; err('suburb card', e); });
     }
     if (!card) return;
-    try { card.update(v); if (cardTake) { cardTake = false; card.focus(); } } catch (e) { err('suburb card', e); }
+    try { card.update(v, game.state); if (cardTake && on) { cardTake = false; card.focus(); } } catch (e) { err('suburb card', e); }
   }
   function cardBack() {
     const n = cardFrom, a = doc.activeElement;
@@ -782,7 +783,7 @@ export function bootGame(doc, deps) {
   }, now, {
     // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
-      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key)),
+      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
     first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
     chain: () => [mods.desk, mods.stack, mods.map],

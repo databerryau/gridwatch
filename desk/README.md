@@ -2859,6 +2859,78 @@ extremes between two updates come from sampleTick() (called after every tick): a
 120x spans ~100 ticks, and a dip below 49.85 Hz inside it must still set UNDER FREQ.
 ```
 
+#### app/suburbcard.js
+
+(2b, the card agent; written here, not in the file, Q-49.)
+
+```text
+app/suburbcard.js: a suburb's card (SPEC §9.1 Q-56; §31.6 card, §31.9.3-§31.9.7). On demand (Q-44,
+cap 6 KB in tests/budget.test.js); its CSS is injected once (#sc-css). Presentation and two sim
+inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch and the focus.
+
+  const card = createSuburbCard(doc, root, actions, {toast, loadText, toggleHelp, now});
+  card.update(vm, day)  every frame while vm.suburb is set, also while the watch hides it (its pre-checks
+                    read the latest vm); day is the attempt (the shell passes game.state): a new one
+                    (PLAY THIS DAY AGAIN) forgets the player's aims and the rests; builds its rows when
+                    the suburb, the offer, a dark district or the blocks change, keeps a focused row's
+                    focus across a rebuild and closes a popover its old "?" held (Q-47; the shell
+                    closes it when the card hides); a block's booked / under way / done each frame;
+                    the aim, its words and the verdict only when the line (fromS, n), lv.rev, the LV,
+                    the player's aim, patience or the last block's del change; names the dialog
+                    (aria-label) by its suburb
+  card.focus()      the first row's press (RESTORE, else the first CANCEL or BOOK), else ✕
+  verdict(fc, lv, id, atS, effMW) -> '✓ …' | '✕ …' | ''   §31.9.4, pure (tests)
+  WIT, LEVERS, PEAK_BAND_MW   the U-1 lines, each lever's name and "?" row, the band (100 MW)
+
+What it shows, top down (1280×600 gives it 194 px; a HOT day with both levers fits; two booked
+cycles and a soak scroll, the last resort):
+  NAME · 420k homes · ✕ (btn-suburb-close)
+  n DARK: [RESTORE] (city-<ID>-restore: focus bay-restore; the card stays)   only with dark districts
+  “U-1's dry wit”
+  patience 40: 90% respond (all respond from 50; air-con locked under 25) · draws <lit MW> · roofs <MW>
+  per offered lever (obs.levers.offered; on a MILD day "AIR-CON CYCLE: hot days only (…)"):
+    each booked block: SOAK 10:30–14:30 booked|under way|done: tonight's heating −525 MWh   [CANCEL]
+                       AIR-CON 18:45–20:15 booked: pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience −10 [CANCEL]
+      (CANCEL city-<ID>-<lever>-cancel-HHMM; dimmed, aria-disabled, once its del is not '': under
+      way from the soak's first MW or the cycle's pre-cool, so the row names the pre-cool; done
+      after the soak's end or the cycle's snapback)
+    the aim: HOT WATER SOAK +140 MW [◀] 10:30–14:30 [▶] [BOOK] [?]   (BOOK = city-<ID>-<lever>,
+      ◀ ▶ = -earlier / -later, ? = q-<lever>: deps.toggleHelp(q, [LEVERS[lever].row]))
+    what it does: takes 525 MWh at noon; tonight's heating −525 MWh · no payment
+                  pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience 60 → 50
+      or, when LV.block is not '', that reason in blue (◀ ▶ hidden, BOOK dimmed)
+    air-con: the verdict of the aim, or of the suburb's last booked cycle when it cannot book and
+      that cycle can still be cancelled (none once it starts: the day-ahead then has only the
+      columns after now, and its "peak" would creep past the real one)
+
+The aim: the player's (◀ ▶, - =: 15-min steps) kept inside [fromS, toS], else aimFlex over
+vm.dayAhead || obs.forecast (fromS while it says -1). BOOK forgets it; CANCEL leaves the
+cancelled block's time as the aim to re-aim from. A booked block is never moved in place.
+Energies and times come from sim/weather.js flexParts (the sim's own shapes); the payment is
+the core's MWh × AIRCON_PRICE (lit districts; dark ones are not paid).
+
+A press (BOOK, CANCEL, ◀ ▶): the row's rest first (COMMIT_LOCK_MS after an accepted BOOK or
+CANCEL: "booked: OLD HAZELTON soak 10:30–14:30"); then ◀ ▶ step (blue "earliest 10:00" /
+"latest 11:00" at the ends; on a booked soak or a focused block "booked for HH:MM: CANCEL, then
+BOOK the new time", or that block's del once it is under way); BOOK and CANCEL answer in blue
+and send nothing in the briefing ("Take the desk first: Enter."), after the day ("Day over:
+…"), in the watch ("desk locked while the grid catches itself"), on LV.block ("<Suburb>:
+air-con locked: patience below 25", "… too late: it would start in the past", "… one soak a
+day: already booked") and on a block under way (its del). A refusal from the sim stays the
+shell's red toast. "Outside the window" is LV.block's: the card never holds an aim outside
+[fromS, toS]. A suburb with dark districts shows its "n DARK: RESTORE" line first and still
+books (Q-50: a dark district's flex just stops; eligibility only through LV.block, §31.3.7),
+so §31.6's "a dark suburb's RESTORE first" is that line, not a blue refusal.
+
+Keys (the card's root; CARD_OWN in app/shell.js keeps them from the desk, the stack, the map
+and the fallback): ←/→ the previous / next suburb in city order (wrapping; the new card takes
+the focus), ↑/↓ the row presses (RESTORE, CANCEL, BOOK), - and = the time of the focused row's
+lever, Enter presses the focused button (preventDefault; never on ev.repeat), except in the
+briefing, where it goes on to the shell and takes the desk (app/shell.js own lets it through),
+as BOOK's blue answer says. Esc and H stay the shell's (closeTop's order; H toggles); Tab is
+the browser's.
+```
+
 ### 31.9 After the contract review (workflow `wf_3f02ecb7-0c6`; these override §31.1–§31.7 where they differ)
 
 Four lenses (seams, physics, the player, buildability) found 70 issues; a skeptic refuted 7 and

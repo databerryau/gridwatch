@@ -69,8 +69,14 @@ is no slow test tier (SPEC Q-40). `--help` lists the flags.
 ```
 node tools/play.mjs 20261007 to=15:40 until=trip look real=5 diff key=Enter to=+30m diff
 node tools/play.mjs 20261007 timeline=04:30-04:00/30m     # the whole day, every 30 min and every event (~8 s)
+node tools/play.mjs 20261007 suburb=RED look press=city-RED-aircon press=city-RED-soak   # book ahead on a suburb's card at 04:30
 node tools/play.mjs --help
 ```
+
+`suburb=ID` opens a suburb's card as a map click does (`suburb(id)` in the library); `look`
+shows it as a `SUBURB` line and its presses as CTRL lines: `city-<ID>-soak` and
+`city-<ID>-aircon` (BOOK), `-earlier` / `-later` (◀ ▶), `-cancel-HHMM` (CANCEL a block),
+`city-<ID>-restore`. Book ahead at 04:30 rather than jumping to the window (desk/README §31.9.12).
 
 `tools/play.mjs` is the command line of `tests/lib/play.js` (`openGame()`): next.html booted with
 every real module in the stand-in DOM, driven by jumps (`to`, `until`) that play the page's

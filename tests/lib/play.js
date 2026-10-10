@@ -274,6 +274,8 @@ export function openGame(o = {}) {
   }
   /** A sim input straight through the page's actions (bypasses the desk; refusals toast). */
   function send(x) { const r = h.actions.input(x); frame(); return r; }
+  /** Q-56: open a suburb's card as a map click does ({do: 'suburb', id}; null closes it); then one frame. Returns the answer. */
+  function suburb(id) { const r = h.actions.ui({do: 'suburb', id}); frame(); return r; }
 
   // ---------------------------------------------------------------- sampled presses (SPEC Q-40)
   // The owner's rule for headless play: a frame before a press, the press frame, a frame after.
@@ -448,7 +450,7 @@ export function openGame(o = {}) {
   // ---------------------------------------------------------------- reading
   /**
    * What the player sees, one line per thing: CLOCK (and mode, chips), BRIEFING, ALARMS (the panel: its tile and what it means), LINE (the objective),
-   * WATCH, CARD, END, TOAST (blue or RED), BALANCE, DIAL, N-1, NOTE (desk notes, blue or RED), TRAY (the cards), then CTRL lines:
+   * WATCH, CARD, END, SUBURB (the suburb card), TOAST (blue or RED), BALANCE, DIAL, N-1, NOTE (desk notes, blue or RED), TRAY (the cards), then CTRL lines:
    * every visible control as id "label"=value [disabled,pressed,on,selected,ARMED,open,focus].
    * opts.controls: false leaves the CTRL lines out; opts.aria: true adds the screen-reader live region.
    */
@@ -470,6 +472,8 @@ export function openGame(o = {}) {
     if (!hid('watch-vignette')) L.push('WATCH ' + tx('stopwatch') + ' | ' + tx('beat-caption') + ' | ' + tx('beat-steps'));
     if (!hid('respond-card')) L.push('CARD ' + tx('respond-card'));
     if (!hid('end-card')) L.push('END ' + textOf($('end-card'), e => e.tagName === 'BUTTON'));
+    // Q-56: the suburb card's text (its presses are CTRL lines: city-<ID>-soak, -aircon, -earlier, -later, -cancel-HHMM, -restore)
+    if (!hid('suburb-card')) L.push('SUBURB ' + textOf($('suburb-card'), e => e.tagName === 'BUTTON'));
     // (the colour, as for NOTE: a plain toast is a red refusal, .info a blue answer, Q-41)
     if (!hid('toast')) L.push('TOAST ' + ($('toast').classList.contains('info') ? 'blue ' : 'RED ') + tx('toast'));
     if (!hid('settings')) L.push('SETTINGS open');
@@ -549,7 +553,7 @@ export function openGame(o = {}) {
     doc, h, game, $,
     get now() { return t; },
     frame, frames, real, to, until, look, lookDiff, buttons, timeline,
-    click, hover, key, keyDown, keyUp, hold, pointer, send, press, pressKey,
+    click, hover, key, keyDown, keyUp, hold, pointer, send, suburb, press, pressKey,
     vm: () => h.vm(),
     clock: () => clockOfS(game.state.tick / TPS),
     mode: modeNow,
