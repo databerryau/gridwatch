@@ -3093,7 +3093,8 @@ per lever row (`button.q.inline`, `aria-controls="popover"`, `deps.toggleHelp(q,
 its `btn-dr` anchor.
 
 **31.9.7 The tray (F12, B3).** The MSL1 and MSL2 cards keep one button (K-9). When the record's
-`atS` lies in the soak window and its tick is no later than the last soak start
+`atS` lies in the soak window, after its tick (a low ahead, not now: par's rule 1 and the line's
+trigger (a) ask the same; 2b final review S2), and its tick is no later than the last soak start
 (`SOAK_TO_S − SOAK_S`), the text names the hot-water soak and the button becomes SUBURBS with
 target `suburb-card`, replacing TO THE BATTERY / SEE THE STACK (MSL1 keeps its battery advice in
 words). Otherwise the cards stay as today. Both checks use the record and params only.
