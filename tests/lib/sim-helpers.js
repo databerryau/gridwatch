@@ -20,6 +20,12 @@ const legacy = (scn, id) => ({...scn, id, dayplan: null, night: false,
 export const legacyDesk = () => legacy(DESK, 'desk-legacy');
 export const legacyDeskWeekend = () => legacy(DESK_WEEKEND, 'desk-weekend-legacy');
 
+// The game's day without the Act I restore task (Q-68: dayplan.act1.task.p 0, the task's own
+// slot, so no other draw moves): for tests whose subject is not the task but whose fixture
+// assumes every district lit at dawn. The rest of the plan is the live one.
+export const withoutTask = scn => ({...scn, id: scn.id + '-notask',
+  dayplan: {...scn.dayplan, act1: {...scn.dayplan.act1, task: {...scn.dayplan.act1.task, p: 0}}}});
+
 // F-10 wants the whole `node --test` run under 60 s, and there is no slow tier (SPEC Q-40):
 // multi-seed statistics that need many whole days (S-12 over 200 seeds, H-8 over 1,000 states,
 // F-2 over 100 days) are measured on demand with tools/par.js and tools/baseline-v4.js; the

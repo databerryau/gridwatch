@@ -238,7 +238,7 @@ export const DESK = Object.assign({}, CLASSIC, {
     act1: {
       derateP: 0.5, derate: {limitMW: [400, 550], untilH: [10, 12]},
       late: {unit: 'ccgt2', untilH: [6.5, 8]},
-      task: {p: 0, clearH: [6.5, 8], gapMin: 15}, // staged: Q-68's 0.85 at the wave-1 merge
+      task: {p: 0.85, clearH: [6.5, 8], gapMin: 15}, // Q-68
     },
     act2: {
       windowH: [9, 14.5],
