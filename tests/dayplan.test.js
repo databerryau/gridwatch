@@ -156,6 +156,9 @@ test('Act I (Q-68): one constraint every date, its unit off at 04:00; the task o
   assert.ok(Math.abs(task - 0.85) <= 0.02, 'task ' + pct(task));
   assert.ok(Math.abs(derate - 0.5) <= 0.03, 'derate ' + pct(derate));
   assert.ok(DATES.some(d => d.scn.id === 'desk-weekend' && of(d, 'unitOutage').some(e => e.args.unit === 'coal4')), 'the weekend\'s late return is coal 4');
+  // The late return is picked last, so the weekend's day is the weekday's but for it (its weather, trips and task)
+  const rest = evs => evs.filter(e => !['unitOutage', 'unitReturn'].includes(e.type)).map(({id, ...e}) => e);
+  for (const d of SEEDS.slice(0, 300)) assert.deepEqual(rest(day(d.seed, SCN['desk-weekend']).evs), rest(d.evs), 'seed ' + d.seed);
   t.diagnostic('task ' + pct(task) + ', tie derate ' + pct(derate) + ' (late return the rest)');
 });
 
