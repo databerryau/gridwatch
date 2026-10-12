@@ -414,9 +414,8 @@ function reliabilitySecond(state, sc, t, secs) {
   }
 }
 
-/** The one clean day (Q-69: D-9 gate 2, S-7, every tool): not black, no UFLS or directed shedding. */
+// Q-69: the one clean day, and S-6's PERFECT
 export const isClean = (score, black) => !black && score.uflsMWh + score.directedMWh === 0;
-/** S-6 PERFECT (Q-69): clean, and every handed-back feeder closed within the pace. */
 export const isPerfect = (score, black) => isClean(score, black) && score.taskLateMWh === 0;
 
 /**

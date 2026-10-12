@@ -1126,16 +1126,14 @@ export function securitySecond(state, out) {
     log(state, out, SEV[r.level], 'SECURITY', 'SECURITY ' + r.level + ': spare in 5 min ' + Math.round(r.r5MW) + ' MW, biggest risk ' +
       (r.lKind === 'none' ? 'none' : r.lId + ' ' + Math.round(r.riskMW) + ' MW') + ', trip preview ' + r.previewNadirHz.toFixed(2) + ' Hz.');
   }
-  // Q-74 COVER: a contingency is secured at the first tick past its watch with R5 >= L and no UFLS or directed district dark (latched).
-  const cs = state.conts;
+  const cs = state.conts; // Q-74 COVER (sim/README.md §5 conts[])
   for (let n = 0; n < cs.length; n++) {
     const c = cs[n];
     if (c.securedTick < 0 && state.tick >= c.watchEndTick && sec.r5MW >= sec.lMW && !shedOwn(state.city.districts)) c.securedTick = state.tick;
   }
 }
 
-// A district dark for UFLS or directed shedding (the operator's; a task district is the network's or the restore's).
-function shedOwn(ds) {
+function shedOwn(ds) { // a UFLS or directed district dark
   for (let d = 0; d < ds.length; d++) if (ds[d].dark && (ds[d].shedBy === 'ufls' || ds[d].shedBy === 'directed')) return true;
   return false;
 }

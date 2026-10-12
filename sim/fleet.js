@@ -55,7 +55,7 @@ export function buildUnits(scn) {
       // to a reverse-power trip after a slow close (0 none); kickMW until kickEndTick: a rough
       // close's one-second MW swing.
       slipHz: 0, slipToHz: 0, slipAtTick: 0, phaseAtDeg: 0, autoTick: -1, revTripS: 0, kickMW: 0, kickEndTick: 0,
-      outUntilS: -1, // 2c (Q-68): on outage (a late return from maintenance) until this second; -1 none
+      outUntilS: -1, // Q-68
     };
   });
 }
@@ -88,7 +88,7 @@ export function buildCity(scn) {
         uflsStage: stage + 1, rot: c.rotation.indexOf(id),
         dark: false, shedBy: null, darkSinceS: -1, restoredAtS: -1, surgeMW: 0,
         sub: k, roofFrac: 1 / sub.districts, reconnectS: -1,
-        clearS: -1, // 2c (Q-69): a task district's hand-back second
+        clearS: -1, // Q-69
       });
     }
   }
@@ -254,7 +254,7 @@ export function startContingency(state, cause, id, lostMW, ekBeforeMWs, out) {
     caught: {inertiaMW: 0, batteryMW: 0, guardMW: 0, governorsMW: 0, loadReliefMW: 0, uflsMW: 0, inverterMW: 0},
     uflsStages: 0, contained: true, backInBandTick: -1,
     watchEndTick: tick + V.WATCH_S * TPS, secureByTick: tick + V.SECURE_AGAIN_S * TPS,
-    securedTick: -1, // Q-74 COVER: grid.securitySecond latches it
+    securedTick: -1, // Q-74
   };
   state.conts.push(rec);
   state.contIdx = state.conts.length - 1;
@@ -341,7 +341,7 @@ export function setDistrictDark(state, d, dark, why) {
   return dist.share;
 }
 
-/** city.heldFrac: the share of task districts dark and still the network's (clearS > now; Q-69). Idempotent. */
+/** city.heldFrac (Q-69); idempotent. */
 export function refreshHeld(state) {
   const s = gridSecond(state);
   let f = 0;
@@ -349,14 +349,14 @@ export function refreshHeld(state) {
   state.city.heldFrac = f;
 }
 
-/** The tie's import limit (a network outage, Q-68): mw until untilS (-1 none). */
+/** Q-68: the tie's import limit until untilS (-1 none). */
 export function setTieLimit(state, mw, untilS) {
   state.tie.limitMW = mw;
   state.tie.limitUntilS = untilS;
   state.sec.dirty = true;
 }
 
-/** Unit k on outage until untilS (-1: available again); only an off unit goes on outage. */
+/** Q-68: unit k (off) on outage until untilS (-1 none). */
 export function setOutage(state, k, untilS) {
   const u = state.units[k];
   if (untilS >= 0 && u.mode !== 'off') throw new Error('setOutage: ' + u.id + ' is ' + u.mode);

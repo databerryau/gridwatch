@@ -26,8 +26,7 @@ const ROOF_SHAPE_PM = [[6.2, 0], [6.25, 1], [6.5, 18], [6.75, 45], [7, 79], [7.2
   [18.75, 118], [19, 79], [19.25, 45], [19.5, 18], [19.75, 1], [19.8, 0]];
 const roofShape = () => ROOF_SHAPE_PM.map(p => p.slice());
 
-// U-1 suburbs; districts are ~3% of demand each (K-13), sized by households. frontLagMin (2c, Q-79):
-// a front's lag over each suburb, west to east as the map draws them (about 50 km/h).
+// U-1 suburbs; districts are ~3% of demand each (K-13), sized by households. frontLagMin: Q-79.
 const SUBURBS = [
   {id: 'SOL', name: 'Solstice Rise', households: 280000, districts: 5, frontLagMin: 0},
   {id: 'HAZ', name: 'Old Hazelton', households: 300000, districts: 5, frontLagMin: 5},
@@ -192,8 +191,8 @@ export const CLASSIC = {
   },
 
   levers: null, // U-2: no city levers on the classic day
-  dayplan: null, // 2c (Q-65): the legacy menu above, untouched (Q-83)
-  night: false, // 2c (Q-73): today's night, no night shift
+  dayplan: null, // Q-65: the legacy menu above
+  night: false, // Q-73
 };
 
 // Deep-frozen: a test or tool that edits a scenario in place would leak into every later
@@ -231,20 +230,19 @@ export const DESK = Object.assign({}, CLASSIC, {
     shapePm: roofShape(),
     cloud: {stepS: 300, startFrac: 0.95, mu: 0.95, min: 0.15, max: 1,
       regional: {revertPerStep: 0.08, sigmaPerStep: 0.02}, local: {revertPerStep: 0.2222, sigmaPerStep: 0.02}},
-    precinctLagMin: 50, // 2c (Q-79): a front reaches the solar precinct (east of SAL) this long after its onset
+    precinctLagMin: 50, // Q-79: the solar precinct, east of SAL
   },
   weather: {
-    src: 'S-10 heat share as the classic day (params HEAT_SHARE); storm and drought desk\'s own (desk/README.md §32.1 Q-66: 25 and 20% of all days; the storm stays at params STORM_SHARE until the plan is live, wave 1). mildShare: SPEC J-13 / P-3 day types, heat 15 / hot 30 / mild 55 (a starting value; desk/README.md C-2: drawn among the days that are not heatwaves)',
+    src: 'S-10 heat and storm shares as the classic day (params HEAT_SHARE, STORM_SHARE; desk/README.md Q-66: storm 0.25 from wave 1), drought Q-66. mildShare: SPEC J-13 / P-3 day types, heat 15 / hot 30 / mild 55 (a starting value; desk/README.md C-2: drawn among the days that are not heatwaves)',
     heatShare: P.HEAT_SHARE.value,
     stormShare: P.STORM_SHARE.value,
     droughtShare: 0.20,
     mildShare: 0.55,
   },
-  night: true, // 2c (Q-73): the night shift takes the desk at 21:00 (inert until wave 1)
-  // 2c (desk/README.md §32.4.3): the day's designed plan, read by sim/dayplan.js (neutral until wave 1).
-  dayplan: {
+  night: true, // Q-73 (from wave 1)
+  dayplan: { // desk/README.md §32.4.3, read by sim/dayplan.js
     simplified: true,
-    note: 'Game tuning, not climatology data (desk/README.md §32.1 Q-65-Q-68, Q-79): each act\'s shares, windows (hours of day) and sizes (minutes after their anchor, MW, clearness). On a dayplan day this block is the one climatology: the plan\'s records, the forecast and the texts read it, never events. Stage C\'s one tuning round may move values, never shapes.',
+    note: 'Game tuning (desk/README.md Q-65-Q-68, Q-79): shares, windows (h) and sizes; the one climatology on this day.',
     act1: {
       derateP: 0.5, derate: {limitMW: [400, 550], untilH: [10, 12]},
       late: {unit: 'ccgt2', untilH: [6.5, 8]},
@@ -302,7 +300,7 @@ export const DESK_WEEKEND = Object.assign({}, DESK, {
     src: 'The DESK 04:00 commitment with coal 4 off since Friday night and both CCGTs on (desk/README.md C-14: three coal at 540 MW, CCGT 1 at 480 MW, CCGT 2 at 300 MW, hydro balancing at about 67-126 MW a machine, seeds 1-200): simplified. With one CCGT the hot weekend opened 170 MW under the capacity margin, leaning on 270 MW a machine of hydro from 04:00.',
     units: {coal1: 540, coal2: 540, coal3: 540, ccgt1: 480, ccgt2: 300, hydro1: 140, hydro2: 140},
   }),
-  // 2c (Q-68): the late return is coal 4's (off since Friday night), back 10:00-13:00
+  // Q-68: the late return is coal 4's
   dayplan: {...DESK.dayplan, act1: {...DESK.dayplan.act1, late: {unit: 'coal4', untilH: [10, 13]}}},
 });
 

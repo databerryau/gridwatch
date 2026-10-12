@@ -51,7 +51,7 @@ function scenarioData(x) {
 
 function freshScore() {
   return {servedMWh: 0, unservedMWh: 0, uflsMWh: 0, directedMWh: 0, taskMWh: 0,
-    heldMWh: 0, taskLateMWh: 0, // 2c (Q-69): the network's part of a task feeder (never priced); MWh past the restore pace
+    heldMWh: 0, taskLateMWh: 0, // Q-69
     cost: {fuel: 0, noLoad: 0, starts: 0, tie: 0, battWear: 0, dr: 0, rert: 0, flex: 0},
     co2t: 0, genMWh: 0, marketBill: 0, minHz: F0, maxHz: F0, outsideNormalS: 0, spark: zeros(V.SPARK_BLOCKS), starts: 0,
     spillMWh: 0, // Phase 2a (desk/README.md §19.2): wind and solar energy held back or backed off; counted, never charged for
@@ -73,9 +73,9 @@ function balanceOpening(state) {
     if (u.station === 'hydro') hyd.push(u); else other += u.outMW;
   }
   if (!hyd.length) return;
-  const m = V.MACHINES[hyd[0].k], lit = fleet.litDemandMW(state); // lit demand (Q-81): task districts may be dark at 04:00
+  const m = V.MACHINES[hyd[0].k], lit = fleet.litDemandMW(state); // Q-81
   let each = (lit - other) / hyd.length;
-  if (each < m.minMW) { // what hydro cannot take comes off the online coal machines evenly, each at or above its MIN
+  if (each < m.minMW) { // the rest off the coal machines, evenly, each >= MIN
     const coal = state.units.filter(u => u.sync && u.station === 'coal'), cut = (m.minMW - each) * hyd.length / coal.length;
     for (const u of coal) {
       const mw = Math.max(V.MACHINES[u.k].minMW, u.outMW - cut);
@@ -119,12 +119,12 @@ export function createState(seed, scenario) {
       rooftopMW: 0, roofSubMW: zeros(nSub), roofClearFrac: ones(nSub), // Phase 2a: as if every inverter were connected
       flexMW: 0, flexSubMW: zeros(nSub), reliefSubMW: zeros(nSub)}, // 2b: city flex, as if lit
     msl: {level: 0, minMW: 0, atS: -1, sinceS: -1}, // P-4 (Phase 2a, C-9): events.mslSecond, every MSL_CHECK_S; never written with no rooftop
-    control: {mode: c.mode, modeLocked: false, handFlown: false, nightShift: false}, // 2c: Q-64, Q-73
+    control: {mode: c.mode, modeLocked: false, handFlown: false, nightShift: false}, // Q-64, Q-73
     stations: fleet.buildStations(units),
     units,
     battery: {mode: c.battery.mode, orderMW: c.battery.mw, guardMW: c.battery.guardMW, schedMW: 0, agcTrimMW: 0,
       pfrMW: 0, ffrMW: 0, ffrFiredTick: -1, outMW: 0, socMWh: c.battery.socMWh, fullHold: false, ufSuspend: false},
-    tie: {setMW: c.tieMW, flowMW: c.tieMW, tripped: false, lockoutS: 0, limitMW: V.TIE_MAX_MW, limitUntilS: -1}, // 2c: the import limit (Q-68)
+    tie: {setMW: c.tieMW, flowMW: c.tieMW, tripped: false, lockoutS: 0, limitMW: V.TIE_MAX_MW, limitUntilS: -1}, // Q-68
     ren: {windLimitPct: c.windLimitPct, solarLimitPct: c.solarLimitPct, windMW: 0, solarMW: 0,
       windCurtMW: 0, solarCurtMW: 0, // curtailed MW (grid: they move at CURTAIL_RAMP_FRAC_MIN)
       windAutoMW: 0, solarAutoMW: 0}, // Phase 2a (C-6): MW held back by the dispatch, on top of the manual LIMIT
@@ -161,7 +161,7 @@ export function createState(seed, scenario) {
   return state;
 }
 
-/** ext.series, ext.rooftop (null with no rooftop: P-2, C-5) and ext.heat from ext.events: createState's own code. */
+/** ext.series, ext.rooftop and ext.heat from ext.events (createState's). */
 export function deriveExt(state) {
   const x = state.ext, ha = x.events.find(e => e.type === 'heatAnnounce');
   x.series = weather.prerollSeries(state.seed, state.scn, x.regime, x.events);
@@ -169,21 +169,21 @@ export function deriveExt(state) {
   x.heat = ha ? {announceS: ha.atS, onsetS: ha.args.onsetS, endS: ha.args.endS} : null;
 }
 
-/** The opening (Q-81): the atS-0 records (briefing news, task districts, the tie limit, the outage; scratch out), env, the balance. */
+/** Q-81: the atS-0 records (scratch out), env, the opening balance. */
 export function openDay(state) {
   events.applyDue(state, []);
   weather.sampleSecond(state);
   balanceOpening(state);
 }
 
-/** state.scnHash for a scenario (createState's): the canonical hash of its data without source keys. */
+/** createState's state.scnHash of a scenario. */
 export const scenarioHash = scn => canonicalHash(scenarioData(scn));
 
 // ------------------------------------------------------------------ step
 
 // The 1-s grid update, at the start of every grid second (tick % 50 === 0).
 function gridSecond(state, out) {
-  if (state.tick === V.PLAYER_START_TICK && state.control.mode === 'HAND') state.control.handFlown = true; // Q-64: latched at 04:30
+  if (state.tick === V.PLAYER_START_TICK && state.control.mode === 'HAND') state.control.handFlown = true; // Q-64
   if (state.tick > 0) market.settleSecond(state, out); // the second that just ended
   events.applyDue(state, out);                          // ext events due now (trips, weather, news)
   grid.planSecond(state, out);                          // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)

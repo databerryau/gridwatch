@@ -45,7 +45,7 @@ export function prerollEvents(seed, scn, regime) {
   const within = (u, w) => Math.floor(toS(w[0]) + u * (toS(w[1]) - toS(w[0])));
   const minutes = (u, r) => Math.floor(r[0] + u * (r[1] - r[0])) * S_PER_MIN;
   const add = (atS, type, args, contingency = false, warned = false) =>
-    list.push({id: '', atS, type, args, contingency, warned, act: 0, crisis: false}); // act 0: a legacy record (Q-65)
+    list.push({id: '', atS, type, args, contingency, warned, act: 0, crisis: false}); // Q-65
 
   // Guaranteed big-unit trip (L337): kept clear of a severe-weather evening.
   {
@@ -325,14 +325,14 @@ function applyEvent(state, e, out) {
       log(out, tick, 'info', 'CLOUD_CLEAR', 'Skies clearing over the solar precinct.');
       return;
     case 'windDrought':
-      if (scn.dayplan && latestNews(state, 'drought')) { // the news came with droughtWarn (§32.4.6)
+      if (scn.dayplan && latestNews(state, 'drought')) { // the news came with droughtWarn
         log(out, tick, 'warn', 'WIND_DROUGHT', 'Wind drought: wind falling toward about ' + pct(a.windMu) + '% of capacity.');
         return;
       }
       announce(state, out, e, 'drought', e.atS, null, 'WIND DROUGHT: a high-pressure ridge has settled in. ' +
         'Wind resource falling toward about ' + pct(a.windMu) + '% of capacity.', 'WIND_DROUGHT');
       return;
-    // 2c (desk/README.md §32.4.6): Act I's briefing items and their ends, the drought's warning. Texts read args only.
+    // 2c (sim/README.md §7)
     case 'feederOut': {
       a.districts.forEach((id, j) => {
         const d = state.city.districts.findIndex(x => x.id === id);
