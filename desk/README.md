@@ -4520,7 +4520,8 @@ state.control.nightShift (21:00) the system holds AP.nightMemo(observe(state, {d
 in sys.night (plain JSON) and runs only runPar's own step on it, decide() then planUpdates(),
 at runPar's cadence: no player-mode dispatch, no DISPATCH_S interval, no commitSig, no
 scanEdits. Its inputs are logged like any others (replay holds); sys.origin is 'night' for them
-('system' by day). RE-DISPATCH is refused ("the night shift has the desk"). runPar swaps every
+('system' by day). RE-DISPATCH is refused ("the night shift has the desk") and heldByHand is
+false (the night memo's own tie inputs are not a hand on the levers). runPar swaps every
 player proxy (planOnly among them) to the same memo at the same look, so a no-input night is
 the planOnly proxy's night, and par's state taken before its first night decision plays the same
 night in runPar and in a fresh player-mode system (tests/night.test.js).

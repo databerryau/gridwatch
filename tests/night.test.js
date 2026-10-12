@@ -8,7 +8,7 @@ import {runPar} from '../sim/autopilot.js';
 import {step, applyInput, hashState} from '../sim/step.js';
 import * as fleet from '../sim/fleet.js';
 import {NIGHT_S, hhmm} from '../sim/clock.js';
-import {createSystem, systemInputs, redispatch} from '../app/system.js';
+import {createSystem, systemInputs, redispatch, heldByHand} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {DESK} from '../content/scenarios.js';
 import {ticksAt, TPS, clone} from './lib/sim-helpers.js';
@@ -85,6 +85,12 @@ test('Q-73: one night for par and for the player: from par\'s state before its f
   assert.deepEqual(b.log.slice(n0), a.log.slice(n0), 'the same inputs, tick for tick');
   assert.equal(hashState(b), hashState(a.state));
   assert.match(redispatch(sys, b).reason, /over/);
+  // the night shift's tie inputs (rules 1 and 2) are not a hand edit: at night nothing is held by hand
+  const tied = clone(b);
+  tied.log.push({tick: tied.tick, type: 'tie', args: {mw: 300}});
+  assert.equal(heldByHand(clone(sys), tied), false);
+  tied.control.nightShift = false;
+  assert.equal(heldByHand(clone(sys), tied), true, 'by day the same input is the player\'s hand on the tie');
 });
 
 // (A whole no-input day costs about 2.7 s here: the spike ran it once, desk/README.md §32.11. This is
