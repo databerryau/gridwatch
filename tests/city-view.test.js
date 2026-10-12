@@ -11,6 +11,7 @@ import assert from 'node:assert/strict';
 import {V} from '../sim/params.js';
 import {createState, step, applyInput, observe} from '../sim/step.js';
 import {DESK} from '../content/scenarios.js';
+import {withoutTask} from './lib/sim-helpers.js';
 import {makeDocument} from './lib/dom.js';
 import {baseVm} from './lib/vm-fixture.js';
 import * as D from '../render/mapdata.js';
@@ -20,11 +21,13 @@ import {createLiveStack, stackSummary, blockText, SURPLUS_MIN_PX} from '../rende
 const at = (h, m = 0) => (h - V.DAY_START_H) * 3600 + m * 60; // grid second of hh:mm
 const BAND = 'rgba(230,237,243,0.6)';
 
-// The state at 04:30 (the levers open), by seed: DESK 1 is a MILD weekday, 2 a HOT one.
+// The state at 04:30 (the levers open), by seed: DESK 1 is a MILD weekday, 2 a HOT one. The live day by default; NOTASK
+// (withoutTask, Q-68) for a test that reads the stack's gaps or the map's dark suburbs and whose subject is not the task.
+const NOTASK = withoutTask(DESK);
 const AT0430 = {};
-function at0430(seed) {
-  AT0430[seed] ||= (() => { const st = createState(seed, DESK); while (st.tick < V.PLAYER_START_TICK) step(st, []); return JSON.stringify(st); })();
-  return JSON.parse(AT0430[seed]);
+function at0430(seed, scn = DESK) {
+  AT0430[scn.id + seed] ||= (() => { const st = createState(seed, scn); while (st.tick < V.PLAYER_START_TICK) step(st, []); return JSON.stringify(st); })();
+  return JSON.parse(AT0430[scn.id + seed]);
 }
 const book = (st, suburb, lever, atS) => { const r = applyInput(st, {type: 'flex', suburb, lever, atS}, []); assert.ok(r.ok, suburb + ' ' + lever + ': ' + r.reason); };
 /** Push a block as the sim stores it (sorted, rev + 1): a time the window refuses, to see it inside the stack's 4.5 h. */
@@ -123,7 +126,9 @@ test('Q-57 / §31.3.11: a soak booked while paused redraws the stack; each core 
 });
 
 test('Q-57: air-con: the relief band above the skyline, pre-cool and snapback dashed below it, the night fall dashed above; codes in both layouts; the hover names the block and its part, rings its suburb, and yields to a red gap', () => {
-  const st = at0430(2);
+  // (NOTASK: the live day holds HAR3/HAR4 dark, and until wave-2 map's per-column lit load (§32.7.4) the stack's red
+  // gap is wider by their load and takes the pre-cool's hover point; this test is about the bands)
+  const st = at0430(2, NOTASK);
   assert.equal(st.day.temp, 'HOT');
   poke(st, 'TAL', 'aircon', at(6), 13.5);   // pre-cool 05:00, relief 06:00-07:30, snapback to 09:00
   poke(st, 'HAZ', 'soak', at(5), 140);
@@ -192,7 +197,7 @@ test('Q-57: air-con: the relief band above the skyline, pre-cool and snapback da
 
 test('Q-56: the map routes a suburb\'s click and Enter to its card (a dark one through the RESTORE bay, Q-42); its hover names suburb-<ID>; Enter on a plant is its click; RESPOND and the briefing keep Enter', () => {
   const {map, ui, cv} = mountMap();
-  const vm = baseVm(observe(createState(1, DESK)));   // 04:00: no day run
+  const vm = baseVm(observe(createState(1, NOTASK)));   // 04:00: no day run; one dark suburb, poked
   vm.obs.districts.find(d => d.suburb === 'SOL').dark = true;
   map.update(vm);
   const L = map.debug.layout;

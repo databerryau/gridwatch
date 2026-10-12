@@ -102,7 +102,7 @@ export const ALARM_HELP = {
     real: {text: 'AEMO (2023): NEM schemes start at ' + V.UFLS_FIRST_HZ.toFixed(1) + ' Hz, about ' + V.UFLS_DELAY_S + ' s to load off. ' +
       'Queensland 2021: 8 blocks from 49.00 to 48.60 Hz shed 1,308 MW. After Callide, AEMO allowed load back 4–26 min later. All well ' +
       'established.', facts: ['UFLS first stage and timing', 'Real staging example', 'Restoring load']},
-    reading: o => 'districts dark: ' + o.districts.filter(x => x.dark).length + ' · ' + mw(o.demand.unservedMW) + ' MW off',
+    reading: o => 'districts dark: ' + o.districts.filter(x => x.dark && !(x.shedBy === 'task' && x.clearS > o.s)).length + ' · ' + mw(o.demand.unservedMW) + ' MW off',
   },
   agcLimit: {
     trigger: 'Sets after AGC is at the edge of its bands for over ' + A.AGC_LIMIT_REAL_S + ' real s of running clock.',

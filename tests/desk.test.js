@@ -1348,11 +1348,19 @@ let NOON = null;
 /**
  * A real mild weekend at 12:30 on the game's scenario with nobody at the desk (desk-weekend,
  * seed 1): the roofs near their peak, Solstice Rise feeding back, the dispatch spilling. Each
- * caller gets its own copy of the state.
+ * caller gets its own copy of the state. Nobody restores the Act I task's feeders (Q-68: RED6
+ * and RED7, handed back at 06:50 and 07:15), so at noon they are dark and the operator's.
  */
 function noonState() {
   NOON ||= followDay(1, DESK_WEEKEND, {follow: false, untilH: 12.5}).st;
   return structuredClone(NOON);
+}
+/** noonState with the task's feeders closed (a test poke): every district lit, for a test whose subject is not the task. */
+function litNoonState() {
+  const st = noonState();
+  st.city.districts.forEach((d, i) => { if (d.dark && d.shedBy === 'task') fleet.setDistrictDark(st, i, false); });
+  assert.ok(st.city.districts.every(d => !d.dark));
+  return st;
 }
 const considers = a => a.uis.filter(u => u.do === 'consider').map(u => u.target);
 /**
@@ -1775,7 +1783,7 @@ test('K-11 on a real over-frequency (2a): with the potline off at a mild noon th
 });
 
 test('P-12 on the dial (2a): the SHED mark shows the dark customers\' load (unservedMW), not the relay MW, which is zero or less with a net exporter dark', () => {
-  const st = noonState();
+  const st = litNoonState();
   while (st.tick % TPS !== 0) step(st);
   const lit = observe(st);
   const sol = lit.districts.filter(d => d.suburb === 'SOL' && d.coldLoadMW < 0);
@@ -1819,6 +1827,21 @@ test('P-12 on the dial (2a): the SHED mark shows the dark customers\' load (unse
   assert.equal(shedMarkMW(old), 0);
   old.balance.shedMW = 180;
   assert.equal(shedMarkMW(old), 180);
+  // the restore task's feeders (Q-69): held until their hand-back they are the network's outage, never SHED; handed
+  // back and still dark they are the operator's, and the mark shows their customers' load
+  const task = createState(1, DESK_WEEKEND), held = task.city.districts.filter(d => d.dark && d.shedBy === 'task');
+  assert.ok(held.length === 2 && held.every(d => d.clearS > 0), 'the live plan puts the task on this date');
+  const heldO = observe(task);
+  assert.equal(shedMarkMW(heldO), 0);
+  assert.equal(mount(at(baseVm(heldO), 1000)).$('bar-imbalance').querySelector('.dk-imb-shed').hidden, true, 'no SHED mark over held feeders');
+  held[0].clearS = 0;   // test poke: its hand-back reached (feederClear's applier calls refreshHeld)
+  fleet.refreshHeld(task);
+  const back = observe(task);
+  assert.equal(task.city.heldFrac, held[1].share, 'the other feeder is still held');
+  assert.ok(Math.abs(back.demand.unservedMW - fleet.baseLoadMW(task) * held[0].share) < 1e-6 && back.demand.unservedMW > 50,
+    'handed back, still dark: that feeder\'s customers alone: ' + back.demand.unservedMW.toFixed(1) + ' MW');
+  assert.equal(shedMarkMW(back), back.demand.unservedMW);
+  assert.equal(mount(at(baseVm(back), 1000)).$('bar-imbalance').querySelector('.dk-imb-shed').textContent, '✕ SHED ' + Math.round(back.demand.unservedMW) + ' MW');
 });
 
 test('K-7 / M-2: DIRECT SHED names the district the sim will shed and its load; "about 0 MW" when it has none to give', () => {

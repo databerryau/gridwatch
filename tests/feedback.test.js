@@ -419,6 +419,7 @@ test('every press answers: a HAND day (the MAN lamp, P / Shift+P, BYPASS, a drag
   tap(p, 'p', /man-ccgt "P"/, 'keys-ss-xx-p');
   tap(p, 'ArrowUp', /man-ccgt "M"/, 'lever-track');
   tap(p, 'P', /^NOTE blue [^\n]*CCGT KEEP: the plan goes on from here$/m, 'keys-ss-xx-p', {shiftKey: true});
+  p.click('bay-sync');   // (20261007's two held task feeders put the bay's own view on RESTORE at 04:30: desk/bay.js, wave-2 desk)
   click(p, 'sync-bypass', /sync-bypass "● BYPASS"/, 'sync-bypass');
   tap(p, 'b', r => /sync-bypass "BYPASS"/.test(r.after), 'sync-bypass');
   act(p, () => { p.pointer('lever-gtc', 'pointerdown', 20, 18); p.pointer('lever-gtc', 'pointermove', 20, 16); p.pointer('lever-gtc', 'pointerup', 20, 16); p.frame(); },
