@@ -87,7 +87,7 @@ function scanEdits(sys, state) {
  * @returns {boolean} sys.edited, fresh
  */
 export function heldByHand(sys, state) {
-  if (state.control.nightShift) return false; // the night shift's (its rule 1 and 2 tie inputs are not the player's)
+  if (state.control.nightShift) return false; // Q-73 (§32.12)
   scanEdits(sys, state);
   return sys.edited;
 }
