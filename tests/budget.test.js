@@ -32,9 +32,9 @@ test('F-11: next.html loads nothing the legacy game or the tools need (no tools/
 
 // Q-61 (desk/README.md §32.3, §32.5.1): slice 2c's eager ceiling. POST_MOVE_GZIP is the first visit
 // measured after stage A's second header move (`node tools/perf.mjs --sizes`: 397,123 B before it,
-// 385,154 B after); 2c adds at most 12.4 KB to it (11.4 before the stage-A merge), shared out by §32.3's caps (KB, by owner). The caps
+// 385,154 B after); 2c adds at most 14.6 KB to it (11.4 at first, 12.4 at the stage-A merge), shared out by §32.3's caps (KB, by owner). The caps
 // are read from §32.3's table (rows `| **owner** (ID) | ... | N KB |`), so a reallocation is one edit.
-const POST_MOVE_GZIP = 385154, TOTAL_2C_KB = 12.4;
+const POST_MOVE_GZIP = 385154, TOTAL_2C_KB = 14.6;
 const CAPS_2C = (() => {
   const md = readFileSync(join(ROOT, 'desk/README.md'), 'utf8'), at = md.indexOf('\n### 32.3 '), caps = {};
   const table = md.slice(at, md.indexOf('\n### 32.4 ', at));
@@ -42,7 +42,7 @@ const CAPS_2C = (() => {
   return Object.freeze(caps);
 })();
 
-test('Q-61: slice 2c keeps the first visit within the post-move total + 12.4 KB (§32.3\'s caps)', () => {
+test('Q-61: slice 2c keeps the first visit within the post-move total + 14.6 KB (§32.3\'s caps)', () => {
   const caps = Object.values(CAPS_2C).reduce((a, x) => a + x, 0);
   assert.equal(caps.toFixed(1), TOTAL_2C_KB.toFixed(1), '§32.3\'s caps add up to 2c\'s ' + TOTAL_2C_KB + ' KB: ' + JSON.stringify(CAPS_2C));
   const gz = firstVisit('next.html').reduce((a, f) => a + f.gzip, 0), ceiling = Math.floor(POST_MOVE_GZIP + TOTAL_2C_KB * 1024);

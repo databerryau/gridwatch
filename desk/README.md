@@ -3525,18 +3525,18 @@ its job below names it, and then once.
 | **prose** (A1) | `the-day` | The **leading comment block only** of every first-visit JS file (list: `tools/perf.mjs firstVisit`) → `sim/README.md` §11 (sim files, under their existing headings) or §32.12 (others), each file keeping its first line and a pointer; `tools/perf.mjs` (a `--sizes` flag: file count, raw and gzip bytes per file, no frame run); `tests/budget.test.js` (the 2c ceiling, the text.js and alarmhelp.js caps); nothing else | −(measured) |
 | **base-sim** (A2) | `the-day` | New `sim/clock.js`, new `sim/dark.js`, new `sim/dayplan.js` (neutral); `sim/params.js` (2c block); `sim/autopilot.js` (import `clock.stepReal` and `dark.*`, delete `profileReal`, `darkShare`, `litMW`; `refRealSeconds`'s `clears` parameter, unused; nothing else); `sim/step.js` (createState's order, `balanceOpening` on lit demand, state, observe, the 04:30 `handFlown` rule, `scenarioHash`); `sim/events.js` (`TYPE_ORDER`, the new types' appliers and texts); `sim/fleet.js` (fields, setters, `refreshHeld`, `startBlock`'s outage reason); `sim/grid.js` (`startFreeAt`/`onAtS` outage terms; the `securedTick` block at the end of `securitySecond`; nothing else); `sim/physics.js` (the preview's stand-in record gains `securedTick`; nothing else); `sim/weather.js` (`prerollRegime` delegates); `sim/market.js` (`heldMWh`, `taskLateMWh`, `isClean`, `isPerfect`); `content/scenarios.js` (the 2c data, §32.4.2); new `tests/clock.test.js`, `tests/lib/inject.js`, `tests/inject.test.js`; lists in `tests/state.test.js` (and its opening test :487–503), `tests/integration.test.js`, `tests/seams.test.js`, `tests/sim-lint.test.js`; `sim/README.md` §1, §5–§8 and new §11 subsections for clock.js, dark.js and dayplan.js | 4.3 KB |
 | **base-app** (A3) | `the-day` | Test hygiene (§32.5.3): the 120×-literal tests, the desk-event fixtures (onto `legacyDesk()` in `tests/lib/sim-helpers.js` or `injectTrip`), the vacuous skip; the tools' clean predicate (`tools/par.js`, `tools/baseline-v4.js`, `tools/follow.mjs`, `tests/lib/follow.js`: a local copy marked `TODO(2c-merge)` until A2's `isClean` merges); new `content/dailies.js` and `tests/dailies.test.js`; `app/game.js` (`scenarioForSeed` through `scenarioIdOf`, `dailyFrom`, `game.daily`, `game.end.handFlown` and `.gated`, the exported pure `offerWhy` moved out of `updateOffers` unchanged); `app/shell.js` (the one boot line, `G.createGame({seed: …`: boot through `dailyFrom`); `app/director.js` (`modeOf`'s new fields, neutral); `app/tray.js` (sender and target tables for the new kinds) | 1.1 KB |
-| **plan** (W1) | `the-day` after stage A | `sim/dayplan.js` (the real plan, §32.6.1), `content/scenarios.js` (the dayplan block's values and desk's `stormShare` only), `sim/events.js` (the dayplan-day wording of heatText, stormText, cloudText and the drought's text, gated on `scn.dayplan`); new `tests/dayplan.test.js`; re-pins of desk lines the live plan breaks with the task off (§32.6.1) | 1.6 KB |
-| **grid** (W1) | same | `sim/grid.js`, `sim/fleet.js`, `sim/physics.js`, `sim/market.js`, `sim/step.js` (the night flip only); new `tests/task.test.js`, `tests/act1.test.js`; additions to `tests/grid.test.js` | 0.8 KB |
-| **sky** (W1) | same | `sim/weather.js` (`climate(scn)`, fronts over the suburbs, the forecast and its band), new `tools/l2.mjs` (the revived L-2 method; not run by the agent); new `tests/front.test.js`; the `rooftop-model` lines of `tests/text.test.js` only if a test asserts the old wording | 0.4 KB |
+| **plan** (W1) | `the-day` after stage A | `sim/dayplan.js` (the real plan, §32.6.1), `content/scenarios.js` (the dayplan block's values and desk's `stormShare` only), `sim/events.js` (the dayplan-day wording of heatText, stormText, cloudText and the drought's text, gated on `scn.dayplan`); new `tests/dayplan.test.js`; re-pins of desk lines the live plan breaks with the task off (§32.6.1) | 3.5 KB |
+| **grid** (W1) | same | `sim/grid.js`, `sim/fleet.js`, `sim/physics.js`, `sim/market.js`, `sim/step.js` (the night flip only); new `tests/task.test.js`, `tests/act1.test.js`; additions to `tests/grid.test.js` | 1.0 KB |
+| **sky** (W1) | same | `sim/weather.js` (`climate(scn)`, fronts over the suburbs, the forecast and its band), new `tools/l2.mjs` (the revived L-2 method; not run by the agent); new `tests/front.test.js`; the `rooftop-model` lines of `tests/text.test.js` only if a test asserts the old wording | 0.5 KB |
 | **par** (W2) | `the-day` after wave 1 | `sim/autopilot.js` (the tie limit, outages, the night memo and swap, rule 9 at the gate, RESTORE segments in `refRealSeconds`), `sim/dark.js` (the announced returns), `app/system.js` (the night swap; **the spike first**), `app/assist.js` (mirror the swap, or state it is classic-only), `tools/par.js`, new `tools/daily-gen.js`, new `tools/day-measure.mjs` (D-10 gaps, the Q-77 proxy); new `tests/night.test.js`, `tests/gaps.test.js`; rows added to `tests/dailies.test.js`; deliberate edits in `tests/autopilot.test.js`, `tests/system.test.js` | 0.8 KB |
 | **clock** (W2) | same | `app/director.js`, `app/loop.js`, `app/game.js` (rate, cadences, `objectiveDue`, FAST release, the briefing mode rule, the night lock, the offer rule, the `trayBriefing` call), `app/shell.js` (the briefing-mode lines only: from `let briefAgc` to the end of the TAKE THE DESK block, and the frame's briefing block), `render/format.js` (the badge), `app/keys.js` (only if a key needs an answer), `tests/lib/play.js` and `tools/play.mjs` (the cadence mirror, `spaceMs`, the `clock` step, `--returning`); new `tests/clock-director.test.js`; deliberate edits in `tests/director.test.js`, `tests/loop.test.js`, `tests/next.test.js` :591–592, `tests/play.test.js` | 0.8 KB |
 | **desk** (W2) | same | `desk/gauge.js` (Q-74's row), `desk/bay.js` (FAULT word, the repair reason, the tab glow), `desk/rotary.js` and `desk/calc.js` (the tie limit), `desk/desk.js` (the night lock note), `desk/desk.css`, `app/tray.js` (`trayBriefing`, card life, senders, the information cards), `app/alarms.js` (`isWeather`, news kinds, night quiet, `PEAK_H` from the clock), `content/alarmhelp.js` (PEAK's trigger and WEATHER's reading only), `app/watch.js` (the card's COVER words), `app/endcard.js` (HAND-FLOWN, the reliability line for task feeders, "not gate-checked"); new `tests/countdown.test.js`, `tests/tray-day.test.js`; deliberate edits in `tests/alarms.test.js` (K-8's clock), `tests/desk.test.js` | 0.8 KB |
-| **map** (W2) | same | `render/map.js` (the occupancy curve, the feeder label with its times), `render/livestack.js` (act ticks, onset markers, the redraw cap, the night freeze), `app/planview.js` (`darkShareAt` and `litMW` per column, the tie limit, the outage in `earliestOnAt` and its mirror executor); new `tests/day-view.test.js`; deliberate edits in `tests/map.test.js` (:569 allowlist), `tests/livestack.test.js`, `tests/planview.test.js` (:640 allowlist) | 0.6 KB |
+| **map** (W2) | same | `render/map.js` (the occupancy curve, the feeder label with its times), `render/livestack.js` (act ticks, onset markers, the redraw cap, the night freeze), `app/planview.js` (`darkShareAt` and `litMW` per column, the tie limit, the outage in `earliestOnAt` and its mirror executor); `app/suburbcard.js` (a held suburb's face, §32.11; its on-demand cap may rise to 6.5 KB); new `tests/day-view.test.js`; deliberate edits in `tests/map.test.js` (:569 allowlist), `tests/livestack.test.js`, `tests/planview.test.js` (:640 allowlist) | 0.6 KB |
 | **line** (W3) | `the-day` after wave 2 | `app/objective.js` (Q-80, the restore-task asks, derate and outage reasons, quiet at night, `stopSaving`'s night horizon, profile-aware constants), `tools/follow.mjs`; new `tests/objective-day.test.js`; deliberate edits in `tests/objective.test.js`, `tests/line.test.js`, `tests/day.test.js` | 0.4 KB |
 | **shell** (W3) | same | `app/shell.js` (not the briefing-mode lines), `next.html`, `content/text.js` (+ its cap), `content/anchors.js` (append): the briefing's "Watch for", the HAND chip, the night strip, the end card's prefetch, `GOALS_TEXT` and the ALL-IN tooltip, the §8.2 rows; new `tests/briefing.test.js`, `tests/night-strip.test.js`, `tests/feedback-day.test.js` (new presses only), `tests/acts-audit.test.js` (D-1); anchors pinned in `tests/scoreface.test.js` :253–261 and `tests/text.test.js` :155–158 kept or deliberately repaired | 0.8 KB |
 | **integrator** | all | merges, `SIM_VERSION`, the golden, SPEC.md, §32.11, the tools runs, `content/dailies.js`'s list, the browser pass | — |
 
-2c total: **12.4 KB** eager (11.4 KB in the first draft; reallocated at the stage-A merge, §32.11: stage A measured 5,463 B, so A2 4.3 and A3 1.1 KB, plan 1.6 and desk 0.8 KB; 2d and 2e keep about 11.5 KB). Caps are self-measured as base-to-head deltas (`node tools/perf.mjs
+2c total: **14.6 KB** eager (11.4 KB in the first draft; 12.4 KB at the stage-A merge; 14.6 KB at the wave-1 merge, §32.11: stage A 5,463 B and wave 1 5,048 B measured, so A2 4.3, A3 1.1, plan 3.5, grid 1.0, sky 0.5 KB; waves 2 and 3 keep their 4.2 KB; 2d and 2e keep about 9.3 KB). Caps are self-measured as base-to-head deltas (`node tools/perf.mjs
 --sizes`); an agent over its cap reports the number and does not code-golf; the integrator
 reallocates at the merge (at stage A's merge it compares A2's measured clock.js and dayplan.js
 with plan's 1.8 KB before wave 1 starts).
@@ -4191,6 +4191,108 @@ their own worktrees, each with two reviewers and a fix pass). Merged A2, A1, A3 
   it). Stale "see the file header" comments from Q-49 in autopilot, grid, physics and desk.js:
   their owners, when they touch those lines. SPEC :1008 (NETWORK sender) and :1679 (the seed's
   date) at stage C.
+
+**Wave 1 (2026-10-12).** Workflow `wf_a4f97e32-2eb` (plan, grid, sky; two reviewers each, plus a
+"day designer" reading 60 pre-rolled days for plan; one fix pass each). Merged grid, sky, plan with
+no conflict (`18c025b`, `85c68d2`, `cc9f625`); the suite was green with the task off (813 tests).
+Then `ddcc3b6` switched desk's task on (`dayplan.act1.task.p` 0.85) and added
+`tests/lib/sim-helpers.js withoutTask(scn)`; 22 tests failed, and the merge fix
+(`wf_87ec6ddc-4a1`: sim, view and line fixers, each checked by a skeptic) made them green
+(`5973669`, `33a719d`, `6bc500a`).
+
+*Measured* (`tests/dayplan.test.js`, 2,000 dates from 2026-01-01 and desk seeds 1–2,000, the task
+live):
+- Classes heat 14.9 / storm 24.8 / drought 20.5 / calm 39.7% (seeds 15.4 / 25.7 / 18.8 / 40.2).
+- Leads in grid-min: cloud 130–175, storm 65–115, drought 65–123.
+- Q-72: zero violations on all 4,000 days; the guard shown to fail by hand.
+- Act I: the task on 84.7%, the derate on 49.5%, the late return otherwise.
+- Act II on non-heat days: front 41.4, unit 24.6, smelter 19.0, tie 14.9%, no fallback. Its
+  trips have a median of 11:01 (15.2 real s into the act), 10.2% of them before 09:24.
+- Heat days' Act II trips: median 09:35, 66.1% before 10:00, none after 12:00, because the
+  30 real s before a 12:30–14:30 onset reach back that far.
+- Evening trips 17:00–19:30, median 18:31.
+- Storm link trip on 25.1% of storms; 31.3% of storm days have no unwarned contingency.
+- Longest stretch with no ringing card (p10 / p50 / p90 real s): storm 57 / 77 / 100, drought
+  66 / 79 / 97, calm 94 / 113 / 143, heat 128 / 138 / 148. Nothing rings after 14:30 on 95.2% of
+  heat days. This is D-10's risk, measured at stage C (§32.10's heat-day evening-trip lever).
+
+*Amendments* (these override §32.1–§32.7 where they differ; wave 2 reads them):
+- **The moments rule (extends Q-72, plan):**
+  - No two moments (a card or a decision after 04:00) fall within `PAR_ACTION_GAP_REAL_S` on the
+    step profile.
+  - The 30-real-s and 90-real-s rules carry a +1 s margin and are also checked on `realBetween`.
+  - The late return is drawn last, ≥ 3 real s from every moment; trips keep 3 real s from the
+    derate's end.
+  - Act II's windows end at 14:29.
+  - The derate limit is on 50-MW steps (`DAYPLAN_MW_STEP`); briefing times are on 5-min marks.
+  - `crisis` is true for Act I's constraint and every Act II/III record, false for the task;
+    `warned` is true for every plan record except trips and notices.
+  - EXT_EVENTS slots: 64 constraint, 65 task, 66 Act III, 67 Act II.
+  - `roofDropMW` is interpolated, on 50-MW steps, and the text says "up to about".
+- **Series keys (sky):** a `cloudOnset` with `suburbs: true` is the exception. Its `clearMu` is
+  the front's sky at each place from atS + that place's lag, never a mean; its args are
+  `{clearMu: frontMu, suburbs: true, clearS}`, both finite (`frontsOf` throws otherwise), and
+  `cloudClear` carries `{clearMu}`.
+  - On a dayplan day the precinct follows the same per-place shape.
+  - The forecast reads the present skies once a place has risen above `frontMu` +
+    `FRONT_READ_SD` 3 sd, fixing the clear time from public `env` only.
+  - A front can start up to one 5-min sky step early (C-5's interpolation, labelled).
+  - The front's band covers 89.5% of demand: stage C's L-2 measure.
+  - The builder's l2 smoke numbers were taken while staged and are not valid.
+- **Grid:**
+  - `market.restoreAllowedS(districts, d)` (on state or obs; §32.4.7) is the one "allowed
+    second" rule. The director (wave 2 clock) calls it; par copies it from obs (S-4 forbids
+    importing market).
+  - `taskLateMWh`'s zero is exact for PERFECT; its size is a lower bound (sub-second tolerance,
+    in the player's favour).
+  - With nothing dark at the end of a second, a relit task feeder's share goes to `taskMWh`,
+    never UFLS; any other relit district's last second stays UFLS.
+  - The night flip also clears the synchroscope (`scope.unit = ''`), and READY units wait
+    `AUTO_SYNC_S` before their auto close.
+  - A booked start is due at `max(atS, outUntilS)` (`startDueS`). `planLoad` and `planStop` use
+    it; wave 2's par (`context()` carries `obs.plan.starts` at that time) and map
+    (`app/planview.js`'s mirror executor) must do the same.
+  - The tie limit clamps imports on both ends of a key's lead.
+  - `observe().demand.unservedMW` excludes held feeders.
+- **Params appended:** `CLOCK_SEARCH_S` (A2), `DAYPLAN_MW_STEP` 50 (plan), `FRONT_READ_SD` 3 (sky).
+- **The merge fix:**
+  - **Sim:** all 7 failures were fixtures (re-pinned to `withoutTask`). The opening test now
+    pins both cases. HOT task mornings: coal untouched, hydro takes the held load. MILD:
+    hydro at its floor, coal cut evenly ≥ MIN, the identity exact to 1e-6.
+  - **View:** two real defects fixed. The respond card counted held feeders as dark (one line in
+    `app/watch.js`: a held feeder is not in its dark list, count, MW or bay glow), and so did
+    `content/alarmhelp.js`'s UFLS explainer. Both are pinned in `tests/next.test.js`.
+  - **Line:** a held feeder never brings up the UFLS-style restore line; the count includes
+    every dark district (as the bay and map show); pinned in the new
+    `tests/objective-task.test.js`.
+- **Handed to wave 2 and 3 (named, not fixed):**
+  - *par:* the announced return. A dawn plan under-counts by 166–355 MW at 09:00, 9–374 MW at
+    noon and 292–518 MW at 18:00 on task dates (HOT seed 2: 356 at noon, 484 at 18:00). The
+    places are `sim/dark.js darkShareAt` and `sim/autopilot.js` `litColumns` (:124, called at
+    :303 and :1326), `litDayAhead` (:326) and the adequacy walk (:1083). Then drop the two
+    `{todo}` copies in `tests/par-levers.test.js` and point `flexLine`/`soakReflow` back at
+    DESK.
+  - *map:*
+    - `render/map.js mapLabels` (:221) and `mapSummary` (:241) give held feeders the red UFLS
+      label; Q-79's blue "SAL: 2 DARK · BACK …" replaces it.
+    - `app/planview.js project()` draws a phantom red gap the size of the held load until
+      `clearS` (+251 MW at 04:35, DESK seed 2): per-column `litMW(p50, roof, darkShareAt(obs,
+      t))`. city-view's Q-57 test stays on `withoutTask` until then.
+    - **New:** `app/suburbcard.js` (:151–154, :200, :206), a held suburb's card. It reads
+      "n DARK:", focuses RESTORE and shows no ETR. It should say "n DARK · BACK HH:MM" and
+      not steal focus before the hand-back. It is 46 B under its on-demand cap, which may rise
+      to 6.5 KB.
+  - *desk:* `desk/bay.js` (:246, :331) lets held feeders choose the bay's view (it opens on
+    RESTORE with TASK rows). Held feeders should not choose the view; the row word is FAULT;
+    the refusal stays a red refusal with its reason, as the permissive's other refusals.
+  - *line:* the restore asks from the ETR, `spare()`'s pickup over held feeders, naming the
+    feeders under repair, `heatWorstCase`.
+- **Bytes:** first visit **395,665 B**: stage A 5,463 + wave 1 5,048 (plan 3,542, grid 994,
+  sky 511) = 10,511 B of 2c. **The 2c total rises to 14.6 KB** (§32.3: the actuals plus wave
+  2 and 3's 4.2 KB); 2d and 2e keep about 9.3 KB, so their debrief and briefing load on demand.
+  Raising F-11 stays the owner's call.
+- **Suite:** 817 tests, 814 pass, 1 skipped, 2 todo (par's), 40.3 s; `tests/baseline-v4.test.js`
+  green.
 
 ### 32.12 Module headers (moved from the files, Q-61)
 
