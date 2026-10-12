@@ -58,9 +58,10 @@ test('Q-82: a news card\'s sender and button by kind: the weather from the burea
   assert.deepEqual(row(card('tie')), [T.SENDERS.market, 'warn', 'TO THE TIE', 'knob-tie']);
   assert.deepEqual(row(card('network')), ['NETWORK', 'warn', 'TO THE RESTORE BAY', 'bay-restore']);
   assert.equal(T.SENDERS.network, 'NETWORK');
-  assert.deepEqual(row(card('outage', 'CCGT 2 is out of service until 07:15.')), [T.SENDERS.station, 'warn', 'TO THE LEVER', 'lever-ccgt']);
-  assert.equal(card('outage', 'Mt Hazel coal 4 returns from maintenance at 11:30.').button.target, 'lever-coal');
-  assert.equal(card('outage', 'A unit is out.').button.target, 'stack', 'no unit named: the stack');
+  // the unitOutage applier's text (A2, sim/events.js): the unit by its full name
+  assert.deepEqual(row(card('outage', 'Late return from maintenance: Riverton CCGT 2 unavailable until 07:15.')), [T.SENDERS.station, 'warn', 'TO THE LEVER', 'lever-ccgt']);
+  assert.equal(card('outage', 'Late return from maintenance: Mt Hazel coal 4 unavailable until 11:30.').button.target, 'lever-coal');
+  assert.deepEqual(row(card('outage', 'A unit is out.')), [T.SENDERS.station, 'warn', 'SEE THE STACK', 'stack'], 'no unit named: the stack, and the button says so (Q-42)');
   assert.deepEqual(row(card('smoke')), ['WEATHER BUREAU', 'warn', 'SEE THE STACK', 'map'], 'any other kind as before');
   assert.equal(card('tie').key, 'news:tie:0', 'the key as before: a kind and its start');
 });
