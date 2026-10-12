@@ -1,15 +1,5 @@
 // sim/weather.js: the external world's weather and demand (spec F-3, P-6, S-4).
-//
-// Stage A (implemented, frozen API): the weather regime and the pre-rolled ext series,
-// table readers, and sampleSecond(), which sets state.env for each grid second.
-// Stage B owner "market + events": forecast() (S-4 drift toward announced regime, L-2 band).
-// Phase 2a owner "world" (desk/README.md §21.1): rooftop PV behind the meter (P-1, P-2), the
-// day types (P-3: MILD days and weekends, from the public state.day), the per-suburb rooftop
-// skies (prerollRooftop, C-5) and the forecast's rooftop and underlying columns. On a scenario
-// with no rooftop and no MILD days (the classic day, C-1) every value is bit-identical to before.
-//
-// Pure functions only. No transcendental Math functions (risk 5): tables are
-// interpolated with arithmetic, and noise comes from rng.normal (exact arithmetic).
+// Contract: sim/README.md §11 weather.js.
 
 import {V} from './params.js';
 import {STREAM, uniform, normal, quantise} from './rng.js';

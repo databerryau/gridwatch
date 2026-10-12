@@ -1,15 +1,5 @@
 // sim/events.js: the external event timeline (spec F-3, D-8; legacy menu L331-370).
-//
-// Stage A (implemented, frozen): prerollEvents() turns the scenario's event menu into a
-// time-sorted list of ext events at createState. Nothing here ever depends on play.
-// Stage B owner "market + events": applyDue(), which applies the events whose time has come.
-// Phase 2a owner "world" (desk/README.md §21.1): mslSecond(), the P-4 Minimum System Load
-// notices (C-9), from the forecast step() passes in.
-//
-// Event record (state.ext.events[i], plain JSON):
-//   {id: 'e7', atS: 41520, type: 'unitTrip', args: {...}, contingency: true, warned: false}
-// atS is the grid second (0 = 04:00). Contingency events (unitTrip, linkTrip, smelterTrip)
-// trip exactly one element each: the largest credible contingency is <= 800 MW (F-13).
+// Contract: sim/README.md §11 events.js.
 
 import {V} from './params.js';
 import {STREAM, uniform, pickWith} from './rng.js';

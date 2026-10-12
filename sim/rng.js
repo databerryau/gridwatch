@@ -1,15 +1,5 @@
 // sim/rng.js: counter-based random numbers (spec F-3). Pure: no state, no Math.random.
-//
-// Every draw is a function of (seed, stream, a, b, c): the same counters always give the
-// same number, in any order, in any JS engine. Only 32-bit integer operations, one
-// division by 2^32 and additions are used, so results are bit-identical across engines
-// (risk 5). Streams:
-//   ext.*  the external world, pre-rolled at createState (weather, demand noise, events);
-//          never depends on play (C-6).
-//   play   player-dependent outcomes: hash(seed, 'play', tick, unitIndex, draw).
-//   fx     cosmetic randomness lives in render/ and audio/ only (Math.random allowed there).
-//
-// Stage A owns this file; it is frozen. Changing it changes every daily (bump SIM_VERSION).
+// Contract: sim/README.md §11 rng.js.
 
 import {V} from './params.js';
 
