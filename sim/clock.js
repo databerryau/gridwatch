@@ -91,10 +91,10 @@ export function stepReal(a, b) {
   return r;
 }
 
-// The least float g with ok(g), ok monotone, from a guess within 1e-6: exact against stepReal's own rounding
+// The least float g with ok(g), ok monotone, from a guess within CLOCK_SEARCH_S (exact)
 function least(g, ok) {
-  let e = 1e-6;
-  for (let k = 0; k < 64 && !ok(g); k++) g += e;
+  let e = V.CLOCK_SEARCH_S;
+  for (; !ok(g) && g === g; e += e) g += e;
   for (; g - e < g; e /= 2) if (ok(g - e)) g -= e;
   return g;
 }
