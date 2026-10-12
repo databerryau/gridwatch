@@ -2,6 +2,7 @@
 // Contract: desk/README.md §32.12 app/planview.js.
 
 import {V} from '../sim/params.js';
+import {darkShareAt, litMW} from '../sim/dark.js';
 
 const M = V.MACHINES, SIDS = V.STATION_IDS, NS = SIDS.length;
 export const COL_S = V.FC_STEP_S;
@@ -62,7 +63,7 @@ function earliestOnAt(obs, u, m) {
       let wait = 0;
       if (/water/.test(b)) return Infinity;
       if (/down/.test(b)) wait = Math.max(0, m.minDownS - (u.downForS || 0));
-      return s + wait + startToMin(m);
+      return Math.max(s + wait, u.outUntilS ?? -1) + startToMin(m);
     }
     default: return Infinity; // unloading / shutdown: must finish stopping, then min down
   }
@@ -87,7 +88,7 @@ function simInit(obs) {
     const x = {m, i, id: u.id, st: SIDS.indexOf(m.station), mode: u.mode, avail: u.availMW ?? m.ratingMW,
       base: u.mode === 'on' ? u.basePointMW : 0, out: 0, tEnd: s + (u.timerS || 0), from: 0, t0: s,
       upSince: u.sync ? s - (u.upForS || 0) : -Infinity, downSince: s - (u.downForS || 0), block: u.startBlock || '',
-      closeAt: -1};
+      closeAt: -1, outUntil: u.outUntilS ?? -1};
     if (u.mode === 'on') x.out = clamp(u.schedMW - (u.agcTrimMW || 0), 0, x.avail);
     else if (u.sync) x.out = u.schedMW;
     if (u.mode === 'loading') { x.from = u.schedMW; x.t0 = s; }
@@ -102,11 +103,12 @@ function simInit(obs) {
       keys: p.keys.slice().sort((a, b) => a.atS - b.atS), ki: 0, mach: ms,
       onCount: ms.filter(x => x.mode === 'on').length, limited: false};
   });
-  const starts = plan.starts.map(e => ({unit: e.unit, atS: e.atS, done: false}));
+  // (due at the unit's return: sim/grid.js startDueS)
+  const starts = plan.starts.map(e => ({unit: e.unit, atS: Math.max(e.atS, (mach.find(x => x.id === e.unit) || {}).outUntil ?? -1), done: false}));
   const stops = plan.stops.map(e => ({unit: e.unit, atS: e.atS, done: false}));
   const t = obs.tie;
   const tie = {set: t.setMW, flow: t.flowMW, tripped: t.tripped, until: s + (t.lockoutS || 0),
-    doneS: plan.tie ? plan.tie.doneS : -1, keys: plan.tie ? plan.tie.keys.slice() : [], importLim: t.importLimitMW ?? V.TIE_MAX_MW};
+    doneS: plan.tie ? plan.tie.doneS : -1, keys: plan.tie ? plan.tie.keys.slice() : [], importLim: t.importLimitMW ?? V.TIE_MAX_MW, limUntil: t.limitUntilS ?? -1};
   const b = obs.battery;
   const cap = V.BATT_MW - (b.guardMW || 0);
   const order = clamp(b.mode === 'discharge' ? b.orderMW : b.mode === 'charge' ? -b.orderMW : 0, -cap, cap);
@@ -259,13 +261,13 @@ export function project(obs, opts = {}) {
     let hydroMW = 0;
     for (const x of S.mach) if (x.st === hydroJ) hydroMW += x.out;
     S.hydro.store = Math.max(0, S.hydro.store - hydroMW * DT / S_PER_H);
-    // tie: arrive-by keys at TIE_RAMP, flow toward the clamped setpoint
-    const T = S.tie;
+    // tie: arrive-by keys at TIE_RAMP, flow toward the clamped setpoint (the limit till its end, Q-68)
+    const T = S.tie, lim = T.limUntil >= 0 && t >= T.limUntil ? V.TIE_MAX_MW : T.importLim;
     let tk = null;
     for (const q of T.keys) if (q.atS > T.doneS) { tk = q; break; }
-    if (tk && (t + Math.abs(tk.mw - T.set) / TIE_RATE >= tk.atS - EPS || tk.atS <= t)) { T.set = tk.mw; T.doneS = tk.atS; }
+    if (tk && (t + Math.abs(Math.min(tk.mw, lim) - Math.min(T.set, lim)) / TIE_RATE >= tk.atS - EPS || tk.atS <= t)) { T.set = tk.mw; T.doneS = tk.atS; }
     if (T.tripped && t >= T.until) T.tripped = false;
-    const tieTarget = T.tripped ? 0 : clamp(T.set, -expLimAt(t), T.importLim);
+    const tieTarget = T.tripped ? 0 : clamp(T.set, -expLimAt(t), lim);
     if (T.tripped) T.flow = 0;
     else T.flow = T.flow < tieTarget ? Math.min(tieTarget, T.flow + TIE_RATE * DT) : Math.max(tieTarget, T.flow - TIE_RATE * DT);
     // battery: the present order held, stopped by its energy
@@ -335,18 +337,21 @@ export function project(obs, opts = {}) {
   // stepped from the present battery ORDER (AGC's trim is not room, as in the sim). Its own
   // array, never a kind in proj.gap; from P50, not P10, in 2a.
   const rooftop = new Float64Array(n), surplusMW = new Float64Array(n);
+  // 2c (Q-69): each column's demand is the lit city's at its time, as par's
+  const p50 = new Float64Array(n), p10 = new Float64Array(n), p90 = new Float64Array(n);
   for (let q = 0; q < n; q++) {
     let sup = 0;
     for (const L of layers) sup += L.mw[q];
     supply[q] = sup - tieExp[q] - battChg[q]; // net of exports and charging (drawn as extra load)
-    load[q] = fc.demandP50[q];
     rooftop[q] = fc.rooftopMW && Number.isFinite(fc.rooftopMW[q]) ? fc.rooftopMW[q] : 0;
-    deficit[q] = fc.demandP50[q] - supply[q];
-    gap[q] = supply[q] < fc.demandP50[q] - GAP_MIN_MW ? 'red' : supply[q] < fc.demandP90[q] - GAP_MIN_MW ? 'amber' : '';
+    const D = darkShareAt(obs, times[q]);
+    load[q] = p50[q] = litMW(fc.demandP50[q], rooftop[q], D); p10[q] = litMW(fc.demandP10[q], rooftop[q], D); p90[q] = litMW(fc.demandP90[q], rooftop[q], D);
+    deficit[q] = p50[q] - supply[q];
+    gap[q] = supply[q] < p50[q] - GAP_MIN_MW ? 'red' : supply[q] < p90[q] - GAP_MIN_MW ? 'amber' : '';
     const room = tieDown[q] ? 0 : Math.min(fc.exportLimitMW ? fc.exportLimitMW[q] : V.TIE_MAX_MW, Math.max(0, -setOut[q]));
     // DR called and a battery ordered to DISCHARGE both push supply onto a grid that is already
     // full, and the sim's cut counts them (measured 350 and 200 MW low without these two terms).
-    const spill = floorOut[q] + rertOut[q] + wind[q] + solar[q] + drOut[q] + battDis[q] - (fc.demandP50[q] + room + battChg[q]);
+    const spill = floorOut[q] + rertOut[q] + wind[q] + solar[q] + drOut[q] + battDis[q] - (p50[q] + room + battChg[q]);
     surplusMW[q] = spill > 0 ? spill : 0;
     blue[q] = surplusMW[q] > V.SURPLUS_MIN_MW ? 1 : 0;
   }
@@ -355,7 +360,7 @@ export function project(obs, opts = {}) {
   const past = pastFromHist(opts.hist, pastTimes);
   return {
     s, fromS: fc.fromS, times, pastTimes, past, n,
-    p50: fc.demandP50, p10: fc.demandP10, p90: fc.demandP90,
+    p50, p10, p90,
     layers, stations: stationsOut, units: unitsOut, tie: tieOut, battery: battOut,
     exports: tieExp, charging: battChg, supply, load, deficit, gap, blue, rooftop, surplusMW,
     earliest: earliestLines(obs),
