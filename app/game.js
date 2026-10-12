@@ -37,7 +37,7 @@ export const OBJECTIVE_EVERY_S = 30;
 export const LINE_DWELL_MS = 4000;
 /** A START is "now" this many real s of the profile sooner (ctx.leadS): to read, press twice. */
 export const LINE_REACT_S = 13;
-/** Q-64, Q-73: what a sim input gets in the briefing (but AGC/HAND) and in the night roll; help, so blue. */
+/** Q-64, Q-73: a sim input's answer in the briefing (but AGC/HAND) and the night roll: help, so blue. */
 export const BRIEF_LOCK = 'Take the desk first: Enter.',
   NIGHT_LOCK = 'The night shift has the desk: it stands down what the night does not need. Your day is scored at 04:00.';
 export const isLock = r => r === BRIEF_LOCK || r === NIGHT_LOCK;
@@ -389,16 +389,11 @@ export function runTo(game, tick) {
 
 // ------------------------------------------------------------------ the briefing (D-7)
 
-/**
- * TAKE THE DESK: the 04:00-04:30 settling runs headless, the briefing's items become tray cards,
- * and the clock starts on the profile. AGC or HAND (D-7) is the sim's mode, chosen in the briefing
- * by 'mode' inputs (Q-64); the sim locks it at 04:30.
- */
+/** TAKE THE DESK: 04:00-04:30 runs headless, the briefing's items become tray cards (Q-81), the clock starts. AGC/HAND is the sim's mode (Q-64). */
 export function takeDesk(game) {
   if (game.phase !== 'briefing') return false;
   runTo(game, V.PLAYER_START_TICK);
-  // Q-81: one card per briefing item, one ring. TODO(2c-w2-merge): the guard goes once desk's trayBriefing is in.
-  if (T.trayBriefing) for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c);
+  if (T.trayBriefing) for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c); // TODO(2c-w2-merge): the guard goes once desk's is in
   game.phase = 'play';
   game.director.paused = game.startPaused;
   game.director.held = game.ui.alarmsOpen; // Q-46: an alarm panel opened in the briefing holds the clock now
@@ -625,12 +620,7 @@ export function restorePreview(game, districtId) {
 
 // ------------------------------------------------------------------ the view model (desk/README.md §5)
 
-/**
- * K-12, Q-78 (§32.4.8): why the bay offers a unit reaching full speed now. 'respond': D-5's window
- * (obs.inRespond), once per contingency; 'tight' (TIGHT or worse) or 'peak' (D-2's Peak): one of them
- * a day; at most MAX_OFFERS in all, none from 21:00. tally {n: offers today, extra: tight or peak
- * offers today, contN: the contingency the last 'respond' offer was for (-1 none)}.
- */
+/** K-12, Q-78 (§32.4.8; the tally: §32.12 app/game.js): why the bay offers a unit reaching full speed now, or ''. */
 export function offerWhy(obs, tally) {
   if (tally.n >= MAX_OFFERS || obs.s >= NIGHT_S) return '';
   if (obs.inRespond && obs.contingency.n !== tally.contN) return 'respond';
@@ -668,12 +658,7 @@ export function holdLine(shown, next, nowMs, shownMs, fresh) {
 // A new ask to act: at FAST it ends FAST, as an alarm does, and shows at once.
 export const newAsk = (shown, next) => !!next && !!next.action && LEVELS.indexOf(next.level) > 1 && JSON.stringify(next.action) !== JSON.stringify(shown && shown.action);
 
-/**
- * Q-63: the objective line is due at grid second s in director mode `mode`: 'news' when the watch,
- * the card, RESPOND, RESTORE, NIGHT or OVER came or went (not Space), true once grid time has moved
- * max(OBJECTIVE_EVERY_S, the profile's rate x OBJ_EVERY_REAL_S), else false. buildVm and
- * tests/lib/play.js both ask it.
- */
+/** Q-63: the objective line is due at grid second s in director mode `mode` ('news', true or false; buildVm and tests/lib/play.js). */
 export function objectiveDue(game, s, mode) {
   if (game.objectiveMode !== mode && /WATCH|RESPOND|RESTORE|NIGHT|OVER/.test(mode + game.objectiveMode)) return 'news';
   return s - game.objectiveS >= Math.max(OBJECTIVE_EVERY_S, rateAt(s, game.state.control.handFlown) * V.OBJ_EVERY_REAL_S) || s < game.objectiveS;

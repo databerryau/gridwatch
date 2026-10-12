@@ -71,9 +71,8 @@ export function createDirector(opts) {
   };
 }
 
-// Q-73: a night scenario's roll (from NIGHT_S); a contingency in it is logged only (no watch, card or RESPOND)
+// Q-73: tick t is in a night scenario's roll; the latest contingency record, unless it fell in it
 const nightAt = (state, t) => !!state.scn.night && t >= NIGHT_T;
-// The latest contingency record, unless the night roll keeps it off the screen
 function latest(state) {
   const c = state.contIdx < 0 ? null : state.conts[state.contIdx];
   return c && !nightAt(state, c.startTick) ? c : null;
@@ -116,8 +115,7 @@ function focusing(d, state) {
   const sc = state.scope;
   return (sc !== undefined && sc !== null && sc.unit !== '' && sc.unit !== undefined) || state.tick < d.focusUntilTick;
 }
-// Q-70: RESTORE's rate inside a task feeder's window (its allowed second, market.restoreAllowedS, until
-// it is closed or RESTORE_PACE_MAX_S), else 0. 10x until this browser has closed one (seen.restore).
+// Q-70: RESTORE's rate in a task feeder's window, else 0
 function restoring(d, state) {
   const ds = state.city.districts, s = state.tick / TPS;
   if (!d.game || s >= NIGHT_S) return 0;
@@ -134,10 +132,8 @@ function contCount(state) {
 function fastNow(d, state) {
   return d.game && d.fast && d.fastN === contCount(state);
 }
-// CRUISE: the D-2 profile, eased (Q-62), halved in HAND before 21:00 (Q-64); the bench's flat speed.
-// rateAt is asked only inside an ease: between two, its flat stretch is kept (d.flat; the ease's
-// half-width as sim/clock.js computes it), so a tick at 2,100x costs no search.
-const ease = (k, hand) => { const a = targetRate(SEGMENTS[k - 1].a, hand), b = targetRate(SEGMENTS[k].a, hand); return V.CLOCK_EASE_REAL_S * a * b / (a + b); };
+// CRUISE: the D-2 profile (Q-62, Q-64); between two eases its flat stretch is kept (d.flat), the bench's flat speed
+const ease =(k, hand) => { const a = targetRate(SEGMENTS[k - 1].a, hand), b = targetRate(SEGMENTS[k].a, hand); return V.CLOCK_EASE_REAL_S * a * b / (a + b); };
 function cruise(d, state) {
   if (!d.game) return d.speed;
   const s = state.tick / TPS, hand = state.control.handFlown, f = d.flat;
@@ -183,7 +179,7 @@ export function rateOfLastTick(d, state) {
  * What the rate badge shows (F-5: the rate is always visible).
  * @returns {{mode:'OVER'|'HIDDEN'|'ALARMS'|'PAUSE'|'WATCH'|'RESPOND-CARD'|'FOCUS'|'RESTORE'|'RESPOND'|'NIGHT'|'FAST'|'CRUISE'|'DEBUG',
  *   rate:number, watchS:number, locked:boolean, watchVersion:'full'|'compact'|null}} (+ canSkip, below; segment, act, night: §32.4.8)
- *   rate: rateOf's, but CRUISE, NIGHT and FAST show the segment's target (Q-63: never a number counting through an ease);
+ *   rate: rateOf's, but the segment's target in CRUISE, NIGHT and FAST (Q-63);
  *   watchS: grid seconds since the contingency (-1 outside a watch); locked: desk locked (K-15);
  *   watchVersion: the version of the watch in progress (null outside one or while skipped).
  */
@@ -288,10 +284,7 @@ export function dismissCard(d, state) {
   return true;
 }
 
-/**
- * A restore input was accepted: FOCUS (1x) for RESTORE_FOCUS_S grid seconds. The first of a task
- * feeder (clearS >= 0) sets seen.restore (Q-70); returns true when `d.seen` changed (save it).
- */
+/** A restore input was accepted: FOCUS (1x) for RESTORE_FOCUS_S grid s; true when it set seen.restore (Q-70: save it). */
 export function focusRestore(d, state, id) {
   d.focusUntilTick = state.tick + RESTORE_FOCUS_S * TPS;
   const x = id && state.city.districts.find(y => y.id === id);
