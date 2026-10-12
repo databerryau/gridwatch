@@ -475,6 +475,9 @@ to 435).
   operator's to restore. At stage A it is bookkeeping only: physics, the market, SHEDDING and the
   restore permissive treat a task district as any dark district until wave 1 (`grid`) gives it its
   semantics (held MW excluded from unserved, `heldMWh`, the gate, the books from `clearS`).
+  Physics' preview backup does not copy `heldFrac` yet (wave 1's `grid` adds it, §32.6.2), so a
+  preview that darkens or relights a district on a day with a held district moves it; no stage-A
+  day has one (only `tests/lib/inject.js` puts a `feederOut` on a day).
   `balanceOpening` balances lit demand (`fleet.litDemandMW`), so feeders dark from 04:00 open the
   day balanced (§11 step.js).
 * `ufls.timerS[8]`, `ufls.operated[8]`: physics (timers; `fleet.operateUfls` darkens both
@@ -1575,8 +1578,9 @@ blocks alone exceed it, on the floor; the automatic cut never moves it (P-5).
 `preDispatch(obs) -> plan` (with `plan.load`, its planLoad input), `planUpdates(obs, memo, tags?,
 opts?) -> Input[]`, `createAutopilot(opts) -> memo`, `decide(obs, memo) -> Input[]` (<= 1),
 `replan(obs, memo) -> planLoad|null` (the player's RE-PLAN / RE-DISPATCH), `refRealSeconds(fromS,
-toS, conts)`, `runPar(seed, scenario, opts) -> {score, summary, log, origins, hashes, black, plan,
-state, memo}`, and (2b) `aimFlex(fc, lv, id, lever) -> atS | -1`, the pure aim of desk/README.md
+toS, conts, clears = [])` (`clears` unused until wave 2: Q-70's RESTORE segments), `runPar(seed,
+scenario, opts) -> {score, summary, log, origins, hashes, black, plan, state, memo}`, and (2b)
+`aimFlex(fc, lv, id, lever) -> atS | -1`, the pure aim of desk/README.md
 §31.3.10 that par, the card and the objective share, with `aimLineMW(fc, lv, id, lever, k)`, the line
 it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the details. The contract:
 

@@ -324,7 +324,7 @@ export function tripSmelter(state, offS, out) {
  * back, so a restore picks up the full underlying load first. Then refreshRoof, also when
  * physics calls mid-second (a UFLS stage).
  * Reads: tick, city, env.{roofSubMW, flexSubMW}. Writes: districts[d].{dark, shedBy, darkSinceS, restoredAtS,
- * reconnectS}, city.shedFrac, and what refreshRoof writes.
+ * reconnectS}, city.shedFrac, and what refreshRoof and refreshHeld (city.heldFrac) write.
  */
 export function setDistrictDark(state, d, dark, why) {
   const city = state.city, dist = city.districts[d];

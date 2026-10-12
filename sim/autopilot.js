@@ -177,6 +177,7 @@ function respondEnd(c) {
  * @param {number} fromS
  * @param {number} toS
  * @param {Array<{startS:number, watchEndS:number, backInBandS:number}>} conts obs.contingencies
+ * @param {Array<{fromS:number, toS:number}>} [clears] unused until wave 2 (Q-70's RESTORE segments)
  * @returns {number}
  */
 export function refRealSeconds(fromS, toS, conts, clears = []) { // eslint-disable-line no-unused-vars
