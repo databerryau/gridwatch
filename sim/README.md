@@ -2364,7 +2364,10 @@ seconds: 0 = 04:00, `DAY_S` = 04:00 next day.
 Every mode change of the rate director (watch, card, RESPOND, RESTORE, FOCUS, PAUSE, FAST,
 ALARMS) is instant: the ease is only between profile segments. From wave 2 the director, the D-8
 leads, the objective's reading lead, the tray's card life and the stack's cadence read this
-module. `tests/clock.test.js` checks it with no state stepped.
+module. `tests/clock.test.js` checks it with no state stepped. `app/director.js` keeps the flat
+stretch between two eases instead of asking `rateAt` every tick, with the ease's half-width
+computed as here (`CLOCK_EASE_REAL_S` r1 r2 / (r1 + r2)): a change to the ease's shape changes both
+(`tests/clock-director.test.js` plays the day through it against `realBetween`).
 
 ### dark.js (2c, stage A; desk/README.md §32.4.2)
 

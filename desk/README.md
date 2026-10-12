@@ -4327,25 +4327,51 @@ URL query: ?seed=N or ?date=YYYY-MM-DD (default: today's daily, content/dailies.
 app/director.js: chooses the playback rate (spec F-5, K-15, K-16, D-6). The sim never does.
 
 Modes (desk/README.md §2), precedence OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD >
-FOCUS > RESPOND > FAST > CRUISE:
-  CRUISE        a flat 120x (the D-2 profile arrives in Phase 2)
-  FAST          3 x CRUISE while F is held; it ends on F up, a new P1/P2 alarm, a watch, the
-                respond card, RESPOND or FOCUS (the game calls endFast / the frame clears it)
+FOCUS > RESTORE > RESPOND > NIGHT > FAST > CRUISE (§32.4.8):
+  CRUISE        the D-2 profile (slice 2c, Q-62/Q-63): sim/clock.js rateAt(s, hand), eased over 2 real
+                s at each interior boundary, halved from 04:30 to 21:00 when state.control.handFlown
+                (HAND, Q-64). Between two eases rateAt is flat, so the director keeps that stretch
+                (d.flat: its ends are each boundary +- the ease's half-width, EASE r1 r2 / (r1 + r2),
+                the formula sim/clock.js uses) and asks rateAt only inside an ease: rateOf runs
+                between every two ticks, 1,750 times a frame at 2,100x.
+  FAST          3 x CRUISE while F is held. Refused (setFast) and ended (directorFrame) in WATCH,
+                the card, RESPOND, FOCUS, ALARMS, RESTORE and NIGHT (NO_FAST); it also ends on F up,
+                a new contingency, a new P1/P2 alarm, a new ask (app/game.js newAsk) and every new
+                tray card that rings (app/game.js handleRecords: a 'ring2' from T.trayRecords; MSL1
+                and the other information cards do not ring), so FAST never runs past a warning
   WATCH         K-15 over the first WATCH_S grid-seconds after a contingency: full 0.15x / 1x /
                 10x over 0-3 / 3-10 / 10-30 s, compact 0.5x / 2x / 20x. The desk is locked (the
                 sim refuses inputs). SKIP plays the rest of that watch at CRUISE.
   RESPOND-CARD  rate 0 from the watch's end until the card is dismissed (Enter or any desk
                 input): the only hold on the clock besides PAUSE (K-16)
   RESPOND       30x from the card's dismissal until frequency is back in 49.85-50.15 Hz
-                (contingency.backInBandTick >= 0) or 5 grid-min after the card, then CRUISE
+                (contingency.backInBandTick >= 0) or 5 grid-min after the card, then the profile
   FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
                 a restore input (the breaker being closed, K-13)
+  RESTORE       Q-70: in each task feeder's window, from its allowed second (sim/market.js
+                restoreAllowedS, the one rule: the later of its clearS and the last restore +
+                RESTORE_INTERVAL_S) until it is closed (no longer dark) or RESTORE_PACE_MAX_S
+                (300 grid-s), while it is dark with shedBy 'task' and before 21:00: 30x
+                (RESTORE_PACE_RATE), or 10x (RESTORE_FIRST_RATE) until this browser has closed a
+                task feeder (d.seen.restore, set by focusRestore(d, state, id) on the first
+                accepted restore of a district with clearS >= 0, saved with seen.watch). A pace,
+                not a hold (K-16): with no input a hand-back costs 10 real s against 1.1 s at 270x.
+  NIGHT         Q-73, on a night scenario (scn.night) from NIGHT_S (21:00): the profile (2,100x,
+                eased into from PEAK EASING's 300x), no FAST. A contingency that starts in it is
+                logged only: no watch, card or RESPOND (latest() leaves it out), so the roll is
+                never held. (The view's night is obs.nightShift, never modeOf().night.)
   PAUSE         Space; a hidden tab (HIDDEN); the day's end (OVER)
   ALARMS        rate 0 while the alarm panel holds the clock (d.held, Q-46); d.paused is untouched
   DEBUG         the bench's speed selector (bench.html only): any speed other than CRUISE
 
+modeOf also returns segment (the D-2 segment's name, Q-78), act (sim/clock.js actAt: 0 before
+04:30, 1-3, 4 the night roll) and night; its `rate` is rateOf's except in CRUISE, NIGHT and FAST,
+where it is the segment's target (x3 in FAST): the badge never shows a number counting through an
+ease (Q-63), and the loop reads rateOf.
+
 A director made with {game: true} runs every mode above; without it (the bench) it is the
-Phase 0.2 director: CRUISE/DEBUG, the full watch, PAUSE, and nothing that holds the clock.
+Phase 0.2 director: a flat CRUISE (FLAT_RATE 120x) or DEBUG, the full watch, PAUSE, and nothing that
+holds the clock; its segment is '' and its act 0.
 
 Watch version (K-15): full the first time ever and on anything new (the first UFLS operation
 seen, the first HIGH RoCoF); otherwise compact. The version is chosen on the watch's first
@@ -4381,6 +4407,32 @@ redispatch) and `planview` (app/planview.js: glowSet). Without them the game sti
 automatic plan (a no-input day then needs the player), and a simple fallback glow set.
 ```
 
+Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
+- **The briefing's AGC/HAND is the sim's mode** (`state.control.mode`). While `phase ===
+  'briefing'` sendInput applies `{type: 'mode'}` inputs (the card's AGC/HAND buttons, the desk's AGC
+  key) and answers every other sim input with `BRIEF_LOCK`, "Take the desk first: Enter."; the
+  card's buttons draw from `obs.mode` (app/shell.js). `takeDesk(game)` takes no mode: it runs
+  04:00-04:30 headless, makes the briefing's tray cards (`T.trayBriefing`, one ring) and opens the
+  desk. The sim tags `control.handFlown` at 04:30, so HAND then AGC is an AGC day.
+- **The night lock:** once the sim has set `control.nightShift` (21:00 on a night scenario),
+  sendInput and redispatch answer `NIGHT_LOCK` ("The night shift has the desk: it stands down what
+  the night does not need. Your day is scored at 04:00."); presentation (`ui`: views, pause, ACK,
+  volume) stays open. Both locks are help, so the shell's toast shows them blue (`isLock`).
+- **The line's cadence** is `objectiveDue(game, s, mode)`: 'news' when the watch, the card, RESPOND,
+  RESTORE, NIGHT or OVER came or went (not Space), else due once grid time has moved max(30 s, the
+  profile's `rateAt` x `OBJ_EVERY_REAL_S` 0.4 real s): 216 grid-s at 540x, 60 at 150x, the 30-s
+  floor at HAND's 75x. tests/lib/play.js asks the same function. Its reading lead is
+  `clock.gridAfter(s, LINE_REACT_S, hand) - s`: 13 real s of the profile (about two grid-hours at
+  540x, so a START due before about 06:30 is asked on the held desk at 04:30: Q-18's held start is
+  its reading time).
+- **FAST** is released by every tray card that rings: `handleRecords` (exported for tests) ends it
+  on a 'ring2' from `T.trayRecords`.
+- **The scope offer (K-12, Q-78):** `offerWhy(obs, tally)` returns 'respond' inside D-5's window
+  (`obs.inRespond`) once per contingency, else 'tight' (TIGHT or worse) or 'peak' (D-2's Peak,
+  `clock.PEAK`, 16:30-20:00) once a day between them, never past `MAX_OFFERS` in all or from 21:00.
+  `tally = {n, extra, contN}`: offers made today, 'tight' or 'peak' offers made today, and the n of
+  the contingency the last 'respond' offer was for (-1 none); `game.tally` keeps the page's.
+
 #### app/loop.js
 
 ```text
@@ -4395,7 +4447,8 @@ budget. The rules this file guarantees (tests/loop.test.js):
   * a lagging frame (cap or budget hit) slows play: the time it could not run is dropped,
     never the ticks, so play resumes at its rate from the next frame instead of spiralling;
   * when the rate changes between two ticks (a contingency opens the watch, a watch
-    segment ends), the time still owed is converted to the new rate at once, so the
+    segment ends; from 2c every tick of a D-2 ease, so a frame's real time is the
+    profile's integral over its ticks), the time still owed is converted to the new rate at once, so the
     watch's 0.15x segment starts at once, not a frame later. A contingency is known only
     after the tick that opened it (a pre-rolled trip happens inside step()), so that tick
     was charged at the old rate; rateLast() lets the loop re-charge it at the watch rate
@@ -4775,6 +4828,12 @@ render/format.js: plain-text formatting for the bench (numbers, clock, event rec
 Pure and DOM-free (tests import it). Wording for the desk moves to content/text.js in
 Phase 1a (README §7); the bench shows the sim's own record text.
 ```
+
+Slice 2c (Q-78): the rate badge names the D-2 segment in CRUISE and NIGHT ("PEAK 150×", in HAND
+"PEAK 75×", "NIGHT ROLL 2,100×"), from `modeOf().segment` and its target `rate`; a mode object
+without a segment (the bench, fixtures) still reads "CRUISE 120×". `badgeTitle(m)` names the act
+(`ACT_TITLES[m.act]`, D-1's four acts in words; '' before 04:30) for the badge's title: the shell
+sets it (`#rate-badge` title, app/shell.js drawHeader, wave 3).
 
 #### render/mapdata.js
 
