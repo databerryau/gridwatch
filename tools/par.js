@@ -32,6 +32,11 @@
 // 2b (desk/README.md §31.6, S-14 rules 1 and 5): each row also carries soakDays and airconDays (1
 // when the proxy booked any block of that lever), soakMWh and reliefMWh (the booked cores' energy,
 // effMW x (block length - FLEX_RAMP_S)) and flexDollars (score.cost.flex: the air-con payments).
+// 2c (desk/README.md §32.7.1, Q-69, Q-73): a clean day is market.isClean (a task feeder's lag never
+// makes a day unclean); each row carries the restore task's MWh (taskMWh, the operator's from the
+// hand-back; heldMWh, the network's; lateMWh, past the pace) and S-6's PERFECT; the weather is the
+// regime's class (heat, storm, drought, calm on the game's days); actions count the log's rule
+// origins, the night memo's (nightActions) among them.
 'use strict';
 const path = require('path');
 const {fork} = require('child_process');
@@ -75,11 +80,12 @@ const hhmm = (V, tick) => {
 };
 
 async function sim() {
-  const [ap, step, params, scen, grid, helpers, market] = await Promise.all([load('sim/autopilot.js'), load('sim/step.js'), load('sim/params.js'),
-    load('content/scenarios.js'), load('sim/grid.js'), load('tests/lib/sim-helpers.js'), load('sim/market.js')]);
+  const [ap, step, params, scen, grid, helpers, market, clock] = await Promise.all([load('sim/autopilot.js'), load('sim/step.js'), load('sim/params.js'),
+    load('content/scenarios.js'), load('sim/grid.js'), load('tests/lib/sim-helpers.js'), load('sim/market.js'), load('sim/clock.js')]);
   isClean = market.isClean;
+  isPerfect = market.isPerfect;
   return {runPar: ap.runPar, createState: step.createState, step: step.step, V: params.V, getScenario: scen.getScenario,
-    security: grid.security, injectTrip: helpers.injectTrip};
+    security: grid.security, injectTrip: helpers.injectTrip, NIGHT_S: clock.NIGHT_S};
 }
 
 // H-8 containment probe (--probe), as tools/baseline-v4.js parDay measures it: at most one SECURE
@@ -114,7 +120,7 @@ function runOne(S, scenario, seed, proxy, withActions, probe) {
   const t0 = process.hrtime.bigint();
   const r = S.runPar(seed, scenario, {proxy, onStep: st => {
     const t = st.tick;
-    if (firstShed < 0 && t % TPS === 1 && st.city.shedFrac > 0) firstShed = t;
+    if (firstShed < 0 && t % TPS === 1 && st.city.shedFrac - st.city.heldFrac > 1e-9) firstShed = t; // (2c: held task feeders are the network's)
     if (t % TPS !== 0 || st.over) return;
     // A completed grid second (as tools/baseline-v4.js samples it): state.price is its price.
     if (st.env.demandMW < minDemandMW) { minDemandMW = st.env.demandMW; minDemandTick = t; }
@@ -158,11 +164,16 @@ function runOne(S, scenario, seed, proxy, withActions, probe) {
   const rule4Stops = r.log.filter((x, i) => x.type === 'stop' && r.origins[i] === 'rule4');
   const blocks = st.levers.blocks, has = lever => (blocks.some(b => b.lever === lever) ? 1 : 0);
   const coreMWh = (lever, S) => blocks.reduce((a, b) => a + (b.lever === lever ? b.effMW * (S - V.FLEX_RAMP_S) / V.S_PER_H : 0), 0);
+  const night = r.log.findIndex(x => x.tick > S.NIGHT_S * TPS);
   const row = {
     seed, proxy, scenario: scenario.id, weather: st.ext.regime.cls, day: dayType(st), black: r.black, endsAt: hhmm(V, st.tick),
     unservedMWh: sc.unservedMWh, uflsMWh: sc.uflsMWh, directedMWh: sc.directedMWh, firstShed: firstShed < 0 ? '' : hhmm(V, firstShed),
+    // 2c (Q-69): the restore task's MWh: the operator's (from the hand-back), the network's (held) and the late part (S-6 PERFECT)
+    taskMWh: sc.taskMWh || 0, heldMWh: sc.heldMWh || 0, lateMWh: sc.taskLateMWh || 0, perfect: isPerfect(sc, r.black),
     rert: count('armRERT') > 0, drCalls: count('callDR'), costDollars: r.summary.costDollars, centsPerKWh: r.summary.centsPerKWh,
-    co2tPerMWh: r.summary.co2tPerMWh, trips: st.conts.length, starts: sc.starts, actions: r.memo.actions,
+    // the discrete actions from the log (2c: memo.actions restarts with the night memo at 21:00, Q-73)
+    co2tPerMWh: r.summary.co2tPerMWh, trips: st.conts.length, starts: sc.starts, actions: r.origins.filter(o => /^rule/.test(o)).length,
+    nightActions: night < 0 ? 0 : r.origins.slice(night).filter(o => /^rule/.test(o)).length,
     planInputs: r.origins.filter(o => o === 'plan').length, replanInputs: r.origins.filter(o => o === 'replan').length, secs,
     // Phase 2a (desk/README.md §21.3). The automatic cut is the dispatch's own (C-6; wind after OFGS);
     // score.spillMWh also holds the manual LIMIT and the inverters' over-frequency back-off (C-7).
@@ -245,8 +256,9 @@ const f3 = x => (Number.isFinite(x) ? x.toFixed(3) : '-');
 const median = xs => { const s = xs.slice().sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
 const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const pct = (k, n) => (n ? (100 * k / n).toFixed(1) + '%' : '-');
-// Q-69's clean day: not black, no UFLS or directed shedding (a task feeder's lag is not): market.isClean, set by sim().
-let isClean = null;
+// Q-69's clean day: not black, no UFLS or directed shedding (a task feeder's lag is not): market.isClean, set by sim();
+// S-6's PERFECT (clean, and every handed-back feeder closed in its pace): market.isPerfect.
+let isClean = null, isPerfect = null;
 
 function table(rows, cols) {
   const w = cols.map(c => Math.max(c[0].length, ...rows.map(r => String(c[1](r)).length)));
@@ -273,7 +285,10 @@ function summary(title, rows) {
     ['rule 4 stops (coal / gas, all seeds)', sum('coalStops') + ' / ' + sum('gasStops') +
       (sum('coalStops') ? '; coal on seeds ' + rows.filter(r => r.coalStops).map(r => r.seed).join(', ') : '')],
     ['rule 6 charge orders (mean per day)', f2(mean(rows.map(r => r.charges)))],
-    ['discrete actions (mean per day)', f1(mean(rows.map(r => r.actions))) + '; rule 7 ' + f1(mean(rows.map(r => r.byRule.rule7 || 0)))],
+    ['discrete actions (mean per day)', f1(mean(rows.map(r => r.actions))) + '; rule 7 ' + f1(mean(rows.map(r => r.byRule.rule7 || 0))) +
+      '; from 21:00 ' + f1(mean(rows.map(r => r.nightActions)))],
+    ['task / held / late MWh (mean; Q-69)', f1(mean(rows.map(r => r.taskMWh))) + ' / ' + f1(mean(rows.map(r => r.heldMWh))) + ' / ' + f2(mean(rows.map(r => r.lateMWh))) +
+      '; PERFECT (S-6) ' + rows.filter(r => r.perfect).length + ' (' + pct(rows.filter(r => r.perfect).length, n) + ')'],
     ['soakDays / airconDays (S-14 rules 1, 5)', sum('soakDays') + ' / ' + sum('airconDays') +
       (sum('soakDays') + sum('airconDays') ? '; seeds ' + rows.filter(r => r.soakDays || r.airconDays).map(r => r.seed).join(', ') : '')],
     ['soakMWh / reliefMWh / flexDollars (all seeds)', f1(sum('soakMWh')) + ' / ' + f1(sum('reliefMWh')) + ' / $' + Math.round(sum('flexDollars'))],
@@ -381,6 +396,7 @@ async function main() {
     console.log(`\n${o.proxy} on ${scenario.id}` + (o.heat ? ', forced-heatwave seeds' : '') + ` (SIM ${(await load('sim/params.js')).SIM_VERSION})`);
     const cols = [['seed', r => r.seed], ['weather', r => r.weather], ['day', r => r.day], ['black', r => (r.black ? 'BLACK ' + r.endsAt : '')],
       ['unservedMWh', r => f1(r.unservedMWh)], ['ufls', r => f1(r.uflsMWh)], ['directed', r => f1(r.directedMWh)], ['firstShed', r => r.firstShed],
+      ['task', r => f1(r.taskMWh)], ['held', r => f1(r.heldMWh)], ['late', r => f2(r.lateMWh)],
       ['RERT', r => (r.rert ? 'yes' : '')], ['DR', r => r.drCalls], ['c/kWh', r => f3(r.centsPerKWh)], ['tCO2/MWh', r => f3(r.co2tPerMWh)],
       ['minDem', r => f1(r.minDemandMW) + ' ' + r.minDemandAt], ['neg h', r => f2(r.negPriceH)], ['spill', r => f1(r.spillMWh)], ['auto', r => f1(r.autoSpillMWh)],
       ['maxHz', r => f3(r.maxHz)], ['MSL', r => r.msl || ''], ['coalStop', r => r.coalStops || ''],

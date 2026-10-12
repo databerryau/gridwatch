@@ -8,6 +8,11 @@ import {DAILIES, seedOf, ymdOf, scenarioIdOf, dailyFor} from '../content/dailies
 import {DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import * as G from '../app/game.js';
 import * as St from '../sim/step.js';
+import {createRequire} from 'node:module';
+import {readFileSync} from 'node:fs';
+import {createState} from '../sim/step.js';
+import {isClean} from '../sim/market.js';
+import {V} from '../sim/params.js';
 
 const empty = !DAILIES.from;
 const days = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
@@ -87,6 +92,51 @@ test('Q-75: the shipped list is {v, from, to, attempts}, stamped with this build
 // Q-75's stamp hashes what the sim hashes (createState's scnHash: the data without its src/note prose).
 test('Q-75: the stamp is SIM_VERSION and the scenario hashes the sim records', () => {
   assert.equal(G.dailyStamp(), [St.SIM_VERSION, St.createState(1, DESK).scnHash, St.createState(1, DESK_WEEKEND).scnHash].join('|'));
+});
+
+// tools/daily-gen.js (wave 2, par): its pure parts. No day is played here.
+const DG = createRequire(import.meta.url)('../tools/daily-gen.js');
+
+test('Q-75 / D-9: the gate is the bound AND isClean: a task feeder\'s lag never rejects a date; UFLS, directed shedding, black or a short minute do', () => {
+  const sc = o => Object.assign({uflsMWh: 0, directedMWh: 0, taskMWh: 12, taskLateMWh: 3, heldMWh: 700}, o);
+  assert.equal(DG.gate({shortMin: 0, score: sc(), black: false}, isClean), true, 'par\'s own restore lag (task and late MWh) passes');
+  assert.equal(DG.gate({shortMin: 0, score: sc({uflsMWh: 0.01}), black: false}, isClean), false);
+  assert.equal(DG.gate({shortMin: 0, score: sc({directedMWh: 5}), black: false}, isClean), false);
+  assert.equal(DG.gate({shortMin: 0, score: sc(), black: true}, isClean), false);
+  assert.equal(DG.gate({shortMin: 1, score: sc(), black: false}, isClean), false, 'one minute below the bound');
+  assert.equal(DG.CAP, 40);
+});
+
+test('D-9 (1): the optimistic bound counts every machine not tripped and not on outage, the tie at its limit, the battery, diesel, DR, wind and solar, and air-con at rated MW in its window on a day that offers it; against demand before booked flex', () => {
+  const s = createState(20261008, DESK); // MILD: no air-con; CCGT 2 on outage until 06:45
+  const fixed = V.BATT_MW + V.RERT_MW + V.DR_MW + s.env.windAvailMW + s.env.solarAvailMW;
+  const units = x => x.units.reduce((a, u) => a + (u.mode === 'tripped' || u.outUntilS > x.tick / V.TICKS_PER_S ? 0 : u.availMW), 0);
+  assert.ok(s.units.some(u => u.outUntilS > 0), 'the fixture has a late return');
+  assert.deepEqual(DG.bound(s, V), {boundMW: fixed + s.tie.limitMW + units(s), demandMW: s.env.demandMW - s.env.flexMW});
+  const t = JSON.parse(JSON.stringify(s));
+  Object.assign(t.tie, {tripped: true}); t.units[0].mode = 'tripped'; t.env.flexMW = 140;
+  assert.deepEqual(DG.bound(t, V), {boundMW: fixed + units(t), demandMW: t.env.demandMW - 140});
+  // a HOT day offers air-con: its rated MW inside the window only
+  const hot = createState(20261013, DESK), rated = DESK.levers.suburbs.reduce((a, x) => a + x.airconMW, 0);
+  assert.equal(hot.day.temp, 'HOT');
+  const at = (x, s0) => Object.assign(JSON.parse(JSON.stringify(x)), {tick: s0 * V.TICKS_PER_S});
+  assert.equal(DG.bound(at(hot, V.AIRCON_FROM_S), V).boundMW - DG.bound(at(hot, V.AIRCON_FROM_S - 1), V).boundMW, rated);
+  assert.equal(DG.bound(at(hot, V.AIRCON_TO_S), V).boundMW, DG.bound(at(hot, V.AIRCON_FROM_S - 1), V).boundMW);
+});
+
+test('Q-75: daily-gen writes exceptions only, stamped with this build: the written module reads back as the list, gated under G.dailyStamp()', async () => {
+  const rows = [{ymd: 20261012, k: 0}, {ymd: 20261014, k: 3}, {ymd: 20261013, k: 1}];
+  const L = DG.listOf(rows, '2026-10-12', '2027-10-11', G.dailyStamp());
+  assert.deepEqual(L, {v: G.dailyStamp(), from: '2026-10-12', to: '2027-10-11', attempts: {20261013: 1, 20261014: 3}});
+  const src = readFileSync(new URL('../content/dailies.js', import.meta.url), 'utf8');
+  for (const list of [L, EMPTY, Object.assign({}, L, {attempts: Object.fromEntries(Array.from({length: 20}, (_, i) => [20261020 + i, 1 + i % 5]))})]) {
+    const text = DG.writeList(src, list);
+    assert.equal(text.split('\n').slice(1).join('\n').replace(/^export const DAILIES[\s\S]*?\};\n/m, ''), src.split('\n').slice(1).join('\n').replace(/^export const DAILIES[\s\S]*?\};\n/m, ''), 'the rest of the file is kept');
+    const mod = await import('data:text/javascript,' + encodeURIComponent(text));
+    assert.deepEqual(mod.DAILIES, list);
+    assert.deepEqual(Object.keys(mod.DAILIES), ['v', 'from', 'to', 'attempts']);
+    if (list.from) assert.deepEqual(mod.dailyFor('2026-10-14', G.dailyStamp()), {seed: seedOf(20261014, list.attempts[20261014] || 0), scenarioId: 'desk', gated: true, ymd: 20261014});
+  }
 });
 
 test('Q-75: the shipped list\'s shape (always)', () => {
