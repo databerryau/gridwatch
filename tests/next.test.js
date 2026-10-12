@@ -27,6 +27,7 @@ import * as PVW from '../app/planview.js';
 import {LINE_MAX_CHARS} from '../app/objective.js';
 import {REDISPATCH_AFTER as FOLLOWER_REDISPATCH_AFTER} from './lib/follow.js';
 import {TEXT} from '../content/text.js';
+import {ALARM_HELP} from '../content/alarmhelp.js';
 import * as alarmPanel from '../app/alarmpanel.js';
 import * as endCard from '../app/endcard.js';
 import * as suburbCard from '../app/suburbcard.js';
@@ -644,7 +645,7 @@ test('K-16 model: every number on the card equals the record (and so the trace)'
   for (const id of fb) assert.match(id, /^(guard-start-[a-z]+\d|dial-battery|knob-tie)$/);
 });
 
-test('Q-69 on the RESPOND card: a held task feeder is the network\'s outage (not counted dark, no RESTORE glow); handed back and still dark it is the operator\'s', () => {
+test('Q-69 on the RESPOND card and the UFLS explainer: a held task feeder is the network\'s outage (not counted dark, no RESTORE glow); handed back and still dark it is the operator\'s', () => {
   const game = G.createGame({seed: 20261007, scenario: DESK, storage: null});   // RED5 and RED7 held from 04:00 until 07:15 and 06:45
   G.takeDesk(game);
   injectTrip(game.state, V.PLAYER_START_S + 3600);
@@ -659,6 +660,7 @@ test('Q-69 on the RESPOND card: a held task feeder is the network\'s outage (not
   Object.assign(u, {dark: true, shedBy: 'ufls'});
   shed.sec.level = 'SHEDDING';
   assert.equal(W.respondCard(shed, c, {glow: []}).lines[2], 'SHEDDING: 1 districts dark (' + Math.round(u.coldLoadMW) + ' MW). Restore when the lamp lights.');
+  assert.ok(ALARM_HELP.ufls.reading(shed).startsWith('districts dark: 1 · '), 'the UFLS explainer\'s reading counts as its MW do');
   // one handed back (its clearS reached, test poke): the operator's to restore
   const back = structuredClone(obs), r = back.districts.find(d => d.id === task[0].id);
   r.clearS = back.s;
