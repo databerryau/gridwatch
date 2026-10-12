@@ -17,7 +17,7 @@ import * as market from '../sim/market.js';
 import * as physics from '../sim/physics.js';
 import {V} from '../sim/params.js';
 import {DESK} from '../content/scenarios.js';
-import {commit, supplyMW, clone, legacyDeskWeekend} from './lib/sim-helpers.js';
+import {commit, supplyMW, clone, legacyDeskWeekend, withoutTask} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S, DT = V.PHYS_DT, F0 = V.F0_HZ;
 const at = (h, m = 0) => (h - V.DAY_START_H) * 3600 + m * 60;
@@ -25,13 +25,14 @@ const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, (msg || '') +
 const soak = (suburb, atS, effMW) => ({suburb, lever: 'soak', atS, endS: atS + V.SOAK_S, effMW, cost: 0});
 const air = (suburb, atS, effMW) => ({suburb, lever: 'aircon', atS, endS: atS + V.AIRCON_S, effMW, cost: V.PATIENCE_AIRCON});
 const SUBS = DESK.city.suburbs.map(x => x.id);
+const NOTASK = withoutTask(DESK);
 const idxOf = (s, id) => s.city.districts.findIndex(d => d.id === id);
 const share = (s, id) => { const d = s.city.districts[idxOf(s, id)]; return s.env.flexSubMW[d.sub] * d.roofFrac; }; // a district's flex share
 const caughtSum = c => c.inertiaMW + c.batteryMW + c.guardMW + c.governorsMW + c.loadReliefMW + c.uflsMW + c.inverterMW;
 
 /** DESK seed 2 (HOT) at hh:mm with `blocks` pushed (sorted) and env sampled: a test poke. */
 function poked(blocks, h, m = 0, seed = 2) {
-  const s = createState(seed, DESK);
+  const s = createState(seed, NOTASK); // every district lit: the tests darken their own (Q-68's task off)
   for (const b of blocks) s.levers.blocks.push(b);
   s.levers.blocks.sort((a, b) => a.atS - b.atS || SUBS.indexOf(a.suburb) - SUBS.indexOf(b.suburb));
   s.tick = at(h, m) * TPS;

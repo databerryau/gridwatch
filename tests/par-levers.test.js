@@ -8,7 +8,7 @@ import {createState, step, observe, applyInput} from '../sim/step.js';
 import {createSystem, systemInputs, commitSig} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {DESK, CLASSIC} from '../content/scenarios.js';
-import {ticksAt, TPS, clone, legacyDesk} from './lib/sim-helpers.js';
+import {ticksAt, TPS, clone, legacyDesk, withoutTask} from './lib/sim-helpers.js';
 
 const S_AT = (h, m = 0) => ticksAt(h, m) / TPS;
 const RULE = /^rule[1-9]$/;
@@ -180,6 +180,11 @@ test('S-14 rule 5 books only when its relief lands on the first short step: not 
 
 // ---------------------------------------------------------------- the day-ahead line and the system (§31.9.9, §31.3.11)
 
+// DESK seed 2 without the restore task (Q-68): a plan made at dawn applies the present dark share to
+// every column (dark.js until wave 2's announced return, §32.4.2), and the flex sits inside litMW, so
+// two held feeders would scale the soak at noon by their share. The subject here is the flex line.
+const NOTASK = withoutTask(DESK);
+
 /** Column k's cover (what the stations and the tie must supply) after `replan` on obs with plan P. */
 function covers(P, obs) {
   const memo = createAutopilot({proxy: 'planOnly'});
@@ -199,7 +204,7 @@ function flexAtObs(obs, s) {
 }
 
 test('§31.9.9: the plan stores the day-ahead line without flex and adds the booked flex beyond the 4.5-h forecast once; a late heatwave lifts the demand, never the flex', () => {
-  const s = createState(2, DESK);
+  const s = createState(2, NOTASK);
   while (s.tick < V.PLAYER_START_TICK) step(s);
   const before = preDispatch(observe(s, {dayAhead: true}));
   assert.equal(applyInput(s, {type: 'flex', suburb: 'HAZ', lever: 'soak', atS: S_AT(10, 30)}).ok, true);
@@ -232,7 +237,7 @@ test('§31.9.9: the plan stores the day-ahead line without flex and adds the boo
 });
 
 test('§31.3.11 commitSig gains obs.levers.rev: in player mode a soak booked at 05:00 re-flows the plan at the system\'s next look, with the soak in it', () => {
-  const s = createState(2, DESK), sys = createSystem({commit: 'player'});
+  const s = createState(2, NOTASK), sys = createSystem({commit: 'player'});
   while (s.tick < ticksAt(5)) step(s, systemInputs(sys, s));
   const loads = () => s.log.filter(r => r.type === 'planLoad').length;
   let n = loads();
