@@ -26,14 +26,14 @@ const ROOF_SHAPE_PM = [[6.2, 0], [6.25, 1], [6.5, 18], [6.75, 45], [7, 79], [7.2
   [18.75, 118], [19, 79], [19.25, 45], [19.5, 18], [19.75, 1], [19.8, 0]];
 const roofShape = () => ROOF_SHAPE_PM.map(p => p.slice());
 
-// U-1 suburbs; districts are ~3% of demand each (K-13), sized by households.
+// U-1 suburbs; districts are ~3% of demand each (K-13), sized by households. frontLagMin: Q-79.
 const SUBURBS = [
-  {id: 'SOL', name: 'Solstice Rise', households: 280000, districts: 5},
-  {id: 'HAZ', name: 'Old Hazelton', households: 300000, districts: 5},
-  {id: 'RED', name: 'Redgum Flats', households: 420000, districts: 7},
-  {id: 'HAR', name: 'Harbourside', households: 250000, districts: 4},
-  {id: 'TAL', name: 'Tallowood Heights', households: 290000, districts: 5},
-  {id: 'SAL', name: 'Saltbush Bay', households: 360000, districts: 6},
+  {id: 'SOL', name: 'Solstice Rise', households: 280000, districts: 5, frontLagMin: 0},
+  {id: 'HAZ', name: 'Old Hazelton', households: 300000, districts: 5, frontLagMin: 5},
+  {id: 'RED', name: 'Redgum Flats', households: 420000, districts: 7, frontLagMin: 20},
+  {id: 'HAR', name: 'Harbourside', households: 250000, districts: 4, frontLagMin: 25},
+  {id: 'TAL', name: 'Tallowood Heights', households: 290000, districts: 5, frontLagMin: 40},
+  {id: 'SAL', name: 'Saltbush Bay', households: 360000, districts: 6, frontLagMin: 45},
 ];
 
 /** The 'classic' day: the legacy v2.0 day ported to the v4 core (Phase 0.2 bench and par). */
@@ -191,6 +191,8 @@ export const CLASSIC = {
   },
 
   levers: null, // U-2: no city levers on the classic day
+  dayplan: null, // Q-65: the legacy menu above
+  night: false, // Q-73
 };
 
 // Deep-frozen: a test or tool that edits a scenario in place would leak into every later
@@ -228,12 +230,39 @@ export const DESK = Object.assign({}, CLASSIC, {
     shapePm: roofShape(),
     cloud: {stepS: 300, startFrac: 0.95, mu: 0.95, min: 0.15, max: 1,
       regional: {revertPerStep: 0.08, sigmaPerStep: 0.02}, local: {revertPerStep: 0.2222, sigmaPerStep: 0.02}},
+    precinctLagMin: 50, // Q-79: the solar precinct, east of SAL
   },
   weather: {
-    src: 'S-10 heat and storm shares as the classic day (params HEAT_SHARE, STORM_SHARE). mildShare: SPEC J-13 / P-3 day types, heat 15 / hot 30 / mild 55 (a starting value; desk/README.md C-2: drawn among the days that are not heatwaves)',
+    src: 'S-10 heat and storm shares as the classic day (params HEAT_SHARE, STORM_SHARE; desk/README.md Q-66: storm 0.25 from wave 1), drought Q-66. mildShare: SPEC J-13 / P-3 day types, heat 15 / hot 30 / mild 55 (a starting value; desk/README.md C-2: drawn among the days that are not heatwaves)',
     heatShare: P.HEAT_SHARE.value,
     stormShare: P.STORM_SHARE.value,
+    droughtShare: 0.20,
     mildShare: 0.55,
+  },
+  night: true, // Q-73 (from wave 1)
+  dayplan: { // desk/README.md §32.4.3, read by sim/dayplan.js
+    simplified: true,
+    note: 'Game tuning (desk/README.md Q-65-Q-68, Q-79): shares, windows (h) and sizes; the one climatology on this day.',
+    act1: {
+      derateP: 0.5, derate: {limitMW: [400, 550], untilH: [10, 12]},
+      late: {unit: 'ccgt2', untilH: [6.5, 8]},
+      task: {p: 0.85, clearH: [6.5, 8], gapMin: 15},
+    },
+    act2: {
+      windowH: [9, 14.5],
+      mix: {front: 0.40, unit: 0.25, smelter: 0.20, tie: 0.15}, heatMix: {unit: 0.40, smelter: 0.30, tie: 0.30},
+      front: {onsetH: [10, 14.5], clearAfterMin: [40, 110], frontMu: 0.32, clearMu: 0.92,
+        frontRampMin: 10, clearRampMin: 20, afterDerateMin: 30},
+      smelterOffMin: 45, unitLockoutMin: [90, 150], tieLockoutMin: [90, 180],
+    },
+    act3: {
+      heat: {onsetH: [12.5, 14.5], lastsH: 6.5, endByH: 20},
+      storm: {arriveH: [15.5, 19], arriveMu: 0.95, cutoutAfterMin: [30, 90], cutoutMu: 0.18,
+        passAfterMin: 140, passByH: 20 + 50 / 60, passMu: 0.5, linkTripP: 0.6, linkLockoutMin: [90, 180]},
+      drought: {onsetH: [15, 18], mu: 0.12},
+      trip: {windowH: [17, 19.5], lockoutMin: [90, 150]},
+    },
+    notices: [{atH: 5 + 50 / 60, code: 'MORNING_RAMP'}, {atH: 15, code: 'DUCK'}],
   },
   day: {weekend: false},
   temperatureC: {
@@ -271,6 +300,8 @@ export const DESK_WEEKEND = Object.assign({}, DESK, {
     src: 'The DESK 04:00 commitment with coal 4 off since Friday night and both CCGTs on (desk/README.md C-14: three coal at 540 MW, CCGT 1 at 480 MW, CCGT 2 at 300 MW, hydro balancing at about 67-126 MW a machine, seeds 1-200): simplified. With one CCGT the hot weekend opened 170 MW under the capacity margin, leaning on 270 MW a machine of hydro from 04:00.',
     units: {coal1: 540, coal2: 540, coal3: 540, ccgt1: 480, ccgt2: 300, hydro1: 140, hydro2: 140},
   }),
+  // Q-68: the late return is coal 4's
+  dayplan: {...DESK.dayplan, act1: {...DESK.dayplan.act1, late: {unit: 'coal4', untilH: [10, 13]}}},
 });
 
 deepFreeze(CLASSIC);

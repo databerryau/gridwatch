@@ -4,6 +4,8 @@
 
 import {V} from './params.js';
 import {createState, step, observe, hashState, applyInput, inWatch} from './step.js';
+import {stepReal} from './clock.js';
+import {darkShareAt, litMW} from './dark.js';
 
 // ------------------------------------------------------------------ constants (hoisted)
 
@@ -116,33 +118,6 @@ function onFromNow(u, i, now, auto) {
 const committedMode = mode => mode === 'on' || mode === 'loading' || mode === 'starting' || mode === 'ready';
 const hydroWet = obs => obs.hydro.storageMWh > HYDRO_STOP + EPS;
 
-/**
- * The dark part of the city (obs only): `shed`, the dark districts' share of the customers, and
- * `roof`, their share of the rooftop PV (a district holds an equal part of its suburb's nameplate;
- * 0 on a scenario with no rooftop). Phase 2a (P-12): the roofs go off with their feeder.
- */
-function darkShare(obs) {
-  const D = {shed: 0, roof: 0};
-  const roofs = obs.rooftop;
-  for (const d of obs.districts) {
-    if (!d.dark) continue;
-    D.shed += d.share;
-    if (!roofs || !(roofs.capMW > 0)) continue;
-    let inSuburb = 0, capMW = 0;
-    for (const x of obs.districts) if (x.suburb === d.suburb) inSuburb++;
-    for (const sub of roofs.suburbs) if (sub.id === d.suburb) capMW = sub.capMW;
-    D.roof += capMW / inSuburb / roofs.capMW;
-  }
-  return D;
-}
-
-/**
- * Lit operational demand of a forecast column (P-12; the sim's fleet.litDemandMW on the
- * forecast): the lit customers draw (P50 + rooftop) x (1 - shed) and the rooftop still connected
- * comes off it. Not P50 x (1 - shed): a dark district's roofs are off with it. With rooftop zero
- * it is P50 x (1 - shed) exactly (the classic day).
- */
-const litMW = (p50, roofMW, D) => (p50 + roofMW) * (1 - D.shed) - roofMW * (1 - D.roof);
 /** A forecast's rooftop column (zeros on an observation made before Phase 2a). */
 const roofColumn = fc => fc.rooftopMW || fc.demandP50.map(() => 0);
 /** A forecast's columns as lit operational demand (litMW over its P50 and its rooftop column). */
@@ -172,22 +147,9 @@ function flexOf(lv, t) {
 // ------------------------------------------------------------------ reference playback (D-2, D-5)
 
 const PROF = V.REF_PROFILE.map(p => ({a: secOfH(p.fromH), b: secOfH(p.toH), rate: p.rate}));
-const PROF_FIRST = PROF[0], PROF_LAST = PROF[PROF.length - 1];
+const PROF_LAST = PROF[PROF.length - 1];
 const WATCH_REAL = V.REF_WATCH_REAL_S, CARD_REAL = V.REF_RESPOND_CARD_S;
 const RESPOND_RATE = V.RESPOND_RATE, RESPOND_MAX = V.RESPOND_MAX_S;
-
-/** Real seconds for grid seconds [a, b) at the D-2 profile alone (first / last rate outside it). */
-function profileReal(a, b) {
-  if (!(b > a)) return 0;
-  let r = 0;
-  if (a < PROF_FIRST.a) r += (Math.min(b, PROF_FIRST.a) - a) / PROF_FIRST.rate;
-  for (const p of PROF) {
-    const lo = Math.max(a, p.a), hi = Math.min(b, p.b);
-    if (hi > lo) r += (hi - lo) / p.rate;
-  }
-  if (b > PROF_LAST.b) r += (b - Math.max(a, PROF_LAST.b)) / PROF_LAST.rate;
-  return r;
-}
 
 /** Grid seconds until the proxy of `memo` may act again after an action now: its S-4 gap at the D-2 profile's present rate. */
 function paceS(now, memo) {
@@ -215,12 +177,13 @@ function respondEnd(c) {
  * @param {number} fromS
  * @param {number} toS
  * @param {Array<{startS:number, watchEndS:number, backInBandS:number}>} conts obs.contingencies
+ * @param {Array<{fromS:number, toS:number}>} [clears] unused until wave 2 (Q-70's RESTORE segments)
  * @returns {number}
  */
-export function refRealSeconds(fromS, toS, conts) {
+export function refRealSeconds(fromS, toS, conts, clears = []) { // eslint-disable-line no-unused-vars
   if (!(toS > fromS)) return 0;
   const cs = conts || [];
-  if (cs.length === 0) return profileReal(fromS, toS);
+  if (cs.length === 0) return stepReal(fromS, toS);
   const pts = [fromS, toS];
   let r = 0;
   for (const c of cs) {
@@ -242,7 +205,7 @@ export function refRealSeconds(fromS, toS, conts) {
         respond = true;
       }
     }
-    r += watchRate >= 0 ? (b - a) * watchRate : respond ? (b - a) / RESPOND_RATE : profileReal(a, b);
+    r += watchRate >= 0 ? (b - a) * watchRate : respond ? (b - a) / RESPOND_RATE : stepReal(a, b);
   }
   return r;
 }
@@ -333,7 +296,7 @@ function context(obs, P, k0, par, memo, keepStops) {
   // obs.demand.litMW (each suburb's sky as it is, relit roofs still waiting or ramping), a forecast
   // column goes through litMW() (the dark districts' roofs are off with them), and a plan column
   // inside the first forecast step lies between the two (fcAt), as for every other series.
-  const D = darkShare(obs);
+  const D = darkShareAt(obs, obs.s);
   // Load the forecast does not carry (the cold-load surge of restored districts, K-13), fading
   // out over COLD_LOAD_DECAY_S as it does in the grid.
   const coldNow = par ? Math.max(0, obs.balance.servedMW + obs.dr.mw - obs.demand.litMW) : 0;
@@ -1350,7 +1313,7 @@ function agcCarriedMW(obs) {
 /** Once per decision: the dark share and the forecast as lit demand, when each machine can be on, the tie's return, the pool's energy. */
 function adequacySetup(obs) {
   const now = obs.s, auto = obs.mode === 'AGC', b = obs.battery, dr = obs.dr;
-  const dark = darkShare(obs);
+  const dark = darkShareAt(obs, obs.s);
   const wet = hydroWet(obs);
   const onAt = new Array(NU).fill(-1);
   for (let i = 0; i < NU; i++) {

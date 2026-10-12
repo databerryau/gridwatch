@@ -170,7 +170,7 @@ test('S-4: observe() hides the seed, the regime, the event list and event ids', 
 // The frozen observe() shape (README §8). Adding a key is a contract change: update the
 // README and this list together. Stage B may add private state fields without touching it.
 const OBS_SHAPE = {
-  '': ['v', 'scenarioId', 'tick', 's', 'clock', 'over', 'black', 'mode', 'modeLocked', 'inWatch', 'inRespond', 'f',
+  '': ['v', 'scenarioId', 'tick', 's', 'clock', 'over', 'black', 'mode', 'modeLocked', 'handFlown', 'nightShift', 'inWatch', 'inRespond', 'f',
     'balance', 'demand', 'units', 'stations', 'battery', 'tie', 'wind', 'solar', 'sky', 'hydro', 'dr', 'rert', 'smelter', 'sec',
     'fos', 'agc', 'price', 'score', 'districts', 'news', 'contingency', 'contingencies', 'forecast', 'dayAhead', 'plan', 'scope',
     'rooftop', 'msl', 'day', 'levers'],
@@ -182,11 +182,11 @@ const OBS_SHAPE = {
   sky: ['clearness', 'windFrac'],
   'units[]': ['id', 'station', 'name', 'cls', 'mode', 'sync', 'timerS', 'outMW', 'schedMW', 'basePointMW', 'agcTrimMW',
     'govMW', 'availMW', 'minMW', 'ratingMW', 'rampMWMin', 'offer', 'startToMinS', 'hotS', 'starts', 'upForS', 'downForS',
-    'startBlock', 'stopBlock', 'slipHz', 'phaseDeg'],
+    'startBlock', 'stopBlock', 'slipHz', 'phaseDeg', 'outUntilS'],
   'stations[]': ['id', 'name', 'basePointMW', 'onCount', 'minMW', 'maxMW', 'outMW'],
   battery: ['mode', 'orderMW', 'guardMW', 'schedMW', 'agcTrimMW', 'pfrMW', 'ffrMW', 'guardFired', 'outMW', 'socMWh', 'capMWh',
     'ratedMW', 'fullHold', 'ufSuspend'],
-  tie: ['setMW', 'flowMW', 'tripped', 'lockoutS', 'importLimitMW', 'exportLimitMW', 'neighbourPrice'],
+  tie: ['setMW', 'flowMW', 'tripped', 'lockoutS', 'importLimitMW', 'limitUntilS', 'exportLimitMW', 'neighbourPrice'],
   wind: ['availMW', 'outMW', 'limitPct', 'ofgsTrippedFrac', 'autoMW'],
   solar: ['availMW', 'outMW', 'limitPct', 'autoMW'],
   hydro: ['storageMWh', 'allocationMWh', 'frac'],
@@ -198,18 +198,18 @@ const OBS_SHAPE = {
   fos: ['outsideS', 'belowContainS', 'countdownS', 'directed', 'nextShedS'],
   agc: ['nextCycleS', 'requestMW', 'unmetMW', 'atLimitS', 'aceMW'],
   price: ['mwh', 'marginalId', 'adder', 'exhausted', 'x'],
-  score: ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'cost', 'co2t', 'genMWh', 'marketBill', 'minHz', 'maxHz',
+  score: ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'heldMWh', 'taskLateMWh', 'cost', 'co2t', 'genMWh', 'marketBill', 'minHz', 'maxHz',
     'outsideNormalS', 'spark', 'starts', 'spillMWh', 'saidiMin', 'saifi', 'maifi', 'lightsMWh', 'costDollars', 'centsPerKWh',
     'co2tPerMWh'],
   'score.cost': ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'],
   'districts[]': ['id', 'suburb', 'share', 'uflsStage', 'rot', 'dark', 'shedBy', 'darkSinceS', 'restoredAtS', 'coldLoadMW',
-    'restoreBlock', 'reconnectS'],
+    'restoreBlock', 'reconnectS', 'clearS'],
   'news[]': ['atS', 'kind', 'fromS', 'toS', 'text'],
   contingency: ['n', 'startTick', 'cause', 'id', 'lostMW', 'fStartHz', 'ekBeforeMWs', 'ekAfterMWs', 'rocofHzS', 'extremeHz',
-    'extremeTick', 'pre', 'caught', 'uflsStages', 'contained', 'backInBandTick', 'watchEndTick', 'secureByTick'],
+    'extremeTick', 'pre', 'caught', 'uflsStages', 'contained', 'backInBandTick', 'watchEndTick', 'secureByTick', 'securedTick'],
   'contingency.pre': ['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW', 'inverterMW'],
   'contingency.caught': ['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW', 'inverterMW'],
-  'contingencies[]': ['n', 'startS', 'cause', 'id', 'lostMW', 'watchEndS', 'backInBandS'],
+  'contingencies[]': ['n', 'startS', 'cause', 'id', 'lostMW', 'watchEndS', 'backInBandS', 'securedS'],
   forecast: ['fromS', 'stepS', 'n', 'demandP50', 'demandP10', 'demandP90', 'windMW', 'solarMW', 'neighbourPrice', 'exportLimitMW',
     'underlyingP50', 'rooftopMW', 'flexMW'],
   // Phase 1a (desk/README.md §3): the plan in state and the synchroscope.
@@ -484,14 +484,15 @@ test('C-2: on the game\'s day MILD is 55 +- 3% of 2,000 seeds and HOT 30 +- 3%; 
   assert.ok(Math.abs(counts.HEATWAVE / 2000 - 0.15) <= 0.02, 'heat share ' + counts.HEATWAVE / 2000);
 });
 
-test('opening state (DESK, DESK_WEEKEND): 04:00 balances within 1 MW on MILD and HOT days, the hydro machines inside their range', () => {
+test('opening state (DESK, DESK_WEEKEND): 04:00 balances within 1 MW on MILD and HOT days, the hydro machines inside their range', async () => {
+  const {litDemandMW} = await import('../sim/fleet.js'); // 2c (Q-81): the opening balances lit demand
   for (const scenario of GAME_DAYS) {
     const seen = new Set();
     for (let seed = 1; seed <= 30; seed++) {
       const s = createState(seed, scenario);
       seen.add(s.day.temp);
       const supply = s.units.reduce((a, u) => a + u.outMW, 0) + s.tie.flowMW + s.ren.windMW + s.ren.solarMW + s.battery.outMW;
-      assert.ok(Math.abs(supply - s.env.demandMW) < 1, scenario.id + ' seed ' + seed + ' (' + s.day.temp + '): imbalance ' + (supply - s.env.demandMW));
+      assert.ok(Math.abs(supply - litDemandMW(s)) < 1, scenario.id + ' seed ' + seed + ' (' + s.day.temp + '): imbalance ' + (supply - litDemandMW(s)));
       const hydro = s.units.filter(u => u.station === 'hydro' && u.sync);
       assert.equal(hydro.length, 2);
       for (const u of hydro) assert.ok(u.outMW > 0 && u.outMW < 317, scenario.id + ' seed ' + seed + ': ' + u.id + ' at ' + u.outMW);

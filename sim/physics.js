@@ -448,7 +448,7 @@ const BK = {
 // state.conts = [SREC], contIdx 0, for the run. Same keys, same order as fleet.startContingency.
 const SREC = {n: 0, startTick: 0, cause: 'unit', id: '', lostMW: 0, fStartHz: F0, ekBeforeMWs: 0, ekAfterMWs: 0, rocofHzS: 0,
   extremeHz: F0, extremeTick: 0, pre: newCaught(), caught: newCaught(), uflsStages: 0, contained: true,
-  backInBandTick: -1, watchEndTick: 0, secureByTick: 0};
+  backInBandTick: -1, watchEndTick: 0, secureByTick: 0, securedTick: -1};
 const SCONTS = [SREC];
 
 function copyAcc(from, to) {

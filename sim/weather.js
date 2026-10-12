@@ -13,6 +13,7 @@
 
 import {V} from './params.js';
 import {STREAM, uniform, normal, quantise} from './rng.js';
+import * as dayplan from './dayplan.js';
 
 const TPS = V.TICKS_PER_S, S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN, DAY_H = V.DAY_H;
 const STEP = V.SERIES_STEP_S, LEN = V.SERIES_LEN, PM = V.PER_MILLE;
@@ -145,6 +146,7 @@ export function rooftopClearSkyMW(scn, h) {
  * set the public state.day (a heatwave day reads 'HOT' there); nothing else reads it.
  */
 export function prerollRegime(seed, scn) {
+  if (scn.dayplan) return dayplan.prerollRegime(seed, scn); // 2c (Q-65): the plan's own draw
   const u = uniform(seed, STREAM.EXT_REGIME, 0);
   const w = scn.weather;
   const cls = u < w.heatShare ? 'heat' : u < w.heatShare + w.stormShare ? 'storm' : 'calm';

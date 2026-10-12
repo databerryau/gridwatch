@@ -414,6 +414,10 @@ function reliabilitySecond(state, sc, t, secs) {
   }
 }
 
+// Q-69: the one clean day, and S-6's PERFECT
+export const isClean = (score, black) => !black && score.uflsMWh + score.directedMWh === 0;
+export const isPerfect = (score, black) => isClean(score, black) && score.taskLateMWh === 0;
+
 /**
  * Derived scorecard numbers (S-1..S-3) from state.score. Implemented in stage A; S-3's
  * intensity is per MWh GENERATED in the region (score.genMWh; review fix, was per MWh served).

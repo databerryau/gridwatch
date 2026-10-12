@@ -13,7 +13,8 @@
 
 import {V} from './params.js';
 import {STREAM, uniform, pickWith} from './rng.js';
-import {gridSecond, tripUnit, tripTie, tripSmelter} from './fleet.js';
+import {gridSecond, tripUnit, tripTie, tripSmelter, setDistrictDark, refreshHeld, setTieLimit, setOutage, unitIndex} from './fleet.js';
+import {hhmm as clockText} from './clock.js';
 
 const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN;
 
@@ -22,14 +23,15 @@ const SLOTS = ['bigTrip', 'extraTrip', 'heat', 'storm', 'cloud', 'smelter', 'dro
 
 // Tie-break for events in the same second: information first, contingencies last.
 export const TYPE_ORDER = ['notice', 'heatAnnounce', 'heatOnset', 'heatEnd', 'stormWarn', 'stormArrive', 'windCutout',
-  'stormPass', 'cloudWarn', 'cloudOnset', 'cloudClear', 'windDrought', 'smelterReturn', 'smelterTrip', 'linkTrip', 'unitTrip'];
+  'stormPass', 'cloudWarn', 'cloudOnset', 'cloudClear', 'windDrought', 'feederOut', 'tieDerate', 'unitOutage', 'droughtWarn',
+  'feederClear', 'tieDerateEnd', 'unitReturn', 'smelterReturn', 'smelterTrip', 'linkTrip', 'unitTrip'];
 
 export const CONTINGENCY_TYPES = Object.freeze(['unitTrip', 'linkTrip', 'smelterTrip']);
 
 /**
  * Pre-roll the day's events from the scenario menu (legacy timing rules; see
  * content/scenarios.js). Deterministic in (seed, scn, regime).
- * @returns {Array<{id:string, atS:number, type:string, args:object, contingency:boolean, warned:boolean}>}
+ * @returns {Array<{id:string, atS:number, type:string, args:object, contingency:boolean, warned:boolean, act:number, crisis:boolean}>}
  */
 export function prerollEvents(seed, scn, regime) {
   const m = scn.events, startH = scn.clock.startH;
@@ -43,7 +45,7 @@ export function prerollEvents(seed, scn, regime) {
   const within = (u, w) => Math.floor(toS(w[0]) + u * (toS(w[1]) - toS(w[0])));
   const minutes = (u, r) => Math.floor(r[0] + u * (r[1] - r[0])) * S_PER_MIN;
   const add = (atS, type, args, contingency = false, warned = false) =>
-    list.push({id: '', atS, type, args, contingency, warned});
+    list.push({id: '', atS, type, args, contingency, warned, act: 0, crisis: false}); // Q-65
 
   // Guaranteed big-unit trip (L337): kept clear of a severe-weather evening.
   {
@@ -140,41 +142,11 @@ export function prerollEvents(seed, scn, regime) {
 }
 
 /**
- * STAGE B (owner: market + events). Apply every ext event with atS <= the current grid second,
- * in list order, starting at state.evNext; advance state.evNext. Called by step() at each
- * second boundary, before weather.sampleSecond().
- *
- * Effects (see sim/README.md, "events.js"). A news record is {atS, kind, fromS, toS, text}
- * and nothing else: never the event's id or list index (S-4: that would reveal how many
- * silent events came before).
- *   notice                 -> log line (info)
- *   heatAnnounce           -> news {kind:'heat', fromS: onsetS, toS: endS}, log warn, cue 'warn'
- *                             (args upliftPm / deratePm are integer per-mille)
- *   heatOnset / heatEnd    -> log; (derate and demand are read from ext.heat by grid/weather)
- *   stormWarn              -> news {kind:'storm', fromS: arriveS, toS: null}
- *   stormArrive/windCutout/stormPass, cloudOnset/cloudClear -> log only (the series carry the physics)
- *   cloudWarn              -> news {kind:'cloud', fromS: onsetS, toS: null}
- *   windDrought            -> news {kind:'drought', fromS: atS, toS: null}, log warn
- *   unitTrip               -> fleet.tripUnit on the rule's target (largest online machine by
- *                             output, or the station's largest online machine; none -> no-op).
- *                             Ties on output go to the lower V.MACHINES index (total order).
- *   linkTrip               -> fleet.tripTie(state, cause, lockoutS, out) (no-op if already tripped)
- *   smelterTrip            -> fleet.tripSmelter(state, offS, out)
- *   smelterReturn          -> state.smelter.returning = true
- * Also ramps state.smelter.loadMW back at SMELTER_RETURN_MW_MIN while returning.
- *
- * Stage B notes. Information events push a log line (warned ones also an {kind:'announce',
- * news, cue:'warn'} record); trips log through fleet, and a trip with no target (nothing
- * of that station online, the link already out) is silent. Texts state only what the sim will
- * really do (the scenario's own numbers: uplift, derate, times, the storm's cut-out window),
- * never a hidden outcome (whether the link will trip, when the cloud clears). The smelter's
- * return ramp is time-based: loadMW = SMELTER_RETURN_MW_MIN / 60 x (s - returnS + 1), capped
- * at SMELTER_MW and never lowered; identical to "+rate every second" when called every
- * second, and still right when a caller jumps seconds. smelter.returnS (a private field) is
- * the second the return starts: set at the trip (trip second + offS, what the potline's
- * owner tells the operator) and again when smelterReturn applies; weather.forecast reads it.
+ * Apply every ext event with atS <= the current grid second, in list order from state.evNext, and
+ * the smelter's return ramp; step() calls it at each second boundary, before weather.sampleSecond().
+ * Effects by type: sim/README.md §11 events.js.
  * @param {object} state
- * @param {Array<object>} out event records (sim/README.md "Event records")
+ * @param {Array<object>} out event records (sim/README.md §7)
  */
 export function applyDue(state, out) {
   const s = gridSecond(state), evs = state.ext.events;
@@ -299,7 +271,7 @@ function applyEvent(state, e, out) {
         Math.round(V.HEAT_RAMP_S / S_PER_MIN) + ' min.');
       return;
     case 'stormWarn':
-      announce(state, out, e, 'storm', a.arriveS, null, stormText(scn, a), 'STORM_WARNING');
+      announce(state, out, e, 'storm', a.arriveS, 'passS' in a ? a.passS : null, stormText(scn, a), 'STORM_WARNING'); // toS: §32.4.6
       return;
     case 'stormArrive':
       log(out, tick, 'crit', 'STORM_ARRIVE', 'STORM ARRIVAL: wind farms heading for storm output (about ' + pct(a.windMu) +
@@ -323,8 +295,55 @@ function applyEvent(state, e, out) {
       log(out, tick, 'info', 'CLOUD_CLEAR', 'Skies clearing over the solar precinct.');
       return;
     case 'windDrought':
+      if (scn.dayplan && latestNews(state, 'drought')) { // the news came with droughtWarn
+        log(out, tick, 'warn', 'WIND_DROUGHT', 'Wind drought: wind falling toward about ' + pct(a.windMu) + '% of capacity.');
+        return;
+      }
       announce(state, out, e, 'drought', e.atS, null, 'WIND DROUGHT: a high-pressure ridge has settled in. ' +
         'Wind resource falling toward about ' + pct(a.windMu) + '% of capacity.', 'WIND_DROUGHT');
+      return;
+    // 2c (sim/README.md §7)
+    case 'feederOut': {
+      a.districts.forEach((id, j) => {
+        const d = state.city.districts.findIndex(x => x.id === id);
+        state.city.districts[d].clearS = a.clearS[j];
+        setDistrictDark(state, d, true, 'task');
+      });
+      announce(state, out, e, 'network', Math.min(...a.clearS), Math.max(...a.clearS), 'Overnight faults: feeder' +
+        (a.districts.length > 1 ? 's ' : ' ') + a.districts.join(' and ') + ' under repair, handed back at ' +
+        a.clearS.map(clockText).join(' and ') + '.', 'FEEDER_OUT');
+      return;
+    }
+    case 'feederClear':
+      refreshHeld(state);
+      out.push({tick, kind: 'log', sev: 'warn', code: 'FEEDER_CLEAR',
+        msg: a.district + ' feeder repaired and handed back: close its breaker to relight it.', district: a.district});
+      return;
+    case 'tieDerate':
+      setTieLimit(state, a.limitMW, a.untilS);
+      announce(state, out, e, 'tie', e.atS, a.untilS, 'Network outage: tie imports limited to ' + a.limitMW + ' MW until ' +
+        clockText(a.untilS) + '.', 'TIE_DERATE');
+      return;
+    case 'tieDerateEnd':
+      setTieLimit(state, V.TIE_MAX_MW, -1);
+      log(out, tick, 'info', 'TIE_LIMIT_END', 'Tie import limit lifted: imports up to ' + V.TIE_MAX_MW + ' MW again.');
+      return;
+    case 'unitOutage': {
+      const k = unitIndex(a.unit);
+      setOutage(state, k, a.untilS);
+      announce(state, out, e, 'outage', e.atS, a.untilS, 'Late return from maintenance: ' + V.MACHINES[k].name +
+        ' unavailable until ' + clockText(a.untilS) + '.', 'UNIT_OUTAGE');
+      return;
+    }
+    case 'unitReturn': {
+      const k = unitIndex(a.unit);
+      setOutage(state, k, -1);
+      log(out, tick, 'info', 'UNIT_AVAILABLE', V.MACHINES[k].name + ' back from maintenance: available to start.');
+      return;
+    }
+    case 'droughtWarn':
+      announce(state, out, e, 'drought', a.onsetS, null, 'Wind drought from about ' + clockText(a.onsetS) +
+        ': a high-pressure ridge settles in and wind falls toward about ' + a.muPm / PM_PER_PCT + '% of capacity.', 'DROUGHT_WARNING');
       return;
     case 'unitTrip': {
       const i = tripTarget(state, a);
