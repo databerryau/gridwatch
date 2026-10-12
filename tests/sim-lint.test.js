@@ -90,10 +90,20 @@ test('sim/ imports are relative .js paths inside sim/ or content/', () => {
   assert.deepEqual(bad, []);
 });
 
-test('S-4: autopilot.js imports only params.js and step.js (the information barrier)', () => {
+test('S-4: autopilot.js imports only params.js, step.js, clock.js and dark.js (the information barrier)', () => {
   const ap = files.find(x => rel(x.f) === 'sim/autopilot.js');
   assert.ok(ap, 'sim/autopilot.js missing');
-  for (const s of importSpecifiers(ap.toks)) assert.ok(['./params.js', './step.js'].includes(s), 'autopilot imports ' + s);
+  for (const s of importSpecifiers(ap.toks)) assert.ok(['./params.js', './step.js', './clock.js', './dark.js'].includes(s), 'autopilot imports ' + s);
+});
+
+test('2c: clock.js and dark.js import params.js at most (desk/README §32.4)', () => {
+  const only = (name, ok) => {
+    const x = files.find(y => rel(y.f) === 'sim/' + name);
+    assert.ok(x, 'sim/' + name + ' missing');
+    for (const s of importSpecifiers(x.toks)) assert.ok(ok.includes(s), name + ' imports ' + s);
+  };
+  only('clock.js', ['./params.js']);
+  only('dark.js', ['./params.js']);
 });
 
 test('sim/ and content/ use LF line endings', () => {
