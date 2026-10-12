@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {DAILIES, seedOf, ymdOf, scenarioIdOf, dailyFor} from '../content/dailies.js';
 import {DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import * as G from '../app/game.js';
+import * as St from '../sim/step.js';
 
 const empty = !DAILIES.from;
 const days = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
@@ -81,6 +82,12 @@ test('Q-75: the shipped list is {v, from, to, attempts}, stamped with this build
     assert.ok(Number.isInteger(k) && k >= 1 && k <= 42, d + ': attempt ' + k);
     assert.ok(dailyFor(Number(d), DAILIES.v).gated, d + ' inside [from, to]');
   }
+});
+
+// Q-75's stamp hashes what the sim hashes (createState's scnHash: the data without its src/note prose). Stage A's
+// dailyStamp hashes the raw scenario until the TODO(2c-merge) swap to A2's step.scenarioHash, which this checks.
+test('Q-75: the stamp is SIM_VERSION and the scenario hashes the sim records (on from A2\'s step.scenarioHash)', {skip: !St.scenarioHash && 'step.scenarioHash is A2\'s'}, () => {
+  assert.equal(G.dailyStamp(), [St.SIM_VERSION, St.createState(1, DESK).scnHash, St.createState(1, DESK_WEEKEND).scnHash].join('|'));
 });
 
 test('Q-75: the shipped list\'s shape (always)', () => {
