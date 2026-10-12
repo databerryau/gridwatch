@@ -144,7 +144,7 @@ step(state, inputs = []):
       2c (Q-64): on PLAYER_START_TICK in HAND, control.handFlown = true (never cleared)
       if state.tick > 0: market.settleSecond(state, out)     fold acc -> score, write state.last, reset acc
       events.applyDue(state, out)                            ext events with atS <= s (trips, weather, news)
-      2c (Q-64, Q-73): scn.night and s >= NIGHT_S, once: nightShift, mode AGC, every MAN flag cleared, NIGHT_SHIFT
+      2c (Q-64, Q-73): scn.night and s >= NIGHT_S, once: nightShift, mode AGC, MAN flags and the scope cleared, NIGHT_SHIFT
       grid.planSecond(state, out)                            Phase 1a: the plan's booked stops, starts, keys, tie keys
       weather.sampleSecond(state)                            state.env for second s
       if s % MSL_CHECK_S === 0:                              Phase 2a (P-4): the MSL level, from ONE forecast per check
@@ -241,7 +241,7 @@ modules named. "A" = set by createState only, never changed after. "-" = nobody 
 | `day` | `{temp: 'MILD'\|'HOT', weekend: bool}` | A | the public kind of day (P-3): `temp` from the hidden `ext.regime.temp`, read once (a heatwave day reads `'HOT'`); `weekend` from `scn.day.weekend` (Phase 2a; desk/README.md §19.2) |
 | `env` | object | weather | this second's external conditions (below) |
 | `msl` | `{level, minMW, atS, sinceS}` | events (`mslSecond`) | P-4 notice level 0..3, the forecast minimum behind it and its time ("msl" below); `{0, 0, -1, -1}` for the whole day when the scenario has no rooftop (Phase 2a; desk/README.md §19.2) |
-| `control` | `{mode: 'AGC'\|'HAND', modeLocked: bool, handFlown: bool, nightShift: bool}` | step (applyInput; `handFlown` gridSecond; `nightShift` wave 1's night flip) | K-2 / D-7. 2c (desk/README.md §32.4.4, Q-64, Q-73): `handFlown` is set true by `gridSecond` on the tick the day reaches `PLAYER_START_TICK` with `mode` HAND and never cleared (the HAND-FLOWN tag); `nightShift` false, true from `NIGHT_S` on a `scn.night` scenario: `gridSecond`'s night flip, right after `events.applyDue` on the first grid second at or after `NIGHT_S`, sets it, sets `mode` to AGC (in both modes; `handFlown` keeps the tag), clears every station's `plan` MAN flag as `planRejoin` does (RESUME; `plan.rev` + 1) and logs `NIGHT_SHIFT` (sev `info`), once |
+| `control` | `{mode: 'AGC'\|'HAND', modeLocked: bool, handFlown: bool, nightShift: bool}` | step (applyInput; `handFlown` gridSecond; `nightShift` wave 1's night flip) | K-2 / D-7. 2c (desk/README.md §32.4.4, Q-64, Q-73): `handFlown` is set true by `gridSecond` on the tick the day reaches `PLAYER_START_TICK` with `mode` HAND and never cleared (the HAND-FLOWN tag); `nightShift` false, true from `NIGHT_S` on a `scn.night` scenario: `gridSecond`'s night flip, right after `events.applyDue` on the first grid second at or after `NIGHT_S`, sets it, sets `mode` to AGC (in both modes; `handFlown` keeps the tag), clears every station's `plan` MAN flag as `planRejoin` does (RESUME; `plan.rev` + 1), closes the synchroscope (`scope.unit` '') and logs `NIGHT_SHIFT` (sev `info`), once |
 | `stations` | array | fleet (derived) | one lever per station (below) |
 | `units` | array | grid, physics, fleet | one entry per machine, `V.MACHINES` order |
 | `battery`, `tie`, `ren`, `hydro`, `rert`, `dr`, `smelter` | objects | see below | |
@@ -2092,9 +2092,12 @@ test-only way to put a record on a day (createState takes no test parameter):
   after `events.applyDue`, on its first grid second at or after `clock.NIGHT_S` (21:00), sets
   `control.nightShift`, sets the mode to AGC (HAND or not; `handFlown` keeps the tag), clears every
   station's MAN flag as `planRejoin` does (RESUME: the executor applies the plan's present value in
-  the same second; `plan.rev` + 1) and pushes `{tick, kind: 'log', sev: 'info', code: 'NIGHT_SHIFT',
-  msg}`, once. Before `planSecond`, so the plan runs the night from its first second. Classic
-  (`night: false`) never flips; HAND there runs past 21:00 as before.
+  the same second; `plan.rev` + 1), closes the synchroscope (`scope.unit = ''`: the auto-synchroniser
+  waits while a unit is on it, A-4, which is the player's wait, and the night desk refuses the input
+  that would close it; an addition to §32.6.2's list, so a unit left on the scope at 21:00 is not
+  'ready' all night) and pushes `{tick, kind: 'log', sev: 'info', code: 'NIGHT_SHIFT', msg}`, once.
+  Before `planSecond`, so the plan runs the night from its first second. Classic (`night: false`)
+  never flips; HAND there runs past 21:00 as before.
 - `gridSecond` sets `control.handFlown` on the tick the day reaches `PLAYER_START_TICK` with the
   mode HAND (Q-64; never cleared), before the second's settlement.
 

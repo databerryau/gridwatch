@@ -181,6 +181,7 @@ function gridSecond(state, out) {
     c.mode = 'AGC';
     for (const ps of state.plan.stations) ps.man = false;
     state.plan.rev += 1;
+    state.scope.unit = ''; // the auto-synchroniser's wait (A-4) is the player's
     out.push({tick: state.tick, kind: 'log', sev: 'info', code: 'NIGHT_SHIFT', msg: 'The night shift has the desk: AGC on until 04:00.'});
   }
   grid.planSecond(state, out);                         // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)

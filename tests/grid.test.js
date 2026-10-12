@@ -774,15 +774,19 @@ test('Q-64 / Q-73: from 21:00 the night shift has the desk: AGC on, every MAN fl
   assert.equal(more.filter(r => r.code === 'NIGHT_SHIFT').length, 0, 'once');
 });
 
-test('Q-73: the night flip keys on scn.night: classic and a night-less desk keep HAND past 21:00', () => {
+test('Q-73: the night flip keys on scn.night (classic and a night-less desk keep HAND past 21:00) and takes the synchroscope', () => {
   for (const scn of [CLASSIC, legacyDesk(), NIGHT]) {
     const s = createState(SEED, scn);
     assert.ok(applyInput(s, {type: 'mode', agc: false}).ok);
     s.tick = NIGHT_S * TPS; // a jump by poke: only the rule is under test
+    const u = unit(s, 'gta1');
+    u.mode = 'ready'; u.timerS = 0; s.scope.unit = 'gta1'; // a unit left on the synchroscope at 21:00 (poke)
     const out = step(s);
     assert.equal(s.control.nightShift, scn.night, scn.id);
     assert.equal(s.control.mode, scn.night ? 'AGC' : 'HAND', scn.id);
     assert.equal(out.some(r => r.code === 'NIGHT_SHIFT'), scn.night, scn.id);
+    assert.equal(s.scope.unit, scn.night ? '' : 'gta1', scn.id);
+    assert.equal(u.mode, scn.night ? 'loading' : 'ready', scn.id + ': the auto-synchroniser closes it');
   }
 });
 
