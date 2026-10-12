@@ -136,9 +136,9 @@ export function createDesk(doc, root, actions, opts = {}) {
   live.setAttribute('aria-live', 'polite');
   live.setAttribute('role', 'status');
 
-  // Q-73: the night locks sim inputs only; views (a tray card's button) stay open
+  // (Q-73: the night locks sim inputs, not views)
   const viewLocked = () => !vm || !!(vm.mode && vm.mode.locked) || !!vm.obs.over, locked = () => viewLocked() || !!vm.obs.nightShift;
-  let night = null;   // the control the night's one note is on
+  let night = null;   // the night note's host
   const ctx = {
     doc, actions,
     now: () => nowFn(),
@@ -184,7 +184,7 @@ export function createDesk(doc, root, actions, opts = {}) {
      */
     lockNote(host) {
       if (!host) return;
-      if (vm && vm.obs.nightShift) {   // one at a time
+      if (vm && vm.obs.nightShift) {
         if (night && night !== host && notes.has(night)) closeNote(notes.get(night));
         night = host;
         ctx.note(host, NIGHT_NOTE, 300 * NIGHT_NOTE.split(' ').length, 'info');
@@ -336,7 +336,7 @@ export function createDesk(doc, root, actions, opts = {}) {
       // A held Enter is swallowed, so auto-repeat can never be the second press of a guard (K-3).
       if (vm.respond || !mine(active)) return false;
       if (active === tray.el) return ev.repeat ? true : tray.focusFirst();
-      if (active.id === 'bay-restore') { if (!ev.repeat) bay.key('r'); return true; }   // as R: into the list, the feeder to close chosen
+      if (active.id === 'bay-restore') { if (!ev.repeat) bay.key('r'); return true; }   // = R
       if (active.tagName !== 'BUTTON' || active.disabled || active.classList.contains('dk-hold')) return false;
       if (active.classList.contains('dk-guard')) ctx.consider.keyboard(active.id);   // C-10: the keyboard is on this guard now, whoever focused it
       if (!ev.repeat) active.click();

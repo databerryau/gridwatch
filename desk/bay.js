@@ -254,7 +254,7 @@ export function createBay(ctx, parent) {
     pvCache.set(key, r);
     return r;
   }
-  /** R and a hand-back choose: the feeder handed back last that can close, else the first that can, else the first that is the player's. */
+  // R's and a hand-back's choice (§32.12)
   function pick() {
     const m = dark().filter(d => !held(d)), c = m.filter(d => !previewOf(d));
     const d = c.filter(d => d.shedBy === 'task').sort((a, b) => b.clearS - a.clearS)[0] || c[0] || m[0];
@@ -337,7 +337,7 @@ export function createBay(ctx, parent) {
     if (!vm) return;
     const o = vm.obs;
     const darkN = o.districts.filter(d => d.dark).length, mine = o.districts.filter(d => d.dark && !held(d)).length;
-    // a hand-back: the list chooses that feeder unless the player's choice can still be closed
+    // a hand-back
     const b = o.districts.filter(d => d.dark && d.shedBy === 'task' && !held(d)).map(d => d.id);
     if (b.some(id => !back.includes(id))) { const s = o.districts.find(d => d.id === sel); if (!s || !s.dark || held(s)) sel = pick(); }
     back = b;
@@ -359,7 +359,7 @@ export function createBay(ctx, parent) {
     setText(permit, lamp ? 'P ✓' : 'P ✕');
     setCls(permit, 'lit', lamp);
     setCls(tSync, 'glow', !!(vm.glow && vm.glow.has('bay-sync')));
-    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')) || !!(vm.mode && vm.mode.mode === 'RESTORE'));   // Q-70: the hand-back's pace
+    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')) || !!(vm.mode && vm.mode.mode === 'RESTORE'));   // (Q-70)
     if (view === 'sync') renderSync(); else renderRestore();
   }
 

@@ -105,7 +105,7 @@ export function cardOf(r) {
           button: {label: 'TO THE STACK', target: 'stack'}};
         case 'HYDRO_WATER': case 'HYDRO_EMPTY': return {key: 'water:' + r.code + ':' + r.msg.slice(0, 40), from: SENDERS.station, sev: 'warn',
           text: r.msg, button: {label: 'TO THE GATE', target: 'wheel-hydro'}};
-        // a front's onset: only the dayplan's, over the suburbs (Q-83)
+        // (a front's onset: the dayplan's only, Q-83)
         case 'HEAT_ONSET': case 'STORM_ARRIVE': case 'WIND_CUTOUT': case 'CLOUD_ONSET': case 'WIND_DROUGHT': return r.code === 'CLOUD_ONSET' && !/suburb/.test(r.msg) ? null
           : {key: 'wx:' + r.code, from: SENDERS.weather, sev: r.sev === 'crit' ? 'warn' : 'info', text: r.msg, button: {label: 'SEE THE STACK', target: 'stack'}};
         case 'FEEDER_CLEAR': return {key: 'clear:' + r.district, from: SENDERS.network, sev: 'warn',
@@ -159,7 +159,7 @@ export function trayRecords(tr, recs) {
   for (const r of recs) {
     if (r.code === 'NIGHT_SHIFT') tr.night = true;
     const c = cardOf(r);
-    // an announce's log twin (a legacy drought) makes no second card
+    // an announce's log twin: no second card
     if (!c || r.kind === 'log' && recs.some(x => x.kind === 'announce' && x.news.text === r.msg)) continue;
     if (c.log) { toLog(tr, {from: c.from, atS: Math.floor(r.tick / TPS), text: c.text, sev: 'info'}); continue; }
     if (!add(tr, c, Math.floor(r.tick / TPS))) continue;

@@ -72,7 +72,7 @@ export function createGauge(ctx, parent) {
   function coverOf(o) {
     const c = o.contingency, f = o.fos, bad = o.sec.level === 'SHORT' || o.sec.level === 'SHEDDING', ts = t => t / V.TICKS_PER_S;
     const out = f.outsideS > 0, band = 'BAND ' + (o.f.hz < V.F0_HZ ? 'LOW' : 'HIGH');
-    // a return seen fresh: the last update a moment ago, the same day (never across a jump or a new day)
+    // a return seen fresh (§32.12)
     if (o.tick < lastTick) okAt = -Infinity;
     else if (wasOut && !out && nowMs - lastMs <= 1e3) okAt = nowMs;
     wasOut = out; lastTick = o.tick; lastMs = nowMs;
