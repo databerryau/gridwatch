@@ -1,26 +1,5 @@
-// app/shell.js: the game page (next.html) around app/game.js. It mounts the map, the desk and
-// the Live Stack (whichever modules boot.js passes in), draws the header and the overlays
-// (briefing, watch, respond card, end card, drawer, "?" labels, toast, ?perf), runs the frame
-// loop (ticks, then the view model, then every module draws: never inside step(), X-26),
-// binds the K-23 keys and starts the audio on the first gesture.
-//
-// app/boot.js is the page's one module script: it imports the real modules and calls
-// bootGame(document, {...}). Tests call bootGame with the stand-in DOM (tests/lib/dom.js) and
-// stand-in modules, so the shell is tested before the other stage B files exist.
-//
-// Element ids other modules rely on:
-//   #map, #desk      the roots createMap / createDesk receive
-//   #stack-slot      created BY THE DESK in its third column: createLiveStack's root. If the
-//                    desk has none, the shell makes one at the end of #desk.
-//   #stack-overlay   L-4: while vm.stackExpanded the shell moves the Live Stack's `el` here
-//                    (over the map, ~1248 x 420) and back into #stack-slot after; the stack
-//                    sizes its canvas from its parent on update.
-//
-// Phase 1b (desk/README.md §13): the SETTINGS popover (#btn-settings, `,`; B-7) and the body
-// classes rm / fxlow / crt that follow vm.settings; the one key listener and its order (§13.3:
-// the desk's key(ev), then the stack's and the map's, then app/keys.js); the #aria-live region
-// (createLive / liveFrame below); the ?perf budget marks; ?debug -> globalThis.gridwatch.
-// desk/README.md §30: texts and the alarm panel on demand (Q-44, Q-46), "?" and Esc (Q-47), par (Q-48).
+// app/shell.js: the game page (next.html) around app/game.js.
+// Contract: desk/README.md §32.12 app/shell.js.
 
 import {V} from '../sim/params.js';
 import * as G from './game.js';

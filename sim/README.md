@@ -201,6 +201,23 @@ six of them at one minute would break the 64-KB state limit); ext event args hav
 exact decimals (tested).
 `fx` (cosmetic) randomness lives in `render/` and `audio/` only.
 
+**The file's header** (moved from `sim/rng.js` verbatim, Q-61; desk/README.md §32):
+
+```text
+sim/rng.js: counter-based random numbers (spec F-3). Pure: no state, no Math.random.
+
+Every draw is a function of (seed, stream, a, b, c): the same counters always give the
+same number, in any order, in any JS engine. Only 32-bit integer operations, one
+division by 2^32 and additions are used, so results are bit-identical across engines
+(risk 5). Streams:
+  ext.*  the external world, pre-rolled at createState (weather, demand noise, events);
+         never depends on play (C-6).
+  play   player-dependent outcomes: hash(seed, 'play', tick, unitIndex, draw).
+  fx     cosmetic randomness lives in render/ and audio/ only (Math.random allowed there).
+
+Stage A owns this file; it is frozen. Changing it changes every daily (bump SIM_VERSION).
+```
+
 ## 5. State shape
 
 `createState(seed, scenario)` returns this object. Every field is written by exactly the
@@ -1033,6 +1050,29 @@ from `env.roofSubMW` as of the last refresh (every grid second, and at every dis
 | `districtColdLoadMW(state, d)`, `DISTRICT_LIT` | K-13 cold load (Phase 2a: dark = the undelayed underlying pickup `G x share` x the cold factor; lit = its net load now; 2b: on G0, and both add the district's `flexShare`); restorePermissive's reason for a lit district |
 | `operateUfls(state, k) -> ids`, `rearmUfls(state, k) -> bool`, `setOfgsStage(state, k, tripped)` | relay stages with their invariants |
 
+**The file's header** (moved from `sim/fleet.js` verbatim, Q-61; desk/README.md §32):
+
+```text
+sim/fleet.js: equipment construction and the shared equipment actions (spec F-13, H-3,
+H-9, H-4 "L", K-15 contingency records).
+
+Stage A owns this file (implemented). Every module that trips, syncs, sheds, moves a
+relay or sets a base point calls these functions instead of writing the fields itself,
+so the invariants below hold (any module may call them; see sim/README.md §11):
+  - phys.ekMWs === sum of V.MACHINES[k].ekMWs over units with sync === true (H-3)
+  - stations[st].basePointMW === sum of units[].basePointMW over that station's machines
+    in mode 'on'; every other unit has basePointMW 0 (K-1: units carry the base points)
+  - city.shedFrac === sum of district.share over dark districts
+  - city.roofDarkMW / roofOffMW === the rooftop PV off with dark districts / off in total (dark,
+    or relit and still waiting or ramping back), from env.roofSubMW (Phase 2a: P-12, C-8;
+    refreshRoof, called by setDistrictDark and once a grid second by grid.fosSecond); 2b:
+    city.flexDarkMW === the dark districts' flex shares, from env.flexSubMW
+  - ufls.operated[k] is true iff stage k's districts were shed by UFLS and not re-armed
+  - ofgs.trippedFrac === (number of tripped OFGS stages) x OFGS_STAGE_FRAC
+  - a contingency record is opened for every trip larger than EVENT_THRESHOLD_MW (K-15)
+  - sec.dirty is set whenever the commitment or L may have changed
+```
+
 ### weather.js
 
 Stage A (done): `hourOfDay(scn, s)`, `secondOfHour(scn, h)`, `tableLinear(t, x)`,
@@ -1090,6 +1130,23 @@ saturates. That clamp also puts the mean clearness (0.937) under `cloud.mu` (0.9
 forecast drifts to: a bias of -0.6% of rooftop at 1 h and -1.1% at 4 h (+4 / +27 MW of
 operational demand in daylight), small against the band and left labelled.
 
+**The file's header** (moved from `sim/weather.js` verbatim, Q-61; desk/README.md §32):
+
+```text
+sim/weather.js: the external world's weather and demand (spec F-3, P-6, S-4).
+
+Stage A (implemented, frozen API): the weather regime and the pre-rolled ext series,
+table readers, and sampleSecond(), which sets state.env for each grid second.
+Stage B owner "market + events": forecast() (S-4 drift toward announced regime, L-2 band).
+Phase 2a owner "world" (desk/README.md §21.1): rooftop PV behind the meter (P-1, P-2), the
+day types (P-3: MILD days and weekends, from the public state.day), the per-suburb rooftop
+skies (prerollRooftop, C-5) and the forecast's rooftop and underlying columns. On a scenario
+with no rooftop and no MILD days (the classic day, C-1) every value is bit-identical to before.
+
+Pure functions only. No transcendental Math functions (risk 5): tables are
+interpolated with arithmetic, and noise comes from rng.normal (exact arithmetic).
+```
+
 ### events.js
 
 Stage A (done): `prerollEvents(seed, scn, regime)`, `TYPE_ORDER`, `CONTINGENCY_TYPES`.
@@ -1139,6 +1196,23 @@ built, measured for it: raising the threshold only for the columns before the ti
 return time (`tie.lockoutS`) gives MSL1 16.7%, MSL2 1.3%, and 5 of 8 early notices standing.
 **The wave-1 merge adopted that per-column rule** (desk/README.md §25 M-1): the code and §5 "day
 and msl" describe it; the slow P-4 test (seeds 1-200) passes with it.
+
+**The file's header** (moved from `sim/events.js` verbatim, Q-61; desk/README.md §32):
+
+```text
+sim/events.js: the external event timeline (spec F-3, D-8; legacy menu L331-370).
+
+Stage A (implemented, frozen): prerollEvents() turns the scenario's event menu into a
+time-sorted list of ext events at createState. Nothing here ever depends on play.
+Stage B owner "market + events": applyDue(), which applies the events whose time has come.
+Phase 2a owner "world" (desk/README.md §21.1): mslSecond(), the P-4 Minimum System Load
+notices (C-9), from the forecast step() passes in.
+
+Event record (state.ext.events[i], plain JSON):
+  {id: 'e7', atS: 41520, type: 'unitTrip', args: {...}, contingency: true, warned: false}
+atS is the grid second (0 = 04:00). Contingency events (unitTrip, linkTrip, smelterTrip)
+trip exactly one element each: the largest credible contingency is <= 800 MW (F-13).
+```
 
 ### physics.js (B "physics")
 
@@ -1573,6 +1647,27 @@ belly's price needs no rule of its own: the stack offers AVAILABLE wind and sola
 surplus the lit demand clears on their offer (`RENEWABLE_OFFER`, P-9) and, when the minimum-load
 blocks alone exceed it, on the floor; the automatic cut never moves it (P-5).
 
+**The file's header** (moved from `sim/market.js` verbatim, Q-61; desk/README.md §32):
+
+```text
+sim/market.js: merit-order price and the operator scorecard
+(spec P-5, P-6, P-7, P-8, P-11, H-5, H-12, S-1, S-2, S-3).
+
+STAGE B owner: "market + events". Contract: sim/README.md, section "market.js".
+scoreSummary() is implemented in stage A because observe() needs it; keep its output shape.
+
+Abstractions (SPEC §8.2 "Cost-based offers; scarcity adder" and "CUSTOMER COST is the
+resource cost of serving"):
+  - offers are cost-based (P-6), never strategic bids; the scarcity adder (P-7) stands in
+    for generators re-bidding when supply is tight, and is labelled as an abstraction;
+  - the price is a single-node, per-second merit-order price with no network, no
+    co-optimised FCAS and no 5-minute averaging (the real NEM settles every 5 minutes);
+  - RERT is priced "as if absent" (P-8; intervention pricing is unverified, §8.3);
+  - CUSTOMER COST is what a central planner pays for the resources (fuel, no-load,
+    starts, net imports, wear, DR, RERT), never the market bill and never anything
+    multiplied by unserved energy (H-12).
+```
+
 ### autopilot.js (B "autopilot")
 
 `preDispatch(obs) -> plan` (with `plan.load`, its planLoad input), `planUpdates(obs, memo, tags?,
@@ -1880,6 +1975,25 @@ Phase 2a, the belly (SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §2
 ```
 
 ### step.js (A, kept by "integration")
+
+**The file's header** (moved from `sim/step.js` verbatim, Q-61; desk/README.md §32):
+
+```text
+sim/step.js: the sim's public API (spec F-2, F-3, F-4, F-6, C-6, C-7).
+
+  createState(seed, scenario) -> state      plain JSON, ext timeline pre-rolled
+  step(state, inputs)         -> events[]   one 20-ms physics tick; every 50th tick
+                                            also runs the 1-s grid update first
+  applyInput(state, input, out)             validate + apply + log one input
+  observe(state, opts)        -> obs        the player's view (desk, map, autopilot)
+  hashState(state)            -> u32        fingerprint of all state except scn and ext
+  replay(seed, scenario, log) -> state      F-6 headless replay (throws on divergence)
+
+Stage A wrote this file and it works as far as its callees do; stage B owner
+"integration" keeps it. The order of calls in step() is part of the contract
+(sim/README.md §3): change it only through the README. The observe() shape is frozen
+(README §8, tests/state.test.js); hashState needs no edits when state grows.
+```
 
 `createState(seed, scenario)`, `step(state, inputs)`, `applyInput(state, input, out)`,
 `inWatch(state)`, `observe(state, opts)`, `hashState(state)`, `canonicalHash(x)`,

@@ -1,19 +1,6 @@
 // sim/market.js: merit-order price and the operator scorecard
 // (spec P-5, P-6, P-7, P-8, P-11, H-5, H-12, S-1, S-2, S-3).
-//
-// STAGE B owner: "market + events". Contract: sim/README.md, section "market.js".
-// scoreSummary() is implemented in stage A because observe() needs it; keep its output shape.
-//
-// Abstractions (SPEC §8.2 "Cost-based offers; scarcity adder" and "CUSTOMER COST is the
-// resource cost of serving"):
-//   - offers are cost-based (P-6), never strategic bids; the scarcity adder (P-7) stands in
-//     for generators re-bidding when supply is tight, and is labelled as an abstraction;
-//   - the price is a single-node, per-second merit-order price with no network, no
-//     co-optimised FCAS and no 5-minute averaging (the real NEM settles every 5 minutes);
-//   - RERT is priced "as if absent" (P-8; intervention pricing is unverified, §8.3);
-//   - CUSTOMER COST is what a central planner pays for the resources (fuel, no-load,
-//     starts, net imports, wear, DR, RERT), never the market bill and never anything
-//     multiplied by unserved energy (H-12).
+// Contract: sim/README.md §11 market.js.
 
 import {V} from './params.js';
 import {startBlock, resetAcc, litDemandMW} from './fleet.js';

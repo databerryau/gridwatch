@@ -1,19 +1,5 @@
-// app/game.js: one game session (next.html), DOM-free. It mirrors app/session.js (which the
-// bench keeps) for the game: the sim state, the director (game modes), the loop's pacer, the
-// system operator (app/system.js: the 04:30 pre-dispatch, the dark-city reflow, RE-DISPATCH),
-// the annunciator, the tray, the recorder (watch traces), history rings for the Live Stack's
-// past, the TRIP / RESTORE PREVIEW caches, the view model (desk/README.md §5), the input log
-// and its replay file (F-6). boot.js / shell.js wire it to the page; tests drive it headless.
-//
-// Everything that changes the grid is a sim input: sendInput (the desk, the stack, the map,
-// keys) and the system's inputs, applied between ticks or through step(), so replay() of the
-// log reproduces the day (F-6). Presentation (focus, ACK, pause, FAST, skip...) goes through
-// ui() and never touches the sim. Nothing here draws.
-//
-// Modules the game uses but other stage B agents own are passed in, so this file imports only
-// what exists on its own branch: `system` (app/system.js: createSystem, systemInputs,
-// redispatch) and `planview` (app/planview.js: glowSet). Without them the game still plays: no
-// automatic plan (a no-input day then needs the player), and a simple fallback glow set.
+// app/game.js: one game session (next.html), DOM-free.
+// Contract: desk/README.md §32.12 app/game.js.
 
 import {V} from '../sim/params.js';
 import {createState, step, observe, applyInput, hashState, replay, SIM_VERSION} from '../sim/step.js';

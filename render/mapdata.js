@@ -1,22 +1,6 @@
 // render/mapdata.js: the map's fixed geometry and the colours the stack, the map (and the
-// levers, desk/README §7 L-3) share. Pure data plus pure helpers; no DOM. Tested by
-// tests/map.test.js (G-1: integer scale, terrain to the frame edges, no building off the
-// terrain; G-2: the silhouette parts of each technology; X-37, X-38; G-3: the rooftop panels
-// of each suburb in proportion to its rooftop MW, ROOF_PV and roofPanels).
-//
-// The map is drawn on a fixed offscreen BASE_W x BASE_H canvas and blitted at an INTEGER
-// scale (G-1). scaleFor() picks the scale from the map area: the largest integer with the
-// whole width shown and the floor-safe rows (SAFE) fitting the height. Rows the frame cannot
-// show are cropped from the top (sky first); room left over is letterboxed with the ground
-// colour below the horizon and the sky colour above it, never sky under the ground.
-//   1280x268 (the 1280x600 floor) -> x2, 640x134 base px, the SAFE rows exactly
-//   1280x344 (1280x720)            -> x2, 640x172
-//   1920x520 (1920x1080)           -> x3, 640x173.3
-// The horizon sits 14 rows inside SAFE, so even the floor shows a strip of sky (G-3: the sun,
-// the sunset, the storm cloud) with the stacks, the towers and the CBD breaking it.
-//
-// Everything a shape needs is data here (base px), so the art can be nudged without touching
-// the drawing code in render/map.js.
+// levers, desk/README §7 L-3) share.
+// Contract: desk/README.md §32.12 render/mapdata.js.
 
 export const BASE_W = 640;
 export const BASE_H = 176;

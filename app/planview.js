@@ -1,23 +1,5 @@
-// app/planview.js: the Live Stack's plan view (desk/README.md §7; SPEC L-1..L-9). Pure: it
-// reads an observe() snapshot (and, for the past columns, the shell's history) and imports
-// only sim/params.js. Nothing here changes the grid; the stack sends what snapDrop returns.
-//
-// project(obs, opts)            the next 4.5 h per 5-min column: each layer's MW as the sim's
-//                               plan executor will move it (desk/README §3.1), supply and gaps,
-//                               the rooftop bite and the projected spill (Phase 2a, C-11)
-// blueRuns(proj)                the runs of projected spill ahead (C-11), in the shape of redRuns
-// earliestArrival(obs, st, mw)  the earliest second a station can be at mw (L-4 ghost, L-6, L-9)
-// glowSet(obs, gap)             control ids that can arrive by the gap's start (L-9, K-16)
-// snapDrop(obs, st, atS, mw)    the inputs a drop sends, on the 15-min / 50-MW grid, or the
-//                               earliest-arrival ghost when the drop is infeasible (L-4)
-// snapStart(obs, unit, onAtS)   the same for dragging an off unit's ghost (a booked START)
-// firstGap(proj)                the first red run ahead (the gap a trip opened, K-16)
-//
-// The projection is a 5-s step simulation of the executor rule, so ramps, T1/auto-sync/T2
-// starts, the unload + T4 stop profile, min up/down, clamps and the arrive-by lead all match
-// the sim to within one step; AGC trims, governors and heat derate changes are left out (the
-// stack draws the plan, not the seconds). Where the executor's contract is loose the choice is
-// named in a comment; stage C checks the projection against a stepped sim.
+// app/planview.js: the Live Stack's plan view (desk/README.md §7; SPEC L-1..L-9).
+// Contract: desk/README.md §32.12 app/planview.js.
 
 import {V} from '../sim/params.js';
 

@@ -1,15 +1,5 @@
 // desk/dial.js: K-11 frequency dial (canvas) and BALANCE bar (DOM) (desk/README.md §6, §29).
-//
-// Dial: 49-51 Hz; normal band green, out to 49.5/50.5 amber, beyond red; UFLS marked at 49.0; the
-// needle (above 10× the last real second's mean, F-4), the TRIP PREVIEW ghost needle, the nadir
-// pin during a watch, a 3-decimal readout, CHANGE (RoCoF over 500 ms) and SPIN (stored energy,
-// GW·s); "HAND" on the face in HAND mode. BALANCE bar: the trend, or in an event the scheduled gap
-// and the borrowed stack that covers it (inertia, battery, governors, load relief and, Phase 2a, the
-// inverters backing off: wind, utility solar and rooftop solar above 50 Hz, C-7); the segments sum to the
-// swing-equation imbalance and balance about zero (calc.imbalanceSegments). SHED is the dark
-// customers' load (obs.demand.unservedMW): the relay MW is net load and is zero or less when a
-// district that was feeding back at noon is dark (P-12). The canvas is role="img"; its text
-// alternative (K-23) changes at most once per real second.
+// Contract: desk/README.md §32.12 desk/dial.js.
 
 import {V} from '../sim/params.js';
 import {imbalanceSegments} from './calc.js';

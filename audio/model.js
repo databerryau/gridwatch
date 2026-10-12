@@ -1,19 +1,6 @@
 // audio/model.js: the pure parts of the game's sound (K-19 hum, K-20 foley, K-21 alarm tones,
 // K-22 buses), so Node tests can check them without WebAudio.
-//
-// K-19 mains hum: transformers hum at twice grid frequency, so the hum has partials at k x 2f
-// (k = 1..4). A quiet reference tone sits at k x 100 Hz (twice the 50-Hz nominal); each partial
-// beats against its reference at 2k x |f - 50| (at 49.75 Hz the 400 Hz partial wobbles twice a
-// second). Default level -30 dBFS. There is no such tone in a real control room: it is
-// sonification, labelled in the abstractions drawer (H-14).
-// K-20 breaker close: a bandpassed noise transient plus inharmonic partials near 0.9, 1.4 and
-// 2.2 kHz, decaying over 120 ms, plus a thud.
-//
-// Phase 1b (desk/README §13.2): every cue is data. A cue is either a TONE (oscillators, the
-// K-21 alarm sounds) or a VOICE: a list of layers (bandpassed noise, sines, saws, squares, each
-// with its own envelope) that renderVoice() mixes into one buffer. A rendered voice plays
-// through a source and a gain (and a panner when panned): 2-3 live nodes, whatever its recipe,
-// which is what lets 16 UFLS clacks, a horn and a breaker share the 32-node budget.
+// Contract: desk/README.md §32.12 audio/model.js.
 
 import {SUBURBS, BASE_W} from '../render/mapdata.js';
 

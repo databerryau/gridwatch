@@ -1,21 +1,6 @@
 // sim/fleet.js: equipment construction and the shared equipment actions (spec F-13, H-3,
 // H-9, H-4 "L", K-15 contingency records).
-//
-// Stage A owns this file (implemented). Every module that trips, syncs, sheds, moves a
-// relay or sets a base point calls these functions instead of writing the fields itself,
-// so the invariants below hold (any module may call them; see sim/README.md §11):
-//   - phys.ekMWs === sum of V.MACHINES[k].ekMWs over units with sync === true (H-3)
-//   - stations[st].basePointMW === sum of units[].basePointMW over that station's machines
-//     in mode 'on'; every other unit has basePointMW 0 (K-1: units carry the base points)
-//   - city.shedFrac === sum of district.share over dark districts
-//   - city.roofDarkMW / roofOffMW === the rooftop PV off with dark districts / off in total (dark,
-//     or relit and still waiting or ramping back), from env.roofSubMW (Phase 2a: P-12, C-8;
-//     refreshRoof, called by setDistrictDark and once a grid second by grid.fosSecond); 2b:
-//     city.flexDarkMW === the dark districts' flex shares, from env.flexSubMW
-//   - ufls.operated[k] is true iff stage k's districts were shed by UFLS and not re-armed
-//   - ofgs.trippedFrac === (number of tripped OFGS stages) x OFGS_STAGE_FRAC
-//   - a contingency record is opened for every trip larger than EVENT_THRESHOLD_MW (K-15)
-//   - sec.dirty is set whenever the commitment or L may have changed
+// Contract: sim/README.md §11 fleet.js.
 
 import {V} from './params.js';
 import {hhmm} from './clock.js';

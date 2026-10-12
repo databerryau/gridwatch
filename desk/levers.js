@@ -1,19 +1,5 @@
 // desk/levers.js: K-1 motorised unit levers and the K-3 machine guards (desk/README.md §6).
-//
-// One lever per station (COAL, CCGT, GT·A, GT·B, GT·C). The handle is the station's base point
-// (the plan's now-edge, obs.stations[].basePointMW); behind it the output needle (outMW), the AGC
-// band bracket (base ± band, K-2), the 10-grid-minute ramp cone, detent ticks at MIN/25/50/75%,
-// the 96% spring gate with its red zone (H-2 trip risk) and a tick for the next plan keyframe.
-// A drag sends `basePoint` on release (and at most every 250 ms while dragging); ↑/↓ ±10 MW,
-// Shift ±1, PgUp/PgDn next detent; crossing the gate needs 12 px of extra drag or Shift+↑.
-// An idle station's lever books its start through the plan (`planKey`, AGC mode, L-6).
-// One lamp per machine with its own START and STOP guards (lift, then press; S S / X X).
-// Phase 2a (C-10, desk/README.md §19.5): a guard lights when its id is in vm.glow (the
-// objective's STOP or START), and tells the desk when it is hovered, pressed by a pointer,
-// focused, lifted or committed (ctx.consider), so the shell can say what the press will do
-// before it is made.
-// Foley (K-20): a hand move cues `detent` / `gate` / `ratchet`, a plan move cues `servo`; guards
-// cue `cover` (lift, drop) and `button` (the press that commits). A rough close shakes the lever.
+// Contract: desk/README.md §32.12 desk/levers.js.
 
 import {V} from '../sim/params.js';
 import {leverScale, nextDetent, rampCone, agcBandMW, stationUnits} from './calc.js';

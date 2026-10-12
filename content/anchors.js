@@ -1,6 +1,6 @@
 // content/anchors.js: the "?" badges' index, eager (Q-44): {game: the element id, rows: its
-// entries' row titles}, in content/text.js order, which loads on demand. tests/anchors.test.js
-// keeps the two equal: an anchored entry added to content/text.js is appended here too.
+// entries' row titles}, in content/text.js order, which loads on demand.
+// Contract: desk/README.md §32.12 content/anchors.js.
 
 export const ANCHORS = Object.freeze([
   {game: 'rate-badge', rows: ['Compressed playback.']},

@@ -1,14 +1,5 @@
-// app/tray.js: the K-9 message tray model. Pure and DOM-free; desk/tray.js draws trayView()
-// (vm.tray).
-//
-// Cards come from the sim's records: news (`announce`: the weather bureau), station notices
-// (trips, each START / STOP / CANCEL / ABORT, a unit at full speed, lockout releases, water), market notices (the security level
-// going SHORT or SHEDDING, reserve diesel, DR, and from Phase 2a the minimum-system-load levels,
-// P-4 / desk/README.md C-9) and the city desk (UFLS, directed shedding, restores, a suburb's air-con locking; its bookings and patience: LOG only). Each card: a sender, a grid time, <= 25 words and ONE button that only focuses a
-// control (and lights it, L-9); it never dispatches (K-9). At most 3 cards are visible; older
-// ones (information first) and cards older than CARD_TTL_S go to the LOG drawer. Warning cards ring twice (the
-// audio cue 'ring2') and never repeat: a warning's key (what it is about) is shown once a day.
-// Cards never pause play (§7).
+// app/tray.js: the K-9 message tray model.
+// Contract: desk/README.md §32.12 app/tray.js.
 
 import {V} from '../sim/params.js';
 

@@ -1,13 +1,5 @@
-// desk/annunciator.js: the K-8 annunciator view (desk/README.md §6, §30.4). 6×2 tiles from
-// vm.alarms.tiles (app/alarms.js owns the model: states, flash, priorities); ACK, HORN OFF, EXPLAIN;
-// in the plan bar (Q-45). A tile press (Q-46): closed, it focuses its control, says what it means and
-// is W's pick; again while that note shows, the alarm panel opens there; open, it selects. Never a
-// sim input; it all works during the watch (K-15).
-//
-// ISA-18.1 sequence R, visual only (§11 B-2): alarm = fast flash (2.5 Hz), ACK = steady, cleared
-// before ACK = slow flash (0.8 Hz) until ACK, cleared after ACK = dark. Reduced motion: 1 Hz and
-// steady (desk.css). Each state has its own glyph (◆ ■ ◇), so the flash and the colour are never
-// the only sign (K-22); an escalated tile (B-1: a P2 tile showing as P1) adds ‼ and a double border.
+// desk/annunciator.js: the K-8 annunciator view (desk/README.md §6, §30.4).
+// Contract: desk/README.md §32.12 desk/annunciator.js.
 
 import {el, setText, setAttr, setCls, PAN} from './util.js';
 

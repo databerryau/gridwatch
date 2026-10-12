@@ -1,17 +1,6 @@
 // desk/bay.js: the procedure bay (desk/README.md §6): SYNC (K-12 synchroscope) and RESTORE
 // (K-13 feeder breakers).
-//
-// SYNC: the READY units (lit when offered, A-4); open one's scope (`scope`), watch the needle at
-// phaseDeg turning at slipHz, trim with [ ] (`syncTrim` ±0.05 Hz), close with C or the breaker
-// handle (`syncClose`; HAND may use the bypass key), U for AUTO (`syncAuto`). With the scope open
-// and no close for 8 real seconds the desk sends `syncAuto` itself (K-12).
-// RESTORE: each dark district is a feeder breaker with its cold-load MW; the RESTORE PERMISSIVE
-// lamp (restoreBlock === ''); a breaker closes (`restore`) only when the lamp and the district's
-// RESTORE PREVIEW (actions.restorePreview) both allow it. R, ←/→, Enter.
-// Keys (K-23): O opens the first READY unit's scope (an offered one first; again: closes it),
-// B is the bypass key (HAND). The scope canvas is role="img" with a text alternative that changes
-// at most once per real second. Foley (K-20): buttons and tabs cue `button`, the bypass key `key`;
-// the breaker's own sounds come from the sim's records.
+// Contract: desk/README.md §32.12 desk/bay.js.
 
 import {V} from '../sim/params.js';
 import {scopeAngle, scopeZone, turnS, coldLoad} from './calc.js';
