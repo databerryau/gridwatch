@@ -5,6 +5,7 @@
 
 import {V} from '../sim/params.js';
 import {hourOfDay} from '../sim/weather.js';
+import {PEAK} from '../sim/clock.js';
 
 const TPS = V.TICKS_PER_S;
 
@@ -25,8 +26,10 @@ export const ROCOF_SET_HZ_S = 1, ROCOF_CLEAR_HZ_S = 0.5;
 export const AGC_LIMIT_REAL_S = V.AGC_LIMIT_ALARM_REAL_S;
 /** STORAGE LOW: hydro below 30% of its allocation or the battery below 10%; clears at 35% / 20%. */
 export const HYDRO_LOW = 0.30, HYDRO_OK = 0.35, BATT_LOW = 0.10, BATT_OK = 0.20;
-/** PEAK: inside 17:00-20:00 (hours of day) and not SECURE (with the N-1 hold). */
-export const PEAK_H = Object.freeze([17, 20]);
+/** PEAK: inside D-2's Peak segment (16:30-20:00, hours of day) and not SECURE (with the N-1 hold). */
+export const PEAK_H = Object.freeze(PEAK.map(s => V.DAY_START_H + s / V.S_PER_H));
+/** Q-82: the news kinds that are weather (the WEATHER tile, the tray's sender, the explainer's count). */
+export const isWeather = kind => ['heat', 'storm', 'cloud', 'drought'].includes(kind);
 /**
  * MIN GEN (Phase 2a, desk/README.md §21.4): sets when the dispatch has been holding back more than
  * MINGEN_SET_MW of wind and utility solar for MINGEN_SET_S grid-s (spillMW: obs.wind.autoMW +
@@ -116,24 +119,25 @@ export function sampleTick(a, state) {
  */
 export function alarmInput(obs) {
   const c = obs.contingency;
-  const last = obs.news.length ? obs.news[obs.news.length - 1] : null;
   return {
     s: obs.s, h: obs.clock.h, fHz: obs.f.hz, rocof: Math.abs(obs.f.rocofHzS), level: obs.sec.level,
     agcAtLimitS: obs.agc.atLimitS, hydroFrac: obs.hydro.frac, battFrac: obs.battery.socMWh / obs.battery.capMWh,
     inWatch: obs.inWatch,
     contCount: obs.contingencies.length,
     cont: c ? {n: c.n, cause: c.cause, id: c.id, uflsStages: c.uflsStages, watchEndS: Math.floor(c.watchEndTick / TPS)} : null,
-    newsCount: obs.news.length, news: last ? {atS: last.atS, fromS: last.fromS, toS: last.toS, kind: last.kind} : null,
+    newsCount: obs.news.length, news: obs.news.map(newsOf), night: obs.nightShift,
     // Phase 2a (C-9): MW of wind and utility solar the dispatch is holding back now (MIN GEN)
     spillMW: obs.wind.autoMW + obs.solar.autoMW,
   };
 }
 
+// every news item: a batch (the briefing's) is read whole (Q-82)
+const newsOf = n => ({atS: n.atS, fromS: n.fromS, toS: n.toS, kind: n.kind});
+
 /** The same snapshot straight from state (headless runs; tests check it equals alarmInput(observe(state))). */
 export function alarmInputFromState(state) {
   const s = Math.floor(state.tick / TPS);
   const c = state.contIdx >= 0 ? state.conts[state.contIdx] : null;
-  const n = state.news.length, last = n ? state.news[n - 1] : null;
   const h = hourOfDay(state.scn, s);
   return {
     s, h, fHz: state.phys.fHz, rocof: Math.abs(state.phys.rocofHzS), level: state.sec.level,
@@ -142,7 +146,7 @@ export function alarmInputFromState(state) {
     inWatch: c !== null && state.tick < c.watchEndTick,
     contCount: state.conts.length,
     cont: c ? {n: c.n, cause: c.cause, id: c.id, uflsStages: c.uflsStages, watchEndS: Math.floor(c.watchEndTick / TPS)} : null,
-    newsCount: n, news: last ? {atS: last.atS, fromS: last.fromS, toS: last.toS, kind: last.kind} : null,
+    newsCount: state.news.length, news: state.news.map(newsOf), night: state.control.nightShift,
     spillMW: state.ren.windAutoMW + state.ren.solarAutoMW,
   };
 }
@@ -183,10 +187,9 @@ export function updateAlarms(a, x, ctx) {
     a.uflsSeen = (x.cont.n + 1) * 100 + x.cont.uflsStages;
     a.eventUntilS.ufls = Math.max(s, x.cont.watchEndS);
   }
-  if (x.newsCount > a.newsSeen) {
-    a.newsSeen = x.newsCount;
-    const nw = x.news;
-    a.eventUntilS.weather = nw.toS !== null && nw.toS !== undefined ? nw.toS : Math.max(nw.fromS, nw.atS) + WEATHER_HOLD_S;
+  for (; a.newsSeen < x.newsCount; a.newsSeen++) {
+    const nw = x.news[a.newsSeen];
+    if (isWeather(nw.kind)) a.eventUntilS.weather = Math.max(a.eventUntilS.weather, nw.toS ?? Math.max(nw.fromS, nw.atS) + WEATHER_HOLD_S);
   }
 
   // N-1 hold timers (grid seconds).
@@ -247,7 +250,7 @@ export function updateAlarms(a, x, ctx) {
   const cues = [];
   const now = ctx.nowMs, holdMs = RESOUND_HOLDOFF_S * 1000;
   const unacked = k => k.state === 'alarm' || k.state === 'cleared';
-  const quiet = x.inWatch || !!ctx.hold;
+  const quiet = x.inWatch || !!ctx.hold || !!x.night;   // the night roll is quiet (Q-73)
   let newAlarm = false, hornNow = false;
   const candidates = [];
   for (const t of fresh) {

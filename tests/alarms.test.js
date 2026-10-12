@@ -10,7 +10,7 @@ import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
 import {followDay} from './lib/follow.js';
 import * as A from '../app/alarms.js';
 import * as T from '../app/tray.js';
-import * as D from '../app/director.js';
+import {stepReal, stepAfter} from '../sim/clock.js';
 import {makeDocument} from './lib/dom.js';
 import {createDesk} from '../desk/desk.js';
 import {baseVm} from './lib/vm-fixture.js';
@@ -270,7 +270,7 @@ test('K-21: during the watch sounds are held; still unacknowledged, they sound o
   assert.equal(b.audible, 0);
   // WEATHER (P3) sets silently; STORAGE LOW (P2) chimes once and does not keep sounding.
   const c = A.createAlarms();
-  r = A.updateAlarms(c, snap({newsCount: 1, news: {atS: 9000, fromS: 12000, toS: null, kind: 'storm'}}), {nowMs: 0});
+  r = A.updateAlarms(c, snap({newsCount: 1, news: [{atS: 9000, fromS: 12000, toS: null, kind: 'storm'}]}), {nowMs: 0}); // (2c: every item, Q-82)
   assert.equal(tile(c, 'weather').state, 'alarm');
   assert.deepEqual(r.cues, []);
   r = A.updateAlarms(c, snap({s: 10001, hydroFrac: 0.29}), {nowMs: 1000});
@@ -298,9 +298,10 @@ test('K-8: N-1 INSECURE after 10 grid-s not SECURE; it clears after a 30-min sec
   assert.equal(tile(a, 'agcLimit').state, 'normal', '300 updates of 0.016 real s are 4.8 real s');
   for (let i = 0; i < 20; i++) up('SECURE', 10, 400 + i, 0.016);
   assert.equal(tile(a, 'agcLimit').state, 'alarm');
-  // PEAK: 17:00-20:00 and not SECURE.
+  // PEAK: D-2's Peak, 16:30-20:00 (2c, Q-78), and not SECURE.
+  assert.deepEqual(A.PEAK_H, [16.5, 20]);
   const b = A.createAlarms();
-  for (let i = 0; i < 12; i++) A.updateAlarms(b, snap({s: 50000 + i, h: 16.5, level: 'TIGHT'}), {nowMs: i});
+  for (let i = 0; i < 12; i++) A.updateAlarms(b, snap({s: 50000 + i, h: 16.4, level: 'TIGHT'}), {nowMs: i});
   assert.equal(tile(b, 'peak').state, 'normal');
   A.updateAlarms(b, snap({s: 50020, h: 17.1, level: 'TIGHT'}), {nowMs: 100});
   assert.equal(tile(b, 'peak').state, 'alarm');
@@ -380,20 +381,18 @@ test('MIN GEN on a real belly: observe() and state give the same spillMW; the ti
 
 /** Count the competent proxy's audible alarms over a day; the operator ACKs 3 real s after each sound. */
 function competentDay(seed) {
-  const a = A.createAlarms(), d = D.createDirector({game: true, paused: false});
-  let view = null; // the state with no contingency in play and the day not over (prototype reads: the rate is CRUISE's, never 0)
+  const a = A.createAlarms();
   let realMs = 0, lastS = -1, ackAt = Infinity;
   const stationOf = id => id.replace(/\d+$/, '');
   runPar(seed, CLASSIC, {proxy: 'competent', onStep: st => {
     A.sampleTick(a, st);
     if (st.tick % TPS !== 0 || st.tick < V.PLAYER_START_TICK) return;
     const x = A.alarmInputFromState(st);
-    // Real time: the director's CRUISE (read, never a literal: slice 2c's profile; no watch, card or RESPOND), about 1x in the watch.
-    if (!view || Object.getPrototypeOf(view) !== st) view = Object.assign(Object.create(st), {contIdx: -1, over: false});
-    const rate = x.inWatch ? 1 : D.rateOf(d, view);
-    realMs += (lastS < 0 ? 0 : x.s - lastS) * 1000 / rate;
+    // Real time (2c, Q-82): the D-2 profile on the step clock (clock.stepReal, as par paces), about 1x in the watch.
+    const dtS = lastS < 0 ? 0 : x.inWatch ? x.s - lastS : stepReal(lastS, x.s);
+    realMs += dtS * 1000;
     lastS = x.s;
-    const r = A.updateAlarms(a, x, {nowMs: realMs, realDtS: 1 / rate, stationOf});
+    const r = A.updateAlarms(a, x, {nowMs: realMs, realDtS: dtS, stationOf});
     if (r.cues.length || r.newAlarm) ackAt = Math.min(ackAt, realMs + 3000);
     if (realMs >= ackAt) { A.ackAll(a); ackAt = Infinity; }
   }});
@@ -440,7 +439,7 @@ test('K-9: at most 3 cards; warning cards ring twice and never repeat; <= 25 wor
     assert.match(c.time, /^\d\d:\d\d$/);
   }
   assert.equal(v.cards.find(c => /tripped/.test(c.text)).button.target, 'lever-coal');
-  T.trayFrame(tr, 202 + T.CARD_TTL_S + 1);
+  T.trayFrame(tr, stepAfter(V.PLAYER_START_S, V.TRAY_LIFE_REAL_S)); // (2c, Q-63: 20 real s of the profile from 04:30)
   assert.equal(T.trayView(tr).cards.length, 0, 'old cards go to the LOG');
   assert.equal(T.trayView(tr).log.length, 4);
   assert.equal(tr.rings, 3, 'three warnings rang');
