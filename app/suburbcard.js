@@ -143,14 +143,16 @@ export function createSuburbCard(doc, root, actions, deps) {
   }
 
   // the open suburb's rows: its dark line, then per lever its blocks and the aim
-  function build(v, id, sub, dark) {
+  function build(v, id, sub, dark, mine) {
     const lv = v.obs.levers, foc = body.contains(doc.activeElement) ? doc.activeElement.id : null;
     for (const q of body.querySelectorAll('[aria-expanded="true"]')) deps.toggleHelp(q, []); // (Q-47)
     body.replaceChildren();
     E = {lv: {}};
     if (dark) {
       E.dark = el(doc, 'p', 'info');
-      E.dark.append(el(doc, 'span'), ' ', btn('RESTORE', 'city-' + id + '-restore', () => actions.ui({do: 'focus', target: 'bay-restore'}), true));
+      E.dark.append(el(doc, 'span'));
+      // RESTORE only once a feeder is the desk's: the network's (Q-69) neither offers it nor takes the focus
+      if (mine) E.dark.append(' ', btn('RESTORE', 'city-' + id + '-restore', () => actions.ui({do: 'focus', target: 'bay-restore'}), true));
       body.appendChild(E.dark);
     }
     body.append(el(doc, 'p', 'sc-w', '“' + (WIT[id] || '') + '”'), E.st = el(doc, 'p'));
@@ -197,13 +199,15 @@ export function createSuburbCard(doc, root, actions, deps) {
       if (d !== day) { day = d; aims = {}; dflt = {}; rests = {}; shape = ''; } // (a new attempt)
       const id = v.suburb, s = cityOf(v).find(q => q.id === id);
       if (!s) return;
-      const obs = v.obs, sub = subOf(v), lv = obs.levers, ds = obs.districts.filter(d => d.suburb === id), dark = ds.filter(d => d.dark).length;
-      const key = id + lv.offered + (dark ? 'd' : '') + (sub ? '' : 'x') + lv.blocks.map(b => b.suburb + b.lever + b.atS);
-      if (key !== shape) { shape = key; build(v, id, sub, dark); }
+      const obs = v.obs, sub = subOf(v), lv = obs.levers, ds = obs.districts.filter(d => d.suburb === id), dk = ds.filter(d => d.dark), dark = dk.length;
+      // (Q-69: a task feeder before its hand-back is the network's: its time, and no RESTORE)
+      const back = dk.filter(d => d.clearS > obs.s).sort((a, b) => a.clearS - b.clearS).map(d => hm(d.clearS)), mine = dark > back.length;
+      const key = id + lv.offered + (dark ? mine ? 'd' : 'h' : '') + (sub ? '' : 'x') + lv.blocks.map(b => b.suburb + b.lever + b.atS);
+      if (key !== shape) { shape = key; build(v, id, sub, dark, mine); }
       setText(name, s.name.toUpperCase());
       setAttr(root, 'aria-label', s.name);
       setText(homes, Math.round(s.households / 1e3) + 'k homes');
-      if (E.dark) setText(E.dark.firstChild, dark + ' DARK:');
+      if (E.dark) setText(E.dark.firstChild, dark + ' DARK' + (back.length ? ' · BACK ' + back.join(', ') : ':'));
       const roof = (obs.rooftop.suburbs.find(q => q.id === id) || {mw: 0}).mw, p = sub ? sub.patience : -1;
       setText(E.st, (sub ? 'patience ' + p + (lv.offered.includes('aircon') ? ': ' + (p < V.PATIENCE_LOCK ? 'air-con locked' : p < V.PATIENCE_FULL ?
         Math.round(100 * (V.PATIENCE_FULL + p) / (2 * V.PATIENCE_FULL)) + '% respond' : 'all respond') : '') + ' · ' : '') +

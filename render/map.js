@@ -38,6 +38,12 @@ export function sunAmount(h) {
   return 1;
 }
 
+/** Q-73: the share of homes awake at hour h (§31.8 render/map.js G-3). */
+export function occupancy(h) {
+  const x = (hour(h) + 3) % 24; // hours since 21:00
+  return x < 4 ? 0.9 - 0.1875 * x : Math.min(0.9, 0.15 + 0.375 * Math.max(0, x - 8.5));
+}
+
 /**
  * G-3: the sky state at hour h (pure). 18:48 (h = 18.8) is 'sunset'.
  * @param {number} h hour of day
@@ -217,12 +223,19 @@ export function mapLabels(vm, hoverId, pinId) {
   for (const u of obs.units) if (u.mode === 'tripped') { const p = PLANTS.find(q => q.id === u.station); alarms.push([p.id, u.name.toUpperCase() + ' TRIPPED']); }
   if (obs.tie && obs.tie.tripped) alarms.push(['tie', 'TIE LINE TRIPPED']);
   for (const t of (vm.alarms && vm.alarms.tiles) || []) if (t.state === 'alarm') { const p = plantOf(t.target); if (p) alarms.push([p.id, p.label]); }
-  const darkBy = {};
-  for (const d of obs.districts || []) if (d.dark) darkBy[d.suburb] = (darkBy[d.suburb] || 0) + 1;
-  for (const sb of SUBURBS) if (darkBy[sb.id]) alarms.push(['sub:' + sb.id, sb.name.toUpperCase() + ': ' + darkBy[sb.id] + ' DARK']);
+  for (const sb of SUBURBS) {
+    const [n, back] = darkOf(obs, sb.id), held = n === back.length;
+    if (n) alarms.push(['sub:' + sb.id, sb.name.toUpperCase() + ': ' + n + ' DARK' + (held ? ' · BACK ' + back.join(', ') : ''), held ? 'info' : 'alarm']);
+  }
   const cap = Math.max(MAX_REST_LABELS, out.length) + (pinId ? 1 : 0); // a pin never hides an alarm
-  for (const [id, text] of alarms) { if (out.length >= cap) break; add(id, text, 'alarm'); }
+  for (const [id, text, kind] of alarms) { if (out.length >= cap) break; add(id, text, kind || 'alarm'); }
   return out;
+}
+
+/** A suburb's dark districts: [count, the held ones' hand-back times] (Q-69). */
+function darkOf(obs, id) {
+  const ds = (obs.districts || []).filter(d => d.dark && d.suburb === id);
+  return [ds.length, ds.filter(d => d.clearS > obs.s).sort((a, b) => a.clearS - b.clearS).map(d => clockText(d.clearS, false))];
 }
 
 /**
@@ -238,7 +251,7 @@ export function mapSummary(vm, hoverId) {
   if (obs.tie && obs.tie.tripped) trips.push('the tie line');
   if (trips.length) parts.push('Tripped: ' + trips.join(', ') + '.');
   const dark = [];
-  for (const sb of SUBURBS) { const n = (obs.districts || []).filter(d => d.dark && d.suburb === sb.id).length; if (n) dark.push(sb.name + ' ' + n); }
+  for (const sb of SUBURBS) { const [n, back] = darkOf(obs, sb.id); if (n) dark.push(sb.name + ' ' + n + (back.length ? ' (under repair until ' + back.join(', ') + ')' : '')); }
   if (dark.length) parts.push('Districts dark: ' + dark.join(', ') + '.');
   if (wx.cutOut) parts.push('Wind turbines shut down in the storm.');
   // G-3 (Phase 2a): what the roofs are making, to the nearest 50 MW, and what is off with dark or reconnecting districts
@@ -1054,12 +1067,12 @@ export function createMap(doc, root, actions) {
     const lk = lightAt(h, L) + '|' + shQ + '|' + (WX.heat ? 1 : 0) + WX.stormB + WX.cloudB;
     SH.x = shQ / 3 * 0.9; SH.y = Math.abs(shQ) / 3 * 0.28; SH.a = sunUp ? 0.26 * sun * (1 - 0.25 * WX.stormB) * (1 - 0.2 * WX.cloudB) : 0;
     const sig = districtsFrame(obs, nowMs);
-    // night windows follow what the city is using: underlying demand, not the grid's net of rooftop (Phase 2a)
+    // night windows: the homes awake times what the city is using (underlying demand), in 30 steps (G-3)
     const dm = obs.demand, usingMW = dm ? (Number.isFinite(dm.underlyingMW) ? dm.underlyingMW : dm.nowMW) : 5000;
-    const demandFrac = clamp01(usingMW / 8000);
-    const ck = lk + '|' + sig + '|' + (night > 0.05 ? Math.round(demandFrac * 10) + ':' + Math.round(night * 4) : '');
+    const lit = Math.round(30 * occupancy(h) * (0.3 + 0.8 * clamp01(usingMW / 8000)));
+    const ck = lk + '|' + sig + '|' + (night > 0.05 ? lit + ':' + Math.round(night * 4) : '');
     if (lk !== lightKey) { drawSky(WX); drawClouds(WX); drawTerrain(WX, SH); lightKey = lk; }
-    if (ck !== cityKey) { drawCity(WX, SH, 0.25 + 0.7 * demandFrac, night); cityKey = ck; }
+    if (ck !== cityKey) { drawCity(WX, SH, lit / 30, night); cityKey = ck; }
     // the frame: sky, sun, cloud, terrain, city, then what moves
     const t = rm ? 0 : nowMs / 1000;
     fx.phase = t;
@@ -1132,9 +1145,10 @@ export function createMap(doc, root, actions) {
     cv.style.cursor = id ? 'pointer' : 'default';
   }
 
-  // Q-56: a suburb's card; a dark one focuses the RESTORE bay first (Q-42)
+  // Q-56: a suburb's card; a dark one focuses the RESTORE bay first (Q-42), unless every dark feeder is held (Q-69)
   function openSuburb(id) {
-    if (vm.obs.districts.some(d => d.dark && 'sub:' + d.suburb === id)) actions.ui({do: 'focus', target: 'bay-restore'});
+    const [n, back] = darkOf(vm.obs, id.slice(4));
+    if (n > back.length) actions.ui({do: 'focus', target: 'bay-restore'});
     actions.ui({do: 'suburb', id: id.slice(4)});
   }
 
