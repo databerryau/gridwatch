@@ -1,5 +1,4 @@
 // content/dailies.js: the gate-checked dailies (D-9, Q-75): exceptions only. desk/README.md §32.4.8.
-// v: the build stamp the list was gated under (tools/daily-gen.js writes it); from, to: 'YYYY-MM-DD'.
 export const DAILIES = {v: '', from: '', to: '', attempts: {}};
 
 export const seedOf = (ymd, k = 0) => ymd + k * 1e8;
