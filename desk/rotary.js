@@ -377,7 +377,6 @@ export function createTieKnob(ctx, parent) {
   const flow = el(doc, 'i', 'dk-flow');
   let vm = null;
   const t = () => vm.obs.tie;
-  // 2c (Q-68): a network outage's import limit bounds the knob; a turn past it says why (help)
   const lim = () => fin(t().importLimitMW, V.TIE_MAX_MW), limText = () => 'imports limited to ' + lim() + ' MW until ' + clockOf(t().limitUntilS);
   const k = makeRotary(ctx, {
     id: 'knob-tie', cls: 'dk-tknob', label: 'Interconnector knob: + import, − export', pan: PAN.tie, shortcut: '8', host: box,
@@ -416,7 +415,7 @@ export function createTieKnob(ctx, parent) {
     if (!vm) return;
     const tt = t(), v = k.cur();
     const cap = fin(tt.exportLimitMW, V.TIE_MAX_MW), im = lim();
-    // The export cap (F-13) as a red arc from -800 to -cap, and an import limit (2c) from it to +800.
+    // The export cap (F-13) and the import limit (Q-68) as red arcs.
     const arc = x => (knobAngle(x, -V.TIE_MAX_MW, V.TIE_MAX_MW) + KNOB_SWEEP / 2).toFixed(1) + 'deg', aCap = arc(-cap), aLim = arc(im);
     setStyle(rim, 'background', 'conic-gradient(from ' + (-KNOB_SWEEP / 2) + 'deg, var(--dk-red) 0deg ' + aCap +
       ', var(--dk-rim) ' + aCap + ' ' + aLim + ', var(--dk-red) ' + aLim + ' ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');

@@ -26,9 +26,9 @@ export const ROCOF_SET_HZ_S = 1, ROCOF_CLEAR_HZ_S = 0.5;
 export const AGC_LIMIT_REAL_S = V.AGC_LIMIT_ALARM_REAL_S;
 /** STORAGE LOW: hydro below 30% of its allocation or the battery below 10%; clears at 35% / 20%. */
 export const HYDRO_LOW = 0.30, HYDRO_OK = 0.35, BATT_LOW = 0.10, BATT_OK = 0.20;
-/** PEAK: inside D-2's Peak segment (16:30-20:00, hours of day) and not SECURE (with the N-1 hold). */
+/** PEAK: inside D-2's Peak (hours of day) and not SECURE (with the N-1 hold). */
 export const PEAK_H = Object.freeze(PEAK.map(s => V.DAY_START_H + s / V.S_PER_H));
-/** Q-82: the news kinds that are weather (the WEATHER tile, the tray's sender, the explainer's count). */
+/** Q-82 */
 export const isWeather = kind => ['heat', 'storm', 'cloud', 'drought'].includes(kind);
 /**
  * MIN GEN (Phase 2a, desk/README.md §21.4): sets when the dispatch has been holding back more than
@@ -131,7 +131,6 @@ export function alarmInput(obs) {
   };
 }
 
-// every news item: a batch (the briefing's) is read whole (Q-82)
 const newsOf = n => ({atS: n.atS, fromS: n.fromS, toS: n.toS, kind: n.kind});
 
 /** The same snapshot straight from state (headless runs; tests check it equals alarmInput(observe(state))). */
@@ -250,7 +249,7 @@ export function updateAlarms(a, x, ctx) {
   const cues = [];
   const now = ctx.nowMs, holdMs = RESOUND_HOLDOFF_S * 1000;
   const unacked = k => k.state === 'alarm' || k.state === 'cleared';
-  const quiet = x.inWatch || !!ctx.hold || !!x.night;   // the night roll is quiet (Q-73)
+  const quiet = x.inWatch || !!ctx.hold || !!x.night;   // (Q-73)
   let newAlarm = false, hornNow = false;
   const candidates = [];
   for (const t of fresh) {

@@ -2640,7 +2640,9 @@ dial over the imbalance bar and N-1 gauge; the lever bank over the hydro wheel, 
 tie knob and the AGC / RE-DISPATCH keys; the Live Stack slot over the procedure bay; the
 message tray over the emergency row; the annunciator in the plan bar (§30.4). Every input goes through
 actions.input (never assumed accepted: refusals show on the control for a moment); the desk
-is locked while vm.mode.locked (the watch) except ACK and SILENCE. Time for guards, holds and
+is locked while vm.mode.locked (the watch) except ACK and SILENCE, and from the night shift
+(obs.nightShift, Q-73, 2c) the same way: a press answers with NIGHT_NOTE in blue, at 0.3 s a
+word ("The night shift has the desk: ..."); tabs, notes, "?" and ACK stay open. Time for guards, holds and
 the synchroscope's 8-s AUTO comes from vm.frame.nowMs (or opts.now), never from timers.
 
 Keys (K-23, §13.3). desk.key returns true exactly when it acted; the shell then stops. (D and E
@@ -2925,6 +2927,13 @@ Inputs: updateAlarms(a, x, ctx) reads a small snapshot `x` built by alarmInput(o
 game, or alarmInputFromState(state) in headless runs (tests; they must agree). Frequency
 extremes between two updates come from sampleTick() (called after every tick): a frame at
 120x spans ~100 ticks, and a dip below 49.85 Hz inside it must still set UNDER FREQ.
+
+2c (desk/README.md §32.7.3): `x.news` is every news item ({atS, fromS, toS, kind}), so a batch
+(the briefing's three at 04:00) is read whole, and WEATHER sets only for `isWeather(kind)` (heat,
+storm, cloud, drought: Q-82's one predicate), until the latest end among them. `x.night`
+(obs.nightShift) makes the night roll quiet as the watch is (Q-73): tiles still flash, nothing
+sounds. PEAK_H is D-2's Peak segment in hours, from `clock.PEAK` ([16.5, 20], Q-78). K-8's
+accept counts real time on `clock.stepReal` (the profile par paces on), 1x in the watch.
 ```
 
 #### app/suburbcard.js
@@ -4527,9 +4536,30 @@ Cards come from the sim's records: news (`announce`, by kind, Q-82: weather from
 going SHORT or SHEDDING, reserve diesel, DR, and from Phase 2a the minimum-system-load levels,
 P-4 / desk/README.md C-9) and the city desk (UFLS, directed shedding, restores, a suburb's air-con locking; its bookings and patience: LOG only). Each card: a sender, a grid time, <= 25 words and ONE button that only focuses a
 control (and lights it, L-9); it never dispatches (K-9). At most 3 cards are visible; older
-ones (information first) and cards older than CARD_TTL_S go to the LOG drawer. Warning cards ring twice (the
+ones (information first) and cards whose life is over go to the LOG drawer. Warning cards ring twice (the
 audio cue 'ring2') and never repeat: a warning's key (what it is about) is shown once a day.
 Cards never pause play (§7).
+
+2c (desk/README.md §32.7.3):
+- Senders by kind (Q-82): `A.isWeather(kind)` (heat, storm, cloud, drought) is the WEATHER BUREAU
+  with its button to the stack; `tie` MARKET NOTICE (the tie), `outage` STATION (the lever of the
+  unit its text names), `network` NETWORK (the restore bay); any other kind as before (the map).
+- A card's life (Q-63) is stored when it is made, as `untilS`: TRAY_LIFE_REAL_S (20) real s of
+  the step profile (`clock.stepAfter`) from its atS, 04:30 at the earliest; a warning issued in
+  play (news atS > 0) whose onset (`fromS`) is later stays until its onset (`holdS`). Briefing
+  cards get the plain 20 s. `trayFrame` retires every card whose life is over, not only the
+  oldest, so a warning held to its onset stays while a newer information card expires behind it.
+- `trayBriefing(tr, news)` (Q-81): at TAKE THE DESK one card per news item with atS 0, through
+  the same 'announce' path (sender, button, seen key), atS 0 ("04:00"); one 'ring2' if it made
+  any, else [] (classic announces nothing at 04:00); over three, the oldest cards go first.
+- Log cards: `FEEDER_CLEAR` rings (NETWORK): "<id> feeder repaired and handed back: close its
+  breaker (R, then Enter)." with its button to the restore bay (Q-70); `UNIT_AVAILABLE` (STATION,
+  to the unit's lever) and `TIE_LIMIT_END` (MARKET NOTICE, to the tie) are information; the
+  weather onsets keep one rule: a `crit` log (heat onset, storm arrival, wind cut-out) rings, and
+  a front's `CLOUD_ONSET` and a warned drought's `WIND_DROUGHT` are information (their warning
+  rang; plan's moments, tests/dayplan.test.js).
+- The night (Q-73): from the sim's `NIGHT_SHIFT` record the tray's cards are quiet (made and
+  logged, no cue).
 ```
 
 #### app/watch.js
@@ -4562,6 +4592,12 @@ MW each source caught (the record's caught at the extreme, which is the trace va
 nadir), the problem in plain words (the H-4 level, R5 - L if short, the 30:00 countdown from
 secureByTick, dark districts except a held task feeder, the network's outage: Q-69), and "Enter
 (or a click) to take the desk".
+
+2c (Q-74): the problem line speaks COVER's words. COVER is R5 >= L with no district dark for UFLS
+or direction, within 30 min of the trip, so: "N-1 SHORT: n MW short: cover it within m:ss.";
+"N-1 TIGHT: spare covers the next trip, without SECURE's margin." (TIGHT already covers: no
+countdown); "SHEDDING: n districts dark (n MW): relight them within m:ss."; SECURE as before.
+fallbackGlow's tie test reads obs.tie.importLimitMW (a derate's limit, Q-68).
 ```
 
 #### audio/audio.js
@@ -4659,6 +4695,13 @@ and no close for 8 real seconds the desk sends `syncAuto` itself (K-12).
 RESTORE: each dark district is a feeder breaker with its cold-load MW; the RESTORE PERMISSIVE
 lamp (restoreBlock === ''); a breaker closes (`restore`) only when the lamp and the district's
 RESTORE PREVIEW (actions.restorePreview) both allow it. R, ←/→, Enter.
+2c, the restore task (Q-69, Q-70): a task feeder before its clearS is held (the network's): its
+row reads "<id> · FAULT · BACK HH:MM" and is listed after the feeders that are the player's, it
+never chooses the bay's view (RESTORE opens by itself only for a dark district that is not held;
+the tab's ✕n still counts every dark district, as the map and the line do), and a press on its
+CLOSE is the red refusal with the sim's reason ("feeder under repair until HH:MM"), as every
+permissive refusal. From each hand-back until that feeder is closed the RESTORE tab glows. R
+selects the first feeder that can close (the FEEDER_CLEAR card's "R, then Enter").
 Keys (K-23): O opens the first READY unit's scope (an offered one first; again: closes it),
 B is the bypass key (HAND). The scope canvas is role="img" with a text alternative that changes
 at most once per real second. Foley (K-20): buttons and tabs cue `button`, the bypass key `key`;
@@ -4718,6 +4761,22 @@ R5, L and the LOR names sit behind "?". Colours by nadir: >= 49.55 green, 49.0-4
 < 49.0 red, always with a glyph. The bars are told apart without colour too (K-22): SPARE is a
 solid fill and carries the level's glyph on its number (✓ covers 1.25 × the risk, ! covers the
 risk, ✕ short: cross-hatched), RISK is a hatched fill.
+
+2c, the COVER row (Q-74), in the caught line's place (while it shows, the live preview's caught
+words move into the preview's title). It shows while frequency is outside 49.85-50.15 Hz
+(fos.outsideS > 0), for BAND_OK_MS (3 real s) after it returns, while obs.inRespond, and while
+the latest contingency is past its watch and still uncovered (securedTick < 0). In that order:
+  BAND LOW / BAND HIGH n   fos.countdownS, the bar draining over FOS_RECOVER_S (amber)
+  BAND ✓                   the 3 real s after the return (green), never beside a SHORT or SHEDDING head
+  COVER n                  to secureByTick, the bar draining over SECURE_AGAIN_S (plain)
+  COVER ✓ T+n              covered (securedTick) inside the window (green)
+  COVER LOST               covered, and the level is SHORT or SHEDDING inside the window (amber)
+  COVER ✕ n OVER           past secureByTick uncovered (amber), titled COVER_OVER_TITLE
+The figure n is m:ss at 10× or slower (the watch's slow part, the card, FOCUS, PAUSE) and whole
+minutes rounded up above it ("n MIN"), as the dial's readouts; a new figure for the same word is
+drawn at most every FIGURE_MS (500 real ms), a new word at once; the gauge's aria label (the
+group that takes the focus) ends with the row in m:ss, and the overdue title. The "?" adds COVER's
+and BAND's sentence. Real ms are the frame's (vm.frame.nowMs).
 ```
 
 #### desk/levers.js
@@ -4749,6 +4808,10 @@ desk/rotary.js: K-4 hydro gate wheel, K-5 battery dial + GUARD ring, K-6 tie kno
 Each sends its sim input on release / key-up and shows the vm's applied value otherwise.
 Foley (K-20): a turn cues `detent` across a detent (every GUARD step, the tie's detents, the
 battery's IDLE) or else `ratchet`; the hydro gate cues `gate` when a new setting is taken.
+2c (Q-68): a network outage's import limit (obs.tie.importLimitMW, until limitUntilS) bounds the
+tie knob (aria-valuemax; a drag snaps through calc.tieSnap(v, limit), never to a detent past it),
+draws a red arc from it to +800 beside the export cap's, and its lamp reads "● IMP ≤n"; a key
+turn past it, made at it, says in blue "imports limited to n MW until HH:MM".
 ```
 
 #### desk/tray.js

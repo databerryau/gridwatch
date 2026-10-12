@@ -243,7 +243,6 @@ export function createBay(ctx, parent) {
   feeders.setAttribute('aria-label', 'Dark districts: ←/→ choose, Enter closes the breaker');
   vRest.append(rhead, feeders);
   let rows = new Map(), rowKey = '', sel = '', pvCache = new Map();
-  // Q-69: a task feeder before its hand-back is the network's (held): listed last, it never chooses the view
   const held = d => d.shedBy === 'task' && d.clearS > vm.obs.s;
   const dark = () => vm.obs.districts.filter(d => d.dark).sort((a, b) => held(a) - held(b));
   function previewOf(d) {
@@ -332,7 +331,7 @@ export function createBay(ctx, parent) {
     if (!vm) return;
     const o = vm.obs;
     const darkN = o.districts.filter(d => d.dark).length, mine = o.districts.filter(d => d.dark && !held(d)).length;
-    // Which view: the scope when open, else the player's choice, else RESTORE when districts not held are dark.
+    // Which view: the scope when open, else the player's choice, else RESTORE when districts are dark (not held, Q-69).
     if (scopeUnit()) view = 'sync';
     else if (!userView) view = mine > 0 && !o.units.some(u => u.mode === 'ready') ? 'restore' : 'sync';
     setHidden(vSync, view !== 'sync');
@@ -350,7 +349,6 @@ export function createBay(ctx, parent) {
     setText(permit, lamp ? 'P ✓' : 'P ✕');
     setCls(permit, 'lit', lamp);
     setCls(tSync, 'glow', !!(vm.glow && vm.glow.has('bay-sync')));
-    // Q-70: the tab glows from each hand-back until that feeder is closed
     setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')) || o.districts.some(d => d.dark && d.shedBy === 'task' && !held(d)));
     if (view === 'sync') renderSync(); else renderRestore();
   }

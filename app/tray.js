@@ -74,7 +74,6 @@ export function cardOf(r) {
   switch (r.kind) {
     case 'announce': {
       const n = r.news, [from, label, target] = NEWS[n.kind] || ['weather', 'SEE THE STACK', isWeather(n.kind) ? 'stack' : 'map'], to = target || leverIn(n.text);
-      // holdS: a warning issued in play stays until its onset (Q-63)
       return {key: 'news:' + n.kind + ':' + n.fromS, from: SENDERS[from], sev: 'warn', text: n.text, button: {label: to === 'stack' ? 'SEE THE STACK' : label, target: to},
         holdS: n.atS > 0 ? n.fromS : 0};
     }
@@ -106,10 +105,8 @@ export function cardOf(r) {
           button: {label: 'TO THE STACK', target: 'stack'}};
         case 'HYDRO_WATER': case 'HYDRO_EMPTY': return {key: 'water:' + r.code + ':' + r.msg.slice(0, 40), from: SENDERS.station, sev: 'warn',
           text: r.msg, button: {label: 'TO THE GATE', target: 'wheel-hydro'}};
-        // an onset rings (crit); a front's or a drought's is information (the warning rang)
         case 'HEAT_ONSET': case 'STORM_ARRIVE': case 'WIND_CUTOUT': case 'CLOUD_ONSET': case 'WIND_DROUGHT': return {key: 'wx:' + r.code, from: SENDERS.weather,
           sev: r.sev === 'crit' ? 'warn' : 'info', text: r.msg, button: {label: 'SEE THE STACK', target: 'stack'}};
-        // 2c (Q-70, Q-82): a feeder handed back rings and says what to press; a unit's return and the tie limit's end are information
         case 'FEEDER_CLEAR': return {key: 'clear:' + r.district, from: SENDERS.network, sev: 'warn',
           text: r.district + ' feeder repaired and handed back: close its breaker (R, then Enter).', button: {label: 'TO THE RESTORE BAY', target: 'bay-restore'}};
         case 'UNIT_AVAILABLE': return {key: null, from: SENDERS.station, sev: 'info', text: r.msg, button: {label: 'TO THE LEVER', target: leverIn(r.msg)}};
@@ -142,8 +139,7 @@ export function createTray() {
   return {cards: [], log: [], seen: {}, nextId: 1, rings: 0, rev: 0, view: null, viewRev: -1, night: false};
 }
 
-// A new card, or null (a key seen today never repeats). Its life is stored now (Q-63): TRAY_LIFE_REAL_S
-// of the step profile from its atS (04:30 at the earliest), and a warning issued in play until its onset.
+// A new card (its life stored now, Q-63), or null: a key seen today never repeats.
 function add(tr, c, atS) {
   if (c.key) { if (tr.seen[c.key]) return null; tr.seen[c.key] = true; }
   const card = {id: 'card' + tr.nextId++, from: c.from, atS, text: words(c.text), button: c.button, sev: c.sev,
@@ -154,8 +150,7 @@ function add(tr, c, atS) {
 
 /**
  * Fold a step's records into the tray. Returns the audio cues: 'ring2' for a new warning card
- * (it rings twice, once), 'tick' for an information card (K-21 P3); none from the night shift's
- * NIGHT_SHIFT record on (Q-73: the night's cards are quiet).
+ * (it rings twice, once), 'tick' for an information card (K-21 P3); none at night (Q-73).
  */
 export function trayRecords(tr, recs) {
   const cues = [];
@@ -176,10 +171,7 @@ export function trayRecords(tr, recs) {
   return cues;
 }
 
-/**
- * TAKE THE DESK (Q-81): one card per news item announced at 04:00 (atS 0), as play makes them;
- * ['ring2'] once if it made any, else []. Over three, the oldest cards go first.
- */
+/** Q-81: the 04:00 news as cards at TAKE THE DESK; ['ring2'] once, or []. */
 export function trayBriefing(tr, news) {
   let made = 0;
   for (const n of news) if (n.atS === 0 && add(tr, cardOf({kind: 'announce', news: n}), 0)) made++;
@@ -195,7 +187,7 @@ function toLog(tr, card) {
   if (tr.log.length > MAX_LOG) tr.log.splice(0, tr.log.length - MAX_LOG);
 }
 
-/** Once per frame: every card whose life is over goes to the LOG. */
+/** Once per frame: cards whose life is over go to the LOG. */
 export function trayFrame(tr, s) {
   for (let i = 0; i < tr.cards.length;) if (s >= tr.cards[i].untilS) toLog(tr, tr.cards.splice(i, 1)[0]); else i++;
 }

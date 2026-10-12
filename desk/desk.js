@@ -34,7 +34,7 @@ export const LAYOUT = Object.freeze({
 });
 
 export const NOTE_MS = 2500;   // a refusal / hint stays on its control this long
-/** Q-73: from 21:00 on a night scenario the desk is the night shift's; a press says so (help, blue), 0.3 s a word. */
+/** Q-73: a press in the night (blue). */
 export const NIGHT_NOTE = 'The night shift has the desk: it stands down what the night does not need. Your day is scored at 04:00.';
 export const CONSIDER_HOLD_MS = 6000;   // C-10: a guard lifted by key stays the considered one this long after its cover drops
 export const PRESS_FOCUS_MS = 1000;     // C-10: a focus this soon after a pointer came up on the guard is that press's, not the keyboard's

@@ -5,7 +5,10 @@
 // reliability readouts (SAIDI, SAIFI, MAIFI: beside OUTAGES, never added in) and their "?"; the seed
 // and hash; DOWNLOAD REPLAY LOG and PLAY THIS DAY AGAIN. Prices come from V.VCR and V.VER, never typed
 // in. While par runs the card says how far it has got; it is redrawn when par's ALL-IN arrives
-// (game.end is filled in place, app/game.js buildVm).
+// (game.end is filled in place, app/game.js buildVm). 2c (desk/README.md §32.7.3): under the h2,
+// HAND-FLOWN (game.end.handFlown, Q-64) and "Not gate-checked" only when game.end.gated === false
+// (Q-75; null is not a daily); in the reliability block, on a day with feeders under repair
+// (score.heldMWh > 0), that they count from their hand-back (Q-69).
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';

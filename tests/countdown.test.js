@@ -36,7 +36,8 @@ function view({atS, rate = 300, ms = 1000, level = 'TIGHT', out = 0, hz = 50, se
 function gauge() {
   const doc = makeDocument(), g = createGauge({doc, note() {}, cue() {}, ui() {}}, doc.body), row = g.el.querySelector('.dk-cover');
   const up = (v, pv = null) => { g.update(v, pv); return row.hidden ? null : row.textContent; };
-  return {g, row, up, fill: () => row.querySelector('.dk-gbar-fill').style.width, aria: () => row.getAttribute('aria-label')};
+  // aria: the gauge's own label (its role is group, and it takes the focus) says the row in m:ss
+  return {g, row, up, fill: () => row.querySelector('.dk-gbar-fill').style.width, aria: () => g.el.getAttribute('aria-label')};
 }
 
 test('Q-74: m:ss at 10x or slower; whole minutes rounded up above it (no ":" on the face at 30x and 300x); BAND\'s bar drains over 5 min', () => {
@@ -65,13 +66,13 @@ test('Q-74: m:ss at 10x or slower; whole minutes rounded up above it (no ":" on 
 test('Q-74: no figure redrawn sooner than every 500 real ms (one COVER figure across two updates 0.2 real s apart at 300x); aria m:ss at 300x', () => {
   const {up, aria} = gauge();
   assert.equal(up(view({atS: 100, ms: 1000})), 'COVER 29 MIN');
-  assert.equal(aria(), 'COVER 28:20', 'the label says m:ss at every rate');
+  assert.match(aria(), /\. COVER 28:20\.$/, 'the label says m:ss at every rate');
   // 0.2 real s at 300x is 60 grid-s: 1,640 s left would read 28 MIN
   assert.equal(up(view({atS: 160, ms: 1200})), 'COVER 29 MIN', 'held');
   assert.equal(up(view({atS: 250, ms: 1000 + FIGURE_MS})), 'COVER 26 MIN', 'redrawn after 500 ms');
   // a new word is drawn at once (the figure rule is about figures)
   assert.equal(up(view({atS: 260, ms: 1600, out: 3, hz: 49.8})), 'BAND LOW 5 MIN');
-  assert.match(aria(), /^COVER \d+:\d\d$|^BAND LOW \d:\d\d$/);
+  assert.match(aria(), /\. BAND LOW 4:57\.$/);
 });
 
 test('Q-74: "BAND ✓" is held 3 real s after the return (there 1 s on, gone at 3.1 s outside a window); "BAND HIGH"', () => {
@@ -90,7 +91,7 @@ test('Q-74: "BAND ✓" is held 3 real s after the return (there 1 s on, gone at 
 });
 
 test('Q-74: COVER n MIN, ✓ T+n, LOST (amber), and past 30 min "COVER ✕ n MIN OVER" in amber with its title, also in band', () => {
-  const {up, row} = gauge();
+  const {up, row, aria} = gauge();
   const cls = () => row.className.split(' ').filter(c => c === 'good' || c === 'warn').join('') || 'plain';
   assert.equal(up(view({atS: 10, ms: 1000})), 'COVER 30 MIN', 'from the trip (the watch counts)');
   assert.equal(cls(), 'plain');
@@ -104,7 +105,7 @@ test('Q-74: COVER n MIN, ✓ T+n, LOST (amber), and past 30 min "COVER ✕ n MIN
   assert.equal(up(view({atS: V.SECURE_AGAIN_S + 130, ms: 6000})), 'COVER ✕ 3 MIN OVER');
   assert.equal(cls(), 'warn');
   assert.equal(row.getAttribute('title'), COVER_OVER_TITLE);
-  assert.match(row.getAttribute('aria-label'), /^COVER ✕ 2:10 OVER\. AEMO would direct/);
+  assert.match(aria(), /COVER ✕ 2:10 OVER\. AEMO would direct/);
   assert.equal(up(view({atS: V.SECURE_AGAIN_S + 130, rate: 1, ms: 7000})), 'COVER ✕ 2:10 OVER');
 });
 

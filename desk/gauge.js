@@ -2,7 +2,7 @@
 // Contract: desk/README.md §32.12 desk/gauge.js.
 
 import {V} from '../sim/params.js';
-import {el, setText, setAttr, setCls, setStyle, setHidden, slowAttr, mw, hz2, fin, clamp, mmss, unitLabel, nadirClass, CLASS_GLYPH, PAN} from './util.js';
+import {el, setText, setAttr, setCls, setStyle, setHidden, mw, hz2, fin, clamp, mmss, unitLabel, nadirClass, CLASS_GLYPH, PAN} from './util.js';
 
 const LEVEL_GLYPH = {SECURE: '✓', TIGHT: '!', SHORT: '✕', SHEDDING: '✕✕'};
 export const SECURE_LINE_HZ = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ;   // H-4: what SECURE needs of a fresh preview
@@ -11,10 +11,9 @@ const HELP = 'SPARE IN 5 MIN is R5: headroom that can be delivered within 5 minu
   'PREVIEW nadir ≥ ' + hz2(SECURE_LINE_HZ) + ' Hz for both; TIGHT is LOR1-like, SHORT is LOR2-like (R5 < L), SHEDDING is LOR3. ' +
   'After a trip, COVER counts ' + V.SECURE_AGAIN_S / 60 + ' min to R5 ≥ L with no district shed by relays or direction (GRIDWATCH\'s ' +
   'floor for secure again), and BAND the ' + V.FOS_RECOVER_S / 60 + ' min frequency may stay outside ' + V.NORMAL_LO_HZ + '–' + V.NORMAL_HI_HZ + ' Hz.';
-/** Q-74: the overdue COVER row's title; BAND ✓ stays this long (real ms); no figure redrawn sooner (real ms). */
+// Q-74 (real ms)
 export const COVER_OVER_TITLE = 'AEMO would direct a unit on or shed load here; GRIDWATCH only counts it';
 export const BAND_OK_MS = 3000, FIGURE_MS = 500;
-// The figure (Q-74, the dial's rules): m:ss at 10x or slower, else whole minutes rounded up
 const figure = (s, rate) => (rate <= 10 ? mmss(s) : Math.ceil(s / 60) + ' MIN');
 // inverterMW (Phase 2a, C-7): wind and solar inverters. Positive when a loss of supply began above
 // 50.015 Hz and they gave back what the droop was holding; negative (not listed) for a loss of load.
@@ -63,21 +62,20 @@ export function createGauge(ctx, parent) {
   const ptext = el(doc, 'span', 'dk-ptext');
   prev.append(pbtn, ptext);
   const caught = el(doc, 'div', 'dk-caught');
-  const cov = bar('');   // Q-74: BAND, then COVER; in the caught line's place
+  const cov = bar('');   // Q-74
   cov.row.className = 'dk-gbar dk-cover';
   cov.row.hidden = true;
   box.append(head, r5.row, lb.row, prev, caught, cov.row);
   parent.appendChild(box);
   let vm = null, latched = false, nowMs = 0, wasOut = false, okAt = -Infinity, fig = {k: '', text: '', at: 0};
-  const slow = slowAttr(() => nowMs);
-  /** The row now: [word, class, seconds or null, before, after, bar 0..1] or null (hidden). */
+  /** [word, class, s | null, before, after, bar] or null */
   function coverOf(o) {
     const c = o.contingency, f = o.fos, bad = o.sec.level === 'SHORT' || o.sec.level === 'SHEDDING', ts = t => t / V.TICKS_PER_S;
     const out = f.outsideS > 0;
     if (wasOut && !out) okAt = nowMs;
     wasOut = out;
     if (out) return ['BAND ' + (o.f.hz < V.F0_HZ ? 'LOW' : 'HIGH'), 'warn', f.countdownS, '', '', f.countdownS / V.FOS_RECOVER_S];
-    if (!bad && nowMs - okAt < BAND_OK_MS) return ['BAND ✓', 'good', null, '', '', 1];   // never ✓ beside SHORT or SHEDDING
+    if (!bad && nowMs - okAt < BAND_OK_MS) return ['BAND ✓', 'good', null, '', '', 1];
     if (!c || !(o.inRespond || o.tick >= c.watchEndTick && c.securedTick < 0)) return null;
     const left = ts(c.secureByTick - o.tick);
     if (c.securedTick >= 0) return bad ? ['COVER LOST', 'warn', null, '', '', 0] : ['COVER ✓', 'good', ts(c.securedTick - c.startTick), 'T+', '', 1];
@@ -107,7 +105,6 @@ export function createGauge(ctx, parent) {
         setAttr(cov.row, 'class', 'dk-gbar dk-cover ' + cls);
         setAttr(cov.row, 'title', post ? COVER_OVER_TITLE : '');
         setStyle(cov.fill, 'width', (clamp(full, 0, 1) * 100).toFixed(1) + '%');
-        slow(cov.row, 'aria-label', say);
       }
       setText(word, (LEVEL_GLYPH[s.level] || '') + ' ' + s.level);
       setAttr(word, 'class', 'dk-level lv-' + s.level);
@@ -135,7 +132,7 @@ export function createGauge(ctx, parent) {
       setAttr(ptext, 'class', 'dk-ptext ' + cls);
       setAttr(ptext, 'title', 'TRIP PREVIEW: where frequency would bottom out if ' + (s.lKind === 'none' ? 'nothing' : unitLabel(s.lId)) +
         ' tripped now. Unit ' + hz2(uHz) + ' Hz, tie ' + hz2(kHz) + ' Hz. Green ≥ ' + line + ', amber to ' +
-        V.UFLS_FIRST_HZ + ', red: UFLS would operate.' + (live && r ? ' Caught by ' + (caughtText(pv.caught) || '—') + '.' : ''));   // (the row has its line)
+        V.UFLS_FIRST_HZ + ', red: UFLS would operate.' + (live && r ? ' Caught by ' + (caughtText(pv.caught) || '—') + '.' : ''));
       setHidden(caught, !live || !!r);
       if (live) setText(caught, caughtText(pv.caught) || '—');
       setAttr(pbtn, 'aria-pressed', v.previewOn ? 'true' : 'false');

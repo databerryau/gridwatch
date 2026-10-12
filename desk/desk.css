@@ -125,7 +125,7 @@
 .dk-ptext { font: calc(9 * var(--u)) var(--dk-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dk-caught { font: calc(8 * var(--u)) var(--dk-mono); color: var(--dk-violet); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dk-caught[hidden] { display: none; }
-/* Q-74: BAND / COVER in the caught line's place; the words and the bar in the row's colour (good, warn, or plain) */
+/* Q-74 */
 .dk-gbar.dk-cover { grid-template-columns: auto 1fr 0; font-family: var(--dk-mono); }
 .dk-cover[hidden] { display: none; }
 .dk-cover .dk-gbar-label { color: inherit; }
