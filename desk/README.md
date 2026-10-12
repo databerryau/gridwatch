@@ -4159,6 +4159,9 @@ Stage A (prose) moved here, verbatim, the leading header comments of the first-v
 §31.8 did not take, one subsection each, in path order (the sim files' headers went to
 `sim/README.md` §11, under their modules). Each file keeps its first sentence and a pointer to
 its subsection. `app/par.js` and `app/score.js` are one sentence each and keep it whole.
+Measured (`node tools/perf.mjs --sizes`, 46 files): first visit 397,123 B gzip before the move and
+**385,160 B** after (−11,963 B; raw 1,145,177 → 1,115,243 B), the base of `tests/budget.test.js`'s
+2c ceiling (+ 11.4 KB = 396,833 B).
 
 #### app/boot.js
 
