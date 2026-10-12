@@ -193,7 +193,7 @@ export function bootGame(doc, deps) {
   let opener = null; // Q-46: the focus when the alarm panel opened
   let cardFrom = null, cardTake;
   const actions = {
-    input: x => { const r = base.input(x); if (r) showToast('Refused: ' + r); return r; },
+    input: x => { const r = base.input(x), lock = G.isLock(r); if (r) showToast(lock ? r : 'Refused: ' + r, lock ? 'info' : ''); return r; },
     redispatch: () => { const r = base.redispatch(); if (r) showToast('RE-DISPATCH: ' + r); return r; },
     ui: cmd => {
       const inTray = cmd && cmd.do === 'tray' && $('tray') && $('tray').contains(doc.activeElement);
@@ -291,17 +291,14 @@ export function bootGame(doc, deps) {
   on('btn-help', 'click', () => actions.ui({do: 'drawer'}));
   on('btn-drawer-close', 'click', () => actions.ui({do: 'drawer', on: false}));
   on('btn-pop-close', 'click', () => closePopover());
-  let briefAgc = true;
-  const setBriefMode = agc => {
-    briefAgc = agc;
-    const a = $('btn-agc'), h = $('btn-hand');
-    if (a) { a.classList.toggle('on', agc); a.setAttribute('aria-checked', String(agc)); }
-    if (h) { h.classList.toggle('on', !agc); h.setAttribute('aria-checked', String(!agc)); }
+  // Q-64: the briefing's AGC/HAND is the sim's mode: the buttons send it and draw from obs.mode (the desk's key too)
+  const briefMode = mode => {
+    for (const [id, m] of [['btn-agc', 'AGC'], ['btn-hand', 'HAND']]) { const b = $(id); if (b) { b.classList.toggle('on', mode === m); b.setAttribute('aria-checked', String(mode === m)); } }
   };
-  on('btn-agc', 'click', () => setBriefMode(true));
-  on('btn-hand', 'click', () => setBriefMode(false));
+  for (const [id, agc] of [['btn-agc', true], ['btn-hand', false]]) on(id, 'click', () => { actions.input({type: 'mode', agc}); briefMode(game.state.control.mode); });
+  briefMode(game.state.control.mode);
   const take = () => {
-    if (G.takeDesk(game, {agc: briefAgc})) { const b = $('briefing-card'); if (b) b.hidden = true; }
+    if (G.takeDesk(game)) { const b = $('briefing-card'); if (b) b.hidden = true; }
   };
   on('btn-take', 'click', take);
   briefingText();
@@ -705,6 +702,7 @@ export function bootGame(doc, deps) {
       announce(vm, t1);
       const b = $('briefing-card');
       if (b) b.hidden = vm.phase !== 'briefing';
+      if (vm.phase === 'briefing') briefMode(vm.obs.mode);
       const dr = $('drawer');
       if (dr && dr.hidden === vm.drawer) drawDrawer();
       const t = $('toast');
