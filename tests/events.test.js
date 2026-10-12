@@ -324,7 +324,7 @@ test('P-2 forecast: rooftop follows the capacity-weighted clearness now toward t
 
 test('C-5 forecast: a cloud front is over the solar precinct only: its news moves the utility-solar forecast and nothing of the rooftop or demand forecast', () => {
   for (const seed of [7, 4]) { // 7: HOT, cloud warned 11:29; 4: a heatwave announced 10:30, cloud warned 10:32
-    const s = createState(seed, legacyDesk()); // (today's desk events: the plan's front crosses the suburbs)
+    const s = createState(seed, legacyDesk()); // the legacy front; a dayplan day's crosses the suburbs (tests/front.test.js)
     const warn = s.ext.events.find(e => e.type === 'cloudWarn');
     assert.ok(warn.atS > secOf(9) && warn.atS < secOf(13), 'seed ' + seed + ': a front warned in the sunny morning');
     goTo(s, warn.atS + 60);
