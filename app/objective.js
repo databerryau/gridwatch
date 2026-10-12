@@ -802,9 +802,9 @@ function beyondReserves(obs, R, run, frac = 1) {
   return false;
 }
 
-// 4. Dark districts, once supply is in hand.
+// 4. Dark districts, once supply is in hand (a task feeder before its clearS is the network's, Q-69).
 function restore(X, line) {
-  const obs = X.obs, dark = obs.districts.filter(d => d.dark);
+  const obs = X.obs, dark = obs.districts.filter(d => d.dark && !(d.clearS > X.s));
   if (!dark.length) return null;
   const n = dark.length + (dark.length === 1 ? ' district is' : ' districts are') + ' dark';
   const ok = dark.find(d => d.restoreBlock === '');
