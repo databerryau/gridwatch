@@ -1,6 +1,7 @@
 // tools/perf.mjs: the F-11 numbers that can be measured headless (SPEC F-11; desk/README.md §12).
 //
 //   node tools/perf.mjs [--seed N] [--rates 120,2100] [--json]
+//   node tools/perf.mjs --sizes [--json]    the first visit alone, each file in bytes; no frame run
 //
 // 1. First visit: every file next.html loads (its stylesheet, its module script and everything
 //    that imports), raw and gzip-compressed, against the 400 KB budget.
@@ -120,6 +121,15 @@ export async function simCost(seed, rate, frames) {
 /** The sim's p95 budget at a rate (F-11): 1 ms up to 150x, 3 ms above (app/perf.js simBudgetMs). */
 const simBudget = rate => (rate <= 150 ? BUDGET.simMsAt150 : BUDGET.simMsAt2100);
 
+/** --sizes (Q-61, desk/README.md §32.3): the file count, each file's raw and gzip bytes, the totals. */
+function sizes(files, bytes, gz, json) {
+  if (json) return console.log(JSON.stringify({count: files.length, bytes, gzip: gz, files}, null, 1));
+  console.log('First visit (next.html): ' + files.length + ' files, ' + bytes + ' B raw, ' + gz + ' B gzip (' + (gz / 1024).toFixed(2) + ' KB)\n');
+  console.log('| File | Raw B | Gzip B |\n|---|---|---|');
+  for (const f of files) console.log('| ' + f.path + ' | ' + f.bytes + ' | ' + f.gzip + ' |');
+  console.log('| total (' + files.length + ' files) | ' + bytes + ' | ' + gz + ' |');
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const opt = (name, dflt) => (args.includes(name) ? args[args.indexOf(name) + 1] : dflt);
@@ -128,6 +138,7 @@ async function main() {
   const rates = opt('--rates', '120,2100').split(',').map(Number);
   const files = firstVisit();
   const bytes = files.reduce((a, f) => a + f.bytes, 0), gz = files.reduce((a, f) => a + f.gzip, 0);
+  if (args.includes('--sizes')) return sizes(files, bytes, gz, args.includes('--json'));
   // Warm the JIT on a short run, then measure.
   await simCost(seed, rates[0], 600);
   const runs = [];
