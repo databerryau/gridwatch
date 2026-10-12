@@ -13,7 +13,8 @@
 
 import {V} from './params.js';
 import {STREAM, uniform, pickWith} from './rng.js';
-import {gridSecond, tripUnit, tripTie, tripSmelter} from './fleet.js';
+import {gridSecond, tripUnit, tripTie, tripSmelter, setDistrictDark, refreshHeld, setTieLimit, setOutage, unitIndex} from './fleet.js';
+import {hhmm as clockText} from './clock.js';
 
 const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN;
 
@@ -22,7 +23,8 @@ const SLOTS = ['bigTrip', 'extraTrip', 'heat', 'storm', 'cloud', 'smelter', 'dro
 
 // Tie-break for events in the same second: information first, contingencies last.
 export const TYPE_ORDER = ['notice', 'heatAnnounce', 'heatOnset', 'heatEnd', 'stormWarn', 'stormArrive', 'windCutout',
-  'stormPass', 'cloudWarn', 'cloudOnset', 'cloudClear', 'windDrought', 'smelterReturn', 'smelterTrip', 'linkTrip', 'unitTrip'];
+  'stormPass', 'cloudWarn', 'cloudOnset', 'cloudClear', 'windDrought', 'feederOut', 'tieDerate', 'unitOutage', 'droughtWarn',
+  'feederClear', 'tieDerateEnd', 'unitReturn', 'smelterReturn', 'smelterTrip', 'linkTrip', 'unitTrip'];
 
 export const CONTINGENCY_TYPES = Object.freeze(['unitTrip', 'linkTrip', 'smelterTrip']);
 
@@ -43,7 +45,7 @@ export function prerollEvents(seed, scn, regime) {
   const within = (u, w) => Math.floor(toS(w[0]) + u * (toS(w[1]) - toS(w[0])));
   const minutes = (u, r) => Math.floor(r[0] + u * (r[1] - r[0])) * S_PER_MIN;
   const add = (atS, type, args, contingency = false, warned = false) =>
-    list.push({id: '', atS, type, args, contingency, warned});
+    list.push({id: '', atS, type, args, contingency, warned, act: 0, crisis: false}); // act 0: a legacy record (Q-65)
 
   // Guaranteed big-unit trip (L337): kept clear of a severe-weather evening.
   {
@@ -323,8 +325,55 @@ function applyEvent(state, e, out) {
       log(out, tick, 'info', 'CLOUD_CLEAR', 'Skies clearing over the solar precinct.');
       return;
     case 'windDrought':
+      if (scn.dayplan) { // the news came with droughtWarn (§32.4.6)
+        log(out, tick, 'warn', 'WIND_DROUGHT', 'Wind drought: wind falling toward about ' + pct(a.windMu) + '% of capacity.');
+        return;
+      }
       announce(state, out, e, 'drought', e.atS, null, 'WIND DROUGHT: a high-pressure ridge has settled in. ' +
         'Wind resource falling toward about ' + pct(a.windMu) + '% of capacity.', 'WIND_DROUGHT');
+      return;
+    // 2c (desk/README.md §32.4.6): Act I's briefing items and their ends, the drought's warning. Texts read args only.
+    case 'feederOut': {
+      a.districts.forEach((id, j) => {
+        const d = state.city.districts.findIndex(x => x.id === id);
+        state.city.districts[d].clearS = a.clearS[j];
+        setDistrictDark(state, d, true, 'task');
+      });
+      announce(state, out, e, 'network', Math.min(...a.clearS), Math.max(...a.clearS), 'Overnight faults: feeder' +
+        (a.districts.length > 1 ? 's ' : ' ') + a.districts.join(' and ') + ' under repair, handed back at ' +
+        a.clearS.map(clockText).join(' and ') + '.', 'FEEDER_OUT');
+      return;
+    }
+    case 'feederClear':
+      refreshHeld(state);
+      out.push({tick, kind: 'log', sev: 'warn', code: 'FEEDER_CLEAR', district: a.district,
+        msg: a.district + ' feeder repaired and handed back: close its breaker to relight it.'});
+      return;
+    case 'tieDerate':
+      setTieLimit(state, a.limitMW, a.untilS);
+      announce(state, out, e, 'tie', e.atS, a.untilS, 'Network outage: tie imports limited to ' + a.limitMW + ' MW until ' +
+        clockText(a.untilS) + '.', 'TIE_DERATE');
+      return;
+    case 'tieDerateEnd':
+      setTieLimit(state, V.TIE_MAX_MW, -1);
+      log(out, tick, 'info', 'TIE_LIMIT_END', 'Tie import limit lifted: imports up to ' + V.TIE_MAX_MW + ' MW again.');
+      return;
+    case 'unitOutage': {
+      const k = unitIndex(a.unit);
+      setOutage(state, k, a.untilS);
+      announce(state, out, e, 'outage', e.atS, a.untilS, 'Late return from maintenance: ' + V.MACHINES[k].name +
+        ' unavailable until ' + clockText(a.untilS) + '.', 'UNIT_OUTAGE');
+      return;
+    }
+    case 'unitReturn': {
+      const k = unitIndex(a.unit);
+      setOutage(state, k, -1);
+      log(out, tick, 'info', 'UNIT_AVAILABLE', V.MACHINES[k].name + ' back from maintenance: available to start.');
+      return;
+    }
+    case 'droughtWarn':
+      announce(state, out, e, 'drought', a.onsetS, null, 'Wind drought from about ' + clockText(a.onsetS) +
+        ': a high-pressure ridge settles in and wind falls toward about ' + a.muPm / PM_PER_PCT + '% of capacity.', 'DROUGHT_WARNING');
       return;
     case 'unitTrip': {
       const i = tripTarget(state, a);

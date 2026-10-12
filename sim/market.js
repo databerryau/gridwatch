@@ -414,6 +414,11 @@ function reliabilitySecond(state, sc, t, secs) {
   }
 }
 
+/** The one clean day (Q-69: D-9 gate 2, S-7, every tool): not black, no UFLS or directed shedding. */
+export const isClean = (score, black) => !black && score.uflsMWh + score.directedMWh === 0;
+/** S-6 PERFECT (Q-69): clean, and every handed-back feeder closed within the pace. */
+export const isPerfect = (score, black) => isClean(score, black) && score.taskLateMWh === 0;
+
 /**
  * Derived scorecard numbers (S-1..S-3) from state.score. Implemented in stage A; S-3's
  * intensity is per MWh GENERATED in the region (score.genMWh; review fix, was per MWh served).

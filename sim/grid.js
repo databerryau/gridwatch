@@ -1126,6 +1126,18 @@ export function securitySecond(state, out) {
     log(state, out, SEV[r.level], 'SECURITY', 'SECURITY ' + r.level + ': spare in 5 min ' + Math.round(r.r5MW) + ' MW, biggest risk ' +
       (r.lKind === 'none' ? 'none' : r.lId + ' ' + Math.round(r.riskMW) + ' MW') + ', trip preview ' + r.previewNadirHz.toFixed(2) + ' Hz.');
   }
+  // Q-74 COVER: a contingency is secured at the first tick past its watch with R5 >= L and no UFLS or directed district dark (latched).
+  const cs = state.conts;
+  for (let n = 0; n < cs.length; n++) {
+    const c = cs[n];
+    if (c.securedTick < 0 && state.tick >= c.watchEndTick && sec.r5MW >= sec.lMW && !shedOwn(state.city.districts)) c.securedTick = state.tick;
+  }
+}
+
+// A district dark for UFLS or directed shedding (the operator's; a task district is the network's or the restore's).
+function shedOwn(ds) {
+  for (let d = 0; d < ds.length; d++) if (ds[d].dark && (ds[d].shedBy === 'ufls' || ds[d].shedBy === 'directed')) return true;
+  return false;
 }
 
 /**
@@ -1384,7 +1396,7 @@ function onAtS(state, i, s) {
     case 'starting': return s + u.timerS + (auto ? AUTO_SYNC_S : 0) + m.t2S;
     default: {
       const b = bookingOf(state.plan.starts, u.id);
-      return b ? b.atS + startToMinS(state, i) : -1;
+      return b ? Math.max(b.atS, u.outUntilS) + startToMinS(state, i) : -1;
     }
   }
 }
@@ -1395,7 +1407,7 @@ function startFreeAt(state, i, s) {
   if (m.station === 'hydro' && state.hydro.storageMWh <= HYDRO_STOP_MWH) return -1;
   if (u.mode === 'tripped') return s + u.timerS;
   if (u.mode !== 'off') return -1;
-  return u.downWhy !== 'trip' ? Math.max(s, u.downSinceS + m.minDownS) : s;
+  return Math.max(u.downWhy !== 'trip' ? Math.max(s, u.downSinceS + m.minDownS) : s, u.outUntilS);
 }
 
 /** Station j's machines on by grid second t (their MIN, rating and ramp summed), with `extra` a start booked but not yet stored. */
