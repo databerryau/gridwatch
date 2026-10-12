@@ -1948,7 +1948,8 @@ seconds: 0 = 04:00, `DAY_S` = 04:00 next day.
   and the measure the D-8 leads and the spacing rules use. `stepAfter(s, realS)` is the earliest g
   >= s with `stepReal(s, g) >= realS`, `gridBefore(s, realS)` the latest g <= s with `stepReal(g,
   s) >= realS`, both exact against `stepReal`'s own floating point: a guess from the same table,
-  then a halving search to the least (or greatest) float that passes. So `ceil(stepAfter / 60) x
+  then a halving search from `CLOCK_SEARCH_S` (1e-6 grid s) to the least (or greatest) float that
+  passes (NaN in, NaN out). So `ceil(stepAfter / 60) x
   60` and `floor(gridBefore / 60) x 60` are the earliest and the latest whole minutes that pass,
   with no tolerance (the plan's warning and spacing draws, Q-71 and Q-72).
 - `hhmm(s)`: 'HH:MM' of sim second s, the one formatter for the sim's 2c texts (events' new
