@@ -3,10 +3,10 @@
 
 import {V} from './params.js';
 import {STREAM, uniform, pickWith} from './rng.js';
-import {stepAfter, gridBefore} from './clock.js';
+import {stepAfter, gridBefore, actAt, ACT_S} from './clock.js';
 import {TYPE_ORDER, CONTINGENCY_TYPES} from './events.js';
 
-const MIN = V.S_PER_MIN, MARK = V.DAYPLAN_MARK_S, PM = V.PER_MILLE, OC = V.ONSET_CLEAR_REAL_S;
+const MIN = V.S_PER_MIN, MARK = V.DAYPLAN_MARK_S, PM = V.PER_MILLE, OC = V.ONSET_CLEAR_REAL_S, III = actAt(ACT_S[2]);
 const toS = h => Math.round((h - V.DAY_START_H) * V.S_PER_H);
 
 export function prerollRegime(seed, scn) {
@@ -68,30 +68,30 @@ export function preroll(seed, scn, regime) {
   r = drawer();
   if (cls === 'heat') {
     const x = a3.heat, on = win(r(), x.onsetH, MARK), endS = Math.min(on + x.lastsH * V.S_PER_H, toS(x.endByH));
-    add(3, 0, 'heatAnnounce', {onsetS: on, endS, upliftPm: Math.round(V.HEAT_DEMAND_UPLIFT * PM),
+    add(III, 0, 'heatAnnounce', {onsetS: on, endS, upliftPm: Math.round(V.HEAT_DEMAND_UPLIFT * PM),
       deratePm: Math.round(V.HEAT_THERMAL_DERATE * PM)});
-    add(3, on, 'heatOnset', {clearMuAtLeast: scn.events.heat.clearMu});
-    add(3, endS, 'heatEnd', {});
+    add(III, on, 'heatOnset', {clearMuAtLeast: scn.events.heat.clearMu});
+    add(III, endS, 'heatEnd', {});
     ons.push(on);
   } else if (cls === 'storm') {
     const x = a3.storm, at = win(r(), x.arriveH), co = at + mins(r(), x.cutoutAfterMin);
     const passS = Math.min(at + x.passAfterMin * MIN, toS(x.passByH)), after = m => at + m * MIN;
-    add(3, warn(at), 'stormWarn', {arriveS: at, cutoutFromS: after(x.cutoutAfterMin[0]), cutoutToS: after(x.cutoutAfterMin[1]), passS});
-    add(3, at, 'stormArrive', {windMu: x.arriveMu});
-    add(3, co, 'windCutout', {windMu: x.cutoutMu});
-    add(3, passS, 'stormPass', {windMu: x.passMu});
+    add(III, warn(at), 'stormWarn', {arriveS: at, cutoutFromS: after(x.cutoutAfterMin[0]), cutoutToS: after(x.cutoutAfterMin[1]), passS});
+    add(III, at, 'stormArrive', {windMu: x.arriveMu});
+    add(III, co, 'windCutout', {windMu: x.cutoutMu});
+    add(III, passS, 'stormPass', {windMu: x.passMu});
     ons.push(at, co);
     const l = r() < x.linkTripP ? trip(r(), stepAfter(co, OC), passS - 1) : -1;
-    if (l >= 0) add(3, l, 'linkTrip', {cause: 'storm', lockoutS: mins(r(), x.linkLockoutMin)});
+    if (l >= 0) add(III, l, 'linkTrip', {cause: 'storm', lockoutS: mins(r(), x.linkLockoutMin)});
   } else {
     if (cls === 'drought') {
       const x = a3.drought, on = win(r(), x.onsetH);
-      add(3, warn(on), 'droughtWarn', {onsetS: on, muPm: Math.round(x.mu * PM)});
-      add(3, on, 'windDrought', {windMu: x.mu});
+      add(III, warn(on), 'droughtWarn', {onsetS: on, muPm: Math.round(x.mu * PM)});
+      add(III, on, 'windDrought', {windMu: x.mu});
       ons.push(on);
     }
     const x = a3.trip, l = trip(r(), toS(x.windowH[0]), toS(x.windowH[1]));
-    if (l >= 0) add(3, l, 'unitTrip', {rule: 'largest', lockoutS: mins(r(), x.lockoutMin)});
+    if (l >= 0) add(III, l, 'unitTrip', {rule: 'largest', lockoutS: mins(r(), x.lockoutMin)});
   }
 
   // Act II (Q-67): one belly crisis; a trip with no feasible minute becomes the front (none under a heatwave)
