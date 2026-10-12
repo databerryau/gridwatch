@@ -59,6 +59,9 @@ test('Q-75: the page\'s day (G.dailyFrom): ?seed=N (gated only as its date\'s li
     assert.equal(G.dailyFrom('?seed=20261013', today).gated, false, 'a rejected attempt 0 is never gated');
     assert.equal(G.dailyFrom('?seed=20261014', today).gated, true, 'attempt 0 of a date with no exception');
     assert.equal(G.dailyFrom('', today).seed, 20261012, 'today: no exception');
+    // inside [from, to] as a number but no calendar date: nobody gated it
+    for (const q of ['?seed=20261099', '?seed=20261300', '?date=2026-11-31', '?date=2027-02-30', '?date=2026-13-01']) assert.equal(G.dailyFrom(q, today).gated, false, q);
+    assert.deepEqual(dailyFor('2026-11-31', G.dailyStamp()), {seed: 20261131, scenarioId: 'desk', gated: false, ymd: 20261131});
   });
   assert.deepEqual(G.dailyFrom('', today), dailyFor(today, G.dailyStamp()), 'no query: today\'s');
   assert.deepEqual(G.dailyFrom('?date=tomorrow', today), dailyFor(today, G.dailyStamp()), 'a bad date: today\'s');
