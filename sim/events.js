@@ -206,8 +206,9 @@ function heatText(scn, a) {
 }
 
 function stormText(scn, a) {
-  if (scn.dayplan) return 'Storm front arriving about ' + clockText(a.arriveS) + ': wind surges, then falls away as turbines cut out, starting ' +
-    clockText(a.cutoutFromS) + '-' + clockText(a.cutoutToS) + '. Interconnector faults possible until it passes, about ' + clockText(a.passS) + '.';
+  if (scn.dayplan) return 'Storm front arriving about ' + clockText(a.arriveS) + ': wind surges, then falls away as turbines cut out' +
+    ('cutoutFromS' in a ? ', starting ' + clockText(a.cutoutFromS) + '-' + clockText(a.cutoutToS) : '') +
+    '. Interconnector faults possible until it passes' + ('passS' in a ? ', about ' + clockText(a.passS) : '') + '.';
   const x = scn.events && scn.events.storm;
   let t = 'WEATHER BUREAU: storm front approaching from the west, arriving about ' + hhmm(scn, a.arriveS) +
     '. Wind output will surge, then fall away as turbines cut out in the gale';
@@ -219,8 +220,9 @@ function stormText(scn, a) {
 }
 
 function cloudText(scn, a) {
-  if (scn.dayplan) return 'Cloud front over the suburbs from about ' + clockText(a.onsetS) + ', west to east: skies near ' +
-    a.frontPm / PM_PER_PCT + '% of clear' + (a.roofDropMW ? ', rooftop solar down about ' + mwText(a.roofDropMW) + ' MW.' : '.');
+  if (scn.dayplan) return 'Cloud front over the suburbs from about ' + clockText(a.onsetS) + ', west to east' +
+    (a.frontPm ? ': skies near ' + a.frontPm / PM_PER_PCT + '% of clear' : '') +
+    (a.roofDropMW ? ', rooftop solar down by up to about ' + mwText(a.roofDropMW) + ' MW' : '') + '.';
   const x = scn.events && scn.events.cloud;
   const t = 'SATELLITE: cloud band moving over the solar precinct, overhead from about ' + hhmm(scn, a.onsetS) + '.';
   if (!x) return t;
@@ -286,11 +288,11 @@ function applyEvent(state, e, out) {
       announce(state, out, e, 'cloud', a.onsetS, null, cloudText(scn, a), 'CLOUD_WARNING');
       return;
     case 'cloudOnset':
-      log(out, tick, 'info', 'CLOUD_ONSET', 'Cloud front overhead: utility solar falling toward about ' + pct(a.clearMu) +
-        '% of clear-sky.');
+      log(out, tick, 'info', 'CLOUD_ONSET', a.suburbs ? 'Cloud front reaching the western suburbs: rooftop solar falling suburb by ' +
+        'suburb, then the solar farm.' : 'Cloud front overhead: utility solar falling toward about ' + pct(a.clearMu) + '% of clear-sky.');
       return;
     case 'cloudClear':
-      log(out, tick, 'info', 'CLOUD_CLEAR', 'Skies clearing over the solar precinct.');
+      log(out, tick, 'info', 'CLOUD_CLEAR', scn.dayplan ? 'Cloud front clearing from the west.' : 'Skies clearing over the solar precinct.');
       return;
     case 'windDrought':
       if (scn.dayplan && latestNews(state, 'drought')) { // the news came with droughtWarn
@@ -325,7 +327,7 @@ function applyEvent(state, e, out) {
       return;
     case 'tieDerateEnd':
       setTieLimit(state, V.TIE_MAX_MW, -1);
-      log(out, tick, 'info', 'TIE_LIMIT_END', 'Tie import limit lifted: imports up to ' + V.TIE_MAX_MW + ' MW again.');
+      log(out, tick, 'info', 'TIE_LIMIT_END', 'Tie import limit lifted: imports up to ' + V.TIE_MAX_MW + (state.tie.tripped ? ' MW once the tie is back in service.' : ' MW again.'));
       return;
     case 'unitOutage': {
       const k = unitIndex(a.unit);
