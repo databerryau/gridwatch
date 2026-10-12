@@ -101,7 +101,7 @@ function loaded(sys, state, n) {
 /**
  * The system's inputs for this tick (usually none): at the first tick of a grid second
  * (tick % 50 === 1) after 04:30, every PAR_DECIDE_EVERY_S and at the first second after each
- * watch, the 04:30 pre-dispatch planLoad and the lit-load re-flows (see the file header). Call
+ * watch, the 04:30 pre-dispatch planLoad and the lit-load re-flows (desk/README.md §32.12). Call
  * once per tick before step(state, inputs), never inside it; apply what it returns (through
  * step or applyInput) at this tick.
  * @param {object} sys from createSystem
