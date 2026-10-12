@@ -12,16 +12,18 @@
 //   const s = p.press('guard-start-gta1');   // {before, during, after, diff}: three sampled looks
 //
 // WHY. One drawn frame costs ~3-5 ms in the stand-in DOM (the desk, map, Live Stack and shell
-// all draw); at CRUISE a 60-fps frame is only 2 grid seconds, so frame-by-frame play to the
-// afternoon is ~20,000 frames (1-2 minutes). The sim alone runs a grid hour in ~0.12 s.
+// all draw); a 60-fps frame is 2.5-9 grid seconds of the D-2 profile before 21:00 (150x-540x;
+// HAND halves it), so frame-by-frame play to the afternoon is ~8,000 frames (30-40 s). The sim
+// alone runs a grid hour in ~0.12 s.
 //
 // HOW A JUMP WORKS (to / until)
 //   A jump plays VIRTUAL FRAMES: the page's own frame (1/60 real s) without the drawing. Each
 //   runs app/loop.js runFrame on the page's pacer with the director's rates (so every tick is
 //   G.tickOnce, the function the page's loop calls, and lands in the same frame as in play),
 //   then the frame's model work: D.directorFrame, and G.buildVm itself whenever it would
-//   recompute the objective line (every 30 grid s, a watch/RESPOND change, a guard under the
-//   hand) or a unit is READY (the offers). Its other frames skip buildVm's view building and run
+//   recompute the objective line (G.objectiveDue: every max(30 grid s, 0.4 real s of the profile),
+//   a watch/RESPOND/RESTORE/NIGHT change; a guard under the hand) or a unit is READY (the offers).
+//   Its other frames skip buildVm's view building and run
 //   only the parts with memory: the annunciator (A.updateAlarms on A.alarmInputFromState, which
 //   tests keep equal to buildVm's input) and the tray's ageing. Only the drawing is skipped
 //   (map, desk, Live Stack, shell overlays, sound: ~95% of a frame's cost).
@@ -34,10 +36,11 @@
 //
 // REAL TIME. The page's own clock (`now`, which bootGame reads) is the driver's. frames()/real()
 // advance it by their frame time; a jump advances it 1/60 s per virtual frame, i.e. by the real
-// time a player at 60 fps would have watched at the director's rates (1 real s per 120 grid s at
-// CRUISE, the watch's slow motion at its own). So line holds (4 real s), the annunciator's
-// real-time timers (AGC LIMIT 5 real s, re-sound hold-offs), guard covers, notes and the toast
-// age across a jump exactly as in play.
+// time a player at 60 fps would have watched at the director's rates (the D-2 profile at CRUISE,
+// 1 real s per 540 grid s before 06:00 and 150 in the peak; the watch's slow motion at its own).
+// So line holds (4 real s), the annunciator's real-time timers (AGC LIMIT 5 real s, re-sound
+// hold-offs), guard covers, notes and the toast age across a jump exactly as in play.
+// clockReport() splits the real seconds since Space into D-2's terms (tools/play.mjs `clock`).
 //
 // EVENTS (until(what) and to()'s `stop` option; a name, an array of names or a function)
 //   'trip'    a contingency began (state.conts grew): the watch's first tick
@@ -68,6 +71,8 @@ import {runFrame} from '../../app/loop.js';
 import * as A from '../../app/alarms.js';
 import * as T from '../../app/tray.js';
 import {V} from '../../sim/params.js';
+import {realBetween, NIGHT_S} from '../../sim/clock.js';
+import {restoreAllowedS} from '../../sim/market.js';
 import {SCENARIOS} from '../../content/scenarios.js';
 // Q-44: the page loads these on demand; the driver hands them to the shell up front (synchronous)
 import {TEXT} from '../../content/text.js';
@@ -218,9 +223,15 @@ export function openGame(o = {}) {
   } finally { restore(); }
   const game = h.game, $ = id => doc.getElementById(id);
   let hovered = null, lastLook = '';
+  // D-2's clock (clockReport): the page time and tick of the Space that ran the clock, and from then every
+  // frame's [grid s before, grid s after, real s]
+  let spaceMs = -1, spaceTick = -1;
+  const played = [];
+  const gridS = () => game.state.tick / TPS;
+  const acct = (s0, dt) => { if (spaceMs >= 0) played.push([s0, gridS(), dt]); };
 
   // ---------------------------------------------------------------- frames (real time)
-  function frame(dtS = FRAME_DT) { t += dtS * 1000; h.frame(dtS); return api; }
+  function frame(dtS = FRAME_DT) { const s0 = gridS(); t += dtS * 1000; h.frame(dtS); acct(s0, dtS); return api; }
   function frames(n, dtS = FRAME_DT) { for (let i = 0; i < n; i++) frame(dtS); return api; }
   function real(seconds, dtS = FRAME_DT) { return frames(Math.max(1, Math.round(seconds / dtS)), dtS); }
 
@@ -258,6 +269,7 @@ export function openGame(o = {}) {
   }
   /** A key press (keydown + keyup to the focused element, bubbling to the document); then one frame. */
   function key(k, extra = {}, opts = {}) {
+    if (k === ' ' && spaceMs < 0 && game.phase === 'play' && game.director.paused) { spaceMs = t; spaceTick = game.state.tick; }
     doc.dispatch('keydown', Object.assign({key: k}, extra));
     doc.dispatch('keyup', Object.assign({key: k}, extra));
     if (opts.frame !== false) frame();
@@ -306,18 +318,14 @@ export function openGame(o = {}) {
     try { if (game.storage) game.storage.setItem(G.SEEN_KEY, JSON.stringify(game.director.seen)); } catch { /* optional (C-8) */ }
     game.director.seenDirty = false;
   }
-  // buildVm recomputes the objective line this frame (its own test, app/game.js), or a unit is
+  // buildVm recomputes the objective line this frame (its own test, G.objectiveDue), or a unit is
   // READY (the offers): then the virtual frame runs buildVm itself.
   function vmDue(lineFrom) {
     const s = game.state;
     if (s.units.some(u => u.mode === 'ready')) return true;
     if (s.tick < lineFrom) return false;
     if (game.phase !== 'play' || game.commit !== 'player' || !game.planview) return false;
-    if (game.considerDirty) return true;
-    const sec = Math.floor(s.tick / TPS);
-    if (sec - game.objectiveS >= G.OBJECTIVE_EVERY_S || sec < game.objectiveS) return true;
-    const m = modeNow();
-    return m !== game.objectiveMode && /WATCH|RESPOND|OVER/.test(m + game.objectiveMode);
+    return game.considerDirty || !!G.objectiveDue(game, Math.floor(s.tick / TPS), modeNow());
   }
   // The rest of buildVm's per-frame work that has memory: the annunciator (on
   // alarmInputFromState, which tests keep equal to alarmInput(observe), and the page's own
@@ -394,7 +402,10 @@ export function openGame(o = {}) {
       if (rateNow() === 0) { why = why || (state.over ? 'over' : 'held:' + modeNow()); break; }
       t += FRAME_MS;
       saved = null;
+      const s0 = gridS();
       runFrame(p, FRAME_DT, hooks);
+      // (a frame stopped inside: its real time is the drawn frame's, in finish)
+      acct(s0, why || state.over ? 0 : FRAME_DT);
       if (why || state.over) { midFrame = true; why = why || 'over'; break; }   // the drawn frame is this frame
       if (D.directorFrame(d, state)) saveSeen();
       if (game.par && !game.par.done) game.par.step(PAR_STEP_TICKS); // par, a slice a frame, as the page's onFrame (Q-48)
@@ -549,10 +560,54 @@ export function openGame(o = {}) {
     return out;
   }
 
+  /**
+   * D-2's clock (desk/README.md §32.2): the real seconds from the Space that ran the clock to now
+   * against E, the profile's real seconds over the same grid time (sim/clock.js realBetween) plus,
+   * for each span played off the profile, its real seconds as played minus the profile's. The
+   * spans come from the sim's records, not the director: each watch (startTick to watchEndTick),
+   * each card (the frames held at its watchEndTick), RESPOND's 30x part (the card to backInBandTick
+   * or + RESPOND_MAX_S) and RESTORE (each task feeder's allowed second, market.restoreAllowedS, to its
+   * restore or + RESTORE_PACE_MAX_S, before 21:00). Each frame counts in the span holding its middle
+   * (a frame that runs no tick at a watch's end: the card).
+   * @returns {{fromS, toS, sinceS, profileS, E, offS, parts: {WATCH, card, RESPOND, RESTORE: {n, realS, overS}}}|null}
+   */
+  function clockReport() {
+    if (spaceMs < 0) return null;
+    const st = game.state, hand = st.control.handFlown, ds = st.city.districts, nightS = st.scn.night ? NIGHT_S : Infinity;
+    const fromS = spaceTick / TPS, toS = gridS(), spans = [], cards = [];
+    for (const c of st.conts) {
+      if (c.startTick < spaceTick || c.startTick / TPS >= nightS) continue;
+      const w = c.watchEndTick / TPS, back = c.backInBandTick < 0 ? Infinity : c.backInBandTick / TPS;
+      spans.push({a: c.startTick / TPS, b: w, k: 'WATCH'});
+      cards.push(w);
+      if (Math.min(back, w + V.RESPOND_MAX_S) > w) spans.push({a: w, b: Math.min(back, w + V.RESPOND_MAX_S), k: 'RESPOND'});
+    }
+    for (let i = 0; i < ds.length; i++) {
+      const x = ds[i];
+      if (x.clearS < 0 || (x.dark && x.shedBy !== 'task')) continue;
+      const a = restoreAllowedS(ds, i), b = Math.min(x.dark ? Infinity : x.restoredAtS, a + V.RESTORE_PACE_MAX_S, nightS);
+      if (b > a) spans.push({a, b, k: 'RESTORE'});
+    }
+    const parts = {};
+    for (const k of ['WATCH', 'card', 'RESPOND', 'RESTORE']) parts[k] = {n: k === 'card' ? cards.length : spans.filter(x => x.k === k).length, realS: 0, overS: 0};
+    let sinceS = 0;
+    for (const [s0, s1, dt] of played) {
+      sinceS += dt;
+      // (a frame of the watch's slow part may run no tick: it is the watch's all the same)
+      const m = (s0 + s1) / 2, card = s1 === s0 && cards.some(w => Math.abs(w - s0) < 1 / TPS), sp = card ? null : spans.find(x => m >= x.a && m < x.b);
+      const k = card ? 'card' : sp ? sp.k : '';
+      if (k) { parts[k].realS += dt; parts[k].overS += dt - realBetween(s0, s1, hand); }
+    }
+    const profileS = realBetween(fromS, toS, hand), E = profileS + Object.values(parts).reduce((a, x) => a + x.overS, 0);
+    return {fromS, toS, sinceS, profileS, E, offS: sinceS - E, parts};
+  }
+
   const api = {
     doc, h, game, $,
     get now() { return t; },
-    frame, frames, real, to, until, look, lookDiff, buttons, timeline,
+    /** The page time of the Space that ran the clock (-1 before it), for D-2's clock (clockReport). */
+    get spaceMs() { return spaceMs; },
+    frame, frames, real, to, until, look, lookDiff, buttons, timeline, clockReport,
     click, hover, key, keyDown, keyUp, hold, pointer, send, suburb, press, pressKey,
     vm: () => h.vm(),
     clock: () => clockOfS(game.state.tick / TPS),
