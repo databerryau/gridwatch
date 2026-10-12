@@ -50,6 +50,8 @@ const MIDDAY_TIE_MW = 600;
 const MIDDAY_RUN_S = 60;
 const EVENING_H = 18.5;              // H-5 evening probe (the review's 18:30)
 const F3_PROXIES = ['doNothing', 'fuzz'];
+// Q-69's clean day: not black, no UFLS or directed shedding (classic has no task: the same days as zero unserved). TODO(2c-merge): market.isClean.
+const isClean = (sc, black) => !black && sc.uflsMWh + sc.directedMWh === 0;
 
 // ---------------------------------------------------------------- arguments
 function parseArgs(argv) {
@@ -598,7 +600,7 @@ function report(S, o, plan, results, wallS) {
   const proxyBy = new Map(results.filter(r => r.kind === 'proxy' || r.kind === 'f3').map(r => [r.proxy + ':' + r.seed, r]));
   const raw = plan.raw.map(s => parBy.get(s));
   const heat = plan.heat.map(s => parBy.get(s));
-  const clean = r => r.unservedMWh === 0 && !r.black;
+  const clean = r => isClean(r, r.black);
   const args = [];
   for (let i = 2; i < process.argv.length; i++) { if (process.argv[i] === '--out') i++; else args.push(process.argv[i]); }
   const cmd = ['node tools/baseline-v4.js', ...args].join(' ');
