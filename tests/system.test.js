@@ -184,7 +184,10 @@ test('§21.3 commitSig: the dispatch is made over the battery\'s mode, order and
 });
 
 test('§21.3 player mode: a battery order re-flows the plan at the system\'s next look, not at the next 5-minute dispatch; the plan carries it', () => {
-  const {s, sys} = playerDay(2, DESK, ticksAt(10));
+  // (2c: without the restore task. With it, nobody closes HAR3 and HAR4 on this no-input morning, the
+  // dispatch carries their announced return (Q-69), AGC takes the difference and the battery is full by 10:00.)
+  const NOTASK = withoutTask(DESK);
+  const {s, sys} = playerDay(2, NOTASK, ticksAt(10));
   let n = planLoads(s);
   while (planLoads(s) === n) step(s, systemInputs(sys, s)); // just after a 5-minute dispatch
   const before = planCover(sys, s, 2), t0 = s.tick;
@@ -204,7 +207,7 @@ test('§21.3 player mode: a battery order re-flows the plan at the system\'s nex
   assert.ok(Math.abs(planCover(sys, s, 2) - before - 200) < 60, 'CHARGE 300 under a 300-MW GUARD is 200 MW of load');
   // Every one of them is a logged planLoad with no booking: the day still replays (F-6).
   for (const r of s.log.filter(x => x.type === 'planLoad')) { assert.deepEqual(r.args.starts, []); assert.deepEqual(r.args.stops, []); }
-  assert.equal(hashState(replay(2, DESK, s.log, {untilTick: s.tick})), hashState(s));
+  assert.equal(hashState(replay(2, NOTASK, s.log, {untilTick: s.tick})), hashState(s));
 });
 
 test('§21.3 player mode in the belly: units at their floor, the tie at the export limit, the dispatch spilling the rest; no shortfall from what it holds back; a dark net-exporting suburb raises what is dispatched (P-12)', () => {

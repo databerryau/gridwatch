@@ -348,8 +348,9 @@ test('S-14 rule 2 (C-12): par charges whenever the price is at or below $0 or po
   r = early(obs => { Object.assign(obs.battery, {mode: 'charge', orderMW: 100}); obs.solar.autoMW = 30; obs.price.mwh = 26; });
   assert.deepEqual(r.d, [{type: 'battery', mode: 'idle', mw: 0}]);
   // In the evening window a price at or below $0 turns a discharge into a charge (never sell at a negative price).
+  // (2c: rule 5's release already under way, or it starts the hydro machine par's own 12:30 left off.)
   r = at(obs => { obs.s = ticksAt(17, 0) / TPS; obs.tick = ticksAt(17, 0) + 1; obs.dayAhead = null; Object.assign(obs.battery, {mode: 'discharge', orderMW: 140});
-    obs.solar.autoMW = 90; obs.price.mwh = V.RENEWABLE_OFFER; });
+    obs.solar.autoMW = 90; obs.price.mwh = V.RENEWABLE_OFFER; }, Object.assign(createAutopilot(), {water: 'release'}));
   assert.deepEqual(r.d, [{type: 'battery', mode: 'charge', mw: 90}]);
 });
 
