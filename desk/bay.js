@@ -4,7 +4,7 @@
 
 import {V} from '../sim/params.js';
 import {scopeAngle, scopeZone, turnS, coldLoad} from './calc.js';
-import {el, setText, setAttr, setCls, setHidden, slowAttr, mw, fin, mmss, unitLabel, CLASS_GLYPH, PAN} from './util.js';
+import {el, setText, setAttr, setCls, setHidden, slowAttr, mw, fin, mmss, clockOf, unitLabel, CLASS_GLYPH, PAN} from './util.js';
 import {lockedNote} from './emergency.js';
 
 export const SCOPE_AUTO_REAL_MS = 8000;   // K-12: AUTO after 8 real s on the scope without a close
@@ -243,7 +243,9 @@ export function createBay(ctx, parent) {
   feeders.setAttribute('aria-label', 'Dark districts: ←/→ choose, Enter closes the breaker');
   vRest.append(rhead, feeders);
   let rows = new Map(), rowKey = '', sel = '', pvCache = new Map();
-  const dark = () => vm.obs.districts.filter(d => d.dark);
+  // Q-69: a task feeder before its hand-back is the network's (held): listed last, it never chooses the view
+  const held = d => d.shedBy === 'task' && d.clearS > vm.obs.s;
+  const dark = () => vm.obs.districts.filter(d => d.dark).sort((a, b) => held(a) - held(b));
   function previewOf(d) {
     // The lamp first; the preview runs only while the lamp allows (as the restore input does).
     if (d.restoreBlock) return d.restoreBlock;
@@ -304,7 +306,8 @@ export function createBay(ctx, parent) {
       const cl = coldLoad(d, o.s);
       const why = previewOf(d);
       const ok = why === '';
-      setText(R.name, (d.id === sel ? '▸ ' : '') + d.id + (d.shedBy ? ' · ' + d.shedBy.toUpperCase() : ''));
+      setText(R.name, (d.id === sel ? '▸ ' : '') + d.id + (d.shedBy === 'task' ? ' · FAULT' + (held(d) ? ' · BACK ' + clockOf(d.clearS) : '') :
+        d.shedBy ? ' · ' + d.shedBy.toUpperCase() : ''));
       setText(R.load, mw(cl.mw) + ' MW' + (cl.factor > 1 ? ' ×' + cl.factor : cl.coldInS > 0 ? ' ×' + V.COLD_LOAD_FACTOR + ' in ' + mmss(cl.coldInS) : ''));
       const pvCls = ok ? 'good' : d.restoreBlock ? 'warn' : 'crit';
       setText(R.pv, CLASS_GLYPH[pvCls]);
@@ -328,10 +331,10 @@ export function createBay(ctx, parent) {
   function render() {
     if (!vm) return;
     const o = vm.obs;
-    const darkN = o.districts.filter(d => d.dark).length;
-    // Which view: the scope when open, else the player's choice, else RESTORE when districts are dark.
+    const darkN = o.districts.filter(d => d.dark).length, mine = o.districts.filter(d => d.dark && !held(d)).length;
+    // Which view: the scope when open, else the player's choice, else RESTORE when districts not held are dark.
     if (scopeUnit()) view = 'sync';
-    else if (!userView) view = darkN > 0 && !o.units.some(u => u.mode === 'ready') ? 'restore' : 'sync';
+    else if (!userView) view = mine > 0 && !o.units.some(u => u.mode === 'ready') ? 'restore' : 'sync';
     setHidden(vSync, view !== 'sync');
     setHidden(vRest, view !== 'restore');
     setAttr(tSync, 'aria-selected', view === 'sync' ? 'true' : 'false');
@@ -347,7 +350,8 @@ export function createBay(ctx, parent) {
     setText(permit, lamp ? 'P ✓' : 'P ✕');
     setCls(permit, 'lit', lamp);
     setCls(tSync, 'glow', !!(vm.glow && vm.glow.has('bay-sync')));
-    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')));
+    // Q-70: the tab glows from each hand-back until that feeder is closed
+    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')) || o.districts.some(d => d.dark && d.shedBy === 'task' && !held(d)));
     if (view === 'sync') renderSync(); else renderRestore();
   }
 
@@ -374,7 +378,7 @@ export function createBay(ctx, parent) {
       if (k === ']') { trim(1); return true; }
       if (k === 'c') { close(); return true; }
       if (k === 'u') { auto(); return true; }
-      if (k === 'r') { show('restore', true); tRest.focus && tRest.focus(); feeders.focus && feeders.focus(); if (ctx.locked()) lock(); return true; }
+      if (k === 'r') { sel = ''; show('restore', true); tRest.focus && tRest.focus(); feeders.focus && feeders.focus(); if (ctx.locked()) lock(); return true; }
       return false;
     },
   };

@@ -69,6 +69,9 @@ export function createEndCard(doc, root, actions, deps) {
     const e = v.end;
     root.replaceChildren();
     el('h2', e.black ? 'The grid went black.' : 'Day over: 04:00.', '', root);
+    // 2c: the HAND tag (Q-64) and a daily the gate did not check (Q-75; null is not a daily: no label)
+    if (e.handFlown) line(root, 'HAND-FLOWN: AGC off from 04:30 until the night shift took the desk at 21:00.', 'score').id = 'end-hand';
+    if (e.gated === false) line(root, 'Not gate-checked: this day may not be solvable.', 'score').id = 'end-gate';
     body = el('div', '', '', root);
     line(root, 'Seed ' + e.seed + ' · ' + e.v + ' · ' + e.inputs + ' inputs · hash 0x' + (e.hash >>> 0).toString(16).padStart(8, '0'), 'score');
     q = el('button', '?', 'q inline');
@@ -135,6 +138,9 @@ export function createEndCard(doc, root, actions, deps) {
     r.id = 'end-reliability';
     line(r, 'SAIDI ' + m.saidiMin.toFixed(1) + ' min · SAIFI ' + m.saifi.toFixed(2) + ' · MAIFI ' + m.maifi.toFixed(2) + ' per household today' +
       (p ? ' (par: SAIDI ' + p.saidiMin.toFixed(1) + ' min)' : ''));
+    // Q-69: a feeder under repair is the network's until its hand-back, then every minute dark is yours (and counts here)
+    const held = e.score && e.score.heldMWh;
+    if (held > 0) line(r, 'Feeders under repair count from their hand-back: the ' + mw(held, 1) + ' MWh dark before it were the network\'s outage, not priced.');
     line(r, m.saidiMin > 0 ? 'Each SAIDI-minute today cost customers about ' + dollars(m.outage / m.saidiMin) + ' at VCR. A distributor\'s STPIS ' +
       'would not count this shedding ' : 'No household was off for more than ' + mw(V.SUSTAINED_INTERRUPTION_S / V.S_PER_MIN) + ' minutes. ').appendChild(q);
   }

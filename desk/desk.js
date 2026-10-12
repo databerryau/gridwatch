@@ -34,6 +34,8 @@ export const LAYOUT = Object.freeze({
 });
 
 export const NOTE_MS = 2500;   // a refusal / hint stays on its control this long
+/** Q-73: from 21:00 on a night scenario the desk is the night shift's; a press says so (help, blue), 0.3 s a word. */
+export const NIGHT_NOTE = 'The night shift has the desk: it stands down what the night does not need. Your day is scored at 04:00.';
 export const CONSIDER_HOLD_MS = 6000;   // C-10: a guard lifted by key stays the considered one this long after its cover drops
 export const PRESS_FOCUS_MS = 1000;     // C-10: a focus this soon after a pointer came up on the guard is that press's, not the keyboard's
 
@@ -134,7 +136,7 @@ export function createDesk(doc, root, actions, opts = {}) {
   live.setAttribute('aria-live', 'polite');
   live.setAttribute('role', 'status');
 
-  const locked = () => !vm || !!(vm.mode && vm.mode.locked) || !!vm.obs.over;
+  const locked = () => !vm || !!(vm.mode && vm.mode.locked) || !!vm.obs.over || !!vm.obs.nightShift;
   const ctx = {
     doc, actions,
     now: () => nowFn(),
@@ -180,7 +182,8 @@ export function createDesk(doc, root, actions, opts = {}) {
      */
     lockNote(host) {
       if (!host) return;
-      ctx.note(host, 'desk locked while the grid catches itself' + (vm && vm.mode && vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), undefined, 'info');
+      if (vm && vm.obs.nightShift) ctx.note(host, NIGHT_NOTE, 300 * NIGHT_NOTE.split(' ').length, 'info');
+      else ctx.note(host, 'desk locked while the grid catches itself' + (vm && vm.mode && vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), undefined, 'info');
     },
     send(x, host) {
       if (locked()) { ctx.lockNote(host); return 'desk locked'; }

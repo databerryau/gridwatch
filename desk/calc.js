@@ -235,11 +235,11 @@ export function guardFromAngle(angleDeg) {
   return clamp(Math.round(knobValue(angleDeg, 0, GUARD_MAX_MW) / step) * step, 0, GUARD_MAX_MW);
 }
 
-/** K-6 tie knob detents; a drag snaps to one within TIE_SNAP_MW. */
+/** K-6 tie knob detents; a drag snaps to one within TIE_SNAP_MW, never past the import limit (2c: a derate's obs.tie.importLimitMW). */
 export const TIE_DETENTS = Object.freeze([-800, -500, -250, 0, 250, 500, 800]);
 export const TIE_SNAP_MW = 20;
-export function tieSnap(mwv) {
-  const v = clamp(Math.round(fin(mwv)), -V.TIE_MAX_MW, V.TIE_MAX_MW);
-  for (const d of TIE_DETENTS) if (Math.abs(v - d) <= TIE_SNAP_MW) return d;
+export function tieSnap(mwv, limitMW = V.TIE_MAX_MW) {
+  const v = clamp(Math.round(fin(mwv)), -V.TIE_MAX_MW, limitMW);
+  for (const d of TIE_DETENTS) if (d <= limitMW && Math.abs(v - d) <= TIE_SNAP_MW) return d;
   return v;
 }
