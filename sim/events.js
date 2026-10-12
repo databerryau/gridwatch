@@ -31,7 +31,7 @@ export const CONTINGENCY_TYPES = Object.freeze(['unitTrip', 'linkTrip', 'smelter
 /**
  * Pre-roll the day's events from the scenario menu (legacy timing rules; see
  * content/scenarios.js). Deterministic in (seed, scn, regime).
- * @returns {Array<{id:string, atS:number, type:string, args:object, contingency:boolean, warned:boolean}>}
+ * @returns {Array<{id:string, atS:number, type:string, args:object, contingency:boolean, warned:boolean, act:number, crisis:boolean}>}
  */
 export function prerollEvents(seed, scn, regime) {
   const m = scn.events, startH = scn.clock.startH;
@@ -142,41 +142,11 @@ export function prerollEvents(seed, scn, regime) {
 }
 
 /**
- * STAGE B (owner: market + events). Apply every ext event with atS <= the current grid second,
- * in list order, starting at state.evNext; advance state.evNext. Called by step() at each
- * second boundary, before weather.sampleSecond().
- *
- * Effects (see sim/README.md, "events.js"). A news record is {atS, kind, fromS, toS, text}
- * and nothing else: never the event's id or list index (S-4: that would reveal how many
- * silent events came before).
- *   notice                 -> log line (info)
- *   heatAnnounce           -> news {kind:'heat', fromS: onsetS, toS: endS}, log warn, cue 'warn'
- *                             (args upliftPm / deratePm are integer per-mille)
- *   heatOnset / heatEnd    -> log; (derate and demand are read from ext.heat by grid/weather)
- *   stormWarn              -> news {kind:'storm', fromS: arriveS, toS: null}
- *   stormArrive/windCutout/stormPass, cloudOnset/cloudClear -> log only (the series carry the physics)
- *   cloudWarn              -> news {kind:'cloud', fromS: onsetS, toS: null}
- *   windDrought            -> news {kind:'drought', fromS: atS, toS: null}, log warn
- *   unitTrip               -> fleet.tripUnit on the rule's target (largest online machine by
- *                             output, or the station's largest online machine; none -> no-op).
- *                             Ties on output go to the lower V.MACHINES index (total order).
- *   linkTrip               -> fleet.tripTie(state, cause, lockoutS, out) (no-op if already tripped)
- *   smelterTrip            -> fleet.tripSmelter(state, offS, out)
- *   smelterReturn          -> state.smelter.returning = true
- * Also ramps state.smelter.loadMW back at SMELTER_RETURN_MW_MIN while returning.
- *
- * Stage B notes. Information events push a log line (warned ones also an {kind:'announce',
- * news, cue:'warn'} record); trips log through fleet, and a trip with no target (nothing
- * of that station online, the link already out) is silent. Texts state only what the sim will
- * really do (the scenario's own numbers: uplift, derate, times, the storm's cut-out window),
- * never a hidden outcome (whether the link will trip, when the cloud clears). The smelter's
- * return ramp is time-based: loadMW = SMELTER_RETURN_MW_MIN / 60 x (s - returnS + 1), capped
- * at SMELTER_MW and never lowered; identical to "+rate every second" when called every
- * second, and still right when a caller jumps seconds. smelter.returnS (a private field) is
- * the second the return starts: set at the trip (trip second + offS, what the potline's
- * owner tells the operator) and again when smelterReturn applies; weather.forecast reads it.
+ * Apply every ext event with atS <= the current grid second, in list order from state.evNext, and
+ * the smelter's return ramp; step() calls it at each second boundary, before weather.sampleSecond().
+ * Effects by type: sim/README.md §11 events.js.
  * @param {object} state
- * @param {Array<object>} out event records (sim/README.md "Event records")
+ * @param {Array<object>} out event records (sim/README.md §7)
  */
 export function applyDue(state, out) {
   const s = gridSecond(state), evs = state.ext.events;
@@ -346,8 +316,8 @@ function applyEvent(state, e, out) {
     }
     case 'feederClear':
       refreshHeld(state);
-      out.push({tick, kind: 'log', sev: 'warn', code: 'FEEDER_CLEAR', district: a.district,
-        msg: a.district + ' feeder repaired and handed back: close its breaker to relight it.'});
+      out.push({tick, kind: 'log', sev: 'warn', code: 'FEEDER_CLEAR',
+        msg: a.district + ' feeder repaired and handed back: close its breaker to relight it.', district: a.district});
       return;
     case 'tieDerate':
       setTieLimit(state, a.limitMW, a.untilS);

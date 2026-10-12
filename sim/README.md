@@ -1092,17 +1092,28 @@ operational demand in daylight), small against the band and left labelled.
 Stage A (done): `prerollEvents(seed, scn, regime)`, `TYPE_ORDER`, `CONTINGENCY_TYPES`.
 
 **B "market + events"**: `applyDue(state, out)`: apply every `ext.events[evNext..]` with `atS <=
-s` in order; advance `evNext`. Effects: notices -> log; `heatAnnounce`, `stormWarn`,
-`cloudWarn`, `windDrought` -> push a news record (§5, exactly its five keys) and an `announce`
-event; heat onset/end, storm and cloud events -> log only (demand, derate and series already
-carry them); `unitTrip` -> `fleet.tripUnit` on the rule's target (rule `largest`: the sync
-unit with the largest output, lower index on a tie; rule `station`: that station's sync
-machine with the largest output; none -> nothing); `linkTrip` -> `fleet.tripTie` (no-op if
-already tripped); `smelterTrip` -> `fleet.tripSmelter` and `smelter.returnS = trip second +
-offS`; `smelterReturn` -> `smelter.returning = true`. While returning, `smelter.loadMW` =
-min(SMELTER_MW, max(loadMW, `SMELTER_RETURN_MW_MIN / 60` x (s - returnS + 1))): a function of
-time, so it is the same called every second or after a jump. Invariant: each event applies
-exactly once; nothing in ext is modified.
+s` in order; advance `evNext`. step() calls it at each second boundary, before
+`weather.sampleSecond` (and `createState` once, for the atS-0 records: §11 step.js). Effects:
+notices -> log; `heatAnnounce`, `stormWarn`, `cloudWarn`, `windDrought` and 2c's `feederOut`,
+`tieDerate`, `unitOutage` and `droughtWarn` -> push a news record (§5, exactly its five keys;
+the kinds and `fromS` / `toS` are there), an `announce` event (cue `warn`) and a `warn` log with
+the same text, except that `windDrought` is a `warn` log only once a `droughtWarn` has made the
+drought's news on a dayplan day; heat onset/end, storm and cloud events -> log only (demand,
+derate and series already carry them); `unitTrip` -> `fleet.tripUnit` on the rule's target
+(rule `largest`: the sync unit with the largest output, lower index on a tie; rule `station`:
+that station's sync machine with the largest output; none -> nothing); `linkTrip` ->
+`fleet.tripTie` (no-op if already tripped); `smelterTrip` -> `fleet.tripSmelter` and
+`smelter.returnS = trip second + offS`; `smelterReturn` -> `smelter.returning = true`. A trip
+with no target (nothing of that station online, the link already out) is silent. The 2c
+appliers (§32.4.6): `feederOut` sets each district's `clearS`, then `fleet.setDistrictDark(…,
+true, 'task')`; `feederClear` -> `fleet.refreshHeld` and the `FEEDER_CLEAR` log; `tieDerate` /
+`tieDerateEnd` -> `fleet.setTieLimit` (the end puts `TIE_MAX_MW` back, an info log);
+`unitOutage` / `unitReturn` -> `fleet.setOutage` (the return an info log); §7 has their codes.
+While returning, `smelter.loadMW` = min(SMELTER_MW, max(loadMW, `SMELTER_RETURN_MW_MIN / 60` x
+(s - returnS + 1))): a function of time, so it is the same called every second or after a jump.
+Texts state only what the sim will really do (the scenario's own numbers: uplift, derate, times,
+the storm's cut-out window), never a hidden outcome (whether the link will trip, when the cloud
+clears). Invariant: each event applies exactly once; nothing in ext is modified.
 
 **Phase 2a "world"** (P-4; desk/README.md C-9, §21.1): `mslSecond(state, fc, out)`. step()
 calls it straight after `weather.sampleSecond` on every `MSL_CHECK_S`-th grid second with that

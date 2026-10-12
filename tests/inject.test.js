@@ -105,6 +105,7 @@ test('the restore task\'s records: feederOut holds two districts dark for the ne
   const out = runTo(s, 121);
   assert.deepEqual(out.filter(r => r.code === 'FEEDER_CLEAR').map(r => [r.district, r.sev, r.msg]),
     [['SAL4', 'warn', 'SAL4 feeder repaired and handed back: close its breaker to relight it.']]);
+  assert.deepEqual(Object.keys(out.find(r => r.code === 'FEEDER_CLEAR')), ['tick', 'kind', 'sev', 'code', 'msg', 'district'], '§32.4.6');
   assert.equal(s.city.heldFrac, b.share);
   assert.ok(a.dark, 'handed back, still dark: the restore is the operator\'s');
 });
