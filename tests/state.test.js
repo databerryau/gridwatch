@@ -488,37 +488,51 @@ test('opening state (DESK, DESK_WEEKEND): 04:00 balances within 1 MW on MILD and
   const {litDemandMW} = await import('../sim/fleet.js'); // 2c (Q-81): the opening balances lit demand
   const {withoutTask} = await import('./lib/sim-helpers.js');
   const hyd = V.MACHINES.find(m => m.station === 'hydro');
+  const sync = (s, station) => s.units.filter(u => u.station === station && u.sync);
+  const sum = us => us.reduce((a, u) => a + u.outMW, 0);
+  const onFloor = u => u.outMW - hyd.minMW < 1e-9; // the coal cut can leave a float residue above the floor
   for (const scenario of GAME_DAYS) {
-    const seen = new Set();
+    const seen = new Set(), free = withoutTask(scenario);
     let held = 0, floor = 0;
-    // The live plan and the same day without the restore task (C-14: the 04:00 commitment fits the
+    // Each date on the live plan and without the restore task (C-14: the 04:00 commitment fits the
     // day's demand with hydro strictly inside its range). With feeders held dark from 04:00 the opening
-    // balances lit demand: hydro to its floor at most, the rest off the coal machines evenly, each at
-    // or above MIN (§32.5.2 step 3; tests/inject.test.js pins the rule on injected feeders).
-    for (const scn of [scenario, withoutTask(scenario)]) for (let seed = 1; seed <= 30; seed++) {
-      const s = createState(seed, scn), at = scn.id + ' seed ' + seed;
-      seen.add(s.day.temp);
-      const supply = s.units.reduce((a, u) => a + u.outMW, 0) + s.tie.flowMW + s.ren.windMW + s.ren.solarMW + s.battery.outMW;
-      assert.ok(Math.abs(supply - litDemandMW(s)) < 1, at + ' (' + s.day.temp + '): imbalance ' + (supply - litDemandMW(s)));
-      const hydro = s.units.filter(u => u.station === 'hydro' && u.sync);
-      assert.equal(hydro.length, 2);
-      if (s.city.heldFrac === 0) {
-        assert.equal(litDemandMW(s), s.env.demandMW, at + ': nothing dark, lit demand is demand');
-        for (const u of hydro) assert.ok(u.outMW > 0 && u.outMW < hyd.ratingMW, at + ': ' + u.id + ' at ' + u.outMW);
-      } else {
-        held++;
-        for (const u of hydro) assert.ok(u.outMW >= hyd.minMW && u.outMW < hyd.ratingMW, at + ' (feeders held): ' + u.id + ' at ' + u.outMW);
-        if (hydro[0].outMW === hyd.minMW) {
-          floor++;
-          const coal = s.units.filter(u => u.station === 'coal' && u.sync);
-          assert.ok(coal.every(u => u.outMW === coal[0].outMW && u.outMW >= V.MACHINES[u.k].minMW), at + ': the rest off coal evenly, ' + coal.map(u => u.outMW));
+    // balances lit demand (§32.5.2 step 3; tests/inject.test.js pins the rule on injected feeders): the
+    // held MW come off hydro down to its floor, and only what hydro cannot take above its floor comes
+    // off the coal machines, evenly, each at or above MIN. The same date without the task is the
+    // reference: the same commitment and the same tie, wind, solar and battery at 04:00.
+    for (let seed = 1; seed <= 30; seed++) {
+      const f = createState(seed, free), s = createState(seed, scenario);
+      for (const [x, at] of [[f, free.id + ' seed ' + seed], [s, scenario.id + ' seed ' + seed]]) {
+        seen.add(x.day.temp);
+        const supply = sum(x.units) + x.tie.flowMW + x.ren.windMW + x.ren.solarMW + x.battery.outMW;
+        assert.ok(Math.abs(supply - litDemandMW(x)) < 1, at + ' (' + x.day.temp + '): imbalance ' + (supply - litDemandMW(x)));
+        assert.equal(sync(x, 'hydro').length, 2);
+        if (x.city.heldFrac === 0) {
+          assert.equal(litDemandMW(x), x.env.demandMW, at + ': nothing dark, lit demand is demand');
+          for (const u of sync(x, 'hydro')) assert.ok(u.outMW > 0 && u.outMW < hyd.ratingMW, at + ': ' + u.id + ' at ' + u.outMW);
         }
+        assert.equal(x.env.rooftopMW, 0, 'no sun at 04:00');
+        assert.equal(x.units.find(u => u.id === 'coal4').sync, scenario === DESK);
       }
-      assert.equal(s.env.rooftopMW, 0, 'no sun at 04:00');
-      assert.equal(s.units.find(u => u.id === 'coal4').sync, scenario === DESK);
+      assert.equal(f.city.heldFrac, 0, free.id + ' seed ' + seed + ': nothing held without the task');
+      if (s.city.heldFrac === 0) continue;
+      held++;
+      const at = scenario.id + ' seed ' + seed + ' (' + s.day.temp + ', feeders held)';
+      const hydro = sync(s, 'hydro'), coal = sync(s, 'coal'), coal0 = sync(f, 'coal');
+      assert.deepEqual(coal.map(u => u.id), coal0.map(u => u.id), at + ': the same commitment');
+      for (const u of hydro) assert.ok(u.outMW >= hyd.minMW && u.outMW < hyd.ratingMW, at + ': ' + u.id + ' at ' + u.outMW);
+      const heldMW = litDemandMW(f) - litDemandMW(s), hydroDrop = sum(sync(f, 'hydro')) - sum(hydro), cut = sum(coal0) - sum(coal);
+      assert.ok(heldMW > 0 && Math.abs(hydroDrop + cut - heldMW) < 1e-6, at + ': the held ' + heldMW + ' MW come off hydro (' + hydroDrop + ') and coal (' + cut + ')');
+      if (hydro.every(onFloor)) { // so coal's cut is the held MW less what hydro took above its floor
+        floor++;
+        assert.ok(cut > 0, at + ': hydro at its floor, the rest off coal');
+        assert.ok(coal.every(u => Math.abs(u.outMW - coal[0].outMW) < 1e-9 && u.outMW >= V.MACHINES[u.k].minMW), at + ': the rest off coal evenly, ' + coal.map(u => u.outMW));
+      } else {
+        coal.forEach((u, i) => assert.ok(Math.abs(u.outMW - coal0[i].outMW) < 1e-9, at + ': hydro above its floor, ' + u.id + ' untouched at ' + u.outMW + ', not ' + coal0[i].outMW));
+      }
     }
     assert.deepEqual([...seen].sort(), ['HOT', 'MILD']);
-    assert.ok(held >= 15 && floor > 0, scenario.id + ': ' + held + ' task mornings of 30, ' + floor + ' with hydro at its floor');
+    assert.ok(held >= 15 && floor > 0 && held > floor, scenario.id + ': ' + held + ' task mornings of 30, ' + floor + ' with hydro at its floor');
   }
 });
 
