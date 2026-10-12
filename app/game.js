@@ -207,6 +207,7 @@ function parFor(game) {
 /** In-page reset (C-3): a new day (the same seed by default) on the same game object. */
 export function resetDay(game, seed) {
   if (seed !== undefined) game.seed = seed >>> 0;
+  if (game.daily && game.daily.seed !== game.seed) game.daily = null; // another seed is not that daily (Q-75)
   if (game.scenarioOf) game.scenario = game.scenarioOf(game.seed);
   game.state = createState(game.seed, game.scenario);
   game.suburbs = null;

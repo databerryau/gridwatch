@@ -10,6 +10,9 @@ import * as G from '../app/game.js';
 
 const empty = !DAILIES.from;
 const days = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
+// dailyFor reads the shipped list: these rows put a list in its place for one call and put the shipped one back.
+const withList = (list, f) => { const keep = {...DAILIES}; Object.assign(DAILIES, list); try { return f(); } finally { Object.assign(DAILIES, keep); } };
+const EMPTY = {v: '', from: '', to: '', attempts: {}};
 
 test('Q-75: attempt k of a date is YYYYMMDD + k·10⁸ (k <= 42); the date, and so the scenario, survive every attempt', () => {
   assert.equal(G.scenarioForSeed(seedOf(20261003, 1)), DESK_WEEKEND, 'a Saturday, attempt 1');
@@ -29,15 +32,15 @@ test('Q-75: attempt k of a date is YYYYMMDD + k·10⁸ (k <= 42); the date, and 
 });
 
 test('Q-75: dailyFor on the empty list plays attempt 0, not gated; a list plays its attempt, gated only under its own stamp and inside [from, to]', () => {
-  assert.deepEqual(dailyFor('2026-10-03', 'any', {v: '', from: '', to: '', attempts: {}}), {seed: 20261003, scenarioId: 'desk-weekend', gated: false, ymd: 20261003});
-  assert.deepEqual(dailyFor(new Date(2026, 9, 12, 23, 59), 'any', {v: '', from: '', to: '', attempts: {}}), {seed: 20261012, scenarioId: 'desk', gated: false, ymd: 20261012}, 'a local Date');
+  assert.deepEqual(withList(EMPTY, () => dailyFor('2026-10-03', 'any')), {seed: 20261003, scenarioId: 'desk-weekend', gated: false, ymd: 20261003});
+  assert.deepEqual(withList(EMPTY, () => dailyFor(new Date(2026, 9, 12, 23, 59), 'any')), {seed: 20261012, scenarioId: 'desk', gated: false, ymd: 20261012}, 'a local Date');
   const list = {v: 'stamp', from: '2026-10-12', to: '2027-10-11', attempts: {20261013: 3}};
-  assert.deepEqual(dailyFor('2026-10-13', 'stamp', list), {seed: seedOf(20261013, 3), scenarioId: 'desk', gated: true, ymd: 20261013}, 'a listed attempt');
-  assert.deepEqual(dailyFor('2026-10-14', 'stamp', list), {seed: 20261014, scenarioId: 'desk', gated: true, ymd: 20261014}, 'attempt 0 passed: not listed');
-  assert.deepEqual(dailyFor('2026-10-13', 'newer', list), {seed: seedOf(20261013, 3), scenarioId: 'desk', gated: false, ymd: 20261013}, 'a stale stamp plays the listed attempt, not gated');
-  assert.deepEqual(dailyFor('2026-10-11', 'stamp', list), {seed: 20261011, scenarioId: 'desk-weekend', gated: false, ymd: 20261011}, 'before from: attempt 0');
-  assert.equal(dailyFor('2027-10-12', 'stamp', list).gated, false, 'after to');
-  assert.equal(dailyFor('2027-10-11', 'stamp', list).gated, true, 'to is inside');
+  assert.deepEqual(withList(list, () => dailyFor('2026-10-13', 'stamp')), {seed: seedOf(20261013, 3), scenarioId: 'desk', gated: true, ymd: 20261013}, 'a listed attempt');
+  assert.deepEqual(withList(list, () => dailyFor('2026-10-14', 'stamp')), {seed: 20261014, scenarioId: 'desk', gated: true, ymd: 20261014}, 'attempt 0 passed: not listed');
+  assert.deepEqual(withList(list, () => dailyFor('2026-10-13', 'newer')), {seed: seedOf(20261013, 3), scenarioId: 'desk', gated: false, ymd: 20261013}, 'a stale stamp plays the listed attempt, not gated');
+  assert.deepEqual(withList(list, () => dailyFor('2026-10-11', 'stamp')), {seed: 20261011, scenarioId: 'desk-weekend', gated: false, ymd: 20261011}, 'before from: attempt 0');
+  assert.equal(withList(list, () => dailyFor('2027-10-12', 'stamp')).gated, false, 'after to');
+  assert.equal(withList(list, () => dailyFor('2027-10-11', 'stamp')).gated, true, 'to is inside');
   if (empty) assert.deepEqual(dailyFor('2026-10-13', G.dailyStamp()), {seed: 20261013, scenarioId: 'desk', gated: false, ymd: 20261013}, 'the shipped list is empty');
 });
 
@@ -50,6 +53,13 @@ test('Q-75: the page\'s day (G.dailyFrom): ?seed=N (gated only as its date\'s li
   const d = dailyFor('2026-10-04', G.dailyStamp());
   assert.deepEqual(G.dailyFrom('?date=2026-10-04', today), d);
   assert.equal(G.dailyFrom('?seed=' + d.seed, today).gated, d.gated, 'the listed attempt by its seed is as gated as by its date');
+  withList({v: G.dailyStamp(), from: '2026-10-12', to: '2027-10-11', attempts: {20261013: 3}}, () => { // a list gated under this build
+    assert.deepEqual(G.dailyFrom('?date=2026-10-13', today), {seed: seedOf(20261013, 3), scenarioId: 'desk', gated: true, ymd: 20261013});
+    assert.deepEqual(G.dailyFrom('?seed=' + seedOf(20261013, 3), today), {seed: seedOf(20261013, 3), scenarioId: 'desk', ymd: 20261013, gated: true}, 'the listed attempt by its seed');
+    assert.equal(G.dailyFrom('?seed=20261013', today).gated, false, 'a rejected attempt 0 is never gated');
+    assert.equal(G.dailyFrom('?seed=20261014', today).gated, true, 'attempt 0 of a date with no exception');
+    assert.equal(G.dailyFrom('', today).seed, 20261012, 'today: no exception');
+  });
   assert.deepEqual(G.dailyFrom('', today), dailyFor(today, G.dailyStamp()), 'no query: today\'s');
   assert.deepEqual(G.dailyFrom('?date=tomorrow', today), dailyFor(today, G.dailyStamp()), 'a bad date: today\'s');
   assert.deepEqual(G.dailyFrom('?seed=', today), dailyFor(today, G.dailyStamp()), 'an empty seed: today\'s');

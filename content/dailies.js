@@ -14,7 +14,7 @@ export function scenarioIdOf(ymd) {
 }
 
 /** A date's daily (a local Date, 'YYYY-MM-DD' or YYYYMMDD): its listed attempt inside [from, to], else attempt 0; gated only under this build's stamp. */
-export function dailyFor(date, stamp, list = DAILIES) {
-  const ymd = ymdIn(date), on = ymd >= ymdIn(list.from) && ymd <= ymdIn(list.to);
-  return {seed: seedOf(ymd, on ? list.attempts[ymd] || 0 : 0), scenarioId: scenarioIdOf(ymd), gated: on && list.v === stamp, ymd};
+export function dailyFor(date, stamp) {
+  const L = DAILIES, ymd = ymdIn(date), on = ymd >= ymdIn(L.from) && ymd <= ymdIn(L.to);
+  return {seed: seedOf(ymd, on ? L.attempts[ymd] || 0 : 0), scenarioId: scenarioIdOf(ymd), gated: on && L.v === stamp, ymd};
 }

@@ -38,6 +38,11 @@ test('§32.4.8: game.end.handFlown is the sim\'s tag, game.end.gated the daily\'
   const daily = G.dailyFrom('?seed=3');
   assert.equal(end({daily}).gated, daily.gated);
   assert.equal(end({daily: Object.assign({}, daily, {gated: true})}).gated, true);
+  const g = G.createGame({daily, storage: null});
+  G.resetDay(g);
+  assert.equal(g.daily, daily, 'PLAY THIS DAY AGAIN keeps the daily');
+  G.resetDay(g, 4);
+  assert.equal(g.daily, null, 'a reset to another seed is not that daily');
 });
 
 test('Q-82: a news card\'s sender and button by kind: the weather from the bureau, the tie from the market, an outage from the station, feeders from the network', () => {
