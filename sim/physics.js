@@ -268,7 +268,7 @@ function advance(S, out, emit) {
   const total = fleet.baseLoadMW(S), shedFrac = city.shedFrac;
   const shed = total * shedFrac + fd - city.roofDarkMW + 0;
   const served = total * (1 - shedFrac) + (env.flexMW - fd) - (roof - city.roofOffMW) + city.coldLoadMW - S.dr.mw + 0;
-  const darkLoad = total * shedFrac;
+  const darkLoad = total * (shedFrac - city.heldFrac); // Q-69: a held task district is the network's outage
   const relief = served * LOAD_RELIEF * (F0 - f) / F0 + 0;
 
   // 7b. the inverters' over-frequency response (C-7), from this tick's start frequency: wind and
@@ -437,7 +437,7 @@ const BK = {
   units: M.map(() => ({mode: 'off', sync: false, schedMW: 0, govMW: 0, outMW: 0})),
   battery: {schedMW: 0, guardMW: 0, pfrMW: 0, ffrMW: 0, ffrFiredTick: -1, outMW: 0, socMWh: 0, ufSuspend: false},
   tieFlowMW: 0, demandMW: 0,
-  districts: [], shedFrac: 0, coldLoadMW: 0, roofDarkMW: 0, roofOffMW: 0, flexDarkMW: 0, // 2b (I3b)
+  districts: [], shedFrac: 0, coldLoadMW: 0, roofDarkMW: 0, roofOffMW: 0, flexDarkMW: 0, heldFrac: 0, // 2b (I3b); Q-69
   uflsTimerS: zeros(NUF), uflsOperated: falses(NUF),
   ofgsTimerS: zeros(NOF), ofgsTripped: falses(NOF), ofgsTrippedFrac: 0,
   bandS: zeros(NB), storageMWh: 0,
@@ -482,7 +482,7 @@ function save(state) {
     const a = ds[d], z = sd[d];
     z.dark = a.dark; z.shedBy = a.shedBy; z.darkSinceS = a.darkSinceS; z.restoredAtS = a.restoredAtS; z.reconnectS = a.reconnectS;
   }
-  BK.shedFrac = state.city.shedFrac; BK.coldLoadMW = state.city.coldLoadMW;
+  BK.shedFrac = state.city.shedFrac; BK.coldLoadMW = state.city.coldLoadMW; BK.heldFrac = state.city.heldFrac;
   BK.roofDarkMW = state.city.roofDarkMW; BK.roofOffMW = state.city.roofOffMW; BK.flexDarkMW = state.city.flexDarkMW;
   for (let k = 0; k < NUF; k++) { BK.uflsTimerS[k] = state.ufls.timerS[k]; BK.uflsOperated[k] = state.ufls.operated[k]; }
   for (let k = 0; k < NOF; k++) { BK.ofgsTimerS[k] = state.ofgs.timerS[k]; BK.ofgsTripped[k] = state.ofgs.tripped[k]; }
@@ -514,7 +514,7 @@ function restore(state) {
     const a = ds[d], z = sd[d];
     a.dark = z.dark; a.shedBy = z.shedBy; a.darkSinceS = z.darkSinceS; a.restoredAtS = z.restoredAtS; a.reconnectS = z.reconnectS;
   }
-  state.city.shedFrac = BK.shedFrac; state.city.coldLoadMW = BK.coldLoadMW;
+  state.city.shedFrac = BK.shedFrac; state.city.coldLoadMW = BK.coldLoadMW; state.city.heldFrac = BK.heldFrac;
   state.city.roofDarkMW = BK.roofDarkMW; state.city.roofOffMW = BK.roofOffMW; state.city.flexDarkMW = BK.flexDarkMW;
   for (let k = 0; k < NUF; k++) { state.ufls.timerS[k] = BK.uflsTimerS[k]; state.ufls.operated[k] = BK.uflsOperated[k]; }
   for (let k = 0; k < NOF; k++) { state.ofgs.timerS[k] = BK.ofgsTimerS[k]; state.ofgs.tripped[k] = BK.ofgsTripped[k]; }

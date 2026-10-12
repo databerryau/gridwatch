@@ -10,6 +10,7 @@ import * as grid from './grid.js';
 import * as market from './market.js';
 import * as dayplan from './dayplan.js';
 import {hash32} from './rng.js';
+import {NIGHT_S} from './clock.js';
 
 export {SIM_VERSION};
 
@@ -174,7 +175,15 @@ function gridSecond(state, out) {
   if (state.tick === V.PLAYER_START_TICK && state.control.mode === 'HAND') state.control.handFlown = true; // Q-64
   if (state.tick > 0) market.settleSecond(state, out); // the second that just ended
   events.applyDue(state, out);                          // ext events due now (trips, weather, news)
-  grid.planSecond(state, out);                          // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)
+  const c = state.control;
+  if (state.scn.night && !c.nightShift && state.tick >= NIGHT_S * TPS) { // Q-64, Q-73: the night shift takes the desk
+    c.nightShift = true;
+    c.mode = 'AGC';
+    for (const ps of state.plan.stations) ps.man = false;
+    state.plan.rev += 1;
+    out.push({tick: state.tick, kind: 'log', sev: 'info', code: 'NIGHT_SHIFT', msg: 'The night shift has the desk: AGC on until 04:00.'});
+  }
+  grid.planSecond(state, out);                         // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)
   weather.sampleSecond(state);                          // env for this second
   if (state.env.s % MSL_CHECK_S === 0) {                // P-4 (Phase 2a): the MSL level, from one forecast per check
     events.mslSecond(state, weather.forecast(state, V.FC_HORIZON_S, V.FC_STEP_S), out);
