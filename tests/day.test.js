@@ -24,6 +24,7 @@ import * as system from '../app/system.js';
 import * as planview from '../app/planview.js';
 import * as fleet from '../sim/fleet.js';
 import {V} from '../sim/params.js';
+import {realBetween} from '../sim/clock.js';
 import {replay, hashState} from '../sim/step.js';
 import {CLASSIC} from '../content/scenarios.js';
 
@@ -200,12 +201,6 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   let n = count('basePoint');
   for (let i = 0; i < 3; i++) tap('ArrowUp');
   assert.ok(count('basePoint') > n, 'the lever moved by arrows');
-  // 3: GT·A, S S starts its machine (K-3: never on one press).
-  tap('3');
-  tap('s');
-  assert.equal(count('start'), 0, 'one S does nothing');
-  tap('s');
-  assert.equal(count('start'), 1, 'S S starts GT·A');
   // 7: the battery to DISCHARGE and up; G: the GUARD ring; 8: the tie.
   tap('7'); tap('ArrowRight'); tap('ArrowUp');
   assert.ok(count('battery') >= 1, 'battery order by keys');
@@ -241,6 +236,13 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   tap(' ');
   assert.equal(g.h.vm().mode.mode, 'CRUISE', 'Space again resumes the clock');
   assert.equal(g.st().log.length, n, 'presentation keys are not sim inputs');
+  // 3: GT·A, S S starts its machine (K-3: never on one press). (2c: pressed here, after the keys above,
+  // so it is still starting when sampled below: those keys' frames are ~12 grid-min at the profile's 540x.)
+  tap('3');
+  tap('s');
+  assert.equal(count('start'), 0, 'one S does nothing');
+  tap('s');
+  assert.equal(count('start'), 1, 'S S starts GT·A');
 
   // GT·A reaches full speed: O opens its scope (FOCUS, 1x), U closes it cleanly (K-12). Its
   // start is sampled every 30 grid s (it then waits AUTO_SYNC_S, 240 s, at full speed).
@@ -314,6 +316,7 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   const tick0 = h.game.state.tick;
   for (let i = 0; i < 20; i++) frame();
   assert.equal(h.game.state.tick, tick0);
+  const heldAsk = /CCGT 2 now/.test($('objective-text').textContent); // (2c: asked on the held desk at 04:30?)
   tap(' ');
   // Run until the line asks for the CCGT now, doing nothing else.
   let n = 0;
@@ -322,9 +325,11 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   assert.ok(h.vm().glow.has('guard-start-ccgt2'), 'and its START guard is lit');
   assert.equal($('objective').className, 'act');
   assert.match($('objective-level').textContent, /ACT NOW/);
-  // asked early enough to read and answer at this rate (LINE_REACT_S): its deadline is real seconds away
+  // asked early enough to read and answer at this rate (LINE_REACT_S): its deadline is real seconds away (2c: at 540x CCGT 2's
+  // deadline is 5.6 real s from 04:30, so the line asks on the held desk, before Space: Q-18's held start is the reading time)
   const ask = h.vm().objective;
-  assert.ok((ask.startBy - h.vm().obs.s) / h.vm().mode.rate >= 10, 'the deadline ' + ((ask.startBy - h.vm().obs.s) / h.vm().mode.rate).toFixed(1) + ' real s away');
+  const realS = realBetween(h.vm().obs.s, ask.startBy, h.vm().obs.handFlown); // (2c: real s on the D-2 profile, not at one rate)
+  assert.ok(realS >= 10 || (n === 0 && heldAsk), 'the deadline ' + realS.toFixed(1) + ' real s away');
   tap('2'); tap('s');
   // C-10: the guard is lifted (armed), and before the second press the line says what it would do
   frame();

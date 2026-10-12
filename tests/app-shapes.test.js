@@ -9,32 +9,31 @@ import {CLASSIC} from '../content/scenarios.js';
 import * as G from '../app/game.js';
 import * as D from '../app/director.js';
 import * as T from '../app/tray.js';
-import * as A from '../app/alarms.js';
+import {PEAK, NIGHT_S} from '../sim/clock.js';
 
-test('K-12: G.offerWhy is the bay\'s predicate: respond (RESPOND or its card) > tight > peak, none past MAX_OFFERS', () => {
-  const [p0, p1] = A.PEAK_H, obs = (level, h) => ({sec: {level}, clock: {h}}), t = n => ({n, extra: 0, contN: -1});
-  assert.equal(G.offerWhy(obs('TIGHT', p0), t(0), 'RESPOND'), 'respond');
-  assert.equal(G.offerWhy(obs('SECURE', 6), t(0), 'RESPOND-CARD'), 'respond');
-  assert.equal(G.offerWhy(obs('SHORT', p0), t(0), 'CRUISE'), 'tight');
-  assert.equal(G.offerWhy(obs('SECURE', p0), t(0), 'FAST'), 'peak');
-  assert.equal(G.offerWhy(obs('SECURE', p1), t(0), 'CRUISE'), '', 'the peak window\'s end is outside it');
-  assert.equal(G.offerWhy(obs('SECURE', 10), t(0), 'CRUISE'), '');
-  assert.equal(G.offerWhy(obs('TIGHT', p0), t(G.MAX_OFFERS - 1), 'RESPOND'), 'respond');
-  assert.equal(G.offerWhy(obs('TIGHT', p0), t(G.MAX_OFFERS), 'RESPOND'), '', 'at most MAX_OFFERS a day');
-  // §32.4.8's two-argument call (the Q-77 proxy): 'respond' is D-5's window, obs.inRespond (Q-78)
-  const win = (o, inRespond) => Object.assign(o, {inRespond});
-  assert.equal(G.offerWhy(win(obs('SECURE', 6), true), t(0)), 'respond');
-  assert.equal(G.offerWhy(win(obs('TIGHT', 6), false), t(0)), 'tight');
-  assert.equal(G.offerWhy(win(obs('SECURE', p0), false), t(0)), 'peak');
-  assert.equal(G.offerWhy(win(obs('SECURE', 6), true), t(G.MAX_OFFERS)), '');
+// (wave 2, clock: offerWhy dropped its `mode` (Q-78), and modeOf's segment and act became real; these two tests follow)
+test('K-12, Q-78: G.offerWhy is the bay\'s predicate: respond (D-5\'s window, once per contingency) > tight or peak (one a day), none past MAX_OFFERS or from 21:00', () => {
+  const [p0, p1] = PEAK, obs = (level, s, inRespond = false) => ({s, sec: {level}, inRespond, contingency: {n: 0}}), t = (n, extra = 0, contN = -1) => ({n, extra, contN});
+  assert.equal(G.offerWhy(obs('TIGHT', p0, true), t(0)), 'respond');
+  assert.equal(G.offerWhy(obs('SECURE', 7200, true), t(0)), 'respond');
+  assert.equal(G.offerWhy(obs('TIGHT', p0, true), t(1, 0, 0)), 'tight', 'this contingency had its offer: the day\'s tight or peak one is left');
+  assert.equal(G.offerWhy(obs('SHORT', p0), t(0)), 'tight');
+  assert.equal(G.offerWhy(obs('SECURE', p0), t(0)), 'peak');
+  assert.equal(G.offerWhy(obs('SECURE', p0), t(1, 1)), '', 'tight and peak share one offer a day');
+  assert.equal(G.offerWhy(obs('TIGHT', p0), t(1, 1)), '');
+  assert.equal(G.offerWhy(obs('SECURE', p1), t(0)), '', 'the peak window\'s end is outside it');
+  assert.equal(G.offerWhy(obs('SECURE', 21600), t(0)), '');
+  assert.equal(G.offerWhy(obs('TIGHT', NIGHT_S, true), t(0)), '', 'none from 21:00');
+  assert.equal(G.offerWhy(obs('TIGHT', p0, true), t(G.MAX_OFFERS - 1, 1, 0)), '');
+  assert.equal(G.offerWhy(obs('TIGHT', p0, true), t(G.MAX_OFFERS)), '', 'at most MAX_OFFERS a day');
 });
 
-test('§32.4.8: modeOf carries segment, act and night, neutral until the D-2 profile (game and bench directors)', () => {
+test('§32.4.8: modeOf carries segment, act and night: the D-2 segment and act in the game, neutral on the bench', () => {
   const s = createState(1, CLASSIC);
-  for (const d of [D.createDirector({game: true, paused: false}), D.createDirector({paused: true})]) {
-    const m = D.modeOf(d, s);
-    assert.deepEqual([m.segment, m.act, m.night], ['', 0, false], m.mode);
-  }
+  const m = D.modeOf(D.createDirector({game: true, paused: false}), s);
+  assert.deepEqual([m.segment, m.act, m.night], ['PRE-DAWN', 0, false], m.mode);
+  const b = D.modeOf(D.createDirector({paused: true}), s);
+  assert.deepEqual([b.segment, b.act, b.night], ['', 0, false], b.mode);
 });
 
 test('§32.4.8: game.end.handFlown is the sim\'s tag, game.end.gated the daily\'s (null for a game made from a bare seed)', () => {

@@ -275,7 +275,7 @@ test('K-23 keys: Space, 1-8, A / Shift+A, T, L (twice), F hold, ?, Esc; typing i
   input.focus();
   doc.dispatch('keydown', {key: ' '});
   frames(1);
-  assert.match($('rate-text').textContent, /^CRUISE/);
+  assert.deepEqual([h.vm().mode.mode, $('rate-text').textContent], ['CRUISE', badgeText(h.vm().mode)]); // (2c: the badge names the segment)
 });
 
 test('K-23 Tab with the real map: the first Tab puts the keyboard on the map\'s focusable .citymap (not its #map box), so ←/→ step through the plants', async () => {
@@ -579,7 +579,7 @@ test('F-6 / C-3 via the shell: the day ends with the end card; its replay log re
   assert.equal($('briefing-card').hidden, false);
 });
 
-test('K-12 offers (A-4): offered only while RESPOND, TIGHT or worse, or the evening peak; at most 3 a day', () => {
+test('K-12 offers (A-4, Q-78): offered only in D-5\'s window, at TIGHT or worse, or in the Peak; tight and peak share one a day', () => {
   const game = G.createGame({seed: 7, storage: null});
   G.takeDesk(game);
   const vm0 = G.buildVm(game, {nowMs: 0});
@@ -589,11 +589,10 @@ test('K-12 offers (A-4): offered only while RESPOND, TIGHT or worse, or the even
   for (const u of ready) u.mode = 'ready';
   game.state.sec.level = 'SECURE';
   const quiet = G.buildVm(game, {nowMs: 1});
-  if (quiet.obs.clock.h < 17 || quiet.obs.clock.h >= 20) assert.deepEqual(quiet.offers, [], 'routine starts sync quietly');
+  assert.deepEqual(quiet.offers, [], 'routine starts sync quietly (04:30 is outside D-2\'s Peak)'); // (2c, Q-78: these two lines)
   game.state.sec.level = 'TIGHT';
   const v = G.buildVm(game, {nowMs: 2});
-  assert.equal(v.offers.length, G.MAX_OFFERS, 'never more than 3 a day');
-  assert.ok(v.offers.every(o => o.why === 'tight'));
+  assert.deepEqual(v.offers.map(o => o.why), ['tight'], 'tight and peak share one offer a day (Q-78)');
   assert.ok(v.glow.has('bay-sync'), 'the SYNC key glows');
   assert.equal(G.ui(game, {do: 'offerTaken', unit: v.offers[0].unit}), '');
   assert.equal(G.ui(game, {do: 'offerTaken', unit: 'coal1'}), 'not offered');
@@ -948,7 +947,7 @@ test('the line\'s errors are kept, not swallowed: an exception in the objective 
   assert.equal(game.objectiveError, 'objective: boom');
   // the next line clears it
   game.planview = PVW;
-  G.runTo(game, game.state.tick + G.OBJECTIVE_EVERY_S * TPS);
+  while (!G.objectiveDue(game, Math.floor(game.state.tick / TPS), 'CRUISE')) G.runTo(game, game.state.tick + TPS); // the line's next look (2c, Q-63: the profile's cadence)
   vm = G.buildVm(game, {nowMs: 16, dtS: 0});
   assert.equal(typeof vm.objective.text, 'string');
   assert.equal(vm.objectiveError, '');
@@ -975,7 +974,7 @@ test('F-11: one projection and one day-ahead forecast per line; a new consider t
   assert.equal(projects, 1, 'a new target: no new projection and no new line');
   assert.equal(game.objectiveHeld, held);
   // the line's own cadence still runs, and an accepted input still refreshes both at once
-  G.runTo(game, game.state.tick + G.OBJECTIVE_EVERY_S * TPS);
+  while (!G.objectiveDue(game, Math.floor(game.state.tick / TPS), 'CRUISE')) G.runTo(game, game.state.tick + TPS); // (2c, Q-63: the profile's cadence)
   G.buildVm(game, {nowMs: 32, dtS: 0});
   assert.equal(projects, 2);
   assert.equal(G.sendInput(game, {type: 'guard', mw: 100}), '');
@@ -1030,8 +1029,9 @@ test('the game shows the line through steady(): a line the player has not acted 
   assert.ok(mins >= 20, mins + ' grid-min played');
   assert.ok(seen.length >= 1 && seen.length <= 2 + Math.ceil(mins / 15) * 2, 'a calm line: ' + seen.length + ' texts in ' + mins + ' grid-min:\n' + seen.map(x => x.text).join('\n'));
   for (const x of seen) assert.ok(x.text.length <= LINE_MAX_CHARS);
-  // the GUARD line stood with its first figure while the preview's hundredths moved under it
-  assert.match(seen[0].text, /^If your biggest unit tripped now, frequency would fall to 49\.\d\d Hz: too low to be secure\. Raise the battery GUARD to \d+ MW/);
+  // the first ask stood as it was said while its figures moved under it (2c: at 540x the 13-real-s reading
+  // lead, gridAfter, is two grid-hours, so GT·A's START outranks the GUARD line at 04:30; wave 3's line retunes)
+  assert.match(seen[0].text, /^You will be \d+ MW short from \d\d:\d\d\. Start GT·A now/);
   assert.deepEqual(h.vm().objective.action, game.objectiveHeld.line.action);
 });
 
@@ -1114,7 +1114,7 @@ test('F-11: the ?perf overlay shows the budget marks; ?debug exposes the boot ha
   assert.equal('gridwatch' in globalThis, false, 'no ?debug: no global');
   plain.$('btn-take').click();
   plain.frames(45);
-  assert.match(plain.$('perf').textContent, /frame ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget 8 ms\)\nsim ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget 1 ms\) at ≤150×/);
+  assert.match(plain.$('perf').textContent, /frame ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget 8 ms\)\nsim ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget (1 ms\) at ≤150|3 ms\) at >150)×/); // (2c: the profile's rate picks the mark)
   try {
     const dbg = boot('?seed=7&debug');
     assert.equal(globalThis.gridwatch, dbg.h, 'the handle bootGame returned');
@@ -1197,9 +1197,11 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   assert.equal(h.live.primed, false);
   frames(1);
   $('btn-take').click();
-  frames(2);
+  // (2c: frames of 2 grid-s, as at the old flat 120x: the profile plays 540x at 04:30, where the classic day's N-1 alarm would speak first)
+  const g2 = 1 / 270;
+  frames(2, g2);
   advance(2500);
-  frames(1);
+  frames(1, g2);
   const cruise = badgeText(h.vm().mode); // (the rate read: slice 2c's profile)
   assert.equal(h.vm().mode.mode, 'CRUISE');
   assert.equal($('aria-live').textContent, cruise, 'the mode change after the briefing');
@@ -1213,7 +1215,7 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   // A new alarm's label (test poke: storage low).
   h.game.state.hydro.storageMWh = 0.2 * V.HYDRO_ALLOCATION_MWH;
   advance(2500);
-  frames(2);
+  frames(2, g2);
   assert.equal($('aria-live').textContent, 'Alarm: STORAGE LOW, P2');
   // The header's own controls say what they are and which key reaches them.
   for (const [id, keys] of [['btn-pause', 'Space'], ['btn-mute', 'Shift+M'], ['btn-settings', ','], ['btn-help', '?']]) {
