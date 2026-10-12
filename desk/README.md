@@ -54,7 +54,8 @@ Frozen for stage B (nobody edits): `index.html`, `tools/harness.js`, `tools/poli
 Cross-module rules outside `sim/` (checked by tests):
 1. `render/`, `desk/`, `audio/` read the **view model** (§5) only: `observe()` output plus app
    state. They never import `sim/` except `sim/params.js` (public constants) and never touch
-   `state`. `app/planview.js` imports only `sim/params.js`.
+   `state`. `app/planview.js` imports only `sim/params.js`. (2c, §32.7.4: `render/` may import
+   `sim/clock.js` too, and `app/planview.js` `sim/dark.js`, both pure.)
 2. Everything that changes the grid is a sim input sent through `actions.input(x)` (§4).
    Presentation (focus, expand, ACK, SILENCE, pause, rate, FAST, skip, scope *offers*) never is.
 3. `Math.random` only under `render/` and `audio/` (F-3). Relative `.js` imports only; no
@@ -309,7 +310,7 @@ Every control ≥ 24×24 px; no horizontal scroll at 1280 px. Layout per SPEC §
 
 ## 7. The Live Stack and the map (stack+map agent)
 
-**`app/planview.js`** (pure; imports `sim/params.js` only; reads `obs` only):
+**`app/planview.js`** (pure; imports `sim/params.js` only, and `sim/dark.js` from 2c; reads `obs` only):
 * `project(obs, opts)` → per 5-min column from now−30 min to now+4.5 h (6 past + 54
   future): each station's projected lever MW from `obs.plan` (keys, bookings, the executor's
   arrive-by rule, ramps, T1/T2 of booked starts, the stop profile), the tie, wind/solar
@@ -3049,7 +3050,8 @@ late today: soaks start by 11:00", "too late today: cycles start by 19:30 (pre-c
 and "no room today for another cycle around the booked one", the rest as the sim says them
 (2b final review P4: the sim's strings refuse a proposed time, and nothing was proposed). A refusal from the sim stays the
 shell's red toast. "Outside the window" is LV.block's: the card never holds an aim outside
-[fromS, toS]. A suburb with dark districts shows its "n DARK: RESTORE" line first and still
+[fromS, toS]. A suburb with dark districts shows its "n DARK: RESTORE" line first (2c: while
+every one is a held task feeder, "n DARK · BACK HH:MM" with no RESTORE, Q-69) and still
 books (Q-50: a dark district's flex just stops; eligibility only through LV.block, §31.3.7),
 so §31.6's "a dark suburb's RESTORE first" is that line, not a blue refusal.
 
