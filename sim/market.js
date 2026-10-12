@@ -3,7 +3,7 @@
 // Contract: sim/README.md §11 market.js.
 
 import {V} from './params.js';
-import {startBlock, resetAcc, litDemandMW} from './fleet.js';
+import {startBlock, resetAcc, litDemandMW, baseLoadMW} from './fleet.js';
 import {tableLinear} from './weather.js';
 
 const M = V.MACHINES, NU = M.length;
@@ -17,6 +17,7 @@ const DR_MW = V.DR_MW, DR_PRICE = V.DR_PRICE;
 const NORMAL_LO = V.NORMAL_LO_HZ, NORMAL_HI = V.NORMAL_HI_HZ;
 const SPARK_BLOCK_S = V.SPARK_BLOCK_S, SPARK_LAST = V.SPARK_BLOCKS - 1;
 const SUSTAINED_S = V.SUSTAINED_INTERRUPTION_S, S_PER_MIN = V.S_PER_MIN;
+const RESTORE_INTERVAL_S = V.RESTORE_INTERVAL_S, PACE_S = V.RESTORE_PACE_MAX_S, DAY_S = V.DAY_S;
 
 // S-2 variable cost per MWh by machine: the P-6 offer for thermal plant (cost-based offers
 // ARE the fuel cost), HYDRO_VAR_COST for hydro (the water value is an offer, not a cost).
@@ -291,8 +292,9 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
     // (acc.shedMWs: net of their rooftop, near zero at a sunny noon), so LIGHTS ON does not
     // depend on the sun. With no rooftop the two are equal.
     const unservedMWh = acc.unservedMWs / S_PER_H;
-    if (unservedMWh > 0) splitShed(state, sc, unservedMWh);
+    if (unservedMWh > 0) splitShed(state, sc, unservedMWh, sDone);
     sc.unservedMWh += unservedMWh;
+    sc.heldMWh += baseLoadMW(state) * state.city.heldFrac * h; // Q-69: the network's part, never priced
     const servedMWh = acc.servedMWs / S_PER_H;
     sc.servedMWh += servedMWh;
     reliabilitySecond(state, sc, sDone, secs);
@@ -363,41 +365,62 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
   resetAcc(acc);
 }
 
-// Split one second's shed energy by why the dark districts are dark (end-of-second
-// shares; UFLS acts mid-second, so the split is exact only in total). If nothing is dark
-// at the end of the second (a restore input landed mid-second), the energy is booked as
-// UFLS: the category is unknowable then, and the total is what S-1 scores.
-function splitShed(state, sc, shedMWh) {
-  let total = 0, ufls = 0, directed = 0, task = 0;
+// Split second t's unserved energy by why the dark districts are dark (end-of-second shares;
+// UFLS acts mid-second, so the split is exact only in total); with nothing dark then, by the
+// districts relit in t. The restore task (Q-69): sim/README.md §11 market.js.
+function splitShed(state, sc, shedMWh, t) {
+  let total = 0, ufls = 0, directed = 0, task = 0, late = 0, relit = 0, rTask = 0, rLate = 0;
   const ds = state.city.districts;
   for (let d = 0; d < ds.length; d++) {
-    const x = ds[d];
-    if (!x.dark) continue;
-    total += x.share;
-    if (x.shedBy === 'directed') directed += x.share;
-    else if (x.shedBy === 'task') task += x.share;
-    else ufls += x.share;
+    const x = ds[d], w = x.share, own = x.darkSinceS < x.clearS && x.clearS <= t; // a task feeder, handed back
+    if (x.dark ? x.shedBy === 'task' : own && x.restoredAtS === t + 1) {
+      if (x.clearS > t) continue; // held
+      task += w;
+      if (t >= restoreAllowedS(ds, d) + PACE_S) late += w;
+    } else if (!x.dark) {
+      if (x.restoredAtS >= t && x.restoredAtS <= t + 1) {
+        relit += w;
+        if (own) { rTask += w; if (t >= restoreAllowedS(ds, d) + PACE_S) rLate += w; }
+      }
+      continue;
+    } else if (x.shedBy === 'directed') directed += w;
+    else ufls += w;
+    total += w;
   }
   if (total > 0) {
     sc.uflsMWh += shedMWh * (ufls / total);
     sc.directedMWh += shedMWh * (directed / total);
     sc.taskMWh += shedMWh * (task / total);
+    sc.taskLateMWh += shedMWh * (late / total);
+  } else if (rTask > 0) {
+    const k = shedMWh / relit;
+    sc.taskMWh += k * rTask;
+    sc.taskLateMWh += k * rLate;
+    sc.uflsMWh += k * (relit - rTask);
   } else {
     sc.uflsMWh += shedMWh;
   }
 }
 
+/** Q-69, Q-70: the second district d may be closed (state's or observe()'s districts; sim/README.md §11 market.js). */
+export function restoreAllowedS(ds, d) {
+  const x = ds[d], end = x.dark ? Infinity : x.restoredAtS;
+  let p = -1;
+  for (const y of ds) if (y.restoredAtS > p && y.restoredAtS < end) p = y.restoredAtS;
+  return Math.max(x.clearS, (p < 0 ? -DAY_S : p) + RESTORE_INTERVAL_S);
+}
+
 // Q-48 (desk/README.md §30.7): SAIDI, SAIFI, MAIFI per household for second t. A relight on the
-// tick ending t (restoredAtS t + 1) was dark through t.
+// tick ending t (restoredAtS t + 1) was dark through t. A task feeder from its clearS (§8, Q-69).
 function reliabilitySecond(state, sc, t, secs) {
   const ds = state.city.districts;
   for (let d = 0; d < ds.length; d++) {
-    const x = ds[d], from = x.darkSinceS, to = x.restoredAtS, over = t - from - SUSTAINED_S;
+    const x = ds[d], from = Math.max(x.darkSinceS, x.clearS), to = x.restoredAtS, over = t - from - SUSTAINED_S;
     if (from < 0 || from > t) continue;
     if (x.dark || to === t + 1) {
       if (over === 0) sc.saifi += x.share;
       if (over >= 0) sc.saidiMin += x.share * (over ? secs : SUSTAINED_S + secs) / S_PER_MIN;
-    } else if (to === t && to - from <= SUSTAINED_S) sc.maifi += x.share;
+    } else if (to === t && to - from <= SUSTAINED_S && from === x.darkSinceS) sc.maifi += x.share;
   }
 }
 
