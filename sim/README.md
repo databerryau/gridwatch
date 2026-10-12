@@ -290,9 +290,9 @@ from wave 1; `TYPE_ORDER` puts them before `smelterReturn`, so classic's sort is
 `windMu`: §7's series-keys rule). On a dayplan day the atS-0 records are the briefing's items,
 applied by `createState` itself (§11 step.js).
 
-**On a `scn.dayplan` scenario** `createState` takes `regime` and `events` from `sim/dayplan.js`
-(`prerollRegime`, `preroll`) instead of `weather.prerollRegime` and `events.prerollEvents`. At
-stage A the plan is neutral: its regime is today's formula and its records the legacy menu's,
+**On a `scn.dayplan` scenario** `weather.prerollRegime` hands the draw to
+`dayplan.prerollRegime`, and `createState` takes `events` from `dayplan.preroll` instead of
+`events.prerollEvents` (`sim/dayplan.js`). At stage A the plan is neutral: its regime is today's formula and its records the legacy menu's,
 so `desk` and `desk-weekend` pre-roll exactly as before. Classic (`dayplan: null`) never reaches it.
 
 ### env (weather.sampleSecond, every grid second; public "present" values)
@@ -752,7 +752,7 @@ out): two load trips above the security floor." When the minimum is the present 
 equals the record's own second: a potline trip, or a clear while demand is rising) the value is
 measured, not forecast, and the message says so: "MSL1 notice: demand is at its lowest now,
 1,471 MW. MSL1 is 1,600 MW: two load trips above the security floor." Never a news item (news is
-weather). The `DUCK`
+weather and, from 2c, the briefing's network, tie and outage notices). The `DUCK`
 notice has its own wording on a scenario with rooftop PV (the sun leaving the rooftops).
 
 2b city lever codes (kind `log`, sev `info`, from `grid.applyCommand`; desk/README.md §31.3.9):
@@ -1034,8 +1034,8 @@ from `env.roofSubMW` as of the last refresh (every grid second, and at every dis
 
 Stage A (done): `hourOfDay(scn, s)`, `secondOfHour(scn, h)`, `tableLinear(t, x)`,
 `tableSmooth(t, x)`, `demandBaseMW(scn, h)`, `clearSkySolarMW(scn, h)`, `neighbourPrice(scn, h)`,
-`exportLimitMW(h)`, `heatMultAt(heat, s)`, `prerollRegime(seed, scn)`,
-`prerollSeries(seed, scn, regime, events)`, `fineNoiseMW(seed, s)`, `sampleSecond(state)`.
+`exportLimitMW(h)`, `heatMultAt(heat, s)`, `prerollRegime(seed, scn)` (2c: on a dayplan
+scenario it returns `dayplan.prerollRegime`), `prerollSeries(seed, scn, regime, events)`, `fineNoiseMW(seed, s)`, `sampleSecond(state)`.
 
 **B "market + events"**: `forecast(state, horizonS, stepS)` (shape in §8). Reads `scn`
 (including the public timings in `scn.events`), `env`, `news` and the smelter's present load
@@ -1610,8 +1610,8 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
     lit-load re-flow, the adequacy walk and rule 4's evening (`eveningHolds`) read the present
     from `obs.demand.litMW` (the sim's own: each suburb's sky, relit roofs still waiting) and a
     forecast column as `(demandP50 + rooftopMW) x (1 - dark customers) - rooftopMW x (1 - dark
-    rooftop)` (`litMW`, `darkShare`: a district holds an equal part of its suburb's nameplate,
-    from `obs.rooftop.suburbs`); a plan column inside the first forecast step lies between the
+    rooftop)` (`litMW`, `darkShareAt`, in `sim/dark.js` since 2c: a district holds an equal
+    part of its suburb's nameplate, from `obs.rooftop.suburbs`); a plan column inside the first forecast step lies between the
     two. The cold-load term is `servedMW + dr.mw - demand.litMW`. Wind and solar are read as
     AVAILABLE (`obs.wind.availMW`, the forecast; the walk adds back `autoMW`, the wind's less
     its OFGS-tripped share), so what the dispatch is holding back in a surplus (C-6) is never a
@@ -1832,8 +1832,8 @@ Phase 2a, the belly (SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §2
     feeder (P-12), so what is left is not a proportional slice of the operational demand. The
     dispatch (context), the lit-load re-flow, the adequacy walk and rule 4's evening read the
     present from obs.demand.litMW and a forecast column as (P50 + rooftop) x (1 - dark
-    customers) - rooftop x (1 - dark rooftop) (litMW; darkShare; the dark rooftop share is by
-    nameplate). With no rooftop this is the old P50 x (1 - shed).
+    customers) - rooftop x (1 - dark rooftop) (litMW; darkShareAt, sim/dark.js since 2c; the
+    dark rooftop share is by nameplate). With no rooftop this is the old P50 x (1 - shed).
   * S-14 rule 2 joins rule 6 as a union with its window: par charges whenever the price is at
     or below $0 or the dispatch is spilling more than SURPLUS_MIN_MW (obs.wind.autoMW +
     obs.solar.autoMW; C-6), while the battery has room below PAR_BATT_CHARGE_TO. The order is
