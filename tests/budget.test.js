@@ -32,17 +32,22 @@ test('F-11: next.html loads nothing the legacy game or the tools need (no tools/
 
 // Q-61 (desk/README.md §32.3, §32.5.1): slice 2c's eager ceiling. POST_MOVE_GZIP is the first visit
 // measured after stage A's second header move (`node tools/perf.mjs --sizes`: 397,123 B before it,
-// 385,160 B after); 2c adds at most 11.4 KB to it, shared out by §32.3's caps (KB, by owner).
-const POST_MOVE_GZIP = 385160;
-const CAPS_2C = Object.freeze({'base-sim (A2)': 3.6, 'base-app (A3)': 0.5, 'plan (W1)': 1.8, 'grid (W1)': 0.8, 'sky (W1)': 0.4,
-  'par (W2)': 0.8, 'clock (W2)': 0.8, 'desk (W2)': 0.9, 'map (W2)': 0.6, 'line (W3)': 0.4, 'shell (W3)': 0.8});
+// 385,154 B after); 2c adds at most 11.4 KB to it, shared out by §32.3's caps (KB, by owner). The caps
+// are read from §32.3's table (rows `| **owner** (ID) | ... | N KB |`), so a reallocation is one edit.
+const POST_MOVE_GZIP = 385154, TOTAL_2C_KB = 11.4;
+const CAPS_2C = (() => {
+  const md = readFileSync(join(ROOT, 'desk/README.md'), 'utf8'), at = md.indexOf('\n### 32.3 '), caps = {};
+  const table = md.slice(at, md.indexOf('\n### 32.4 ', at));
+  for (const m of table.matchAll(/^\| \*\*([\w-]+)\*\* \((\w+)\) \|.*\| ([\d.]+) KB \|\r?$/gm)) caps[m[1] + ' (' + m[2] + ')'] = Number(m[3]);
+  return Object.freeze(caps);
+})();
 
 test('Q-61: slice 2c keeps the first visit within the post-move total + 11.4 KB (§32.3\'s caps)', () => {
   const caps = Object.values(CAPS_2C).reduce((a, x) => a + x, 0);
-  assert.equal(caps.toFixed(1), '11.4', 'the caps add up to 2c\'s 11.4 KB');
-  const gz = firstVisit('next.html').reduce((a, f) => a + f.gzip, 0), ceiling = Math.floor(POST_MOVE_GZIP + 11.4 * 1024);
+  assert.equal(caps.toFixed(1), TOTAL_2C_KB.toFixed(1), '§32.3\'s caps add up to 2c\'s ' + TOTAL_2C_KB + ' KB: ' + JSON.stringify(CAPS_2C));
+  const gz = firstVisit('next.html').reduce((a, f) => a + f.gzip, 0), ceiling = Math.floor(POST_MOVE_GZIP + TOTAL_2C_KB * 1024);
   assert.ok(gz <= ceiling, 'first visit ' + gz + ' B gzip (' + (gz / 1024).toFixed(2) + ' KB), over 2c\'s ceiling ' + ceiling + ' B (' +
-    POST_MOVE_GZIP + ' B after the Q-61 move + 11.4 KB; 2c so far +' + (gz - POST_MOVE_GZIP) + ' B). Caps (KB): ' +
+    POST_MOVE_GZIP + ' B after the Q-61 move + ' + TOTAL_2C_KB + ' KB; 2c so far +' + (gz - POST_MOVE_GZIP) + ' B). Caps (KB): ' +
     Object.entries(CAPS_2C).map(([k, v]) => k + ' ' + v).join(', ') + '. Measure with node tools/perf.mjs --sizes; over a cap, report it (§32.3).');
 });
 

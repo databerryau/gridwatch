@@ -4156,12 +4156,18 @@ means bumping `SIM_VERSION` and running it again.
 ### 32.12 Module headers (moved from the files, Q-61)
 
 Stage A (prose) moved here, verbatim, the leading header comments of the first-visit files that
-§31.8 did not take, one subsection each, in path order (the sim files' headers went to
-`sim/README.md` §11, under their modules). Each file keeps its first sentence and a pointer to
-its subsection. `app/par.js` and `app/score.js` are one sentence each and keep it whole.
-Measured (`node tools/perf.mjs --sizes`, 46 files): first visit 397,123 B gzip before the move and
-**385,160 B** after (−11,963 B; raw 1,145,177 → 1,115,243 B), the base of `tests/budget.test.js`'s
-2c ceiling (+ 11.4 KB = 396,833 B).
+§31.8 did not take, one subsection each, in path order (the six sim files' headers went to
+`sim/README.md`: `sim/rng.js`'s to the end of §4 "Random streams", the others into §11 under
+their modules' existing headings, `sim/step.js`'s straight under its heading). Each file keeps the
+whole lines its first sentence spans and a pointer to its subsection; where the last of those
+lines runs on into a sentence that ends on a later line (ten files), it is cut at the first
+sentence's end. `app/par.js` and `app/score.js` are one sentence each and keep it whole.
+**This prose lives in the READMEs now:** a change that makes a moved header false edits its block
+(here or in `sim/README.md`), never the file. An edit that a branch cut before the move (A2, A3)
+makes to a moved header's lines goes into its block at the merge, and the file keeps its kept
+lines and pointer. Measured (`node tools/perf.mjs --sizes`, 46 files): first visit 397,123 B gzip
+before the move and **385,154 B** after (−11,969 B; raw 1,145,177 → 1,115,238 B), the base of
+`tests/budget.test.js`'s 2c ceiling (+ 11.4 KB = 396,827 B).
 
 #### app/boot.js
 
