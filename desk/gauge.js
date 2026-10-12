@@ -1,10 +1,5 @@
 // desk/gauge.js: the K-10 N-1 gauge and TRIP PREVIEW (desk/README.md §6, A-2).
-// "SPARE IN 5 MIN" (R5) against "BIGGEST RISK: <name>" (L), the H-4 word, and the TRIP PREVIEW
-// for both credible contingencies (the largest unit and the tie import). Plain words on the face;
-// R5, L and the LOR names sit behind "?". Colours by nadir: >= 49.55 green, 49.0-49.55 amber,
-// < 49.0 red, always with a glyph. The bars are told apart without colour too (K-22): SPARE is a
-// solid fill and carries the level's glyph on its number (✓ covers 1.25 × the risk, ! covers the
-// risk, ✕ short: cross-hatched), RISK is a hatched fill.
+// Contract: desk/README.md §32.12 desk/gauge.js.
 
 import {V} from '../sim/params.js';
 import {el, setText, setAttr, setCls, setStyle, setHidden, mw, hz2, fin, clamp, unitLabel, nadirClass, CLASS_GLYPH, PAN} from './util.js';

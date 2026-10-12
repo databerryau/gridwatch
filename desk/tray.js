@@ -1,8 +1,5 @@
-// desk/tray.js: the K-9 message tray view (desk/README.md §6). At most 3 cards from
-// vm.tray.cards (app/tray.js owns the model), each with one button that only focuses a control
-// (actions.ui({do:'focus'})): a tray button never dispatches (K-9). LOG shows the rest.
-// Keys (K-23): M (the shell) focuses the tray, which lands on the first card's button; ←→ / ↑↓
-// move between the cards' buttons and LOG; Enter presses.
+// desk/tray.js: the K-9 message tray view (desk/README.md §6).
+// Contract: desk/README.md §32.12 desk/tray.js.
 
 import {el, setText, setAttr, setCls, setHidden, clockOf, PAN} from './util.js';
 import {lockedNote} from './emergency.js';

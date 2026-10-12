@@ -1,29 +1,5 @@
 // app/watch.js: the K-15 watch's beat model and the K-16 respond card model. Pure, DOM-free.
-//
-// The watch plays five beats in the physical order (J-25): inertia -> battery -> governors ->
-// UFLS -> settle. Which beat is live is read from the contingency's TRACE (app/record.js: the
-// frequency and what each source had caught at every tick), never from a script, so the
-// caption always says what the physics is doing:
-//   inertia    stored spin carries the hole (its catch exceeds the battery's and the governors')
-//   battery    the battery (its droop plus the GUARD's fast frequency response) catches more
-//              than inertia; "YOUR GUARD: N MW" when the ring holds some back
-//   governors  governor response overtakes the battery, until the fall stops and 10 s pass
-//   ufls       from the first relay operation (only below 49.0 Hz) for 2 grid-s
-//   settle     from 10 grid-s: droop parks frequency below 50 Hz
-// The beat index never goes back (a subsequence of the order above, K-15).
-//
-// Phase 2a (desk/README.md §19.2, §21.4; C-7): a contingency can be a loss of LOAD (the smelter's
-// potline), and wind, utility solar and rooftop solar answer over-frequency. So the beats read
-// the trace by the event's sign (a rise is caught by the same sources working the other way),
-// the inverters' catch (caught.inverterMW) counts with the governors' beat, and the captions
-// and the card say it in words for both signs: negative = "solar and wind backed off N MW" (a
-// rise caught), positive = "gave back N MW" (they were backed off before a loss of supply).
-// A trace or record from before Phase 2a has no inverterMW: it reads as 0.
-//
-// The respond card (K-16) is <= 4 lines, with no buttons: the nadir against the standard, the
-// MW each source caught (the record's caught at the extreme, which is the trace value at the
-// nadir), the problem in plain words (the H-4 level, R5 - L if short, the 30:00 countdown from
-// secureByTick, dark districts), and "Enter (or a click) to take the desk".
+// Contract: desk/README.md §32.12 app/watch.js.
 
 import {V} from '../sim/params.js';
 

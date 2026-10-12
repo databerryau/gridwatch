@@ -1,8 +1,6 @@
 // desk/rotary.js: K-4 hydro gate wheel, K-5 battery dial + GUARD ring, K-6 tie knob
-// (desk/README.md §6). DOM controls with role="slider" (K-23): drag in a circle, keys, scroll.
-// Each sends its sim input on release / key-up and shows the vm's applied value otherwise.
-// Foley (K-20): a turn cues `detent` across a detent (every GUARD step, the tie's detents, the
-// battery's IDLE) or else `ratchet`; the hydro gate cues `gate` when a new setting is taken.
+// (desk/README.md §6).
+// Contract: desk/README.md §32.12 desk/rotary.js.
 
 import {V} from '../sim/params.js';
 import {waterLastsUntilS, redArcFromMW, knobValue, knobAngle, pointerAngle, guardFromAngle, tieSnap, TIE_DETENTS,

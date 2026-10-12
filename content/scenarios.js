@@ -1,13 +1,5 @@
 // content/scenarios.js: scenarios as data (spec F-13, D-8, P-6).
-//
-// A scenario is plain JSON-able data. createState() copies it into state.scn with the
-// source keys (src, note, simplified, unverified) stripped, so the sim never reads this
-// module at run time: state is self-contained.
-//
-// Source rule: every object whose own values include numbers carries a `src` (legacy
-// line refs are to index.html v2.0 + Phase 0.1) or `simplified: true` with a `note`
-// (tests/params.test.js). Times of day are hours; hours >= 24 are the next morning.
-// Model constants shared by every scenario live in sim/params.js.
+// Contract: desk/README.md §32.12 content/scenarios.js.
 
 import {P} from '../sim/params.js';
 

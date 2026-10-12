@@ -4155,7 +4155,499 @@ means bumping `SIM_VERSION` and running it again.
 
 ### 32.12 Module headers (moved from the files, Q-61)
 
-(Filled by stage A's prose agent.)
+Stage A (prose) moved here, verbatim, the leading header comments of the first-visit files that
+§31.8 did not take, one subsection each, in path order (the sim files' headers went to
+`sim/README.md` §11, under their modules). Each file keeps its first sentence and a pointer to
+its subsection. `app/par.js` and `app/score.js` are one sentence each and keep it whole.
+
+#### app/boot.js
+
+```text
+app/boot.js: starts the greybox game (next.html, Phase 1a). The page's one module script.
+It imports the stage B modules by their contract paths (desk/README.md §1) and hands them to
+app/shell.js, which mounts them, draws the overlays and runs the frame loop. The Phase 0.2
+bench's boot is app/bench-boot.js (bench.html).
+
+URL query: ?seed=N (default: today's date as YYYYMMDD) &perf (the F-11 overlay) &debug.
+```
+
+#### app/director.js
+
+```text
+app/director.js: chooses the playback rate (spec F-5, K-15, K-16, D-6). The sim never does.
+
+Modes (desk/README.md §2), precedence OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD >
+FOCUS > RESPOND > FAST > CRUISE:
+  CRUISE        a flat 120x (the D-2 profile arrives in Phase 2)
+  FAST          3 x CRUISE while F is held; it ends on F up, a new P1/P2 alarm, a watch, the
+                respond card, RESPOND or FOCUS (the game calls endFast / the frame clears it)
+  WATCH         K-15 over the first WATCH_S grid-seconds after a contingency: full 0.15x / 1x /
+                10x over 0-3 / 3-10 / 10-30 s, compact 0.5x / 2x / 20x. The desk is locked (the
+                sim refuses inputs). SKIP plays the rest of that watch at CRUISE.
+  RESPOND-CARD  rate 0 from the watch's end until the card is dismissed (Enter or any desk
+                input): the only hold on the clock besides PAUSE (K-16)
+  RESPOND       30x from the card's dismissal until frequency is back in 49.85-50.15 Hz
+                (contingency.backInBandTick >= 0) or 5 grid-min after the card, then CRUISE
+  FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
+                a restore input (the breaker being closed, K-13)
+  PAUSE         Space; a hidden tab (HIDDEN); the day's end (OVER)
+  ALARMS        rate 0 while the alarm panel holds the clock (d.held, Q-46); d.paused is untouched
+  DEBUG         the bench's speed selector (bench.html only): any speed other than CRUISE
+
+A director made with {game: true} runs every mode above; without it (the bench) it is the
+Phase 0.2 director: CRUISE/DEBUG, the full watch, PAUSE, and nothing that holds the clock.
+
+Watch version (K-15): full the first time ever and on anything new (the first UFLS operation
+seen, the first HIGH RoCoF); otherwise compact. The version is chosen on the watch's first
+tick (a first HIGH RoCoF is known then: the record's rocofHzS) and upgraded to full for the
+rest of the watch when a first-ever UFLS operation happens during it: the relays deserve the
+slow motion (decision: most fun within realism, OD-17). `d.seen` ({watch, ufls, rocof}) is
+the memory the game loads from and saves to localStorage (gridwatch:v4:seen, C-8: optional).
+Esc skips only once a full watch has been seen (game mode; the bench always may).
+
+Viewing never changes the outcome (C-7): the director only picks the rate. Pure and DOM-free
+(Node tests use it). rate() is asked between every two ticks, so it reads a few fields
+straight from state without allocating.
+```
+
+#### app/game.js
+
+```text
+app/game.js: one game session (next.html), DOM-free. It mirrors app/session.js (which the
+bench keeps) for the game: the sim state, the director (game modes), the loop's pacer, the
+system operator (app/system.js: the 04:30 pre-dispatch, the dark-city reflow, RE-DISPATCH),
+the annunciator, the tray, the recorder (watch traces), history rings for the Live Stack's
+past, the TRIP / RESTORE PREVIEW caches, the view model (desk/README.md §5), the input log
+and its replay file (F-6). boot.js / shell.js wire it to the page; tests drive it headless.
+
+Everything that changes the grid is a sim input: sendInput (the desk, the stack, the map,
+keys) and the system's inputs, applied between ticks or through step(), so replay() of the
+log reproduces the day (F-6). Presentation (focus, ACK, pause, FAST, skip...) goes through
+ui() and never touches the sim. Nothing here draws.
+
+Modules the game uses but other stage B agents own are passed in, so this file imports only
+what exists on its own branch: `system` (app/system.js: createSystem, systemInputs,
+redispatch) and `planview` (app/planview.js: glowSet). Without them the game still plays: no
+automatic plan (a no-input day then needs the player), and a simple fallback glow set.
+```
+
+#### app/loop.js
+
+```text
+app/loop.js: the frame loop (spec F-5, X-26).
+
+Each animation frame adds min(frameDt, MAX_FRAME_DT_S) x rate grid-seconds to an
+accumulator (kept in ticks) and runs whole 20-ms ticks, up to a per-frame cap and a time
+budget. The rules this file guarantees (tests/loop.test.js):
+  * every tick is run exactly once, in order: nothing here skips or repeats a tick, and
+    the sim never sees the frame rate (the same input log at any rate or display refresh
+    gives the same state at the same tick; F-4, D-6);
+  * a lagging frame (cap or budget hit) slows play: the time it could not run is dropped,
+    never the ticks, so play resumes at its rate from the next frame instead of spiralling;
+  * when the rate changes between two ticks (a contingency opens the watch, a watch
+    segment ends), the time still owed is converted to the new rate at once, so the
+    watch's 0.15x segment starts at once, not a frame later. A contingency is known only
+    after the tick that opened it (a pre-rolled trip happens inside step()), so that tick
+    was charged at the old rate; rateLast() lets the loop re-charge it at the watch rate
+    (the accumulator may then owe time, i.e. go below 0, and the next tick waits for it),
+    so the watch lasts its full real time from its first tick;
+  * draw never runs inside step(): runFrame only steps; the caller draws after it returns.
+
+Pure: runFrame takes callbacks and a pacer object, so Node tests drive it with fake
+frame times. Only startRaf() touches the browser, and only when called.
+```
+
+#### app/planview.js
+
+```text
+app/planview.js: the Live Stack's plan view (desk/README.md §7; SPEC L-1..L-9). Pure: it
+reads an observe() snapshot (and, for the past columns, the shell's history) and imports
+only sim/params.js. Nothing here changes the grid; the stack sends what snapDrop returns.
+
+project(obs, opts)            the next 4.5 h per 5-min column: each layer's MW as the sim's
+                              plan executor will move it (desk/README §3.1), supply and gaps,
+                              the rooftop bite and the projected spill (Phase 2a, C-11)
+blueRuns(proj)                the runs of projected spill ahead (C-11), in the shape of redRuns
+earliestArrival(obs, st, mw)  the earliest second a station can be at mw (L-4 ghost, L-6, L-9)
+glowSet(obs, gap)             control ids that can arrive by the gap's start (L-9, K-16)
+snapDrop(obs, st, atS, mw)    the inputs a drop sends, on the 15-min / 50-MW grid, or the
+                              earliest-arrival ghost when the drop is infeasible (L-4)
+snapStart(obs, unit, onAtS)   the same for dragging an off unit's ghost (a booked START)
+firstGap(proj)                the first red run ahead (the gap a trip opened, K-16)
+
+The projection is a 5-s step simulation of the executor rule, so ramps, T1/auto-sync/T2
+starts, the unload + T4 stop profile, min up/down, clamps and the arrive-by lead all match
+the sim to within one step; AGC trims, governors and heat derate changes are left out (the
+stack draws the plan, not the seconds). Where the executor's contract is loose the choice is
+named in a comment; stage C checks the projection against a stepped sim.
+```
+
+#### app/record.js
+
+```text
+app/record.js: what the bench's strip charts plot. DOM-free.
+
+The sim keeps no history, so the bench records it as it plays:
+  * every tick: frequency (for the live chart at slow speeds and the per-second envelope);
+  * every grid second: min / max / mean frequency (the last 10 minutes);
+  * every grid minute: an observe() snapshot's numbers (the 24-h charts);
+  * during each contingency's watch: per-tick frequency and who caught the loss.
+Per tick it reads only values observe() also exposes (f.hz = phys.fHz; the balance
+readouts; sec's preview), straight from state because observe() allocates (README §10).
+It never writes state. Typed arrays: this is presentation, not sim state.
+```
+
+#### app/shell.js
+
+```text
+app/shell.js: the game page (next.html) around app/game.js. It mounts the map, the desk and
+the Live Stack (whichever modules boot.js passes in), draws the header and the overlays
+(briefing, watch, respond card, end card, drawer, "?" labels, toast, ?perf), runs the frame
+loop (ticks, then the view model, then every module draws: never inside step(), X-26),
+binds the K-23 keys and starts the audio on the first gesture.
+
+app/boot.js is the page's one module script: it imports the real modules and calls
+bootGame(document, {...}). Tests call bootGame with the stand-in DOM (tests/lib/dom.js) and
+stand-in modules, so the shell is tested before the other stage B files exist.
+
+Element ids other modules rely on:
+  #map, #desk      the roots createMap / createDesk receive
+  #stack-slot      created BY THE DESK in its third column: createLiveStack's root. If the
+                   desk has none, the shell makes one at the end of #desk.
+  #stack-overlay   L-4: while vm.stackExpanded the shell moves the Live Stack's `el` here
+                   (over the map, ~1248 x 420) and back into #stack-slot after; the stack
+                   sizes its canvas from its parent on update.
+
+Phase 1b (desk/README.md §13): the SETTINGS popover (#btn-settings, `,`; B-7) and the body
+classes rm / fxlow / crt that follow vm.settings; the one key listener and its order (§13.3:
+the desk's key(ev), then the stack's and the map's, then app/keys.js); the #aria-live region
+(createLive / liveFrame below); the ?perf budget marks; ?debug -> globalThis.gridwatch.
+desk/README.md §30: texts and the alarm panel on demand (Q-44, Q-46), "?" and Esc (Q-47), par (Q-48).
+```
+
+#### app/system.js
+
+```text
+app/system.js: the game's system operator (desk/README.md §3.4; SPEC L-0, A-1). DOM-free.
+
+The player is the control-room operator; this is the market and dispatch system around them,
+which in the NEM runs whether anyone touches the desk or not:
+  * 04:30 PRE-DISPATCH (L-0): the merit-order plan for the P50 forecast (autopilot.preDispatch,
+    made once from the day-ahead forecast), loaded into the sim's plan as a planLoad input, stops
+    included. The stack never starts empty; the levers follow it (K-2, L-6).
+  * RE-FLOW FOR THE LIT LOAD (L-0): while districts are dark, dispatch targets metered demand:
+    the plan is re-dispatched for the lit load whenever the dark share moves, and every
+    PLAN_REFLOW_S while any district stays dark (AEMO's pre-dispatch cadence), so a day with no
+    input is never black. The periodic re-flow waits while the player owns the plan: once they
+    have edited it (a lever or tie move, a plan edit) since the system's last planLoad, their
+    edits win until they press RE-DISPATCH (which hands it back) or the dark share moves again.
+  * RE-DISPATCH (A-1): redispatch() re-runs the pre-dispatch from now to 04:00 over the
+    commitment the player has now (par's amend: units on and coming, the booked starts and
+    stops kept), and every lever glides to the new plan.
+
+Two modes (createSystem({commit})):
+  'system'  the Phase 1a behaviour above: the 04:30 plan commits units too (its booked STARTs
+            and STOPs). The bench and the planOnly proxy use it.
+  'player'  the game (SPEC §9.1 Q-18): COMMITMENT IS THE PLAYER'S. The system never books a
+            start or a stop. At 04:30 it dispatches only what is running; from then it
+            re-dispatches the committed units (the same planLoad RE-DISPATCH sends) whenever the
+            commitment changes (a start, a stop, a booking, a unit synchronised or tripped; from
+            Phase 2a also the battery's order or GUARD, from 2b a city lever booked or
+            cancelled (obs.levers.rev): commitSig) and
+            every DISPATCH_S (5 grid-minutes, as NEMDE does) for the newer forecast. Which units run, and when, is the
+            player's plan; a day with no input runs short. A lever, tie or plan-key edit by hand
+            still takes the levers over until RE-DISPATCH.
+            The belly (Phase 2a, desk/README.md §21.3): the dispatch is for the lit operational
+            demand against the wind and solar AVAILABLE; in a surplus it takes every unit to its
+            floor and the tie to the export limit, and the sim's own cut spills the rest (C-6). A
+            battery order counts for the energy behind it (autopilot batteryOrder).
+Everything it does is a sim input (planLoad), logged, so replay() reproduces a game day (F-6).
+It runs on the autopilot's 'planOnly' memory and runPar's cadence: a game day with no player
+input is the planOnly proxy's day, hash for hash (tests/system.test.js).
+```
+
+#### app/tray.js
+
+```text
+app/tray.js: the K-9 message tray model. Pure and DOM-free; desk/tray.js draws trayView()
+(vm.tray).
+
+Cards come from the sim's records: news (`announce`: the weather bureau), station notices
+(trips, each START / STOP / CANCEL / ABORT, a unit at full speed, lockout releases, water), market notices (the security level
+going SHORT or SHEDDING, reserve diesel, DR, and from Phase 2a the minimum-system-load levels,
+P-4 / desk/README.md C-9) and the city desk (UFLS, directed shedding, restores, a suburb's air-con locking; its bookings and patience: LOG only). Each card: a sender, a grid time, <= 25 words and ONE button that only focuses a
+control (and lights it, L-9); it never dispatches (K-9). At most 3 cards are visible; older
+ones (information first) and cards older than CARD_TTL_S go to the LOG drawer. Warning cards ring twice (the
+audio cue 'ring2') and never repeat: a warning's key (what it is about) is shown once a day.
+Cards never pause play (§7).
+```
+
+#### app/watch.js
+
+```text
+app/watch.js: the K-15 watch's beat model and the K-16 respond card model. Pure, DOM-free.
+
+The watch plays five beats in the physical order (J-25): inertia -> battery -> governors ->
+UFLS -> settle. Which beat is live is read from the contingency's TRACE (app/record.js: the
+frequency and what each source had caught at every tick), never from a script, so the
+caption always says what the physics is doing:
+  inertia    stored spin carries the hole (its catch exceeds the battery's and the governors')
+  battery    the battery (its droop plus the GUARD's fast frequency response) catches more
+             than inertia; "YOUR GUARD: N MW" when the ring holds some back
+  governors  governor response overtakes the battery, until the fall stops and 10 s pass
+  ufls       from the first relay operation (only below 49.0 Hz) for 2 grid-s
+  settle     from 10 grid-s: droop parks frequency below 50 Hz
+The beat index never goes back (a subsequence of the order above, K-15).
+
+Phase 2a (desk/README.md §19.2, §21.4; C-7): a contingency can be a loss of LOAD (the smelter's
+potline), and wind, utility solar and rooftop solar answer over-frequency. So the beats read
+the trace by the event's sign (a rise is caught by the same sources working the other way),
+the inverters' catch (caught.inverterMW) counts with the governors' beat, and the captions
+and the card say it in words for both signs: negative = "solar and wind backed off N MW" (a
+rise caught), positive = "gave back N MW" (they were backed off before a loss of supply).
+A trace or record from before Phase 2a has no inverterMW: it reads as 0.
+
+The respond card (K-16) is <= 4 lines, with no buttons: the nadir against the standard, the
+MW each source caught (the record's caught at the extreme, which is the trace value at the
+nadir), the problem in plain words (the H-4 level, R5 - L if short, the 30:00 countdown from
+secureByTick, dark districts), and "Enter (or a click) to take the desk".
+```
+
+#### audio/audio.js
+
+```text
+audio/audio.js: WebAudio for the game (K-19 hum, K-20 foley, K-21 tones, K-22 buses).
+
+Created on the first user gesture (browsers refuse to start audio before one) and silent
+when WebAudio is missing or refuses (C-8: the game plays fully without sound). Everything is
+synthesised; no samples: a foley voice is mixed from its recipe (audio/model.js VOICES) into
+a buffer the first time it is asked for. Math.random is allowed here (fx only, F-3): the
+noise layers.
+
+  master <- hum bus (the hum's two gains) | fx bus | alarms bus      gains: vm.settings
+
+At most MAX_NODES nodes live at once, the hum, the buses and the master included; a cue that
+would pass the budget is dropped and counted (au.dropped). A delayed cue (delayS) holds no
+nodes until it is due: it waits in au.pending and update() starts it, on time, a frame ahead.
+
+  const au = createAudio(globalThis);   // nothing happens yet
+  au.start();                           // on the first pointerdown / keydown
+  au.update(vm);                        // every frame: hum follows vm.needleHz; vm.settings; vm.cues play
+  au.cue('breaker'); au.cue({name: 'clack', pan: -0.2, delayS: 0.09});
+```
+
+#### audio/model.js
+
+```text
+audio/model.js: the pure parts of the game's sound (K-19 hum, K-20 foley, K-21 alarm tones,
+K-22 buses), so Node tests can check them without WebAudio.
+
+K-19 mains hum: transformers hum at twice grid frequency, so the hum has partials at k x 2f
+(k = 1..4). A quiet reference tone sits at k x 100 Hz (twice the 50-Hz nominal); each partial
+beats against its reference at 2k x |f - 50| (at 49.75 Hz the 400 Hz partial wobbles twice a
+second). Default level -30 dBFS. There is no such tone in a real control room: it is
+sonification, labelled in the abstractions drawer (H-14).
+K-20 breaker close: a bandpassed noise transient plus inharmonic partials near 0.9, 1.4 and
+2.2 kHz, decaying over 120 ms, plus a thud.
+
+Phase 1b (desk/README §13.2): every cue is data. A cue is either a TONE (oscillators, the
+K-21 alarm sounds) or a VOICE: a list of layers (bandpassed noise, sines, saws, squares, each
+with its own envelope) that renderVoice() mixes into one buffer. A rendered voice plays
+through a source and a gain (and a panner when panned): 2-3 live nodes, whatever its recipe,
+which is what lets 16 UFLS clacks, a horn and a breaker share the 32-node budget.
+```
+
+#### content/anchors.js
+
+```text
+content/anchors.js: the "?" badges' index, eager (Q-44): {game: the element id, rows: its
+entries' row titles}, in content/text.js order, which loads on demand. tests/anchors.test.js
+keeps the two equal: an anchored entry added to content/text.js is appended here too.
+```
+
+#### content/scenarios.js
+
+```text
+content/scenarios.js: scenarios as data (spec F-13, D-8, P-6).
+
+A scenario is plain JSON-able data. createState() copies it into state.scn with the
+source keys (src, note, simplified, unverified) stripped, so the sim never reads this
+module at run time: state is self-contained.
+
+Source rule: every object whose own values include numbers carries a `src` (legacy
+line refs are to index.html v2.0 + Phase 0.1) or `simplified: true` with a `note`
+(tests/params.test.js). Times of day are hours; hours >= 24 are the next morning.
+Model constants shared by every scenario live in sim/params.js.
+```
+
+#### desk/annunciator.js
+
+```text
+desk/annunciator.js: the K-8 annunciator view (desk/README.md §6, §30.4). 6×2 tiles from
+vm.alarms.tiles (app/alarms.js owns the model: states, flash, priorities); ACK, HORN OFF, EXPLAIN;
+in the plan bar (Q-45). A tile press (Q-46): closed, it focuses its control, says what it means and
+is W's pick; again while that note shows, the alarm panel opens there; open, it selects. Never a
+sim input; it all works during the watch (K-15).
+
+ISA-18.1 sequence R, visual only (§11 B-2): alarm = fast flash (2.5 Hz), ACK = steady, cleared
+before ACK = slow flash (0.8 Hz) until ACK, cleared after ACK = dark. Reduced motion: 1 Hz and
+steady (desk.css). Each state has its own glyph (◆ ■ ◇), so the flash and the colour are never
+the only sign (K-22); an escalated tile (B-1: a P2 tile showing as P1) adds ‼ and a double border.
+```
+
+#### desk/bay.js
+
+```text
+desk/bay.js: the procedure bay (desk/README.md §6): SYNC (K-12 synchroscope) and RESTORE
+(K-13 feeder breakers).
+
+SYNC: the READY units (lit when offered, A-4); open one's scope (`scope`), watch the needle at
+phaseDeg turning at slipHz, trim with [ ] (`syncTrim` ±0.05 Hz), close with C or the breaker
+handle (`syncClose`; HAND may use the bypass key), U for AUTO (`syncAuto`). With the scope open
+and no close for 8 real seconds the desk sends `syncAuto` itself (K-12).
+RESTORE: each dark district is a feeder breaker with its cold-load MW; the RESTORE PERMISSIVE
+lamp (restoreBlock === ''); a breaker closes (`restore`) only when the lamp and the district's
+RESTORE PREVIEW (actions.restorePreview) both allow it. R, ←/→, Enter.
+Keys (K-23): O opens the first READY unit's scope (an offered one first; again: closes it),
+B is the bypass key (HAND). The scope canvas is role="img" with a text alternative that changes
+at most once per real second. Foley (K-20): buttons and tabs cue `button`, the bypass key `key`;
+the breaker's own sounds come from the sim's records.
+```
+
+#### desk/calc.js
+
+```text
+desk/calc.js: the numbers the desk derives from the view model (desk/README.md §6). Pure
+functions of observe() values and sim/params.js constants: no DOM, no state, no engine. Each is
+unit-tested in tests/desk.test.js or tests/balance.test.js.
+```
+
+#### desk/dial.js
+
+```text
+desk/dial.js: K-11 frequency dial (canvas) and BALANCE bar (DOM) (desk/README.md §6, §29).
+
+Dial: 49-51 Hz; normal band green, out to 49.5/50.5 amber, beyond red; UFLS marked at 49.0; the
+needle (above 10× the last real second's mean, F-4), the TRIP PREVIEW ghost needle, the nadir
+pin during a watch, a 3-decimal readout, CHANGE (RoCoF over 500 ms) and SPIN (stored energy,
+GW·s); "HAND" on the face in HAND mode. BALANCE bar: the trend, or in an event the scheduled gap
+and the borrowed stack that covers it (inertia, battery, governors, load relief and, Phase 2a, the
+inverters backing off: wind, utility solar and rooftop solar above 50 Hz, C-7); the segments sum to the
+swing-equation imbalance and balance about zero (calc.imbalanceSegments). SHED is the dark
+customers' load (obs.demand.unservedMW): the relay MW is net load and is zero or less when a
+district that was feeding back at noon is dark (P-12). The canvas is role="img"; its text
+alternative (K-23) changes at most once per real second.
+```
+
+#### desk/emergency.js
+
+```text
+desk/emergency.js: K-7 emergency controls, the A-1 RE-DISPATCH key and the K-2 AGC/HAND key
+(desk/README.md §6, §0 A-1, A-3).
+
+Reserve diesel (RERT): a key under a red cover. The first press lifts the cover and shows the
+cost and lead; then hold 0.6 s (or hold E) to arm. Armed, the same hold stands it down.
+Industrial DR: a big button, hold 0.6 s (or hold D); lamps for the calls left.
+DIRECT SHED: a guarded key (lift, then hold 0.6 s), shown only while the gauge reads SHORT or
+SHEDDING (A-3). Its face names the district the sim will shed and that district's load
+(calc.nextShed, obs.districts[].coldLoadMW: "about 0 MW" for one that is feeding back at noon,
+Phase 2a). Nothing here commits on a single tap: clicks are ignored, only holds commit
+(DIRECT SHED also takes the keyboard's guarded double: Enter lifts, Enter again within 2 s, §13.3).
+Keys (K-23): E / D held; K focuses DIRECT SHED, V the AGC/HAND key, N presses RE-DISPATCH.
+Foley (K-20): covers cue `cover` (lift and drop), key switches `key`, push buttons `button`.
+```
+
+#### desk/gauge.js
+
+```text
+desk/gauge.js: the K-10 N-1 gauge and TRIP PREVIEW (desk/README.md §6, A-2).
+"SPARE IN 5 MIN" (R5) against "BIGGEST RISK: <name>" (L), the H-4 word, and the TRIP PREVIEW
+for both credible contingencies (the largest unit and the tie import). Plain words on the face;
+R5, L and the LOR names sit behind "?". Colours by nadir: >= 49.55 green, 49.0-49.55 amber,
+< 49.0 red, always with a glyph. The bars are told apart without colour too (K-22): SPARE is a
+solid fill and carries the level's glyph on its number (✓ covers 1.25 × the risk, ! covers the
+risk, ✕ short: cross-hatched), RISK is a hatched fill.
+```
+
+#### desk/levers.js
+
+```text
+desk/levers.js: K-1 motorised unit levers and the K-3 machine guards (desk/README.md §6).
+
+One lever per station (COAL, CCGT, GT·A, GT·B, GT·C). The handle is the station's base point
+(the plan's now-edge, obs.stations[].basePointMW); behind it the output needle (outMW), the AGC
+band bracket (base ± band, K-2), the 10-grid-minute ramp cone, detent ticks at MIN/25/50/75%,
+the 96% spring gate with its red zone (H-2 trip risk) and a tick for the next plan keyframe.
+A drag sends `basePoint` on release (and at most every 250 ms while dragging); ↑/↓ ±10 MW,
+Shift ±1, PgUp/PgDn next detent; crossing the gate needs 12 px of extra drag or Shift+↑.
+An idle station's lever books its start through the plan (`planKey`, AGC mode, L-6).
+One lamp per machine with its own START and STOP guards (lift, then press; S S / X X).
+Phase 2a (C-10, desk/README.md §19.5): a guard lights when its id is in vm.glow (the
+objective's STOP or START), and tells the desk when it is hovered, pressed by a pointer,
+focused, lifted or committed (ctx.consider), so the shell can say what the press will do
+before it is made.
+Foley (K-20): a hand move cues `detent` / `gate` / `ratchet`, a plan move cues `servo`; guards
+cue `cover` (lift, drop) and `button` (the press that commits). A rough close shakes the lever.
+```
+
+#### desk/rotary.js
+
+```text
+desk/rotary.js: K-4 hydro gate wheel, K-5 battery dial + GUARD ring, K-6 tie knob
+(desk/README.md §6). DOM controls with role="slider" (K-23): drag in a circle, keys, scroll.
+Each sends its sim input on release / key-up and shows the vm's applied value otherwise.
+Foley (K-20): a turn cues `detent` across a detent (every GUARD step, the tie's detents, the
+battery's IDLE) or else `ratchet`; the hydro gate cues `gate` when a new setting is taken.
+```
+
+#### desk/tray.js
+
+```text
+desk/tray.js: the K-9 message tray view (desk/README.md §6). At most 3 cards from
+vm.tray.cards (app/tray.js owns the model), each with one button that only focuses a control
+(actions.ui({do:'focus'})): a tray button never dispatches (K-9). LOG shows the rest.
+Keys (K-23): M (the shell) focuses the tray, which lands on the first card's button; ←→ / ↑↓
+move between the cards' buttons and LOG; Enter presses.
+```
+
+#### desk/util.js
+
+```text
+desk/util.js: small DOM and text helpers shared by the desk modules (desk/README.md §6).
+No sim imports except sim/params.js; no state; DOM work only on elements passed in.
+```
+
+#### render/format.js
+
+```text
+render/format.js: plain-text formatting for the bench (numbers, clock, event records).
+Pure and DOM-free (tests import it). Wording for the desk moves to content/text.js in
+Phase 1a (README §7); the bench shows the sim's own record text.
+```
+
+#### render/mapdata.js
+
+```text
+render/mapdata.js: the map's fixed geometry and the colours the stack, the map (and the
+levers, desk/README §7 L-3) share. Pure data plus pure helpers; no DOM. Tested by
+tests/map.test.js (G-1: integer scale, terrain to the frame edges, no building off the
+terrain; G-2: the silhouette parts of each technology; X-37, X-38; G-3: the rooftop panels
+of each suburb in proportion to its rooftop MW, ROOF_PV and roofPanels).
+
+The map is drawn on a fixed offscreen BASE_W x BASE_H canvas and blitted at an INTEGER
+scale (G-1). scaleFor() picks the scale from the map area: the largest integer with the
+whole width shown and the floor-safe rows (SAFE) fitting the height. Rows the frame cannot
+show are cropped from the top (sky first); room left over is letterboxed with the ground
+colour below the horizon and the sky colour above it, never sky under the ground.
+  1280x268 (the 1280x600 floor) -> x2, 640x134 base px, the SAFE rows exactly
+  1280x344 (1280x720)            -> x2, 640x172
+  1920x520 (1920x1080)           -> x3, 640x173.3
+The horizon sits 14 rows inside SAFE, so even the floor shows a strip of sky (G-3: the sun,
+the sunset, the storm cloud) with the stacks, the towers and the CBD breaking it.
+
+Everything a shape needs is data here (base px), so the art can be nudged without touching
+the drawing code in render/map.js.
+```
 
 ### 32.13 The contract review (workflow `wf_dee4b30b-f91`, 2026-10-12)
 

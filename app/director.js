@@ -1,37 +1,5 @@
 // app/director.js: chooses the playback rate (spec F-5, K-15, K-16, D-6). The sim never does.
-//
-// Modes (desk/README.md §2), precedence OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD >
-// FOCUS > RESPOND > FAST > CRUISE:
-//   CRUISE        a flat 120x (the D-2 profile arrives in Phase 2)
-//   FAST          3 x CRUISE while F is held; it ends on F up, a new P1/P2 alarm, a watch, the
-//                 respond card, RESPOND or FOCUS (the game calls endFast / the frame clears it)
-//   WATCH         K-15 over the first WATCH_S grid-seconds after a contingency: full 0.15x / 1x /
-//                 10x over 0-3 / 3-10 / 10-30 s, compact 0.5x / 2x / 20x. The desk is locked (the
-//                 sim refuses inputs). SKIP plays the rest of that watch at CRUISE.
-//   RESPOND-CARD  rate 0 from the watch's end until the card is dismissed (Enter or any desk
-//                 input): the only hold on the clock besides PAUSE (K-16)
-//   RESPOND       30x from the card's dismissal until frequency is back in 49.85-50.15 Hz
-//                 (contingency.backInBandTick >= 0) or 5 grid-min after the card, then CRUISE
-//   FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
-//                 a restore input (the breaker being closed, K-13)
-//   PAUSE         Space; a hidden tab (HIDDEN); the day's end (OVER)
-//   ALARMS        rate 0 while the alarm panel holds the clock (d.held, Q-46); d.paused is untouched
-//   DEBUG         the bench's speed selector (bench.html only): any speed other than CRUISE
-//
-// A director made with {game: true} runs every mode above; without it (the bench) it is the
-// Phase 0.2 director: CRUISE/DEBUG, the full watch, PAUSE, and nothing that holds the clock.
-//
-// Watch version (K-15): full the first time ever and on anything new (the first UFLS operation
-// seen, the first HIGH RoCoF); otherwise compact. The version is chosen on the watch's first
-// tick (a first HIGH RoCoF is known then: the record's rocofHzS) and upgraded to full for the
-// rest of the watch when a first-ever UFLS operation happens during it: the relays deserve the
-// slow motion (decision: most fun within realism, OD-17). `d.seen` ({watch, ufls, rocof}) is
-// the memory the game loads from and saves to localStorage (gridwatch:v4:seen, C-8: optional).
-// Esc skips only once a full watch has been seen (game mode; the bench always may).
-//
-// Viewing never changes the outcome (C-7): the director only picks the rate. Pure and DOM-free
-// (Node tests use it). rate() is asked between every two ticks, so it reads a few fields
-// straight from state without allocating.
+// Contract: desk/README.md §32.12 app/director.js.
 
 import {V} from '../sim/params.js';
 
