@@ -380,7 +380,7 @@ test('MIN GEN on a real belly: observe() and state give the same spillMW; the ti
 /** Count the competent proxy's audible alarms over a day; the operator ACKs 3 real s after each sound. */
 function competentDay(seed) {
   const a = A.createAlarms(), d = D.createDirector({game: true, paused: false});
-  let view = null; // the state with no contingency in play (prototype reads)
+  let view = null; // the state with no contingency in play and the day not over (prototype reads: the rate is CRUISE's, never 0)
   let realMs = 0, lastS = -1, ackAt = Infinity;
   const stationOf = id => id.replace(/\d+$/, '');
   runPar(seed, CLASSIC, {proxy: 'competent', onStep: st => {
@@ -388,7 +388,7 @@ function competentDay(seed) {
     if (st.tick % TPS !== 0 || st.tick < V.PLAYER_START_TICK) return;
     const x = A.alarmInputFromState(st);
     // Real time: the director's CRUISE (read, never a literal: slice 2c's profile; no watch, card or RESPOND), about 1x in the watch.
-    if (!view || Object.getPrototypeOf(view) !== st) view = Object.assign(Object.create(st), {contIdx: -1});
+    if (!view || Object.getPrototypeOf(view) !== st) view = Object.assign(Object.create(st), {contIdx: -1, over: false});
     const rate = x.inWatch ? 1 : D.rateOf(d, view);
     realMs += (lastS < 0 ? 0 : x.s - lastS) * 1000 / rate;
     lastS = x.s;

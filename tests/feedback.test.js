@@ -82,8 +82,8 @@ const down = (p, id) => () => { p.pointer(id, 'pointerdown'); p.pointer(id, 'poi
 const HOLD = 0.62;              // a hold commits after 0.6 s
 const focused = p => { const a = p.doc.activeElement; return a ? a.id || a.className : ''; };
 const lock = /^NOTE blue [^\n]*: desk locked while the grid catches itself: watch this one$/m;
-// The badge the page shows once `f` has changed a copy of the director: the rate read, never a 120× literal (slice 2c's profile).
-const badge = (p, f) => { const d = Object.assign({}, p.game.director); f(d, p.game.state); return new RegExp(badgeText(D.modeOf(d, p.game.state)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); };
+// The badge the page shows once `f` has changed a copy of the director, in mode `mode`: the rate read, never a 120× literal (slice 2c's profile).
+const badge = (p, mode, f) => { const d = Object.assign({}, p.game.director); f(d, p.game.state); const m = D.modeOf(d, p.game.state); assert.equal(m.mode, mode); return new RegExp(badgeText(m).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); };
 
 // The Live Stack's canvas: a point in canvas px -> the page's clientX/Y (the stand-in rect).
 function stackAt(p) {
@@ -145,9 +145,9 @@ test('every press answers: the briefing (AGC/HAND, Space, the rate badge, F, Tab
 const B = {};
 test('every press answers: the quiet desk, header and help (clock held at 04:30)', () => {
   const p = B.p = openGame({run: false});
-  click(p, 'btn-pause', badge(p, d => { d.paused = false; }), 'hdr-pause');
+  click(p, 'btn-pause', badge(p, 'CRUISE', d => { d.paused = false; }), 'hdr-pause');
   click(p, 'rate-badge', /PAUSE 0×/, 'hdr-rate-badge');
-  tap(p, ' ', badge(p, d => { d.paused = false; }), 'key-space');
+  tap(p, ' ', badge(p, 'CRUISE', d => { d.paused = false; }), 'key-space');
   tap(p, ' ', /PAUSE 0×/, 'key-space');
   tap(p, 'f', /^TOAST blue FAST needs the clock running: Space$/m, 'key-f-fast');
   click(p, 'btn-mute', /btn-mute "SOUND OFF"/, 'hdr-mute');
@@ -284,9 +284,9 @@ test('every press answers: the quiet desk, levers, guards, rotaries, emergency, 
 
 test('every press answers: the desk running (FAST, a READY unit and its scope, the tray, STOP)', () => {
   const p = B.p;
-  tap(p, ' ', badge(p, d => { d.paused = false; }), 'key-space');
-  act(p, () => { p.keyDown('f'); p.frame(); }, badge(p, (d, s) => D.setFast(d, s, true)), 'key-f-fast', 'F held');
-  act(p, () => { p.keyUp('f'); p.frame(); }, badge(p, d => { d.fast = false; }), 'key-f-fast', 'F up');
+  tap(p, ' ', badge(p, 'CRUISE', d => { d.paused = false; }), 'key-space');
+  act(p, () => { p.keyDown('f'); p.frame(); }, badge(p, 'FAST', (d, s) => D.setFast(d, s, true)), 'key-f-fast', 'F held');
+  act(p, () => { p.keyUp('f'); p.frame(); }, badge(p, 'CRUISE', d => { d.fast = false; }), 'key-f-fast', 'F up');
   const ready = () => p.game.state.units.find(u => u.id === 'gta1').mode === 'ready';
   const r = p.until(() => ready(), {max: '+20m'});
   assert.ok(ready(), 'GT·A at full speed: ' + r.why + ' ' + r.at);
