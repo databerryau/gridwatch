@@ -12,9 +12,11 @@ import {CLASSIC, DESK, DESK_WEEKEND} from '../../content/scenarios.js';
 export const TPS = V.TICKS_PER_S;
 
 // Today's desk day, day for day, whatever slice 2c's dayplan does (desk/README.md §32.5.3): the
-// legacy event menu (no dayplan), classic's night, the classic storm share. For tests whose
-// subject is not the plan but that ride on desk's pre-rolled events.
-const legacy = (scn, id) => ({...scn, id, dayplan: null, night: false, weather: {...scn.weather, stormShare: P.STORM_SHARE.value}});
+// legacy event menu (no dayplan), classic's night, and the day-type shares desk has today
+// (content/scenarios.js DESK.weather), so tuning desk's shares cannot change these days. For
+// tests whose subject is not the plan but that ride on desk's pre-rolled events.
+const legacy = (scn, id) => ({...scn, id, dayplan: null, night: false,
+  weather: {...scn.weather, heatShare: P.HEAT_SHARE.value, stormShare: P.STORM_SHARE.value, mildShare: 0.55}});
 export const legacyDesk = () => legacy(DESK, 'desk-legacy');
 export const legacyDeskWeekend = () => legacy(DESK_WEEKEND, 'desk-weekend-legacy');
 
