@@ -43,6 +43,7 @@ import {runPar} from '../sim/autopilot.js';
 import {getScenario} from '../content/scenarios.js';
 import {V, SIM_VERSION} from '../sim/params.js';
 import {allIn, grade} from '../app/score.js';
+import {isClean} from '../sim/market.js'; // Q-69's clean day: not black, no UFLS or directed shedding
 
 const FILE = fileURLToPath(import.meta.url);
 const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'];
@@ -50,8 +51,6 @@ const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 
 export const PLAN_COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'flex'];
 export const planCost = cost => PLAN_COST_KEYS.reduce((a, k) => a + cost[k], 0);
 const totalCost = cost => COST_KEYS.reduce((a, k) => a + (cost[k] || 0), 0);
-// Q-69's clean day: not black, no UFLS or directed shedding. TODO(2c-merge): market.isClean.
-const isClean = (sc, black) => !black && sc.uflsMWh + sc.directedMWh === 0;
 /** 16:30, the start of the evening discharge window (PAR_BATT_DISCHARGE_H): where the battery's level is compared. */
 const EVENING_S = (V.PAR_BATT_DISCHARGE_H[0] - V.DAY_START_H) * V.S_PER_H;
 

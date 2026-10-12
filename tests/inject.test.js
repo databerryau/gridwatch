@@ -11,6 +11,7 @@ import {isClean, isPerfect} from '../sim/market.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK} from '../content/scenarios.js';
 import {injectEvent, stateWith} from './lib/inject.js';
+import {legacyDesk} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S;
 /** Step s to grid second sec (exclusive of its own tick); the records step() returned on the way. */
@@ -128,11 +129,11 @@ test('the drought on a dayplan day: droughtWarn is the news (its mean as a per-m
   const s = stateWith(2, DESK, [{atS: 60, type: 'droughtWarn', args: {onsetS: 120, muPm: 120}},
     {atS: 120, type: 'windDrought', args: {windMu: 0.12}}]);
   const out = runTo(s, 121);
-  assert.deepEqual(observe(s).news.map(n => [n.kind, n.fromS, n.toS, n.text]), [['drought', 120, null,
+  assert.deepEqual(observe(s).news.filter(n => n.kind === 'drought').map(n => [n.kind, n.fromS, n.toS, n.text]), [['drought', 120, null,
     'Wind drought from about 04:02: a high-pressure ridge settles in and wind falls toward about 12% of capacity.']]);
   assert.deepEqual(out.filter(r => r.code === 'WIND_DROUGHT').map(r => r.kind), ['log']);
   assert.equal(out.filter(r => r.kind === 'announce').length, 1);
-  for (const scn of [CLASSIC, DESK]) { // with no warning (classic; desk's legacy menu at stage A) the onset is the news, as today
+  for (const scn of [CLASSIC, legacyDesk()]) { // with no warning (classic; desk's legacy menu) the onset is the news, as today
     const c = stateWith(2, scn, [{atS: 60, type: 'windDrought', args: {windMu: 0.12}}]);
     runTo(c, 61);
     assert.match(c.news[0].text, /^WIND DROUGHT: a high-pressure ridge has settled in\./, scn.id);

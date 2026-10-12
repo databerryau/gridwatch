@@ -75,8 +75,9 @@ const hhmm = (V, tick) => {
 };
 
 async function sim() {
-  const [ap, step, params, scen, grid, helpers] = await Promise.all([load('sim/autopilot.js'), load('sim/step.js'), load('sim/params.js'),
-    load('content/scenarios.js'), load('sim/grid.js'), load('tests/lib/sim-helpers.js')]);
+  const [ap, step, params, scen, grid, helpers, market] = await Promise.all([load('sim/autopilot.js'), load('sim/step.js'), load('sim/params.js'),
+    load('content/scenarios.js'), load('sim/grid.js'), load('tests/lib/sim-helpers.js'), load('sim/market.js')]);
+  isClean = market.isClean;
   return {runPar: ap.runPar, createState: step.createState, step: step.step, V: params.V, getScenario: scen.getScenario,
     security: grid.security, injectTrip: helpers.injectTrip};
 }
@@ -244,8 +245,8 @@ const f3 = x => (Number.isFinite(x) ? x.toFixed(3) : '-');
 const median = xs => { const s = xs.slice().sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
 const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const pct = (k, n) => (n ? (100 * k / n).toFixed(1) + '%' : '-');
-// Q-69's clean day: not black, no UFLS or directed shedding (a task feeder's lag is not). TODO(2c-merge): market.isClean.
-const isClean = (sc, black) => !black && sc.uflsMWh + sc.directedMWh === 0;
+// Q-69's clean day: not black, no UFLS or directed shedding (a task feeder's lag is not): market.isClean, set by sim().
+let isClean = null;
 
 function table(rows, cols) {
   const w = cols.map(c => Math.max(c[0].length, ...rows.map(r => String(c[1](r)).length)));

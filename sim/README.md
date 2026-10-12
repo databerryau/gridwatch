@@ -1209,7 +1209,8 @@ Phase 2a owner "world" (desk/README.md §21.1): mslSecond(), the P-4 Minimum Sys
 notices (C-9), from the forecast step() passes in.
 
 Event record (state.ext.events[i], plain JSON):
-  {id: 'e7', atS: 41520, type: 'unitTrip', args: {...}, contingency: true, warned: false}
+  {id: 'e7', atS: 41520, type: 'unitTrip', args: {...}, contingency: true, warned: false, act: 0, crisis: false}
+(2c: act is the act the dayplan designed the record for, 0 on legacy records; crisis marks each act's designed event)
 atS is the grid second (0 = 04:00). Contingency events (unitTrip, linkTrip, smelterTrip)
 trip exactly one element each: the largest credible contingency is <= 800 MW (F-13).
 ```
@@ -1988,6 +1989,8 @@ sim/step.js: the sim's public API (spec F-2, F-3, F-4, F-6, C-6, C-7).
   observe(state, opts)        -> obs        the player's view (desk, map, autopilot)
   hashState(state)            -> u32        fingerprint of all state except scn and ext
   replay(seed, scenario, log) -> state      F-6 headless replay (throws on divergence)
+  deriveExt(state), openDay(state)          2c: createState's ext derivation and its 04:00 opening (tests/lib/inject.js re-runs them)
+  scenarioHash(scn)           -> u32        2c: the scnHash createState computes (the dailies' build stamp, Q-75)
 
 Stage A wrote this file and it works as far as its callees do; stage B owner
 "integration" keeps it. The order of calls in step() is part of the contract

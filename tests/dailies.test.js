@@ -84,9 +84,8 @@ test('Q-75: the shipped list is {v, from, to, attempts}, stamped with this build
   }
 });
 
-// Q-75's stamp hashes what the sim hashes (createState's scnHash: the data without its src/note prose). Stage A's
-// dailyStamp hashes the raw scenario until the TODO(2c-merge) swap to A2's step.scenarioHash, which this checks.
-test('Q-75: the stamp is SIM_VERSION and the scenario hashes the sim records (on from A2\'s step.scenarioHash)', {skip: !St.scenarioHash && 'step.scenarioHash is A2\'s'}, () => {
+// Q-75's stamp hashes what the sim hashes (createState's scnHash: the data without its src/note prose).
+test('Q-75: the stamp is SIM_VERSION and the scenario hashes the sim records', () => {
   assert.equal(G.dailyStamp(), [St.SIM_VERSION, St.createState(1, DESK).scnHash, St.createState(1, DESK_WEEKEND).scnHash].join('|'));
 });
 

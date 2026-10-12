@@ -2,7 +2,7 @@
 // Contract: desk/README.md §32.12 app/game.js.
 
 import {V} from '../sim/params.js';
-import {createState, step, observe, applyInput, hashState, replay, canonicalHash, SIM_VERSION} from '../sim/step.js';
+import {createState, step, observe, applyInput, hashState, replay, scenarioHash, SIM_VERSION} from '../sim/step.js';
 import * as physics from '../sim/physics.js';
 import * as grid from '../sim/grid.js';
 import * as fleet from '../sim/fleet.js';
@@ -116,8 +116,8 @@ function setSetting(game, key, value) {
 // C-2, Q-75: the scenario of the seed's date
 export const scenarioForSeed = seed => SCENARIOS[scenarioIdOf(ymdOf(seed))];
 
-// The build stamp a daily list is gated under (Q-75). TODO(2c-merge): step.scenarioHash.
-export const dailyStamp = () => SIM_VERSION + '|' + canonicalHash(SCENARIOS.desk) + '|' + canonicalHash(SCENARIOS['desk-weekend']);
+// The build stamp a daily list is gated under (Q-75).
+export const dailyStamp = () => SIM_VERSION + '|' + scenarioHash(SCENARIOS.desk) + '|' + scenarioHash(SCENARIOS['desk-weekend']);
 
 // Q-75: ?seed=N, ?date=YYYY-MM-DD, else today's daily (§32.5.3)
 export function dailyFrom(search, date) {
