@@ -802,11 +802,12 @@ function beyondReserves(obs, R, run, frac = 1) {
   return false;
 }
 
-// 4. Dark districts, once supply is in hand (a task feeder before its clearS is the network's, Q-69).
+// 4. Dark districts, once supply is in hand: the line speaks when one is the desk's (a task feeder
+// before its clearS is the network's, Q-69) and counts every dark one, as the bay and the map do.
 function restore(X, line) {
-  const obs = X.obs, dark = obs.districts.filter(d => d.dark && !(d.clearS > X.s));
+  const obs = X.obs, all = obs.districts.filter(d => d.dark), dark = all.filter(d => !(d.clearS > X.s));
   if (!dark.length) return null;
-  const n = dark.length + (dark.length === 1 ? ' district is' : ' districts are') + ' dark';
+  const n = all.length + (all.length === 1 ? ' district is' : ' districts are') + ' dark';
   const ok = dark.find(d => d.restoreBlock === '');
   if (ok) return line({level: 'act', kind: 'restore', text: n + ' and the permissive lamp is lit. Close a feeder: R, then Enter.', targets: ['bay-restore'], action: {type: 'restore', district: ok.id}, startBy: X.s});
   return line({level: 'plan', kind: 'restore', text: n + '. A feeder closes once frequency is steady and there is spare reserve to carry it.', targets: ['bay-restore', 'gauge-n1']});
