@@ -16,6 +16,7 @@ import {readFileSync} from 'node:fs';
 import {makeDocument, installGlobals} from './lib/dom.js';
 import {bootGame, ARMED_WORD, UNDER_WAY_WORD} from '../app/shell.js';
 import {runTo} from '../app/game.js';
+import * as D from '../app/director.js';
 import {createDesk} from '../desk/desk.js';
 import {createMap} from '../render/map.js';
 import {createLiveStack} from '../render/livestack.js';
@@ -38,7 +39,7 @@ function boot(seed) {
     audioWin: {}, raf: false, now: () => t});
   restore();
   const $ = id => doc.getElementById(id);
-  // Frames of 0.1 real s (F-5's longest counted frame): 12 grid-s each at CRUISE.
+  // Frames of 0.1 real s (F-5's longest counted frame): 0.1 x the rate in grid s each (12 at 120x).
   const frame = (dtS = 0.1) => { t += dtS * 1000; h.frame(dtS); };
   const refusals = [];
   const send = x => { const r = h.actions.input(x); if (r) refusals.push(x.type + ': ' + r); return r; };
@@ -91,9 +92,10 @@ test('greybox day, 04:00-09:00: desk, Live Stack and RE-DISPATCH inputs through 
     respondAndRestore(g);
     act(g.h.vm().obs);
     did.add(name);
-    const t0 = g.st().tick;
+    const t0 = g.st().tick, m = D.modeOf(g.h.game.director, g.st()); // (the rate read, never a literal: slice 2c's profile)
+    assert.equal(m.mode, 'CRUISE', name);
     g.frame();
-    assert.equal(g.st().tick - t0, 12 * TPS, name + ': a 0.1-s frame at CRUISE runs 12 grid s (the page runs the clock)');
+    assert.ok(Math.abs(g.st().tick - t0 - m.rate * 0.1 * TPS) <= 1, name + ': a 0.1-s frame at CRUISE runs 0.1 s x ' + m.rate + ' (the page runs the clock): ' + (g.st().tick - t0) + ' ticks');
   };
   at(7, 'lever', o => { // 07:00: the CCGT lever up 100 MW (K-1 / L-6)
     const st = o.stations.find(x => x.id === 'ccgt');

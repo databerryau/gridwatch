@@ -10,6 +10,7 @@ import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
 import {followDay} from './lib/follow.js';
 import * as A from '../app/alarms.js';
 import * as T from '../app/tray.js';
+import * as D from '../app/director.js';
 import {makeDocument} from './lib/dom.js';
 import {createDesk} from '../desk/desk.js';
 import {baseVm} from './lib/vm-fixture.js';
@@ -293,7 +294,7 @@ test('K-8: N-1 INSECURE after 10 grid-s not SECURE; it clears after a 30-min sec
   assert.equal(tile(a, 'n1').state, 'normal');
   // AGC LIMIT: real seconds, not grid seconds.
   for (let i = 0; i < 300; i++) up('SECURE', 10, i + 1, 0.016);
-  assert.equal(tile(a, 'agcLimit').state, 'normal', '300 grid-s at 120x is 4.8 real s');
+  assert.equal(tile(a, 'agcLimit').state, 'normal', '300 updates of 0.016 real s are 4.8 real s');
   for (let i = 0; i < 20; i++) up('SECURE', 10, 400 + i, 0.016);
   assert.equal(tile(a, 'agcLimit').state, 'alarm');
   // PEAK: 17:00-20:00 and not SECURE.
@@ -378,17 +379,20 @@ test('MIN GEN on a real belly: observe() and state give the same spillMW; the ti
 
 /** Count the competent proxy's audible alarms over a day; the operator ACKs 3 real s after each sound. */
 function competentDay(seed) {
-  const a = A.createAlarms();
+  const a = A.createAlarms(), d = D.createDirector({game: true, paused: false});
+  let view = null; // the state with no contingency in play (prototype reads)
   let realMs = 0, lastS = -1, ackAt = Infinity;
   const stationOf = id => id.replace(/\d+$/, '');
   runPar(seed, CLASSIC, {proxy: 'competent', onStep: st => {
     A.sampleTick(a, st);
     if (st.tick % TPS !== 0 || st.tick < V.PLAYER_START_TICK) return;
     const x = A.alarmInputFromState(st);
-    // Real time: 120x at CRUISE, about 1x in the watch.
-    realMs += (lastS < 0 ? 0 : x.s - lastS) * 1000 / (x.inWatch ? 1 : 120);
+    // Real time: the director's CRUISE (read, never a literal: slice 2c's profile; no watch, card or RESPOND), about 1x in the watch.
+    if (!view || Object.getPrototypeOf(view) !== st) view = Object.assign(Object.create(st), {contIdx: -1});
+    const rate = x.inWatch ? 1 : D.rateOf(d, view);
+    realMs += (lastS < 0 ? 0 : x.s - lastS) * 1000 / rate;
     lastS = x.s;
-    const r = A.updateAlarms(a, x, {nowMs: realMs, realDtS: 1 / (x.inWatch ? 1 : 120), stationOf});
+    const r = A.updateAlarms(a, x, {nowMs: realMs, realDtS: 1 / rate, stationOf});
     if (r.cues.length || r.newAlarm) ackAt = Math.min(ackAt, realMs + 3000);
     if (realMs >= ackAt) { A.ackAll(a); ackAt = Infinity; }
   }});

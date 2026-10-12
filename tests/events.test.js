@@ -10,7 +10,7 @@ import {createState, step} from '../sim/step.js';
 import {largestContingency} from '../sim/fleet.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {TPS, clone} from './lib/sim-helpers.js';
+import {TPS, clone, legacyDesk, legacyDeskWeekend} from './lib/sim-helpers.js';
 
 /** Advance to grid second s applying due events (no physics or grid logic). */
 function goTo(state, s, out = []) {
@@ -248,7 +248,7 @@ test('S-4 (DESK): forecast() never reads the rooftop skies or the hidden day typ
 });
 
 test('P-1 forecast: demandP50 is operational; underlyingP50 = demandP50 + rooftopMW + the smelter\'s expected missing load, column by column', () => {
-  const s = createState(8, DESK); // MILD; the potline trips at 12:23 for 45 min
+  const s = createState(8, legacyDesk()); // MILD; the potline trips at 12:23 for 45 min (today's desk events)
   const e = s.ext.events.find(x => x.type === 'smelterTrip');
   goTo(s, e.atS);
   const fc = FC(s), back = s.smelter.returnS, full = back + V.SMELTER_MW / V.SMELTER_RETURN_MW_MIN * 60;
@@ -601,7 +601,7 @@ test('P-4: the check runs straight after the weather, before grid.unitsSecond co
 });
 
 test('P-4: on a mild weekend a potline trip at noon brings MSL1 at the next check, as a log record; it is cancelled once the potline is back', () => {
-  const s = createState(8, DESK_WEEKEND), out = []; // the potline trips at 12:23 for 45 min
+  const s = createState(8, legacyDeskWeekend()), out = []; // the potline trips at 12:23 for 45 min (today's desk events)
   const trip = s.ext.events.find(e => e.type === 'smelterTrip').atS;
   for (let sec = 0; sec < secOf(15); sec++) {
     goTo(s, sec, out);

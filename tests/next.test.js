@@ -18,6 +18,7 @@ import * as W from '../app/watch.js';
 import * as K from '../app/keys.js';
 import * as PF from '../app/perf.js';
 import * as D from '../app/director.js';
+import {badgeText} from '../render/format.js';
 import {bootGame, layoutSizes, createLive, liveFrame, bandOf, LIVE_GAP_MS, objectiveWord, CONSIDER_WORD, ARMED_WORD, UNDER_WAY_WORD,
   dayText} from '../app/shell.js';
 import {traceOf, createRecorder, commitMinute, MINUTE_FIELDS, CAUGHT_KEYS} from '../app/record.js';
@@ -198,7 +199,7 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   assert.ok(h.game.state.tick >= V.PLAYER_START_TICK);
   assert.ok(system.log.inputs >= V.PLAYER_START_TICK, 'the system operator is asked every tick');
   frames(30);
-  assert.match($('rate-text').textContent, /^CRUISE 120×$/);
+  assert.deepEqual([h.vm().mode.mode, $('rate-text').textContent], ['CRUISE', badgeText(h.vm().mode)]); // (the rate read: slice 2c's profile)
   assert.match($('clock-text').textContent, /^04:3\d$/);
   assert.equal($('chip-lights-v').textContent, '100%');
   assert.match($('chip-cost-v').textContent, /^\d+\.\d$/);
@@ -249,10 +250,11 @@ test('K-23 keys: Space, 1-8, A / Shift+A, T, L (twice), F hold, ?, Esc; typing i
   assert.ok($('stack-slot').contains($('stack-el')) && $('stack-overlay').hidden, 'and back into its slot');
   key('f');
   frames(1);
-  assert.match($('rate-text').textContent, /^FAST 360×$/);
+  assert.deepEqual([h.vm().mode.mode, $('rate-text').textContent], ['FAST', badgeText(h.vm().mode)]);
+  assert.equal(h.vm().mode.rate, D.FAST_FACTOR * D.rateOf(Object.assign({}, h.game.director, {fast: false}), h.game.state), 'FAST is 3 x CRUISE');
   keyUp('f');
   frames(1);
-  assert.match($('rate-text').textContent, /^CRUISE/);
+  assert.deepEqual([h.vm().mode.mode, $('rate-text').textContent], ['CRUISE', badgeText(h.vm().mode)]);
   key('?');
   frames(1);
   assert.equal($('drawer').hidden, false);
@@ -403,7 +405,8 @@ test('K-15 / K-16 through the shell: vignette and stopwatch, beats in physical o
   frames(1);
   assert.equal(card.hidden, true);
   assert.ok(game.state.tick > held);
-  assert.match($('rate-text').textContent, /^(RESPOND 30×|CRUISE 120×)$/);
+  assert.match(h.vm().mode.mode, /^(RESPOND|CRUISE)$/);
+  assert.equal($('rate-text').textContent, badgeText(h.vm().mode));
 });
 
 test('K-16 via the shell: the respond card goes with a click on it, as with Enter (a press on the desk: the K-9 test)', () => {
@@ -1172,10 +1175,12 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   frames(2);
   advance(2500);
   frames(1);
-  assert.equal($('aria-live').textContent, 'CRUISE 120×', 'the mode change after the briefing');
+  const cruise = badgeText(h.vm().mode); // (the rate read: slice 2c's profile)
+  assert.equal(h.vm().mode.mode, 'CRUISE');
+  assert.equal($('aria-live').textContent, cruise, 'the mode change after the briefing');
   key(' ');
   frames(1);
-  assert.equal($('aria-live').textContent, 'CRUISE 120×', 'inside 2 real s: not yet');
+  assert.equal($('aria-live').textContent, cruise, 'inside 2 real s: not yet');
   advance(2500);
   frames(1);
   assert.equal($('aria-live').textContent, 'PAUSE 0×');
