@@ -50,20 +50,15 @@ export function preroll(seed, scn, regime) {
     return t;
   };
 
-  // Act I (Q-68): the constraint, then the restore task
-  let r = drawer();
+  // Act I (Q-68): the constraint, then the restore task; a late return's time is picked last, away from everything
+  let r = drawer(), out;
   if (r() < a1.derateP) {
     const x = a1.derate;
     free = win(r(), x.untilH, MARK);
     add(1, 0, 'tieDerate', {limitMW: pick(r(), x.limitMW[0], x.limitMW[1], [], STEP), untilS: free});
     add(1, free, 'tieDerateEnd', {});
     away(free);
-  } else {
-    const x = a1.late, untilS = win(r(), x.untilH, MARK);
-    add(1, 0, 'unitOutage', {unit: x.unit, untilS});
-    add(1, untilS, 'unitReturn', {unit: x.unit});
-    away(untilS);
-  }
+  } else out = [r()];
   r = drawer();
   const tk = a1.task, rot = scn.city.rotation, g = tk.gapMin * MIN;
   if (r() < tk.p) {
@@ -132,8 +127,14 @@ export function preroll(seed, scn, regime) {
     add(2, warn(on), 'cloudWarn', {onsetS: on, frontPm: Math.round(fr.frontMu * PM), roofDropMW: Math.round(dropMW / STEP) * STEP});
     add(2, on, 'cloudOnset', {clearMu: fr.frontMu, suburbs: true, clearS});
     add(2, clearS, 'cloudClear', {clearMu: fr.clearMu});
+    away(warn(on)), away(on);
   }
 
+  if (out) {
+    const x = a1.late, untilS = win(out[0], x.untilH, MARK);
+    add(1, 0, 'unitOutage', {unit: x.unit, untilS});
+    add(1, untilS, 'unitReturn', {unit: x.unit});
+  }
   for (const n of D.notices) add(0, toS(n.atH), 'notice', {code: n.code}, false);
   const ord = e => TYPE_ORDER.indexOf(e.type);
   list.sort((p, q) => p.atS - q.atS || ord(p) - ord(q) || p.k - q.k);

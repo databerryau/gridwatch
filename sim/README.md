@@ -2149,13 +2149,15 @@ notice give round times); hazards in play and trips on whole minutes; the derate
 `DAYPLAN_MW_STEP` 50-MW steps; lockouts and the clear-after on whole minutes.
 
 *Act I* (Q-68). On `derateP` a `tieDerate {limitMW, untilS}` at 04:00 and its `tieDerateEnd`, else
-the late return, `unitOutage {unit, untilS}` and its `unitReturn`. The late unit must be off in the
+the late return, `unitOutage {unit, untilS}` and its `unitReturn`: its uniform is drawn here, but
+its time is picked last of all, one action from every other moment (*Moments*, below), so nothing
+else depends on which unit is late and the weekend keeps the weekday's weather, trips and task
+(`desk-weekend` differs only in Act I's late return, §32.4.3). The late unit must be off in the
 scenario's 04:00 commitment: `fleet.setOutage` throws in `createState` if it is not, so a data error
 is loud. On `task.p`: a suburb uniformly among those with two or more rotation districts (a
 district's suburb is its id less its digits), two distinct districts of it, and two clearances: the
 first uniform over the marks of `clearH`, the second over the marks at least `gapMin` from it, both
-one action from the constraint's end (*Moments*, below), sorted (the first district drawn gets the
-earlier). `feederOut` at 04:00 and a `feederClear` at each.
+one action from the derate's end (*Moments*), sorted (the first district drawn gets the earlier). `feederOut` at 04:00 and a `feederClear` at each.
 
 *Act III before Act II* (Q-66), so the belly's trip is drawn over what the evening leaves (Q-72).
 Heat: the onset on a mark in `onsetH`, the end min(onset + `lastsH`, `endByH`), `heatAnnounce` at
@@ -2205,26 +2207,27 @@ rules on 4,000 days, on `stepReal` and on `realBetween`).
 
 *Moments, one action apart.* A moment is a record that makes a card or asks a decision after
 04:00: the derate's end, the late return, each clearance, each warning, each warned onset and each
-trip. Every time the plan draws after the constraint keeps `PAR_ACTION_GAP_REAL_S` (3 real s, S-4's
-pace: one action at a time) from every moment drawn before it, on the step profile, and a warned
-hazard keeps its warning so too (the onsets whose warning would fall inside a moment's ban (lo, hi)
-are inside (`stepAfter`(lo, 26), `stepAfter`(hi + 60, 26)), a slight superset). So CCGT 2's return
-never lands on a feeder's hand-back (it did within 2 real s on 9.4% of dates), the belly's trip
-never comes a second after the tie limit lifts, and a front's warning never rings with a hand-back.
-The guard checks every two moments of 4,000 days (without the rule: 1,176 pairs).
+trip. Every time the plan picks after the derate keeps `PAR_ACTION_GAP_REAL_S` (3 real s, S-4's pace:
+one action at a time) from every moment picked before it, on the step profile, and a warned hazard
+keeps its warning so too (the onsets whose warning would fall inside a moment's ban (lo, hi) are
+inside (`stepAfter`(lo, 26), `stepAfter`(hi + 60, 26)), a slight superset). The late return is
+picked last, so it keeps one action from all of them. So CCGT 2's return never lands on a feeder's
+hand-back (it did within 2 real s on 9.4% of dates), the belly's trip never comes a second after
+the tie limit lifts, and a front's warning never rings with a hand-back. The guard checks every two
+moments of 4,000 days (without the rule: 1,176 pairs).
 
 *Measured* (`tests/dayplan.test.js`, 2,000 dates from 2026-01-01 with each date's scenario and desk
 seeds 1-2,000, the task live): classes 14.9 / 24.8 / 20.5 / 39.7% (dates) and 15.4 / 25.7 / 18.8 /
 40.2% (seeds); leads storm 65-115, cloud 130-175, drought 65-123 grid-min; the task on 84.7%, the
 derate on 49.5%; Act II on non-heat days front 41.4, unit 24.6, smelter 19.0, tie 14.9% (no trip ever
 lacked a feasible minute), on heat days unit 40.5, smelter 31.6, tie 27.8%; non-heat belly trips by
-hour 09-14: 552 / 435 / 353 / 327 / 229 / 92 (median 11:01, 15.2 real s into the act; 10.3% before
-09:24), heat days' 404 / 151 / 52 / 0 / 0 / 0 (median 09:35, 4.4 real s into the act; 37.1% before
-09:24, 66.6% before 10:00: the 31 real s before a heat onset at 12:30-14:30 reach back to
-09:16-11:55); evening trips 17-19: 719 / 962 / 703 (median 18:32); the storm's link trip on 25.1% of
+hour 09-14: 542 / 443 / 354 / 332 / 227 / 90 (median 11:01, 15.2 real s into the act; 10.2% before
+09:24), heat days' 401 / 152 / 54 / 0 / 0 / 0 (median 09:35, 4.4 real s into the act; 36.9% before
+09:24, 66.1% before 10:00: the 31 real s before a heat onset at 12:30-14:30 reach back to
+09:16-11:55); evening trips 17-19: 719 / 963 / 702 (median 18:32); the storm's link trip on 25.1% of
 1,009 storm days. For stage C (reported, not tuned here): no unwarned contingency all day on 31.3%
 of storm days (a front in Act II and no link trip); the longest stretch with no ringing card,
-04:30-21:00, p10/p50/p90 real s: storm 57/77/99, drought 66/79/97, calm 94/112/143, heat
+04:30-21:00, p10/p50/p90 real s: storm 57/77/100, drought 66/79/97, calm 94/113/143, heat
 128/138/148, and nothing rings from 14:30 on 95.2% of heat days (the heat onset falls in the clock's
 Act II).
 

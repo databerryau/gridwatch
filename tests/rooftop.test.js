@@ -240,9 +240,9 @@ test('C-2: state.day is public and set once: MILD or HOT (a heatwave reads HOT),
   assert.deepEqual(createState(4, DESK).day, {temp: 'HOT', weekend: false}, 'a heatwave reads HOT: the heat is news (at 04:00, Q-80)');
   assert.deepEqual(createState(1, DESK_WEEKEND).day, {temp: 'MILD', weekend: true});
   assert.deepEqual(observe(createState(1, DESK_WEEKEND)).day, {temp: 'MILD', weekend: true});
-  // The weekend is the weekday's weather: same regime and skies; only the demand differs (and the plan's
-  // records: Act I's late return is the weekend's own unit, Q-68, and the later draws keep one action from it).
-  const wd = createState(8, DESK), we = createState(8, DESK_WEEKEND), weather = ({events, ...x}) => x;
+  // The weekend is the weekday's weather: same regime, events and skies; only the demand differs
+  // (and Act I's late return, which is the weekend's own unit: Q-68).
+  const wd = createState(8, DESK), we = createState(8, DESK_WEEKEND), weather = x => ({...x, events: x.events.filter(e => e.act !== 1).map(({id, ...e}) => e)});
   assert.deepEqual(weather(we.ext), weather(wd.ext));
   goTo(wd, NOON_S); goTo(we, NOON_S);
   assert.equal(we.env.rooftopMW, wd.env.rooftopMW);
