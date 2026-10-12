@@ -507,6 +507,7 @@ export const P = {
   STACK_MAX_HZ: simp(10, '1/real s', 'Q-63: the stack\'s idle redraw at most 10 times a real second'),
   NIGHT_ACTION_S: simp(300, 's', 'Q-73: the night shift acts once per 5 grid-min (the dispatch step)'),
   CLOCK_SEARCH_S: simp(1e-6, 's', 'clock.js: the step inverses search from this close (numerical)'),
+  FRONT_READ_SD: simp(3, 'sd', 'Q-79: the forecast reads a place as clearing this far above frontMu'),
   // ---- phase 2c "the day" block: end
 };
 
