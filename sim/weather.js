@@ -125,6 +125,24 @@ export function rooftopClearSkyMW(scn, h) {
   return r.capacityMW * r.clearFactor * tableLinear(r.shapePm, h) / PM;
 }
 
+/**
+ * Q-65's one climatology (sim/README.md §11 weather.js, 2c): the dayplan block on a dayplan day,
+ * else derived from scn.events. Storm times in minutes after the arrival, the front's after its onset.
+ */
+export function climate(scn) {
+  const e = scn.events, d = scn.dayplan, heat = {clearMu: e.heat.clearMu};
+  if (d) {
+    const {arriveMu, cutoutAfterMin, cutoutMu, passAfterMin, passMu} = d.act3.storm;
+    const {frontMu, clearAfterMin, clearMu, frontRampMin, clearRampMin} = d.act2.front;
+    return {storm: {arriveMu, cutoutAfterMin, cutoutMu, passAfterMin, passMu},
+      cloud: {frontMu, clearAfterMin, clearMu, frontRampMin, clearRampMin}, drought: {mu: d.act3.drought.mu}, heat};
+  }
+  const s = e.storm, c = e.cloud, m = h => (h - s.arriveH) * S_PER_H / S_PER_MIN;
+  return {storm: {arriveMu: s.arriveMu, cutoutAfterMin: s.cutoutWindowH.map(m), cutoutMu: s.cutoutMu, passAfterMin: m(s.passH),
+    passMu: s.passMu}, cloud: {frontMu: c.frontMu, clearAfterMin: c.clearAfterMin, clearMu: c.clearMu, frontRampMin: 0,
+    clearRampMin: 0}, drought: {mu: e.drought.mu}, heat};
+}
+
 // ------------------------------------------------------------------ pre-roll (stage A)
 
 /**
@@ -144,38 +162,25 @@ export function prerollRegime(seed, scn) {
   return {cls, temp: cls === 'heat' ? 'HEATWAVE' : mild ? 'MILD' : 'HOT'};
 }
 
-// Mean-reverting series at 1-min spacing. `changes` is a time-sorted list of
-// {atS, mu, atLeast} applied to the samples at or after atS (legacy sets S.windMu /
-// S.cloudMu when an event fires; last write wins).
-function ouSeries(seed, stream, cfg, changes) {
-  const out = new Array(LEN);
-  let x = cfg.startFrac, mu = cfg.mu, next = 0;
-  out[0] = quantise(x * PM, 1);
-  for (let k = 1; k < LEN; k++) {
-    const s = k * STEP;
-    while (next < changes.length && changes[next].atS <= s) {
-      const c = changes[next++];
-      mu = c.atLeast ? Math.max(mu, c.mu) : c.mu;
-    }
-    x += (mu - x) * cfg.revertPerMin + cfg.sigmaPerMin * normal(seed, stream, k);
-    x = Math.min(cfg.max, Math.max(cfg.min, x));
-    out[k] = quantise(x * PM, 1);
-  }
-  return out;
-}
+// Mean-reverting series at 1-min spacing, quantised: revertSeries on the cfg's process (b = 0, the
+// same draws and arithmetic as the stage-A loop). `changes` is a time-sorted list of {atS, mu,
+// atLeast} applied to the samples at or after atS (legacy sets S.windMu / S.cloudMu when an event
+// fires; last write wins); `fronts` and `lag` as revertSeries.
+const ouSeries = (seed, stream, cfg, changes, fronts, lag) => revertSeries(seed, stream, 0, LEN, STEP, cfg.startFrac, cfg.mu,
+  cfg.revertPerMin, cfg.sigmaPerMin, cfg.min, cfg.max, changes, fronts, lag).map(x => quantise(x * PM, 1));
 
 /**
  * Pre-roll the ext series (F-3), quantised, at SERIES_STEP_S spacing (SERIES_LEN samples
  * from 04:00 to 04:00): demand noise (integer MW), wind fraction and utility-solar
  * clearness (integer per-mille). Event-driven shifts of the wind and cloud means (storm,
  * drought, cloud front, heat) come from the pre-rolled `events` (ext too), so the series
- * never depend on play.
+ * never depend on play. A front over the suburbs sets the precinct's sky (Q-79), not its mean.
  */
 export function prerollSeries(seed, scn, regime, events) {
   const windChanges = [], cloudChanges = [];
   for (const e of events) {
     if (e.args.windMu !== undefined) windChanges.push({atS: e.atS, mu: e.args.windMu, atLeast: false});
-    if (e.args.clearMu !== undefined) cloudChanges.push({atS: e.atS, mu: e.args.clearMu, atLeast: false});
+    if (e.args.clearMu !== undefined && !e.args.suburbs) cloudChanges.push({atS: e.atS, mu: e.args.clearMu, atLeast: false});
     if (e.args.clearMuAtLeast !== undefined) cloudChanges.push({atS: e.atS, mu: e.args.clearMuAtLeast, atLeast: true});
   }
   const d = scn.demand.noise;
@@ -190,32 +195,49 @@ export function prerollSeries(seed, scn, regime, events) {
     stepS: STEP,
     demandNoiseMW: noise,
     windPm: ouSeries(seed, STREAM.EXT_WIND, scn.wind, windChanges),
-    clearPm: ouSeries(seed, STREAM.EXT_CLOUD, scn.cloud, cloudChanges),
+    clearPm: ouSeries(seed, STREAM.EXT_CLOUD, scn.cloud, cloudChanges, frontsOf(scn, events),
+      (scn.rooftop.precinctLagMin || 0) * S_PER_MIN),
   };
 }
 
-// The step-and-length-generic copy of ouSeries (Phase 2a; ouSeries itself stays as it is, with
-// the classic day's series): `len` samples at `stepS` spacing from `start`, reverting to `mu`
-// (moved by `changes`, as in ouSeries) by `revert` of the gap per step, with `sigma` of noise
-// per step from normal(seed, stream, sample, b), kept inside [lo, hi]. Raw values, not quantised.
-function revertSeries(seed, stream, b, len, stepS, start, mu, revert, sigma, lo, hi, changes) {
+// The step-and-length-generic mean-reverting series (Phase 2a): `len` samples at `stepS` spacing
+// from `start`, reverting to `mu` (moved by `changes`) by `revert` of the gap per step, with
+// `sigma` of noise per step from normal(seed, stream, sample, b), kept inside [lo, hi]. Raw values,
+// not quantised. A front of `fronts` (frontsOf) `lag` s behind its onset sets the value by Q-79's
+// shape, its noise suspended, until the first step at or after its clear ramp's end; the process
+// resumes from there.
+function revertSeries(seed, stream, b, len, stepS, start, mu, revert, sigma, lo, hi, changes, fronts = NO_CHANGES, lag = 0) {
   const out = new Array(len);
-  let x = start, m = mu, next = 0;
+  let x = start, m = mu, next = 0, x0 = 0;
   out[0] = x;
   for (let k = 1; k < len; k++) {
-    const s = k * stepS;
+    const s = k * stepS, t = s - lag;
     while (next < changes.length && changes[next].atS <= s) {
       const c = changes[next++];
       m = c.atLeast ? Math.max(m, c.mu) : c.mu;
     }
-    x += (m - x) * revert + sigma * normal(seed, stream, k, b);
-    x = Math.min(hi, Math.max(lo, x));
+    const f = fronts.find(f => t >= f.a && t - stepS < f.c + f.outS);
+    if (f) {
+      if (t - stepS < f.a) x0 = x; // the sky the front finds
+      x = t < f.c ? x0 + (f.mu - x0) * Math.min(1, (t - f.a) / f.inS) : f.mu + (f.cMu - f.mu) * Math.min(1, (t - f.c) / f.outS);
+    } else {
+      x += (m - x) * revert + sigma * normal(seed, stream, k, b);
+      x = Math.min(hi, Math.max(lo, x));
+    }
     out[k] = x;
   }
   return out;
 }
 
 const NO_CHANGES = Object.freeze([]);
+
+// Q-79: the fronts over the suburbs (cloudOnset records with suburbs: true) as revertSeries folds
+// them: onset a, clear c (the record's clearS), frontMu (its clearMu), the after-front sky and the ramps.
+function frontsOf(scn, events) {
+  const c = climate(scn).cloud, inS = Math.max(1, c.frontRampMin * S_PER_MIN), outS = Math.max(1, c.clearRampMin * S_PER_MIN);
+  return events.filter(e => e.type === 'cloudOnset' && e.args.suburbs)
+    .map(e => ({a: e.atS, c: e.args.clearS, mu: e.args.clearMu, cMu: c.clearMu, inS, outS}));
+}
 
 /**
  * Pre-roll the rooftop skies (P-2; desk/README.md C-5): ext.rooftop = {stepS, clearPm}, one
@@ -225,25 +247,27 @@ const NO_CHANGES = Object.freeze([]);
  * (EXT_ROOFTOP with b = the number of suburbs: slow, reverting to cloud.mu inside [min, max])
  * PLUS a small local term of its own (b = the suburb's index; zero mean), stored already
  * combined and kept inside [min, max]. A heatwave's clear skies (the heatOnset event's
- * clearMuAtLeast) raise the regional mean as they do over the solar precinct; the 2a cloud
- * front does not cross the suburbs (it stays over the solar precinct, as its notice says,
- * until D-8 gives fronts a proper lead). Like every ext series it never depends on play.
+ * clearMuAtLeast) raise the regional mean as they do over the solar precinct. A front over the
+ * suburbs (a cloudOnset with suburbs: true; 2c, Q-79) sets each suburb's regional sky by its shape,
+ * frontLagMin behind its onset; the legacy front stays over the solar precinct, as its notice
+ * says. Like every ext series it never depends on play.
  */
 export function prerollRooftop(seed, scn, events) {
   const roof = scn.rooftop;
   if (!roof || !(roof.capacityMW > 0)) return null;
-  const c = roof.cloud, nSub = scn.city.suburbs.length, len = Math.floor(V.DAY_S / c.stepS) + 1;
-  const changes = [];
+  const c = roof.cloud, subs = scn.city.suburbs, nSub = subs.length, len = Math.floor(V.DAY_S / c.stepS) + 1;
+  const changes = [], fr = frontsOf(scn, events);
   for (const e of events) {
     if (e.args.clearMuAtLeast !== undefined) changes.push({atS: e.atS, mu: e.args.clearMuAtLeast, atLeast: true});
   }
-  const sky = revertSeries(seed, STREAM.EXT_ROOFTOP, nSub, len, c.stepS, c.startFrac, c.mu,
-    c.regional.revertPerStep, c.regional.sigmaPerStep, c.min, c.max, changes);
-  const span = c.max - c.min, clearPm = [];
+  const regional = (fronts, lag) => revertSeries(seed, STREAM.EXT_ROOFTOP, nSub, len, c.stepS, c.startFrac, c.mu,
+    c.regional.revertPerStep, c.regional.sigmaPerStep, c.min, c.max, changes, fronts, lag);
+  const sky = regional(), span = c.max - c.min, clearPm = [];
   for (let j = 0; j < nSub; j++) {
     const local = revertSeries(seed, STREAM.EXT_ROOFTOP, j, len, c.stepS, 0, 0,
       c.local.revertPerStep, c.local.sigmaPerStep, -span, span, NO_CHANGES);
-    clearPm.push(local.map((x, k) => quantise(Math.min(c.max, Math.max(c.min, sky[k] + x)) * PM, 1)));
+    const reg = fr.length ? regional(fr, subs[j].frontLagMin * S_PER_MIN) : sky;
+    clearPm.push(local.map((x, k) => quantise(Math.min(c.max, Math.max(c.min, reg[k] + x)) * PM, 1)));
   }
   return {stepS: c.stepS, clearPm};
 }
@@ -421,44 +445,34 @@ function muAt(base, plan, t) {
   return mu;
 }
 
-// Wind: an announced storm surges at its arrival, cuts out somewhere in the scenario's
-// cut-out window (times taken relative to the announced arrival) and settles when it
-// passes; an announced drought holds the drought mean from its onset.
-function windPlan(state) {
-  const ev = state.scn.events || {}, plan = [];
-  const storm = announced(state, 'storm'), drought = announced(state, 'drought');
-  if (storm && ev.storm) {
-    const x = ev.storm, at = h => storm.fromS + Math.round((h - x.arriveH) * S_PER_H);
+// The plans read the climatology `cl` (climate(scn)) and the news only.
+// Wind: an announced storm surges at its arrival, cuts out somewhere in the climatological
+// cut-out window (relative to the announced arrival) and settles when it passes (the news's toS,
+// the plan's clipped pass, when it has one); an announced drought holds the drought mean from its onset.
+function windPlan(state, cl) {
+  const plan = [], x = cl.storm, storm = announced(state, 'storm'), drought = announced(state, 'drought');
+  if (storm) {
+    const at = m => storm.fromS + Math.round(m * S_PER_MIN);
     plan.push({atS: storm.fromS, op: 'set', mu: x.arriveMu, endS: 0});
-    plan.push({atS: at(x.cutoutWindowH[0]), op: 'blend', mu: x.cutoutMu, endS: at(x.cutoutWindowH[1])});
-    plan.push({atS: at(x.passH), op: 'set', mu: x.passMu, endS: 0});
+    plan.push({atS: at(x.cutoutAfterMin[0]), op: 'blend', mu: x.cutoutMu, endS: at(x.cutoutAfterMin[1])});
+    plan.push({atS: storm.toS ?? at(x.passAfterMin), op: 'set', mu: x.passMu, endS: 0});
   }
-  if (drought && ev.drought) plan.push({atS: drought.fromS, op: 'set', mu: ev.drought.mu, endS: 0});
+  if (drought) plan.push({atS: drought.fromS, op: 'set', mu: cl.drought.mu, endS: 0});
   return sortPlan(plan);
 }
 
-// Utility-solar clearness: an announced heatwave clears the skies from its onset; an
-// announced cloud front darkens them from its onset and clears somewhere in the scenario's
-// clear-after window.
-function clearPlan(state, heatNews) {
-  const ev = state.scn.events || {}, plan = [];
-  if (heatNews && ev.heat) plan.push({atS: heatNews.fromS, op: 'atLeast', mu: ev.heat.clearMu, endS: 0});
-  const cloud = announced(state, 'cloud');
-  if (cloud && ev.cloud) {
-    const x = ev.cloud;
-    plan.push({atS: cloud.fromS, op: 'set', mu: x.frontMu, endS: 0});
-    plan.push({atS: cloud.fromS + x.clearAfterMin[0] * S_PER_MIN, op: 'blend', mu: x.clearMu,
-      endS: cloud.fromS + x.clearAfterMin[1] * S_PER_MIN});
-  }
-  return sortPlan(plan);
-}
+// An announced heatwave clears the skies from its onset (as the hidden heatOnset does).
+const heatPlan = (heatNews, cl) => heatNews ? [{atS: heatNews.fromS, op: 'atLeast', mu: cl.heat.clearMu, endS: 0}] : [];
 
-// Rooftop clearness (C-5): the suburbs' shared regional sky reverts to the scenario's mean; an
-// announced heatwave clears it from its onset, as prerollRooftop does with the hidden event. No
-// cloud front crosses the suburbs in 2a, so the cloud news is not in this plan.
-function roofPlan(state, heatNews) {
-  const ev = state.scn.events || {}, plan = [];
-  if (heatNews && ev.heat) plan.push({atS: heatNews.fromS, op: 'atLeast', mu: ev.heat.clearMu, endS: 0});
+// Utility-solar clearness: the heat; an announced cloud front darkens the precinct from its onset
+// (on a dayplan day precinctLagMin later: Q-79) and clears somewhere in the clear-after window.
+function clearPlan(state, heatNews, cl) {
+  const plan = heatPlan(heatNews, cl), cloud = announced(state, 'cloud'), scn = state.scn;
+  if (cloud) {
+    const x = cl.cloud, on = cloud.fromS + (scn.dayplan ? scn.rooftop.precinctLagMin * S_PER_MIN : 0);
+    plan.push({atS: on, op: 'set', mu: x.frontMu, endS: 0});
+    plan.push({atS: on + x.clearAfterMin[0] * S_PER_MIN, op: 'blend', mu: x.clearMu, endS: on + x.clearAfterMin[1] * S_PER_MIN});
+  }
   return sortPlan(plan);
 }
 
@@ -476,6 +490,9 @@ function skyStep(o, cloud, mu, f) {
   o.vR = o.vR * aR * aR + reg.sigmaPerStep * reg.sigmaPerStep * f;
   o.vL = o.vL * aL * aL + loc.sigmaPerStep * loc.sigmaPerStep * f;
 }
+
+// The area under a 0-to-1 ramp of width R up to x: over a uniform clear time, the expected share of a clear ramp done.
+const rampArea = (x, R) => x <= 0 ? 0 : x < R ? x * x / (2 * R) : x - R / 2;
 
 // The smelter's expected load at second t: out until its announced return (smelter.returnS,
 // set by events at the trip: what the potline's owner tells the operator), then back at
@@ -523,15 +540,17 @@ function smelterLoadAt(sm, pending, t) {
  * terms (independent, so weighted by the sum of squared shares): their own growth, and the
  * part of the present deviation that was local and fades faster than the forecast assumes
  * ((regional decay - local decay)^2 x their stationary variance).
+ * 2c (Q-79): on a dayplan day a warned front sets each suburb's expected sky by its shape from
+ * the warning, and adds the clearing's own variance to the band (sim/README.md §11 weather.js).
  * Unannounced events (a heatwave before its 10:30 warning, trips, the smelter's trip) are
  * not in it: that is the forecast's honest error.
  */
 export function forecast(state, horizonS, stepS) {
   const scn = state.scn, env = state.env, s0 = env.s, day = state.day;
   const n = Math.max(0, Math.floor(horizonS / stepS));
-  const heatNews = announced(state, 'heat');
+  const heatNews = announced(state, 'heat'), cl = climate(scn);
   const heat = heatNews ? {onsetS: heatNews.fromS, endS: heatNews.toS} : null;
-  const wPlan = windPlan(state), cPlan = clearPlan(state, heatNews);
+  const wPlan = windPlan(state, cl), cPlan = clearPlan(state, heatNews, cl);
   const noise = scn.demand.noise, windMu = scn.wind.mu, clearMu = scn.cloud.mu;
   const sig2 = noise.sigmaMW * noise.sigmaMW, fine2 = V.FINE_NOISE_MW * V.FINE_NOISE_MW;
   const sm = state.smelter, blocks = state.levers.blocks;
@@ -543,20 +562,23 @@ export function forecast(state, horizonS, stepS) {
   // Rooftop (P-2, C-5): the suburbs' capacity-weighted clearness now, and the cloud process.
   const roof = scn.rooftop, hasRoof = roof.capacityMW > 0;
   const sky = {k: 1, vR: 0, vL: 0, dR: 1, dL: 1}, part = {k: 1, vR: 0, vL: 0, dR: 1, dL: 1};
-  let cloud = null, rPlan = null, shareSum = 0, share2 = 0, locStat2 = 0, tc = s0;
+  let cloud = null, rPlan = null, shareSum = 0, share2 = 0, locStat2 = 0, tc = s0, k0 = 0, front = null;
   if (hasRoof) {
     cloud = roof.cloud;
-    rPlan = roofPlan(state, heatNews);
+    rPlan = sortPlan(heatPlan(heatNews, cl)); // the suburbs' regional sky reverts to cloud.mu
     sky.k = 0;
     for (let j = 0; j < roof.share.length; j++) {
       shareSum += roof.share[j];
       share2 += roof.share[j] * roof.share[j];
       sky.k += roof.share[j] * env.roofClearFrac[j];
     }
-    sky.k /= shareSum;
+    k0 = sky.k /= shareSum;
     share2 /= shareSum * shareSum;
     const aL = 1 - cloud.local.revertPerStep;
     locStat2 = cloud.local.sigmaPerStep * cloud.local.sigmaPerStep / (1 - aL * aL); // the local term's stationary variance
+    const news = scn.dayplan && announced(state, 'cloud'), x = cl.cloud; // Q-79: a front over the suburbs, from its warning
+    if (news) front = {on: news.fromS, c0: x.clearAfterMin[0] * S_PER_MIN, c1: x.clearAfterMin[1] * S_PER_MIN,
+      R: x.clearRampMin * S_PER_MIN, inS: x.frontRampMin * S_PER_MIN, mu: x.frontMu, cMu: x.clearMu};
   }
   for (let k = 0; k < n; k++) {
     const s = s0 + (k + 1) * stepS;
@@ -585,8 +607,20 @@ export function forecast(state, horizonS, stepS) {
       if (s > tc) skyStep(part, cloud, muAt(cloud.mu, rPlan, s), (s - tc) / cloud.stepS);
       const clearSky = rooftopClearSkyMW(scn, h) * shareSum * (1 - (1 - roof.heatFactor) * heatRampAt(heat, s));
       const perK = clearSky * roof.cloudBite, lag = part.dR - part.dL; // perK: MW of rooftop per unit of weighted clearness
-      roofMW = clearSky * (1 - roof.cloudBite * (1 - part.k));
-      roofVar = perK * perK * (part.vR + share2 * (part.vL + locStat2 * lag * lag));
+      let kw = part.k, sd = 0;
+      // Each suburb's expected sky under the front (README §11 weather.js, 2c): the ramp in from its
+      // regional forecast r, then frontMu until it clears (expected share p) to clearMu; sd its spread.
+      for (let j = 0; front && j < roof.share.length; j++) {
+        const f = front, a = f.on + scn.city.suburbs[j].frontLagMin * S_PER_MIN, a0 = Math.max(a, s0);
+        if (s0 >= a + f.c1 + f.R) continue; // surely clear: the regional forecast from the present
+        const r = part.k + (env.roofClearFrac[j] - k0) * part.dR, w = roof.share[j] / shareSum;
+        const g = Math.min(1, Math.max(0, (s - a0) / Math.max(1, a + f.inS - a0)));
+        const p = (rampArea(s - a - f.c0, f.R) - rampArea(s - a - f.c1, f.R)) / (f.c1 - f.c0);
+        kw += w * ((1 - p) * (r + (f.mu - r) * g) + p * f.cMu - r);
+        sd += w * (f.cMu - f.mu) * Math.sqrt(Math.max(0, p * (1 - p)));
+      }
+      roofMW = clearSky * (1 - roof.cloudBite * (1 - kw));
+      roofVar = perK * perK * (part.vR + share2 * (part.vL + locStat2 * lag * lag) + sd * sd);
     }
     const fl = flexAt(blocks, s);
     const p50 = under + fl - roofMW - (V.SMELTER_MW - smelterLoadAt(sm, smPending, s));
