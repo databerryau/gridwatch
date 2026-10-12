@@ -21,6 +21,12 @@ test('K-12: G.offerWhy is the bay\'s predicate: respond (RESPOND or its card) > 
   assert.equal(G.offerWhy(obs('SECURE', 10), t(0), 'CRUISE'), '');
   assert.equal(G.offerWhy(obs('TIGHT', p0), t(G.MAX_OFFERS - 1), 'RESPOND'), 'respond');
   assert.equal(G.offerWhy(obs('TIGHT', p0), t(G.MAX_OFFERS), 'RESPOND'), '', 'at most MAX_OFFERS a day');
+  // §32.4.8's two-argument call (the Q-77 proxy): 'respond' is D-5's window, obs.inRespond (Q-78)
+  const win = (o, inRespond) => Object.assign(o, {inRespond});
+  assert.equal(G.offerWhy(win(obs('SECURE', 6), true), t(0)), 'respond');
+  assert.equal(G.offerWhy(win(obs('TIGHT', 6), false), t(0)), 'tight');
+  assert.equal(G.offerWhy(win(obs('SECURE', p0), false), t(0)), 'peak');
+  assert.equal(G.offerWhy(win(obs('SECURE', 6), true), t(G.MAX_OFFERS)), '');
 });
 
 test('§32.4.8: modeOf carries segment, act and night, neutral until the D-2 profile (game and bench directors)', () => {

@@ -633,10 +633,10 @@ export function restorePreview(game, districtId) {
 
 const PEAK = A.PEAK_H;
 
-/** K-12: why the bay offers a ready unit now, or '' (pure; tally {n, extra, contN}: the day's offers; mode: the director's, until Q-78). */
+// K-12's offer, or '' (§32.4.8). mode: the page's director mode until Q-78; omitted, D-5's window (obs.inRespond).
 export function offerWhy(obs, tally, mode) {
   if (tally.n >= MAX_OFFERS) return '';
-  return mode === 'RESPOND' || mode === 'RESPOND-CARD' ? 'respond' : obs.sec.level !== 'SECURE' ? 'tight'
+  return (mode === undefined ? obs.inRespond : mode === 'RESPOND' || mode === 'RESPOND-CARD') ? 'respond' : obs.sec.level !== 'SECURE' ? 'tight'
     : obs.clock.h >= PEAK[0] && obs.clock.h < PEAK[1] ? 'peak' : '';
 }
 
