@@ -3401,60 +3401,109 @@ Realism (checked by the readers; sources go to SPEC §8.1 at stage C):
 
 ### 32.1 Decisions (owner-delegated, "most fun within realism"; SPEC §9.1 at stage C)
 
+This is the contract after its review (§32.13): where a row changed, the review's ID is named.
+
 | # | Decision | Why |
 |---|---|---|
-| **Q-61** | **Budget: the second prose move.** Stage A moves the remaining leading header comment of every first-visit JS file into the READMEs (`sim/README.md` §11 for sim files, §32.12 here for the rest), each file keeping its first line and a pointer, measured. Every 2c agent writes terse code and keeps to its eager cap (§32.3); `tests/budget.test.js` enforces the slice total. `content/text.js`'s on-demand cap rises to 20 KB (the §8.2 rows). F-11 stays 400 KB; raising it stays the owner's call. | F-11 stays literally true with no build step and nothing the player can see; 2d and 2e keep about 16 KB. |
-| **Q-62** | **One clock: `sim/clock.js`.** Pure, imports `params.js` only. `V.REF_PROFILE` stays the one table. The **ease** is linear in pace (1/rate) across a grid window W = 4·r1·r2/(r1 + r2) centred on each segment boundary: it lasts exactly 2 real s and keeps every integral equal to the step profile's (245.000 s), so par's pace and the golden do not move. Only profile boundaries ease; every mode change (watch, card, RESPOND, RESTORE, FOCUS, PAUSE, FAST, ALARMS, NIGHT) is instant, because each answers the player or the physics. Par keeps the step profile (`stepReal`, moved from `autopilot.js` bit-identically). The director, the D-8 leads, the objective's reading lead, the tray's card life and the stack's cadence all read this module. | The player's clock and the guarantees the day makes about it are one function. Exact arithmetic, pure in grid time, so tests and `tests/lib/play.js` integrate it with no frames. |
-| **Q-63** | **The rate director plays the profile.** CRUISE = `clock.rateAt(s, hand)`. The badge names the segment and its **target** rate ("PEAK 150×", never a number counting through an ease). FAST = 3 × CRUISE, refused in WATCH, the card, RESPOND's 30× part, RESTORE, FOCUS, ALARMS and NIGHT, and **released by any new warning** (a new warn-severity tray card: news, warn notices, MSL ≥ 1, a feeder cleared), any new P1/P2 alarm and any new ask. RESPOND: 30× from the card until back in band or 5 grid-min, then the profile (no ease). Grid-time cadences become profile-derived functions of grid time: the objective recomputes when grid time has moved max(30 s, `rateAt` × 0.25 real s); its reading lead is `gridAfter(s, 13 real s) − s`; a tray card lives 20 real s of `stepReal` (a warning until its onset, if later); the stack's idle redraw is at most 10 a real second. | Every clock the player reads runs at the eye's speed whatever the segment; FAST cannot run the player past a warning (D-8(d)'s 25 s assume it stops). Deterministic, so `play.js` stays exact. |
-| **Q-64** | **HAND (D-7).** Every profile speed is halved **from 04:30 to 21:00** (the HAND clock is 466 + 12 = **478 s**, not 490). At 21:00 the night shift takes the desk in both modes: a sim rule by time (desk scenarios only) sets `control.mode` to AGC and logs `NIGHT_SHIFT`; `control.handFlown`, set by an accepted HAND input and never cleared, keeps the tag. The end card says HAND-FLOWN in 2c; history and the share card wait for Phase 4. D-7's accept reads "AGC never acts in HAND before 21:00". **The briefing bug is fixed in the app:** while `phase === 'briefing'` the game refuses every sim input (a blue "Take the desk first" answer) except TAKE THE DESK's mode input; the desk's AGC key in the briefing sets the briefing's choice; `takeDesk` checks the mode input's result; `game.agc` goes, `state.control.mode` is the truth. 2e owns the briefing card's HAND copy (D-3). | A HAND night with no input shed 571–625 MWh (measured): a 21:00 handover is how control rooms work and keeps D-11's 12 s for everyone. The grade is about 95% settled at 21:00, so the tag stays honest. |
-| **Q-65** | **The event director is `sim/dayplan.js`** ("director" stays the rate director's name). `createState` calls `dayplan.prerollRegime` and `dayplan.preroll` when the scenario has a `dayplan` block (`desk`, `desk-weekend`); classic keeps the legacy `prerollEvents` and `prerollRegime` untouched (Q-19). **Every share, window and size is scenario data**, so 2e can pin the first shift (§4.1) as a scenario variant by data alone. Records keep the code's shape `{id, atS, type, args, contingency, warned}` and gain `act` (0–3) and `crisis` (bool), hidden in ext for tests, tools and 2d's debrief. The temperature draws (`EXT_REGIME` a = 0, a = 1) are kept, so every pinned seed keeps its day type; new draws use `EXT_REGIME` a = 2 and `EXT_EVENTS` slots 64 and up (no legacy counter moves). | Classic stays the regression anchor with its golden numbers; a data-driven plan is testable over 2,000 dates in milliseconds. |
-| **Q-66** | **Act III, one crisis per date, exclusive:** heatwave 15% \| storm 25% \| wind drought 20% \| calm 40%. Storm and drought are drawn among the non-heatwave days on a = 2, so the shares are shares of all days; `regime.cls` on desk is `heat` \| `storm` \| `drought` \| `calm`, and desk has its own `weather.stormShare` 0.25 and `droughtShare` 0.20 (classic keeps `P.STORM_SHARE` 0.30). **Heat:** announced at 04:00, onset 12:30–14:30, end min(onset + 6.5 h, 20:00). **Storm:** arrival 15:30–19:00, every storm time relative to the arrival, pass min(arrival + 140 min, 20:50); the link trip on 60% of storms counts as **unwarned** (spacing rules) and falls ≥ 30 real s after the arrival and the cut-out start, or not at all. **Drought:** warned, onset 15:00–18:00, **plus** the calm day's trip (D-8(b) read literally: drought is an overlay, so Act III is "otherwise"). **Calm:** an unwarned trip of the largest online machine by output, 17:00–19:30. | D-8(b) says "the heatwave or storm", singular; a storm and a drought on one evening is physically contradictory (today's menu allows it). The evening trip is the game's signature moment (K-15, D-21, D-24), kept on 60% of days. |
-| **Q-67** | **Act II, one belly crisis per date.** Non-heat days: a **warned cloud front over the suburbs** 40% \| an unwarned trip of the largest unit 25% \| the smelter 20% \| the tie 15%. Heat days: unit 40 \| smelter 30 \| tie 30 (no front under a heatwave's clear sky). Trips 09:00–14:30; front onset 10:00–14:30, clearing after 40–110 min. "A deeper-than-forecast minimum" is **dropped**: a hidden bias big enough to be a crisis would break L-2's coverage or leak hidden state (S-4). The tie trip keeps P-4's MSL3 path ("a noon tie or smelter trip") and Q-33's tie-out rise alive. If D-8(c) leaves no feasible minute for an Act II trip, the crisis becomes the front (non-heat) or none (heat; counted and reported). | Every belly gets one decision that matters and none that is unfair; the front is a commitment test with 125–170 grid-min of warning. |
-| **Q-68** | **Act I: a warned constraint every date, plus load to restore on 85%.** Constraint (announced at 04:00): a **tie import derate** 50% (400–550 MW until 10:00–12:00) or a **late return from maintenance** 50% (`desk`: CCGT 2 unavailable until 06:30–08:00; `desk-weekend`: coal 4 until 10:00–13:00). Fog is dropped (late summer). **Restore task:** two **rotation** districts of one pre-rolled suburb dark from 04:00 ("overnight faults"), each with its own clearance on a 5-min mark in 06:30–08:00, ≥ 15 grid-min apart, both public at 04:00 (the network's ETR) and exact. The smelter variant waits for Phase 3 (it needs an input, a bay row and par's rule, and a potline's value of reliability is not the residential VCR). The forced first shift (2e) may set one clearance for both feeders and never delays CCGT 2. | Act I gets real decisions (D-10: 3–5): whether to start CCGT 2 earlier for ~300 MW coming back on the steepest ramp, two restores, and a constraint to plan around. Rotation districts keep UFLS fully armed. |
-| **Q-69** | **The task's accounting (S-1).** A task district is **held** (the network's outage) until its `clearS`: not unserved, not SHEDDING, not in SAIDI/SAIFI, priced at nothing. From `clearS` until restored it is the operator's: `taskMWh` (LIGHTS ON, ALL-IN at VCR) and SAIDI/SAIFI. `score.heldMWh` records the network's part for the debrief, never priced. **SHEDDING (LOR3) counts only `ufls` and `directed` darkness**, so DIRECT SHED, the red price and the "short now" line ignore a held feeder. `balanceOpening` uses lit demand. The dispatch, par's plan and the stack carry the **announced return** at `clearS` (the ETR is public). Task MWh are **excluded** from D-9(2), S-6's PERFECT, S-7's Hard-day trigger and every tool's "clean" day: one predicate, `isClean(score, black)` = not black and `uflsMWh + directedMWh === 0`. One rule for MWh and SAIDI (this overrides §30.7's note "task districts count from the second they go dark"). | Counting from 04:00 would add about $25M of VCR to par and the player alike and squeeze every grade about 3× toward 1000. "From the hand-back, every minute dark is yours" is one teachable rule. |
-| **Q-70** | **RESTORE pace.** At each clearance the rate director plays **30×** (badge "RESTORE 30×") until that district is restored or for 5 grid-min (≤ 10 real s), then the profile: a pace, not a hold (K-16 stands). FAST is refused in it. Par's reference playback counts the same public segment (each `clearS` to + 300 grid-s at 30×; desk only, so classic's par is bit-identical). | Without it one real second at 270× costs 4.5 grid-min of two districts (≈ $675k), and par's own 3-real-s pace lags 13.5 grid-min: a reflex test and a par that every attentive player beats by ~80 points. With it a second costs 30 grid-s (≈ $75k, 0.8%), and the clearance becomes a moment. |
-| **Q-71** | **Warning leads (D-8(d)).** A hazard is warned at the latest whole minute with `clock.stepReal(warn, onset) ≥ 26` (25 s plus a 1-s margin) and onset − warn ≥ the answering start + 2 grid-min (a GT; it never binds): cloud 125–170, storm and drought 63–118 grid-min. **Briefing items** (the heatwave, the tie derate, the late return, the feeder ETRs) are announced at 04:00, before the clock starts, and are exempt from (d). Pauses, FOCUS, watches and RESPOND only add to a lead; FAST is released by the warning (Q-63). | D-8(d) exactly, on the clock the player plays. |
-| **Q-72** | **Spacing (D-8(c)).** "Unwarned contingencies" are the pre-rolled Act II trip, Act III trip and storm link trip; an H-2 hot trip is the player's own overload behind a visible gate and is excluded. Rules: ≤ 2 a day; none before 09:00 or from 21:00; any two ≥ 90 real s (`stepReal`) **and** ≥ 60 grid-min apart (so none inside another's RESPOND window); none within 30 real s (`stepReal`) of a warned onset (heat onset, storm arrival, cut-out start, the front's onset over its first suburb, drought onset). **By construction:** the plan draws Act III first, then each later trip uniformly over its feasible whole minutes; an empty set falls back as Q-66/Q-67 say. A guard test checks 2,000 dates. | D-8(c) is a constraint solver in real seconds; drawing over the feasible set meets it every time instead of on 90% of retries. |
-| **Q-73** | **The night roll (D-11)**, on desk scenarios (`scn.night`): from 21:00 the rate director's **NIGHT** mode runs the profile (2,100×), never FAST, and plays **no watch, card or RESPOND** for any contingency (logged only; the horn and the rings are quiet). The **desk is locked** except pause, ACK, volume and "?", with a blue note: "The night shift has the desk: your day is scored at 04:00." The **night shift**: from 21:00 `app/system.js` runs par's own rules (`decide()` with a par memo started at 21:00, at par's pace) on the player's state, logged as system inputs (origin `night`), so the night is the same rule for par and for the player and replay holds; it stands down an armed RERT. No dayplan event falls from 21:00 (the TROUGH notice goes on desk). The plan bar becomes a **night strip** that counts up (SUPPLY, OUTAGES, CARBON, ALL-IN, SCORE); the city's windows go dark on an occupancy curve; the end card is fetched at 21:00. Q-18 is amended: "the system never starts or stops a unit before 21:00". Classic (`night: false`) keeps today's night and its "no-input day = planOnly" equivalence. | Seven grid-hours in 12 real s cannot be played, so nothing should ask to be. The same rule on both sides keeps the night's score fair, and the soak's night-fuel reward (Q-52) still counts. |
-| **Q-74** | **Secure again (D-5).** `contingency.securedTick`: the first grid second at or after the watch's end at which the level is not SHORT and no UFLS or directed shedding is under way; −1 until then. The N-1 gauge gains one row while `obs.inRespond` (and whenever frequency is outside 49.85–50.15 Hz, H-11): "BAND m:ss" from `fos.countdownS` while outside the band, "BAND ✓ T+42 s" once back; "SECURE n MIN" (whole minutes plus a draining bar) until `securedTick`, then "SECURE ✓"; after 30 min unsecured, "SECURE ✕ n MIN OVER" in **amber** (grid status, so Q-41's red rule is untouched). m:ss in the aria label. While the row shows, the preview's "caught" words move into its title and aria label. Labelled in §8.2: the NEM's test is the next contingency contained ≥ 49.5 Hz. | Measured: par is "not SHORT" 0.5 min after all 8 probed trips but SECURE (H-4) only 1–3% of Acts I and III, so H-4 would expire on most trips, par's included. |
-| **Q-75** | **The dailies (D-9).** Attempt 0 of a date is its `YYYYMMDD` seed, attempt k is `YYYYMMDD + k·10⁸` (k ≤ 42); the scenario comes from the **date** (`seed % 10⁸`; Saturday and Sunday play `desk-weekend`). `content/dailies.js` ships **exceptions only**: `{v, from, to, attempts: {YYYYMMDD: k}}` and `dailyFor(date)`. "Same temperature class" is temp **and** `regime.cls`. The gate runs along par's day: (1) the §3.2 bound plus air-con at rated MW in its window never falls below demand before booked flex, and (2) `isClean`. Cap: 40 attempts, then a loud failure; rejected seeds are reported as the Hard-day pool and not shipped (the practice menu is Phase 4). `tools/daily-gen.js` uses workers (`-j`) and prints the single-core time. next.html with no query plays today's daily; `?date=YYYY-MM-DD` that date's; `?seed=N` a raw seed, un-gated. A date outside `[from, to]` or a stale `v` plays attempt 0 with a quiet "not gate-checked" line on the end card. A deliberate Y-1 deviation (no string hash, no `SIM_VERSION` in the seed). | Today's links, the owner's played days, every `2026100x` test and par's cache keep working; a sim fix re-checks dates instead of re-rolling them; ≈ 0.2 KB on the page. |
-| **Q-76** | **Decisions per act (D-10), a measure.** An opportunity is a par decision (start, stop, restore, flex, callDR, armRERT, standDownRERT, a battery **mode** change, the rule-1 tie answer to a trip) or a director moment (a trip, its card, a warning, an MSL change, a feeder clearance), merged within 3 real s, on the step profile, 05:30–21:00. GUARD steps, battery re-sizes and re-dispatches are the system's work, not decisions. Measured once at stage C over the generated year and reported with per-act counts; not tuned inside 2c (gate 1 decides). | The raw par log passes trivially (60 actions, worst gap 24 s); the filter measured 5 / 6 / 12 per act and a 37.7-s worst gap on one day. |
-| **Q-77** | **The returning-player proxy (D-8, K-12).** A `tools/` proxy: competent + it restores whenever the lamp allows + it takes every offered scope and closes cleanly. A SYNC **matters** when the 4 grid-min of the unit's output that a manual close gains fall on a stack column that is red or amber at the offer. Measured once at stage C on 100 dates. | K-12's own definition, made measurable without a counterfactual run per offer. |
-| **Q-78** | **Acts on the face (D-1).** The badge names the D-2 segment (PRE-DAWN, MORNING RAMP, BELLY ONSET, BELLY, NECK, PEAK, RELEASE, NIGHT ROLL). The Live Stack draws act ticks at 09:00, 14:30 and 21:00 ("II", "III", "NIGHT") and an onset marker at each warned onset ahead. No act banner in 2c (2e's introductions own act starts). K-12's "evening peak window" and the PEAK tile become D-2's Peak segment, 16:30–20:00, from `sim/clock.js`. The suburb card counts as "the map" for D-1 (it opens only from a suburb). | The badge already says where in the day you are, at no cost. |
-| **Q-79** | **Fronts over the suburbs** (P-2, Q-23 lifted). A warned front darkens the shared regional sky to the front's clearness (0.32, scenario data) from each suburb's onset (the first suburb at the event's onset, then `frontLagMin` per suburb, west to east, scenario data) until it clears; the solar precinct has its own lag. The rooftop forecast carries the warned front from the warning (as utility solar's plan does), with L-2's band × 2.5 while a front is forecast. The news names the suburbs. The map's glint already dims suburb by suburb; no moving shadow art in 2c. L-2's coverage is re-measured once at stage C (its slow test's method, revived as a tool). | The belly's crisis is visible on every roof the player can see, warned hours ahead, and the forecast knows it. |
+| **Q-61** | **Budget: the second prose move.** Stage A moves the remaining leading header comment of every first-visit JS file into the READMEs (`sim/README.md` §11 for sim files, §32.12 here for the rest), each file keeping its first line and a pointer, measured (about 12 KB gzip; probes 11.2–12.3). 2c's eager total is **11.4 KB** (§32.3), so 2d and 2e keep about 12–13 KB. `tests/budget.test.js` enforces first visit ≤ the post-move total + 11.4 KB; agents measure their own share with `tools/perf.mjs --sizes` (no frame run). On-demand caps: `content/text.js` 20 KB, `content/alarmhelp.js` 5.5 KB. F-11 stays 400 KB; raising it stays the owner's call. (M10) | F-11 stays literally true with no build step and nothing the player can see. |
+| **Q-62** | **One clock: `sim/clock.js`.** Pure, imports `params.js` only. `V.REF_PROFILE` stays the one table. The **ease** is linear in pace (1/rate) across a grid window W = 2·`CLOCK_EASE_REAL_S`·r1·r2/(r1 + r2) centred on each of the seven interior boundaries: it lasts exactly 2 real s and keeps the integral over every whole window, so the day stays **245.000 s**; a span cut inside a window differs from the step profile by ≤ 0.375 s, inside the leads' 1-s margin. Before 04:30 the rate is the first segment's, after 04:00 the last's. Every mode change (watch, card, RESPOND, RESTORE, FOCUS, PAUSE, FAST, ALARMS) is instant, because each answers the player or the physics. Par keeps the step profile (`stepReal`, moved from `autopilot.js` bit-identically). The director, the D-8 leads, the objective's reading lead, the tray's card life and the stack's cadence all read this module. (RC-15, F11) | The player's clock and the guarantees the day makes about it are one function. Exact arithmetic, pure in grid time, so tests and `tests/lib/play.js` integrate it with no frames. |
+| **Q-63** | **The rate director plays the profile.** CRUISE = `clock.rateAt(s, hand)` with `hand = state.control.handFlown`. The badge names the segment and its **target** rate ("PEAK 150×", never a number counting through an ease). FAST = 3 × CRUISE, refused in WATCH, the card, RESPOND's 30× part, RESTORE, FOCUS, ALARMS and NIGHT, and **released by every new tray card that rings** (news, warn notices, MSL2 and MSL3, a feeder cleared; MSL1 is information), any new P1/P2 alarm and any new ask. RESPOND: 30× from the card until back in band or 5 grid-min, then the profile. Grid-time cadences become profile-derived functions of grid time: the objective recomputes when grid time has moved max(30 s, `rateAt` × `OBJ_EVERY_REAL_S` 0.4 real s); its reading lead is `gridAfter(s, 13 real s) − s`; a tray card lives `TRAY_LIFE_REAL_S` 20 real s of `stepReal` from max(its atS, 04:30) (a warning issued in play until its onset, if later; briefing cards the plain 20 s); the stack's idle redraw is at most `STACK_MAX_HZ` 10 a real second. (F-12, F14, F-6, M6) | Every clock the player reads runs at the eye's speed whatever the segment; FAST cannot run the player past a warning (D-8(d)'s 25 s assume it stops). Deterministic, so `play.js` stays exact. |
+| **Q-64** | **HAND (D-7).** Every profile speed is halved **from 04:30 to 21:00** (the HAND clock is 466 + 12 = **478 s**). **In the briefing the choice is `state.control.mode`**: while `phase === 'briefing'` the game applies `{type: 'mode'}` inputs (the card's AGC/HAND buttons, the desk's AGC key) and refuses every other sim input with a blue "Take the desk first: Enter."; the card's buttons draw from `obs.mode`; `briefAgc`, `game.agc` and `takeDesk`'s mode argument go. `control.handFlown` is set by the sim on the tick the day reaches 04:30 with the mode HAND, and never cleared, so tapping HAND then AGC never tags an AGC day. At 21:00 the night shift takes the desk in both modes: a sim rule (desk scenarios only) sets the mode to AGC, clears every station's MAN flag and logs `NIGHT_SHIFT`; `handFlown` keeps the tag. The end card says HAND-FLOWN in 2c; history and the share card wait for Phase 4. D-7's accept reads "AGC never acts in HAND before 21:00". 2e owns the briefing card's HAND copy (D-3). (M5, RC-11) | A HAND night with no input shed 571–625 MWh (measured): a 21:00 handover is how control rooms work and keeps D-11's 12 s for everyone. One place holds the choice, so the card, the desk key and the day can never disagree. |
+| **Q-65** | **The event director is `sim/dayplan.js`** ("director" stays the rate director's name). `createState` and `weather.prerollRegime` delegate to it when the scenario has a `dayplan` block (`desk`, `desk-weekend`); classic keeps the legacy `prerollEvents` and `prerollRegime` untouched (Q-19). **Every share, window and size is scenario data**, so 2e can pin the first shift (§4.1) as a scenario variant by data alone. Records keep the code's shape `{id, atS, type, args, contingency, warned}` and gain `act` (the act the plan designed the record for: 1, 2 or 3, Act I's briefing items included; 0 only on legacy records and notices) and `crisis` (bool), hidden in ext for tests, tools and 2d's debrief. The temperature draws (`EXT_REGIME` a = 0, a = 1) are kept, so every pinned seed keeps its day type; new draws use `EXT_REGIME` a = 2 and `EXT_EVENTS` slots from `DAYPLAN_SLOT_BASE` 64 (no legacy counter moves). On a dayplan day the dayplan block is **the one climatology**: the plan's records, the forecast (through `weather.climate(scn)`) and the texts read it, never `scn.events`. (RC-12, RC-5) | Classic stays the regression anchor with its golden numbers; a data-driven plan is testable over 2,000 dates in milliseconds; one copy of each number cannot drift. |
+| **Q-66** | **Act III, one crisis per date, exclusive:** heatwave 15% \| storm 25% \| wind drought 20% \| calm 40%. Storm and drought are drawn among the non-heatwave days on a = 2, so the shares are shares of all days; `regime.cls` on desk is `heat` \| `storm` \| `drought` \| `calm`, and desk has its own `weather.stormShare` 0.25 and `droughtShare` 0.20 (classic keeps `P.STORM_SHARE` 0.30). **Heat:** announced at 04:00, onset 12:30–14:30, end min(onset + 6.5 h, 20:00). **Storm:** arrival 15:30–19:00, every storm time relative to the arrival, pass min(arrival + 140 min, 20:50); the link trip is drawn on 60% of storms, counts as **unwarned**, falls ≥ 30 real s after the arrival and the cut-out start and before the pass, or not at all (feasible on about 45%, so it happens on about 27% of storm days; the test reports the share). **Drought:** warned, onset 15:00–18:00, **plus** the calm day's trip (D-8(b) read literally: drought is an overlay, so Act III is "otherwise"). **Calm:** an unwarned trip of the largest online machine by output, 17:00–19:30. (RC-13) | D-8(b) says "the heatwave or storm", singular; a storm and a drought on one evening is physically contradictory (today's menu allows it). The evening trip is the game's signature moment (K-15, D-21, D-24), kept on 60% of days. |
+| **Q-67** | **Act II, one belly crisis per date.** Non-heat days: a **warned cloud front over the suburbs** 40% \| an unwarned trip of the largest unit 25% \| the smelter 20% \| the tie 15%. Heat days: unit 40 \| smelter 30 \| tie 30 (no front under a heatwave's clear sky). Trips 09:00–14:30; front onset 10:00–14:30 and never before the Act I derate's end + 30 min, clearing after 40–110 min. "A deeper-than-forecast minimum" is **dropped**: a hidden bias big enough to be a crisis would break L-2's coverage or leak hidden state (S-4). The tie trip keeps P-4's MSL3 path ("a noon tie or smelter trip") and Q-33's tie-out rise alive. If D-8(c) leaves no feasible minute for an Act II trip, the crisis becomes the front (non-heat) or none (heat; counted and reported). (F-11) | Every belly gets one decision that matters and none that is unfair; the front is a commitment test with 130–175 grid-min of warning. |
+| **Q-68** | **Act I: a warned constraint every date, plus load to restore on 85%.** Constraint (announced at 04:00): a **tie import derate** 50% (400–550 MW until 10:00–12:00) or a **late return from maintenance** 50% (`desk`: CCGT 2 unavailable until 06:30–08:00; `desk-weekend`: coal 4 until 10:00–13:00; only a unit that is off in the scenario's 04:00 commitment). Fog is dropped (late summer). **Restore task:** two **rotation** districts of one pre-rolled suburb dark from 04:00 ("overnight faults"), each with its own clearance on a 5-min mark in 06:30–08:00, ≥ 15 grid-min apart, both public at 04:00 (the network's ETR) and exact. The smelter variant waits for Phase 3 (it needs an input, a bay row and par's rule, and a potline's value of reliability is not the residential VCR). The forced first shift (2e) may set one clearance for both feeders and never delays CCGT 2. (RC-6) | Act I gets real decisions (D-10: 3–5): whether to start CCGT 2 earlier for ~300 MW coming back on the steepest ramp, two restores, and a constraint to plan around. Rotation districts keep UFLS fully armed. |
+| **Q-69** | **The task's accounting (S-1).** A task district is **held** (the network's outage) until its `clearS`: not unserved, not SHEDDING, not in SAIDI/SAIFI, priced at nothing. From `clearS` until restored it is the operator's: `taskMWh` (LIGHTS ON, ALL-IN at VCR) and SAIDI/SAIFI. `score.heldMWh` records the network's part for the debrief, never priced. **SHEDDING (LOR3) counts only `ufls` and `directed` darkness**, so DIRECT SHED, the red price and the "short now" line ignore a task feeder before and after its hand-back. The opening balance uses lit demand. The dispatch, par's plan and the stack carry the **announced return** at `clearS` (the ETR is public). **One clean predicate**, `market.isClean(score, black)` = not black and `uflsMWh + directedMWh === 0`, serves D-9(2), S-7's Hard-day trigger and every tool's "clean" day, so par's own restore lag never rejects a date. **S-6's PERFECT** is `market.isPerfect(score, black)` = `isClean` and `score.taskLateMWh === 0`: every handed-back feeder closed within `RESTORE_PACE_MAX_S` of when it may be (the later of its `clearS` and the last restore + `RESTORE_INTERVAL_S`). One rule for MWh and SAIDI (this overrides §30.7's note "task districts count from the second they go dark"). (F-4) | Counting from 04:00 would add about $25M of VCR to par and the player alike and squeeze every grade about 3× toward 1000. "From the hand-back, every minute dark is yours" is one teachable rule, and PERFECT still asks you to close the feeders. |
+| **Q-70** | **RESTORE pace.** At each district's allowed second (the later of its `clearS` and the last restore + `RESTORE_INTERVAL_S`) the rate director plays **`RESTORE_PACE_RATE` 30×** (badge "RESTORE 30×") until that district is restored or for `RESTORE_PACE_MAX_S` 300 grid-s (≤ 10 real s), then the profile: a pace, not a hold (K-16 stands). FAST is refused in it. **Until this browser has closed a task feeder** (`seen.restore`, kept in `gridwatch:v4:seen` like `seen.watch`, set by the first accepted restore of a district with `clearS ≥ 0`), it plays at `RESTORE_FIRST_RATE` 10× over the same 300 grid-s (≤ 30 real s), badge "RESTORE 10×". The FEEDER_CLEAR card says what to press ("…repaired: close its breaker (R, then Enter)"), its button goes to the RESTORE bay, and the bay's tab glows at each hand-back. Par's reference playback counts the same public segments at 30× (each `clearS` to + 300 grid-s; desk only, so classic's par is bit-identical). (F-8) | Without it one real second at 270× costs 4.5 grid-min of a district (≈ $340k; ≈ $675k for both), and par's own 3-real-s pace lags 13.5 grid-min: a reflex test and a par that every attentive player beats by ~80 points. With it a second costs 30 grid-s, the first time it is gentler still, and the hand-back becomes a moment. |
+| **Q-71** | **Warning leads (D-8(d)).** A hazard is warned at the latest whole minute with `clock.stepReal(warn, onset) ≥ LEAD_REAL_S` 26 (25 s plus a 1-s margin) and onset − warn ≥ the answering start + 2 grid-min (a GT; it never binds): cloud 130–175, storm 65–115, drought 65–123 grid-min. **Briefing items** (the heatwave, the tie derate, the late return, the feeder ETRs) are announced at 04:00, before the clock starts, and are exempt from (d). Pauses, FOCUS, watches and RESPOND only add to a lead; FAST is released by the warning (Q-63). (F11) | D-8(d) exactly, on the clock the player plays. |
+| **Q-72** | **Spacing (D-8(c)).** "Unwarned contingencies" are the pre-rolled Act II trip, Act III trip and storm link trip; an H-2 hot trip is the player's own overload behind a visible gate and is excluded. Rules: ≤ 2 a day; none before 09:00 or from 21:00; any two ≥ `SPACING_REAL_S` 90 real s (`stepReal`) **and** ≥ `SPACING_GRID_S` 60 grid-min apart (so none inside another's RESPOND window); none within `ONSET_CLEAR_REAL_S` 30 real s (`stepReal`) of a warned onset (heat onset, storm arrival, cut-out start, the front's onset over its first suburb, drought onset). **By construction:** the plan draws Act III first, then each later trip uniformly over its feasible whole minutes; an empty set falls back as Q-66/Q-67 say. A guard test checks 2,000 dates. | D-8(c) is a constraint solver in real seconds; drawing over the feasible set meets it every time instead of on 90% of retries. |
+| **Q-73** | **The night roll (D-11)**, on desk scenarios (`scn.night`). From 21:00 the rate director's **NIGHT** mode runs the profile (2,100×, eased into), never FAST, and plays **no watch, card or RESPOND** for any contingency (logged only; the horn and the rings are quiet). **The desk refuses sim inputs** with a blue note, "The night shift has the desk: it stands down what the night does not need. Your day is scored at 04:00."; views stay open (W, the LOG, settings, L, the suburb card read-only, "?"), and so do pause, ACK and volume. **The night shift is one function for par and for the player:** `AP.nightMemo(obs)` builds, from the 21:00 observation alone, par's rules with the player's booked stops kept (the plan carries `obs.plan.stops`), an armed RERT's clock seeded so it can be stood down, and a grid-time pace of one action per `DISPATCH_S` (300 grid-s) instead of S-4's 3 real s (nobody plays the night). `runPar` swaps its memo for it at the first decision at or after NIGHT_S (a JSON flag, once); `app/system.js` does the same and stops its player-mode dispatch, so there is one plan writer at night. Its inputs are logged (origin `night`), so replay holds. No dayplan event falls from 21:00 (the TROUGH notice goes on desk). The plan bar becomes a **night strip** that counts up (SUPPLY, OUTAGES, CARBON, ALL-IN, SCORE vs par); the city's windows go dark on an occupancy curve; the end card is fetched at 21:00. Q-18 is amended: "the system never starts or stops a unit before 21:00". Classic (`night: false`) keeps today's night and its "no-input day = planOnly" equivalence. (RC-8, RC-9, F3, F-3, M3, F-14) | Seven grid-hours in 12 real s cannot be played, so nothing should ask to be. The same function on the same 21:00 state gives the same night, so identical play scores 1000; the soak's night-fuel reward (Q-52) still counts. |
+| **Q-74** | **COVER after a trip (D-5's "secure 30:00").** `contingency.securedTick`: the first tick at or after the watch's end with `sec.r5MW ≥ sec.lMW` and no district dark for `ufls` or `directed` (task districts never block it); −1 until then; latched (also `contingencies[].securedS`). The N-1 gauge gains one row, named **COVER** so it never contradicts H-4's head word (SECURE/TIGHT/SHORT/SHEDDING). It shows while `obs.inRespond`, or while the latest contingency is past its watch and still uncovered, or while frequency is outside 49.85–50.15 Hz (H-11). **BAND** (FOS): "BAND LOW" or "BAND HIGH" with `fos.countdownS`, a draining bar over `FOS_RECOVER_S`, held 3 real s after the return as "BAND ✓". **COVER:** "COVER n MIN" with a draining bar over 30 min; "COVER ✓ T+n MIN" once covered; "COVER LOST" in amber if the level later falls to SHORT or SHEDDING inside the window; after 30 min uncovered "COVER ✕ n MIN OVER" in **amber** (titled "AEMO would direct a unit on or shed load here; GRIDWATCH only counts it"). Figures follow the dial's rules: m:ss only at ≤ 10× (the watch's slow part, the card, FOCUS, PAUSE), whole minutes rounded up above it, no figure redrawn more often than every 500 real ms; m:ss always in the aria label. While the row shows, the preview's "caught" words move into its title. Labelled in §8.2: the NEM's secure state is the next credible trip contained ≥ 49.5 Hz; relighting shed load within the 30 min is GRIDWATCH's. (F-1, F-2) | Measured: par is "not SHORT" 0.5 min after all 8 probed trips but SECURE (H-4) only 1–3% of Acts I and III, so H-4 would expire on most trips, par's included. A separate word keeps the head honest. |
+| **Q-75** | **The dailies (D-9).** Attempt 0 of a date is its `YYYYMMDD` seed, attempt k is `YYYYMMDD + k·10⁸` (k ≤ 42); the scenario comes from the **date** (`scenarioIdOf(ymdOf(seed))`: Saturday and Sunday play `desk-weekend`). `content/dailies.js` ships **exceptions only**, `{v, from, to, attempts: {YYYYMMDD: k}}`, about 0.3 KB, with `dailyFor(date, stamp)`. `v` is the **build stamp** the list was gated under: `SIM_VERSION + '|' + scenarioHash(desk) + '|' + scenarioHash(desk-weekend)`. `tests/dailies.test.js` fails when a non-empty list's `v` differs from the build's stamp or covers fewer than 365 days, so any later sim or desk-scenario change cannot merge until the integrator regenerates. "Same temperature class" is temp **and** `regime.cls`. The gate runs along par's day: (1) the §3.2 bound plus air-con at rated MW in its window never falls below demand before booked flex, and (2) `isClean`. Cap: 40 attempts, then a loud failure; rejected seeds are reported as the Hard-day pool and not shipped (the practice menu is Phase 4). `tools/daily-gen.js` uses workers (`-j`) and prints the single-core time. next.html with no query plays today's daily; `?date=YYYY-MM-DD` that date's; `?seed=N` a raw seed, gated only if it is that date's listed attempt. At runtime a stale stamp still plays the listed attempt (never a rejected attempt 0) with `gated: false`; a date outside `[from, to]` plays attempt 0, and both the briefing and the end card say "Not gate-checked: this day may not be solvable". A deliberate Y-1 deviation (no string hash, no `SIM_VERSION` in the seed). (F4, F5, M4) | Today's links, the owner's played days, every `2026100x` test and par's cache keep working; a sim fix re-checks dates instead of re-rolling them; a stale list can never pass as gated. |
+| **Q-76** | **Decisions per act (D-10), a measure.** An opportunity is a par decision (start, stop, restore, flex, callDR, armRERT, standDownRERT, a battery **mode** change, the rule-1 tie answer to a trip) or a director moment (a trip, its card, a warning, an MSL change, a feeder clearance, a unit's return, the tie limit's end), merged within 3 real s, on the step profile, 05:30–21:00. GUARD steps, battery re-sizes and re-dispatches are the system's work, not decisions. Measured once at stage C over the generated year, reported with per-act counts and by class (heat, storm, drought, calm); not tuned inside 2c (gate 1 decides). (F-10, F-15) | The raw par log passes trivially (60 actions, worst gap 24 s); the filter measured 5 / 6 / 12 per act and a 37.7-s worst gap on one day. |
+| **Q-77** | **The returning-player proxy (D-8, K-12).** A `tools/` proxy: competent + it restores whenever the lamp allows + it takes every offered scope and closes cleanly. Offers come from the real rule, `G.offerWhy(obs, tally)` (exported from `app/game.js`; Q-78). A SYNC **matters** (K-12: it "removes a red or amber column that auto-sync would leave") when a 5-min stack column in [close, close + `AUTO_SYNC_S`] is red or amber at the offer **and** the MW the clean close gains in that column (the sync block, then the T2 ramp toward MIN) covers its gap (P50 or P90 minus supply, from `app/planview.js project`). The weaker count (the 4 minutes merely fall on a red or amber column) is reported beside it; if only the weaker count reaches 80%, stage C records a K-12/D-8 miss for the owner rather than relabelling the measure. Measured once at stage C on 100 dates. (F6) | K-12's own definition, made measurable without a counterfactual run per offer. |
+| **Q-78** | **Acts on the face (D-1), and the scope offer.** The badge names the D-2 segment in words a stranger reads: PRE-DAWN, MORNING RAMP, SOLAR RISING, MIDDAY SOLAR, EVENING RAMP, PEAK, PEAK EASING, NIGHT ROLL; its title names the act ("Act II, the belly: rooftop solar floods in"). The Live Stack draws act ticks at 09:00, 14:30 and 21:00 ("II", "III", "NIGHT") and an onset marker at each warned onset ahead. No act banner in 2c (2e's introductions own act starts). The PEAK tile and K-12's "evening peak window" become D-2's Peak segment, 16:30–20:00: `app/alarms.js PEAK_H` stays in hours, derived from `clock.PEAK` ([16.5, 20]). **The scope offer (K-12):** 'respond' is D-5's window (`obs.inRespond`), one offer per contingency, the first unit to reach full speed inside it; 'tight' and 'peak' share one offer a day; at most `MAX_OFFERS` 3 in all, none from 21:00. The suburb card counts as "the map" for D-1 (it opens only from a suburb). (F-9, F6, F9) | The badge already says where in the day you are, in plain words; the offers go to the moments that matter instead of being spent on the morning. |
+| **Q-79** | **Fronts over the suburbs** (P-2, Q-23 lifted). A warned front sets each place's sky, not its mean: from suburb j's onset (the event's onset + `frontLagMin[j]`) the sky moves linearly to the front's clearness (`frontMu` 0.32) over `frontRampMin` 10, holds there plus its local term (the regional noise suspended) until that suburb's lagged clear, then moves over `clearRampMin` 20 to the after-front sky (`clearMu` 0.92) and the regional process resumes from there. Lags in `city.suburbs` order, which is the map's west to east: SOL 0, HAZ 5, RED 20, HAR 25, TAL 40, SAL 45 min; the solar precinct (east of SAL) 50. That is about 50 km/h: a sweep of about 9 real s at 300×, the whole city under it 55 min after onset. The rooftop forecast carries the warned front from the warning with the same per-place shape, and while a front is forecast its band adds the clearing's own variance, (perK × (clearMu − frontMu))² × p(1 − p) with p the share of the clear window elapsed, in place of the flat ×2.5 (stage C measures L-2). The cloudWarn text may state the size ("rooftop output falls about 1.4 GW from 12:10"), computed at preroll from scenario data and the warned onset only. The map's glint already dims suburb by suburb; no moving shadow art in 2c. (F-7, m2) | The belly's crisis is visible on every roof the player can see, warned hours ahead, and the forecast knows it. |
 | **Q-80** | **The heatwave at the briefing.** `heatAnnounce` at 04:00; `day.temp` stays MILD or HOT publicly (the heat is news, so `levers.menu` keyed MILD/HOT is unchanged); Q-38's HOT-morning bet and `heatWorstCase` are retired (a HOT day with no heat news at 04:00 has no heatwave coming); `dayText` is rewritten. | Hiding nothing leaks nothing, and the morning's STOP decision becomes honest. |
-| **Q-81** | **Briefing items.** `createState` applies every event with `atS` 0 before it returns, so `state.news`, the task districts, the tie limit and the outage exist at tick 0 and the briefing can read them. The briefing's "Watch for" names every news item at 04:00 (≤ 60 words in all). At TAKE THE DESK the tray makes one card per briefing item, with one ring. | The briefing tells what the day holds; nothing announced at 04:00 is lost before the clock starts. |
-| **Q-82** | **Warnings at the new speeds.** Tray senders by kind: heat, storm, cloud and drought from WEATHER BUREAU (button to the stack); `tie` from MARKET NOTICE (to the tie); `outage` from STATION (to the unit's lever); `network` from NETWORK (to the restore bay). The WEATHER tile is set by weather kinds only. News texts are ≤ 25 words and never repeat the sender. In the night roll the horn and the rings are quiet. K-8's ≤ 8 audible alarms is re-checked on the profile clock. | Every card is readable and goes where its decision is. |
-| **Q-83** | **Classic is untouched.** Every 2c behaviour keys on scenario data (`dayplan`, `night`, a nonzero task or limit) and is exactly neutral on classic. After stage A's re-record, `tests/baseline-v4.test.js` (classic seed 4's row and par's hash) stays green in every worktree; the integrator diffs the golden at every merge. | The regression anchor stays an anchor. |
+| **Q-81** | **Briefing items.** `createState` ends `ekMWs → weather.sampleSecond → events.applyDue` (every atS-0 record, into a discarded scratch `out`) `→ balanceOpening`, so `state.news`, the task districts, the tie limit and the outage exist at tick 0. The briefing's "Watch for" gives one brief per 04:00 news item, composed in `app/shell.js` from the item's kind and public obs (heat "heatwave 13:00–19:30"; tie "tie import ≤ 450 MW until 11:00"; outage "CCGT 2 out until 07:15"; network "SAL3, SAL4 feeders back 06:45, 07:05"), each ≤ 8 words, ≤ 30 words in all. At TAKE THE DESK the tray makes one card per briefing item with one ring (`T.trayBriefing`), and the recorder seeds them too; the full texts are on the cards. (RC-3, RC-14, F-6, M6) | The briefing tells what the day holds in a glance; nothing announced at 04:00 is lost before the clock starts. |
+| **Q-82** | **Warnings at the new speeds.** Tray senders by kind: heat, storm, cloud and drought from WEATHER BUREAU (button to the stack); `tie` from MARKET NOTICE (to the tie); `outage` from STATION (to the unit's lever); `network` from NETWORK (to the restore bay). A unit's return and the tie limit's end are information cards (no ring) from STATION and MARKET NOTICE. One predicate, `A.isWeather(kind)` (heat, storm, cloud, drought), sets the WEATHER tile, routes the tray and counts in `content/alarmhelp.js`; the alarms see every news kind of a batch, not only the last. News texts on a dayplan day are ≤ 25 words and never repeat the sender (classic's texts unchanged byte for byte). In the night roll the horn and the rings are quiet. K-8's ≤ 8 audible alarms is re-checked on the profile clock. (RC-14, F-10, F9) | Every card is readable and goes where its decision is. |
+| **Q-83** | **Classic is untouched.** Every 2c behaviour keys on scenario data (`dayplan`, `night`, a nonzero task or limit) and is exactly neutral on classic. Anything that writes a hashed state field on classic is a stage-A job; after stage A's one re-record, `tests/baseline-v4.test.js` (classic seed 4's row and par's hash) stays green in every worktree. An agent that turns it red stops and reports the cells; only the integrator bumps `SIM_VERSION` or re-records (if a classic hash move after stage A is ever unavoidable, the integrator re-records at that wave's merge, so the next wave starts green). (B1) | The regression anchor stays an anchor. |
 
 ### 32.2 SPEC amendments 2c carries (the integrator writes them at stage C)
 
 - **D-1:** the suburb card is part of the map.
-- **D-2:** "today's build runs at 2 (120×)" goes; the accept presses TAKE THE DESK, **Space**, then
-  Enter on each card (Q-18's held start), timed from Space; RESPOND "0–10 s"; the ease is
-  linear in pace (Q-62). F-5's "(a flat 120× before Phase 2)" and desk/README §2 follow.
-- **D-5:** "secure" is not SHORT, with ✓ and a label (Q-74).
-- **D-6:** "disabled during WATCH and RESPOND" means RESPOND's 30× part (and RESTORE, NIGHT);
-  "any new warning" is Q-63's list.
+- **D-2:** "today's build runs at 2 (120×)" goes; the ease is linear in pace (Q-62); RESPOND
+  "0–10 s". **Accept:** the profile integrates to 245 ± 3 s (AGC; HAND 478 ± 3). A scripted run
+  presses TAKE THE DESK, Space (Q-18's held start), then Enter on each card. From Space to the
+  verdict it is within ±5 s of E = `realBetween(04:30, end)` plus, for each span played off the
+  profile, its real seconds minus `realBetween` over that span's grid seconds. The spans are
+  each watch, each card, RESPOND's 30× part and Q-70's RESTORE at each allowed second, each
+  read from the sim's records (the contingency's watch and card ticks, `backInBandTick` or
+  +300 grid-s; the allowed second to the restore input or +300 grid-s), not from the director.
+  With no input every clearance is a full RESTORE (10 real s against 1.1 s at 270×), so E ≈ 245
+  + Σ watch + Σ RESPOND + 17.8 s on the 85% of dates with the task. The session table gains a
+  row "RESTORE at 30× (Q-70): about 1–10 s per clearance, two on 85% of dates, one on the forced
+  first shift" (17.8 s if never restored); the returning SHARE estimate moves to ≈5:34–5:58 and
+  the first shift's to ≈6:42–6:58 (its upper end is over ≤6:50: a 2e risk, so 2e's scripted
+  first shift restores at its introduction). "Link opened to SHARE ≤6:00 / ≤6:50" is measured
+  when 2d's debrief and 2e's first shift land; 2c measures the verdict half, and the Phase 2 box
+  "D-2 timing runs" stays open. F-5's "(a flat 120× before Phase 2)" and desk/README §2 follow.
+  F-5 gains RESTORE (30× at each hand-back until restored or 5 grid-min; 10× until the first)
+  and NIGHT (the profile; desk locked to sim inputs); CRUISE reads "75×–2,100× (HAND halves
+  04:30–21:00)".
+- **D-3:** "Watch for" ≤ 30 words inside the card's 60.
+- **D-5:** "pre-rolled" unwarned contingencies (an H-2 hot trip is the player's own); "secure
+  30:00" is named COVER: R5 ≥ L with no UFLS or directed district dark, with ✓ and a label
+  (Q-74).
+- **D-6:** "disabled during WATCH and RESPOND" means RESPOND's 30× part (and RESTORE, NIGHT); it
+  releases on "any new ringing tray card, P1/P2 alarm, ask or contingency (P3 tiles and MSL1 do
+  not)". The accept's end-state hash is checked on a 2-h slice in the suite and on one whole
+  desk day once at stage C.
 - **D-7:** the HAND clock is 478 s; "AGC never acts in HAND before 21:00"; the tag on the end
   card in 2c, history and the share card in Phase 4. The slice table keeps D-7 in 2c (halving,
   the bug fix, the tag) and leaves 2e the briefing copy.
 - **D-8:** the record shape `{id, atS, type, args, contingency, warned}` plus `act` and
-  `crisis`; Q-66/Q-67/Q-68's partitions; no deeper minimum; the storm's tie trip unwarned;
-  shares measured on raw candidates; scenario data so 2e can pin the first shift. The §6
-  heat-share row names `tests/dayplan.test.js`.
+  `crisis`; Q-66/Q-67/Q-68's partitions; no deeper minimum; the storm's tie trip unwarned (about
+  27% of storms); shares measured on raw candidates; scenario data so 2e can pin the first
+  shift. (d): leads cloud 130–175, storm 65–115, drought 65–123 grid-min; heatwaves, tie derates,
+  late returns and feeder ETRs are announced at the briefing and exempt. The §6 heat-share row
+  names `tests/dayplan.test.js`; §6's cloud-lead row follows.
 - **D-9:** "in Node, with workers"; gate (2) is `isClean`; replacement keeps temp and
-  `regime.cls`; Q-75's seeds (a Y-1 deviation).
+  `regime.cls`; Q-75's seeds (a Y-1 deviation). Interim until Phase 4's F-8: `content/dailies.js`
+  holds `{v, from, to, attempts}` (exceptions only, no stored par; the page re-runs par); a date
+  in `[from, to]` always plays its gated attempt and a stale stamp cannot merge; dates outside it
+  are labelled before and after play; Phase 4 replaces them with "No daily today — practice".
+  Phase 2's ship line: "gate-passed seeds for every date in `content/dailies.js`'s `[from, to]`,
+  stamped with the shipped build". The Phase 2 checklist gains "`dailies.js` re-checked at the
+  slice's final `SIM_VERSION`" for 2d and 2e.
 - **D-10:** Q-76's definition, stated as a measure.
-- **D-11:** Q-73's night shift, desk lock and quiet night; scenario-gated.
+- **D-11:** Q-73's night shift, desk lock and quiet night; scenario-gated; "≤ 12.5 s (12.4 s
+  with the 21:00 ease)"; §6's row follows.
+- **K-15/K-16:** except from 21:00 on a night scenario, where a contingency is logged only.
+- **K-12:** offers per Q-78 ('respond' = D-5's 30-min window, one per contingency; 'tight' and
+  'peak' share one a day; peak = D-2's Peak); "matters" measured as Q-77 defines it.
+- **H-4:** LOR3 (SHEDDING) = UFLS or directed shedding. **H-11:** the countdown is met on
+  next.html (2c); its debrief line is 2d's.
+- **S-1/S-6/S-7** per Q-69 (S-6: "PERFECT: no UFLS or directed shedding, and every handed-back
+  feeder closed within 5 grid-min of when it may be"). **S-4:** on night scenarios the 3-real-s
+  pace applies 04:30–21:00; the night runs one action per 5 grid-min; the measured note says
+  heat at 04:00.
 - **Q-18** "before 21:00". **Q-38** retired. **Q-20/P-3** heat at the briefing. **Q-23/P-2**
-  lifted. **K-12** peak window = D-2's Peak. **K-13** gains the code's R5 ≥ cold-load rule.
-  **S-1/S-6/S-7** per Q-69. **§4.1** one clearance on the forced first shift. **H-11** met on
-  next.html by Q-74's row.
-- **§8.2** rows rewritten: compressed playback, event-dense day, the Act I restore task,
-  rooftop solar (fronts), mild days (heat at the briefing). Added: the night shift; HAND; Act I's
-  warned constraints; every daily is solvable (a fairness rule, not a property of real grids);
-  game-sized warning leads; "secure again" (Q-74); RESTORE pace.
+  lifted. **K-13** gains the code's R5 ≥ cold-load rule. **L-2:** the front's band is the
+  clearing's own variance (Q-79), measured. **§4.1** one clearance on the forced first shift.
+  **X-23** closed by D-8 (DUCK at 15:00).
+- **§8.2** rows rewritten (SPEC row and `content/text.js` entry together): compressed playback,
+  event-dense day, the Act I restore task, rooftop solar (fronts), mild days (heat at the
+  briefing); **ALL-IN score and VCR** (OUTAGES = VCR × every MWh dark that is yours: UFLS,
+  directed, a black grid, and a task feeder from the network's hand-back until you restore it;
+  before the hand-back it is the network's outage, recorded and never priced; pricing the
+  operator's delay at VCR is a game abstraction); **reliability indices** ("count the outages you
+  cause"; a task feeder counts from its hand-back, so these are not the all-outages basis for
+  it; "come with slice 2c" goes); **LOR states** (a task feeder is never LOR3); **restore
+  permissive** (a task feeder's first condition is the hand-back; until then "feeder under repair
+  until HH:MM"); **AGC band** (HAND turns AGC off until 21:00). Added: the night shift; HAND;
+  Act I's warned constraints; every daily is solvable (a fairness rule, not a property of real
+  grids); game-sized warning leads; COVER (Q-74); RESTORE pace.
 
 ### 32.3 Who builds what, and in what order
 
@@ -3462,8 +3511,9 @@ Stage A runs three agents in parallel, then the integrator merges them, bumps `S
 `v4-core-2c.0` and re-records the golden once (classic: hash cells, Build and machine lines
 only). Then three waves, each merged and measured by the integrator before the next starts:
 wave 1 the sim (real, not stand-ins), wave 2 par, the clock and the view **on the merged real
-sim**, wave 3 the objective line and the shell **on the merged real thing**. Stage C integrates,
-measures once each, tunes once if a gate misses, and does the one browser pass.
+sim**, wave 3 the objective line and the shell **on the merged real thing**. Stage C measures
+once each, tunes once if a gate misses, regenerates the dailies last, and does the one browser
+pass.
 
 Every agent works in its own worktree **fast-forwarded to the branch it builds on** (agent
 worktrees branch from `main`: `git merge --ff-only <branch>` first) and commits on a named
@@ -3472,33 +3522,51 @@ its job below names it, and then once.
 
 | Owner | Builds on | Files (region) | Eager cap |
 |---|---|---|---|
-| **prose** (A1) | `the-day` | The **leading comment block only** of every first-visit JS file (list: `tools/perf.mjs firstVisit`) → `sim/README.md` §11 (sim files) or §32.12 (others), each file keeping its first line and a pointer; `tests/budget.test.js` (the measured total, the 2c caps of this table); nothing else | −(measured) |
-| **base-sim** (A2) | `the-day` | New `sim/clock.js`, new `sim/dayplan.js` (neutral, §32.5); `sim/params.js` (2c block); `sim/autopilot.js` (import `clock.stepReal`, delete `profileReal`, export `darkShareAt` neutral; nothing else); `sim/step.js` (hooks, state, observe, `handFlown`); `sim/events.js` (`TYPE_ORDER`, the new types' appliers and texts, texts from args); `sim/fleet.js` (fields and setters); `sim/weather.js` (`prerollRegime` delegates); `sim/market.js` (`heldMWh`, `isClean`); `content/scenarios.js` (the 2c data, §32.4.2); lists in `tests/state.test.js`, `tests/integration.test.js`, `tests/seams.test.js`, `tests/sim-lint.test.js`; new `tests/clock.test.js`, `tests/lib/inject.js`; `sim/README.md` §1, §5–§8 | 1.2 KB |
-| **base-app** (A3) | `the-day` | Test hygiene (§32.5.3): the 120×-literal tests, the desk-event fixtures, the vacuous skip; the tools' clean predicate (`tools/par.js`, `tools/baseline-v4.js`, `tools/follow.mjs`, `tests/lib/follow.js` use `isClean` once A2 lands; until then a local copy marked `TODO(2c-merge)`); `app/director.js` (`modeOf`'s new fields, no rate change); `app/game.js` (`game.end.handFlown`); `app/tray.js` (sender and target tables for the new kinds) | 0.2 KB |
-| **plan** (W1) | `the-day` after stage A | `sim/dayplan.js` (the real plan, §32.6.1), `content/scenarios.js` (the dayplan block's values and desk's `stormShare` only), `sim/events.js` (texts of the plan's types only); new `tests/dayplan.test.js`; re-pins of desk lines the live plan breaks (§32.6.1) | 1.8 KB |
+| **prose** (A1) | `the-day` | The **leading comment block only** of every first-visit JS file (list: `tools/perf.mjs firstVisit`) → `sim/README.md` §11 (sim files, under their existing headings) or §32.12 (others), each file keeping its first line and a pointer; `tools/perf.mjs` (a `--sizes` flag: file count, raw and gzip bytes per file, no frame run); `tests/budget.test.js` (the 2c ceiling, the text.js and alarmhelp.js caps); nothing else | −(measured) |
+| **base-sim** (A2) | `the-day` | New `sim/clock.js`, new `sim/dark.js`, new `sim/dayplan.js` (neutral); `sim/params.js` (2c block); `sim/autopilot.js` (import `clock.stepReal` and `dark.*`, delete `profileReal`, `darkShare`, `litMW`; `refRealSeconds`'s `clears` parameter, unused; nothing else); `sim/step.js` (createState's order, `balanceOpening` on lit demand, state, observe, the 04:30 `handFlown` rule, `scenarioHash`); `sim/events.js` (`TYPE_ORDER`, the new types' appliers and texts); `sim/fleet.js` (fields, setters, `refreshHeld`, `startBlock`'s outage reason); `sim/grid.js` (`startFreeAt`/`onAtS` outage terms; the `securedTick` block at the end of `securitySecond`; nothing else); `sim/physics.js` (the preview's stand-in record gains `securedTick`; nothing else); `sim/weather.js` (`prerollRegime` delegates); `sim/market.js` (`heldMWh`, `taskLateMWh`, `isClean`, `isPerfect`); `content/scenarios.js` (the 2c data, §32.4.2); new `tests/clock.test.js`, `tests/lib/inject.js`, `tests/inject.test.js`; lists in `tests/state.test.js` (and its opening test :487–503), `tests/integration.test.js`, `tests/seams.test.js`, `tests/sim-lint.test.js`; `sim/README.md` §1, §5–§8 and new §11 subsections for clock.js, dark.js and dayplan.js | 3.6 KB |
+| **base-app** (A3) | `the-day` | Test hygiene (§32.5.3): the 120×-literal tests, the desk-event fixtures (onto `legacyDesk()` in `tests/lib/sim-helpers.js` or `injectTrip`), the vacuous skip; the tools' clean predicate (`tools/par.js`, `tools/baseline-v4.js`, `tools/follow.mjs`, `tests/lib/follow.js`: a local copy marked `TODO(2c-merge)` until A2's `isClean` merges); new `content/dailies.js` and `tests/dailies.test.js`; `app/game.js` (`scenarioForSeed` through `scenarioIdOf`, `dailyFrom`, `game.daily`, `game.end.handFlown` and `.gated`, the exported pure `offerWhy` moved out of `updateOffers` unchanged); `app/shell.js` :203 only (one line: boot through `dailyFrom`); `app/director.js` (`modeOf`'s new fields, neutral); `app/tray.js` (sender and target tables for the new kinds) | 0.5 KB |
+| **plan** (W1) | `the-day` after stage A | `sim/dayplan.js` (the real plan, §32.6.1), `content/scenarios.js` (the dayplan block's values and desk's `stormShare` only), `sim/events.js` (the dayplan-day wording of heatText, stormText, cloudText and the drought's text, gated on `scn.dayplan`); new `tests/dayplan.test.js`; re-pins of desk lines the live plan breaks with the task off (§32.6.1) | 1.8 KB |
 | **grid** (W1) | same | `sim/grid.js`, `sim/fleet.js`, `sim/physics.js`, `sim/market.js`, `sim/step.js` (the night flip only); new `tests/task.test.js`, `tests/act1.test.js`; additions to `tests/grid.test.js` | 0.8 KB |
-| **sky** (W1) | same | `sim/weather.js` (fronts over the suburbs, the forecast), new `tools/l2.mjs` (the revived L-2 method; not run by the agent); new `tests/front.test.js`; the `rooftop-model` lines of `tests/text.test.js` only if a test asserts the old wording | 0.4 KB |
-| **par** (W2) | `the-day` after wave 1 | `sim/autopilot.js` (the tie limit, outages, `darkShareAt` with announced returns, rule 9 at the gate, RESTORE segments in `refRealSeconds`), `app/system.js` (the night shift; **its spike first**), `tools/par.js`, new `tools/daily-gen.js`, new `tools/day-measure.mjs` (D-10 gaps, the Q-77 proxy), new `content/dailies.js`; new `tests/night.test.js`, `tests/dailies.test.js`, `tests/gaps.test.js`; deliberate edits in `tests/autopilot.test.js`, `tests/system.test.js` | 0.8 KB + dailies 0.3 KB |
-| **clock** (W2) | same | `app/director.js`, `app/loop.js`, `app/game.js` (rate, cadences, FAST release, the briefing refusal and the mode fix, the night lock, `?date` boot through `dailyFor`), `render/format.js` (the badge), `app/keys.js` (only if a key needs an answer); new `tests/clock-director.test.js`; deliberate edits in `tests/director.test.js`, `tests/loop.test.js` | 0.8 KB |
-| **desk** (W2) | same | `desk/gauge.js` (Q-74's row), `desk/bay.js` (STORM word, the repair reason), `desk/rotary.js` and `desk/calc.js` (the tie limit), `desk/desk.js` (the night lock note), `desk/desk.css`, `app/tray.js` (card life, briefing cards, senders), `app/alarms.js` (WEATHER kinds, night quiet, PEAK from the clock), `app/watch.js` (the card's words), `app/endcard.js` (HAND-FLOWN, the reliability line, "not gate-checked"); new `tests/countdown.test.js`, `tests/tray-day.test.js`; deliberate edits in `tests/alarms.test.js` (K-8's clock), `tests/desk.test.js` | 0.9 KB |
-| **map** (W2) | same | `render/map.js` (the occupancy curve, the feeder label with its ETR), `render/livestack.js` (act ticks, onset markers, the redraw cap, the night freeze), `app/planview.js` (the announced return, the tie limit); new `tests/day-view.test.js`; deliberate edits in `tests/map.test.js`, `tests/livestack.test.js`, `tests/planview.test.js` | 0.6 KB |
-| **line** (W3) | `the-day` after wave 2 | `app/objective.js` (Q-80, the restore-task asks from the ETA, derate and outage reasons, quiet at night, profile-aware constants), `tools/follow.mjs`; new `tests/objective-day.test.js`; deliberate edits in `tests/objective.test.js`, `tests/line.test.js`, `tests/day.test.js` | 0.4 KB |
-| **shell** (W3) | same | `app/shell.js`, `next.html`, `content/text.js` (+ its cap), `content/anchors.js` (append): the briefing's "Watch for", the AGC key in the briefing, the night strip, the HAND chip, the end card's prefetch, the §8.2 rows; new `tests/briefing.test.js`, `tests/night-strip.test.js`, `tests/feedback-day.test.js` (new presses only), `tests/acts-audit.test.js` (D-1) | 0.8 KB |
-| **integrator** (stage C) | all | merges, `SIM_VERSION`, the golden, SPEC.md, §32.10–§32.11, the tools runs, `content/dailies.js`'s list, the browser pass | — |
+| **sky** (W1) | same | `sim/weather.js` (`climate(scn)`, fronts over the suburbs, the forecast and its band), new `tools/l2.mjs` (the revived L-2 method; not run by the agent); new `tests/front.test.js`; the `rooftop-model` lines of `tests/text.test.js` only if a test asserts the old wording | 0.4 KB |
+| **par** (W2) | `the-day` after wave 1 | `sim/autopilot.js` (the tie limit, outages, the night memo and swap, rule 9 at the gate, RESTORE segments in `refRealSeconds`), `sim/dark.js` (the announced returns), `app/system.js` (the night swap; **the spike first**), `app/assist.js` (mirror the swap, or state it is classic-only), `tools/par.js`, new `tools/daily-gen.js`, new `tools/day-measure.mjs` (D-10 gaps, the Q-77 proxy); new `tests/night.test.js`, `tests/gaps.test.js`; rows added to `tests/dailies.test.js`; deliberate edits in `tests/autopilot.test.js`, `tests/system.test.js` | 0.8 KB |
+| **clock** (W2) | same | `app/director.js`, `app/loop.js`, `app/game.js` (rate, cadences, `objectiveDue`, FAST release, the briefing mode rule, the night lock, the offer rule, the `trayBriefing` call), `app/shell.js` (the briefing-mode lines only: :315–326 and the frame's briefing block), `render/format.js` (the badge), `app/keys.js` (only if a key needs an answer), `tests/lib/play.js` and `tools/play.mjs` (the cadence mirror, `spaceMs`, the `clock` step, `--returning`); new `tests/clock-director.test.js`; deliberate edits in `tests/director.test.js`, `tests/loop.test.js`, `tests/next.test.js` :591–592, `tests/play.test.js` | 0.8 KB |
+| **desk** (W2) | same | `desk/gauge.js` (Q-74's row), `desk/bay.js` (FAULT word, the repair reason, the tab glow), `desk/rotary.js` and `desk/calc.js` (the tie limit), `desk/desk.js` (the night lock note), `desk/desk.css`, `app/tray.js` (`trayBriefing`, card life, senders, the information cards), `app/alarms.js` (`isWeather`, news kinds, night quiet, `PEAK_H` from the clock), `content/alarmhelp.js` (PEAK's trigger and WEATHER's reading only), `app/watch.js` (the card's COVER words), `app/endcard.js` (HAND-FLOWN, the reliability line for task feeders, "not gate-checked"); new `tests/countdown.test.js`, `tests/tray-day.test.js`; deliberate edits in `tests/alarms.test.js` (K-8's clock), `tests/desk.test.js` | 0.9 KB |
+| **map** (W2) | same | `render/map.js` (the occupancy curve, the feeder label with its times), `render/livestack.js` (act ticks, onset markers, the redraw cap, the night freeze), `app/planview.js` (`darkShareAt` and `litMW` per column, the tie limit, the outage in `earliestOnAt` and its mirror executor); new `tests/day-view.test.js`; deliberate edits in `tests/map.test.js` (:569 allowlist), `tests/livestack.test.js`, `tests/planview.test.js` (:640 allowlist) | 0.6 KB |
+| **line** (W3) | `the-day` after wave 2 | `app/objective.js` (Q-80, the restore-task asks, derate and outage reasons, quiet at night, `stopSaving`'s night horizon, profile-aware constants), `tools/follow.mjs`; new `tests/objective-day.test.js`; deliberate edits in `tests/objective.test.js`, `tests/line.test.js`, `tests/day.test.js` | 0.4 KB |
+| **shell** (W3) | same | `app/shell.js` (not the briefing-mode lines), `next.html`, `content/text.js` (+ its cap), `content/anchors.js` (append): the briefing's "Watch for", the HAND chip, the night strip, the end card's prefetch, `GOALS_TEXT` and the ALL-IN tooltip, the §8.2 rows; new `tests/briefing.test.js`, `tests/night-strip.test.js`, `tests/feedback-day.test.js` (new presses only), `tests/acts-audit.test.js` (D-1); anchors pinned in `tests/scoreface.test.js` :253–261 and `tests/text.test.js` :155–158 kept or deliberately repaired | 0.8 KB |
+| **integrator** | all | merges, `SIM_VERSION`, the golden, SPEC.md, §32.11, the tools runs, `content/dailies.js`'s list, the browser pass | — |
 
-Rules for all: never change a §32.4 shape (a needed change is reported, and the integrator
-amends this section); never touch another owner's file or region (if you must, one line, named
-in your report). New tests go in your own new file; edit an existing test only to repair an
-assertion your change breaks on purpose, naming the line. Pre-existing overruns
-(`feedback.test.js` 7.4 s alone, `system.test.js` 6.5 s, alarms' K-8 2.46 s) are exempt unless
-you add time to them: add only list entries there. `npm run test:changed` picks 54 of 55 files
-for any sim or scenario change, so in the fix loop **name your files** (`node --test
-tests/x.test.js`); run the whole suite once at the end.
+2c total: **11.4 KB** eager. Caps are self-measured as base-to-head deltas (`node tools/perf.mjs
+--sizes`); an agent over its cap reports the number and does not code-golf; the integrator
+reallocates at the merge (at stage A's merge it compares A2's measured clock.js and dayplan.js
+with plan's 1.8 KB before wave 1 starts).
+
+**Rules for all.**
+- Never change a §32.4 shape (a needed change is reported, and the integrator amends this
+  section). Never touch another owner's file or region (if you must, one line, named in your
+  report). Any later 2c agent may append one params line, named in its report.
+- New tests go in your own new file; edit an existing test only to repair an assertion your
+  change breaks on purpose, naming the line. Pre-existing overruns (`feedback.test.js` 7.4 s
+  alone, `system.test.js` 6.5 s, alarms' K-8 2.46 s) are exempt unless you add time to them: add
+  only list entries there.
+- `npm run test:changed` picks 54 of 55 files for any sim or scenario change, so in the fix loop
+  **name your files** (`node --test tests/x.test.js`); run the whole suite once at the end.
+- A change that writes a hashed state field on classic, or moves any classic number, is a
+  stage-A job or is gated on Q-83's keys. If your change turns `tests/baseline-v4.test.js` red,
+  stop and report the cells; never re-record.
+- `createState` gains no test-only parameter (pure in (seed, scenario)); every test-only way to
+  put an event on a seed lives in `tests/lib/inject.js`.
+- Moved header prose (sim/README §11, §32.12) that your change makes false is yours to fix; name
+  it in your report.
+- **Merge failures:** a failure that exists only on a merged branch belongs to the integrator,
+  who fixes it if the fix is ≤ 10 lines (each named in §32.11), or relaunches the owner of the
+  failing region as a **new** agent on the merged branch with the failing list (never
+  SendMessage to a running workflow agent).
 
 ### 32.4 The shared shapes (stage A makes every one real; nobody changes them later)
 
-**32.4.1 `sim/clock.js`** (pure; imports `./params.js` only; `sim/README.md` §1 and the lint
-gain it; `autopilot.js` may import it). Sim seconds: 0 = 04:00, `DAY_S` = 04:00 next day.
+**32.4.1 `sim/clock.js`** (pure; imports `./params.js` only). Sim seconds: 0 = 04:00, `DAY_S` =
+04:00 next day.
 
 ```js
 export const NIGHT_S;            // 21:00 = 61200 (the last REF_PROFILE segment's start)
@@ -3508,339 +3576,578 @@ export const PEAK;               // [a, b] of the segment named 'PEAK' (16:30-20
 export function actAt(s)         // 0 before 04:30, 1, 2, 3, 4 = the night roll
 export function segmentAt(s)     // index into SEGMENTS (0 before 04:30, the last from NIGHT_S)
 export function targetRate(s, hand)  // SEGMENTS[segmentAt(s)].rate, x V.HAND_RATE_FACTOR before NIGHT_S when hand
-export function rateAt(s, hand)  // eased (Q-62): pace linear across W = 4 r1 r2 / (r1 + r2) centred on each
-                                 // boundary, r1 and r2 the hand-adjusted rates either side; targetRate elsewhere
+export function rateAt(s, hand)  // eased (Q-62) at the 7 interior boundaries; targetRate elsewhere
 export function stepReal(a, b)   // autopilot's profileReal, moved bit-identically (no hand, no ease)
-export function realBetween(a, b, hand)  // the integral of 1 / rateAt over [a, b), closed form
-export function gridAfter(s, realS, hand) // the grid second reached realS real seconds after s (inverse of realBetween)
-export function gridBefore(s, realS)      // the latest grid second g <= s with stepReal(g, s) >= realS (step profile)
+export function stepAfter(s, realS)       // the earliest g >= s with stepReal(s, g) >= realS
+export function gridBefore(s, realS)      // the latest g <= s with stepReal(g, s) >= realS
+export function realBetween(a, b, hand)   // the integral of 1 / rateAt over [a, b), closed form
+export function gridAfter(s, realS, hand) // the grid second reached realS real seconds after s
+export function hhmm(s)          // 'HH:MM' of sim second s: the one formatter for the sim's texts from 2c on
 ```
 
-Params (`sim/params.js`, 2c block): `HAND_RATE_FACTOR` 0.5; `CLOCK_SEGMENT_NAMES` ['PRE-DAWN',
-'MORNING RAMP', 'BELLY ONSET', 'BELLY', 'NECK', 'PEAK', 'RELEASE', 'NIGHT ROLL'];
-`RESTORE_PACE_RATE` 30 and `RESTORE_PACE_MAX_S` 300 (Q-70); `LEAD_REAL_S` 26 (Q-71);
-`SPACING_REAL_S` 90, `SPACING_GRID_S` 3600, `ONSET_CLEAR_REAL_S` 30 (Q-72);
-`SECURE_OVER_S` 1800 (the gauge's overdue mark, = `SECURE_AGAIN_S`); `TRAY_LIFE_REAL_S` 20;
-`OBJ_EVERY_REAL_S` 0.25; `STACK_MAX_HZ` 10. Each with its source note (≤ 80 characters).
+Params (`sim/params.js`, 2c block, each with a source note ≤ 80 characters): `HAND_RATE_FACTOR`
+0.5; `CLOCK_EASE_REAL_S` 2; `CLOCK_SEGMENT_NAMES` ['PRE-DAWN', 'MORNING RAMP', 'SOLAR RISING',
+'MIDDAY SOLAR', 'EVENING RAMP', 'PEAK', 'PEAK EASING', 'NIGHT ROLL']; `RESTORE_PACE_RATE` 30,
+`RESTORE_FIRST_RATE` 10, `RESTORE_PACE_MAX_S` 300 (Q-70); `LEAD_REAL_S` 26 (Q-71);
+`SPACING_REAL_S` 90, `SPACING_GRID_S` 3600, `ONSET_CLEAR_REAL_S` 30 (Q-72); `DAYPLAN_SLOT_BASE`
+64, `DAYPLAN_MARK_S` 300; `TRAY_LIFE_REAL_S` 20; `OBJ_EVERY_REAL_S` 0.4; `STACK_MAX_HZ` 10;
+`NIGHT_ACTION_S` 300 (Q-73, = the dispatch interval).
 
 Tests (`tests/clock.test.js`, < 0.3 s): `stepReal(PLAYER_START_S, DAY_S) === 245` and equals the
 old `profileReal` on 1,000 random intervals; `realBetween` over the day is 245.000 ± 1e-9 (AGC)
-and 478 ± 1e-6 (HAND); every boundary's ease lasts 2.000 real s; the night (NIGHT_S → DAY_S) is
-≤ 12.5 s in both modes; `gridAfter(s, realBetween(s, t)) === t` within 1e-6; `rateAt` is
-continuous; classic par's end hash is unchanged (it is in the golden test already).
+and 478 ± 1e-6 (HAND); every interior boundary's ease lasts 2.000 real s; the night (NIGHT_S →
+DAY_S) is ≤ 12.5 s in both modes; `gridAfter(s, realBetween(s, t)) === t` and `stepReal(s,
+stepAfter(s, r)) ≥ r` within 1e-6; `rateAt` is continuous; classic par's end hash is unchanged
+(in the golden test already).
 
-**32.4.2 Scenario data** (`content/scenarios.js`). CLASSIC gets explicit `dayplan: null`,
-`night: false` (no code infers "none" from absence). DESK (and so DESK_WEEKEND, which overrides
-`dayplan.act1.late`):
+**32.4.2 `sim/dark.js`** (pure; imports `./params.js` only; reads obs only): `darkShareAt(obs,
+s) -> {shed, roof}` and `litMW(p50, roofMW, D)`, moved from `autopilot.js` (`darkShare`, `litMW`)
+bit-identically by A2; at stage A `s` is unused (the present dark share, today's behaviour). From
+wave 2 (par) a district with `clearS >= 0` counts as lit at every `s >= clearS` (the announced
+return). Autopilot and `app/planview.js` import it.
+
+**32.4.3 Scenario data** (`content/scenarios.js`). CLASSIC gets explicit `dayplan: null`,
+`night: false` (no code infers "none" from absence). DESK (DESK_WEEKEND builds `dayplan: {...DESK.dayplan,
+act1: {...DESK.dayplan.act1, late: {unit: 'coal4', untilH: [10, 13]}}}`):
 
 ```js
 weather: {heatShare: 0.15, stormShare: 0.25, droughtShare: 0.20, mildShare: 0.55}, // desk's own (Q-66)
 night: true,                                                                        // Q-73
 dayplan: {
+  simplified: true, note: '…',  // game tuning: shares, windows and sizes (Q-65-Q-68)
   act1: {
     derateP: 0.5, derate: {limitMW: [400, 550], untilH: [10, 12]},
-    late: {unit: 'ccgt2', untilH: [6.5, 8]},          // desk-weekend: {unit: 'coal4', untilH: [10, 13]}
+    late: {unit: 'ccgt2', untilH: [6.5, 8]},
     task: {p: 0.85, clearH: [6.5, 8], gapMin: 15},     // two rotation districts of one suburb
   },
   act2: {
     windowH: [9, 14.5],
     mix: {front: 0.40, unit: 0.25, smelter: 0.20, tie: 0.15}, heatMix: {unit: 0.40, smelter: 0.30, tie: 0.30},
-    front: {onsetH: [10, 14.5], clearAfterMin: [40, 110], clearMu: 0.32, afterMu: 0.92},
+    front: {onsetH: [10, 14.5], clearAfterMin: [40, 110], frontMu: 0.32, clearMu: 0.92,
+      frontRampMin: 10, clearRampMin: 20, afterDerateMin: 30},
     smelterOffMin: 45, unitLockoutMin: [90, 150], tieLockoutMin: [90, 180],
   },
   act3: {
     heat: {onsetH: [12.5, 14.5], lastsH: 6.5, endByH: 20},
-    storm: {arriveH: [15.5, 19], arriveMu: 0.95, cutoutAfterMin: [30, 90], cutoutLastsMin: 60, cutoutMu: 0.18,
-      lastsMin: 140, passByH: 20 + 50 / 60, passMu: 0.5, linkTripP: 0.6, linkLockoutMin: [90, 180]},
-    drought: {onsetH: [15, 18], windMu: 0.12},
+    storm: {arriveH: [15.5, 19], arriveMu: 0.95, cutoutAfterMin: [30, 90], cutoutMu: 0.18,
+      passAfterMin: 140, passByH: 20 + 50 / 60, passMu: 0.5, linkTripP: 0.6, linkLockoutMin: [90, 180]},
+    drought: {onsetH: [15, 18], mu: 0.12},
     trip: {windowH: [17, 19.5], lockoutMin: [90, 150]},
   },
-  notices: [{atH: 5 + 50 / 60, code: 'MORNING_RAMP'}, {atH: 17.25, code: 'DUCK'}],
+  notices: [{atH: 5 + 50 / 60, code: 'MORNING_RAMP'}, {atH: 15, code: 'DUCK'}],
 },
 ```
 
-`city.suburbs[j]` gains `frontLagMin` (west to east: SOL 0, RED 6, HAR 10, HAZ 14, TAL 20, SAL
-26; scenario data, the map reads the same table) and `scn.rooftop.precinctLagMin` 8. Shares and
-windows are game tuning (labelled); stage C's one tuning round may move values, never shapes.
+`city.suburbs[j]` gains `frontLagMin` (SOL 0, HAZ 5, RED 20, HAR 25, TAL 40, SAL 45; the map's
+west to east) and `rooftop.precinctLagMin` 50. On a dayplan scenario this block is the one
+climatology (Q-65): the cut-out holds until the pass, as in the legacy menu; the heat's clear-sky
+`clearMu` stays only in `events.heat`. Desk shares `CLASSIC.events` by reference, so nothing
+edits it. Stage C's one tuning round may move values, never shapes.
 
-**32.4.3 State** (stage A adds every field with its neutral value; all plain JSON):
-- `control.handFlown` false: true once a `mode` input with `agc: false` is accepted.
+**32.4.4 State** (stage A adds every field with its neutral value; all plain JSON):
+- `control.handFlown` false: set true by `sim/step.js` on the tick the day reaches
+  PLAYER_START_TICK with `control.mode` HAND; never cleared.
 - `control.nightShift` false: true from NIGHT_S on a `night` scenario (wave 1 sets it).
 - `city.districts[i].clearS` −1: a task district's hand-back second.
-- `city.heldFrac` 0: the share of demand held dark by task districts before their `clearS`
-  (kept exact by `fleet.setDistrictDark` and the clear, as `shedFrac` is).
-- `score.heldMWh` 0.
+- `city.heldFrac` 0: Σ `share` of districts that are dark, `shedBy === 'task'` and `clearS >
+  s`, kept exact by `fleet.refreshHeld(state)` (idempotent; no other writes), which
+  `setDistrictDark` and the `feederClear` applier call.
+- `score.heldMWh` 0, `score.taskLateMWh` 0.
 - `tie.limitMW` `TIE_MAX_MW`, `tie.limitUntilS` −1.
 - `units[k].outUntilS` −1.
-- `conts[n].securedTick` −1 (`fleet.startContingency`).
+- `conts[n].securedTick` −1 (`fleet.startContingency`, and the preview's stand-in record in
+  `sim/physics.js`).
 
-**32.4.4 `observe()`** (the frozen shape grows; `OBS_SHAPE` and `CONT_KEYS` updated):
-`handFlown` and `nightShift` (top level, after `modeLocked`); `tie.importLimitMW` reads
-`tie.limitMW` (was the constant) and `tie.limitUntilS` is new; `units[].outUntilS`;
-`districts[].clearS`; `contingency.securedTick` (in `CONT_KEYS`) and `contingencies[].securedS`
-(−1 or whole seconds); `score.heldMWh` (in `SCORE_KEYS`). Nothing hidden is exposed: every new
-value is public at 04:00 (the briefing) or the moment it happens.
+**32.4.5 `observe()`** (the frozen shape grows; `OBS_SHAPE`, `CONT_KEYS` and `SCORE_KEYS`
+updated): `handFlown` and `nightShift` (top level, after `modeLocked`); `tie.importLimitMW`
+reads `tie.limitMW` (was the constant) and `tie.limitUntilS` is new; `units[].outUntilS`;
+`districts[].clearS`; `contingency.securedTick` and `contingencies[].securedS` (−1 or whole
+seconds); `score.heldMWh`, `score.taskLateMWh`. Nothing hidden is exposed: every new value is
+public at 04:00 (the briefing) or the moment it happens.
 
-**32.4.5 Event records.** New types are inserted in `TYPE_ORDER` **before `smelterReturn`**
+**32.4.6 Event records.** New types are inserted in `TYPE_ORDER` **before `smelterReturn`**
 (information before contingencies; the relative order of existing types is unchanged, so
 classic's sort is unchanged): `feederOut`, `tieDerate`, `unitOutage`, `droughtWarn`,
-`feederClear`, `tieDerateEnd`, `unitReturn`. Every record gains `act` (0–3) and `crisis`
-(bool); legacy `prerollEvents` sets `act: 0, crisis: false`. Stage A writes every applier for
-real (they set state through the fleet setters and announce); the **consequences** in the grid
-are wave 1's. Texts read only the event's args (never `scn.events`), ≤ 25 words, no sender
-prefix (the tray names the sender).
+`feederClear`, `tieDerateEnd`, `unitReturn`. Every record gains `act` and `crisis` (Q-65);
+legacy `prerollEvents` sets `act: 0, crisis: false`. Stage A writes every new applier for real;
+the **consequences** in the grid are wave 1's. The new types' texts read only their args, ≤ 25
+words, no sender prefix (the tray names the sender). **heatText, stormText, cloudText and the
+drought's text are shared with classic** (their output is in `state.news`, so in `hashState`
+and the golden; `tests/events.test.js` :133–143 pins the heat wording): while `scn.dayplan` is
+null each returns today's string byte for byte, its classic branch unedited; the dayplan-day
+wording (args only, ≤ 25 words, no sender) is plan's (wave 1). A2 does not edit those four
+texts.
+
+**Series keys.** `weather.prerollSeries` and `prerollRooftop` apply `windMu`, `clearMu` and
+`clearMuAtLeast` at the record's own atS, whatever its type. So only a record that changes the
+weather at its own second carries one: heatOnset, stormArrive, windCutout, stormPass,
+windDrought, cloudOnset, cloudClear. No warning or briefing record carries one (droughtWarn,
+stormWarn, cloudWarn, heatAnnounce, any Act I type); a warning whose text needs a weather number
+carries it under another name, as an integer per-mille.
 
 | Type | atS | Args | Applier (stage A) | Public as |
 |---|---|---|---|---|
-| `feederOut` | 0 | `{districts: [id, id], clearS: [s1, s2]}` | `setDistrictDark(…, true, 'task')` with `darkSinceS` 0 and each `clearS`; news | news `{kind: 'network', fromS: s1, toS: s2, text}` |
-| `feederClear` | `clearS` | `{district}` | log `{sev: 'warn', code: 'FEEDER_CLEAR', msg, district}` | the record (a tray card) |
+| `feederOut` | 0 | `{districts: [id, id], clearS: [s1, s2]}` | each district's `clearS` set **before** `setDistrictDark(…, true, 'task')` with `darkSinceS` 0; news | news `{kind: 'network', fromS: s1, toS: s2, text}` |
+| `feederClear` | `clearS` | `{district}` | `fleet.refreshHeld(state)`; log `{sev: 'warn', code: 'FEEDER_CLEAR', msg, district}` | the record (a ringing tray card) |
 | `tieDerate` | 0 | `{limitMW, untilS}` | `fleet.setTieLimit(state, limitMW, untilS)`; news | news `{kind: 'tie', fromS: 0, toS: untilS, text}` |
-| `tieDerateEnd` | `untilS` | `{}` | `fleet.setTieLimit(state, TIE_MAX_MW, -1)`; log info `TIE_LIMIT_END` | the log |
-| `unitOutage` | 0 | `{unit, untilS}` | `fleet.setOutage(state, k, untilS)`; news | news `{kind: 'outage', fromS: 0, toS: untilS, text}` |
-| `unitReturn` | `untilS` | `{unit}` | `fleet.setOutage(state, k, -1)`; log info `UNIT_AVAILABLE` | the log |
-| `droughtWarn` | warn | `{onsetS, windMu}` | news (the drought's onset is `windDrought`, now log-only on a dayplan day) | news `{kind: 'drought', fromS: onsetS, toS: null, text}` |
+| `tieDerateEnd` | `untilS` | `{}` | `fleet.setTieLimit(state, TIE_MAX_MW, -1)`; log info `TIE_LIMIT_END` | an information card |
+| `unitOutage` | 0 | `{unit, untilS}` | `fleet.setOutage(state, k, untilS)` (throws unless unit k is off); news | news `{kind: 'outage', fromS: 0, toS: untilS, text}` |
+| `unitReturn` | `untilS` | `{unit}` | `fleet.setOutage(state, k, -1)`; log info `UNIT_AVAILABLE` | an information card |
+| `droughtWarn` | warn | `{onsetS, muPm}` | news (log-only `windDrought` follows at the onset) | news `{kind: 'drought', fromS: onsetS, toS: null, text}` |
+| `windDrought` | onset | `{windMu}` on a dayplan day | log only on a dayplan day (the news came with `droughtWarn`); as today on classic | the log |
 | `heatAnnounce` | 0 on desk | as today, from the plan's onset and end | as today | as today |
-| `cloudWarn` / `cloudOnset` / `cloudClear` | warn / onset / clear | gain `suburbs: true` and `lagMin` on desk | as today; the text names the suburbs when `suburbs` | as today |
-| `stormWarn` | warn | gain `cutoutFromS`, `cutoutToS`, `passS` on desk | as today; the text reads them | as today |
+| `cloudWarn` / `cloudOnset` / `cloudClear` | warn / onset / clear | cloudWarn gains `frontPm` (and may carry `roofDropMW`, Q-79); cloudOnset gains `suburbs: true, clearS` on desk; lags come only from scenario data | as today | as today |
+| `stormWarn` | warn | gains `cutoutFromS`, `cutoutToS`, `passS` on desk | as today | news `{kind: 'storm', fromS: arriveS, toS: args.passS when present, else null, text}` |
 
-**32.4.6 Fleet setters** (stage A, real, each refreshing what depends on it): `setTieLimit(state,
-mw, untilS)`; `setOutage(state, k, untilS)`; `setDistrictDark` keeps `heldFrac` (a 'task'
-district with `clearS > s` counts in `heldFrac`, not in the SHEDDING test); `startBlock` returns
-`'on outage until HH:MM'` while `outUntilS > s`. `market.isClean(score, black)`. Autopilot:
-`darkShareAt(obs, s)` (neutral: the present dark share, today's behaviour; wave 2 adds the
-announced returns).
+**32.4.7 Fleet, grid and market helpers** (stage A, real, neutral when nothing is set):
+`fleet.setTieLimit(state, mw, untilS)`; `fleet.setOutage(state, k, untilS)`;
+`fleet.refreshHeld(state)`; `startBlock` checks the outage before minimum down time and returns
+`'on outage until HH:MM'` while `outUntilS > s`; `grid.startFreeAt` returns at least
+`outUntilS`, and `onAtS` for a booked off unit `max(b.atS, outUntilS) + startToMinS`, so
+`planStart` refuses a booking before the return with the reason and `planKey`'s auto-booking
+lands after it; the `securedTick` block at the end of `grid.securitySecond` (Q-74's rule, read
+from `r5MW`, `lMW` and `shedBy`, never the level word); `market.isClean`, `market.isPerfect`;
+`step.scenarioHash(scn)` (= the `scnHash` createState computes). `autopilot.refRealSeconds(fromS,
+toS, conts, clears = [])` (clears unused until wave 2; three-argument calls unchanged).
 
-**32.4.7 The app's side.** `D.modeOf(d, state)` returns `{mode, rate, segment, act, night}`;
-`mode` gains `'NIGHT'` and `'RESTORE'` (wave 2 makes them happen; stage A only the shape).
-`render/format.js badgeText` takes the segment name (wave 2). `game.end.handFlown`. Tray
-`SENDERS` gains `network: 'NETWORK'`; `cardOf` routes by kind (Q-82). `content/dailies.js`
-(wave 2): `export const DAILIES = {v, from, to, attempts}`, `export function seedOf(ymd, k)`,
-`export function dailyFor(date) -> {seed, scenarioId, gated}`.
+**32.4.8 The app's side.**
+- `D.modeOf(d, state)` returns its existing fields plus `segment`, `act`, `night`. Precedence:
+  OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD > FOCUS > RESTORE > RESPOND > NIGHT >
+  FAST > CRUISE, where NIGHT suppresses the watch and the card for a contingency from NIGHT_S.
+  The view's night is `obs.nightShift` (real from wave 1), never `modeOf().night`.
+- `G.offerWhy(obs, tally)` (pure; 'respond' | 'tight' | 'peak' | ''; `tally = {n, extra,
+  contN}`), `G.objectiveDue(game, s, mode)` (wave 2), `G.dailyFrom(search, date)`, `game.daily`,
+  `game.end.handFlown`, `game.end.gated`; `G.OBJECTIVE_EVERY_S` stays exported as the 30-s floor.
+- `A.PEAK_H` stays in hours (`[16.5, 20]` from wave 2); `A.isWeather(kind)`; `T.trayFrame(tr,
+  s)`, `A.updateAlarms(st, input, ctx)`, `A.alarmInputFromState(state)` and `G.alarmCtx(game,
+  nowMs, realDtS)` keep their signatures (Q-63's card life and Q-73's quiet night live inside
+  them, so `play.js`'s light frame follows).
+- `T.trayBriefing(tr, news) -> cues`: one card per `news` item with `atS === 0` through
+  `cardOf`'s 'announce' path (sender, target, seen key as in play), atS 0 ("04:00"), returns
+  `['ring2']` once if it made any card, else `[]` (classic stays neutral); its overflow evicts
+  older cards first. `trayRecords(tr, recs) -> cues` keeps its meaning: a 'ring2' is exactly one
+  new card that rings. Tray `SENDERS` gains `network: 'NETWORK'`.
+- `content/dailies.js` (A3): `export const DAILIES = {v: '', from: '', to: '', attempts: {}}`
+  (`v` written by `tools/daily-gen.js` as a literal, never imported); `seedOf(ymd, k)` =
+  `ymd + k·1e8` (k ≤ 42); `ymdOf(seed)` = `(seed >>> 0) % 1e8`; `scenarioIdOf(ymd)` ('desk-weekend'
+  on a valid Saturday or Sunday date, else 'desk'; the one date-to-scenario mapping);
+  `dailyFor(date, stamp) -> {seed, scenarioId, gated, ymd}` (`date` a local `Date` or
+  'YYYY-MM-DD'; `gated` only when `v === stamp` and `from ≤ date ≤ to`; a stale stamp plays the
+  listed attempt with `gated: false`; outside `[from, to]` attempt 0 with `gated: false`).
 
 ### 32.5 Stage A (three agents in parallel, then the integrator)
 
 **32.5.1 prose (A1).** Move every remaining leading header comment of the first-visit JS files
-(13.2 KB gzip measured by the view reader) into the READMEs, keeping each file's first line and a
-one-line pointer (Q-49's form). Change nothing else: no code, no inner comments. Measure the first
-visit before and after (`node tools/perf.mjs`) and put the total, and §32.3's per-agent caps as
-a 2c sum, into `tests/budget.test.js`.
+into the READMEs (Q-49's form: first line and a one-line pointer kept), inserting under existing
+headings only. Change no code and no inner comment. Add `tools/perf.mjs --sizes`. Measure the
+first visit before and after with `--sizes`, and put into `tests/budget.test.js`: first visit ≤
+(the measured post-move total) + 11.4 KB, whose failure message prints the total, the ceiling and
+§32.3's cap table; `content/text.js` 20 KB and `content/alarmhelp.js` 5.5 KB on demand.
 
 **32.5.2 base-sim (A2).** In commits:
-1. `sim/clock.js` and its tests; `autopilot.js` imports `stepReal` (classic par hash unchanged).
+1. `sim/clock.js`, `sim/dark.js` and their tests; `autopilot.js` imports them (classic par hash
+   unchanged); the S-4 lint list becomes `['./params.js', './step.js', './clock.js',
+   './dark.js']`.
 2. The params block (§32.4.1).
-3. State, observe and records (§32.4.3–§32.4.5); `handFlown` in `applyInput`; the appliers and
-   their texts; the fleet setters (§32.4.6); `createState` applies every `atS` 0 event before it
-   returns (Q-81; a scratch `out`, discarded: the tray seeds briefing cards from `obs.news`).
+3. State, observe and records (§32.4.4–§32.4.6); the 04:30 `handFlown` rule; the new appliers
+   and their texts; the helpers (§32.4.7). `createState` ends `ekMWs → weather.sampleSecond →
+   events.applyDue(state, scratch)` (Q-81) `→ balanceOpening`, which balances
+   `fleet.litDemandMW(state)`: hydro takes the difference within each machine's range as today,
+   and whatever hydro cannot take above its floor comes off the online coal machines evenly,
+   each kept at or above its minMW (lit demand equals `env.demandMW` when nothing is dark, and
+   hydro is never at a limit at 04:00 today, so classic and stage-A desk move only by the new
+   keys). `tests/state.test.js` :487–503 compares supply with `fleet.litDemandMW(s)` within
+   1 MW.
 4. `sim/dayplan.js` **neutral**: `prerollRegime(seed, scn)` is today's formula and
    `preroll(seed, scn, regime)` returns `events.prerollEvents(seed, scn, regime)` with `act` and
-   `crisis` added; `createState` and `weather.prerollRegime` delegate to it when `scn.dayplan`.
-   The scenario data of §32.4.2 is added (desk's dayplan values in place, unused until wave 1;
-   `night: true` is inert until wave 1's flip; desk's `weather.stormShare` stays
-   `P.STORM_SHARE` until wave 1's regime goes live, so the legacy formula draws the same days).
-   Desk keeps the inherited legacy `events` block as **climatology** for the forecast and the
-   texts that read it today (the storm's cut-out and pass relative to its arrival); the dayplan
-   never reads it for timing.
-5. `tests/lib/inject.js`: `injectEvent(state, rec)` inserts a record into `state.ext.events` at
-   its sorted place after `evNext` (the general twin of the existing `injectTrip`), so tests
-   can put any 2c event on any seed.
-6. READMEs: `sim/README.md` §1 (clock, dayplan in the import table), §5 (state), §7 (records),
-   §8 (observe).
-
-At stage A's end on `desk`, play is unchanged (hashes move only by the new keys).
+   `crisis` added (it imports params, rng, clock and events only, never weather);
+   `createState` and `weather.prerollRegime` delegate to it when `scn.dayplan`. The scenario data
+   of §32.4.3 is added with two values staged: desk's `weather.stormShare` stays
+   `P.STORM_SHARE` and `night: true` is inert until wave 1. Until wave 1, desk's climatology is
+   the legacy `events` block (the plan is neutral).
+5. `sim/step.js` exports `deriveExt(state)` (ext.series, ext.rooftop and ext.heat from
+   ext.events, the very code createState uses) and `openDay(state)` (the atS-0 records, then
+   `sampleSecond`, then `balanceOpening`), and createState calls them. `tests/lib/inject.js`:
+   `injectEvent(state, rec)` refuses a record whose second has run (`rec.atS <
+   ceil(tick / TPS)`), a second heatAnnounce or one on a MILD day; inserts the record after
+   `evNext` at its (atS, TYPE_ORDER) place; calls `deriveExt`; and at tick 0 with atS 0 calls
+   `openDay`. `stateWith(seed, scn, recs)` = createState plus each record injected.
+   `tests/inject.test.js` (≤ 0.3 s): an injected cloudOnset leaves the sky unchanged before its
+   atS and lowers it 30 min after; an injected heatAnnounce gives the heat window's derate; an
+   atS-0 tieDerate at tick 0 is in `observe().news` with the limit set; a past atS throws;
+   `stateWith(seed, scn, [])` deep-equals `createState(seed, scn)` on DESK and CLASSIC.
+6. READMEs: `sim/README.md` §1 (clock, dark and dayplan in the import table; autopilot's list),
+   §5 (state), §7 (records, the series-keys rule), §8 (observe), new §11 subsections for
+   clock.js, dark.js and dayplan.js after `### step.js` (A1 only inserts under existing ones).
+7. **Neutrality, once at the end (no tool run, no re-record).** (a) `tests/baseline-v4.test.js`
+   is expected red on exactly :128 (par's end hash) and :134, whose diff lists `hash` and
+   nothing else; report both; any other cell is a regression A2 fixes. (b) A scratch probe (not
+   committed), run before the first commit and at the head: `runPar` on CLASSIC 4, DESK
+   20261007, DESK 20261008, DESK_WEEKEND 20261003; compare `r.log`, and the final state's JSON
+   with `ext`, `scnHash` and the §32.4.4 keys removed; report the four equalities.
 
 **32.5.3 base-app (A3).**
-1. **Test hygiene before anything moves.** Tests that assert 120× literals (`director.test.js`
-   :50/:52, `day.test.js` :41/:96, `play.test.js` :10–12/:22/:38, `next.test.js` :201/:252/:406/
-   :1175/:1178, `feedback.test.js` :143/:145/:282/:284, `hold.test.js` :286, `alarms.test.js`
-   :296/:384–392) read the rate from the page (`badgeText(modeOf())`, `D.rateOf`) or the clock,
-   so they pass at 120× now and on the profile later. Tests that ride on `desk`'s pre-rolled
-   events (`feedback.test.js` :322–364, `rooftop.test.js` :103–167, `events.test.js` :251/:604,
+1. **Test hygiene before anything moves.** `tests/lib/sim-helpers.js` gains `legacyDesk()` (and
+   `legacyDeskWeekend()`): `{...DESK, id: 'desk-legacy', dayplan: null, night: false, weather:
+   {...DESK.weather, stormShare: P.STORM_SHARE.value}}`, today's desk day for day. Tests that
+   assert 120× literals (`director.test.js` :50/:52, `day.test.js` :41/:96, `play.test.js`
+   :10–12/:22/:38, `next.test.js` :201/:252/:406/:1175/:1178, `feedback.test.js`
+   :143/:145/:282/:284, `hold.test.js` :286, `alarms.test.js` :296/:384–392) read the rate from
+   the page (`badgeText(modeOf())`, `D.rateOf`) so they pass at 120× now and on the profile
+   later. Tests whose subject is not the plan but that ride on desk's pre-rolled events
+   (`feedback.test.js` :322–364, `rooftop.test.js` :103–167, `events.test.js` :251/:604,
    `objective.test.js` :49/:123/:183/:209/:671, `levers-day.test.js` :270, `planview.test.js`
-   :267/:521/:572/:613; not `state.test.js`, which is A2's) are re-pinned onto injected events or
-   a finder, so the dayplan commit changes only the dayplan's own tests. The vacuous skip in
-   `director.test.js` :209 marks `seen.watch`.
+   :267/:521/:572/:613) are re-pinned onto `legacyDesk()` or `injectTrip`, so the dayplan commit
+   changes only the plan's own tests. The vacuous skip in `director.test.js` :209 marks
+   `seen.watch`.
 2. **One clean predicate** in the tools (Q-69), with a local copy until A2's `isClean` merges.
-3. `app/director.js modeOf` returns the new fields with neutral values (`segment: ''`, `act:
-   0`, `night: false`; wave 2's clock agent computes them), `game.end.handFlown`, the tray's
-   sender and target tables (Q-82).
+3. `content/dailies.js` (§32.4.8) and `tests/dailies.test.js` (pure: `scenarioForSeed(seedOf(
+   20261003, 1))` and `(…, 42)` are DESK_WEEKEND; `ymdOf(seedOf(d, k)) === d` for k 0..42; on the
+   empty list `dailyFor` returns `{seed: ymd, gated: false}`; `?seed=` of a non-date gives
+   `gated: false`; the stamp check skips while the list is empty). `app/game.js`:
+   `scenarioForSeed(seed)` keeps its name and returns `SCENARIOS[scenarioIdOf(ymdOf(seed))]`;
+   `dailyFrom(search, date)` (`?seed=N`: `{seed: N, scenarioId, ymd, gated: d.gated && d.seed ===
+   N}`; `?date=`: `dailyFor(that date)`; none: `dailyFor(today)`); `createGame` takes `o.daily`;
+   `game.end.gated`; `app/shell.js` :203 boots through it (one line). While the list is empty
+   every date's daily is its YYYYMMDD seed, so play is unchanged.
+4. `app/director.js modeOf` returns the new fields with neutral values (`segment: ''`, `act: 0`,
+   `night: false`); `game.end.handFlown` (from `state.control.handFlown`); `G.offerWhy` (the
+   predicate moved out of `updateOffers` unchanged); the tray's sender and target tables (Q-82).
 
-**32.5.4 The integrator.** Merge A1, A2, A3 (A2 first); resolve `TODO(2c-merge)`; run the whole
-suite; masked golden diff (hash cells, Build and machine lines only, classic numbers equal); bump
-`SIM_VERSION` to `v4-core-2c.0`; `npm run golden:v4`; `tools/perf.mjs --rates 120,540,1620,2100`
-once (the frame baseline); record §32.11.
+**32.5.4 The integrator.** Merge A2, then A1, then A3; resolve `TODO(2c-merge)`; run the whole
+suite; masked golden diff (hash cells, Build and machine lines only, classic numbers equal) and
+A2's neutrality probe on the merged stage A; bump `SIM_VERSION` to `v4-core-2c.0`; `npm run
+golden:v4`; `tools/perf.mjs --rates 120,540,1620,2100` once (the frame baseline); compare A2's
+measured bytes with the caps; record §32.11.
 
 ### 32.6 Wave 1 (the sim, real)
 
 **32.6.1 plan.** `sim/dayplan.js` for real (Q-65–Q-68, Q-71, Q-72):
 - `prerollRegime`: a = 0 heat (u < heatShare), a = 1 MILD/HOT (as today), a = 2 the overlay
   among non-heat days (storm if u2 < stormShare / (1 − heatShare), drought if u2 < (stormShare +
-  droughtShare) / (1 − heatShare), else calm). `cls` heat | storm | drought | calm.
-- `preroll`: Act I (constraint, task), then Act III, then Act II, then the notices; every draw
-  on `EXT_EVENTS` slots ≥ 64 with its own counter; times on whole minutes (clearances and heat
-  onsets on 5-min marks); warnings by Q-71 through `clock.gridBefore`; trips over their feasible
-  minutes (Q-72); the storm link trip and cut-out relative to the arrival; nothing from 21:00;
-  every record's `act` and `crisis` (the act's designed event is `crisis: true`); the task's
-  suburb and its two rotation districts drawn from the scenario's rotation list.
-- The texts of the plan's types (≤ 25 words, args only). Desk's `weather.stormShare` becomes
-  0.25 here.
-- Any test the live plan breaks is plan's to repair, by re-pinning (named lines), including
-  `tests/autopilot.test.js` :84–127 (the donor seed's heat at 10:30); a behaviour another owner
-  retires later (`heatWorstCase`, wave 3) is marked `{todo: 'wave 3 line: Q-80'}`, not
-  rewritten.
+  droughtShare) / (1 − heatShare), else calm). `cls` heat | storm | drought | calm. Desk's
+  `weather.stormShare` becomes 0.25 here.
+- `preroll`: Act I (constraint, task), then Act III, then Act II, then the notices; every draw on
+  `EXT_EVENTS` slots ≥ `DAYPLAN_SLOT_BASE` with its own counter; times on whole minutes
+  (clearances and heat onsets on `DAYPLAN_MARK_S` marks); warnings by Q-71 through
+  `clock.gridBefore`; trips over their feasible minutes (Q-72); the storm link trip and cut-out
+  relative to the arrival; the front's onset after the derate's end + `afterDerateMin`; nothing
+  from 21:00; every record's `act` and `crisis`; the task's suburb and its two rotation districts
+  drawn from the scenario's rotation list; the outaged unit off in the 04:00 commitment; the
+  series-keys rule (§32.4.6); the cloudWarn's `roofDropMW` from scenario data and the warned
+  onset only.
+- The dayplan-day wording of heatText, stormText, cloudText and the drought's text (args only,
+  ≤ 25 words, no sender), gated on `scn.dayplan`; classic's strings byte for byte.
+- **Staging:** plan ships desk's `dayplan.act1.task.p` at **0** (every other value live,
+  `derateP` 0.5 included); the integrator sets 0.85 at the wave-1 merge, after grid's semantics
+  are in. `tests/dayplan.test.js` runs on a scenario copy with p 0.85.
 - `tests/dayplan.test.js` (pre-roll only, ≤ 1 s): over 2,000 consecutive dates from 2026-01-01
   (each with its date's scenario) and over seeds 1–2,000 on `desk`: class shares ±2 points;
-  storm 25 ± 2, drought 20 ± 2; zero violations of Q-72 (all five rules) and Q-71 (every
-  warned onset's lead ≥ 25 real s and ≥ its start + 2 min); timing windows (D-8(e)); nothing
-  from 21:00; task on ≥ 80% (target 85 ± 2) with clearances in 06:30–08:00 ≥ 15 min apart and
-  rotation districts of one suburb; one constraint every date; the timing distributions of the
-  Act II and Act III trips (a histogram is not degenerate: the joint draw must not push every
-  Act II trip into 09:00–09:24); classic's pre-roll unchanged (deep-equal on 200 seeds).
-  Show once, by hand, that the guard can fail (break a lead, see red, restore).
+  storm 25 ± 2, drought 20 ± 2; zero violations of Q-72 (all five rules) and Q-71 (every warned
+  onset's lead ≥ 25 real s and ≥ its start + 2 min); timing windows (D-8(e)); nothing from
+  21:00; the task on 85 ± 2% with clearances in 06:30–08:00 ≥ 15 min apart and rotation
+  districts of one suburb; one constraint every date, its outaged unit off at 04:00; no front
+  before its date's derate end + 30 min; the series-keys rule (the set of types carrying each key
+  is exactly §32.4.6's list; on drought days only `windDrought` carries `windMu`, at
+  `droughtWarn`'s onset; `cloudOnset` at `cloudWarn`'s onset); the timing histograms of the Act
+  II and Act III trips (not degenerate: the joint draw must not push every Act II trip into
+  09:00–09:24), heat days' Act II trips reported separately; the link trip's realised share;
+  classic's pre-roll unchanged (deep-equal on 200 seeds) and classic's heat, storm, cloud and
+  drought news texts equal to today's strings. Show once, by hand, that the guard can fail
+  (break a lead, see red, restore).
+- Re-pin any desk test the live plan breaks with the task off, naming the lines, including
+  `tests/autopilot.test.js` :84–127 (the donor seed's heat at 10:30); a behaviour another owner
+  retires later (`heatWorstCase`, wave 3) is marked `{todo: 'wave 3 line: Q-80'}`.
 
-**32.6.2 grid.** The consequences in the sim (Q-64, Q-69, Q-74, the Act I constraints):
-- Task districts: `restorePermissive`'s **first** check is `clearS > s` → `'feeder under repair
-  until HH:MM'` (the bay, `observe().restoreBlock`, the line and par's rule 9 then read one
+**32.6.2 grid.** The consequences in the sim (Q-64, Q-69, Q-74, the Act I constraints), tested on
+records put on a neutral desk day with `tests/lib/inject.js`:
+- **Task districts:** `restorePermissive`'s **first** check is `clearS > s` → `'feeder under
+  repair until HH:MM'` (the bay, `observe().restoreBlock`, the line and par's rule 9 then read one
   reason); `heldFrac` excluded from physics' unserved (exact when 0); `heldMWh` accrues instead;
-  `splitShed` books task MWh only after `clearS`; SAIDI/SAIFI skip held districts;
-  `security()`'s SHEDDING counts only `ufls`/`directed` darkness; `balanceOpening` uses lit
-  demand. Cold load applies as for any district dark > 10 min.
-- The tie limit: the dispatch clamps imports at `tie.limitMW`; R5's tie headroom and L's tie
+  `splitShed` books task MWh only after `clearS`, and `taskLateMWh` from each district's allowed
+  second + `RESTORE_PACE_MAX_S`; when nothing is dark at the end of a second it books that
+  second's energy by the category of the districts relit in it (their last `shedBy`), never to
+  UFLS; SAIDI/SAIFI skip held districts and count a task district from `clearS`;
+  `security()`'s SHEDDING counts only `ufls`/`directed` darkness; physics' preview backup
+  (save/restore) copies `city.heldFrac`. Cold load applies as for any district dark > 10 min.
+- **The tie limit:** the dispatch clamps imports at `tie.limitMW`; R5's tie headroom and L's tie
   import use it; `tieDerateEnd` restores 800.
-- Outages: `startBlock` refuses with the reason; the plan's booked start of an outaged unit
-  waits (the plan executor skips it until `outUntilS`, then starts it if still booked).
-- `securedTick`: set in `securitySecond` per Q-74 on the latest contingency (and on an earlier
-  one still open: the record of the latest only, as `backInBandTick` is).
-- The night flip (`sim/step.js`, gated on `scn.night`): at NIGHT_S `control.nightShift = true`;
-  HAND → AGC with a log `NIGHT_SHIFT` record; `handFlown` stays.
-- Tests: `tests/task.test.js` (held, the gate, the hand-back, task MWh from `clearS` within 1%,
-  SAIDI from `clearS`, never SHEDDING on held darkness, DIRECT SHED refused on a healthy task
-  morning, `isClean` true with task MWh), `tests/act1.test.js` (the derate clamps imports, R5 and
-  L follow, the end restores; an outage refuses START with the reason and a booked start waits),
-  additions to `tests/grid.test.js` ("AGC never acts in HAND before 21:00": every second of
-  sampled windows 06:00–06:30, 12:00–12:30, 20:30–21:00 after a jump; AGC acts after 21:00;
-  `securedTick`). Each new file ≤ 3 s.
+- **Outages:** the plan executor keeps a booking made through `planLoad` before `outUntilS` in
+  `plan.starts`, passing over it without blocking later bookings, and starts the unit at
+  `outUntilS` if it is still booked (`unitReturn` applies before `planSecond`).
+- **The night flip** (`sim/step.js`, gated on `scn.night`): in `gridSecond` right after
+  `events.applyDue`, when `s >= NIGHT_S && !control.nightShift`: `nightShift = true`; HAND → AGC;
+  every station's MAN flag cleared (as `planRejoin` does); a `NIGHT_SHIFT` log record;
+  `handFlown` stays.
+- **Tests:** `tests/task.test.js` (held, the gate, the hand-back drops `heldFrac` by the
+  district's share and the next settled second books `taskMWh`, task MWh from `clearS` within 1%,
+  `taskLateMWh` 0 inside the pace and > 0 after it, two feeders on one clearance closed in time
+  give 0, `isClean` still true after both are restored, a day with no restore `isClean` but not
+  `isPerfect`, SAIDI from `clearS`, never SHEDDING on task darkness, DIRECT SHED refused on a
+  healthy task morning, preview neutrality: `JSON.stringify` and `hashState` unchanged across
+  `previewTrip` (unit, link, district) and `restorePermissive(…, {preview: true})` on a state
+  with one held district, one past its `clearS` and a preview that operates UFLS within 10 s;
+  show once by hand that the last can fail), `tests/act1.test.js` (the derate clamps imports, R5
+  and L follow, the end restores; `planStart` before `outUntilS` refused with the reason; a
+  `planLoad` start at 06:00 with the outage until 07:30 waits; `onAtS` puts the unit at MIN at
+  `outUntilS` + startToMin), additions to `tests/grid.test.js` ("AGC never acts in HAND before
+  21:00": every second of sampled windows 06:00–06:30, 12:00–12:30, 20:30–21:00 after a jump;
+  AGC acts after 21:00; `securedTick` stays −1 while a UFLS district is dark with R5 ≥ L, stays
+  −1 after `fos.directed` ends with directed districts still dark, is set at the second the last
+  is relit, and a held task district does not block it). Each new file ≤ 3 s.
 
-**32.6.3 sky.** Fronts over the suburbs (Q-79): `prerollRooftop` folds a `cloudOnset` with
-`suburbs: true` into the regional sky from each suburb's lag (and the precinct from its own);
-`roofPlan` and the forecast carry a warned front from its `cloudWarn`, with the band ×2.5 while
-a front is forecast; the heat's clear sky as today. On a dayplan day the storm's news carries
-`toS` = its pass (the plan's clip at 20:50), and `windPlan` reads it when present. `tools/l2.mjs`: the L-2 coverage method of
-`git show fb73b7d^:tests/events.test.js`, rebuilt as a tool (not run by the agent).
-`tests/front.test.js`: an injected front darkens each suburb in lag order, the rooftop forecast
-knew it from the warning (S-4 scramble still deep-equal for unwarned state), the band widens
-only while a front is forecast, classic unchanged. ≤ 2 s.
+**32.6.3 sky.** `weather.climate(scn)` returns `{storm: {arriveMu, cutoutAfterMin, cutoutMu,
+passAfterMin, passMu}, cloud: {frontMu, clearAfterMin, clearMu, frontRampMin, clearRampMin},
+drought: {mu}, heat: {clearMu}}`: from the dayplan block when `scn.dayplan`, otherwise derived
+from `scn.events` (cut-out = `cutoutWindowH − arriveH`, pass = `passH − arriveH`, in minutes), so
+classic stays bit-identical. `windPlan`, `clearPlan` and `roofPlan` read only `climate`; a
+storm's news `toS` (the plan's clipped pass) overrides the climatological pass when present.
+Fronts over the suburbs (Q-79): `prerollRooftop` folds a `cloudOnset` with `suburbs: true` into
+each place's sky by Q-79's shape (lags from `city.suburbs[j].frontLagMin` and
+`rooftop.precinctLagMin`), and the forecast carries a warned front from its `cloudWarn` with the
+same per-place shape and the clearing's variance in the band; the heat's clear sky as today.
+`tools/l2.mjs`: the L-2 coverage method of `git show fb73b7d^:tests/events.test.js`, rebuilt as
+a tool (not run by the agent). `tests/front.test.js` (≤ 2 s; fronts put on a `legacyDesk()` or
+calm seed with `stateWith`, checking first that `ext.rooftop` changed): each suburb reaches
+`frontMu` in city order within one sky step of its lag + ramp; rooftop MW at 13:00 after the
+last ramp is within 10% of Σ capacity × share × clearFactor × shape × cloudBite × (sky before −
+frontMu); the rooftop forecast knew it from the warning (S-4 scramble still deep-equal for
+unwarned state); the band widens only while a front is forecast; the forecast's mean during the
+front equals the `cloudOnset`'s `frontMu` and its storm cut-out window equals `stormWarn`'s args
+(so a second copy fails a test); classic unchanged.
 
-**At the wave-1 merge (the integrator):** the whole suite; the masked golden diff (classic
-unchanged); one real desk day by `tools/play.mjs` as a smoke check (not a statistic); the
-dayplan test's numbers recorded.
+**At the wave-1 merge (the integrator):** merge grid, then sky, then plan; one commit sets
+desk's `act1.task.p` to 0.85; the whole suite; the masked golden diff (classic unchanged); one
+real desk day by `tools/play.mjs` as a smoke check (not a statistic); the dayplan test's numbers
+recorded.
 
 ### 32.7 Wave 2 (par, the clock and the view, on the real sim)
 
 **32.7.1 par.**
-- **The night-shift spike first** (Q-73): `decide()` with a fresh par memo at 21:00 on a
-  player's state, no input, three desk seeds: no UFLS, no directed shedding, units stand down,
-  an armed RERT is stood down. If a fresh memo cannot work, the fallback is fixed standing orders
-  at 21:00 (stand down RERT, end DR, the battery to idle, stop every gas unit rule 4 frees), and
-  the agent says so.
-- `app/system.js`: from NIGHT_S on `night` scenarios the system runs that memo (origin `night`),
-  keeping the player's booked stops. Classic's "no-input day = planOnly, hash for hash" stays.
-- `sim/autopilot.js`: par reads `obs.tie.importLimitMW`/`limitUntilS` per column, `outUntilS`
-  for its starts, and `darkShareAt` with announced returns (a task district counts as lit from
-  its `clearS`); rule 9 waits at the gate by itself (the reason); `refRealSeconds` gains the
-  RESTORE segments (Q-70) from `obs.districts[].clearS` (desk only by construction).
-- `tools/par.js`: `isClean`, columns for task MWh and held MWh, `regime.cls` with drought.
-- `content/dailies.js` and `tools/daily-gen.js` (Q-75): candidates, class preservation, the
-  gate along `runPar` (`onStep` bound, flex in its window), `-j`, `--check`, the report (attempts
-  histogram, heat and overlay shares, the Hard-day pool, D-10 gaps, wall and single-core time).
-  Not run by the agent beyond one or two dates as a check.
-- `tools/day-measure.mjs`: the D-10 gap function (Q-76; pure, tested) and the Q-77 proxy.
-- Tests: `tests/night.test.js` (one shared no-input desk evening at 20:59 by a sim jump; the
-  night shift stands down, nothing sheds, RERT stood down; ≤ 3 s), `tests/dailies.test.js`
-  (`seedOf`, `dailyFor`, weekend from the date, the gate predicate on stub scores, the version
-  stamp; pure), `tests/gaps.test.js` (pure), par rule lines in `tests/autopilot.test.js`.
+- **The night spike first** (Q-73), on played evenings: for DESK 20261007, DESK 20261008 and
+  DESK_WEEKEND 20261003 (or the next dates whose par evening is clean at 20:30: no UFLS or
+  directed district dark), run `runPar` to 20:30; apply a player's leftovers (`armRERT` at 20:30,
+  a `planStop` booked for 22:00 on a gas unit par is running, a battery order); step to 21:00;
+  run the night memo. Accept when: no new UFLS or directed district after 21:00; at least one
+  unit stops; the armed RERT is stood down within `PAR_RERT_STANDDOWN_MIN` of 21:00 plus one
+  decision; the booked stop is still booked and executes at 22:00. A fresh memo as it stands
+  fails two of these: `rertSinceS: -1` blocks the stand-down (`sim/autopilot.js` :1470), and
+  `makePlan` drops the stops (:837). The night memo seeds `rertSinceS` from the armed state and
+  carries `obs.plan.stops`. Report, without asserting: the night's actions by rule, any peaker
+  started while another was still starting (if so, rule 2 skips while a peaker is starting at
+  night), the night cost with two extra GTs and a 300-MW GUARD left on (paced and unpaced), the
+  sim p95 at 2,100× with the night pace (F-11 ≤ 3 ms), and the no-input player-commit evening on
+  one date (it must reach 04:00 and never go black; its dark districts may stay dark). If the
+  night memo cannot work, the fallback is fixed standing orders (stand down RERT, end DR, the
+  battery to idle, stop every gas unit rule 4 frees, keep booked stops) in the same function,
+  for both harnesses; the agent says which.
+- `sim/autopilot.js`: `export function nightMemo(obs)` (from obs alone: a `PROXIES.night` row,
+  all rules, `NIGHT_ACTION_S` pace in grid time, stops kept; `plan` = `preDispatch(obs)` with its
+  load dropped and the booked stops carried; `rertSinceS = obs.rert.armed ? obs.s −
+  RERT_STANDDOWN_S : −1`; `night: true`; other fields `createAutopilot`'s defaults). `runPar` on
+  a `night` scenario swaps its memo for `nightMemo` at the first decision second ≥ NIGHT_S, once
+  (`!memo.night`, so `app/par.js`'s chunked resume swaps exactly once), for the proxies that
+  stand for a player (par, competent, lean, commitAll, planOnly); doNothing and fuzz keep their
+  F-3 meaning; classic untouched. Par reads `obs.tie.importLimitMW`/`limitUntilS` per column and
+  `outUntilS` for its starts; rule 9 waits at the gate by itself (the reason); `refRealSeconds`
+  counts the RESTORE segments (Q-70) from `obs.districts[].clearS`.
+- `sim/dark.js`: a district with `clearS >= 0` counts as lit at every `s >= clearS`.
+- `app/system.js`: from NIGHT_S on `night` scenarios the system swaps to the same `nightMemo`
+  (held in `sys.night`, plain JSON) and stops its player-mode dispatch (no `playerInputs`, no
+  dispatch interval, no `commitSig`); from then on it runs only runPar's step on the night memo
+  (`decide`, then `planUpdates`), origin `night`. Classic's "no-input day = planOnly, hash for
+  hash" stays. `app/assist.js` mirrors the swap, or is stated classic-only.
+- `tools/par.js`: `isClean`, columns for task, held and late MWh, `regime.cls` with drought.
+- `tools/daily-gen.js` (Q-75): candidates by `seedOf`, class preservation, the gate along
+  `runPar` (an `onStep` bound with air-con in its window), `-j`, `--check`, the build stamp, the
+  report (attempts histogram, heat and overlay shares, the Hard-day pool, D-10 gaps by class,
+  wall and single-core time). Not run by the agent beyond one or two dates as a check.
+- `tools/day-measure.mjs`: the D-10 gap function (Q-76; pure, tested) and the Q-77 proxy (it
+  imports `G.offerWhy` and `app/planview.js project`).
+- **Tests:** `tests/night.test.js` (≤ 6 s alone, each test ≤ 2.5 s; one shared played evening
+  built once in `before()` as in the spike, JSON-cloned per test): units stand down, nothing
+  new sheds, the RERT is stood down, the booked stop is kept, every system input from NIGHT_S
+  has origin `night`, every gas unit rule 4 frees is stopped by the later of 21:10 and the time
+  it reaches 90 min on + 10 min, a GUARD left on is stepped to 0 by 21:30; and the equivalence:
+  from par's state just before its first night decision, (a) `runPar` continuing with its memo
+  and (b) a fresh `createSystem({commit: 'player'})` with `systemInputs` and no input end at
+  04:00 with the same `hashState`. Plus one no-input evening: the roll ends, not black.
+  `tests/gaps.test.js` (pure); rows added to `tests/dailies.test.js` (the gate predicate on stub
+  scores, the stamp); par rule lines in `tests/autopilot.test.js`.
 
-**32.7.2 clock.** `app/director.js` on the profile (Q-63, Q-64, Q-70, Q-73): CRUISE =
-`rateAt(s, hand)`; NIGHT from NIGHT_S on `night` scenarios (no FAST, no watch, card or RESPOND:
-a contingency in the night is logged and its watch never opens); RESTORE 30× at each `clearS`
-until restored or 300 grid-s; RESPOND as today, then the profile; FAST = 3 × CRUISE, its refusals
-and Q-63's releases (a new warn tray card reaches `endFast` through `handleRecords`); the bench
-keeps `FLAT_RATE` and DEBUG. `app/game.js`: `leadS = gridAfter(s, LINE_REACT_S, hand) − s`; the
-objective's cadence (Q-63); the briefing refusal and `takeDesk`'s mode check (Q-64); the night
-lock (inputs refused from NIGHT_S with the blue note, except pause, ACK, volume, "?"); boot by
-`dailyFor` (`?date=`, today, `?seed=` raw). `render/format.js`: the badge (segment + target
-rate; HAND halved). `tests/clock-director.test.js`: the profile through `runFrame` on a fake
-state at 60 and 144 Hz (245 ± 3 real s; HAND 478 ± 3); FAST refused and released per Q-63; NIGHT
-holds nothing; RESTORE pace; the briefing bug's regression; D-6's accept on a 2-h slice (1×, F
-held, 50 seeded random pauses: one `hashState`); D-4's viewed-or-skipped with the profile.
+**32.7.2 clock.**
+- `app/director.js` on the profile (Q-63, Q-64, Q-70, Q-73): CRUISE = `rateAt(s, hand)`; NIGHT
+  from NIGHT_S on `night` scenarios (eased into; no FAST; a contingency in the night is logged
+  and its watch never opens); RESTORE at each district's allowed second until restored or 300
+  grid-s, at 10× until `seen.restore` (set by the first accepted restore of a district with
+  `clearS ≥ 0`); RESPOND as today, then the profile; FAST = 3 × CRUISE with its refusals; the
+  bench keeps `FLAT_RATE` and DEBUG.
+- `app/game.js`: `leadS = gridAfter(s, LINE_REACT_S, hand) − s`; `objectiveDue(game, s, mode)`
+  (Q-63's cadence; buildVm and `play.js`'s mirror both call it); in `handleRecords`, `for (const
+  c of T.trayRecords(game.tray, recs)) { if (c === 'ring2') D.endFast(game.director);
+  pushCue(game, c); }`; in `takeDesk` after `runTo(V.PLAYER_START_TICK)` and before `phase =
+  'play'`, `for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c);`; the
+  briefing mode rule (Q-64; with the named `app/shell.js` lines); the night lock (sim inputs
+  refused from NIGHT_S with the blue note; views, pause, ACK, volume open); the offer rule (Q-78)
+  inside `offerWhy` and `updateOffers`.
+- `render/format.js`: the badge (segment + target rate, HAND halved; the act in its title).
+- `tests/lib/play.js`, `tools/play.mjs`: the cadence mirror through `objectiveDue`; `openGame`
+  records `spaceMs`; play.mjs gains a `clock` step (real seconds since Space and the parts spent
+  in WATCH, the card, RESPOND and RESTORE: D-2's terms) and `--returning` (storage with
+  `seen.watch` and `seen.restore`); one assertion in `tests/play.test.js`.
+- `tests/clock-director.test.js`: the profile through `runFrame` on a fake state at 60 and 144 Hz
+  (245 ± 3 real s; HAND 478 ± 3; with two unrestored clearances on the ramp 245 + 17.78 ± 3);
+  FAST refused and released per Q-63 (MSL1 does not release it, MSL2 does); NIGHT holds nothing;
+  RESTORE at both rates and the flag; the briefing mode (HAND by the desk key; a stack or desk
+  press refused in blue; TAKE THE DESK gives a HAND day; HAND then AGC gives an AGC day with
+  `handFlown` false; after `resetDay` the card reads AGC); D-6's accept on a 2-h slice that holds
+  a trip, a feeder clearance and a warning (1×, F held, 50 seeded random pauses: one
+  `hashState`); D-4's viewed-or-skipped with the profile.
 
-**32.7.3 desk.** Q-74's row on `desk/gauge.js`; the bay's STORM word and the repair reason;
-the tie knob and `desk/calc.js` show and clamp the limit; the night lock's note in
-`desk/desk.js`; `app/tray.js` (Q-63's card life, Q-81's briefing cards, Q-82's senders);
-`app/alarms.js` (WEATHER from weather kinds, quiet in the night roll, PEAK from `clock.PEAK`, K-8
-re-measured on `stepReal`); `app/watch.js` (the card's "secure" words per Q-74, defect V-3: the
-dark-district count back on a SHEDDING card); `app/endcard.js` (HAND-FLOWN, the reliability line
-for held feeders, the "not gate-checked" line). Tests: `tests/countdown.test.js` (vm fixtures:
-BAND m:ss, ✓, SECURE minutes, ✓, overdue amber, aria m:ss), `tests/tray-day.test.js`.
+**32.7.3 desk.** Q-74's COVER row on `desk/gauge.js` (and the HELP sentence); the bay's FAULT
+word, the repair reason and the tab glow at each hand-back; the tie knob and `desk/calc.js` show
+and clamp the limit; the night lock's note in `desk/desk.js`; `app/tray.js` (`trayBriefing`;
+`trayFrame`'s life: over when `clock.stepReal(max(card.atS, V.PLAYER_START_S), s) ≥
+TRAY_LIFE_REAL_S`, a warning issued in play with `fromS > atS` also until `s ≥ fromS`, the
+card's expiry stored when it is made, every expired card retired, not only the front;
+`CARD_TTL_S` goes; senders; UNIT_AVAILABLE and TIE_LIMIT_END information cards; FEEDER_CLEAR a
+ringing card that says what to press; the night's rings quiet); `app/alarms.js` (`isWeather`;
+the inputs carry every news kind of a batch; quiet in the night roll; `PEAK_H` =
+`clock.PEAK.map(s => V.DAY_START_H + s / V.S_PER_H)`; K-8 re-measured on `stepReal`);
+`content/alarmhelp.js` (PEAK's trigger through `clock.hhmm`, never `h + ':00'`; WEATHER's
+reading counts `isWeather` items only); `app/watch.js` (the card's words: "N-1 SHORT: n MW
+short: cover it within m:ss", "N-1 TIGHT: spare covers the next trip, without SECURE's
+margin", "SHEDDING: n districts dark: relight them within m:ss"); `app/endcard.js` (HAND-FLOWN
+from `game.end.handFlown`, the reliability line for task feeders, "Not gate-checked" when
+`game.end.gated === false`). Tests: `tests/countdown.test.js` (vm fixtures: m:ss at rate 1; no
+':' in the visible text at 30× and 300×, BAND whole minutes and its bar; one COVER figure across
+two updates 0.2 real s apart at 300×; "BAND ✓" held 1 s after the return and gone at 3.1 s
+outside a window; "BAND HIGH"; aria m:ss at 300×; COVER n MIN, ✓ T+n, LOST, overdue amber; never
+✓ beside a SHORT or SHEDDING head; the overdue row visible after `secureByTick` in band),
+`tests/tray-day.test.js` (the briefing cards and their one ring, all in the LOG at
+`gridAfter(04:30, 20 real s)`; a warning issued in play held to its onset while a newer
+information card expires behind it; classic's `trayBriefing` returns []; no `ALARM_HELP` text
+matches `/\d\.\d+:00/` and the peak trigger names 16:30; WEATHER's reading says 0 on a morning
+whose only news is a derate and feeders; HAND-FLOWN on the end card after the 21:00 flip).
+RESPOND's 30× part is usually empty (all 8 probed trips were back in band inside the watch): the
+row's main readers are COVER at profile speed and BAND at cruise or in HAND.
 
 **32.7.4 map.** `render/map.js`: the occupancy curve (≈ 0.9 at 21:00 to ≈ 0.15 by 01:00, waking
-05:30–07:30) times today's demand factor, in about 30 steps; the held feeders' label "SUBURB: 2
-DARK · FEEDERS HH:MM" in blue until the hand-back, then today's alarm label.
-`render/livestack.js`: act ticks; onset markers for warned onsets ahead; the idle redraw capped
-at `STACK_MAX_HZ` and frozen in the night roll. `app/planview.js`: the announced return
-(`darkShareAt`) and the tie limit. `tests/day-view.test.js`.
+05:30–07:30) times today's demand factor, in about 30 steps; the task feeders' label in blue
+until each hand-back ("SAL: 2 DARK · BACK 06:45, 07:05", then "SAL: 1 DARK · BACK 07:05"),
+then today's alarm label. `render/livestack.js`: act ticks from `clock.ACT_S`; onset markers for
+warned onsets ahead; the idle redraw capped at `STACK_MAX_HZ` and frozen while
+`obs.nightShift`. `app/planview.js`: each column's load from `darkShareAt(obs, t)` and `litMW`;
+the tie limit; `earliestOnAt` for an off unit `max(s + wait, outUntilS) + startToMin` (the
+earliest line, `glowCandidates`, `snapStart` and `earliestArrival` follow), `simInit` copies
+`outUntilS`, the mirror executor leaves a booked start pending while `t < outUntilS`. The
+allowlists: `tests/map.test.js` :569 adds `'../sim/clock.js'`; `tests/planview.test.js` :640
+becomes `['../sim/params.js', '../sim/dark.js']`. `tests/day-view.test.js`: each column's load
+equals `litMW(p50, roof, darkShareAt(obs, t))`; an injected outage puts CCGT 2's ghost no
+earlier than `outUntilS` + startToMin and a 06:00 booking online then; the windows at 21:00 >
+00:30; the feeder label's two times.
 
-**At the wave-2 merge (the integrator):** the whole suite; the golden diff; `tools/play.mjs` on
-one desk date with a script (TAKE THE DESK, Space, Enter on each card) printing real seconds:
-the first D-2 timing smoke check.
+**At the wave-2 merge (the integrator):** the whole suite; the golden diff; the step at `clearS`
+in the stack checked once by hand; `node tools/play.mjs <date> --returning
+timeline=04:30-04:00/30m clock` on one desk date, and once without `--returning`: the first D-2
+timing check, reporting Space-to-verdict against E and each of E's terms.
 
 ### 32.8 Wave 3 (on the merged real thing)
 
 **32.8.1 line.** `app/objective.js`: Q-80 (retire `heatWorstCase` and the 10:30 rule); the
 restore-task asks from the ETR ("SAL4's feeder is back at 06:45: hold 230 MW of spare for its
 pickup"); the derate's and the outage's reasons in capacity asks; the line quiet at night (the
-strip replaces it, §32.8.2); the grid-time constants tuned at 120× (`ACT_WITHIN_S`, `NOW_S`,
-`STEADY_*`) expressed through the clock so they mean the same real time in every segment; the
-S1 "aims that flickered" fix re-checked at 540×. `tools/follow.mjs` reads the new kinds.
+strip replaces it); on night scenarios `stopSaving`'s horizon ends when the night shift would stop
+the unit (NIGHT_S, or when it reaches `PAR_DECOMMIT_MIN_ON_MIN` on, whichever is later), not at
+DAY_S, so RELEASE's "Stop it: saves about $X" stays true and quiets near 21:00; the grid-time
+constants tuned at 120× (`ACT_WITHIN_S`, `NOW_S`, `STEADY_*`) expressed through the clock so
+they mean the same real time in every segment; the S1 "aims that flickered" fix re-checked at
+540×. `tools/follow.mjs` reads the new kinds.
 
-**32.8.2 shell.** `app/shell.js`, `next.html`: the briefing's "Watch for" (every 04:00 news item,
-≤ 60 words; Q-81); the desk's AGC key in the briefing sets the briefing's choice; the HAND chip
-in the header (amber, with the word); the night strip in the plan bar (SUPPLY, OUTAGES, CARBON,
-ALL-IN at $0.1M, SCORE vs par); the end card fetched at 21:00; `content/text.js` (the §8.2
-rows of §32.2, the cap at 20 KB); `content/anchors.js`. Tests: `tests/briefing.test.js`,
-`tests/night-strip.test.js` (a shell boot, a sim jump to 21:00, frames through the roll ≤ 15
-real s with no input; ≤ 3 s), `tests/acts-audit.test.js` (D-1: every control that sends a sim
-input lives under the desk, the stack, the map or the suburb card; the briefing sends only TAKE
-THE DESK's mode), `tests/feedback-day.test.js` (every new press answers: FAST at night, a press
-in the night lock, a press in the briefing, RESTORE on a feeder under repair, START on an
-outaged unit).
+**32.8.2 shell.** `app/shell.js` (not the briefing-mode lines), `next.html`: the briefing's
+"Watch for" (Q-81's briefs, ≤ 30 words); the HAND chip in the header (amber, with the word;
+`obs.mode` before 21:00, then "HAND-FLOWN · NIGHT SHIFT ON AGC" from `obs.handFlown`); the night
+strip in the plan bar (SUPPLY, OUTAGES, CARBON, ALL-IN at $0.1M, SCORE vs par); the end card
+fetched at 21:00; `GOALS_TEXT` ("each MWh the city goes without" becomes the MWh that are yours,
+≤ 60 words) and the ALL-IN chip's tooltip; `content/text.js` (§32.2's rows, rewritten, added and
+also rewritten; the cap at 20 KB); `content/anchors.js`. Tests:
+- `tests/briefing.test.js`: on a heat + derate + feeder date, "Watch for" names all three in ≤ 30
+  words.
+- `tests/night-strip.test.js` (D-11's accept, sampled; no drawn roll): one game per file, booted
+  and jumped once in `before()` by `p.to('21:00', {stop: [], line: 'near'})` in
+  `feedback.test.js` :364's loop (Enter at each `held:RESPOND-CARD`), then `t21 = p.now`. Test 1,
+  at 21:00, one look: the plan bar is the night strip, the badge reads NIGHT ROLL, the lock's note
+  shows. Test 2: `p.to('01:00', {stop: ['card']})` and one look (every strip figure has counted
+  up, the windows are dark); then `p.until('card')` returns `'over'`, never `'card'` or
+  `'held:*'`; `p.now − t21 ≤ 15000`; one look at the END line. Three drawn frames in all. Each
+  test ≤ 2.5 s, the file ≤ 6 s; its time recorded in §32.11.
+- `tests/acts-audit.test.js` (D-1): every control that sends a sim input lives under the desk,
+  the stack, the map or the suburb card; the briefing sends only `mode` inputs (the card's
+  AGC/HAND, the desk's AGC key).
+- `tests/feedback-day.test.js` (new presses only): one game, `openGame({seed, take: false})` on a
+  desk seed whose pre-roll has both the task feeders and the late return (picked with
+  `dayplan.preroll` in milliseconds); in order: the briefing presses, TAKE THE DESK, at 04:30
+  RESTORE on a held feeder and START on the outaged unit, then (own test or `before()`) one jump
+  to 21:00 by the same card loop, FAST and one locked press; every press sampled with
+  `press`/`pressKey`; each test ≤ 2.5 s, the file ≤ 6 s.
 
 ### 32.9 Done means (every agent)
 
 - Your tests pass alone within budget (file ≤ 6 s, test ≤ 2.5 s), and the whole suite passes
   once at the end (name the count and the time).
-- Your eager bytes are within your cap (`node tools/perf.mjs` once at the end; report the
-  delta).
+- Your eager bytes: run `node tools/perf.mjs --sizes` at your base, before your first commit, and
+  at your head; report the gzip delta against your cap. Never run perf's frame costs (only the
+  integrator does, at stage A and stage C).
 - Every new face answers every press (Q-42), says what it does, uses blue for help and red only
   for refusals (Q-41), never colour alone (K-22), and reads at the eye's speed.
-- Classic is unchanged: `tests/baseline-v4.test.js` green.
+- Classic is unchanged: `tests/baseline-v4.test.js` green (stage A's A2: red on the hash only,
+  per §32.5.2 step 7, until the integrator re-records).
 - Your report lists: commits, tests added (and their time), anything you could not do, every
-  line you touched outside your files, and every number you measured.
+  line you touched outside your files, every moved-header text you corrected, and every number
+  you measured.
 
-### 32.10 Stage C measures (the integrator, once each, after the wave-3 merge)
+### 32.10 Stage C (the integrator)
 
-`SIM_VERSION` `v4-core-2c.1` and the golden (classic: hash and Build lines only). Then, once
-each, recorded in §32.11 and SPEC: `tools/perf.mjs --rates 150,540,1620,2100` (F-11; frame p95 ≤
-8 ms); `tools/par.js` S-12 on `desk` and `desk-weekend` (200 raw, 100 forced heat, `--proxy
-competent,lean,commitAll --allin`); the follower; the Q-77 proxy on 100 dates (D-8, K-12);
-`tools/daily-gen.js` on 365 dates from 2026-10-12 with `-j` (D-9; writes `content/dailies.js`,
-reports D-10 and the heat share); `tools/l2.mjs` (L-2 coverage); P-4's MSL frequencies (from
-`tools/par.js`); the D-2 scripted day on 5 dates (`tools/play.mjs`). If S-12, D-9's rejection
-rate, P-4 or L-2 misses, **one tuning round by one agent**: dayplan sizes and shares only, never
-par, one tool run per iteration. Then the final whole-branch review (seams, docs truth, the
-player, each finding checked by a skeptic), its fix pass, and **one browser pass** (one pane;
-1280×600, 1280×720, 1920×1080): the badge through the segments, the gauge's row after a trip,
-the RESTORE pace at a clearance, the night strip and the dark windows, the briefing's "Watch for",
-HAND-FLOWN.
+**The measures, once each,** on `v4-core-2c.0` plus the waves: `tools/perf.mjs --rates
+150,540,1620,2100` (F-11; frame p95 ≤ 8 ms; if it misses, the integrator may move
+`OBJ_EVERY_REAL_S` and `STACK_MAX_HZ` once, no other lever); `tools/par.js` S-12 on `desk` and
+`desk-weekend` (200 raw, 100 forced heat, `--proxy competent,lean,commitAll --allin`, P-3's
+medians, P-4's MSL frequencies) plus a 'slow' proxy once (competent, each task restore 15 real s
+after `clearS`; if it trails competent by more than 150 points, report it to the owner and name
+`RESTORE_PACE_MAX_S` 600 as the lever, which moves par's mirror and so is a named exception to
+"never par"); the follower; the Q-77 proxy on 100 dates (D-8, K-12); `tools/daily-gen.js` on 365
+dates from 2026-10-12 with `-j` (D-9's attempts, D-10 by class, the heat share); `tools/l2.mjs`
+(L-2 coverage); the D-2 scripted day (verdict half) on 5 dates with `clock`; D-6's whole-day
+replay once (1×, FAST, 50 pauses: one hash).
+
+**The tuning round runs only if one of these misses** on `desk` or `desk-weekend`:
+- S-12 (par): zero unserved on ≥ 85% of raw seeds and ≥ 75% of forced-heat seeds; RERT armed on
+  ≤ 25%; no black day.
+- S-5's gates on today's ALL-IN letters: competent ≥ 70% A; commitAll loses A on ≥ 30%.
+- D-9: no date reaches the 40-attempt cap; attempt 0 passes the gate on ≥ 85% of generated dates
+  and ≥ 75% of heat dates.
+- P-4: on mild weekends MSL1 on 10–30% of days and MSL2 on ≤ 10%; MSL3 only after a noon tie or
+  smelter trip.
+- L-2: 80 ± 5% inside P10–P90 at 1 h and 4 h.
+
+Reported, never tuned for: the lean proxy's A share (S-5's ≤ 40% has been missed since Q-48 by
+decision), the generated heat share (D-9 lets the tool report a shortfall), D-10's gaps (Q-76;
+if heat days fail D-10, the round may add the calm day's evening trip to heat days, ≥ 30 real s
+after the heat onset, subject to forced-heat S-12). `LETTERS` are not re-calibrated in 2c (S-5 is
+2d's). **The round:** one agent; dayplan sizes, windows and act mixes only (§32.4.3 values, never
+shapes, never `weather.heatShare`, par or the fleet; a depth or a duration is a size, and the
+forecast follows through `climate`); for an L-2 miss the front's band is also in scope; one tool
+run per iteration.
+
+**Then, in order:** the final whole-branch review (seams, docs truth, the player; each finding
+checked by a skeptic) and its fix pass; `SIM_VERSION` `v4-core-2c.1` and the golden (classic: hash
+and Build lines only); **`tools/daily-gen.js` once more** (365 dates, `-j`), the last
+sim-dependent step: it writes the shipped `content/dailies.js` with the build stamp, and §32.11
+and SPEC record its D-9, D-10 and heat-share numbers (a named exception to "once each"); the one
+browser pass (one pane; 1280×600, 1280×720, 1920×1080): the badge through the segments, the COVER
+row after a trip, the RESTORE pace at a hand-back, the night strip and the dark windows, the
+briefing's "Watch for", HAND-FLOWN. Any sim/ or desk-scenario change after the last daily-gen run
+means bumping `SIM_VERSION` and running it again.
 
 ### 32.11 Records (stage A, the waves, stage C)
 
@@ -3849,3 +4156,28 @@ HAND-FLOWN.
 ### 32.12 Module headers (moved from the files, Q-61)
 
 (Filled by stage A's prose agent.)
+
+### 32.13 The contract review (workflow `wf_dee4b30b-f91`, 2026-10-12)
+
+Four lenses (code truth, SPEC coverage, the player, seams and budgets), each blocker and major
+checked by a skeptic: 60 findings, 1 refuted, 59 kept (2 blockers, 35 majors, 22 minors). They
+are folded into §32.1–§32.10 above (this section replaces the first draft, `0421a81`; review
+reports in the session scratchpad, `2c/review-*.md`). The ones that changed the plan most:
+- **RC-1 (blocker):** a warning carrying `windMu` would have started the drought at its warning:
+  the series-keys rule (§32.4.6).
+- **B1 (blocker):** `securedTick` written in wave 1 would have moved classic's hash mid-wave: it
+  is a stage-A block now, and agents stop on a red golden test.
+- **The night (RC-8, RC-9, F3, F-3, M3):** one `nightMemo` for par and the player, at a 5-grid-min
+  pace, carrying the player's stops and an armed RERT's clock; the spike on played evenings; an
+  equivalence test.
+- **The restore task (RC-2, F-4, F-8):** `refreshHeld`, `taskLateMWh` and PERFECT, the first
+  RESTORE at 10×.
+- **COVER (F-1, F-2):** the row's own word, the dial's readability rules.
+- **Seams (M1–M11, RC-3–RC-7):** the task staged at p 0 until grid merges; `sim/dark.js`; the
+  dailies and the offer rule moved to stage A; the briefing mode held in `state.control.mode`;
+  the tray's functions fixed; `deriveExt`/`openDay` and the inject helper; the caps re-measured
+  (11.4 KB); sampled night tests; one climatology.
+- **SPEC (F1, F4–F10):** the D-2 accept's RESTORE term, the dailies' build stamp and last
+  regeneration, the tuning trigger, the §8.2 rows that would have shipped false.
+- Refuted: F2 (the contract was already clear that a task feeder past its hand-back is never
+  SHEDDING).
