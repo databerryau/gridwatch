@@ -486,20 +486,39 @@ test('C-2: on the game\'s day MILD is 55 +- 3% of 2,000 seeds and HOT 30 +- 3%; 
 
 test('opening state (DESK, DESK_WEEKEND): 04:00 balances within 1 MW on MILD and HOT days, the hydro machines inside their range', async () => {
   const {litDemandMW} = await import('../sim/fleet.js'); // 2c (Q-81): the opening balances lit demand
+  const {withoutTask} = await import('./lib/sim-helpers.js');
+  const hyd = V.MACHINES.find(m => m.station === 'hydro');
   for (const scenario of GAME_DAYS) {
     const seen = new Set();
-    for (let seed = 1; seed <= 30; seed++) {
-      const s = createState(seed, scenario);
+    let held = 0, floor = 0;
+    // The live plan and the same day without the restore task (C-14: the 04:00 commitment fits the
+    // day's demand with hydro strictly inside its range). With feeders held dark from 04:00 the opening
+    // balances lit demand: hydro to its floor at most, the rest off the coal machines evenly, each at
+    // or above MIN (§32.5.2 step 3; tests/inject.test.js pins the rule on injected feeders).
+    for (const scn of [scenario, withoutTask(scenario)]) for (let seed = 1; seed <= 30; seed++) {
+      const s = createState(seed, scn), at = scn.id + ' seed ' + seed;
       seen.add(s.day.temp);
       const supply = s.units.reduce((a, u) => a + u.outMW, 0) + s.tie.flowMW + s.ren.windMW + s.ren.solarMW + s.battery.outMW;
-      assert.ok(Math.abs(supply - litDemandMW(s)) < 1, scenario.id + ' seed ' + seed + ' (' + s.day.temp + '): imbalance ' + (supply - litDemandMW(s)));
+      assert.ok(Math.abs(supply - litDemandMW(s)) < 1, at + ' (' + s.day.temp + '): imbalance ' + (supply - litDemandMW(s)));
       const hydro = s.units.filter(u => u.station === 'hydro' && u.sync);
       assert.equal(hydro.length, 2);
-      for (const u of hydro) assert.ok(u.outMW > 0 && u.outMW < 317, scenario.id + ' seed ' + seed + ': ' + u.id + ' at ' + u.outMW);
+      if (s.city.heldFrac === 0) {
+        assert.equal(litDemandMW(s), s.env.demandMW, at + ': nothing dark, lit demand is demand');
+        for (const u of hydro) assert.ok(u.outMW > 0 && u.outMW < hyd.ratingMW, at + ': ' + u.id + ' at ' + u.outMW);
+      } else {
+        held++;
+        for (const u of hydro) assert.ok(u.outMW >= hyd.minMW && u.outMW < hyd.ratingMW, at + ' (feeders held): ' + u.id + ' at ' + u.outMW);
+        if (hydro[0].outMW === hyd.minMW) {
+          floor++;
+          const coal = s.units.filter(u => u.station === 'coal' && u.sync);
+          assert.ok(coal.every(u => u.outMW === coal[0].outMW && u.outMW >= V.MACHINES[u.k].minMW), at + ': the rest off coal evenly, ' + coal.map(u => u.outMW));
+        }
+      }
       assert.equal(s.env.rooftopMW, 0, 'no sun at 04:00');
       assert.equal(s.units.find(u => u.id === 'coal4').sync, scenario === DESK);
     }
     assert.deepEqual([...seen].sort(), ['HOT', 'MILD']);
+    assert.ok(held >= 15 && floor > 0, scenario.id + ': ' + held + ' task mornings of 30, ' + floor + ' with hydro at its floor');
   }
 });
 
