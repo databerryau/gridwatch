@@ -185,9 +185,9 @@ export function rateOfLastTick(d, state) {
 /**
  * What the rate badge shows (F-5: the rate is always visible).
  * @returns {{mode:'OVER'|'HIDDEN'|'ALARMS'|'PAUSE'|'WATCH'|'RESPOND-CARD'|'FOCUS'|'RESPOND'|'FAST'|'CRUISE'|'DEBUG',
- *   rate:number, watchS:number, locked:boolean, watchVersion:'full'|'compact'|null}}
+ *   rate:number, watchS:number, locked:boolean, watchVersion:'full'|'compact'|null, canSkip:boolean, segment:string, act:number, night:boolean}}
  *   watchS: grid seconds since the contingency (-1 outside a watch); locked: desk locked (K-15);
- *   watchVersion: the version of the watch in progress (null outside one or while skipped).
+ *   watchVersion: the version of the watch in progress (null outside one or while skipped); segment, act, night: §32.4.8.
  */
 export function modeOf(d, state) {
   const c = watching(state);
@@ -197,7 +197,7 @@ export function modeOf(d, state) {
   const watchVersion = c && c.n !== d.skipN ? versionFor(d, c) : null;
   // canSkip: Esc would skip this watch now (in the game, only once a full watch has been seen)
   const canSkip = !!c && c.n !== d.skipN && (!d.game || !!d.seen.watch);
-  const r = mode => ({mode, rate, watchS, locked, watchVersion, canSkip});
+  const r = mode => ({mode, rate, watchS, locked, watchVersion, canSkip, segment: '', act: 0, night: false});
   if (state.over) return r('OVER');
   if (d.hidden) return r('HIDDEN');
   if (d.held) return r('ALARMS');

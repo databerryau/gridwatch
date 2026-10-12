@@ -632,19 +632,23 @@ export function restorePreview(game, districtId) {
 
 const PEAK = A.PEAK_H;
 
+/** K-12: why the bay offers a ready unit now, or '' (pure; tally {n, extra, contN}: the day's offers; mode: the director's, until Q-78). */
+export function offerWhy(obs, tally, mode) {
+  if (tally.n >= MAX_OFFERS) return '';
+  return mode === 'RESPOND' || mode === 'RESPOND-CARD' ? 'respond' : obs.sec.level !== 'SECURE' ? 'tight'
+    : obs.clock.h >= PEAK[0] && obs.clock.h < PEAK[1] ? 'peak' : '';
+}
+
 // K-12 / A-4: which ready units the bay offers now.
 function updateOffers(game, obs, mode) {
   const out = [];
-  const respond = mode === 'RESPOND' || mode === 'RESPOND-CARD';
-  const tight = obs.sec.level !== 'SECURE';
-  const peak = obs.clock.h >= PEAK[0] && obs.clock.h < PEAK[1];
   for (const u of obs.units) {
     // One offer per ready period: the record lives while the unit waits at full speed.
     if (u.mode !== 'ready') { delete game.offered[u.id]; continue; }
     const rec = game.offered[u.id];
     if (rec) { out.push({unit: u.id, why: rec.why}); continue; }
-    const why = respond ? 'respond' : tight ? 'tight' : peak ? 'peak' : '';
-    if (!why || game.offersToday >= MAX_OFFERS) continue;
+    const why = offerWhy(obs, {n: game.offersToday, extra: 0, contN: -1}, mode);
+    if (!why) continue;
     game.offersToday++;
     game.offered[u.id] = {why, taken: false};
     out.push({unit: u.id, why});

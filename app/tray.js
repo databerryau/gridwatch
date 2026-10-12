@@ -22,7 +22,10 @@ export const MAX_WORDS = 25;
 /** LOG entries kept. */
 export const MAX_LOG = 200;
 
-export const SENDERS = Object.freeze({weather: 'WEATHER BUREAU', market: 'MARKET NOTICE', station: 'STATION', city: 'CITY DESK'});
+export const SENDERS = Object.freeze({weather: 'WEATHER BUREAU', market: 'MARKET NOTICE', station: 'STATION', city: 'CITY DESK', network: 'NETWORK'});
+// Q-82: a news kind's sender, button and target ('' : the lever of the unit its text names); the rest: weather
+const NEWS = {tie: ['market', 'TO THE TIE', 'knob-tie'], outage: ['station', 'TO THE LEVER', ''], network: ['network', 'TO THE RESTORE BAY', 'bay-restore']};
+const WX = ['heat', 'storm', 'cloud', 'drought'];
 
 /** Cut text to MAX_WORDS words (an ellipsis marks a cut). */
 export function words(text, max = MAX_WORDS) {
@@ -36,6 +39,8 @@ const leverOf = unitId => {
 };
 // the lever of the unit a log line names
 const leverOfMsg = msg => { const m = V.MACHINES.find(x => msg.includes(x.name + ':')); return m ? leverOf(m.id) : 'stack'; };
+// the lever of the unit a text names ('CCGT 2', 'Mt Hazel coal 4')
+const leverOfText = t => { t = t.toLowerCase(); const m = V.MACHINES.find(x => t.includes(x.name.toLowerCase().split(' ').slice(-2).join(' '))); return m ? leverOf(m.id) : 'stack'; };
 const unitName = id => { const m = V.MACHINES.find(x => x.id === id); return m ? m.name : id; };
 const hhmm = s => {
   const sod = ((V.DAY_START_H * V.S_PER_H + s) % V.DAY_S + V.DAY_S) % V.DAY_S;
@@ -80,9 +85,8 @@ function mslCard(r) {
 export function cardOf(r) {
   switch (r.kind) {
     case 'announce': {
-      const n = r.news;
-      const target = n.kind === 'heat' || n.kind === 'storm' || n.kind === 'drought' || n.kind === 'cloud' ? 'stack' : 'map';
-      return {key: 'news:' + n.kind + ':' + n.fromS, from: SENDERS.weather, sev: 'warn', text: n.text, button: {label: 'SEE THE STACK', target}};
+      const n = r.news, [from, label, target] = NEWS[n.kind] || ['weather', 'SEE THE STACK', WX.includes(n.kind) ? 'stack' : 'map'];
+      return {key: 'news:' + n.kind + ':' + n.fromS, from: SENDERS[from], sev: 'warn', text: n.text, button: {label, target: target || leverOfText(n.text)}};
     }
     case 'contingency':
       if (r.cause === 'unit') return {key: 'trip:' + r.id + ':' + r.tick, from: SENDERS.station, sev: 'warn',
