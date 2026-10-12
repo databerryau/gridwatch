@@ -1,5 +1,5 @@
 // sim/rng.js: counter-based random numbers (spec F-3). Pure: no state, no Math.random.
-// Contract: sim/README.md §11 rng.js.
+// Contract: sim/README.md §4.
 
 import {V} from './params.js';
 

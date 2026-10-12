@@ -186,6 +186,23 @@ six of them at one minute would break the 64-KB state limit); ext event args hav
 exact decimals (tested).
 `fx` (cosmetic) randomness lives in `render/` and `audio/` only.
 
+**The file's header** (moved from `sim/rng.js` verbatim, Q-61; desk/README.md §32):
+
+```text
+sim/rng.js: counter-based random numbers (spec F-3). Pure: no state, no Math.random.
+
+Every draw is a function of (seed, stream, a, b, c): the same counters always give the
+same number, in any order, in any JS engine. Only 32-bit integer operations, one
+division by 2^32 and additions are used, so results are bit-identical across engines
+(risk 5). Streams:
+  ext.*  the external world, pre-rolled at createState (weather, demand noise, events);
+         never depends on play (C-6).
+  play   player-dependent outcomes: hash(seed, 'play', tick, unitIndex, draw).
+  fx     cosmetic randomness lives in render/ and audio/ only (Math.random allowed there).
+
+Stage A owns this file; it is frozen. Changing it changes every daily (bump SIM_VERSION).
+```
+
 ## 5. State shape
 
 `createState(seed, scenario)` returns this object. Every field is written by exactly the
@@ -1848,24 +1865,6 @@ Phase 2a, the belly (SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §2
 
 ### step.js (A, kept by "integration")
 
-`createState(seed, scenario)`, `step(state, inputs)`, `applyInput(state, input, out)`,
-`inWatch(state)`, `observe(state, opts)`, `hashState(state)`, `canonicalHash(x)`,
-`replay(seed, scenario, log, opts)`, `INPUT_TYPES`, `SIM_VERSION`. createState pre-rolls ext,
-samples second 0 and balances the opening second with the online hydro machines (as
-`tools/baseline.js` did for the legacy build). Phase 2a "world": createState also pre-rolls
-`ext.rooftop` (`weather.prerollRooftop`) and sets the public `state.day`; the grid second runs
-the MSL check after the weather (§3); `observe()` carries the desk/README.md §19.3 values (§8).
-`balanceOpening` is unchanged: with the weekend factor and the MILD shape in `env.demandMW` the
-04:00 second balances within 1 MW on `desk` and `desk-weekend` on MILD and HOT days alike
-(tested; over seeds 1-200 the two hydro machines open at 96-159 MW each on `desk` and 67-126 MW
-on `desk-weekend` since the C-14 tuning at the wave-1 merge put both CCGTs on, inside their 0-317 MW
-range). Integration also builds `next.html`,
-`app/loop.js` (F-5: rAF, `min(frameDt, 0.1) x rate` accumulator, whole ticks, per-frame cap),
-`content/text.js` (H-14: one entry per §8.2 row, `{id, row, anchorId, real, ours, why,
-params}`, `ours` built from params values; `tests/text.test.js`) and `tools/baseline-v4.js`
-(the §6 rows for the v4 core; CommonJS with `await import()`). All of these exist now (§12,
-"Bench" and "Finishing pass").
-
 **The file's header** (moved from `sim/step.js` verbatim, Q-61; desk/README.md §32):
 
 ```text
@@ -1885,24 +1884,23 @@ Stage A wrote this file and it works as far as its callees do; stage B owner
 (README §8, tests/state.test.js); hashState needs no edits when state grows.
 ```
 
-### rng.js
-
-**The file's header** (moved from `sim/rng.js` verbatim, Q-61; desk/README.md §32):
-
-```text
-sim/rng.js: counter-based random numbers (spec F-3). Pure: no state, no Math.random.
-
-Every draw is a function of (seed, stream, a, b, c): the same counters always give the
-same number, in any order, in any JS engine. Only 32-bit integer operations, one
-division by 2^32 and additions are used, so results are bit-identical across engines
-(risk 5). Streams:
-  ext.*  the external world, pre-rolled at createState (weather, demand noise, events);
-         never depends on play (C-6).
-  play   player-dependent outcomes: hash(seed, 'play', tick, unitIndex, draw).
-  fx     cosmetic randomness lives in render/ and audio/ only (Math.random allowed there).
-
-Stage A owns this file; it is frozen. Changing it changes every daily (bump SIM_VERSION).
-```
+`createState(seed, scenario)`, `step(state, inputs)`, `applyInput(state, input, out)`,
+`inWatch(state)`, `observe(state, opts)`, `hashState(state)`, `canonicalHash(x)`,
+`replay(seed, scenario, log, opts)`, `INPUT_TYPES`, `SIM_VERSION`. createState pre-rolls ext,
+samples second 0 and balances the opening second with the online hydro machines (as
+`tools/baseline.js` did for the legacy build). Phase 2a "world": createState also pre-rolls
+`ext.rooftop` (`weather.prerollRooftop`) and sets the public `state.day`; the grid second runs
+the MSL check after the weather (§3); `observe()` carries the desk/README.md §19.3 values (§8).
+`balanceOpening` is unchanged: with the weekend factor and the MILD shape in `env.demandMW` the
+04:00 second balances within 1 MW on `desk` and `desk-weekend` on MILD and HOT days alike
+(tested; over seeds 1-200 the two hydro machines open at 96-159 MW each on `desk` and 67-126 MW
+on `desk-weekend` since the C-14 tuning at the wave-1 merge put both CCGTs on, inside their 0-317 MW
+range). Integration also builds `next.html`,
+`app/loop.js` (F-5: rAF, `min(frameDt, 0.1) x rate` accumulator, whole ticks, per-frame cap),
+`content/text.js` (H-14: one entry per §8.2 row, `{id, row, anchorId, real, ours, why,
+params}`, `ours` built from params values; `tests/text.test.js`) and `tools/baseline-v4.js`
+(the §6 rows for the v4 core; CommonJS with `await import()`). All of these exist now (§12,
+"Bench" and "Finishing pass").
 
 ## 12. Decisions stage A made (and where the spec is loose)
 
