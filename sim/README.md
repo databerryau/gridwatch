@@ -1215,10 +1215,11 @@ operational demand in daylight), small against the band and left labelled.
     A probe (4 quiet desk seeds, 7 clear times, origins every 5 min from onset + 40 to + 175 min;
     columns at 5, 15, 30 and 60 min, 3,136 in all): before this reading 1,099 columns missed the
     realised rooftop by more than 300 MW (worst 946) and utility solar by up to 801 MW; now 166
-    (none at 5 min and one at 15 min: the rest are the clear time's honest uncertainty, 30-60 min
-    ahead of a place showing it), and solar by at most 388 MW. Realised demand fell inside P10-P90
-    in 89.5% of them: a Gaussian band over a two-valued error covers more than 80%. L-2 with fronts
-    is stage C's measure (`tools/l2.mjs`), and the front's band its tuning round's (§32.10).
+    (none at 5 min and one at 15 min: the rest, still up to 946 MW, are the clear time's honest
+    uncertainty, 30-60 min ahead of a place showing it), and solar by at most 388 MW (60 min ahead).
+    Realised demand fell inside P10-P90 in 89.5% of them: a Gaussian band over a two-valued error
+    covers more than 80%. L-2 with fronts is stage C's measure (`tools/l2.mjs`), and the front's
+    band its tuning round's (§32.10).
 - `tests/front.test.js` (7 tests, about 0.25 s; fronts put by `stateWith` on desk seeds with no
   heat, storm, cloud or drought records, so a live plan's drought cannot move the storm test;
   scenario variants for the shape, the second copy and a fixed window): `climate` on both kinds
