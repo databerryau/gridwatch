@@ -127,17 +127,17 @@ export function rooftopClearSkyMW(scn, h) {
 
 /** Q-65's one climatology: the dayplan block, else derived from scn.events (sim/README.md §11 weather.js, 2c). */
 export function climate(scn) {
-  const e = scn.events, d = scn.dayplan, heat = {clearMu: e.heat.clearMu};
+  const e = scn.events || {}, d = scn.dayplan, heat = e.heat && {clearMu: e.heat.clearMu};
   if (d) {
     const {arriveMu, cutoutAfterMin, cutoutMu, passAfterMin, passMu} = d.act3.storm;
     const {frontMu, clearAfterMin, clearMu, frontRampMin, clearRampMin} = d.act2.front;
     return {storm: {arriveMu, cutoutAfterMin, cutoutMu, passAfterMin, passMu},
       cloud: {frontMu, clearAfterMin, clearMu, frontRampMin, clearRampMin}, drought: {mu: d.act3.drought.mu}, heat};
   }
-  const s = e.storm, c = e.cloud, m = h => (h - s.arriveH) * S_PER_H / S_PER_MIN;
-  return {storm: {arriveMu: s.arriveMu, cutoutAfterMin: s.cutoutWindowH.map(m), cutoutMu: s.cutoutMu, passAfterMin: m(s.passH),
-    passMu: s.passMu}, cloud: {frontMu: c.frontMu, clearAfterMin: c.clearAfterMin, clearMu: c.clearMu, frontRampMin: 0,
-    clearRampMin: 0}, drought: {mu: e.drought.mu}, heat};
+  const s = e.storm, c = e.cloud, m = h => (h - s.arriveH) * S_PER_H / S_PER_MIN; // a missing block is undefined
+  return {storm: s && {arriveMu: s.arriveMu, cutoutAfterMin: s.cutoutWindowH.map(m), cutoutMu: s.cutoutMu, passAfterMin: m(s.passH),
+    passMu: s.passMu}, cloud: c && {frontMu: c.frontMu, clearAfterMin: c.clearAfterMin, clearMu: c.clearMu, frontRampMin: 0,
+    clearRampMin: 0}, drought: e.drought && {mu: e.drought.mu}, heat};
 }
 
 // ------------------------------------------------------------------ pre-roll (stage A)
@@ -225,9 +225,13 @@ const NO_CHANGES = Object.freeze([]);
 
 // Q-79: the cloudOnset records with suburbs: true, as revertSeries folds them.
 function frontsOf(scn, events) {
+  const fr = events.filter(e => e.type === 'cloudOnset' && e.args.suburbs);
+  if (!fr.length) return NO_CHANGES;
   const c = climate(scn).cloud, inS = Math.max(1, c.frontRampMin * S_PER_MIN), outS = Math.max(1, c.clearRampMin * S_PER_MIN);
-  return events.filter(e => e.type === 'cloudOnset' && e.args.suburbs)
-    .map(e => ({a: e.atS, c: e.args.clearS, mu: e.args.clearMu, cMu: c.clearMu, inS, outS}));
+  return fr.map(({id, atS, args: {clearS, clearMu}}) => {
+    if (!(Number.isFinite(clearS) && Number.isFinite(clearMu))) throw new Error('frontsOf: ' + id + ' needs args.clearS and clearMu');
+    return {a: atS, c: clearS, mu: clearMu, cMu: c.clearMu, inS, outS};
+  });
 }
 
 /**
@@ -439,26 +443,26 @@ function muAt(base, plan, t) {
 // cuts out somewhere in its cut-out window and settles when it passes (at the news's toS if any); a drought.
 function windPlan(state, cl) {
   const plan = [], x = cl.storm, storm = announced(state, 'storm'), drought = announced(state, 'drought');
-  if (storm) {
+  if (storm && x) {
     const at = m => storm.fromS + Math.round(m * S_PER_MIN);
     plan.push({atS: storm.fromS, op: 'set', mu: x.arriveMu, endS: 0});
     plan.push({atS: at(x.cutoutAfterMin[0]), op: 'blend', mu: x.cutoutMu, endS: at(x.cutoutAfterMin[1])});
     plan.push({atS: storm.toS ?? at(x.passAfterMin), op: 'set', mu: x.passMu, endS: 0});
   }
-  if (drought) plan.push({atS: drought.fromS, op: 'set', mu: cl.drought.mu, endS: 0});
+  if (drought && cl.drought) plan.push({atS: drought.fromS, op: 'set', mu: cl.drought.mu, endS: 0});
   return sortPlan(plan);
 }
 
 // An announced heatwave clears the skies from its onset.
-const heatPlan = (heatNews, cl) => heatNews ? [{atS: heatNews.fromS, op: 'atLeast', mu: cl.heat.clearMu, endS: 0}] : [];
+const heatPlan = (heatNews, cl) => heatNews && cl.heat ? [{atS: heatNews.fromS, op: 'atLeast', mu: cl.heat.clearMu, endS: 0}] : [];
 
-// Utility solar: the heat; a cloud front from its onset (precinctLagMin later on a dayplan day), clearing in its window.
+// Utility solar: the heat; a legacy cloud front from its onset, clearing in its window (a dayplan day's front: forecast's fk).
 function clearPlan(state, heatNews, cl) {
-  const plan = heatPlan(heatNews, cl), cloud = announced(state, 'cloud'), scn = state.scn;
-  if (cloud) {
-    const x = cl.cloud, on = cloud.fromS + (scn.dayplan ? scn.rooftop.precinctLagMin * S_PER_MIN : 0);
-    plan.push({atS: on, op: 'set', mu: x.frontMu, endS: 0});
-    plan.push({atS: on + x.clearAfterMin[0] * S_PER_MIN, op: 'blend', mu: x.clearMu, endS: on + x.clearAfterMin[1] * S_PER_MIN});
+  const plan = heatPlan(heatNews, cl), cloud = announced(state, 'cloud'), x = cl.cloud;
+  if (cloud && x && !state.scn.dayplan) {
+    plan.push({atS: cloud.fromS, op: 'set', mu: x.frontMu, endS: 0});
+    plan.push({atS: cloud.fromS + x.clearAfterMin[0] * S_PER_MIN, op: 'blend', mu: x.clearMu,
+      endS: cloud.fromS + x.clearAfterMin[1] * S_PER_MIN});
   }
   return sortPlan(plan);
 }
@@ -478,8 +482,9 @@ function skyStep(o, cloud, mu, f) {
   o.vL = o.vL * aL * aL + loc.sigmaPerStep * loc.sigmaPerStep * f;
 }
 
-// The area under a 0-to-1 ramp of width R up to x.
+// The areas under a 0-to-1 ramp of width R, and under its square, up to x.
 const rampArea = (x, R) => x <= 0 ? 0 : x < R ? x * x / (2 * R) : x - R / 2;
+const rampSq = (x, R) => x <= 0 ? 0 : x < R ? x * x * x / (3 * R * R) : x - 2 * R / 3;
 
 // The smelter's expected load at second t: out until its announced return (smelter.returnS,
 // set by events at the trip: what the potline's owner tells the operator), then back at
@@ -490,46 +495,8 @@ function smelterLoadAt(sm, pending, t) {
 }
 
 /**
- * Forecast for the player and par (S-4, L-1, L-2). Uses ONLY public information: the
- * scenario's climatology (demand shape and noise process, clear-sky sun, mean wind and
- * clearness, the rooftop curve and its cloud process, the public timings of climate(scn)), the
- * public kind of day (state.day: MILD or HOT, weekend), the present state (state.env, and
- * the smelter's present load and announced return) and announcements already made
- * (state.news). Never reads state.ext.
- *
- * Returns {fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[],
- * neighbourPrice[], exportLimitMW[], underlyingP50[], rooftopMW[], flexMW[]}, column k (0-based) at
- * grid second fromS + (k + 1) * stepS. neighbourPrice and exportLimitMW are the public daily shapes
- * (P-6, F-13), exact, for the tie's merit order in the L-0 plan. Phase 2a (desk/README.md §19.3):
- * demandP50 / P10 / P90 are OPERATIONAL demand (P-1, with flex); underlyingP50 = demandP50 -
- * flexMW + rooftopMW + the smelter's expected missing load (2b: README §8); rooftopMW is as if
- * every inverter were connected, after the heat derate (0 in every column on a scenario with
- * no rooftop). horizonS may run to the end of the sim day (observe's dayAhead).
- *
- * Integrated minute by minute (so the result does not depend on stepS):
- *   underlying P50 = underlyingBaseMW(day, h) x announced heat multiplier + the present
- *     deviation decaying at the scenario's noise revert rate;
- *   rooftop = the P-2 curve at the suburbs' capacity-weighted clearness (the rooftop factor is
- *     affine in k, so one weighted value is exact), drifting from its present value toward the
- *     scenario's mean (an announced heatwave's clear skies from its onset) at the regional
- *     sky's revert rate, x the heat derate inside the ANNOUNCED heat window;
- *   demand P50 = underlying P50 + flex (the booked blocks, flexAt) - rooftop - the smelter's
- *     expected missing load;
- *   P10 / P90 = P50 -+ Z_P90 x sd(lead), where sd is the forecast error of the scenario's
- *     own demand-noise process (an OU series: var grows as sigma^2 (1 - a^2L) / (1 - a^2)
- *     with a = 1 - revertPerMin) plus the per-second wobble (FINE_NOISE_MW, at the target
- *     and carried from the origin) plus the rooftop's (below). sd is 0 at lead 0 (L-2; README §11);
- *   wind and clearness drift from the present toward the climatological mean, or toward
- *     the announced regime (storm surge then cut-out risk; drought; cloud front inside its
- *     warned window; heat's clear skies), with time constant FC_DRIFT_TAU_S.
- * The rooftop part of the band is the forecast error of the C-5 cloud process itself, in MW at
- * that hour's sun: the regional sky's variance grown over the lead, plus the suburbs' local
- * terms (independent, so weighted by the sum of squared shares): their own growth, and the
- * part of the present deviation that was local and fades faster than the forecast assumes
- * ((regional decay - local decay)^2 x their stationary variance).
- * 2c: a warned front over the suburbs, and its clearing's variance (Q-79; sim/README.md §11 weather.js).
- * Unannounced events (a heatwave before its 10:30 warning, trips, the smelter's trip) are
- * not in it: that is the forecast's honest error.
+ * Forecast for the player and par (S-4, L-1, L-2), from public information only: never state.ext.
+ * Its doc (the shape, the method, the band): sim/README.md §11 weather.js, "forecast()".
  */
 export function forecast(state, horizonS, stepS) {
   const scn = state.scn, env = state.env, s0 = env.s, day = state.day;
@@ -548,7 +515,15 @@ export function forecast(state, horizonS, stepS) {
   // Rooftop (P-2, C-5): the suburbs' capacity-weighted clearness now, and the cloud process.
   const roof = scn.rooftop, hasRoof = roof.capacityMW > 0;
   const sky = {k: 1, vR: 0, vL: 0, dR: 1, dL: 1}, part = {k: 1, vR: 0, vL: 0, dR: 1, dL: 1};
-  let cloud = null, rPlan = null, shareSum = 0, share2 = 0, locStat2 = 0, tc = s0, k0 = 0, front = null;
+  let cloud = null, rPlan = null, shareSum = 0, share2 = 0, locStat2 = 0, tc = s0, k0 = 0, front = null, fsd = 0;
+  // Q-79: place a's expected sky at s under the front, r its sky without it; its sd in fsd (sim/README.md §11 weather.js)
+  const fk = (a, r, s) => {
+    const f = front, y = s - a, a0 = Math.max(a, s0), w = Math.max(1, f.c1 - f.c0), c1 = f.c0 + w;
+    const g = Math.min(1, Math.max(0, (s - a0) / Math.max(1, a + f.inS - a0)));
+    const p = (rampArea(y - f.c0, f.R) - rampArea(y - c1, f.R)) / w;
+    fsd = (f.cMu - f.mu) * Math.sqrt(Math.max(0, (rampSq(y - f.c0, f.R) - rampSq(y - c1, f.R)) / w - p * p));
+    return (1 - p) * (r + (f.mu - r) * g) + p * f.cMu;
+  };
   if (hasRoof) {
     cloud = roof.cloud;
     rPlan = sortPlan(heatPlan(heatNews, cl)); // the suburbs' regional sky reverts to cloud.mu
@@ -562,10 +537,23 @@ export function forecast(state, horizonS, stepS) {
     share2 /= shareSum * shareSum;
     const aL = 1 - cloud.local.revertPerStep;
     locStat2 = cloud.local.sigmaPerStep * cloud.local.sigmaPerStep / (1 - aL * aL); // the local term's stationary variance
-    const news = scn.dayplan && announced(state, 'cloud'), x = cl.cloud; // a front over the suburbs
-    if (news) front = {on: news.fromS, c0: x.clearAfterMin[0] * S_PER_MIN, c1: x.clearAfterMin[1] * S_PER_MIN,
-      R: x.clearRampMin * S_PER_MIN, inS: x.frontRampMin * S_PER_MIN, mu: x.frontMu, cMu: x.clearMu};
+    const news = scn.dayplan && announced(state, 'cloud'), x = cl.cloud, subs = scn.city.suburbs, nS = subs.length;
+    if (news && x) { // a front over the suburbs; its clear window narrowed by what the places' skies show now
+      const f = front = {on: news.fromS, c0: x.clearAfterMin[0] * S_PER_MIN, c1: x.clearAfterMin[1] * S_PER_MIN,
+        R: x.clearRampMin * S_PER_MIN, inS: x.frontRampMin * S_PER_MIN, mu: x.frontMu, cMu: x.clearMu};
+      const d = 3 * Math.sqrt(locStat2) / (f.cMu - f.mu);
+      let lo = f.c0, c = Infinity;
+      for (let j = 0; j <= nS; j++) {
+        const y = s0 - f.on - (j < nS ? subs[j].frontLagMin : roof.precinctLagMin) * S_PER_MIN;
+        const q = ((j < nS ? env.roofClearFrac[j] : env.clearness) - f.mu) / (f.cMu - f.mu);
+        if (y < Math.max(f.c0, f.inS) || y >= f.c1 + f.R) continue;
+        if (q < d) lo = Math.max(lo, y - f.R * d); else c = Math.min(c, y - f.R * Math.min(1, q));
+      }
+      f.c0 = Math.min(f.c1, c < Infinity ? Math.max(f.c0, c) : lo);
+      if (c < Infinity) f.c1 = f.c0;
+    }
   }
+  const aP = front && front.on + roof.precinctLagMin * S_PER_MIN; // the solar precinct's onset
   for (let k = 0; k < n; k++) {
     const s = s0 + (k + 1) * stepS;
     while (t < s) {
@@ -594,15 +582,12 @@ export function forecast(state, horizonS, stepS) {
       const clearSky = rooftopClearSkyMW(scn, h) * shareSum * (1 - (1 - roof.heatFactor) * heatRampAt(heat, s));
       const perK = clearSky * roof.cloudBite, lag = part.dR - part.dL; // perK: MW of rooftop per unit of weighted clearness
       let kw = part.k, sd = 0;
-      // Q-79: each suburb's expected sky under the front, and its spread (sim/README.md §11 weather.js)
-      for (let j = 0; front && j < roof.share.length; j++) {
-        const f = front, a = f.on + scn.city.suburbs[j].frontLagMin * S_PER_MIN, a0 = Math.max(a, s0);
-        if (s0 >= a + f.c1 + f.R) continue; // surely clear: the regional forecast from the present
+      for (let j = 0; front && j < roof.share.length; j++) { // Q-79: each suburb under the front
+        const a = front.on + scn.city.suburbs[j].frontLagMin * S_PER_MIN;
+        if (s0 >= a + front.c1 + front.R) continue; // surely clear: the regional forecast from the present
         const r = part.k + (env.roofClearFrac[j] - k0) * part.dR, w = roof.share[j] / shareSum;
-        const g = Math.min(1, Math.max(0, (s - a0) / Math.max(1, a + f.inS - a0)));
-        const p = (rampArea(s - a - f.c0, f.R) - rampArea(s - a - f.c1, f.R)) / (f.c1 - f.c0);
-        kw += w * ((1 - p) * (r + (f.mu - r) * g) + p * f.cMu - r);
-        sd += w * (f.cMu - f.mu) * Math.sqrt(Math.max(0, p * (1 - p)));
+        kw += w * (fk(a, r, s) - r);
+        sd += w * fsd;
       }
       roofMW = clearSky * (1 - roof.cloudBite * (1 - kw));
       roofVar = perK * perK * (part.vR + share2 * (part.vL + locStat2 * lag * lag) + sd * sd);
@@ -614,7 +599,7 @@ export function forecast(state, horizonS, stepS) {
     out.demandP10.push(p50 - band);
     out.demandP90.push(p50 + band);
     out.windMW.push(V.WIND_MW * wind);
-    out.solarMW.push(clearSkySolarMW(scn, h) * clear);
+    out.solarMW.push(clearSkySolarMW(scn, h) * (front && s0 < aP + front.c1 + front.R ? fk(aP, clear, s) : clear));
     out.neighbourPrice.push(neighbourPrice(scn, h));
     out.exportLimitMW.push(exportLimitMW(h));
     out.underlyingP50.push(under);

@@ -15,10 +15,11 @@ import {TPS, clone} from './lib/sim-helpers.js';
 const MIN = V.S_PER_MIN, PM = V.PER_MILLE, at = (h, m = 0) => (h - V.DAY_START_H) * V.S_PER_H + m * MIN;
 const goTo = (s, t) => { s.tick = t * TPS; applyDue(s, []); sampleSecond(s); return s; };
 
-/** The first seed whose day has no weather records of its own (no heat, storm or cloud). */
+/** The first seed whose day has no weather records of its own: no heat, storm, cloud or drought (a live
+ * plan's drought would move the storm test's wind plan). */
 function quietSeed(scn) {
   for (let seed = 1; seed < 200; seed++) {
-    if (!createState(seed, scn).ext.events.some(e => /^(heat|storm|cloud)/.test(e.type))) return seed;
+    if (!createState(seed, scn).ext.events.some(e => /^(heat|storm|cloud)|rought/.test(e.type))) return seed;
   }
   throw new Error('no quiet seed');
 }
@@ -29,6 +30,15 @@ function front(scn, onS, clearS, warnS = onS - 150 * MIN) {
   return [{atS: warnS, type: 'cloudWarn', args: {onsetS: onS, frontPm: Math.round(x.frontMu * PM)}, warned: true},
     {atS: onS, type: 'cloudOnset', args: {clearMu: x.frontMu, suburbs: true, clearS}, warned: true},
     {atS: clearS, type: 'cloudClear', args: {clearMu: x.clearMu}, warned: true}];
+}
+
+/** A copy of s with every hidden thing ahead changed (S-4): the skies, the precinct's series and the events. */
+function scramble(s) {
+  const x = clone(s), r = x.ext.rooftop, now = s.env.s;
+  r.clearPm = r.clearPm.map(row => row.map((v, i) => (i * r.stepS > now + r.stepS ? 150 : v)));
+  x.ext.series.clearPm = x.ext.series.clearPm.map((v, j) => (j * x.ext.series.stepS > now + 60 ? 150 : v));
+  for (const e of x.ext.events) if (e.atS > now) { e.atS += 1234; e.type = 'unitTrip'; e.args = {rule: 'largest'}; }
+  return x;
 }
 
 const variant = (id, local, act2, act3) => ({...DESK, id, rooftop: {...DESK.rooftop, cloud: {...DESK.rooftop.cloud, local}},
@@ -93,6 +103,9 @@ test('Q-79 forecast: unwarned it is the plain day\'s (S-4); from the warning it 
   const truth = goTo(clone(s), a.fromS + (col(held) + 1) * a.stepS).env.rooftopMW;
   assert.ok(Math.abs(a.rooftopMW[col(held)] - truth) < 0.1 * truth, 'forecast ' + a.rooftopMW[col(held)] + ', realised ' + truth);
   assert.ok(b.rooftopMW[col(held)] - truth > 0.5 * truth, 'without the news it would not know');
+  const kP = col(onS + (DESK.rooftop.precinctLagMin + 15) * MIN), sun = goTo(clone(s), a.fromS + (kP + 1) * a.stepS).env.solarAvailMW;
+  assert.ok(Math.abs(a.solarMW[kP] - sun) < 0.1 * sun, 'the precinct\'s shape: forecast ' + a.solarMW[kP] + ', realised ' + sun);
+  assert.deepEqual(forecast(scramble(s), n, V.FC_STEP_S), a, 'S-4 with a front warned');
   const band = f => f.demandP90.map((p, k) => p - f.demandP10[k]);
   const wa = band(a), wb = band(b), from = onS + x.clearAfterMin[0] * MIN;
   const to = onS + (DESK.city.suburbs.at(-1).frontLagMin + x.clearAfterMin[1] + x.clearRampMin) * MIN;
@@ -103,6 +116,35 @@ test('Q-79 forecast: unwarned it is the plain day\'s (S-4); from the warning it 
     else { assert.ok(w >= wb[k] - 1e-6, 'never narrower at ' + t); if (w > wb[k] + 100) wider++; }
   });
   assert.ok(wider >= 6, 'wider by > 100 MW over the clearing in ' + wider + ' columns');
+});
+
+test('Q-79 forecast inside the clearing: it reads the clear time off the skies now (public), not only the window', () => {
+  const seed = quietSeed(DESK), onS = at(11, 32), lo = climate(DESK).cloud.frontMu + 0.1;
+  for (const [after, now, cols, why, sky] of [[45, 75, 12, 'SOL and HAZ clear, RED and HAR clearing', k => k[0] > 0.8 && k[1] > 0.8 && k[5] < lo],
+    [105, 100, 6, 'nothing clear yet, late in the window', k => k.every(x => x < lo)]]) {
+    const s = goTo(stateWith(seed, DESK, front(DESK, onS, onS + after * MIN)), onS + now * MIN), f = forecast(s, V.S_PER_H, V.FC_STEP_S);
+    assert.ok(sky(s.env.roofClearFrac), why + ': ' + s.env.roofClearFrac);
+    for (let k = 0; k < cols; k++) {
+      const real = goTo(clone(s), f.fromS + (k + 1) * f.stepS).env.rooftopMW;
+      assert.ok(Math.abs(f.rooftopMW[k] - real) < 0.1 * real, why + ', +' + (k + 1) * 5 + ' min: ' + f.rooftopMW[k] + ' against ' + real);
+    }
+    assert.deepEqual(forecast(scramble(s), V.S_PER_H, V.FC_STEP_S), f, 'S-4: ' + why);
+  }
+});
+
+test('robustness: a fixed clear-after window, a front record without clearS, a scenario without the legacy events block', () => {
+  const scn = variant('desk-front-fixed', DESK.rooftop.cloud.local, {clearAfterMin: [70, 70]}), onS = at(11, 32);
+  const s = goTo(stateWith(quietSeed(scn), scn, front(scn, onS, onS + 70 * MIN)), onS + 20 * MIN);
+  const f = forecast(s, V.FC_HORIZON_S, V.FC_STEP_S);
+  assert.ok([...f.rooftopMW, ...f.solarMW, ...f.demandP10, ...f.demandP90].every(Number.isFinite), 'no NaN on a fixed window');
+  const bad = front(DESK, onS, onS + 70 * MIN);
+  delete bad[1].args.clearS;
+  assert.throws(() => stateWith(1, DESK, bad), /frontsOf: .* needs args\.clearS/);
+  const c = goTo(createState(1, CLASSIC), at(15));
+  c.scn = {...CLASSIC, events: undefined};
+  for (const kind of ['heat', 'storm', 'cloud', 'drought']) c.news.push({kind, fromS: at(16), toS: at(18), text: ''});
+  assert.deepEqual(climate(c.scn), {storm: undefined, cloud: undefined, drought: undefined, heat: undefined});
+  assert.ok(forecast(c, V.FC_HORIZON_S, V.FC_STEP_S).demandP50.every(Number.isFinite), 'the old guards: no plan without its block');
 });
 
 test('one climatology: the forecast\'s mean under the front is the cloudOnset\'s frontMu and its storm windows are stormWarn\'s args, not scn.events', () => {

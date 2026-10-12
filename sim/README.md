@@ -799,9 +799,7 @@ So only a record that changes the weather at its own second carries one: `heatOn
 briefing record carries one (`droughtWarn`, `stormWarn`, `cloudWarn`, `heatAnnounce`, any Act I
 type); a warning whose text needs a weather number carries it under another name, as an integer
 per-mille (`droughtWarn`'s `muPm`, `cloudWarn`'s `frontPm`). A `windMu` on `droughtWarn` would
-start the drought at its warning. One fold (wave 1 sky, Q-79): a `cloudOnset` with `suburbs: true`
-is never a mean; its `clearMu` is the front's sky at each place from the record's atS plus that
-place's lag, the solar precinct's included (§11 weather.js).
+start the drought at its warning. 2c sky: a `cloudOnset` with `suburbs: true` is folded, never a mean (§11 weather.js).
 
 `ufls`, `shed` and a district that is still reconnecting (Phase 2a; labelled). Both records net
 the rooftop the district had connected when it was shed: all of it normally, none or part of it
@@ -1087,8 +1085,9 @@ scenario it returns `dayplan.prerollRegime`), `prerollSeries(seed, scn, regime, 
 and announced return (`smelter.{loadMW, returning, returnS}`); never `ext` (S-4 scramble test).
 S-4: wind and solar drift from the present toward the climatological value, or toward the
 **announced** regime (storm: surge then cut-out risk; drought; cloud front inside its warned
-window; heat's clear skies) with `FC_DRIFT_TAU_S`; demand P50 = DEM x announced heat + the
-present deviation decaying at the noise revert rate - the smelter's expected missing load;
+window; heat's clear skies) with `FC_DRIFT_TAU_S` (2c: a dayplan day's front takes Q-79's
+per-place shape instead, below); demand P50 = DEM x announced heat + the present deviation
+decaying at the noise revert rate - the smelter's expected missing load;
 P10/P90 = P50 -+ `Z_P90` x sd(lead), where sd is the forecast error of the scenario's own
 demand-noise process (`scn.demand.noise`, an OU series) plus `FINE_NOISE_MW`: 0 at lead 0,
 growing with lead (L-2 accept: 80 +- 5% coverage at 1 h and 4 h; measured 78.0% / 77.3%).
@@ -1139,64 +1138,154 @@ operational demand in daylight), small against the band and left labelled.
   on a dayplan day the dayplan block (`act3.storm`, `act2.front`, `act3.drought`), the one
   climatology; otherwise derived from `scn.events` (cut-out and pass = hours after `arriveH`, in
   minutes, unrounded; the ramps 0, since a legacy front is a change of mean). The heat's clear sky
-  is `events.heat.clearMu` on every scenario (§32.4.3). `windPlan` rounds `minutes x 60` to the
-  second, which gives the legacy seconds on the classic day (1,800, 5,400, 8,400), so classic's
-  forecast and pre-roll are bit-identical (`tests/baseline-v4.test.js` green).
+  is `events.heat.clearMu` on every scenario (§32.4.3). A scenario without a legacy block (no
+  `events`, or one without `storm`, `cloud`, `drought` or `heat`) gets `undefined` for it, and the
+  plans skip it, as the 2a forecast's guards did. `windPlan` rounds `minutes x 60` to the second,
+  which gives the legacy seconds on the classic day (1,800, 5,400, 8,400), so classic's forecast
+  and pre-roll are bit-identical (`tests/baseline-v4.test.js` green).
 - **The plans** read only `climate` and `news`: the wind (a storm's pass at the news's `toS`, the
   plan's clipped pass from `stormWarn.args.passS`, when it has one, else arrival + `passAfterMin`),
-  the utility-solar clearness (on a dayplan day the front reaches the precinct `precinctLagMin`
-  after the news's onset) and the suburbs' heat plan.
+  the utility-solar clearness (a legacy front: set at the news's onset, blended over its
+  clear-after window; a dayplan day's front is not in the plan but in the forecast's per-place
+  shape, below) and the suburbs' heat plan.
 - **Fronts in the pre-roll.** `frontsOf(scn, events)` lists each `cloudOnset` with `suburbs: true`
   as {onset a, clear c = `args.clearS`, frontMu = `args.clearMu`, the after-front sky
-  `climate.cloud.clearMu`, the ramps (at least 1 s)}. `revertSeries(…, fronts, lag)`: at a step
-  whose lagged time t = s - lag lies from a to the first step at or after c + the clear ramp, the
-  value is set, not drawn: from the value the front finds (the step before a) linearly to frontMu
-  over `frontRampMin`, frontMu until c, then linearly to clearMu over `clearRampMin`; that step's
-  draw is skipped (the regional noise suspended) and the recursion resumes from there at the next
-  step, toward its own mean, on the same draws as before. `prerollRooftop` then gives each suburb
-  its own regional series (the shared sky's draws at its `frontLagMin`) plus its local term, which
-  runs on through the hold; the suburbs' skies re-converge after the front (one regional process,
-  restarted at different steps). With no such record it keeps the one shared sky, bit for bit.
-  `prerollSeries` folds the same fronts into the utility-solar clearness at
-  `rooftop.precinctLagMin`, and does not apply that `cloudOnset`'s `clearMu` as the precinct's
-  mean: applied at its atS it would dim the precinct for the 50 min before the front reaches it.
-  Its `cloudClear` still moves the precinct's mean at its own atS (0.92, `scn.cloud.mu` already).
-  After a front the rooftop reverts to `cloud.mu` (0.95), the precinct to 0.92, each as before.
-  `ouSeries` is now `revertSeries` with b = 0, quantised (the same draws and arithmetic).
+  `climate.cloud.clearMu`, the ramps (at least 1 s)}. On a day without one it returns the empty
+  list (no `climate` call: every classic day); it throws, naming the record, when one lacks a
+  finite `clearS` or `clearMu` (else a NaN would reach `ext` and `env.rooftopMW` silently).
+  `revertSeries(…, fronts, lag)`: at a step whose lagged time t = s - lag lies from a to the first
+  step at or after c + the clear ramp, the value is set, not drawn: from the value the front finds
+  (the step before a) linearly to frontMu over `frontRampMin`, frontMu until c, then linearly to
+  clearMu over `clearRampMin`; that step's draw is skipped (the regional noise suspended) and the
+  recursion resumes from there at the next step, toward its own mean, on the same draws as before.
+  `prerollRooftop` then gives each suburb its own regional series (the shared sky's draws at its
+  `frontLagMin`) plus its local term, which runs on through the hold; the suburbs' skies
+  re-converge after the front (one regional process, restarted at different steps). With no such
+  record it keeps the one shared sky, bit for bit. `prerollSeries` folds the same fronts into the
+  utility-solar clearness at `rooftop.precinctLagMin`, and does not apply that `cloudOnset`'s
+  `clearMu` as the precinct's mean: applied at its atS it would dim the precinct for the 50 min
+  before the front reaches it. Its `cloudClear` still moves the precinct's mean at its own atS
+  (0.92, `scn.cloud.mu` already). After a front the rooftop reverts to `cloud.mu` (0.95), the
+  precinct to 0.92, each as before. `ouSeries` is now `revertSeries` with b = 0, quantised (the
+  same draws and arithmetic). Labelled: the rooftop skies are a 300-s series read by linear
+  interpolation (C-5), so a knot of a suburb's front (its onset or clear, plus its lag) between two
+  steps is smoothed over one step: the suburb starts to dim, or to clear, less than a step early,
+  off the exact shape by at most slope x step / 4 at the knot (about 0.08 of clearness on the
+  10-min ramp-in, about 30 MW for an average suburb at 13:00; half that on the clear ramp). Every
+  lag is a multiple of 5 min, so onsets and clears on `DAYPLAN_MARK_S` marks (plan's draw) would
+  make it exact. The precinct's 60-s series is exact for whole-minute times.
 - **The forecast's front** (on a dayplan day only: `scn.dayplan` is the one public sign that a
-  cloud news is a front over the suburbs, since the plan rolls no other). Suburb j's front starts
-  at a = onset + its lag. While the present s0 is before a + `clearAfterMin[1]` + the clear ramp
-  (it may still be under it), its expected sky at s is (1 - p)(r + (frontMu - r) g) + p clearMu:
-  r its regional forecast from the present (`part.k + (k_j - k-bar) x dR`, exact because the
-  recursion is linear), g the ramp-in fraction (re-based to now when the ramp is under way), and p
-  the expected share of its clear ramp done when the clear time is uniform over the clear-after
-  window: (A(s - a - c0) - A(s - a - c1)) / (c1 - c0), A the area under a 0-to-1 ramp of the clear
-  ramp's width (exact for a uniform draw). Weighted by share (the rooftop factor is affine in k).
-  The band adds (perK x sum_j w_j (clearMu - frontMu) sqrt(p_j (1 - p_j)))^2: Q-79's (perK x
-  (clearMu - frontMu))^2 x p(1 - p) when every suburb has one p; the suburbs share one clear time,
-  so their spreads add (the sum of the sds), and p(1 - p) bounds a ramp mixture's variance from
-  above. The regional and local terms stay as they were (the hold suspends the regional noise, so
-  the band is a little wide under the front). Labelled: the cleared part sits at clearMu, where the
-  sim reverts to `cloud.mu` (under 0.03 of clearness: at most about 70 MW at 13:00); a held suburb's
-  present local deviation is not carried. Past a suburb's latest clear its forecast is the regional
-  drift from its present sky again. L-2 with fronts is stage C's measure (`tools/l2.mjs`).
-- **Staging.** Until wave 1's `plan` merges, desk's neutral plan rolls the legacy front (over the
-  precinct only, its `cloudOnset` without `suburbs`), which the desk forecast now reads as a front
-  over the suburbs that the sim does not fold: on those days the rooftop forecast expects a front
-  that never comes (smoke check, desk seed 7 at 1 h: 4 of 9 intervals under it inside the band).
-  It ends at the merge. The desk test that rode on the legacy front's forecast is on `legacyDesk()`
-  (`tests/events.test.js` :327).
-- `tests/front.test.js` (about 0.2 s; fronts put by `stateWith` on desk seeds with no weather
-  records, scenario variants for the shape and the second copy): `climate` on both kinds of day;
-  each suburb at frontMu in city order within one sky step of its lag + ramp, held, cleared, and
-  the precinct untouched before its lag; the 13:00 drop against capacity x share x clearFactor x
-  shape x cloudBite x (sky before - frontMu) within 10%; the forecast unchanged while unwarned
-  (S-4), carrying the front from the warning, its band wider only over the clearing; the mean under
-  the front and the storm's windows from the dayplan, not `scn.events`. Shown once to fail by hand:
+  cloud news is a front over the suburbs, since the plan rolls no other). The places are the
+  suburbs, then the solar precinct; place j's front starts at a = onset + its lag, and every place
+  clears c after its own onset: one clear time, uniform over the clear-after window [c0, c1] a
+  priori.
+  - **What the skies show now** (public: `obs.rooftop.suburbs[].clearness` and the precinct's
+    `obs.sky.clearness`; S-4 lets the forecast read `env`). A place whose time since its onset, y,
+    is at least c0 and the ramp-in, and under c1 + the clear ramp R, is either held or clearing.
+    Held means its clearness is under frontMu + 3 sd of the local term (the regional sky is set
+    exactly under a front, so only the local term moves it; the precinct has none): then c > y - R
+    x that threshold's share of the ramp, and the window starts there (a truncated uniform).
+    Clearing puts c at y - R x q, q its share of the clear ramp done ((k - frontMu) / (clearMu -
+    frontMu), at most 1, so a cleared place only bounds c from above); the forecast takes the
+    smallest such c (the place furthest behind on its ramp reads it best) and then knows the clear
+    time for every place: c0 = c1 = it, clamped to the window. Before SOL is c0 into its front
+    nothing is read.
+  - **A place's expected sky** at s is (1 - p)(r + (frontMu - r) g) + p clearMu, r its sky without
+    the front (a suburb: its regional forecast from the present, `part.k + (k_j - k-bar) x dR`,
+    exact because the recursion is linear; the precinct: the utility-solar drift from the present,
+    whose plan carries no front on a dayplan day), g the ramp-in fraction (re-based to now when it
+    is under way), and p = E[q] over c uniform on [c0, c1]: (A(y - c0) - A(y - c1)) / w, A the area
+    under a 0-to-1 ramp of width R, w = c1 - c0 but at least 1 s (a known clear time, or a fixed
+    `clearAfterMin`, is a plain ramp and never divides by zero). From a + c1 + R on, a place is its
+    own drift from its present sky again. The rooftop weights the suburbs by share (the rooftop
+    factor is affine in k); utility solar is the precinct's, so the precinct follows Q-79's shape
+    too, instead of S-4's 60-min drift toward a set-and-blend plan (which missed the sim's 10-min
+    ramp by up to 670 MW; SPEC S-4's drift wording needs a note at stage C).
+  - **The band** adds (perK x sum_j w_j (clearMu - frontMu) sd_j)^2, sd_j^2 = Var(q) = (B(y - c0) -
+    B(y - c1)) / w - p^2, B the area under the ramp's square: the clearing's own variance, exactly.
+    That is Q-79's p(1 - p), p the share of the clear window elapsed, when the ramp is instant
+    (R = 0), less for a ramp, and 0 once the clear time is known. The places share one clear time,
+    so their sds add (an upper bound for spreads that move together). The regional and local terms
+    stay as they were (the hold suspends the regional noise, so the band is a little wide under the
+    front).
+  - Labelled: the cleared part sits at clearMu, where the sim reverts to `cloud.mu` (under 0.03 of
+    clearness: at most about 70 MW at 13:00); a held place's present local deviation is not
+    carried; a clearing place's reading is off by its local term (sd about 1 min of clear time).
+    A probe (4 quiet desk seeds, 7 clear times, origins every 5 min from onset + 40 to + 175 min;
+    columns at 5, 15, 30 and 60 min, 3,136 in all): before this reading 1,099 columns missed the
+    realised rooftop by more than 300 MW (worst 946) and utility solar by up to 801 MW; now 166
+    (none at 5 min and one at 15 min: the rest are the clear time's honest uncertainty, 30-60 min
+    ahead of a place showing it), and solar by at most 388 MW. Realised demand fell inside P10-P90
+    in 89.5% of them: a Gaussian band over a two-valued error covers more than 80%. L-2 with fronts
+    is stage C's measure (`tools/l2.mjs`), and the front's band its tuning round's (§32.10).
+- `tests/front.test.js` (7 tests, about 0.25 s; fronts put by `stateWith` on desk seeds with no
+  heat, storm, cloud or drought records, so a live plan's drought cannot move the storm test;
+  scenario variants for the shape, the second copy and a fixed window): `climate` on both kinds
+  of day; each suburb at frontMu in city order within one sky step of its lag + ramp, held,
+  cleared, and the precinct untouched before its lag; the 13:00 drop against capacity x share x
+  clearFactor x shape x cloudBite x (sky before - frontMu) within 10%; the forecast unchanged while
+  unwarned (S-4), carrying the front from the warning (rooftop under the held front, and utility
+  solar 15 min into the precinct's front, each within 10%), deep-equal under a scramble of `ext`
+  (the skies, the precinct's series, the events) after the warning and inside the clearing, its
+  band wider only over the clearing; inside the clearing (SOL and HAZ clear with RED and HAR
+  clearing; nothing clear late in the window) every column of the next hour, or half hour, within
+  10% of the realised rooftop; the mean under the front and the storm's windows from the dayplan,
+  not `scn.events`; a fixed clear-after window gives no NaN, a front record without `clearS`
+  throws, and a scenario without the legacy events block forecasts. Shown once to fail by hand:
   `climate` reading the legacy menu on a dayplan day (three tests red), the band term dropped (the
-  band test red).
+  band test red), no reading of the skies (the clearing test red), the precinct on the drift (the
+  forecast test red), the window unguarded (NaN: two red), `windPlan` without its guard (the
+  robustness test red), the forecast reading `ext` (the clearing test's scramble red). The desk
+  test that rode on the legacy front's forecast is on `legacyDesk()` (`tests/events.test.js` :327).
 - `tools/l2.mjs`: L-2's coverage (the method of the slow tests fb73b7d deleted), by class and over
   a forecast front; stage C runs it (§32.10).
+
+**`forecast()`'s doc** (moved from `sim/weather.js` by the 2c sky fix pass, verbatim but its 2c
+line; the code keeps its first line and a pointer):
+
+```text
+Forecast for the player and par (S-4, L-1, L-2). Uses ONLY public information: the
+scenario's climatology (demand shape and noise process, clear-sky sun, mean wind and
+clearness, the rooftop curve and its cloud process, the public timings of climate(scn)), the
+public kind of day (state.day: MILD or HOT, weekend), the present state (state.env, and
+the smelter's present load and announced return) and announcements already made
+(state.news). Never reads state.ext.
+
+Returns {fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[],
+neighbourPrice[], exportLimitMW[], underlyingP50[], rooftopMW[], flexMW[]}, column k (0-based) at
+grid second fromS + (k + 1) * stepS. neighbourPrice and exportLimitMW are the public daily shapes
+(P-6, F-13), exact, for the tie's merit order in the L-0 plan. Phase 2a (desk/README.md §19.3):
+demandP50 / P10 / P90 are OPERATIONAL demand (P-1, with flex); underlyingP50 = demandP50 -
+flexMW + rooftopMW + the smelter's expected missing load (2b: README §8); rooftopMW is as if
+every inverter were connected, after the heat derate (0 in every column on a scenario with
+no rooftop). horizonS may run to the end of the sim day (observe's dayAhead).
+
+Integrated minute by minute (so the result does not depend on stepS):
+  underlying P50 = underlyingBaseMW(day, h) x announced heat multiplier + the present
+    deviation decaying at the scenario's noise revert rate;
+  rooftop = the P-2 curve at the suburbs' capacity-weighted clearness (the rooftop factor is
+    affine in k, so one weighted value is exact), drifting from its present value toward the
+    scenario's mean (an announced heatwave's clear skies from its onset) at the regional
+    sky's revert rate, x the heat derate inside the ANNOUNCED heat window;
+  demand P50 = underlying P50 + flex (the booked blocks, flexAt) - rooftop - the smelter's
+    expected missing load;
+  P10 / P90 = P50 -+ Z_P90 x sd(lead), where sd is the forecast error of the scenario's
+    own demand-noise process (an OU series: var grows as sigma^2 (1 - a^2L) / (1 - a^2)
+    with a = 1 - revertPerMin) plus the per-second wobble (FINE_NOISE_MW, at the target
+    and carried from the origin) plus the rooftop's (below). sd is 0 at lead 0 (L-2; README §11);
+  wind and clearness drift from the present toward the climatological mean, or toward
+    the announced regime (storm surge then cut-out risk; drought; cloud front inside its
+    warned window; heat's clear skies), with time constant FC_DRIFT_TAU_S.
+The rooftop part of the band is the forecast error of the C-5 cloud process itself, in MW at
+that hour's sun: the regional sky's variance grown over the lead, plus the suburbs' local
+terms (independent, so weighted by the sum of squared shares): their own growth, and the
+part of the present deviation that was local and fades faster than the forecast assumes
+((regional decay - local decay)^2 x their stationary variance).
+2c: a warned front over the suburbs and the precinct, read against the skies now, and its
+clearing's variance (Q-79; above).
+Unannounced events (a heatwave before its 10:30 warning, trips, the smelter's trip) are
+not in it: that is the forecast's honest error.
+```
 
 **The file's header** (moved from `sim/weather.js` verbatim, Q-61; desk/README.md §32):
 
