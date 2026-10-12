@@ -259,7 +259,7 @@ modules named. "A" = set by createState only, never changed after. "-" = nobody 
 | `news` | array | events | announcements made so far (public; 2c: also network, tie and outage notices) |
 | `log` | array | step | accepted inputs `{tick, type, args}` (F-6) |
 | `plan` | object | grid (inputs and `planSecond`) | Phase 1a: the plan in state (below) |
-| `scope` | `{unit, nextAutoTick}` | grid | Phase 1a, K-12: the unit on the synchroscope ('' none); the tick of the next `syncAuto` close (-1 none; step() compares it every tick) |
+| `scope` | `{unit, nextAutoTick}` | grid (2c: step's night flip clears `unit`) | Phase 1a, K-12: the unit on the synchroscope ('' none); the tick of the next `syncAuto` close (-1 none; step() compares it every tick) |
 | `levers` | `{rev, patience[nSub], blocks[]}` | grid (inputs) | 2b (desk/README.md §31.3.3): the city levers' bookings and each suburb's patience (below) |
 
 ### plan (Phase 1a; L-0, L-4, L-6, K-2; desk/README.md §3.1)
