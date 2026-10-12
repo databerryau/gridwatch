@@ -32,7 +32,7 @@ test('stateWith(seed, scn, []) is createState; every pre-rolled record carries a
   assert.notEqual(scenarioHash(CLASSIC), scenarioHash(DESK));
 });
 
-test('injectEvent refuses a past second, an unknown type, a second heatAnnounce and one on a MILD day', () => {
+test('injectEvent refuses a past second, an unknown type, a second heatAnnounce, one on a MILD day and a second contingency on one second', () => {
   const s = createState(2, DESK); // HOT, no heat
   runTo(s, 2);
   assert.throws(() => injectEvent(s, {atS: 1, type: 'notice', args: {code: 'X'}}), /has run/);
@@ -43,6 +43,10 @@ test('injectEvent refuses a past second, an unknown type, a second heatAnnounce 
   assert.throws(() => injectEvent(s, heat), /second one/);
   assert.equal(createState(1, DESK).day.temp, 'MILD');
   assert.throws(() => injectEvent(createState(1, DESK), heat), /MILD/);
+  const t = createState(2, DESK), c = t.ext.events.find(e => e.contingency);
+  assert.throws(() => injectEvent(t, {atS: c.atS, type: 'smelterTrip', args: {offS: 2700}}), /contingency already falls at second/);
+  injectEvent(t, {atS: c.atS, type: 'notice', args: {code: 'X'}}); // information on that second is fine
+  injectEvent(t, {atS: c.atS + 1, type: 'smelterTrip', args: {offS: 2700}});
 });
 
 test('an injected cloudOnset leaves the sky unchanged before its atS and lowers it 30 min after', () => {

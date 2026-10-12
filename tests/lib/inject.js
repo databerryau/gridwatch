@@ -11,10 +11,12 @@ const ord = t => TYPE_ORDER.indexOf(t);
 
 /**
  * Put rec ({atS, type, args} and any of id, contingency, warned, act, crisis) on state's day.
- * Refuses (throws) a record whose second has run (atS < ceil(tick / TPS)), an unknown type, and a
- * heatAnnounce on a MILD day or a second one. Inserts it after evNext at its (atS, TYPE_ORDER)
- * place (after records of the same second and type), re-derives ext, and at tick 0 with atS 0
- * re-runs the opening (step.openDay), as createState would have. Returns state.
+ * Refuses (throws) a record whose second has run (atS < ceil(tick / TPS)), an unknown type, a
+ * heatAnnounce on a MILD day or a second one, and a contingency on a second that already has one
+ * (prerollEvents never puts two on one second: a double trip is not credible). Inserts it after
+ * evNext at its (atS, TYPE_ORDER) place (after records of the same second and type), re-derives
+ * ext, and at tick 0 with atS 0 re-runs the opening (step.openDay), as createState would have.
+ * Returns state.
  */
 export function injectEvent(state, rec) {
   const evs = state.ext.events, now = Math.ceil(state.tick / TPS);
@@ -25,6 +27,8 @@ export function injectEvent(state, rec) {
   const e = {id: rec.id || 'inj' + (evs.length + 1), atS: rec.atS, type: rec.type, args: JSON.parse(JSON.stringify(rec.args || {})),
     contingency: rec.contingency ?? CONTINGENCY_TYPES.includes(rec.type), warned: rec.warned ?? false, act: rec.act ?? 0,
     crisis: rec.crisis ?? false};
+  if (e.contingency && evs.some(x => x.contingency && x.atS === e.atS))
+    throw new Error('injectEvent: a contingency already falls at second ' + e.atS);
   let i = state.evNext;
   while (i < evs.length && (evs[i].atS < e.atS || (evs[i].atS === e.atS && ord(evs[i].type) <= ord(e.type)))) i++;
   evs.splice(i, 0, e);
