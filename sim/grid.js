@@ -1353,7 +1353,8 @@ function tiePlanSecond(state, s) {
   while (k < keys.length && keys[k].atS <= tp.doneS) k++;
   if (k === keys.length) return false;
   let key = keys[k];
-  if (!(key.atS <= s || s + Math.abs(key.mw - t.setMW) / TIE_STEP >= key.atS)) return false;
+  const lim = mw => Math.min(mw, t.limitMW); // the import the dispatch will run to (Q-68)
+  if (!(key.atS <= s || s + Math.abs(lim(key.mw) - lim(t.setMW)) / TIE_STEP >= key.atS)) return false;
   while (k + 1 < keys.length && keys[k + 1].atS <= s) key = keys[++k];
   t.setMW = key.mw;
   tp.doneS = key.atS;
@@ -1389,6 +1390,8 @@ export function planSecond(state, out) {
 // ---- projections for plan edits (inputs only; they may allocate)
 
 const bookingOf = (list, unit) => { for (const b of list) if (b.unit === unit) return b; return null; };
+/** The second a booked START runs: its atS, or its unit's return from an outage (Q-68). */
+const startDueS = (state, b) => Math.max(b.atS, state.units[fleet.unitIndex(b.unit)].outUntilS);
 
 /** Seconds from START to MIN for machine i now (auto-sync counted in AGC mode only; HAND closes by hand). */
 const startToMinS = (state, i) => M[i].t1S + (state.control.mode === 'AGC' ? AUTO_SYNC_S : 0) + M[i].t2S;
@@ -1403,7 +1406,7 @@ function onAtS(state, i, s) {
     case 'starting': return s + u.timerS + (auto ? AUTO_SYNC_S : 0) + m.t2S;
     default: {
       const b = bookingOf(state.plan.starts, u.id);
-      return b ? Math.max(b.atS, u.outUntilS) + startToMinS(state, i) : -1;
+      return b ? startDueS(state, b) + startToMinS(state, i) : -1;
     }
   }
 }
@@ -1526,13 +1529,13 @@ function planStart(state, cmd, s) {
   return '';
 }
 
-/** planStop {unit, atS}: book a STOP (replacing the unit's booking); the unit must be committed or booked to start before atS. */
+/** planStop {unit, atS}: book a STOP (replacing the unit's booking); the unit must be committed or booked to start (startDueS) before atS. */
 function planStop(state, cmd, s) {
   if (cmd.atS < s) return 'that time has passed';
   const u = state.units[fleet.unitIndex(cmd.unit)];
   const b = bookingOf(state.plan.starts, cmd.unit);
   const committed = u.mode === 'on' || u.mode === 'loading' || u.mode === 'starting' || u.mode === 'ready';
-  if (!committed && !(b !== null && b.atS < cmd.atS)) return 'unit is ' + u.mode;
+  if (!committed && !(b !== null && startDueS(state, b) < cmd.atS)) return 'unit is ' + u.mode;
   book(state.plan.stops, {unit: cmd.unit, atS: cmd.atS});
   state.plan.rev += 1;
   return '';
@@ -1567,9 +1570,10 @@ function planRejoin(state, cmd, s) {
 }
 
 /**
- * planLoad {fromS, stations, tie, starts, stops}: replace every plan entry with atS >= fromS by
- * the lists given (step.js has checked their shape and order); MAN flags clear; madeAtS = now. A
- * key the executor had already applied at or after fromS is superseded (doneS moves back).
+ * planLoad {fromS, stations, tie, starts, stops}: replace every plan entry with atS >= fromS (a
+ * START held for an outage: its unit's return) by the lists given (step.js has checked their
+ * shape and order); MAN flags clear; madeAtS = now. A key the executor had already applied at or
+ * after fromS is superseded (doneS moves back).
  */
 function planLoad(state, cmd, s) {
   const from = cmd.fromS;
@@ -1586,7 +1590,7 @@ function planLoad(state, cmd, s) {
   }
   P.tie.keys = P.tie.keys.filter(k => k.atS < from).concat(cmd.tie.map(e => ({atS: e[0], mw: e[1]})));
   if (P.tie.doneS >= from) P.tie.doneS = from - 1;
-  P.starts = P.starts.filter(b => b.atS < from).concat(cmd.starts.map(e => ({unit: e[0], atS: e[1]})));
+  P.starts = P.starts.filter(b => startDueS(state, b) < from).concat(cmd.starts.map(e => ({unit: e[0], atS: e[1]})));
   P.stops = P.stops.filter(b => b.atS < from).concat(cmd.stops.map(e => ({unit: e[0], atS: e[1]})));
   P.madeAtS = s;
   P.rev += 1;
