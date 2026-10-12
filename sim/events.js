@@ -193,8 +193,12 @@ function latestNews(state, kind) {
   return null;
 }
 
+// On a dayplan day the four weather texts read their args only, <= 25 words, no sender (§32.4.6)
 function heatText(scn, a) {
   const r = V.HEAT_RAMP_S;
+  if (scn.dayplan) return 'Heatwave ' + clockText(a.onsetS) + '-' + clockText(a.endS) + ': demand up to +' + a.upliftPm / PM_PER_PCT +
+    '% (building from ' + clockText(a.onsetS - r) + ', easing by ' + clockText(a.endS + r) + '), coal and gas capacity -' +
+    a.deratePm / PM_PER_PCT + '%, clear skies.';
   return 'WEATHER BUREAU: extreme heat ' + hhmm(scn, a.onsetS) + '-' + hhmm(scn, a.endS) + '. Demand up to +' +
     a.upliftPm / PM_PER_PCT + '% (building from ' + hhmm(scn, a.onsetS - r) + ', easing by ' + hhmm(scn, a.endS + r) +
     '); coal and gas capacity -' + a.deratePm / PM_PER_PCT + '% from ' + hhmm(scn, a.onsetS) + ' to ' +
@@ -202,6 +206,9 @@ function heatText(scn, a) {
 }
 
 function stormText(scn, a) {
+  if (scn.dayplan) return 'Storm front arriving about ' + clockText(a.arriveS) + ': wind surges, then falls away as turbines cut out' +
+    ('cutoutFromS' in a ? ', starting ' + clockText(a.cutoutFromS) + '-' + clockText(a.cutoutToS) : '') +
+    '. Interconnector faults possible until it passes' + ('passS' in a ? ', about ' + clockText(a.passS) : '') + '.';
   const x = scn.events && scn.events.storm;
   let t = 'WEATHER BUREAU: storm front approaching from the west, arriving about ' + hhmm(scn, a.arriveS) +
     '. Wind output will surge, then fall away as turbines cut out in the gale';
@@ -213,6 +220,9 @@ function stormText(scn, a) {
 }
 
 function cloudText(scn, a) {
+  if (scn.dayplan) return 'Cloud front over the suburbs from about ' + clockText(a.onsetS) + ', west to east' +
+    (a.frontPm ? ': skies near ' + a.frontPm / PM_PER_PCT + '% of clear' : '') +
+    (a.roofDropMW ? ', rooftop solar down by up to about ' + mwText(a.roofDropMW) + ' MW' : '') + '.';
   const x = scn.events && scn.events.cloud;
   const t = 'SATELLITE: cloud band moving over the solar precinct, overhead from about ' + hhmm(scn, a.onsetS) + '.';
   if (!x) return t;
@@ -278,18 +288,19 @@ function applyEvent(state, e, out) {
       announce(state, out, e, 'cloud', a.onsetS, null, cloudText(scn, a), 'CLOUD_WARNING');
       return;
     case 'cloudOnset':
-      log(out, tick, 'info', 'CLOUD_ONSET', 'Cloud front overhead: utility solar falling toward about ' + pct(a.clearMu) +
-        '% of clear-sky.');
+      log(out, tick, 'info', 'CLOUD_ONSET', a.suburbs ? 'Cloud front reaching the western suburbs: rooftop solar falling suburb by ' +
+        'suburb, then the solar farm.' : 'Cloud front overhead: utility solar falling toward about ' + pct(a.clearMu) + '% of clear-sky.');
       return;
     case 'cloudClear':
-      log(out, tick, 'info', 'CLOUD_CLEAR', 'Skies clearing over the solar precinct.');
+      log(out, tick, 'info', 'CLOUD_CLEAR', scn.dayplan ? 'Cloud front clearing from the west.' : 'Skies clearing over the solar precinct.');
       return;
     case 'windDrought':
       if (scn.dayplan && latestNews(state, 'drought')) { // the news came with droughtWarn
         log(out, tick, 'warn', 'WIND_DROUGHT', 'Wind drought: wind falling toward about ' + pct(a.windMu) + '% of capacity.');
         return;
       }
-      announce(state, out, e, 'drought', e.atS, null, 'WIND DROUGHT: a high-pressure ridge has settled in. ' +
+      announce(state, out, e, 'drought', e.atS, null, scn.dayplan ? 'Wind drought: a high-pressure ridge has settled in; wind ' +
+        'falling toward about ' + pct(a.windMu) + '% of capacity.' : 'WIND DROUGHT: a high-pressure ridge has settled in. ' +
         'Wind resource falling toward about ' + pct(a.windMu) + '% of capacity.', 'WIND_DROUGHT');
       return;
     // 2c (sim/README.md §7)
@@ -316,7 +327,7 @@ function applyEvent(state, e, out) {
       return;
     case 'tieDerateEnd':
       setTieLimit(state, V.TIE_MAX_MW, -1);
-      log(out, tick, 'info', 'TIE_LIMIT_END', 'Tie import limit lifted: imports up to ' + V.TIE_MAX_MW + ' MW again.');
+      log(out, tick, 'info', 'TIE_LIMIT_END', 'Tie import limit lifted: imports up to ' + V.TIE_MAX_MW + (state.tie.tripped ? ' MW once the tie is back in service.' : ' MW again.'));
       return;
     case 'unitOutage': {
       const k = unitIndex(a.unit);

@@ -85,15 +85,16 @@ test('L-0: the pre-dispatch plan is deterministic, starts at the desk opening an
 test('S-4: information barrier: scrambling hidden state (future events, the regime, the series, the heat window) leaves par\'s log unchanged', () => {
   // Par runs on a state whose ext is replaced after the cut by another seed's; its input log
   // before the cut must be identical (nothing hidden after the cut was observable before it).
-  // The donor is a heat day (seed 4: heat announced 10:30, after the cut) and the subject a day
-  // without one, so the regime and the heat window really change (review fix: seeds 5 and 6 are
-  // both storm days with no heat window, and the scramble changed neither).
+  // The donor is a heat day (seed 4: its heat window starts after the cut; on DESK the plan
+  // announces it at 04:00, Q-80, in the donor's own news, which the subject never gets) and the
+  // subject a day without one, so the regime and the heat window really change (review fix: seeds 5
+  // and 6 are both storm days with no heat window, and the scramble changed neither).
   // Phase 2a (desk/README.md §25): on DESK, the game's day, the hidden state also holds each
   // suburb's rooftop sky (ext.rooftop.clearPm) and the regime's temperature class. state.day is
   // public (MILD / HOT, the weekend) and is not swapped. The par runs are on DESK only (budget,
   // F-10): its hidden state is every field the classic day hides plus the rooftop skies, and par's
   // code is the same on both; the decide() check below is on the classic day. The subject is seed
-  // 1 (a MILD calm day; the donor a heatwave announced at 10:30), whose plain run to the cut is
+  // 1 (a MILD calm day; the donor a heatwave from 12:30), whose plain run to the cut is
   // the shared par day (parDayAt), so only the scrambled run is extra.
   const cutS = (10 - V.DAY_START_H) * 3600, cut = cutS * TPS + 1; // just after the 10:00:00 grid update, where parDayAt stops
   for (const scn of [DESK]) {
@@ -102,7 +103,7 @@ test('S-4: information barrier: scrambling hidden state (future events, the regi
     const donor = createState(4, scn);
     const s = createState(1, scn);
     assert.notDeepEqual(donor.ext.regime, s.ext.regime, 'the donor has another regime');
-    assert.ok(donor.ext.heat !== null && s.ext.heat === null && donor.ext.heat.announceS > cutS, 'a heat window announced after the cut');
+    assert.ok(donor.ext.heat !== null && s.ext.heat === null && donor.ext.heat.onsetS - V.HEAT_RAMP_S > cutS, 'a heat window that starts after the cut');
     s.ext.regime = donor.ext.regime;
     s.ext.heat = donor.ext.heat;
     s.ext.events = s.ext.events.filter(e => e.atS < cutS).concat(donor.ext.events.filter(e => e.atS >= cutS));

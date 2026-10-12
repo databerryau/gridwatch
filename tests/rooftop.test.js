@@ -85,7 +85,7 @@ test('P-2: each suburb makes its share at its own clearness; rooftopMW is the su
 });
 
 test('P-2 / C-3: the x 0.92 heat derate follows the heat window\'s ramp (truth from ext.heat), not the day', () => {
-  const s = skies(createState(4, DESK), 1); // a heatwave: announced 10:30, 13:30-20:00
+  const s = skies(createState(4, legacyDesk()), 1); // a heatwave: announced 10:30, 13:30-20:00 (today's desk events)
   assert.deepEqual([s.ext.heat.onsetS, s.ext.heat.endS], [secOf(13, 30), secOf(20)]);
   const at = sec => { goTo(s, sec); return s.env.rooftopMW / rooftopClearSkyMW(s.scn, s.env.h); };
   assert.ok(Math.abs(at(secOf(9)) - 1) < 1e-12, 'no derate in the morning: nothing to leak before the 10:30 warning');
@@ -237,12 +237,13 @@ test('P-3: env.underlyingMW is that shape x the heat uplift + the noise, from th
 test('C-2: state.day is public and set once: MILD or HOT (a heatwave reads HOT), weekend from the scenario', () => {
   assert.deepEqual(createState(1, DESK).day, {temp: 'MILD', weekend: false});
   assert.deepEqual(createState(2, DESK).day, {temp: 'HOT', weekend: false});
-  assert.deepEqual(createState(4, DESK).day, {temp: 'HOT', weekend: false}, 'the heatwave is announced at 10:30, not at 04:00');
+  assert.deepEqual(createState(4, DESK).day, {temp: 'HOT', weekend: false}, 'a heatwave reads HOT: the heat is news (at 04:00, Q-80)');
   assert.deepEqual(createState(1, DESK_WEEKEND).day, {temp: 'MILD', weekend: true});
   assert.deepEqual(observe(createState(1, DESK_WEEKEND)).day, {temp: 'MILD', weekend: true});
-  // The weekend is the weekday's weather: same regime, events and skies; only the demand differs.
-  const wd = createState(8, DESK), we = createState(8, DESK_WEEKEND);
-  assert.deepEqual(we.ext, wd.ext);
+  // The weekend is the weekday's weather: same regime, events and skies; only the demand differs
+  // (and Act I's late return, which is the weekend's own unit: Q-68).
+  const wd = createState(8, DESK), we = createState(8, DESK_WEEKEND), weather = x => ({...x, events: x.events.filter(e => e.act !== 1).map(({id, ...e}) => e)});
+  assert.deepEqual(weather(we.ext), weather(wd.ext));
   goTo(wd, NOON_S); goTo(we, NOON_S);
   assert.equal(we.env.rooftopMW, wd.env.rooftopMW);
   assert.ok(we.env.underlyingMW < 0.93 * wd.env.underlyingMW);
@@ -276,7 +277,8 @@ const inBand = (mw, target) => Math.abs(mw - target) <= 0.1 * target;
 
 test('P-3: the noise-free minimum operational demand is inside the band of every day type (C-3: 3,442 / 3,442 / 2,394 / 1,938 MW)', () => {
   const flat = s => { s.ext.series.demandNoiseMW.fill(0); skies(s, 0.92); };
-  const cases = [[2, DESK, P3.HOT, 3442], [4, DESK, P3.HEATWAVE, 3442], [1, DESK, P3.MILD, 2394], [1, DESK_WEEKEND, P3.MILD_WEEKEND, 1938]];
+  // (the heatwave on today's desk events, 13:30-20:00: C-3's record; the plan's 12:30-14:30 onsets lift the belly, 3,549 MW on seed 4)
+  const cases = [[2, DESK, P3.HOT, 3442], [4, legacyDesk(), P3.HEATWAVE, 3442], [1, DESK, P3.MILD, 2394], [1, DESK_WEEKEND, P3.MILD_WEEKEND, 1938]];
   for (const [seed, scn, target, c3] of cases) {
     const b = belly(seed, scn, flat);
     assert.ok(inBand(b.minMW, target), scn.id + ' ' + b.temp + ': ' + b.minMW + ' MW against ' + target + ' +- 10%');

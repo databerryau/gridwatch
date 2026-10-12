@@ -475,7 +475,7 @@ test('C-2: on the game\'s day MILD is 55 +- 3% of 2,000 seeds and HOT 30 +- 3%; 
   for (let seed = 1; seed <= 2000; seed++) {
     const g = prerollRegime(seed, deskScn), c = prerollRegime(seed, scn);
     counts[g.temp]++;
-    assert.equal(g.cls, c.cls, 'seed ' + seed + ': the weather class draw is untouched');
+    assert.equal(g.cls === 'heat', c.cls === 'heat', 'seed ' + seed + ': the heat draw (a = 0) is untouched (desk\'s overlays: a = 2, Q-66)');
     assert.equal(g.temp === 'HEATWAVE', g.cls === 'heat');
     assert.equal(c.temp, c.cls === 'heat' ? 'HEATWAVE' : 'HOT', 'the classic day is never MILD');
   }

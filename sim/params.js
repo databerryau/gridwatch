@@ -502,6 +502,7 @@ export const P = {
   ONSET_CLEAR_REAL_S: simp(30, 'real s', 'Q-72: no unwarned trip within 30 real s of a warned onset'),
   DAYPLAN_SLOT_BASE: simp(64, 'slot', 'Q-65: the plan\'s EXT_EVENTS slots start here (legacy keep theirs)'),
   DAYPLAN_MARK_S: simp(300, 's', 'Q-65: clearances and heat onsets on 5-min marks'),
+  DAYPLAN_MW_STEP: simp(50, 'MW', 'Q-68 / Q-79: the derate\'s limit and the front\'s rooftop drop in 50-MW steps'),
   TRAY_LIFE_REAL_S: simp(20, 'real s', 'Q-63: a tray card lives 20 real s of the step profile'),
   OBJ_EVERY_REAL_S: simp(0.4, 'real s', 'Q-63: the objective recomputes every 0.4 real s (>= 30 grid-s)'),
   STACK_MAX_HZ: simp(10, '1/real s', 'Q-63: the stack\'s idle redraw at most 10 times a real second'),

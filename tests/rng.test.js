@@ -5,6 +5,7 @@ import {hash32, uniform, normal, pick, pickWith, quantise, streamId, STREAM} fro
 import {prerollRegime} from '../sim/weather.js';
 import {createState} from '../sim/step.js';
 import {DESK} from '../content/scenarios.js';
+import {legacyDesk} from './lib/sim-helpers.js';
 
 const N = 50000;
 
@@ -126,9 +127,10 @@ test('F-3 (Phase 2a): the rooftop skies are EXT_ROOFTOP draws only: a = the 5-mi
   }
   assert.ok(Math.abs(corr(series(i => normal(5, STREAM.EXT_ROOFTOP, i, 0)), series(i => normal(5, STREAM.EXT_ROOFTOP, i, 1)))) < 0.03);
   // The pre-roll, rebuilt from the stream (desk/README.md C-5): a calm day and a heatwave (seed 4:
-  // its clear skies lift the shared sky's mean to at least 0.98 from the 13:30 onset).
+  // its clear skies lift the shared sky's mean to at least 0.98 from the 13:30 onset). Today's desk events: a
+  // dayplan front crosses the suburbs (seed 1 has one; tests/front.test.js).
   for (const seed of [1, 4]) {
-    const s = createState(seed, DESK), c = s.scn.rooftop.cloud, n = s.scn.city.suburbs.length, len = 86400 / c.stepS + 1;
+    const s = createState(seed, legacyDesk()), c = s.scn.rooftop.cloud, n = s.scn.city.suburbs.length, len = 86400 / c.stepS + 1;
     const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
     const shared = [c.startFrac];
     for (let k = 1, x = c.startFrac, mu = c.mu; k < len; k++) {

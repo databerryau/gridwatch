@@ -221,8 +221,8 @@ test('S-4 (DESK): forecast() never reads the rooftop skies or the hidden day typ
     for (const seed of [1, 2, 4]) {
       const s = createState(seed, scn);
       assert.equal(s.ext.regime.temp, temps[seed], 'seed ' + seed);
-      goTo(s, secOf(10)); // 10:00: seed 4's heatwave is not announced until 10:30
-      assert.equal(s.news.filter(n => n.kind === 'heat').length, 0);
+      goTo(s, secOf(10)); // 10:00: seed 4's heatwave is news from 04:00 (Q-80); its onset, 12:30, is ahead
+      assert.equal(s.news.filter(n => n.kind === 'heat').length, +(seed === 4));
       const a = FC(s), day = forecast(s, V.DAY_S - s.env.s, V.FC_STEP_S);
       assert.ok(a.rooftopMW.every(x => x > 1000), 'a sunny window: the rooftop forecast is in play');
       const later = clone(s);
@@ -303,7 +303,7 @@ test('P-2 forecast: rooftop follows the capacity-weighted clearness now toward t
   for (const k of [0, 5, 11]) assert.equal(fine.rooftopMW[(k + 1) * 5 - 1], fc.rooftopMW[k], 'the same whatever the column step');
   assert.ok(fine.rooftopMW[1] > fine.rooftopMW[0] && fine.rooftopMW[1] < fine.rooftopMW[4], 'and in between, in proportion');
   // Heat: seed 4 at its 10:30 warning, against the same state with the news withheld.
-  const heat = createState(4, DESK);
+  const heat = createState(4, legacyDesk()); // (today's desk events: the plan announces it at 04:00)
   goTo(heat, secOf(10, 30));
   const quiet = clone(heat);
   quiet.news = quiet.news.filter(n => n.kind !== 'heat');
@@ -377,7 +377,7 @@ const fcMin = (s, min) => ({fromS: s.env.s, stepS: 300, n: 3, demandP50: [5000, 
 const words = msg => msg.trim().split(/\s+/).length;
 
 test('P-4 / C-9: the MSL level is the forecast minimum against 1,600 / 1,300 / 1,000 MW: reached at or below, left 100 MW above; one record per change', () => {
-  const s = createState(1, DESK_WEEKEND);
+  const s = createState(1, legacyDeskWeekend()); // (today's desk events: no 04:00 briefing news)
   goTo(s, secOf(9));
   const out = [], atS = s.env.s + 600;
   const check = min => { const n = out.length; mslSecond(s, fcMin(s, min), out); return out.slice(n); };

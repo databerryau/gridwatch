@@ -8,18 +8,20 @@ import {createState, step, observe, applyInput} from '../sim/step.js';
 import {createSystem, systemInputs, commitSig} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {DESK, CLASSIC} from '../content/scenarios.js';
-import {ticksAt, TPS, clone} from './lib/sim-helpers.js';
+import {ticksAt, TPS, clone, legacyDesk} from './lib/sim-helpers.js';
 
 const S_AT = (h, m = 0) => ticksAt(h, m) / TPS;
 const RULE = /^rule[1-9]$/;
 
-// Par's day on DESK seed 3 at 09:30 and at 16:00 (run once; callers get JSON copies).
+// Par's day on DESK seed 3 at 09:30 and at 16:00 (run once; callers get JSON copies), on today's
+// desk events (legacyDesk: the plan's late return keeps CCGT 2 out on seed 3 and moves par's morning).
+const LEGACY = legacyDesk();
 let DAY = null;
 function parDay(h) {
   if (!DAY) {
-    const a = runPar(3, DESK, {untilTick: ticksAt(9, 30) + 1});
+    const a = runPar(3, LEGACY, {untilTick: ticksAt(9, 30) + 1});
     DAY = {9: clone({state: a.state, memo: a.memo})};
-    const b = runPar(3, DESK, {state: clone(a.state), memo: clone(a.memo), untilTick: ticksAt(16) + 1});
+    const b = runPar(3, LEGACY, {state: clone(a.state), memo: clone(a.memo), untilTick: ticksAt(16) + 1});
     DAY[16] = clone({state: b.state, memo: b.memo});
   }
   return clone(DAY[h]);
@@ -104,7 +106,7 @@ test('S-14 rule 1 in par\'s own day: a notice in state books through runPar, ori
   Object.assign(state.msl, {level: 1, minMW: 1550, atS: S_AT(12, 30)}); // until the sim's next 5-minute check
   memo.lastActTick = -1;
   const n0 = state.log.length;
-  const r = runPar(3, DESK, {state, memo, untilTick: state.tick + 120 * TPS});
+  const r = runPar(3, LEGACY, {state, memo, untilTick: state.tick + 120 * TPS});
   const mine = r.log.map((x, i) => [x, r.origins[i]]).slice(n0);
   const flex = mine.filter(([x]) => x.type === 'flex');
   assert.equal(flex.length, 1, JSON.stringify(mine.map(([x, o]) => o + ' ' + x.type)));

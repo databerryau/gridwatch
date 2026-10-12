@@ -14,7 +14,7 @@ import * as PV from '../app/planview.js';
 import {makeDocument} from './lib/dom.js';
 import {dayVm, baseVm} from './lib/vm-fixture.js';
 import {deskDayVm} from './lib/desk-vm.js';
-import {DESK_WEEKEND} from '../content/scenarios.js';
+import {legacyDeskWeekend} from './lib/sim-helpers.js';
 import {UI, COLOURS} from '../render/mapdata.js';
 import {clockText} from '../render/format.js';
 import {yardstickNs, OWNER_YARD_NS} from './lib/speed.js';
@@ -341,7 +341,7 @@ let BELLY = null;
  * app/game.js's form (column means), the rooftop among them.
  */
 function bellyVm(over) {
-  BELLY ||= deskDayVm({seed: 1, untilH: 12.5, scenario: DESK_WEEKEND, follow: false}).obs;
+  BELLY ||= deskDayVm({seed: 1, untilH: 12.5, scenario: legacyDeskWeekend(), follow: false}).obs; // (today's desk events: the plan's Act I moves the evening)
   const c = structuredClone(BELLY), from = c.forecast.fromS;
   const hist = {colFromS: from - 6 * 300, colS: 300, freq: [], demand: [2150, 2120, 2090, 2060, 2030, 2000], rooftop: [3050, 3080, 3110, 3140, 3170, 3200],
     stations: {coal: [720, 720, 720, 720, 720, 720], wind: [500, 500, 500, 500, 500, 500], tie: [-300, -300, -300, -300, -300, -300]}};

@@ -12,7 +12,7 @@ import {V, SIM_VERSION} from '../sim/params.js';
 import {hashState, observe} from '../sim/step.js';
 import {CLASSIC, DESK} from '../content/scenarios.js';
 import {makeDocument, installGlobals} from './lib/dom.js';
-import {injectTrip} from './lib/sim-helpers.js';
+import {injectTrip, legacyDesk} from './lib/sim-helpers.js';
 import * as G from '../app/game.js';
 import * as W from '../app/watch.js';
 import * as K from '../app/keys.js';
@@ -746,7 +746,7 @@ test('Q-18 / K-22: the word beside the objective is by level, and by kind where 
 });
 
 test('C-10 via the shell: while a guard is under the player\'s hand the line says what the press would do, as "? IF PRESSED" with its level\'s class; "● ARMED" while its cover is up, "✓ UNDER WAY" once started', () => {
-  const {$, h, frames} = boot('?seed=7', {system: SYS, planview: PVW, scenario: DESK, commit: 'player', startPaused: true});
+  const {$, h, frames} = boot('?seed=7', {system: SYS, planview: PVW, scenario: legacyDesk(), commit: 'player', startPaused: true}); // (the plan keeps CCGT 2 out on seed 7)
   $('btn-take').click();
   frames(2);
   assert.equal(h.vm().mode.mode, 'PAUSE');
@@ -875,8 +875,8 @@ test('§21.4: in player mode an accepted start, stop, abortStop, battery, guard,
 
 // A player-mode game with the real system operator at 04:32:10 and a half: the system looked at
 // 04:32:00 and looks again at 04:33:00 (an input made now is not seen by it for half a minute).
-function playerGame(o = {}) {
-  const game = G.createGame(Object.assign({seed: 7, scenario: DESK, system: SYS, planview: PVW, commit: 'player', storage: null}, o));
+function playerGame(o = {}) { // (today's desk events, legacyDesk: the plan keeps CCGT 2 out on seed 7)
+  const game = G.createGame(Object.assign({seed: 7, scenario: legacyDesk(), system: SYS, planview: PVW, commit: 'player', storage: null}, o));
   G.takeDesk(game, {agc: true});
   G.runTo(game, V.PLAYER_START_TICK + 130 * TPS + 25);
   return game;

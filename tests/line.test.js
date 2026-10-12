@@ -15,9 +15,12 @@ import * as SYS from '../app/system.js';
 import * as PVW from '../app/planview.js';
 import {consequence} from '../app/objective.js';
 import {unitLabel} from '../desk/util.js';
+import {legacyDesk} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S;
-const game04 = (o = {}) => G.createGame(Object.assign({seed: 7, scenario: DESK, system: SYS, planview: PVW, commit: 'player', storage: null}, o));
+// Today's desk events (legacyDesk): the plan's late return keeps CCGT 2 out on seed 7, and these tests are not about it.
+const LEGACY = legacyDesk();
+const game04 = (o = {}) => G.createGame(Object.assign({seed: 7, scenario: LEGACY, system: SYS, planview: PVW, commit: 'player', storage: null}, o));
 
 // ------------------------------------------------------------------ the line holds still (Q-18)
 
@@ -160,7 +163,7 @@ test('C-4: the line names every unit as the desk labels it (CCGT 2, COAL 4, HYDR
 // ------------------------------------------------------------------ the tray logs every command (C-12, K-9)
 
 test('K-9: every START, STOP, CANCEL and ABORT the station takes is a STATION card at once (an information tick), with a jump to its lever or the HYDRO wheel; each one, even with the clock held', () => {
-  const st = createState(7, DESK), out = [];
+  const st = createState(7, LEGACY), out = [];
   for (const x of [{type: 'start', unit: 'ccgt2'}, {type: 'stop', unit: 'ccgt2'}, {type: 'start', unit: 'gta1'}, {type: 'stop', unit: 'coal1'},
     {type: 'stop', unit: 'hydro1'}, {type: 'abortStop', unit: 'hydro1'}]) assert.equal(applyInput(st, x, out).ok, true, JSON.stringify(x));
   assert.deepEqual(out.map(r => r.code), ['UNIT_START', 'UNIT_CANCEL', 'UNIT_START', 'UNIT_STOP', 'UNIT_STOP', 'UNIT_ABORT_STOP']);

@@ -296,7 +296,7 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
 // ---------------------------------------------------------------- SPEC §9.1 Q-18: the page as boot.js boots it
 
 test('Q-18, the real page: the clock is held at 04:30, the objective names a unit, starting it by keys clears the line; a slow double click starts one too; the tray says so', async () => {
-  const {DESK} = await import('../content/scenarios.js');
+  const DESK = (await import('./lib/sim-helpers.js')).legacyDesk(); // (today's desk events: the plan keeps CCGT 2 out on seed 7)
   const doc = makeDocument(NEXT);
   let t = 1000;
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
