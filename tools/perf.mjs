@@ -2,6 +2,9 @@
 //
 //   node tools/perf.mjs [--seed N] [--rates 120,2100] [--json]
 //   node tools/perf.mjs --sizes [--json]    the first visit alone, each file in bytes; no frame run
+//   node tools/perf.mjs --sizes --base the-day [--head 2c-a2-base-sim]
+//                                           the same against a git ref, per file and in total,
+//                                           read with `git show` (no checkout); head: the working tree
 //
 // 1. First visit: every file next.html loads (its stylesheet, its module script and everything
 //    that imports), raw and gzip-compressed, against the 400 KB budget.
@@ -15,6 +18,7 @@
 // Timings vary by machine; the sizes do not.
 
 import {readFileSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {gzipSync} from 'node:zlib';
 import {dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -34,11 +38,13 @@ export function staticImports(src) {
 }
 
 // Adds the files `queue` names and everything they import statically to `seen` (repo paths).
+// `root` is a directory, or a function from a repo path to the file's bytes (gitRead).
 function walk(seen, queue, root) {
+  const read = typeof root === 'function' ? root : key => readFileSync(join(root, key));
   const add = rel => {
     const key = rel.split('\\').join('/');
     if (seen.has(key)) return null;
-    const buf = readFileSync(join(root, key));
+    const buf = read(key);
     seen.set(key, {path: key, bytes: buf.length, gzip: gzipSync(buf, {level: 9}).length});
     return buf.toString('utf8');
   };
@@ -121,13 +127,33 @@ export async function simCost(seed, rate, frames) {
 /** The sim's p95 budget at a rate (F-11): 1 ms up to 150x, 3 ms above (app/perf.js simBudgetMs). */
 const simBudget = rate => (rate <= 150 ? BUDGET.simMsAt150 : BUDGET.simMsAt2100);
 
-/** --sizes (Q-61, desk/README.md §32.3): the file count, each file's raw and gzip bytes, the totals. */
-function sizes(files, bytes, gz, json) {
-  if (json) return console.log(JSON.stringify({count: files.length, bytes, gzip: gz, files}, null, 1));
-  console.log('First visit (next.html): ' + files.length + ' files, ' + bytes + ' B raw, ' + gz + ' B gzip (' + (gz / 1024).toFixed(2) + ' KB)\n');
-  console.log('| File | Raw B | Gzip B |\n|---|---|---|');
-  for (const f of files) console.log('| ' + f.path + ' | ' + f.bytes + ' | ' + f.gzip + ' |');
-  console.log('| total (' + files.length + ' files) | ' + bytes + ' | ' + gz + ' |');
+/** A `root` for firstVisit that reads each file at a git ref (`git show ref:path`), for --base and --head. */
+export const gitRead = ref => key => execFileSync('git', ['show', ref + ':' + key], {cwd: ROOT, maxBuffer: 1 << 26});
+
+/**
+ * --sizes (Q-61, desk/README.md §32.3): the file count, each file's raw and gzip bytes, the totals;
+ * with `base` (another first visit, --base) also its gzip bytes and the delta, per file and in total.
+ */
+function sizes(files, json, base) {
+  const sum = (fs, k) => fs.reduce((a, f) => a + f[k], 0), bytes = sum(files, 'bytes'), gz = sum(files, 'gzip');
+  const was = base ? {count: base.length, bytes: sum(base, 'bytes'), gzip: sum(base, 'gzip'), files: base} : null;
+  if (json) return console.log(JSON.stringify({count: files.length, bytes, gzip: gz, files, ...(was ? {base: was, deltaGzip: gz - was.gzip} : {})}, null, 1));
+  const signed = n => (n > 0 ? '+' : '') + n;
+  console.log('First visit (next.html): ' + files.length + ' files, ' + bytes + ' B raw, ' + gz + ' B gzip (' + (gz / 1024).toFixed(2) + ' KB)' +
+    (was ? '\nBase: ' + was.count + ' files, ' + was.bytes + ' B raw, ' + was.gzip + ' B gzip; delta ' + signed(gz - was.gzip) + ' B gzip (' +
+      signed(Number(((gz - was.gzip) / 1024).toFixed(2))) + ' KB)' : '') + '\n');
+  if (!was) {
+    console.log('| File | Raw B | Gzip B |\n|---|---|---|');
+    for (const f of files) console.log('| ' + f.path + ' | ' + f.bytes + ' | ' + f.gzip + ' |');
+    return console.log('| total (' + files.length + ' files) | ' + bytes + ' | ' + gz + ' |');
+  }
+  const now = new Map(files.map(f => [f.path, f])), then = new Map(base.map(f => [f.path, f])), cell = (f, k) => (f ? f[k] : '-');
+  console.log('| File | Raw B | Gzip B | Base gzip B | Delta gzip B |\n|---|---|---|---|---|');
+  for (const p of new Set([...now.keys(), ...then.keys()])) {
+    const a = now.get(p), b = then.get(p);
+    console.log('| ' + p + ' | ' + cell(a, 'bytes') + ' | ' + cell(a, 'gzip') + ' | ' + cell(b, 'gzip') + ' | ' + signed((a ? a.gzip : 0) - (b ? b.gzip : 0)) + ' |');
+  }
+  console.log('| total (' + files.length + ' files; base ' + was.count + ') | ' + bytes + ' | ' + gz + ' | ' + was.gzip + ' | ' + signed(gz - was.gzip) + ' |');
 }
 
 async function main() {
@@ -136,9 +162,12 @@ async function main() {
   const seed = Number(opt('--seed', 7));
   // CRUISE is 120x; 2,100x stands in for the fastest the director runs (D-2's night roll)
   const rates = opt('--rates', '120,2100').split(',').map(Number);
+  if (args.includes('--sizes')) {
+    const head = opt('--head'), base = opt('--base');
+    return sizes(firstVisit('next.html', head ? gitRead(head) : ROOT), args.includes('--json'), base ? firstVisit('next.html', gitRead(base)) : null);
+  }
   const files = firstVisit();
   const bytes = files.reduce((a, f) => a + f.bytes, 0), gz = files.reduce((a, f) => a + f.gzip, 0);
-  if (args.includes('--sizes')) return sizes(files, bytes, gz, args.includes('--json'));
   // Warm the JIT on a short run, then measure.
   await simCost(seed, rates[0], 600);
   const runs = [];
