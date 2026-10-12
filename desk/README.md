@@ -2704,8 +2704,13 @@ What it shows
        focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
        target}); vm.hover rings the plant back. A click: see the click listener (Q-41).
   G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
-       west; long warm light and long shadows at sunset; lit windows at night, as many as
-       the city is using (underlying demand). Rooftop PV
+       west; long warm light and long shadows at sunset; lit windows at night: the homes
+       awake (occupancy(h), 2c Q-73: 0.9 until 21:00, falling linearly to 0.15 by 01:00,
+       flat to 05:30, waking linearly to 0.9 by 07:30) times what the city is using (0.3 +
+       0.8 x underlying demand / 8 GW, so a 6-GW evening is 0.9), rounded to 30 steps: in the
+       night roll the city goes dark window by window (each window has a fixed switch-off
+       order, hash01 <= lit) in about 23 cached redraws, and Act I opens on a sleeping city
+       that wakes. Rooftop PV
        (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
        layer, cached) and a glint on them each frame: per suburb, as bright as its output
        over its capacity (cloud dims it) and as the light; never on a dark district, on a
@@ -2758,6 +2763,22 @@ and obs.levers.
             colour emoji is drawn, use 'P80', 'P40 ▼', 'P15 LOCKED'.
   Text    mapSummary (K-23) names the hovered suburb's tag: "On <name> <tag>: Enter opens
           its card."
+
+Slice 2c (desk/README.md §32.7.4; Q-69, Q-73). A task feeder before its clearS is the network's
+outage, not the desk's (darkOf(obs, id): a suburb's dark count and its held districts' hand-back
+times, clearS > obs.s, in order):
+  Label   while every dark district of a suburb is held, its label is blue ('info', framed) and
+          says when they come back: "SALTBUSH BAY: 2 DARK · BACK 06:45, 07:05", then
+          "SALTBUSH BAY: 1 DARK · BACK 07:05" once the first is closed; from the first hand-back
+          not yet closed it is today's red alarm, "SALTBUSH BAY: 2 DARK" (the count is every
+          dark district, as the bay and the objective line count them). The suburb's name, as
+          every map alarm, not its code.
+  Click   a suburb whose every dark district is held opens its card without the RESTORE focus
+          (nothing to restore yet; the card says when); one with a feeder that is the desk's
+          sends {do: 'focus', target: 'bay-restore'} first, as before.
+  Text    "Districts dark: Saltbush Bay 2 (under repair until 06:45, 07:05)." (the permissive's
+          own words for a held feeder).
+  Windows the occupancy curve, G-3 above.
 ```
 
 #### render/livestack.js
@@ -2842,6 +2863,32 @@ what it does:
           band: the hover never names a block where the press does something else, but over
           a SHORT run a relief band hovers only in its top pixels.
   redraw  signature() includes obs.levers.rev: a booking or a cancel while paused redraws.
+
+Slice 2c, the day (desk/README.md §32.7.4; Q-63, Q-68, Q-69, Q-73, Q-78). Imports sim/clock.js too.
+  load    the skyline, the band, the gaps and the projected spill are the lit city's per column
+          (app/planview.js project: a held task feeder is off the load until its announced
+          return), so no red gap the size of the held load stands before its hand-back.
+  marks   stackMarks(obs, toS) (pure): the act ticks ahead from clock.ACT_S, 'II' 09:00, 'III'
+          14:30, 'NIGHT' 21:00 (Act I's 04:30 is the day's start, not a tick), and a marker at
+          each warned weather onset ahead, from obs.news fromS: HEAT, STORM (its arrival),
+          CLOUD (the front over its first suburb), LOW WIND (a wind drought); a tie derate, an
+          outage or the feeders' ETR is no onset (their cards and the bay carry them). Each is
+          a dotted line from the top of the plot to the axis under its word on a dark plate (an
+          act in the axis grey, an onset in amber; the word tells them apart, K-22).
+          stackSummary says them after the supply sentence: "Marked: Act III 14:30, STORM
+          16:40." (stats.marks: the words drawn, for tests.)
+  redraw  the idle redraw key is split: what changes the picture (the projection's signature,
+          now without its RECOMPUTE_S step, which ensureProj adds; the size, the hover, the
+          glow, the price) draws at once, as before; the now line's NOW_STEP_S step draws at
+          most STACK_MAX_HZ (10) times a real second (Q-63: 15 grid-s is every frame at 2,100x,
+          and a full redraw is 3-5 ms). From obs.nightShift the stack is frozen: one draw as the
+          night shift takes the desk, then only a new size, expansion or pixel ratio redraws
+          (no now line, no plan change, no hover, no drag); the K-23 label stays as it was. A
+          press or an edit key there says, in blue, "The night shift has the desk until 04:00:
+          the stack is frozen" (readOnly() covers the night; the label's "Read-only during the
+          watch." reads the watch alone).
+  starts  a booked START's handle sits where the unit comes on: max(atS, its outUntilS) +
+          startToMin (Q-68, the sim's startDueS).
 ```
 
 #### app/keys.js
@@ -2933,7 +2980,7 @@ extremes between two updates come from sampleTick() (called after every tick): a
 
 ```text
 app/suburbcard.js: a suburb's card (SPEC §9.1 Q-56; §31.6 card, §31.9.3-§31.9.7). On demand (Q-44,
-cap 6 KB in tests/budget.test.js); its CSS is injected once (#sc-css). Presentation and two sim
+cap 6.5 KB in tests/budget.test.js since 2c); its CSS is injected once (#sc-css). Presentation and two sim
 inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch and the focus.
 
   const card = createSuburbCard(doc, root, actions, {toast, loadText, toggleHelp, now});
@@ -2958,6 +3005,10 @@ seen in a browser: lines 14.85 px, buttons 24 px; a HOT card ~180 px before the 
 with a booked cycle's two-line row; padding 4 px, p margins 0 and .sc-r 2 px take 20 px off):
   NAME · 420k homes · ✕ (btn-suburb-close)
   n DARK: [RESTORE] (city-<ID>-restore: focus bay-restore; the card stays)   only with dark districts
+    (2c, Q-69: a task feeder before its clearS is the network's: "2 DARK · BACK 06:45, 07:05" in
+    blue with no RESTORE while every dark district is held, so card.focus() goes to the first
+    CANCEL or BOOK and nothing steals the focus before the hand-back; "2 DARK · BACK 07:05
+    [RESTORE]" once one is the desk's; the shape key tells held ('h') from restorable ('d'))
   “U-1's dry wit”
   patience 40: 90% respond (all respond from 50; air-con locked under 25; only on a day air-con
     is offered, else "patience 40": it scales air-con alone, P2) · draws <lit MW> · roofs <MW>
@@ -4412,7 +4463,8 @@ frame times. Only startRaf() touches the browser, and only when called.
 ```text
 app/planview.js: the Live Stack's plan view (desk/README.md §7; SPEC L-1..L-9). Pure: it
 reads an observe() snapshot (and, for the past columns, the shell's history) and imports
-only sim/params.js. Nothing here changes the grid; the stack sends what snapDrop returns.
+only sim/params.js and (2c) sim/dark.js. Nothing here changes the grid; the stack sends what
+snapDrop returns.
 
 project(obs, opts)            the next 4.5 h per 5-min column: each layer's MW as the sim's
                               plan executor will move it (desk/README §3.1), supply and gaps,
@@ -4430,6 +4482,24 @@ starts, the unload + T4 stop profile, min up/down, clamps and the arrive-by lead
 the sim to within one step; AGC trims, governors and heat derate changes are left out (the
 stack draws the plan, not the seconds). Where the executor's contract is loose the choice is
 named in a comment; stage C checks the projection against a stepped sim.
+
+Slice 2c (§32.7.4; Q-68, Q-69):
+  load     each column's demand is the lit city's at its time, as par's (sim/dark.js):
+           p50, p10 and p90 are litMW(forecast x, rooftop column, darkShareAt(obs, column
+           time)), and load, deficit, the gaps and the projected spill read them (the sim's
+           cut, grid.js surplusMW, is on lit demand too). A dark district is off the load; a
+           held task feeder comes back at its announced return once dark.js counts it lit
+           from clearS (par's, wave 2), so before its hand-back the stack shows no red gap the
+           size of its load (+251 MW at 04:35 on DESK seed 2 before this), and at clearS the
+           skyline steps up. With nothing dark, litMW gives P50 (within a float's rounding).
+  tie      the import limit holds until tie.limitUntilS, then TIE_MAX_MW, column by column;
+           an arrive-by tie key leads from the imports the limit lets run on both ends, as
+           grid.js tiePlanSecond.
+  outage   earliestOnAt for an off unit is max(s + wait, outUntilS) + startToMin, so the
+           earliest line, the ghost, glowCandidates, snapStart and earliestArrival put a unit
+           on outage no earlier than its return + startToMin; simInit copies outUntilS and a
+           booked START is due at max(atS, outUntilS) (grid.js startDueS): the mirror leaves it
+           pending until the return, without blocking later bookings, and starts it then.
 ```
 
 #### app/record.js
