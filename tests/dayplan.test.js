@@ -100,8 +100,9 @@ test('the day classes (D-8(a), Q-66): heat 15, storm 25, drought 20, calm 40 (+-
   }
   // a = 0 and a = 1 as before (every pinned seed keeps its day type); a = 2 picks the overlay among non-heat days
   for (const d of SEEDS.slice(0, 300)) {
-    const u = a => uniform(d.seed, STREAM.EXT_REGIME, a), w = d.scn.weather, heat = u(0) < w.heatShare;
-    assert.equal(d.regime.temp, heat ? 'HEATWAVE' : u(1) < w.mildShare / (1 - w.heatShare) ? 'MILD' : 'HOT');
+    const u = a => uniform(d.seed, STREAM.EXT_REGIME, a), w = d.scn.weather, heat = u(0) < w.heatShare, rest = 1 - w.heatShare;
+    assert.equal(d.regime.temp, heat ? 'HEATWAVE' : u(1) < w.mildShare / rest ? 'MILD' : 'HOT');
+    assert.equal(d.regime.cls, heat ? 'heat' : u(2) < w.stormShare / rest ? 'storm' : u(2) < (w.stormShare + w.droughtShare) / rest ? 'drought' : 'calm');
     assert.deepEqual(weatherRegime(d.seed, d.scn), d.regime, 'weather.prerollRegime delegates');
   }
 });
