@@ -182,13 +182,13 @@ export function respondCard(obs, c, o) {
   const secureInS = Math.max(0, (c.secureByTick - obs.tick) / TPS);
   const dark = obs.districts.filter(d => d.dark && !(d.shedBy === 'task' && d.clearS > obs.s)); // (Q-69: not held)
   const darkMW = dark.reduce((a, d) => a + d.coldLoadMW, 0);
+  // COVER's words (Q-74): the window is to R5 >= L with nothing shed by relays or direction; TIGHT already covers
   let problem;
   if (sec.level === 'SECURE') problem = 'N-1 SECURE: the fleet can take the next trip.';
-  else if (sec.level === 'SHORT' || short > 0) problem = 'N-1 INSECURE: ' + mw(short) + ' MW short, ' + mmss(secureInS) + '.';
-  else if (sec.level === 'TIGHT') problem = 'N-1 TIGHT: secure it within ' + mmss(secureInS) + '.';
-  else problem = 'SHEDDING: ' + dark.length + ' districts dark.';
+  else if (sec.level === 'SHORT' || short > 0) problem = 'N-1 SHORT: ' + mw(short) + ' MW short: cover it within ' + mmss(secureInS) + '.';
+  else if (sec.level === 'TIGHT') problem = 'N-1 TIGHT: spare covers the next trip, without SECURE\'s margin.';
+  else problem = 'SHEDDING: ' + dark.length + ' districts dark (' + mw(darkMW) + ' MW): relight them within ' + mmss(secureInS) + '.';
   if (dark.length && sec.level !== 'SHEDDING') problem += ' ' + dark.length + ' district' + (dark.length > 1 ? 's' : '') + ' dark (' + mw(darkMW) + ' MW).';
-  else if (dark.length) problem = problem.replace(/\.$/, ' (' + mw(darkMW) + ' MW). Restore when the lamp lights.');
   const glow = new Set(o && o.glow ? o.glow : []);
   if (dark.length) glow.add('bay-restore');
   return {
@@ -212,6 +212,6 @@ export function fallbackGlow(obs, c) {
   const left = (c.secureByTick - obs.tick) / TPS;
   for (const u of obs.units) if (u.mode === 'off' && u.startBlock === '' && u.startToMinS <= left) out.push('guard-start-' + u.id);
   if (obs.battery.guardMW < V.BATT_MW) out.push('dial-battery');
-  if (!obs.tie.tripped && obs.tie.setMW < V.TIE_MAX_MW) out.push('knob-tie');
+  if (!obs.tie.tripped && obs.tie.setMW < obs.tie.importLimitMW) out.push('knob-tie');   // (2c: a derate's limit)
   return out;
 }
