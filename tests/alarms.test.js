@@ -14,6 +14,7 @@ import * as D from '../app/director.js';
 import {makeDocument} from './lib/dom.js';
 import {createDesk} from '../desk/desk.js';
 import {baseVm} from './lib/vm-fixture.js';
+import {legacyDeskWeekend} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S;
 
@@ -520,7 +521,7 @@ test('MSL cards: MARKET NOTICE, the forecast minimum and its time and the one th
 
 test('MSL cards from a real belly: every MSL record the sim logs on a mild weekend makes a card with the minimum it names', () => {
   // DESK_WEEKEND seed 8: MSL1 at 12:25 (the minimum is then the present: 1,471 MW), cancelled at 13:20
-  const st = createState(8, DESK_WEEKEND), recs = [];
+  const st = createState(8, legacyDeskWeekend()), recs = []; // (today's desk events: the plan moves seed 8's belly)
   const until = (13.5 - V.DAY_START_H) * V.S_PER_H * TPS;
   while (st.tick < until) for (const r of step(st)) if (r.kind === 'log' && /^MSL/.test(r.code)) recs.push(r);
   assert.deepEqual(recs.map(r => r.code), ['MSL1', 'MSL_CLEAR'], 'a mild weekend raises an MSL1 notice by 13:30 and cancels it');

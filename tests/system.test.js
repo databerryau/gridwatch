@@ -8,7 +8,7 @@ import {runPar} from '../sim/autopilot.js';
 import {createSystem, systemInputs, redispatch, commitSig, heldByHand, DISPATCH_S} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {ticksAt, injectTrip} from './lib/sim-helpers.js';
+import {ticksAt, injectTrip, legacyDesk} from './lib/sim-helpers.js';
 import {followDay} from './lib/follow.js';
 import {quotedSaving, stopLines, skipping, planCost, dearerThanPar, SKIPPED, PLAN_COST_KEYS} from '../tools/follow.mjs';
 import * as fleet from '../sim/fleet.js';
@@ -106,7 +106,7 @@ test('L-0 re-flow: while districts are dark the system re-dispatches for the lit
 });
 
 test('heldByHand: a lever or plan key moved by hand counts at once, not at the system\'s next look; a commitment input is not one', () => {
-  const s = createState(7, DESK), sys = createSystem({commit: 'player'});
+  const s = createState(7, legacyDesk()), sys = createSystem({commit: 'player'}); // (today's desk events: the plan keeps CCGT 2 out on seed 7)
   // 04:32:10 and a half: the system looked at 04:32:00 and looks again at 04:33:00
   while (s.tick < V.PLAYER_START_TICK + 130 * TPS + 25) step(s, systemInputs(sys, s));
   assert.equal(heldByHand(sys, s), false);

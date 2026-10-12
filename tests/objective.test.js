@@ -143,7 +143,7 @@ test('player mode: the system never books a start or a stop, and re-dispatches w
 
 test('the objective sees the morning shortfall ahead and names the CCGT, with its lead time and a deadline', () => {
   // the GUARD comes first (the line that can be acted on now); once it is up the line is the CCGT
-  const st = createState(7, DESK), sys = SYS.createSystem({commit: 'player'});
+  const st = createState(7, LEGACY), sys = SYS.createSystem({commit: 'player'}); // (the plan keeps CCGT 2 out on seed 7)
   while (st.tick < V.PLAYER_START_TICK + 120 * TPS) step(st, SYS.systemInputs(sys, st));
   assert.equal(applyInput(st, {type: 'guard', mw: V.PAR_GUARD_MAX_MW}, []).ok, true);
   for (let i = 0; i < 60 * TPS; i++) step(st, SYS.systemInputs(sys, st));

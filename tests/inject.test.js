@@ -27,7 +27,7 @@ test('stateWith(seed, scn, []) is createState; every pre-rolled record carries a
   for (const scn of [DESK, CLASSIC]) {
     const s = createState(7, scn);
     assert.deepEqual(stateWith(7, scn, []), s);
-    assert.ok(s.ext.events.every(e => e.act === 0 && e.crisis === false), scn.id);
+    assert.ok(s.ext.events.every(e => (scn.dayplan ? e.act > 0 || e.type === 'notice' : e.act === 0 && e.crisis === false)), scn.id); // desk: the plan's acts
     assert.equal(scenarioHash(scn), s.scnHash);
   }
   assert.notEqual(scenarioHash(CLASSIC), scenarioHash(DESK));
@@ -59,7 +59,7 @@ test('an injected cloudOnset leaves the sky unchanged before its atS and lowers 
 });
 
 test('an injected heatAnnounce gives the heat window\'s derate (ext.heat re-derived) and its news at 04:00', () => {
-  const s = stateWith(2, DESK, [{atS: 0, type: 'heatAnnounce', args: {onsetS: 120, endS: 600, upliftPm: 65, deratePm: 70}}]);
+  const s = stateWith(2, legacyDesk(), [{atS: 0, type: 'heatAnnounce', args: {onsetS: 120, endS: 600, upliftPm: 65, deratePm: 70}}]);
   assert.deepEqual(s.ext.heat, {announceS: 0, onsetS: 120, endS: 600});
   assert.deepEqual(observe(s).news.map(n => [n.kind, n.fromS, n.toS]), [['heat', 120, 600]]);
   runTo(s, 119);
@@ -70,7 +70,7 @@ test('an injected heatAnnounce gives the heat window\'s derate (ext.heat re-deri
 });
 
 test('the Act I constraints: an atS-0 tieDerate at tick 0 is news with the limit set, and its end lifts it; a late return blocks the start, the booking and the plan until it ends', () => {
-  const s = createState(2, DESK);
+  const s = createState(2, legacyDesk());
   assert.equal(applyInput(s, {type: 'planStart', unit: 'gta1', atS: 120}).ok, true, 'booked before the outage is known');
   injectEvent(s, {atS: 0, type: 'tieDerate', args: {limitMW: 450, untilS: 240}});
   injectEvent(s, {atS: 0, type: 'unitOutage', args: {unit: 'gta1', untilS: 300}});
@@ -97,7 +97,7 @@ test('the Act I constraints: an atS-0 tieDerate at tick 0 is news with the limit
 });
 
 test('the restore task\'s records: feederOut holds two districts dark for the network with its news; feederClear hands one back; the opening balances lit demand', () => {
-  const s = stateWith(2, DESK, [{atS: 0, type: 'feederOut', args: {districts: ['SAL4', 'SAL5'], clearS: [120, 240]}},
+  const s = stateWith(2, legacyDesk(), [{atS: 0, type: 'feederOut', args: {districts: ['SAL4', 'SAL5'], clearS: [120, 240]}},
     {atS: 120, type: 'feederClear', args: {district: 'SAL4'}}, {atS: 240, type: 'feederClear', args: {district: 'SAL5'}}]);
   const a = dist(s, 'SAL4'), b = dist(s, 'SAL5');
   assert.deepEqual([a.dark, a.shedBy, a.clearS, a.darkSinceS, b.clearS], [true, 'task', 120, 0, 240]);
@@ -145,7 +145,8 @@ test('stormWarn\'s news ends at args.passS when the record carries it (a dayplan
   const s = stateWith(2, DESK, [warn({cutoutFromS: 5400, cutoutToS: 7200, passS: 9000})]), c = stateWith(2, CLASSIC, [warn({})]);
   runTo(s, 61);
   runTo(c, 61);
-  assert.deepEqual([s.news[0].kind, s.news[0].fromS, s.news[0].toS], ['storm', 3600, 9000]);
+  const n = s.news.find(x => x.kind === 'storm'); // (desk's own 04:00 briefing items come first)
+  assert.deepEqual([n.kind, n.fromS, n.toS], ['storm', 3600, 9000]);
   assert.deepEqual([c.news[0].kind, c.news[0].fromS, c.news[0].toS], ['storm', 3600, null]);
 });
 
