@@ -80,10 +80,10 @@ const PROXIES = {
   competent: {rules: ALL_RULES, gapS: COMPETENT_GAP_REAL_S, plan: true, stops: false},
   commitAll: {rules: ALL_RULES.filter(r => r !== 'rule4'), gapS: GAP_REAL_S, plan: true, stops: false},
   fuzz: {rules: [], gapS: GAP_REAL_S, plan: false, stops: false},
-  night: {rules: ALL_RULES, gapS: GAP_REAL_S, plan: true, stops: true, gridS: V.NIGHT_ACTION_S}, // Q-73: nightMemo's
+  night: {rules: ALL_RULES, gapS: GAP_REAL_S, plan: true, stops: true, gridS: V.NIGHT_ACTION_S}, // Q-73
 };
 export const PROXY_NAMES = Object.freeze(Object.keys(PROXIES));
-const NIGHT_OF = new Set(['par', 'competent', 'lean', 'commitAll', 'planOnly']); // the proxies that stand for a player
+const NIGHT_OF = new Set(['par', 'competent', 'lean', 'commitAll', 'planOnly']);
 
 // ------------------------------------------------------------------ small helpers
 
@@ -124,7 +124,7 @@ const tieLimAt = (obs, t) => (obs.tie.limitUntilS < 0 || t < obs.tie.limitUntilS
 
 /** A forecast's rooftop column (zeros on an observation made before Phase 2a). */
 const roofColumn = fc => fc.rooftopMW || fc.demandP50.map(() => 0);
-/** A forecast's columns as lit operational demand (litMW over its P50 and its rooftop column; each column's dark share: Q-69's announced return). */
+/** A forecast's columns as lit operational demand (litMW over its P50 and its rooftop column, each at its own dark share). */
 function litColumns(fc, obs) {
   const roof = roofColumn(fc);
   return fc.demandP50.map((p50, j) => litMW(p50, roof[j], darkShareAt(obs, fc.fromS + (j + 1) * fc.stepS)));
@@ -179,8 +179,7 @@ function respondEnd(c) {
  * watchEndS until backInBandS (or for RESPOND_MAX_S if it is -1 or later). Before
  * PLAYER_START_H the rate is that of the profile's first segment. Pure; used for the S-4
  * pace rule and by tests. Overlapping contingencies: a watch wins over a RESPOND segment,
- * and each card counts once. Q-70 (2c): each RESTORE segment (restoreSegs) runs at
- * RESTORE_PACE_RATE where no watch covers it.
+ * and each card counts once. 2c: a RESTORE segment (Q-70) runs at RESTORE_PACE_RATE but in a watch.
  * @param {number} fromS
  * @param {number} toS
  * @param {Array<{startS:number, watchEndS:number, backInBandS:number}>} conts obs.contingencies
@@ -219,14 +218,14 @@ export function refRealSeconds(fromS, toS, conts, clears = []) {
   return r;
 }
 
-/** Q-69: the second district i may be closed, market.restoreAllowedS's rule on obs (S-4: autopilot may not import market). */
+/** market.restoreAllowedS's rule, copied (S-4). */
 function allowedS(ds, i) {
   const x = ds[i], end = x.dark ? Infinity : x.restoredAtS;
   let p = -1;
   for (const y of ds) if (y.restoredAtS > p && y.restoredAtS < end) p = y.restoredAtS;
   return Math.max(x.clearS, (p < 0 ? -DAY_S : p) + RESTORE_GAP);
 }
-/** Q-70's RESTORE segments, public in obs: each task feeder from its allowed second until it is closed, at most RESTORE_PACE_MAX_S. */
+/** Q-70's RESTORE segments in obs (sim/README §11 autopilot.js). */
 function restoreSegs(obs) {
   const ds = obs.districts, out = [];
   for (let i = 0; i < ds.length; i++) {
@@ -819,16 +818,7 @@ export function createAutopilot(opts) {
     water: 'hold', rertSinceS: -1, planShed: 0, reflowS: -1, nextS: -1, afterWatch: false, belly: false, coalStops: 0};
 }
 
-/**
- * Q-73, the night shift (desk/README.md §32.7.1; sim/README.md §11 autopilot.js): par's rules for
- * whoever had the desk, from the 21:00 observation alone (pass observe(state, {dayAhead: true})):
- * the 'night' proxy (all rules, one action per NIGHT_ACTION_S grid-s, the booked STOPs kept), a
- * day-ahead plan to 04:00 whose own commitment is never sent, and an armed RERT's clock seeded so
- * rule 4 may stand it down at once. runPar and app/system.js swap to it at the first decision from
- * 21:00, so the same state gives the same night.
- * @param {object} obs
- * @returns {object} memo (plain JSON)
- */
+/** Q-73: the night shift's memory from one observation with dayAhead (sim/README §11 autopilot.js). */
 export function nightMemo(obs) {
   const memo = createAutopilot({proxy: 'night'}), P = preDispatch(obs);
   delete P.load;
@@ -969,7 +959,7 @@ const startInput = i => ({type: 'start', unit: M[i].id});
 // held there until the trip's RESPOND window ends, then back to the plan. v4 form: the
 // maximum SECURE import, at most the largest unit's output (an 800-MW tie at 20 GW.s
 // previews near 48.4 Hz); par's plan still imports more if the P50 would be short. With no
-// peaker left to start, DR is the next fast block (tuning pass, see the file header).
+// peaker left to start, DR is the next fast block (tuning pass, sim/README §11).
 function rule1(obs, memo) {
   const tr = memo.trip;
   if (tr === null) return null;
@@ -1016,8 +1006,8 @@ function rule2(obs, memo) {
   const sustains = mw => b.socMWh >= mw * GUARD_SUSTAIN_H;
   if (lowNadir && calm && b.guardMW + GUARD_STEP <= GUARD_MAX && sustains(b.guardMW + GUARD_STEP)) return {type: 'guard', mw: b.guardMW + GUARD_STEP};
   const shortR5 = sec.lMW > 0 && sec.r5MW < TIGHT * sec.lMW;
-  // Q-73's spike: at the night's pace a second peaker was started while the first was still on its way.
-  if ((lowNadir || shortR5) && !(memo.night && obs.units.some((u, i) => PEAKER[i] && (u.mode === 'starting' || u.mode === 'ready' || u.mode === 'loading')))) {
+  // Q-73: at night one peaker on its way at a time
+  if ((lowNadir || shortR5) && !(memo.night && obs.units.some((u, i) => PEAKER[i] && u.mode !== 'on' && committedMode(u.mode)))) {
     const i = nextStart(obs, true);
     if (i >= 0) return startInput(i);
   }
@@ -1551,7 +1541,7 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
  * wants an action wins:
  *   1 after any trip: start the next peaker and set the tie to maximum import
  *   2 if R5 < PAR_TIGHT_RATIO x L: move the tie toward import and start the next peaker
- *     (v4 form: also the seconds half of N-1, see the file header)
+ *     (v4 form: also the seconds half of N-1, sim/README §11)
  *   3 commit a unit when forecast net demand over (its start time + PAR_COMMIT_LEAD_MIN),
  *     plus PAR_COMMIT_MARGIN_MW, exceeds committed capacity plus half the battery
  *   4 decommit only after PAR_DECOMMIT_MIN_ON_MIN on, when not needed for
@@ -1562,7 +1552,7 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
  *     first (2b, S-14 rule 1) on an MSL1 notice ahead in the soak window, soak the free suburb
  *     with the most soak MW (aimFlex)
  *   7 keep units at or below PAR_MAX_LOADING unless that would shed load (and re-dispatch
- *     the plan when it has drifted off the forecast, see the file header)
+ *     the plan when it has drifted off the forecast, sim/README §11)
  *   8 pre-arm RERT when the projected PAR_RERT_LOOKAHEAD_MIN shortfall is within
  *     PAR_RERT_MARGIN_MW of firm capacity; call DR on a present shortfall; before arming (2b,
  *     S-14 rule 5, not lean) cycle the free suburb with the most relief when it lands on the
@@ -1571,8 +1561,8 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
  *     restore one dark district whose obs.districts[].restoreBlock is '': the lowest UFLS
  *     stage first, then rotation order (rot). The K-13 permissive holds all the thresholds.
  * Rule 6's window end (a discharge order past 22:00 or at the reserve) is asked right after
- * rule 1 (rule6End, see the file header).
- * Every action amends memo.plan (a re-dispatch from now, see the file header). AGC stays
+ * rule 1 (rule6End, sim/README §11).
+ * Every action amends memo.plan (a re-dispatch from now, sim/README §11). AGC stays
  * on; par never takes the synchroscope (its starts auto-sync, K-12). Proxies change this
  * function as listed in runPar.
  * @param {object} obs observe(state)
@@ -1702,7 +1692,7 @@ const DAY_AHEAD = Object.freeze({dayAhead: true});
  * @returns {{score:object, summary:object, log:Array<object>, origins:string[], hashes:number[],
  *   black:boolean, plan:object|null, state:object, memo:object}}
  *   origins[i] is 'plan' (the L-0 plan), 'replan' (par's re-dispatched schedule after an
- *   action, see the file header), 'rule1'..'rule9', or the proxy name for log[i] ('external'
+ *   action, sim/README §11), 'rule1'..'rule9', or the proxy name for log[i] ('external'
  *   for records already in opts.state's log).
  */
 export function runPar(seed, scenario, opts) {
@@ -1742,7 +1732,7 @@ export function runPar(seed, scenario, opts) {
         if (memo.afterWatch || s >= memo.nextS) {
           memo.afterWatch = false;
           memo.nextS = s + DECIDE_EVERY_S;
-          // Q-73: from the night flip the proxies that stand for a player run the night memo (in place, once).
+          // Q-73: a player proxy becomes the night memo, in place, once
           const night = !memo.night && state.control.nightShift && NIGHT_OF.has(memo.proxy);
           const obs = observe(state, night || (usesPlan && memo.plan === null) ? DAY_AHEAD : undefined);
           if (night) { Object.assign(memo, nightMemo(obs), {nextS: s + DECIDE_EVERY_S}); acts = usesPlan = true; }

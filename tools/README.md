@@ -38,7 +38,20 @@ node tools/follow.mjs --scenario desk-weekend --seeds 1-11 --lines      # the hi
 node tools/baseline-v4.js               # the SPEC §6 rows for the v4 core, ~5 min on 11 workers
 node tools/baseline-v4.js --quick       # section 1 plus par on seeds 1-2, ~10 s
 npm run golden:v4                       # re-record tools/baseline-v4.golden.md
+node tools/daily-gen.js --from 2026-10-12 --days 365 -j 8   # D-9: gate the dailies, write content/dailies.js
+node tools/daily-gen.js --check -j 8    # re-gate the shipped list under this build (no write)
+node tools/day-measure.mjs --from 2026-10-12 --days 100 -j 8  # D-10 per act, the Q-77 returning player
 ```
+
+`tools/daily-gen.js` (2c, desk/README.md Q-75) plays par on each date's candidates (attempt k is
+`YYYYMMDD + k x 10^8`, the date's scenario, the same class as attempt 0) and keeps the first that
+passes D-9's gate along par's day: the optimistic bound (plus air-con at rated MW in its window)
+never below demand before booked flex, and `market.isClean`. It writes the exceptions to
+`content/dailies.js` under the build stamp (`app/game.js dailyStamp()`), fails loudly when a
+date has no passing attempt by k = 40 (and writes nothing), and reports the attempts, the class
+shares, the Hard-day pool, D-10 by class and the wall and single-core times. A par day is about
+2-2.5 s here, so 365 dates are about 15 min on one core. `tools/day-measure.mjs` holds D-10's
+pure gap function (`tests/gaps.test.js`) and the returning-player proxy of Q-77.
 
 `tools/par.js --scenario desk | desk-weekend` measures the game's own days (rooftop PV, day
 types; Phase 2a): each row carries the day type, the minimum operational demand, the hours at a
@@ -49,7 +62,11 @@ every row as a JSON line. From 2b (desk/README.md §31.6) each row also carries 
 `airconDays` (1 when the proxy booked any block of that lever), `soakMWh` and `reliefMWh` (the
 booked cores' energy, effMW × (block length − FLEX_RAMP_S), not metered) and `flexDollars`
 (`score.cost.flex`); the summary adds their totals and a "soak / air-con days" column by day
-type. `tools/baseline-v4.js` and its golden stay on the classic day, which has no rooftop PV: it
+type. From 2c (desk/README.md §32.7.1) a clean day is `market.isClean` (a task feeder's lag never
+makes a day unclean), each row carries the restore task's `taskMWh`, `heldMWh` and `lateMWh` and
+S-6's PERFECT, the weather column is the regime's class (heat, storm, drought, calm on the game's
+days), and `actions` counts the log's rule origins (the night memo's from 21:00 as
+`nightActions`). `tools/baseline-v4.js` and its golden stay on the classic day, which has no rooftop PV: it
 is the regression anchor.
 
 `tools/follow.mjs` runs the hint-following player (`tests/lib/follow.js`: a day in which the

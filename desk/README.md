@@ -4514,6 +4514,16 @@ Two modes (createSystem({commit})):
 Everything it does is a sim input (planLoad), logged, so replay() reproduces a game day (F-6).
 It runs on the autopilot's 'planOnly' memory and runPar's cadence: a game day with no player
 input is the planOnly proxy's day, hash for hash (tests/system.test.js).
+
+The night shift (2c, Q-73; both modes, on a `night` scenario): from the first look with
+state.control.nightShift (21:00) the system holds AP.nightMemo(observe(state, {dayAhead: true}))
+in sys.night (plain JSON) and runs only runPar's own step on it, decide() then planUpdates(),
+at runPar's cadence: no player-mode dispatch, no DISPATCH_S interval, no commitSig, no
+scanEdits. Its inputs are logged like any others (replay holds); sys.origin is 'night' for them
+('system' by day). RE-DISPATCH is refused ("the night shift has the desk"). runPar swaps every
+player proxy (planOnly among them) to the same memo at the same look, so a no-input night is
+the planOnly proxy's night, and par's state taken before its first night decision plays the same
+night in runPar and in a fresh player-mode system (tests/night.test.js).
 ```
 
 #### app/tray.js
