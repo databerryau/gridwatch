@@ -505,7 +505,7 @@ function smelterLoadAt(sm, pending, t) {
 /**
  * Forecast for the player and par (S-4, L-1, L-2). Uses ONLY public information: the
  * scenario's climatology (demand shape and noise process, clear-sky sun, mean wind and
- * clearness, the rooftop curve and its cloud process, the event menu's public timings), the
+ * clearness, the rooftop curve and its cloud process, the public timings of climate(scn)), the
  * public kind of day (state.day: MILD or HOT, weekend), the present state (state.env, and
  * the smelter's present load and announced return) and announcements already made
  * (state.news). Never reads state.ext.
