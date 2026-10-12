@@ -1920,15 +1920,22 @@ seconds: 0 = 04:00, `DAY_S` = 04:00 next day.
   (1 / rate) runs linearly from 1 / r1 to 1 / r2 across a grid window W = 2 x
   `CLOCK_EASE_REAL_S` x r1 x r2 / (r1 + r2) centred on the boundary: the ease lasts exactly
   2 real s and keeps the integral over the whole window, so the AGC day from 04:30 is still
-  245.000 s (HAND 478 s). A span cut inside a window differs from the step profile by at most
-  0.375 s. Elsewhere it is `targetRate`; before 04:30 the first segment's, after 04:00 the last's.
+  245.000 s (HAND 478 s). A span with one end inside a window differs from the step profile (at
+  the mode's own speeds: halved before 21:00 in HAND) by at most that window's peak, `EASE` x
+  |r1 - r2| / (4 (r1 + r2)), reached at the boundary: 0.375 s at 21:00 in AGC (0.433 s in HAND),
+  at most 0.167 s at the other six. With both ends in windows it differs by up to two peaks
+  together: 0.542 s in AGC (06:00 and 21:00; HAND 0.600 s). All inside the leads' 1-s margin
+  (Q-71). Elsewhere it is `targetRate`; before 04:30 the first segment's, after 04:00 the last's.
 - `realBetween(a, b, hand)`: the integral of 1 / `rateAt` over [a, b), in closed form (a table of
   linear-pace pieces with cumulative real seconds); `gridAfter(s, realS, hand)` its exact inverse
   (the quadratic of a linear pace, solved in the stable form).
 - `stepReal(a, b)`: autopilot's `profileReal`, moved bit for bit (no HAND, no ease): par's pace,
   and the measure the D-8 leads and the spacing rules use. `stepAfter(s, realS)` is the earliest g
   >= s with `stepReal(s, g) >= realS`, `gridBefore(s, realS)` the latest g <= s with `stepReal(g,
-  s) >= realS` (both through the same table, within 1e-6).
+  s) >= realS`, both exact against `stepReal`'s own floating point: a guess from the same table,
+  then a halving search to the least (or greatest) float that passes. So `ceil(stepAfter / 60) x
+  60` and `floor(gridBefore / 60) x 60` are the earliest and the latest whole minutes that pass,
+  with no tolerance (the plan's warning and spacing draws, Q-71 and Q-72).
 - `hhmm(s)`: 'HH:MM' of sim second s, the one formatter for the sim's 2c texts (events' new
   notices, fleet's outage reason).
 

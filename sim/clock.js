@@ -91,8 +91,17 @@ export function stepReal(a, b) {
   return r;
 }
 
-export const stepAfter = (s, realS) => gridAt(T_STEP, realAt(T_STEP, s) + realS);
-export const gridBefore = (s, realS) => gridAt(T_STEP, realAt(T_STEP, s) - realS);
+// The least float g with ok(g), ok monotone, from a guess within 1e-6: exact against stepReal's own rounding
+function least(g, ok) {
+  let e = 1e-6;
+  for (let k = 0; k < 64 && !ok(g); k++) g += e;
+  for (; g - e < g; e /= 2) if (ok(g - e)) g -= e;
+  return g;
+}
+export const stepAfter = (s, realS) =>
+  least(Math.max(s, gridAt(T_STEP, realAt(T_STEP, s) + realS)), g => g >= s && stepReal(s, g) >= realS);
+export const gridBefore = (s, realS) =>
+  -least(-Math.min(s, gridAt(T_STEP, realAt(T_STEP, s) - realS)), g => -g <= s && stepReal(-g, s) >= realS);
 export function realBetween(a, b, hand) {
   const T = hand ? T_HAND : T_AGC;
   return b > a ? realAt(T, b) - realAt(T, a) : 0;
