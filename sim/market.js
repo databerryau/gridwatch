@@ -365,14 +365,14 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
   resetAcc(acc);
 }
 
-// Split second t's unserved energy by why the dark districts are dark (end-of-second shares, a task
-// feeder closed at the second's end counted dark; UFLS acts mid-second, so the split is exact only
-// in total); with nothing dark then, by the districts relit in t. Q-69: sim/README.md §11 market.js.
+// Split second t's unserved energy by why the dark districts are dark (end-of-second shares;
+// UFLS acts mid-second, so the split is exact only in total); with nothing dark then, by the
+// districts relit in t. The restore task (Q-69): sim/README.md §11 market.js.
 function splitShed(state, sc, shedMWh, t) {
   let total = 0, ufls = 0, directed = 0, task = 0, late = 0, relit = 0, rTask = 0, rLate = 0;
   const ds = state.city.districts;
   for (let d = 0; d < ds.length; d++) {
-    const x = ds[d], w = x.share, own = x.darkSinceS < x.clearS && x.clearS <= t; // a task feeder, the operator's in t
+    const x = ds[d], w = x.share, own = x.darkSinceS < x.clearS && x.clearS <= t; // a task feeder, handed back
     if (x.dark ? x.shedBy === 'task' : own && x.restoredAtS === t + 1) {
       if (x.clearS > t) continue; // held
       task += w;
@@ -402,11 +402,7 @@ function splitShed(state, sc, shedMWh, t) {
   }
 }
 
-/**
- * Q-69, Q-70: the second district d may be closed (for a lit one, might have been at its last
- * close): the later of its clearS and the restore before + RESTORE_INTERVAL_S. Reads districts[]
- * {dark, clearS, restoredAtS} only, so state.city.districts and observe().districts agree.
- */
+/** Q-69, Q-70: the second district d may be closed (state's or observe()'s districts; sim/README.md §11 market.js). */
 export function restoreAllowedS(ds, d) {
   const x = ds[d], end = x.dark ? Infinity : x.restoredAtS;
   let p = -1;
