@@ -144,7 +144,7 @@ step(state, inputs = []):
       2c (Q-64): on PLAYER_START_TICK in HAND, control.handFlown = true (never cleared)
       if state.tick > 0: market.settleSecond(state, out)     fold acc -> score, write state.last, reset acc
       events.applyDue(state, out)                            ext events with atS <= s (trips, weather, news)
-      2c (Q-64, Q-73): scn.night and s >= NIGHT_S, once: nightShift, mode AGC, MAN flags and the scope cleared, NIGHT_SHIFT
+      2c (Q-64, Q-73): scn.night and s >= NIGHT_S, once: nightShift, mode AGC (HAND's 'ready' units get AUTO_SYNC_S), MAN flags and the scope cleared, NIGHT_SHIFT
       grid.planSecond(state, out)                            Phase 1a: the plan's booked stops, starts, keys, tie keys
       weather.sampleSecond(state)                            state.env for second s
       if s % MSL_CHECK_S === 0:                              Phase 2a (P-4): the MSL level, from ONE forecast per check
@@ -241,7 +241,7 @@ modules named. "A" = set by createState only, never changed after. "-" = nobody 
 | `day` | `{temp: 'MILD'\|'HOT', weekend: bool}` | A | the public kind of day (P-3): `temp` from the hidden `ext.regime.temp`, read once (a heatwave day reads `'HOT'`); `weekend` from `scn.day.weekend` (Phase 2a; desk/README.md §19.2) |
 | `env` | object | weather | this second's external conditions (below) |
 | `msl` | `{level, minMW, atS, sinceS}` | events (`mslSecond`) | P-4 notice level 0..3, the forecast minimum behind it and its time ("msl" below); `{0, 0, -1, -1}` for the whole day when the scenario has no rooftop (Phase 2a; desk/README.md §19.2) |
-| `control` | `{mode: 'AGC'\|'HAND', modeLocked: bool, handFlown: bool, nightShift: bool}` | step (applyInput; `handFlown` gridSecond; `nightShift` wave 1's night flip) | K-2 / D-7. 2c (desk/README.md §32.4.4, Q-64, Q-73): `handFlown` is set true by `gridSecond` on the tick the day reaches `PLAYER_START_TICK` with `mode` HAND and never cleared (the HAND-FLOWN tag); `nightShift` false, true from `NIGHT_S` on a `scn.night` scenario: `gridSecond`'s night flip, right after `events.applyDue` on the first grid second at or after `NIGHT_S`, sets it, sets `mode` to AGC (in both modes; `handFlown` keeps the tag), clears every station's `plan` MAN flag as `planRejoin` does (RESUME; `plan.rev` + 1), closes the synchroscope (`scope.unit` '') and logs `NIGHT_SHIFT` (sev `info`), once |
+| `control` | `{mode: 'AGC'\|'HAND', modeLocked: bool, handFlown: bool, nightShift: bool}` | step (applyInput; `handFlown` gridSecond; `nightShift` wave 1's night flip) | K-2 / D-7. 2c (desk/README.md §32.4.4, Q-64, Q-73): `handFlown` is set true by `gridSecond` on the tick the day reaches `PLAYER_START_TICK` with `mode` HAND and never cleared (the HAND-FLOWN tag); `nightShift` false, true from `NIGHT_S` on a `scn.night` scenario: `gridSecond`'s night flip, right after `events.applyDue` on the first grid second at or after `NIGHT_S`, sets it, sets `mode` to AGC (in both modes; `handFlown` keeps the tag), clears every station's `plan` MAN flag as `planRejoin` does (RESUME; `plan.rev` + 1), closes the synchroscope (`scope.unit` ''), gives a unit waiting in 'ready' under HAND the auto-synchroniser's wait (`timerS` = `AUTO_SYNC_S`) and logs `NIGHT_SHIFT` (sev `info`), once |
 | `stations` | array | fleet (derived) | one lever per station (below) |
 | `units` | array | grid, physics, fleet | one entry per machine, `V.MACHINES` order |
 | `battery`, `tie`, `ren`, `hydro`, `rert`, `dr`, `smelter` | objects | see below | |
@@ -414,7 +414,7 @@ to 435).
 | `autoTick` | tick | grid | the tick a `syncAuto` close is due (-1 none) |
 | `revTripS` | s | grid | grid seconds to a reverse-power trip after a slow close (0 none) |
 | `kickMW`, `kickEndTick` | MW, tick | grid | a rough close's one-second swing in `schedMW`, removed at the first grid second from `kickEndTick` |
-| `outUntilS` | s | events via `fleet.setOutage` | 2c (Q-68): an off machine on outage (a late return from maintenance) until this grid second; -1 none. `fleet.startBlock` refuses its start with `'on outage until HH:MM'` (before the minimum down time), `grid.startFreeAt` is at least it and `onAtS` of a booked start is `max(atS, outUntilS) + startToMinS`; `unitReturn` clears it. The plan executor keeps a START booked before it (only `planLoad` can book one: `planStart` and `planKey` land at or after it) in `plan.starts`, passes over it without blocking later bookings and starts the unit at `outUntilS` (`unitReturn` applies before `planSecond` in the same second) |
+| `outUntilS` | s | events via `fleet.setOutage` | 2c (Q-68): an off machine on outage (a late return from maintenance) until this grid second; -1 none. `fleet.startBlock` refuses its start with `'on outage until HH:MM'` (before the minimum down time), `grid.startFreeAt` is at least it; `unitReturn` clears it. A START booked before it (only `planLoad` can book one: `planStart` and `planKey` land at or after it) is **due at the return**, max(atS, outUntilS) (grid.js `startDueS`): the executor keeps it in `plan.starts`, passes over it without blocking later bookings and starts the unit at `outUntilS` (`unitReturn` applies before `planSecond` in the same second); `onAtS` is `startDueS + startToMinS`; a `planLoad` from before the return replaces it like any future entry, and `planStop` needs a STOP after it. Readers of `obs.plan.starts` (par's `context`, the planview's mirror executor) take a booking at max(`atS`, the unit's `outUntilS`) |
 
 ### battery - K-5, H-8 two layers, H-10
 
@@ -482,7 +482,7 @@ to 435).
   `flexShare`, kept in `fleet.refreshRoof`'s loop, so a dark district's flex stops (and resumes at
   relight) only through its fall. Lit demand = `G0 x (1 - shedFrac) + (env.flexMW - city.flexDarkMW)
   - (env.rooftopMW - city.roofOffMW)`; the unserved rate is `G0 x shedFrac` (S-1: flex is never
-  unserved). A district's cold load adds its `flexShare` (lit and dark), and the restore surge is
+  unserved; 2c: `G0 x (shedFrac - city.heldFrac)`, below). A district's cold load adds its `flexShare` (lit and dark), and the restore surge is
   `max(0, coldMW - G0 x share - flexShare)`: only the cold factor is surge.
 * (2c; desk/README.md §32.4.4, Q-68, Q-69) The Act I restore task. `city.districts[d].clearS`
   (-1 none) is a task district's hand-back second, set by the `feederOut` applier **before**
@@ -492,8 +492,8 @@ to 435).
   the `feederClear` applier call it, so at its `clearS` a district stops being held and is the
   operator's to restore. Its semantics (wave 1, `grid`; Q-69): while held, `grid.restorePermissive`
   refuses it first with `'feeder under repair until HH:MM'`; physics leaves `heldFrac` out of the
-  unserved rate (`G0 x (shedFrac - heldFrac)`, exact when it is 0) and the market books it as
-  `score.heldMWh` instead; it is never SHEDDING and never in SAIDI/SAIFI. From `clearS` it is the
+  unserved rate (`G0 x (shedFrac - heldFrac)`, exact when it is 0), and so does `observe()`'s
+  `demand.unservedMW` (the dial's SHED mark), and the market books it as `score.heldMWh` instead; it is never SHEDDING and never in SAIDI/SAIFI. From `clearS` it is the
   operator's: `taskMWh` and SAIDI/SAIFI until it is restored (§5 score, §11 market.js). It is a dark
   district for everything else: lit demand, the relay MW, the price's lit demand, cold load (dark
   over 10 min), the dispatch. Physics' preview backup carries `heldFrac` (a district preview, or a
@@ -527,13 +527,14 @@ observe share these, and with rooftop zero each is exactly the pre-2a value):
 ```
 shedMW   = G x shedFrac - city.roofDarkMW                       the RELAY MW: the dark districts' net load
 servedMW = G x (1 - shedFrac) - (env.rooftopMW - city.roofOffMW) + city.coldLoadMW - dr.mw
-unserved = G x shedFrac                                         the dark customers' own load -> acc.unservedMWs
+unserved = G x (shedFrac - city.heldFrac)                      the dark customers' own load -> acc.unservedMWs (2c: held is the network's)
 ```
 
 2b (desk/README.md §31.3.4 I2, I3): G is `G0 = fleet.baseLoadMW(state)` (flex out), and the dark
 districts' flex shares stop: `shedMW = G0 x shedFrac + city.flexDarkMW - city.roofDarkMW`,
 `servedMW = G0 x (1 - shedFrac) + (env.flexMW - city.flexDarkMW) - (env.rooftopMW - city.roofOffMW)
-+ city.coldLoadMW - dr.mw`, `unserved = G0 x shedFrac` (flex is never unserved). Exact when flex is 0.
++ city.coldLoadMW - dr.mw`, `unserved = G0 x (shedFrac - city.heldFrac)` (flex is never unserved; 2c, Q-69: a
+held task feeder is the network's outage, booked as `score.heldMWh`). Exact when flex is 0 and nothing is held.
 
 The inverters' over-frequency response (C-7; lowering only, labelled; flags `REN_PFR_ON`,
 `ROOF_FW_ON`), from the tick's START frequency f and this tick's state after the relays:
@@ -563,7 +564,7 @@ drawn, >= 0), `battAbsMWs` (throughput |out|), `shedMWs`, `servedMWs` (of `loadM
 `fleet.resetAcc(acc)`, and writes `last = {fMeanHz, fMinHz, fMaxHz, servedMW, shedMW}` (means
 over the completed second). AGC, FOS and the restore permissive read `last.fMeanHz`.
 (Phase 2a; desk/README.md §19.2) `acc.shedMWs` is the RELAY MW x s (net load; the source of
-`last.shedMW`); `acc.unservedMWs` adds the unserved rate `G x shedFrac` x `PHYS_DT` each tick (the
+`last.shedMW`); `acc.unservedMWs` adds the unserved rate `G0 x (shedFrac - heldFrac)` x `PHYS_DT` each tick (the
 dark customers' underlying load, C-8: it feeds `score.unservedMWh`); `acc.spillMWs` adds
 `phys.renPfrMW` x `PHYS_DT` (wind and solar backed off by over-frequency, C-7). All are carried
 by `newAcc`, `resetAcc` and the preview's `copyAcc`. `acc.servedMWs` is of `loadMW`, so rooftop
@@ -603,11 +604,13 @@ servedMWh}` (`co2tPerMWh` = co2t / genMWh, AEMO's CDEII convention: imports coun
 
 2c (desk/README.md §32.4.4, Q-69): `heldMWh` (the network's part of a task district's darkness,
 before its `clearS`: recorded for the debrief, never priced) and `taskLateMWh` (task MWh dark past
-each feeder's allowed second + `RESTORE_PACE_MAX_S`) follow `taskMWh`; wave 1 books them (§11
+each feeder's allowed second + `RESTORE_PACE_MAX_S`; S-6's flag: zero or not is exact to a sub-second
+tolerance, its size a lower bound, so a flag and not a measure, §11 market.js) follow `taskMWh`; wave 1 books them (§11
 market.js): `heldMWh` += G0 x `city.heldFrac` x the second, so `unservedMWh + heldMWh` is every dark
 customer's load; `taskMWh` only from each feeder's `clearS`. **One clean predicate:** `market.isClean(score, black)` = not black and `uflsMWh +
 directedMWh === 0` (D-9's gate (2), S-7's Hard-day trigger, every tool's clean day);
-`market.isPerfect(score, black)` = `isClean` and `taskLateMWh === 0` (S-6's PERFECT).
+`market.isPerfect(score, black)` = `isClean` and `taskLateMWh === 0` (S-6's PERFECT); `market.restoreAllowedS(districts, d)`, the
+second a task feeder may be closed (Q-69, Q-70; §11 market.js).
 
 ### conts[] (contingency records; K-15 watch, K-16 respond card, D-21 moment)
 
@@ -712,10 +715,10 @@ An input is `{type, ...args}`. `applyInput(state, input, out)` (step.js) runs:
 | `planKey` | `station`, `atS` (whole s), `mw` >= 0 | `atS >= s`; something of the station on, booked, or free to start by then; before 04:00 | insert or replace the key at atS, **rewritten** (logged as applied): atS up to the earliest time the station's ramp reaches mw from the previous key after now (or the lever now), counting machines joining at MIN; mw into [Σmin, Σrating] of the machines on or booked on by then. None on or booked and mw > 0: books the START of the first machine free to start so it reaches MIN and climbs to mw by atS (a later booking of it moves earlier; atS moves later if the start would be past). mw 0: to MIN by atS, and a STOP of every machine on by then booked at atS. The rewrite is a fixed point: the logged key rewrites to itself on replay |
 | `planDel` | `station`, `atS` | a key at exactly atS, not in the past | removes it, and the STOPs of the station booked at that second |
 | `planStart` | `unit`, `atS` | `atS >= s`; unit off (or tripped) and free to start by atS (minimum down time, lockout, water) | books START at atS (replacing the unit's booking) |
-| `planStop` | `unit`, `atS` | `atS >= s`; unit committed, or booked to start before atS | books STOP at atS (replacing the unit's booking) |
+| `planStop` | `unit`, `atS` | `atS >= s`; unit committed, or booked to start before atS (2c: a START held for an outage counts at the return) | books STOP at atS (replacing the unit's booking) |
 | `planUnbook` | `unit` | a booking of the unit | removes its booked START and STOP |
 | `planRejoin` | `station`, `keep` (bool) | HAND and `man` | `man = false`; `keep`: the missed keys up to now give way to a key {now, present lever} (`doneS` = now; L-6 KEEP); else the executor applies the plan's present value at the next second (RESUME) |
-| `planLoad` | `fromS` (whole s), `stations` {id: [[atS, mw], ...]}, `tie` [[atS, mw], ...], `starts` [[unit, atS], ...], `stops` [[unit, atS], ...] | `fromS >= s`; every atS >= fromS; shape checked in step.js: known station ids, <= `PLAN_MAX_KEYS` entries per list, keys strictly increasing in atS, bookings sorted by (atS, unit), one per unit per list, MW finite (station >= 0, tie within +-800) | replaces every plan entry with atS >= fromS; MAN flags clear; a key the executor had applied at or after fromS is superseded (`doneS` moves back); `madeAtS` = s. Logged canonically: `stations` carries every station id in `V.STATION_IDS` order (missing = []), fresh arrays |
+| `planLoad` | `fromS` (whole s), `stations` {id: [[atS, mw], ...]}, `tie` [[atS, mw], ...], `starts` [[unit, atS], ...], `stops` [[unit, atS], ...] | `fromS >= s`; every atS >= fromS; shape checked in step.js: known station ids, <= `PLAN_MAX_KEYS` entries per list, keys strictly increasing in atS, bookings sorted by (atS, unit), one per unit per list, MW finite (station >= 0, tie within +-800) | replaces every plan entry with atS >= fromS (2c: a START held for an outage counts at its unit's return); MAN flags clear; a key the executor had applied at or after fromS is superseded (`doneS` moves back); `madeAtS` = s. Logged canonically: `stations` carries every station id in `V.STATION_IDS` order (missing = []), fresh arrays |
 | `scope` | `unit` ('' closes) | unit `ready`, or '' | `scope.unit`; that unit's auto-synchroniser waits while it is on the scope (A-4). The scope closes when the unit leaves 'ready' |
 | `syncTrim` | `unit`, `dHz` = +-`SYNC_TRIM_HZ` | the unit is `ready` and on the scope | speed target += dHz (within +-`SYNC_SLIP_LIMIT_HZ`); the slip moves linearly to it over `SYNC_TRIM_S`; cancels a pending `syncAuto` |
 | `syncAuto` | `unit` | unit `ready`; AGC (HAND has no auto-synchroniser) | K-12 AUTO: trims the slip to +`SYNC_AUTO_SLIP_HZ` and closes cleanly on the next pass through 0 degrees (the close command at the tick 80 ms before it; `scope.nextAutoTick`) |
@@ -845,7 +848,8 @@ Phase 2a (desk/README.md §19.3; stage A wired every key, the world job filled i
 `conts`): `balance` gains `renPfrMW`, `roofPfrMW` (after `shedMW`); `demand`
 gains `underlyingMW`, `rooftopMW` (as if connected, so `nowMW = underlyingMW + flexMW - rooftopMW -
 (SMELTER_MW - smelter.loadMW)` holds in obs; `flexMW` is 0 before 2b), `litMW` (`fleet.litDemandMW`), `unservedMW`
-(`G0 x shedFrac`, `G0 = env.demandMW + env.rooftopMW - env.flexMW`, I2) (after `tempC`); `wind` and `solar` gain
+(`G0 x shedFrac`, `G0 = env.demandMW + env.rooftopMW - env.flexMW`, I2; 2c: `G0 x (shedFrac - heldFrac)`, physics'
+unserved rate, so a held task feeder is not on the dial's SHED mark) (after `tempC`); `wind` and `solar` gain
 `autoMW` (last: `ren.windAutoMW` / `solarAutoMW` as stored); `score` gains `spillMWh` (last of
 the state keys, before the summary); `districts[]` gains `reconnectS` (last); `contingency.pre`
 and `.caught` gain `inverterMW` (last); `forecast` and `dayAhead` gain `underlyingP50[]`,
@@ -880,7 +884,7 @@ expected missing load at that column; `rooftopMW` is the rooftop forecast as if 
 were connected, after the heat derate of an ANNOUNCED heat window, and 0 in every column on a
 scenario with no rooftop; §11 weather.js.)
 2b (desk/README.md §31.3.7): `demand` gains `flexMW` (after `unservedMW`: `env.flexMW`), and
-`unservedMW` is `G0 x shedFrac`; `forecast` and `dayAhead` gain `flexMW[]` (after `rooftopMW`): the
+`unservedMW` is `G0 x shedFrac` (2c: `G0 x (shedFrac - heldFrac)`); `forecast` and `dayAhead` gain `flexMW[]` (after `rooftopMW`): the
 booked flex at each column's time, `fromS + (k + 1) stepS`, which `demandP50/P10/P90` include and
 `underlyingP50` does not. Top level, after `day`: `levers` = {rev, offered (the levers offered
 today), suburbs[] {id, patience, soak: LV, aircon: LV} (city order; [] on CLASSIC), blocks[]
@@ -979,7 +983,7 @@ Reads and writes per stage B module (a write through a `fleet.js` action counts 
 
 | Module | Reads | Writes |
 |---|---|---|
-| physics | `tick`, `phys`, `units[].{mode, sync, schedMW, availMW, govMW, k}`, `battery.{schedMW, guardMW, socMWh, ffrFiredTick, pfrMW, ufSuspend}`, `tie.flowMW`, `ren.{windMW, solarMW}`, `rert.outMW`, `dr.mw`, `env.{demandMW, rooftopMW}`, `city.{shedFrac, coldLoadMW, roofDarkMW, roofOffMW}`, `ufls`, `ofgs`, `collapse`, `conts[contIdx]`, `hydro.storageMWh` | `phys.*` (incl. `renPfrMW`, `roofPfrMW`, `roofHoldFrac`), `units[].{govMW, outMW}`, `battery.{pfrMW, ffrMW, ffrFiredTick, outMW, socMWh, ufSuspend}`, `hydro.storageMWh`, `ufls.timerS`, `ofgs.timerS`, `collapse.bandS`, `black`, trace fields of `conts[contIdx]` (incl. `caught.inverterMW`), `acc.*` (adds, incl. `unservedMWs`, `spillMWs`); stages via `fleet.operateUfls` / `fleet.setOfgsStage` (through them `districts[].reconnectS`, `city.{roofDarkMW, roofOffMW}`) |
+| physics | `tick`, `phys`, `units[].{mode, sync, schedMW, availMW, govMW, k}`, `battery.{schedMW, guardMW, socMWh, ffrFiredTick, pfrMW, ufSuspend}`, `tie.flowMW`, `ren.{windMW, solarMW}`, `rert.outMW`, `dr.mw`, `env.{demandMW, rooftopMW}`, `city.{shedFrac, coldLoadMW, roofDarkMW, roofOffMW, heldFrac}`, `ufls`, `ofgs`, `collapse`, `conts[contIdx]`, `hydro.storageMWh` | `phys.*` (incl. `renPfrMW`, `roofPfrMW`, `roofHoldFrac`), `units[].{govMW, outMW}`, `battery.{pfrMW, ffrMW, ffrFiredTick, outMW, socMWh, ufSuspend}`, `hydro.storageMWh`, `ufls.timerS`, `ofgs.timerS`, `collapse.bandS`, `black`, trace fields of `conts[contIdx]` (incl. `caught.inverterMW`), `acc.*` (adds, incl. `unservedMWs`, `spillMWs`); stages via `fleet.operateUfls` / `fleet.setOfgsStage` (through them `districts[].reconnectS`, `city.{roofDarkMW, roofOffMW}`) |
 | grid | everything above plus `env` (incl. `rooftopMW`, `roofSubMW`), `last` (`fMeanHz`: the AGC term of the automatic cut), `agc.unmetMW`, `ren.{windAutoMW, solarAutoMW}` (`agcSecond`: units first while spilling), `control`, `sec`, `seed` (play stream) | `units[].{mode, timerS, agcTrimMW, schedMW, availMW, hotS, starts}`, base points via `fleet.setBasePoint`, `battery.{mode, orderMW, guardMW, schedMW, agcTrimMW, fullHold}`, `tie.{setMW, flowMW, tripped, lockoutS}`, `ren.*` (incl. `windAutoMW`, `solarAutoMW`), `hydro.warned`, `rert.*`, `dr.*`, `city.{coldLoadMW, lastRestoreS}`, `districts[].surgeMW`, `ofgs.okS`, `agc.*`, `fos.*`, `sec.*`, `acc.startCost`, `conts[contIdx].backInBandTick`; breakers via `fleet.setSync`, trips via `fleet.tripUnit`, districts via `fleet.setDistrictDark` and the roofs via `fleet.refreshRoof` (`districts[].reconnectS`, `city.{roofDarkMW, roofOffMW}`), re-arm / reconnect via `fleet.rearmUfls` / `fleet.setOfgsStage` |
 | market | `env` (incl. `rooftopMW`, through `fleet.litDemandMW`), `units`, `battery`, `tie`, `ren` (incl. the manual and automatic curtailment), `ofgs.trippedFrac`, `rert`, `dr`, `city` (incl. `roofOffMW`), `sec`, `acc` (incl. `unservedMWs`, `spillMWs`), `hydro.storageMWh` | `price.*`, `score.*` (incl. `spillMWh`), `last.*`, `acc` (via `fleet.resetAcc`) |
 | events (`applyDue`) | `ext.events`, `evNext`, `units`, `tie`, `smelter`, `scn` (the storm and cloud text timings; `scn.rooftop.capacityMW` for the DUCK wording) | `evNext`, `news`, `smelter.{returning, loadMW, returnS}`; trips via `fleet.tripUnit`, `tripTie`, `tripSmelter` |
@@ -1007,9 +1011,10 @@ records through `openDay`. Wave 1 adds the readers that give these fields their 
 2c wave 1 (`grid`; desk/README.md §32.6.2) adds: grid reads `districts[].clearS` (`restorePermissive`),
 `tie.limitMW` (`dispatchSecond`, `security`) and `units[].outUntilS` (`planSecond`'s bookings), and
 the level's SHEDDING reads `shedBy`; physics reads `city.heldFrac` (the unserved rate) and its
-preview backup carries it; the market reads `city.{heldFrac, lastRestoreS}` and `districts[].clearS`
-and writes `score.{heldMWh, taskLateMWh}`; step writes `control.{nightShift, mode}` and the plan's
-MAN flags (the night flip, on `scn.night`).
+preview backup carries it, and so does observe (`demand.unservedMW`); the market reads `city.heldFrac` and
+`districts[].{clearS, restoredAtS}` (`restoreAllowedS`) and writes `score.{heldMWh, taskLateMWh}`; step writes
+`control.{nightShift, mode}`, the plan's MAN flags, `scope.unit` and a waiting unit's `timerS` (the night
+flip, on `scn.night`).
 
 Only `weather.sampleSecond` and `events.applyDue` read `ext`, and only for the present second;
 `ext.regime.temp` is read once, by `createState`.
@@ -1441,12 +1446,16 @@ Key rules:
   (the first after `doneS`) applies through the basePoint path when `atS <= s` (only the latest
   past key) or `s + |mw' - lever| / ramp >= atS` (mw' clamped to the station's range, ramp = Σ
   rampMWs of its 'on' machines; with none on, at atS), then `doneS = atS`, `clampedMW = mw -
-  applied`; the tie's keys set `tie.setMW` the same way at `TIE_RAMP_MW_MIN`. Anything applied
+  applied`; the tie's keys set `tie.setMW` the same way at `TIE_RAMP_MW_MIN` (2c, Q-68: the lead is
+  measured between the two imports the dispatch runs to, each capped at `tie.limitMW`, so under a
+  derate a lower key lands on time instead of up to (setMW - limit) / ramp early). Anything applied
   sets `sec.dirty` (as the plan's inputs did in 0.2) and `plan.rev += 1`. It runs during the
   watch too: the watch locks the desk, not dispatch. 2c (Q-68): a booked START of a unit whose
   `outUntilS` is still ahead stays in `plan.starts` and is passed over (later bookings due in the
   same second run; nothing is dropped or logged); at `outUntilS` it runs (`unitReturn` has cleared
-  the outage earlier in the second). `sec.dirty` and `rev` move only when a booking ran, so a held
+  the outage earlier in the second). It is due then (`startDueS` = max(atS, outUntilS), which
+  `onAtS` uses too), so `planLoad` replaces it when `fromS` is at or before the return and
+  `planStop` refuses a STOP at or before the return ('unit is off'). `sec.dirty` and `rev` move only when a booking ran, so a held
   booking costs no preview re-run (on a day without one this is the Phase 1a executor exactly).
 * **Synchroscope** (Phase 1a, K-12): see §5 units and §6; `syncClose` judges `syncAt(u, tick +
   SYNC_BREAKER_TICKS)` (the breaker closes at the command's tick; the outcome is judged 80 ms on,
@@ -1668,8 +1677,8 @@ while DR holds the system); hydro at or below `HYDRO_STOP_MWH` offers only its p
 output; `marginalId` is '' when the price is administered (the cap while directed shedding is in force,
 i.e. a district dark with shedBy 'directed', or when the stack cannot cover the lit demand;
 review fix: UFLS districts waiting to be restored used to hold the cap for hours) and at the floor with an empty stack; unserved energy is split by the dark
-districts' `shedBy` at the end of each second (booked as UFLS if nothing is dark then; 2c: a relit
-task feeder's part to `taskMWh`, below);
+districts' `shedBy` at the end of each second (booked as UFLS if nothing is dark then; 2c: a task
+feeder closed at the second's end counts as dark, and a relit task feeder's part goes to `taskMWh`, below);
 `outsideNormalS` counts seconds whose MEAN frequency is outside the normal band; no-load uses
 `sync` at settle time; `marketBill` = price x served MWh (information only); `genMWh` is the
 region's generation (units, wind after OFGS, solar, RERT), S-3's denominator.
@@ -1685,21 +1694,42 @@ blocks alone exceed it, on the floor; the automatic cut never moves it (P-5).
 **2c wave 1 (`grid`; desk/README.md §32.6.2, Q-69): the restore task's books.** Each settled second t:
 - `heldMWh` += G0 x `city.heldFrac` x the second (physics left exactly that out of the unserved
   rate; G0 and `heldFrac` are constant within a second, `feederClear` moving it at a boundary).
+- **The allowed second** is one exported rule, `market.restoreAllowedS(districts, d)`: the later of
+  district d's `clearS` and the restore before + `RESTORE_INTERVAL_S`, "the restore before" being the
+  latest `restoredAtS` of any district (while d is dark) or the latest before d's own `restoredAtS`
+  (once d is lit: the second it might have been closed at its last close); none: -DAY_S, as
+  `city.lastRestoreS` starts. It reads only `districts[].{dark, clearS, restoredAtS}`, so it gives the
+  same on `state.city.districts` and on `observe().districts`: Q-70's RESTORE pace (the director, wave
+  2 clock) and par's mirror (wave 2 par; autopilot cannot import market.js, S-4, so it copies this
+  rule from obs) read it from there. Only a restore input writes `restoredAtS` (and
+  `lastRestoreS`, at the same second), so while d is dark it is exactly the permissive's interval.
+  It is re-read each second: a restore of another district moves a still-dark feeder's allowed
+  second on, as the contract's "the last restore" says, and as two feeders on one clearance need
+  (the second's allowed second is the first's restore + the interval).
 - The split weights skip a dark task feeder with `clearS > t` (held: none of its energy is in the
   second's unserved). A dark task feeder handed back is `taskMWh`, and its part is also
-  `taskLateMWh` once t >= its allowed second + `RESTORE_PACE_MAX_S`, the allowed second being the
-  later of its `clearS` and `city.lastRestoreS + RESTORE_INTERVAL_S` as they stand at the settle
-  (Q-70's RESTORE pace starts there: a feeder closed inside the pace books no late MWh; two feeders
-  on one clearance give the second its own allowed second, the first's restore + the interval).
-- With nothing dark at the end of t (a restore landed in it, or at the next boundary tick, which
-  runs before the settle), the energy goes by the districts relit in t (`restoredAtS` t or t + 1):
-  a task feeder's share (its darkness began before its `clearS`, so `darkSinceS < clearS`) to
-  `taskMWh` (and `taskLateMWh` if late; the relit feeder's own restore has already moved
-  `lastRestoreS`, so its last partial second reads as in time), every other relit district's share
-  to UFLS as before. That is the contract's "never to UFLS" for the task: the restore of a task
-  feeder never makes a day unclean. A relit UFLS or directed district's last `shedBy` is gone
-  (`fleet.setDistrictDark` nulls it, classic-hashed behaviour), and inferring 'directed' from
-  `rot` would move classic's numbers, so they keep the old booking; `isClean` counts both alike.
+  `taskLateMWh` once t >= its allowed second + `RESTORE_PACE_MAX_S` (Q-70's RESTORE pace starts at
+  the allowed second: a feeder closed inside the pace books no late MWh). A task feeder closed at
+  the tick ending t (`restoredAtS` t + 1, the boundary input before the settle) was dark through t
+  and counts in t's weights as a dark one, so its closing second is judged late with the rest.
+- With nothing dark at the end of t (a restore landed inside it), the energy goes by the districts
+  relit in t (`restoredAtS` t or t + 1): a task feeder's share (its darkness began before its
+  `clearS` and t is past it) to `taskMWh` (and `taskLateMWh` if t is late by its own allowed
+  second), every other relit district's share to UFLS as before. That is the contract's "never to
+  UFLS" for the task: the restore of a task feeder never makes a day unclean. **A relit UFLS or
+  directed district's last second still goes to UFLS**: its `shedBy` is gone (`fleet.setDistrictDark`
+  nulls it, classic-hashed behaviour), and inferring 'directed' from `rot` would move classic's
+  numbers; `isClean` counts both alike. desk/README §32.6.2's "by the category of the districts relit
+  in it" holds for task feeders only (reported for the integrator to amend; a `lastShedBy` field
+  would be a §32.4 state change).
+- **`taskLateMWh` is S-6's flag.** Zero or not is exact against the rule read at each close (a
+  feeder closed at c is late if c > its allowed second + the pace, the allowed second as at c),
+  with one sub-second tolerance: a task feeder closed *inside* its first late second while another
+  district is dark at that second's end books that fraction with the dark district (`restoredAtS` t
+  cannot tell it from a close at t's start, which is in time). Its size is a lower bound: once a
+  feeder is late, a restore of another district moves its allowed second on and pauses its late
+  MWh for up to the interval + the pace. So it is a flag, not a measure (a debrief prints
+  `taskMWh`); an exact size needs a pinned per-feeder allowed second, a §32.4 state change.
 - SAIDI, SAIFI and MAIFI: §8.
 On classic (no `clearS`, `heldFrac` 0) every one of these is bit-identical to Phase 2a's.
 
@@ -2095,7 +2125,11 @@ test-only way to put a record on a day (createState takes no test parameter):
   the same second; `plan.rev` + 1), closes the synchroscope (`scope.unit = ''`: the auto-synchroniser
   waits while a unit is on it, A-4, which is the player's wait, and the night desk refuses the input
   that would close it; an addition to §32.6.2's list, so a unit left on the scope at 21:00 is not
-  'ready' all night) and pushes `{tick, kind: 'log', sev: 'info', code: 'NIGHT_SHIFT', msg}`, once.
+  'ready' all night), gives each unit waiting in 'ready' under HAND `timerS = AUTO_SYNC_S` (also an
+  addition: HAND leaves it 0, so the AGC auto-synchroniser would close every such unit in the flip's
+  own second; this is the wait a unit entering 'ready' under AGC gets, so the night memo can still
+  stand it down; the countdown starts in the flip's second, so it closes `AUTO_SYNC_S` - 1 s later)
+  and pushes `{tick, kind: 'log', sev: 'info', code: 'NIGHT_SHIFT', msg}`, once.
   Before `planSecond`, so the plan runs the night from its first second. Classic (`night: false`)
   never flips; HAND there runs past 21:00 as before.
 - `gridSecond` sets `control.handFlown` on the tick the day reaches `PLAYER_START_TICK` with the
