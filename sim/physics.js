@@ -268,7 +268,7 @@ function advance(S, out, emit) {
   const total = fleet.baseLoadMW(S), shedFrac = city.shedFrac;
   const shed = total * shedFrac + fd - city.roofDarkMW + 0;
   const served = total * (1 - shedFrac) + (env.flexMW - fd) - (roof - city.roofOffMW) + city.coldLoadMW - S.dr.mw + 0;
-  const darkLoad = total * (shedFrac - city.heldFrac); // Q-69: a held task district is the network's outage
+  const darkLoad = total * (shedFrac - city.heldFrac); // Q-69: held is the network's outage
   const relief = served * LOAD_RELIEF * (F0 - f) / F0 + 0;
 
   // 7b. the inverters' over-frequency response (C-7), from this tick's start frequency: wind and

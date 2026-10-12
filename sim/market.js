@@ -366,10 +366,8 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
 }
 
 // Split second t's unserved energy by why the dark districts are dark (end-of-second shares;
-// UFLS acts mid-second, so the split is exact only in total). Q-69 (sim/README.md §11
-// market.js): a held task district is skipped, and a task district's part is late from its
-// allowed second + RESTORE_PACE_MAX_S. With nothing dark at the end of the second, the
-// districts relit in it: a task feeder's part to taskMWh, the rest to UFLS as before.
+// UFLS acts mid-second, so the split is exact only in total); with nothing dark then, by the
+// districts relit in t. The restore task (Q-69): sim/README.md §11 market.js.
 function splitShed(state, sc, shedMWh, t) {
   let total = 0, ufls = 0, directed = 0, task = 0, late = 0, relit = 0, rTask = 0, rLate = 0;
   const ds = state.city.districts, last = state.city.lastRestoreS + RESTORE_INTERVAL_S;
@@ -406,8 +404,7 @@ function splitShed(state, sc, shedMWh, t) {
 }
 
 // Q-48 (desk/README.md §30.7): SAIDI, SAIFI, MAIFI per household for second t. A relight on the
-// tick ending t (restoredAtS t + 1) was dark through t. Q-69: a task feeder counts from its
-// clearS (held before it), and a close soon after the hand-back is no momentary interruption.
+// tick ending t (restoredAtS t + 1) was dark through t. A task feeder from its clearS (§8, Q-69).
 function reliabilitySecond(state, sc, t, secs) {
   const ds = state.city.districts;
   for (let d = 0; d < ds.length; d++) {
