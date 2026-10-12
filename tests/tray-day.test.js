@@ -91,11 +91,22 @@ test('Q-70, Q-82: a feeder handed back rings and says what to press; a unit\'s r
   assert.deepEqual([uc, unit.from, unit.sev, unit.button.target], [['tick'], 'STATION', 'info', 'lever-ccgt']);
   const [tc, tie] = one(rec('TIE_LIMIT_END'));
   assert.deepEqual([tc, tie.from, tie.sev, tie.button.target], [['tick'], 'MARKET NOTICE', 'info', 'knob-tie']);
-  for (const [code, sev] of [['CLOUD_ONSET', 'info'], ['WIND_DROUGHT', 'warn'], ['HEAT_ONSET', 'crit']]) {
-    const [cues, card] = one({tick: 0, kind: 'log', sev, code, msg: code});
-    assert.deepEqual([cues, card.from, card.button.target], [[sev === 'crit' ? 'ring2' : 'tick'], 'WEATHER BUREAU', 'stack'], code);
-  }
+  const [hc, heat] = one({tick: 0, kind: 'log', sev: 'crit', code: 'HEAT_ONSET', msg: 'HEATWAVE CONDITIONS'});
+  assert.deepEqual([hc, heat.from, heat.button.target], [['ring2'], 'WEATHER BUREAU', 'stack']);
   for (const c of [clear, unit, tie]) assert.ok(c.text.split(/\s+/).length <= T.MAX_WORDS, c.text);
+});
+
+test('Q-82, Q-83: on the designed day a warned drought\'s onset and the front over the suburbs tick; classic\'s precinct front makes no card, and a legacy drought (its announce and the log twin in one batch) makes one', () => {
+  const play = (seed, scn, recs, toS) => {
+    const s = stateWith(seed, scn, recs), tr = T.createTray(), cues = [];
+    while (s.tick < toS * TPS) cues.push(...T.trayRecords(tr, step(s)));
+    return [cues, tr.cards.map(c => [c.from, c.sev, c.button.target, c.text.split(':')[0]])];
+  };
+  assert.deepEqual(play(4, CLASSIC, [{atS: 60, type: 'windDrought', args: {windMu: 0.12}}, {atS: 120, type: 'cloudOnset', args: {clearMu: 0.3}}], 121),
+    [['ring2'], [['WEATHER BUREAU', 'warn', 'stack', 'WIND DROUGHT']]]);
+  assert.deepEqual(play(1, DESK, [{atS: 60, type: 'droughtWarn', args: {onsetS: 120, muPm: 120}}, {atS: 120, type: 'windDrought', args: {windMu: 0.12}},
+    {atS: 180, type: 'cloudOnset', args: {clearMu: 0.32, suburbs: true, clearS: 3600}}], 181), [['ring2', 'tick', 'tick'],
+    [['WEATHER BUREAU', 'warn', 'stack', 'Wind drought from about 04'], ['WEATHER BUREAU', 'info', 'stack', 'Wind drought'], ['WEATHER BUREAU', 'info', 'stack', 'Cloud front reaching the western suburbs']]]);
 });
 
 test('Q-82: an outage card from a real unitOutage record (inject) goes to the unit\'s lever: CCGT on desk, coal on the weekend', () => {
@@ -154,6 +165,9 @@ test('Q-64, Q-75, Q-69: the end card says HAND-FLOWN after the 21:00 flip, "Not 
   G.takeDesk(g);
   G.runTo(g, g.state.tick + 120 * TPS);
   assert.equal(g.state.control.handFlown, true, 'the sim tags the day on the tick it reaches 04:30');
+  const pre = endText(g);   // ended before 21:00 (a black day ends at once): no night shift took the desk
+  assert.match(pre, /HAND-FLOWN: AGC off from 04:30\./);
+  assert.doesNotMatch(pre, /21:00/);
   Object.assign(g.state.control, {mode: 'AGC', nightShift: true});   // what sim/step.js's 21:00 flip leaves
   const t = endText(g);
   assert.match(t, /HAND-FLOWN: AGC off from 04:30 until the night shift took the desk at 21:00\./);
@@ -173,7 +187,7 @@ test('Q-64, Q-75, Q-69: the end card says HAND-FLOWN after the 21:00 flip, "Not 
 // ---------------------------------------------------------------- the desk: the bay, the tie, the night
 
 function mount(obs, over) {
-  const doc = makeDocument(), root = doc.createElement('div'), a = {inputs: [], input(x) { a.inputs.push(x); return ''; }, ui() {},
+  const doc = makeDocument(), root = doc.createElement('div'), a = {inputs: [], uis: [], input(x) { a.inputs.push(x); return ''; }, ui(x) { a.uis.push(x); },
     previewTrip: () => null, restorePreview: () => ''};
   root.id = 'desk';
   doc.body.appendChild(root);
@@ -190,29 +204,55 @@ test('§32.11 (desk): held feeders never choose the bay\'s view; their rows read
   assert.deepEqual(DAY.dawn.districts.filter(d => d.dark).map(d => d.id + '@' + d.clearS), ['TAL3@' + H(6.5), 'TAL4@' + H(7)]);
   assert.equal($('restore-list').parentElement.hidden, true, 'the bay stays on SYNC: nothing dark is the player\'s');
   assert.equal($('bay-restore').textContent, '✕2 RESTORE', 'the tab still counts them (as the map and the line do)');
-  assert.equal($('bay-restore').classList.contains('glow'), false);
+  assert.deepEqual(['glow', 'lit'].map(c => $('bay-restore').classList.contains(c)), [false, false], 'nothing there to press yet');
   $('bay-restore').click();
   const rows = $('restore-list').querySelectorAll('.dk-feeder');
   assert.deepEqual(rows.map(r => r.querySelector('.dk-feeder-name').textContent), ['▸ TAL3 · FAULT · BACK 06:30', 'TAL4 · FAULT · BACK 07:00']);
+  // listed by when they come back, whatever the district order
+  const late = structuredClone(DAY.dawn);
+  late.districts.find(d => d.id === 'TAL3').clearS = H(7.5);
+  const l = mount(late);
+  l.$('bay-restore').click();
+  assert.deepEqual(l.$('restore-list').querySelectorAll('.dk-feeder-name').map(n => n.textContent.replace('▸ ', '')), ['TAL4 · FAULT · BACK 07:00', 'TAL3 · FAULT · BACK 07:30']);
   $('restore-TAL4').click();
   assert.equal(m.note(bayOf($)), 'RED ✕ feeder under repair until 07:00');
   assert.deepEqual(m.a.inputs, [], 'nothing sent');
 });
 
-test('Q-70: at a hand-back the bay opens on RESTORE, the tab glows, the feeder handed back leads the list and R selects it', () => {
+test('Q-70: at a hand-back the bay opens on RESTORE with that feeder chosen (REPAIRED), the tab glows while the clock plays RESTORE, and R chooses the feeder that can close', () => {
   const m = mount(DAY.back), {$} = m;
   const tal3 = DAY.back.districts.find(d => d.id === 'TAL3'), tal4 = DAY.back.districts.find(d => d.id === 'TAL4');
   assert.deepEqual([tal3.dark, tal3.clearS <= DAY.back.s, tal4.clearS > DAY.back.s], [true, true, true]);
   assert.equal($('restore-list').parentElement.hidden, false, 'RESTORE: a feeder is the player\'s now');
-  assert.equal($('bay-restore').classList.contains('glow'), true);
+  assert.deepEqual(['glow', 'lit'].map(c => $('bay-restore').classList.contains(c)), [false, true], 'lit: one is the player\'s; no glow out of the RESTORE pace');
+  m.up(1500, {mode: {mode: 'RESTORE', rate: 30, watchS: -1, locked: false, watchVersion: null}});
+  assert.equal($('bay-restore').classList.contains('glow'), true, 'the hand-back\'s moment');
   const names = () => $('restore-list').querySelectorAll('.dk-feeder-name').map(n => n.textContent);
-  assert.deepEqual(names(), ['▸ TAL3 · FAULT', 'TAL4 · FAULT · BACK 07:00']);
-  // the player had chosen the held one; R chooses again: the first that can close
+  assert.deepEqual(names(), ['▸ TAL3 · REPAIRED', 'TAL4 · FAULT · BACK 07:00']);
+  // the player had chosen the held one; R chooses again: the one that can close
   $('restore-list').querySelectorAll('.dk-feeder')[1].click();
   assert.equal(names()[1], '▸ TAL4 · FAULT · BACK 07:00');
   assert.equal(m.desk.key({type: 'keydown', key: 'r', target: m.doc.body}), true);
   m.up(2000);
-  assert.equal(names()[0], '▸ TAL3 · FAULT');
+  assert.equal(names()[0], '▸ TAL3 · REPAIRED');
+  // a UFLS district dark ahead of it in district order: R still takes the feeder just handed back
+  const u = structuredClone(DAY.back), x = u.districts.slice(0, u.districts.findIndex(d => d.id === 'TAL3')).find(d => !d.dark);
+  Object.assign(x, {dark: true, shedBy: 'ufls', restoreBlock: ''});
+  const n = mount(u);
+  n.$('restore-list').querySelectorAll('.dk-feeder')[0].click();
+  assert.match(n.$('restore-list').querySelector('.sel').textContent, new RegExp('^▸ ' + x.id + ' · UFLS'));
+  assert.equal(n.desk.key({type: 'keydown', key: 'r', target: n.doc.body}), true);
+  assert.match(n.$('restore-list').querySelector('.sel').textContent, /^▸ TAL3 · REPAIRED/);
+});
+
+test('Q-70, Q-42: the FEEDER_CLEAR card\'s button, then Enter, then Enter closes the feeder it names (Enter on RESTORE goes into the list, as R)', () => {
+  const m = mount(DAY.back), {$} = m;
+  m.desk.focus('bay-restore');   // the card's TO THE RESTORE BAY (actions.ui focus)
+  assert.equal(m.doc.activeElement.id, 'bay-restore');
+  assert.equal(m.desk.key({type: 'keydown', key: 'Enter', target: m.doc.activeElement}), true, 'the press answers');
+  assert.equal(m.doc.activeElement.id, 'restore-list');
+  m.doc.dispatch('keydown', {key: 'Enter'});
+  assert.deepEqual(m.a.inputs, [{type: 'restore', district: 'TAL3'}]);
 });
 
 test('Q-68: the tie knob shows and clamps the import limit (End stops at it, a turn past it says why in blue); calc.tieSnap never snaps past it', () => {
@@ -231,6 +271,12 @@ test('Q-68: the tie knob shows and clamps the import limit (End stops at it, a t
   m.up(3000, {obs: at});
   m.doc.dispatch('keydown', {key: 'ArrowUp'});
   assert.equal(m.note(box), 'blue imports limited to 450 MW until 11:00');
+  // the lamp reports a constraint: amber, never LINK OK's green; a wheel turn past the limit says why too
+  const lamp = box.querySelector('.dk-link');
+  assert.deepEqual(['lit', 'warn'].map(c => lamp.classList.contains(c)), [false, true]);
+  const w = mount(at), wb = w.$('knob-tie').parentElement.parentElement;
+  w.$('knob-tie').dispatch('wheel', {deltaY: -100});
+  assert.equal(w.note(wb), 'blue imports limited to 450 MW until 11:00');
   assert.deepEqual([tieSnap(480, 450), tieSnap(262, 450), tieSnap(490), tieSnap(-790, 450)], [450, 250, 500, -800]);
 });
 
@@ -244,8 +290,24 @@ test('Q-73: in the night the desk is the night shift\'s: a press says so in blue
   $('knob-tie').focus();
   m.doc.dispatch('keydown', {key: 'ArrowUp'});
   assert.equal(m.note($('knob-tie').parentElement.parentElement), 'blue ' + NIGHT_NOTE);
+  assert.equal(m.note(bayOf($)), '', 'one night note at a time: the newest');
   assert.deepEqual(m.a.inputs, []);
   $('bay-sync').click();
   assert.equal($('restore-list').parentElement.hidden, true, 'the tabs still switch the view');
   assert.equal(m.desk.key({type: 'keydown', key: 'a', target: m.doc.body}), true, 'ACK');
+});
+
+test('Q-73: in the night a key on a lever that has lost the focus answers on it in blue (never the shell\'s fallback); a tray card\'s button still goes to its view', () => {
+  const card = {id: 'card1', from: 'MARKET NOTICE', atS: H(21.5), time: '21:30', sev: 'warn', text: 'Lowest demand 1,540 MW at 03:30.', button: {label: 'SEE THE STACK', target: 'stack'}};
+  const obs = structuredClone(DAY.back);
+  obs.nightShift = true;
+  const m = mount(obs, {focus: 'lever-ccgt', tray: {cards: [card], log: []}}), slot = m.$('lever-ccgt').closest('.dk-lever-slot');
+  m.doc.body.focus();
+  for (const key of ['ArrowUp', 's', 's']) assert.equal(m.desk.key({type: 'keydown', key, target: m.doc.body}), true, key);
+  assert.equal(m.note(slot), 'blue ' + NIGHT_NOTE);
+  assert.deepEqual(m.a.inputs, []);
+  const b = m.doc.querySelector('.dk-card-btn');
+  assert.equal(b.getAttribute('aria-disabled'), 'false');
+  b.click();
+  assert.deepEqual(m.a.uis.filter(u => u.do === 'focus'), [{do: 'focus', target: 'stack'}]);
 });

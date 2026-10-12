@@ -6,7 +6,8 @@
 // and hash; DOWNLOAD REPLAY LOG and PLAY THIS DAY AGAIN. Prices come from V.VCR and V.VER, never typed
 // in. While par runs the card says how far it has got; it is redrawn when par's ALL-IN arrives
 // (game.end is filled in place, app/game.js buildVm). 2c (desk/README.md §32.7.3): under the h2,
-// HAND-FLOWN (game.end.handFlown, Q-64) and "Not gate-checked" only when game.end.gated === false
+// HAND-FLOWN (game.end.handFlown, Q-64; "until the night shift took the desk at 21:00" only after
+// that flip, obs.nightShift: a black day ends before it) and "Not gate-checked" only when game.end.gated === false
 // (Q-75; null is not a daily); in the reliability block, on a day with feeders under repair
 // (score.heldMWh > 0), that they count from their hand-back (Q-69).
 
@@ -73,7 +74,7 @@ export function createEndCard(doc, root, actions, deps) {
     root.replaceChildren();
     el('h2', e.black ? 'The grid went black.' : 'Day over: 04:00.', '', root);
     // 2c: the HAND tag (Q-64) and a daily the gate did not check (Q-75; null is not a daily: no label)
-    if (e.handFlown) line(root, 'HAND-FLOWN: AGC off from 04:30 until the night shift took the desk at 21:00.', 'score').id = 'end-hand';
+    if (e.handFlown) line(root, 'HAND-FLOWN: AGC off from 04:30' + (v.obs && v.obs.nightShift ? ' until the night shift took the desk at 21:00' : '') + '.', 'score').id = 'end-hand';
     if (e.gated === false) line(root, 'Not gate-checked: this day may not be solvable.', 'score').id = 'end-gate';
     body = el('div', '', '', root);
     line(root, 'Seed ' + e.seed + ' · ' + e.v + ' · ' + e.inputs + ' inputs · hash 0x' + (e.hash >>> 0).toString(16).padStart(8, '0'), 'score');

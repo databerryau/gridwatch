@@ -659,7 +659,7 @@ test('Q-69 on the RESPOND card and the UFLS explainer: a held task feeder is the
   const shed = structuredClone(obs), u = shed.districts.find(d => !d.dark);
   Object.assign(u, {dark: true, shedBy: 'ufls'});
   shed.sec.level = 'SHEDDING';
-  assert.match(W.respondCard(shed, c, {glow: []}).lines[2], new RegExp('^SHEDDING: 1 districts dark \\(' + Math.round(u.coldLoadMW) + ' MW\\): relight them within \\d+:\\d\\d\\.$')); // (2c: COVER's words, Q-74)
+  assert.match(W.respondCard(shed, c, {glow: []}).lines[2], new RegExp('^SHEDDING: 1 district dark \\(' + Math.round(u.coldLoadMW) + ' MW\\): relight it( and cover [\\d,]+ MW)? within \\d+:\\d\\d\\.$')); // (2c: COVER's words, Q-74)
   assert.ok(ALARM_HELP.ufls.reading(shed).startsWith('districts dark: 1 · '), 'the UFLS explainer\'s reading counts as its MW do');
   // one handed back (its clearS reached, test poke): the operator's to restore
   const back = structuredClone(obs), r = back.districts.find(d => d.id === task[0].id);

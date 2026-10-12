@@ -6,11 +6,11 @@ import {readFileSync} from 'node:fs';
 import {V} from '../sim/params.js';
 import {createState, step, observe} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
-import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
+import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {followDay} from './lib/follow.js';
 import * as A from '../app/alarms.js';
 import * as T from '../app/tray.js';
-import {stepReal, stepAfter} from '../sim/clock.js';
+import {stepReal, stepAfter, NIGHT_S} from '../sim/clock.js';
 import {makeDocument} from './lib/dom.js';
 import {createDesk} from '../desk/desk.js';
 import {baseVm} from './lib/vm-fixture.js';
@@ -380,11 +380,11 @@ test('MIN GEN on a real belly: observe() and state give the same spillMW; the ti
 });
 
 /** Count the competent proxy's audible alarms over a day; the operator ACKs 3 real s after each sound. */
-function competentDay(seed) {
+function competentDay(seed, scn) {
   const a = A.createAlarms();
   let realMs = 0, lastS = -1, ackAt = Infinity;
   const stationOf = id => id.replace(/\d+$/, '');
-  runPar(seed, CLASSIC, {proxy: 'competent', onStep: st => {
+  runPar(seed, scn, {proxy: 'competent', onStep: st => {
     A.sampleTick(a, st);
     if (st.tick % TPS !== 0 || st.tick < V.PLAYER_START_TICK) return;
     const x = A.alarmInputFromState(st);
@@ -400,13 +400,15 @@ function competentDay(seed) {
 }
 
 test('K-8 accept: the competent proxy triggers <= 8 audible alarms in a day', () => {
-  // "Per daily": a daily is a seed that passes D-9's gate, so par must shed nothing on it; seed 1
-  // is one. Seeds par cannot solve (practice "Hard days" at most) are not held to it (stage C:
-  // seed 4, where par sheds 559 MWh, sounds 10). One whole day: the count is a day's.
-  const seeds = [1];
+  // "Per daily": a daily is a seed that passes D-9's gate, so par must shed nothing on it. Seeds par
+  // cannot solve (practice "Hard days" at most) are not held to it (stage C: classic seed 4, where par
+  // sheds 559 MWh, sounds 10). One whole day, the player's (2c, Q-82): a desk date with its designed
+  // events, the 16:30 PEAK and the quiet night roll (Q-73: nothing sounds from 21:00).
+  const seeds = [20261008];
   const counts = seeds.map(seed => {
-    const a = competentDay(seed);
+    const a = competentDay(seed, DESK);
     assert.ok(a.audible <= 8, 'seed ' + seed + ': ' + a.audible + ' audible alarms ' + JSON.stringify(a.sounds));
+    assert.deepEqual(a.sounds.filter(x => x.atS >= NIGHT_S), [], 'the night roll is quiet');
     return a.audible;
   });
   assert.ok(counts.every(n => n >= 1), 'a day is not silent: ' + counts);

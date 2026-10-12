@@ -136,12 +136,14 @@ export function createDesk(doc, root, actions, opts = {}) {
   live.setAttribute('aria-live', 'polite');
   live.setAttribute('role', 'status');
 
-  const locked = () => !vm || !!(vm.mode && vm.mode.locked) || !!vm.obs.over || !!vm.obs.nightShift;
+  // Q-73: the night locks sim inputs only; views (a tray card's button) stay open
+  const viewLocked = () => !vm || !!(vm.mode && vm.mode.locked) || !!vm.obs.over, locked = () => viewLocked() || !!vm.obs.nightShift;
+  let night = null;   // the control the night's one note is on
   const ctx = {
     doc, actions,
     now: () => nowFn(),
     vm: () => vm,
-    locked,
+    locked, viewLocked,
     /** K-22: reduced motion (vm.settings.reducedMotion; absent = off). */
     rm: () => !!(vm && vm.settings && vm.settings.reducedMotion),
     guards: null, holds: null,
@@ -182,8 +184,11 @@ export function createDesk(doc, root, actions, opts = {}) {
      */
     lockNote(host) {
       if (!host) return;
-      if (vm && vm.obs.nightShift) ctx.note(host, NIGHT_NOTE, 300 * NIGHT_NOTE.split(' ').length, 'info');
-      else ctx.note(host, 'desk locked while the grid catches itself' + (vm && vm.mode && vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), undefined, 'info');
+      if (vm && vm.obs.nightShift) {   // one at a time
+        if (night && night !== host && notes.has(night)) closeNote(notes.get(night));
+        night = host;
+        ctx.note(host, NIGHT_NOTE, 300 * NIGHT_NOTE.split(' ').length, 'info');
+      } else ctx.note(host, 'desk locked while the grid catches itself' + (vm && vm.mode && vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), undefined, 'info');
     },
     send(x, host) {
       if (locked()) { ctx.lockNote(host); return 'desk locked'; }
@@ -331,6 +336,7 @@ export function createDesk(doc, root, actions, opts = {}) {
       // A held Enter is swallowed, so auto-repeat can never be the second press of a guard (K-3).
       if (vm.respond || !mine(active)) return false;
       if (active === tray.el) return ev.repeat ? true : tray.focusFirst();
+      if (active.id === 'bay-restore') { if (!ev.repeat) bay.key('r'); return true; }   // as R: into the list, the feeder to close chosen
       if (active.tagName !== 'BUTTON' || active.disabled || active.classList.contains('dk-hold')) return false;
       if (active.classList.contains('dk-guard')) ctx.consider.keyboard(active.id);   // C-10: the keyboard is on this guard now, whoever focused it
       if (!ev.repeat) active.click();
@@ -341,7 +347,7 @@ export function createDesk(doc, root, actions, opts = {}) {
       // The watch (Q-41): a desk control's keys answer with the lock note, once per press, never reaching the fallback,
       // also when focus has left it (Space blurs) and vm.focus still names it (the fallback would send to it, refused in red).
       const box = e => (e && e.closest && desk.contains(e) ? e.closest('.dk-lever-slot') || e.closest('.dk-rot') : null);
-      const watch = vm.mode && vm.mode.locked;
+      const watch = vm.mode && vm.mode.locked || vm.obs.nightShift;
       const slot = (k.length === 1 && 'sxp'.includes(k) || watch && /^(Arrow|Page|Home$|End$)/.test(k)) &&
         (box(active) || watch && box(vm.focus && doc.getElementById(vm.focus)));
       if (slot) { if (!ev.repeat) emerg.locked(slot); return true; }

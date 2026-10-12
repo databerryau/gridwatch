@@ -55,7 +55,7 @@ export function createTray(ctx, parent) {
         b.type = 'button';
         b.dataset.target = c.button.target;
         // Presentation only: the button focuses (and lights) a control; it never sends an input.
-        b.addEventListener('click', () => { if (ctx.locked()) lockedNote(ctx, box); else { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); } });
+        b.addEventListener('click', () => { if (ctx.viewLocked()) lockedNote(ctx, box); else { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); } });
         b.setAttribute('aria-label', (c.button.label || 'SHOW') + ': go to the control for "' + (c.text || '') + '"');
         card.appendChild(b);
       }
@@ -68,7 +68,7 @@ export function createTray(ctx, parent) {
     const list = (vm.tray && vm.tray.cards) || [];
     const k = list.map(c => c.id + ':' + (c.text || '').length).join('|');
     if (k !== key) { key = k; build(list); }
-    for (const b of cards.querySelectorAll('button')) setAttr(b, 'aria-disabled', ctx.locked() ? 'true' : 'false');
+    for (const b of cards.querySelectorAll('button')) setAttr(b, 'aria-disabled', ctx.viewLocked() ? 'true' : 'false');
     setHidden(log, !showLog);
     setHidden(cards, showLog);
     setAttr(logBtn, 'aria-pressed', showLog ? 'true' : 'false');

@@ -393,7 +393,7 @@ export function createTieKnob(ctx, parent) {
       if (r > lim() && v >= lim()) help(ctx, box, limText());
       return r;
     },
-    wheelStep: ev => (ev.shiftKey ? 1 : 10),
+    wheelStep(ev) { if (fin(ev.deltaY) < 0 && k.cur() >= lim()) help(ctx, box, limText()); return ev.shiftKey ? 1 : 10; },
     send(v) {
       const r = ctx.send({type: 'tie', mw: Math.round(v)}, box);
       if (!r) ctx.live('TIE ' + smw(v) + ' MW');
@@ -426,7 +426,8 @@ export function createTieKnob(ctx, parent) {
     setText(lamp, tt.tripped ? '✕ TRIP ' + mmss(tt.lockoutS) : im < V.TIE_MAX_MW ? '● IMP ≤' + im : '● LINK OK');
     setAttr(lamp, 'title', im < V.TIE_MAX_MW ? limText() : '');
     setCls(lamp, 'crit', !!tt.tripped);
-    setCls(lamp, 'lit', !tt.tripped);
+    setCls(lamp, 'lit', !tt.tripped && im >= V.TIE_MAX_MW);
+    setCls(lamp, 'warn', !tt.tripped && im < V.TIE_MAX_MW);
     setCls(box, 'capped', cap < V.TIE_MAX_MW || im < V.TIE_MAX_MW);
     setCls(box, 'glow', !!(vm.glow && vm.glow.has('knob-tie')));
     setAttr(k.knob, 'aria-valuemin', -V.TIE_MAX_MW);

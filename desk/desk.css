@@ -225,6 +225,7 @@
 .dk-lamps { display: flex; gap: 2px; }
 .dk-lamp { font: calc(8 * var(--u)) var(--dk-mono); padding: 0 2px; border-radius: 2px; color: var(--dk-faint); border: 1px solid var(--dk-line); white-space: nowrap; }
 .dk-lamp.lit { color: var(--dk-bright); border-color: var(--dk-green); }
+.dk-lamp.warn { color: var(--dk-bright); border-color: var(--dk-amber); }
 .dk-lamp.crit, .dk-lamp.fired { color: var(--dk-bright); border-color: var(--dk-red); background: #da363344; }
 .dk-lamp[hidden] { display: none; }
 .dk-ffr.lit { border-color: var(--dk-violet); }

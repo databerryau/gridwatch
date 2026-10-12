@@ -2641,8 +2641,12 @@ tie knob and the AGC / RE-DISPATCH keys; the Live Stack slot over the procedure 
 message tray over the emergency row; the annunciator in the plan bar (§30.4). Every input goes through
 actions.input (never assumed accepted: refusals show on the control for a moment); the desk
 is locked while vm.mode.locked (the watch) except ACK and SILENCE, and from the night shift
-(obs.nightShift, Q-73, 2c) the same way: a press answers with NIGHT_NOTE in blue, at 0.3 s a
-word ("The night shift has the desk: ..."); tabs, notes, "?" and ACK stay open. Time for guards, holds and
+(obs.nightShift, Q-73, 2c) for sim inputs: a press answers with NIGHT_NOTE in blue, at 0.3 s a
+word ("The night shift has the desk: ..."), one at a time (a new one closes the last); a lever's
+or a knob's key with the focus gone from it (Space blurs, vm.focus still names it) answers on it
+as in the watch, never reaching the shell's fallback; views stay open (ctx.viewLocked: tabs, a
+tray card's button, notes, "?", ACK). Enter on the RESTORE tab is R (into the list, the feeder
+to close chosen), so a card's TO THE RESTORE BAY, then Enter, then Enter closes it. Time for guards, holds and
 the synchroscope's 8-s AUTO comes from vm.frame.nowMs (or opts.now), never from timers.
 
 Keys (K-23, §13.3). desk.key returns true exactly when it acted; the shell then stops. (D and E
@@ -2653,7 +2657,7 @@ always return true: both holds are the desk's, so the shell never starts its own
     K          focus DIRECT SHED (while shown) N   RE-DISPATCH (as a press of its key)
     O          open the first READY unit's synchroscope (an offered one first); again: close the scope
     [ ] C U    slip lower / raise, close the breaker, auto-sync      B   the bypass key (HAND only)
-    R          the restore bay (focus its list)
+    R          the restore bay (focus its list, the feeder to close chosen: desk/bay.js)
     A, Shift+A ACK, SILENCE                    D, E (hold 0.6 s)   industrial DR, reserve diesel
     S S / X X  start / stop a machine of the focused station (guarded), P / Shift+P rejoin the plan (HAND)
     Enter      presses the focused desk button (tiles, cards, guards, tabs, ...); not while the RESPOND card is up
@@ -2933,7 +2937,8 @@ extremes between two updates come from sampleTick() (called after every tick): a
 storm, cloud, drought: Q-82's one predicate), until the latest end among them. `x.night`
 (obs.nightShift) makes the night roll quiet as the watch is (Q-73): tiles still flash, nothing
 sounds. PEAK_H is D-2's Peak segment in hours, from `clock.PEAK` ([16.5, 20], Q-78). K-8's
-accept counts real time on `clock.stepReal` (the profile par paces on), 1x in the watch.
+accept counts real time on `clock.stepReal` (the profile par paces on), 1x in the watch, over a
+desk date (DESK 20261008: 5 audible, the PEAK horn at 16:30, none from 21:00).
 ```
 
 #### app/suburbcard.js
@@ -4556,8 +4561,11 @@ Cards never pause play (§7).
   breaker (R, then Enter)." with its button to the restore bay (Q-70); `UNIT_AVAILABLE` (STATION,
   to the unit's lever) and `TIE_LIMIT_END` (MARKET NOTICE, to the tie) are information; the
   weather onsets keep one rule: a `crit` log (heat onset, storm arrival, wind cut-out) rings, and
-  a front's `CLOUD_ONSET` and a warned drought's `WIND_DROUGHT` are information (their warning
-  rang; plan's moments, tests/dayplan.test.js).
+  on a dayplan day the front's `CLOUD_ONSET` over the suburbs and a warned drought's
+  `WIND_DROUGHT` are information (their warning rang; plan's moments, tests/dayplan.test.js).
+  Classic is as before (Q-83): its precinct front's `CLOUD_ONSET` makes no card, and a legacy
+  drought, announced at its onset, makes one card: the log line that twins an `announce` of the
+  same batch (same text) makes none.
 - The night (Q-73): from the sim's `NIGHT_SHIFT` record the tray's cards are quiet (made and
   logged, no cue).
 ```
@@ -4594,9 +4602,11 @@ secureByTick, dark districts except a held task feeder, the network's outage: Q-
 (or a click) to take the desk".
 
 2c (Q-74): the problem line speaks COVER's words. COVER is R5 >= L with no district dark for UFLS
-or direction, within 30 min of the trip, so: "N-1 SHORT: n MW short: cover it within m:ss.";
-"N-1 TIGHT: spare covers the next trip, without SECURE's margin." (TIGHT already covers: no
-countdown); "SHEDDING: n districts dark (n MW): relight them within m:ss."; SECURE as before.
+or direction, within 30 min of the trip, so (SHEDDING first: its head wins over R5 < L):
+"SHEDDING: n district(s) dark (n MW): relight it/them[ and cover n MW] within m:ss." (the
+shortfall when R5 < L); "N-1 SHORT: n MW short: cover it within m:ss."; "N-1 TIGHT: spare
+covers the next trip, without SECURE's margin." (TIGHT already covers: no countdown); SECURE as
+before.
 fallbackGlow's tie test reads obs.tie.importLimitMW (a derate's limit, Q-68).
 ```
 
@@ -4696,12 +4706,17 @@ RESTORE: each dark district is a feeder breaker with its cold-load MW; the RESTO
 lamp (restoreBlock === ''); a breaker closes (`restore`) only when the lamp and the district's
 RESTORE PREVIEW (actions.restorePreview) both allow it. R, ←/→, Enter.
 2c, the restore task (Q-69, Q-70): a task feeder before its clearS is held (the network's): its
-row reads "<id> · FAULT · BACK HH:MM" and is listed after the feeders that are the player's, it
-never chooses the bay's view (RESTORE opens by itself only for a dark district that is not held;
-the tab's ✕n still counts every dark district, as the map and the line do), and a press on its
-CLOSE is the red refusal with the sim's reason ("feeder under repair until HH:MM"), as every
-permissive refusal. From each hand-back until that feeder is closed the RESTORE tab glows. R
-selects the first feeder that can close (the FEEDER_CLEAR card's "R, then Enter").
+row reads "<id> · FAULT · BACK HH:MM" and is listed after the feeders that are the player's, by
+when it comes back; it never chooses the bay's view (RESTORE opens by itself only for a dark
+district that is not held; the tab's ✕n still counts every dark district, as the map and the
+line do, but the tab is lit amber only when one is the player's), and a press on its CLOSE is
+the red refusal with the sim's reason ("feeder under repair until HH:MM"), as every permissive
+refusal. From its hand-back the row reads "<id> · REPAIRED" (the FEEDER_CLEAR card's word). The
+RESTORE tab glows while the clock plays RESTORE (vm.mode.mode, Q-70: from each allowed second
+until that feeder is closed or 300 grid-s), not all day. R, and each hand-back while the list's
+choice is held or none, choose the feeder handed back last that can close, else the first that
+can, else the first that is the player's (the card's "R, then Enter"); Enter on the RESTORE tab
+does what R does.
 Keys (K-23): O opens the first READY unit's scope (an offered one first; again: closes it),
 B is the bypass key (HAND). The scope canvas is role="img" with a text alternative that changes
 at most once per real second. Foley (K-20): buttons and tabs cue `button`, the bypass key `key`;
@@ -4765,9 +4780,13 @@ risk, ✕ short: cross-hatched), RISK is a hatched fill.
 2c, the COVER row (Q-74), in the caught line's place (while it shows, the live preview's caught
 words move into the preview's title). It shows while frequency is outside 49.85-50.15 Hz
 (fos.outsideS > 0), for BAND_OK_MS (3 real s) after it returns, while obs.inRespond, and while
-the latest contingency is past its watch and still uncovered (securedTick < 0). In that order:
+the latest contingency is past its watch and still uncovered (securedTick < 0); never in the night
+roll (obs.nightShift, Q-73: a contingency there is logged only). In that order:
   BAND LOW / BAND HIGH n   fos.countdownS, the bar draining over FOS_RECOVER_S (amber)
-  BAND ✓                   the 3 real s after the return (green), never beside a SHORT or SHEDDING head
+  BAND LOW ✕ n OVER        fos.countdownS at 0: n = outsideS - FOS_RECOVER_S (amber; directed shedding runs)
+  BAND ✓                   the 3 real s after a return seen fresh (green; the gauge's previous update
+                           under 1 real s before and the same day, so never across a jump or after
+                           PLAY THIS DAY AGAIN), never beside a SHORT or SHEDDING head
   COVER n                  to secureByTick, the bar draining over SECURE_AGAIN_S (plain)
   COVER ✓ T+n              covered (securedTick) inside the window (green)
   COVER LOST               covered, and the level is SHORT or SHEDDING inside the window (amber)
@@ -4810,8 +4829,9 @@ Foley (K-20): a turn cues `detent` across a detent (every GUARD step, the tie's 
 battery's IDLE) or else `ratchet`; the hydro gate cues `gate` when a new setting is taken.
 2c (Q-68): a network outage's import limit (obs.tie.importLimitMW, until limitUntilS) bounds the
 tie knob (aria-valuemax; a drag snaps through calc.tieSnap(v, limit), never to a detent past it),
-draws a red arc from it to +800 beside the export cap's, and its lamp reads "● IMP ≤n"; a key
-turn past it, made at it, says in blue "imports limited to n MW until HH:MM".
+draws a red arc from it to +800 beside the export cap's, and its lamp reads "● IMP ≤n" in amber
+(a constraint, never LINK OK's green); a key or wheel turn past it, made at it, says in blue
+"imports limited to n MW until HH:MM".
 ```
 
 #### desk/tray.js
@@ -4819,7 +4839,8 @@ turn past it, made at it, says in blue "imports limited to n MW until HH:MM".
 ```text
 desk/tray.js: the K-9 message tray view (desk/README.md §6). At most 3 cards from
 vm.tray.cards (app/tray.js owns the model), each with one button that only focuses a control
-(actions.ui({do:'focus'})): a tray button never dispatches (K-9). LOG shows the rest.
+(actions.ui({do:'focus'})): a tray button never dispatches (K-9), so it stays open in the night
+roll (ctx.viewLocked; Q-73). LOG shows the rest.
 Keys (K-23): M (the shell) focuses the tray, which lands on the first card's button; ←→ / ↑↓
 move between the cards' buttons and LOG; Enter presses.
 ```

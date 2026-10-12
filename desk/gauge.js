@@ -67,19 +67,22 @@ export function createGauge(ctx, parent) {
   cov.row.hidden = true;
   box.append(head, r5.row, lb.row, prev, caught, cov.row);
   parent.appendChild(box);
-  let vm = null, latched = false, nowMs = 0, wasOut = false, okAt = -Infinity, fig = {k: '', text: '', at: 0};
-  /** [word, class, s | null, before, after, bar] or null */
+  let vm = null, latched = false, nowMs = 0, wasOut = false, okAt = -Infinity, lastMs = -Infinity, lastTick = -1, fig = {k: '', text: '', at: 0};
+  /** [word, class, s | null, before, after, bar, title] or null */
   function coverOf(o) {
     const c = o.contingency, f = o.fos, bad = o.sec.level === 'SHORT' || o.sec.level === 'SHEDDING', ts = t => t / V.TICKS_PER_S;
-    const out = f.outsideS > 0;
-    if (wasOut && !out) okAt = nowMs;
-    wasOut = out;
-    if (out) return ['BAND ' + (o.f.hz < V.F0_HZ ? 'LOW' : 'HIGH'), 'warn', f.countdownS, '', '', f.countdownS / V.FOS_RECOVER_S];
+    const out = f.outsideS > 0, band = 'BAND ' + (o.f.hz < V.F0_HZ ? 'LOW' : 'HIGH');
+    // a return seen fresh: the last update a moment ago, the same day (never across a jump or a new day)
+    if (o.tick < lastTick) okAt = -Infinity;
+    else if (wasOut && !out && nowMs - lastMs <= 1e3) okAt = nowMs;
+    wasOut = out; lastTick = o.tick; lastMs = nowMs;
+    if (o.nightShift) return null;   // (Q-73)
+    if (out) return f.countdownS > 0 ? [band, 'warn', f.countdownS, '', '', f.countdownS / V.FOS_RECOVER_S] : [band + ' ✕', 'warn', f.outsideS - V.FOS_RECOVER_S, '', ' OVER', 0];
     if (!bad && nowMs - okAt < BAND_OK_MS) return ['BAND ✓', 'good', null, '', '', 1];
     if (!c || !(o.inRespond || o.tick >= c.watchEndTick && c.securedTick < 0)) return null;
     const left = ts(c.secureByTick - o.tick);
     if (c.securedTick >= 0) return bad ? ['COVER LOST', 'warn', null, '', '', 0] : ['COVER ✓', 'good', ts(c.securedTick - c.startTick), 'T+', '', 1];
-    return left > 0 ? ['COVER', '', left, '', '', left / V.SECURE_AGAIN_S] : ['COVER ✕', 'warn', -left, '', ' OVER', 0];
+    return left > 0 ? ['COVER', '', left, '', '', left / V.SECURE_AGAIN_S] : ['COVER ✕', 'warn', -left, '', ' OVER', 0, COVER_OVER_TITLE];
   }
   // TRIP PREVIEW (K-10): T (shell), the button (latches) or hovering the gauge. Presentation only.
   pbtn.addEventListener('click', () => { latched = !(vm && vm.previewOn && latched); ctx.cue('button', PAN.gauge); ctx.ui({do: 'preview', on: latched}); });
@@ -97,13 +100,13 @@ export function createGauge(ctx, parent) {
       setHidden(cov.row, !r);
       if (!r) fig.k = '';
       else {
-        const [k, cls, secs, pre, post, full] = r, at = f => (secs === null ? k : k + ' ' + pre + f(secs) + post);
+        const [k, cls, secs, pre, post, full, title = ''] = r, at = f => (secs === null ? k : k + ' ' + pre + f(secs) + post);
         const text = at(x => figure(x, fin(v.mode && v.mode.rate, 1)));
         if (text !== fig.text && (k !== fig.k || nowMs - fig.at >= FIGURE_MS)) fig = {k, text, at: nowMs};
-        say = at(mmss) + (post ? '. ' + COVER_OVER_TITLE : '');
+        say = at(mmss) + (title ? '. ' + title : '');
         setText(cov.l, fig.text);
         setAttr(cov.row, 'class', 'dk-gbar dk-cover ' + cls);
-        setAttr(cov.row, 'title', post ? COVER_OVER_TITLE : '');
+        setAttr(cov.row, 'title', title);
         setStyle(cov.fill, 'width', (clamp(full, 0, 1) * 100).toFixed(1) + '%');
       }
       setText(word, (LEVEL_GLYPH[s.level] || '') + ' ' + s.level);

@@ -127,6 +127,24 @@ test('Q-74: never ✓ beside a SHORT or SHEDDING head (COVER and BAND both)', ()
   }
 });
 
+test('Q-74: past the 5 min "BAND LOW ✕ n MIN OVER" (amber); BAND ✓ only for a return seen fresh (not across a jump or a new day); hidden in the night roll (Q-73)', () => {
+  const {up, row} = gauge();
+  assert.equal(up(view({atS: 400, out: V.FOS_RECOVER_S + 20, hz: 49.8, cont: false, ms: 1000})), 'BAND LOW ✕ 1 MIN OVER');
+  assert.match(row.className, /warn/);
+  assert.equal(row.getAttribute('title'), '', 'COVER\'s AEMO title is COVER\'s');
+  assert.equal(up(view({atS: 400, out: V.FOS_RECOVER_S + 20, hz: 49.8, cont: false, rate: 1, ms: 2000})), 'BAND LOW ✕ 0:20 OVER');
+  // the next update 5 real s later (a sampled look after a jump): the return was not seen, so no ✓
+  assert.equal(up(view({atS: 900, cont: false, ms: 7000})), null);
+  // a new day (the tick goes back) after a day that ended out of band: no ✓ at 04:00
+  const b = gauge();
+  b.up(view({atS: 900, out: 40, hz: 49.7, cont: false, ms: 1000}));
+  assert.equal(b.up(view({atS: -T0, cont: false, ms: 1100})), null);
+  // the night roll: an uncovered contingency past its window and a BAND excursion are logged only
+  const n = gauge(), night = v => { v.obs.nightShift = true; return v; };
+  assert.equal(n.up(night(view({atS: V.SECURE_AGAIN_S + 600, ms: 1000}))), null);
+  assert.equal(n.up(night(view({atS: V.SECURE_AGAIN_S + 601, out: 30, hz: 49.7, ms: 1100}))), null);
+});
+
 test('Q-74: while the row shows, the live preview\'s caught words move to its title', () => {
   const {up, g} = gauge();
   const pv = {nadirHz: 49.62, caught: {inertiaMW: 100, batteryMW: 40, guardMW: 0, governorsMW: 260, loadReliefMW: 10, uflsMW: 0}, guardMW: null};
@@ -152,7 +170,12 @@ test('Q-74 on the RESPOND card: SHORT says what to cover and by when, TIGHT alre
   const o = structuredClone(obs), d = o.districts.find(x => !x.dark);
   Object.assign(d, {dark: true, shedBy: 'ufls'});
   o.sec.level = 'SHEDDING';
-  assert.equal(W.respondCard(o, c).lines[2], 'SHEDDING: 1 districts dark (' + Math.round(d.coldLoadMW) + ' MW): relight them within 29:30.');
+  assert.equal(W.respondCard(o, c).lines[2], 'SHEDDING: 1 district dark (' + Math.round(d.coldLoadMW) + ' MW): relight it within 29:30.');
+  // SHEDDING with R5 < L (a big peak trip): the districts first, then the shortfall; never the SHORT line beside a SHEDDING head
+  const two = structuredClone(o), e = two.districts.find(x => !x.dark);
+  Object.assign(e, {dark: true, shedBy: 'directed'});
+  two.sec.r5MW = two.sec.lMW - 200;
+  assert.equal(W.respondCard(two, c).lines[2], 'SHEDDING: 2 districts dark (' + Math.round(d.coldLoadMW + e.coldLoadMW) + ' MW): relight them and cover 200 MW within 29:30.');
   // a held task feeder (the network's until its hand-back, Q-69) is neither counted nor glows the bay
   const h = structuredClone(o);
   Object.assign(h.districts.find(x => !x.dark), {dark: true, shedBy: 'task', clearS: h.s + 600});
