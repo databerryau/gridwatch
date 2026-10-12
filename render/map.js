@@ -210,7 +210,7 @@ export function mapLabels(vm, hoverId, pinId) {
   const out = [], seen = new Set();
   const add = (id, text, kind) => {
     if (!seen.has(id)) { seen.add(id); out.push({id, text, kind}); return; }
-    const l = out.find(q => q.id === id); // an alarm replaces any other label, a held suburb's a hover's
+    const l = out.find(q => q.id === id);
     if (kind === 'alarm' ? l.kind !== 'alarm' : l.kind === 'hover') Object.assign(l, {text, kind});
   };
   const plantOf = target => PLANTS.find(p => p.target && p.target === target);
@@ -224,7 +224,7 @@ export function mapLabels(vm, hoverId, pinId) {
   for (const u of obs.units) if (u.mode === 'tripped') { const p = PLANTS.find(q => q.id === u.station); alarms.push([p.id, u.name.toUpperCase() + ' TRIPPED']); }
   if (obs.tie && obs.tie.tripped) alarms.push(['tie', 'TIE LINE TRIPPED']);
   for (const t of (vm.alarms && vm.alarms.tiles) || []) if (t.state === 'alarm') { const p = plantOf(t.target); if (p) alarms.push([p.id, p.label]); }
-  const held = []; // (after every red alarm: a blue label never takes an alarm's place)
+  const held = []; // (after the alarms)
   for (const sb of SUBURBS) {
     const D = darkOf(obs, sb.id);
     if (D.n) (D.h < D.n ? alarms : held).push(['sub:' + sb.id, sb.name.toUpperCase() + ': ' + D.text, D.h < D.n ? 'alarm' : 'info']);
@@ -234,10 +234,7 @@ export function mapLabels(vm, hoverId, pinId) {
   return out;
 }
 
-/**
- * Q-69: a suburb's dark districts, h of n held (a task feeder before its clearS): {n, h, back: their
- * hand-back times, text: '2 DARK · BACK 06:45, 07:15' (all held), '2 DARK (1 BACK 07:15)', '2 DARK'}.
- */
+/** Q-69: a suburb's dark districts {n, h (held), back, text} (desk/README.md §31.8 render/map.js). */
 export function darkOf(obs, id) {
   const ds = (obs.districts || []).filter(d => d.dark && d.suburb === id), hs = ds.filter(d => d.clearS > obs.s), n = ds.length, h = hs.length;
   const back = [...new Set(hs.map(d => d.clearS).sort((a, b) => a - b))].map(s => clockText(s, false)).join(', ');

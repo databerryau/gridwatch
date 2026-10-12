@@ -35,7 +35,7 @@ const startToMin = m => m.t1S + AUTO + m.t2S;
 const snapT = t => Math.round(t / SNAP_S) * SNAP_S;
 const ceilT = t => Math.ceil(t / SNAP_S - EPS) * SNAP_S;
 const snapMW = x => Math.round(x / SNAP_MW) * SNAP_MW;
-// Q-69: the dark share at t of the task feeders held then (from 04:00 to their announced return, clearS)
+// Q-69: the dark share of the task feeders held at t (§32.12)
 const heldAt = (obs, t) => darkShareAt({...obs, districts: obs.districts.map(d => ({...d, dark: d.clearS >= 0 && t < d.clearS}))}, t);
 const lit = (x, roof, D) => (D.shed ? litMW(x, roof, D) : x);
 
@@ -499,7 +499,7 @@ export function glowCandidates(obs) {
   if (bCap - bNow >= SNAP_MW && b.socMWh > SNAP_MW * V.BATT_R5_SUSTAIN_H) out.push({id: 'dial-battery', layer: 'battery', atS: s + Math.ceil(SNAP_MW / BATT_RATE), unit: null});
   const t = obs.tie, tLim = t.importLimitMW ?? V.TIE_MAX_MW, t0 = t.tripped ? s + (t.lockoutS || 0) : s, up = Math.ceil(SNAP_MW / TIE_RATE);
   if (t.setMW <= tLim - SNAP_MW) out.push({id: 'knob-tie', layer: 'tie', atS: t0 + up, unit: null});
-  else if (t.limitUntilS >= 0 && t.setMW <= V.TIE_MAX_MW - SNAP_MW) out.push({id: 'knob-tie', layer: 'tie', atS: Math.max(t0, t.limitUntilS) + up, unit: null}); // (from the limit's end, Q-68)
+  else if (t.limitUntilS >= 0 && t.setMW <= V.TIE_MAX_MW - SNAP_MW) out.push({id: 'knob-tie', layer: 'tie', atS: Math.max(t0, t.limitUntilS) + up, unit: null});
   if (obs.dr.callsLeft > 0 && !(obs.dr.activeS > 0)) out.push({id: 'btn-dr', layer: 'dr', atS: s + Math.ceil(SNAP_MW / DR_RATE), unit: null});
   if (!obs.rert.armed) out.push({id: 'key-rert', layer: 'rert', atS: s + V.RERT_LEAD_S + Math.ceil(SNAP_MW / RERT_RATE), unit: null});
   return out;

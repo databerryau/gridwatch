@@ -173,7 +173,7 @@ export function createLiveStack(doc, root, actions) {
   };
   // the desk's form (desk/util.js unitLabel): 'CCGT 2', but 'GT·A' (one machine)
   const unitName = (st, u) => (NAMES[st] || st) + (V.STATIONS[st] && V.STATIONS[st].machines > 1 ? ' ' + u.replace(/\D/g, '') : '');
-  // Q-68: why a ghost sits late ('CCGT 2 is on outage until 07:45'), for the first of units on outage
+  // Q-68: why a ghost sits late
   const outage = us => { const u = vm.obs.units.find(q => us.includes(q.id) && q.outUntilS > vm.obs.s); return u ? unitName(u.station, u.id) + ' is on outage until ' + clockText(u.outUntilS, false) : ''; };
   const sayLocked = () => say(vm.obs.nightShift ? NIGHT_NOTE : 'Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
 
@@ -530,8 +530,7 @@ export function createLiveStack(doc, root, actions) {
     drawExtraLoad(ctx, xs);
     // the rooftop bite and the silhouette above the skyline (L-2, Phase 2a)
     drawRooftop(ctx, xs);
-    // Q-78: act ticks and warned onsets ahead, each a dotted line under its word (a word that
-    // would touch the one before drops a row; under the gaps' glyphs, K-22)
+    // Q-78: act ticks and warned onsets ahead, in two rows (§31.8)
     stats.marks = [];
     ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.setLineDash([1, 2]); ctx.lineWidth = 1;
     const ends = [-1e9, -1e9];
@@ -612,7 +611,7 @@ export function createLiveStack(doc, root, actions) {
     stats.price.text = price; stats.price.spill = spill;
     if (vm.mode && vm.mode.locked) { ctx.fillStyle = UI.red; ctx.textAlign = 'center'; ctx.fillText('READ-ONLY: WATCH', (G.x0 + G.x1) / 2, 1); }
     if (pending && nowMs > pending.until) pending = null;
-    if (nowMs - ariaAt >= 1000 || nowMs < ariaAt || obs.nightShift) { // the text alternative, at most once per real second (K-23); the night's one draw
+    if (nowMs - ariaAt >= 1000 || nowMs < ariaAt || obs.nightShift) { // the text alternative, at most once per real second (K-23)
       ariaAt = nowMs;
       const text = stackSummary(proj, obs, locked());
       if (text !== ariaText) { ariaText = text; cv.setAttribute('aria-label', text); }
@@ -929,7 +928,7 @@ export function createLiveStack(doc, root, actions) {
   }
 
   function hover(p) {
-    const obs = vm.obs, h = !obs.nightShift && hitTest(p.x, p.y, true); // (frozen at night: no tip about 21:00's plan)
+    const obs = vm.obs, h = !obs.nightShift && hitTest(p.x, p.y, true);
     hoverLayer = null; hoverGap = null; hoverBlue = null; glowLocal = new Set();
     if (!h || h.kind === 'empty' || h.kind === 'past') { tip.hidden = true; sendHover(null); return; }
     let text = '';
