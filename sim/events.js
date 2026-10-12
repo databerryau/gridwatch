@@ -325,7 +325,7 @@ function applyEvent(state, e, out) {
       log(out, tick, 'info', 'CLOUD_CLEAR', 'Skies clearing over the solar precinct.');
       return;
     case 'windDrought':
-      if (scn.dayplan) { // the news came with droughtWarn (§32.4.6)
+      if (scn.dayplan && latestNews(state, 'drought')) { // the news came with droughtWarn (§32.4.6)
         log(out, tick, 'warn', 'WIND_DROUGHT', 'Wind drought: wind falling toward about ' + pct(a.windMu) + '% of capacity.');
         return;
       }

@@ -96,7 +96,7 @@ test('S-4: autopilot.js imports only params.js, step.js, clock.js and dark.js (t
   for (const s of importSpecifiers(ap.toks)) assert.ok(['./params.js', './step.js', './clock.js', './dark.js'].includes(s), 'autopilot imports ' + s);
 });
 
-test('2c: clock.js and dark.js import params.js at most (desk/README §32.4)', () => {
+test('2c: clock.js and dark.js import params.js at most; dayplan.js params, rng, clock and events only (desk/README §32.4, §32.5.2)', () => {
   const only = (name, ok) => {
     const x = files.find(y => rel(y.f) === 'sim/' + name);
     assert.ok(x, 'sim/' + name + ' missing');
@@ -104,6 +104,7 @@ test('2c: clock.js and dark.js import params.js at most (desk/README §32.4)', (
   };
   only('clock.js', ['./params.js']);
   only('dark.js', ['./params.js']);
+  only('dayplan.js', ['./params.js', './rng.js', './clock.js', './events.js']);
 });
 
 test('sim/ and content/ use LF line endings', () => {

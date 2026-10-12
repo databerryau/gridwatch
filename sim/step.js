@@ -20,6 +20,7 @@ import * as fleet from './fleet.js';
 import * as physics from './physics.js';
 import * as grid from './grid.js';
 import * as market from './market.js';
+import * as dayplan from './dayplan.js';
 import {hash32} from './rng.js';
 
 export {SIM_VERSION};
@@ -100,7 +101,7 @@ export function createState(seed, scenario) {
   seed = seed >>> 0;
   const scn = scenarioData(scenario);
   const regime = weather.prerollRegime(seed, scn);
-  const evs = events.prerollEvents(seed, scn, regime);
+  const evs = scn.dayplan ? dayplan.preroll(seed, scn, regime) : events.prerollEvents(seed, scn, regime); // Q-65
   const series = weather.prerollSeries(seed, scn, regime, evs);
   const ha = evs.find(e => e.type === 'heatAnnounce');
   const c = scn.commitment;
