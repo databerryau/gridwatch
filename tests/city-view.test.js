@@ -83,7 +83,7 @@ test('Q-57 / §31.3.11: a soak booked while paused redraws the stack; each core 
   assert.equal(S.draws, d0, 'at rest: no redraw');
   // the clock held (paused): a real booking at 04:30 for 10:30 is the only change, and it redraws
   book(st, 'HAZ', 'soak', at(10, 30));
-  const paused = baseVm(observe(st), {frame: vm.frame});
+  const paused = baseVm(observe(st), {frame: {...vm.frame, nowMs: vm.frame.nowMs + 1000 / V.STACK_MAX_HZ}}); // (the next idle draw, 2c Q-63)
   assert.equal(paused.obs.s, vm.obs.s);
   stack.update(paused);
   assert.equal(S.draws, d0 + 1, 'obs.levers.rev is in the redraw key');
@@ -126,8 +126,9 @@ test('Q-57 / §31.3.11: a soak booked while paused redraws the stack; each core 
 });
 
 test('Q-57: air-con: the relief band above the skyline, pre-cool and snapback dashed below it, the night fall dashed above; codes in both layouts; the hover names the block and its part, rings its suburb, and yields to a red gap', () => {
-  // (the live day: HAR3/HAR4 held dark are off each column's load, wave-2 map's lit load, §32.7.4, so no phantom red gap)
-  const st = at0430(2);
+  // (NOTASK: on the live day HAR4's load is back on the stack's columns from its 06:35 hand-back (the announced
+  // return, §32.7.4), and that real red gap takes the pre-cool's hover point; this test is about the bands)
+  const st = at0430(2, NOTASK);
   assert.equal(st.day.temp, 'HOT');
   poke(st, 'TAL', 'aircon', at(6), 13.5);   // pre-cool 05:00, relief 06:00-07:30, snapback to 09:00
   poke(st, 'HAZ', 'soak', at(5), 140);

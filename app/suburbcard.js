@@ -8,6 +8,7 @@ import {LEVER_WHY} from '../sim/grid.js';
 import {stick, cityAim} from './objective.js';
 import {el, setText, setAttr, setCls, setHidden, clockOf as hm, COMMIT_LOCK_MS} from '../desk/util.js';
 import {mw, dollars} from '../render/format.js';
+import {darkOf} from '../render/map.js';
 
 /** U-1's dry wit, by suburb id. */
 export const WIT = Object.freeze({SOL: 'Checks its solar app more often than its children.',
@@ -199,15 +200,14 @@ export function createSuburbCard(doc, root, actions, deps) {
       if (d !== day) { day = d; aims = {}; dflt = {}; rests = {}; shape = ''; } // (a new attempt)
       const id = v.suburb, s = cityOf(v).find(q => q.id === id);
       if (!s) return;
-      const obs = v.obs, sub = subOf(v), lv = obs.levers, ds = obs.districts.filter(d => d.suburb === id), dk = ds.filter(d => d.dark), dark = dk.length;
-      // (Q-69: a task feeder before its hand-back is the network's: its time, and no RESTORE)
-      const back = dk.filter(d => d.clearS > obs.s).sort((a, b) => a.clearS - b.clearS).map(d => hm(d.clearS)), mine = dark > back.length;
-      const key = id + lv.offered + (dark ? mine ? 'd' : 'h' : '') + (sub ? '' : 'x') + lv.blocks.map(b => b.suburb + b.lever + b.atS);
-      if (key !== shape) { shape = key; build(v, id, sub, dark, mine); }
+      const obs = v.obs, sub = subOf(v), lv = obs.levers, ds = obs.districts.filter(d => d.suburb === id), D = darkOf(obs, id), mine = D.n > D.h;
+      // (Q-69: a task feeder before its hand-back is the network's: its time, and no RESTORE; the map's words)
+      const key = id + lv.offered + (D.n ? mine ? 'd' : 'h' : '') + (sub ? '' : 'x') + lv.blocks.map(b => b.suburb + b.lever + b.atS);
+      if (key !== shape) { shape = key; build(v, id, sub, D.n, mine); }
       setText(name, s.name.toUpperCase());
       setAttr(root, 'aria-label', s.name);
       setText(homes, Math.round(s.households / 1e3) + 'k homes');
-      if (E.dark) setText(E.dark.firstChild, dark + ' DARK' + (back.length ? ' · BACK ' + back.join(', ') : ':'));
+      if (E.dark) setText(E.dark.firstChild, D.text + (mine ? ':' : ''));
       const roof = (obs.rooftop.suburbs.find(q => q.id === id) || {mw: 0}).mw, p = sub ? sub.patience : -1;
       setText(E.st, (sub ? 'patience ' + p + (lv.offered.includes('aircon') ? ': ' + (p < V.PATIENCE_LOCK ? 'air-con locked' : p < V.PATIENCE_FULL ?
         Math.round(100 * (V.PATIENCE_FULL + p) / (2 * V.PATIENCE_FULL)) + '% respond' : 'all respond') : '') + ' · ' : '') +

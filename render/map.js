@@ -210,7 +210,8 @@ export function mapLabels(vm, hoverId, pinId) {
   const out = [], seen = new Set();
   const add = (id, text, kind) => {
     if (!seen.has(id)) { seen.add(id); out.push({id, text, kind}); return; }
-    if (kind === 'alarm') { const l = out.find(q => q.id === id); if (l.kind !== 'alarm') Object.assign(l, {text, kind}); }
+    const l = out.find(q => q.id === id); // an alarm replaces any other label, a held suburb's a hover's
+    if (kind === 'alarm' ? l.kind !== 'alarm' : l.kind === 'hover') Object.assign(l, {text, kind});
   };
   const plantOf = target => PLANTS.find(p => p.target && p.target === target);
   if (pinId) add(pinId, mapPinText(vm.obs, pinId), 'info');
@@ -223,19 +224,24 @@ export function mapLabels(vm, hoverId, pinId) {
   for (const u of obs.units) if (u.mode === 'tripped') { const p = PLANTS.find(q => q.id === u.station); alarms.push([p.id, u.name.toUpperCase() + ' TRIPPED']); }
   if (obs.tie && obs.tie.tripped) alarms.push(['tie', 'TIE LINE TRIPPED']);
   for (const t of (vm.alarms && vm.alarms.tiles) || []) if (t.state === 'alarm') { const p = plantOf(t.target); if (p) alarms.push([p.id, p.label]); }
+  const held = []; // (after every red alarm: a blue label never takes an alarm's place)
   for (const sb of SUBURBS) {
-    const [n, back] = darkOf(obs, sb.id), held = n === back.length;
-    if (n) alarms.push(['sub:' + sb.id, sb.name.toUpperCase() + ': ' + n + ' DARK' + (held ? ' · BACK ' + back.join(', ') : ''), held ? 'info' : 'alarm']);
+    const D = darkOf(obs, sb.id);
+    if (D.n) (D.h < D.n ? alarms : held).push(['sub:' + sb.id, sb.name.toUpperCase() + ': ' + D.text, D.h < D.n ? 'alarm' : 'info']);
   }
   const cap = Math.max(MAX_REST_LABELS, out.length) + (pinId ? 1 : 0); // a pin never hides an alarm
-  for (const [id, text, kind] of alarms) { if (out.length >= cap) break; add(id, text, kind || 'alarm'); }
+  for (const [id, text, kind] of alarms.concat(held)) if (out.length < cap || seen.has(id)) add(id, text, kind || 'alarm');
   return out;
 }
 
-/** A suburb's dark districts: [count, the held ones' hand-back times] (Q-69). */
-function darkOf(obs, id) {
-  const ds = (obs.districts || []).filter(d => d.dark && d.suburb === id);
-  return [ds.length, ds.filter(d => d.clearS > obs.s).sort((a, b) => a.clearS - b.clearS).map(d => clockText(d.clearS, false))];
+/**
+ * Q-69: a suburb's dark districts, h of n held (a task feeder before its clearS): {n, h, back: their
+ * hand-back times, text: '2 DARK · BACK 06:45, 07:15' (all held), '2 DARK (1 BACK 07:15)', '2 DARK'}.
+ */
+export function darkOf(obs, id) {
+  const ds = (obs.districts || []).filter(d => d.dark && d.suburb === id), hs = ds.filter(d => d.clearS > obs.s), n = ds.length, h = hs.length;
+  const back = [...new Set(hs.map(d => d.clearS).sort((a, b) => a - b))].map(s => clockText(s, false)).join(', ');
+  return {n, h, back, text: n + ' DARK' + (!h ? '' : h < n ? ' (' + h + ' BACK ' + back + ')' : ' · BACK ' + back)};
 }
 
 /**
@@ -251,7 +257,7 @@ export function mapSummary(vm, hoverId) {
   if (obs.tie && obs.tie.tripped) trips.push('the tie line');
   if (trips.length) parts.push('Tripped: ' + trips.join(', ') + '.');
   const dark = [];
-  for (const sb of SUBURBS) { const [n, back] = darkOf(obs, sb.id); if (n) dark.push(sb.name + ' ' + n + (back.length ? ' (under repair until ' + back.join(', ') + ')' : '')); }
+  for (const sb of SUBURBS) { const D = darkOf(obs, sb.id); if (D.n) dark.push(sb.name + ' ' + D.n + (D.h ? ' (' + (D.h < D.n ? D.h + ' ' : '') + 'under repair until ' + D.back + ')' : '')); }
   if (dark.length) parts.push('Districts dark: ' + dark.join(', ') + '.');
   if (wx.cutOut) parts.push('Wind turbines shut down in the storm.');
   // G-3 (Phase 2a): what the roofs are making, to the nearest 50 MW, and what is off with dark or reconnecting districts
@@ -1147,8 +1153,8 @@ export function createMap(doc, root, actions) {
 
   // Q-56: a suburb's card; a dark one focuses the RESTORE bay first (Q-42), unless every dark feeder is held (Q-69)
   function openSuburb(id) {
-    const [n, back] = darkOf(vm.obs, id.slice(4));
-    if (n > back.length) actions.ui({do: 'focus', target: 'bay-restore'});
+    const D = darkOf(vm.obs, id.slice(4));
+    if (D.n > D.h) actions.ui({do: 'focus', target: 'bay-restore'});
     actions.ui({do: 'suburb', id: id.slice(4)});
   }
 

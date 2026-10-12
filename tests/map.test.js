@@ -963,5 +963,5 @@ test('Q-41 / Q-56: every click on the map answers: a plant its control, a suburb
   for (const d of vm.obs.districts) d.dark = d.suburb === 'SAL' || d.suburb === 'RED';
   const ls = mapLabels(vm, 'coal', 'wind');
   assert.deepEqual(ls.map(l => l.kind), ['info', 'hover', 'alarm', 'alarm']);
-  assert.deepEqual(ls.filter(l => l.kind === 'alarm').map(l => l.text.replace(/\d+/, 'N')), ['REDGUM FLATS: N DARK', 'SALTBUSH BAY: N DARK']);
+  assert.deepEqual(ls.filter(l => l.kind === 'alarm').map(l => l.text.replace(/\d+/, 'N')), ['REDGUM FLATS: N DARK', 'SALTBUSH BAY: N DARK (2 BACK 07:20, 07:50)']); // (2c: SAL's held task feeders, Q-69)
 });

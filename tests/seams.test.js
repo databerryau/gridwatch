@@ -105,14 +105,16 @@ test('P-9 x C-9: the stack\'s word SPILL is MIN GEN\'s spill now, not the price 
   const spill = structuredClone(obs);
   Object.assign(spill.wind, {autoMW: 30}); Object.assign(spill.solar, {autoMW: V.SURPLUS_MIN_MW - 20});
   assert.ok(A.alarmInput(spill).spillMW > V.SURPLUS_MIN_MW, 'MIN GEN\'s input');
-  stack.update(baseVm(spill));
+  let ms = 1000; // (the next idle redraw: at most STACK_MAX_HZ a real second, 2c Q-63)
+  const next = o => baseVm(o, {frame: {nowMs: ms += 1000 / V.STACK_MAX_HZ, dtS: 1 / 60, alpha: 0}});
+  stack.update(next(spill));
   assert.equal(stack.debug.stats.draws, draws + 1);
   assert.deepEqual(price(), [{text: 'SPILL −$20/MWh', fill: UI.blue}]);
   assert.equal(stack.debug.stats.price.spill, true);
   // at SURPLUS_MIN_MW or under, nothing is said to be spilled
   said.length = 0;
   Object.assign(spill.solar, {autoMW: V.SURPLUS_MIN_MW - 30});
-  stack.update(baseVm(spill));
+  stack.update(next(spill));
   assert.deepEqual(price(), [{text: '−$20/MWh', fill: UI.blue}]);
   assert.deepEqual(doc.canvasStats.bad, []);
 });

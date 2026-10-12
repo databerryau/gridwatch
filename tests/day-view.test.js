@@ -20,10 +20,11 @@ import {makeDocument} from './lib/dom.js';
 import {baseVm} from './lib/vm-fixture.js';
 import {stateWith} from './lib/inject.js';
 import {legacyDesk} from './lib/sim-helpers.js';
+import {openGame} from './lib/play.js';
 
 const TPS = V.TICKS_PER_S, HOT = 20261007; // a DESK weekday whose Act I task holds RED5 and RED7 dark from 04:00
 const hhS = (h, m = 0) => (h - V.DAY_START_H) * 3600 + m * 60;
-const C2 = V.MACHINES[unitIndex('ccgt2')], TO_MIN = C2.t1S + V.AUTO_SYNC_S + C2.t2S;
+const C2 = V.MACHINES[unitIndex('ccgt2')], TO_MIN = C2.t1S + V.AUTO_SYNC_S + C2.t2S, TIE_RATE = V.TIE_RAMP_MW_MIN / 60;
 const run = (s, S) => { while (s.tick < S * TPS) step(s, []); return s; };
 let HOT0430 = null;
 /** HOT's live day at 04:30, nobody at the desk (the state as JSON, parsed per call). */
@@ -39,22 +40,40 @@ function mount(make, w, h) {
   return {doc, v, ui, sent, cv};
 }
 
-test('Q-69: each column\'s load is litMW(P50, roof, darkShareAt(obs, t)), so a held task feeder leaves no phantom red gap before its hand-back', () => {
+test('Q-69: each column\'s load is without the task feeders held at its time (litMW, darkShareAt): no phantom red gap before a hand-back, a step up at each; UFLS darkness stays on it', () => {
   const obs = observe(hot0430()), fc = obs.forecast, P = PV.project(obs);
-  const held = obs.districts.filter(d => d.dark && d.clearS > obs.s);
-  assert.deepEqual(held.map(d => d.suburb), ['RED', 'RED'], 'HOT is a task morning');
+  const red = obs.districts.filter(d => d.dark && d.clearS > obs.s).sort((a, b) => a.clearS - b.clearS);
+  assert.deepEqual(red.map(d => d.id + ' ' + clockText(d.clearS, false)), ['RED7 06:45', 'RED5 07:15'], 'HOT is a task morning');
+  const one = structuredClone(obs);
+  one.districts.find(d => d.id === red[0].id).dark = false; // (from 06:45 RED5 alone is held)
+  const lit = (o, q, k) => litMW(fc[k][q], fc.rooftopMW[q], darkShareAt(o, P.times[q])), ks = ['demandP50', 'demandP10', 'demandP90'];
   for (let q = 0; q < P.n; q++) {
-    const D0 = darkShareAt(obs, P.times[q]), roof = fc.rooftopMW[q];
-    assert.equal(P.load[q], litMW(fc.demandP50[q], roof, D0), 'column ' + q);
-    assert.deepEqual([P.p50[q], P.p10[q], P.p90[q]], [P.load[q], litMW(fc.demandP10[q], roof, D0), litMW(fc.demandP90[q], roof, D0)]);
+    const t = P.times[q], want = t >= red[1].clearS ? ks.map(k => fc[k][q]) : ks.map(k => lit(t < red[0].clearS ? obs : one, q, k));
+    assert.deepEqual([P.p50[q], P.p10[q], P.p90[q]], want, clockText(t, false));
+    assert.equal(P.load[q], P.p50[q]);
     assert.equal(P.deficit[q], P.load[q] - P.supply[q]);
   }
-  // before the first hand-back the held MW are off the load (they come back at clearS once par's announced return lands)
-  const first = Math.min(...held.map(d => d.clearS)), before = [...P.times].filter(t => t < first).length;
-  assert.ok(before > 20);
-  for (let q = 0; q < before; q++) assert.ok(fc.demandP50[q] - P.load[q] > 150, 'held load off column ' + q + ': ' + (fc.demandP50[q] - P.load[q]));
+  // each announced return is a step up of its feeder's load (it is the desk's from then)
+  for (const d of red) {
+    const k = P.times.findIndex(t => t >= d.clearS);
+    assert.ok(P.load[k] - P.load[k - 1] > 90, d.id + ' back at ' + clockText(P.times[k], false) + ': +' + Math.round(P.load[k] - P.load[k - 1]) + ' MW');
+  }
   assert.ok(fc.demandP50[0] - P.supply[0] > PV.GAP_MIN_MW, 'against the whole city\'s P50 the first column would read SHORT');
   assert.notEqual(P.gap[0], 'red', 'against the lit city it does not');
+  // UFLS or directed darkness is the player's to relight: it stays on the load, and so does its red gap (as 2b's stack)
+  const shed = structuredClone(obs);
+  for (const d of shed.districts) if (d.suburb === 'HAZ') Object.assign(d, {dark: true, shedBy: 'ufls'});
+  const S = PV.project(shed);
+  assert.deepEqual([Array.from(S.load), S.gap], [Array.from(P.load), P.gap]);
+});
+
+test('Q-69: the past columns are without the held feeders too: on HOT at 05:00 the last past demand meets the first future column', () => {
+  const p = openGame({seed: HOT});
+  p.to('05:00', {stop: []});
+  const vm = p.vm(), P = PV.project(vm.obs, {hist: vm.hist}), raw = PV.pastFromHist(vm.hist, P.pastTimes);
+  const last = P.past.demand[PV.N_PAST - 1];
+  assert.ok(Math.abs(last - P.p50[0]) < 50, 'past ' + Math.round(last) + ' MW, next ' + Math.round(P.p50[0]) + ' MW');
+  assert.ok(raw.demand[PV.N_PAST - 1] - P.p50[0] > 200, 'the whole city\'s demand would stand a cliff above the now line');
 });
 
 test('Q-68: the tie limit holds each column\'s import until its end; an injected outage puts CCGT 2\'s earliest line and ghost at its return + startToMin, and a 06:00 booking starts at the return', () => {
@@ -72,13 +91,26 @@ test('Q-68: the tie limit holds each column\'s import until its end; an injected
   assert.ok(snap.infeasible && snap.ghost.onAtS >= OUT + TO_MIN, 'a drag before the return lands on the first step after it');
   const big = PV.earliestArrival(obs, 'ccgt', C2.ratingMW * 2);
   assert.deepEqual(big.starts, [{unit: 'ccgt2', onAtS: OUT + TO_MIN}]);
-  const {v: stack} = mount(createLiveStack, 336, 164);
+  // the tie helps a gap after the limit's end when it is set at the limit (L-9), and never when it is set past it
+  const knob = mw => PV.glowCandidates({...obs, tie: {...obs.tie, setMW: mw}}).filter(c => c.id === 'knob-tie').map(c => c.atS);
+  assert.deepEqual([knob(400), knob(V.TIE_MAX_MW)], [[END + Math.ceil(PV.SNAP_MW / TIE_RATE)], []]);
+  const {v: stack, cv} = mount(createLiveStack, 336, 164);
   stack.update(baseVm(structuredClone(obs)));
   assert.deepEqual(stack.debug.ghosts.filter(g => g.station === 'ccgt').map(g => [g.unit, g.atS]), [['ccgt2', OUT + TO_MIN]], 'the stack\'s ghost');
-  // a booking made by planLoad before the return waits in plan.starts (the sim's startDueS): the mirror starts it at OUT
-  assert.ok(applyInput(s, {type: 'planLoad', fromS: s.tick / TPS, stations: {}, tie: [], starts: [['ccgt2', BOOK]], stops: []}).ok);
+  // the ghost says why it is late, and so does a drag before it
+  const gh = stack.debug.ghosts.find(g => g.unit === 'ccgt2'), y = gh.y + gh.h / 2, xBook = stack.debug.geom.x(BOOK + TO_MIN);
+  cv.dispatch('pointermove', {clientX: gh.x + 2, clientY: y});
+  assert.match(stack.el.querySelector('.livestack-tip').textContent, new RegExp('^CCGT 2 is on outage until 07:30: earliest on ' + clockText(OUT + TO_MIN, false) + '\n'));
+  for (const [type, x] of [['pointerdown', gh.x + 2], ['pointermove', xBook], ['pointerup', xBook]]) cv.dispatch(type, {clientX: x, clientY: y, pointerId: 1});
+  assert.match(stack.debug.message, new RegExp('^Too soon: CCGT 2 is on outage until 07:30, so earliest ' + clockText(Math.ceil((OUT + TO_MIN) / 900) * 900, false) + '\\. '));
+  // a booking made by planLoad before the return waits in plan.starts (the sim's startDueS): the mirror starts it at OUT;
+  // a tie key under the limit leads from the import the limit lets run (100 MW at 06:00 from 400, not 800: grid.js tiePlanSecond)
+  assert.ok(applyInput(s, {type: 'planLoad', fromS: s.tick / TPS, stations: {}, tie: [[BOOK, 100]], starts: [['ccgt2', BOOK]], stops: []}).ok);
   obs = observe(s); P = PV.project(obs);
   assert.deepEqual(obs.plan.starts, [{unit: 'ccgt2', atS: BOOK}]);
+  const q = P.times.findLastIndex(t => t <= BOOK - (400 - 100) / TIE_RATE), sim = run(JSON.parse(JSON.stringify(s)), P.times[q]);
+  assert.deepEqual([P.tie[q], sim.tie.flowMW], [400, 400], 'at the limit until the lead at ' + clockText(P.times[q], false));
+  assert.ok(Math.abs(P.tie[q + 1] - 100) < 1e-9, 'the key reached');
   const out = P.units.ccgt2;
   for (let q = 0; q < P.n; q++) {
     if (P.times[q] <= OUT) assert.equal(out[q], 0, 'off until its return: ' + clockText(P.times[q], false));
@@ -110,15 +142,28 @@ test('Q-69: a held task feeder\'s suburb: a blue label with its hand-back times,
   const obs = observe(hot0430()), red = obs.districts.filter(d => d.suburb === 'RED' && d.dark).sort((a, b) => a.clearS - b.clearS);
   const [t1, t2] = red.map(d => clockText(d.clearS, false));
   assert.deepEqual([t1, t2], ['06:45', '07:15']);
-  const label = o => mapLabels(baseVm(o), null).find(l => l.id === 'sub:RED');
+  const label = (o, hover = null) => mapLabels(baseVm(o), hover).find(l => l.id === 'sub:RED');
+  const said = o => /Districts dark: ([^.]*)\./.exec(mapSummary(baseVm(o), null))[1];
   assert.deepEqual(label(obs), {id: 'sub:RED', text: 'REDGUM FLATS: 2 DARK · BACK 06:45, 07:15', kind: 'info'});
-  assert.match(mapSummary(baseVm(obs), null), /Districts dark: Redgum Flats 2 \(under repair until 06:45, 07:15\)\./);
-  // the first hand-back: dark and the desk's (today's red alarm) until it is closed; then the second's time alone
+  assert.deepEqual(label(obs, 'sub:RED'), label(obs), 'pointing at it keeps its times');
+  assert.equal(said(obs), 'Redgum Flats 2 (under repair until 06:45, 07:15)');
+  // the first hand-back: today's red alarm until it is closed, naming the one still held; then the second's time alone
   const back = structuredClone(obs);
   back.s = red[0].clearS;
-  assert.deepEqual(label(back), {id: 'sub:RED', text: 'REDGUM FLATS: 2 DARK', kind: 'alarm'});
+  assert.deepEqual(label(back), {id: 'sub:RED', text: 'REDGUM FLATS: 2 DARK (1 BACK 07:15)', kind: 'alarm'});
+  assert.equal(said(back), 'Redgum Flats 2 (1 under repair until 07:15)');
   back.districts.find(d => d.id === red[0].id).dark = false;
   assert.deepEqual(label(back), {id: 'sub:RED', text: 'REDGUM FLATS: 1 DARK · BACK 07:15', kind: 'info'});
+  // one clearance for both (2e's forced first shift) is said once; a shed district beside the held two is counted apart
+  const once = structuredClone(obs), plus = structuredClone(obs);
+  once.districts.forEach(d => { if (d.clearS >= 0) d.clearS = red[0].clearS; });
+  assert.equal(label(once).text, 'REDGUM FLATS: 2 DARK · BACK 06:45');
+  Object.assign(plus.districts.find(d => d.id === 'RED1'), {dark: true, shedBy: 'ufls'});
+  assert.deepEqual([label(plus).text, label(plus).kind, said(plus)], ['REDGUM FLATS: 3 DARK (2 BACK 06:45, 07:15)', 'alarm', 'Redgum Flats 3 (2 under repair until 06:45, 07:15)']);
+  // a blue label never takes a red alarm's place (at most 3 at rest): HAZ, HAR and SAL shed, RED held
+  const busy = structuredClone(obs);
+  for (const d of busy.districts) if (['HAZ1', 'HAR1', 'SAL1'].includes(d.id)) Object.assign(d, {dark: true, shedBy: 'ufls'});
+  assert.deepEqual(mapLabels(baseVm(busy), null).map(l => l.id + ' ' + l.kind), ['sub:HAZ alarm', 'sub:HAR alarm', 'sub:SAL alarm']);
   // the card: the times in blue, no RESTORE to steal the focus before the hand-back; RESTORE once one is the desk's
   const doc = makeDocument(), root = doc.createElement('div'), ui = [];
   doc.body.appendChild(root);
@@ -133,7 +178,7 @@ test('Q-69: a held task feeder\'s suburb: a blue label with its hand-back times,
   const handed = structuredClone(obs);
   handed.s = red[0].clearS;
   card.update(vm(handed), 1);
-  assert.equal(dark(), '2 DARK · BACK 07:15 RESTORE');
+  assert.equal(dark(), '2 DARK (1 BACK 07:15): RESTORE');
   card.focus();
   assert.equal(doc.activeElement.id, 'city-RED-restore', 'once one is the desk\'s, RESTORE is the first row');
   handed.districts.forEach(d => { d.clearS = -1; });
@@ -165,22 +210,38 @@ test('Q-78 / Q-63 / Q-73: the stack\'s act ticks and warned onsets ahead (drawn 
   assert.deepEqual(st.marks, ['STORM', 'II'], 'the storm 2 h ahead, then act II; a derate is no onset');
   assert.match(cv.getAttribute('aria-label'), new RegExp(' Marked: STORM ' + clockText(s + 7200, false) + ', Act II 09:00\\. '));
   assert.ok(stackSummary(stack.debug.proj, {...vm.obs, s: hhS(9, 1)}, false).indexOf('Act II') < 0, 'nothing behind the now line');
-  // the now line steps every 15 grid-s: at 2,100x that is every frame; drawn at most STACK_MAX_HZ times a real second
-  const d0 = st.draws;
-  for (let f = 1; f <= 60; f++) { vm.frame.nowMs += 16; vm.obs.s += 35; stack.update(vm); }
-  const draws = st.draws - d0, gap = 1000 / V.STACK_MAX_HZ; // (a draw on the first 16-ms frame at least 0.1 s after the last)
-  assert.ok(draws <= 60 * 16 / gap && draws >= 60 / Math.ceil(gap / 16) - 1, draws + ' draws in 0.96 real s');
-  vm.obs.plan.rev++; stack.update(vm);
-  assert.equal(st.draws - d0, draws + 1, 'a plan change still draws at once');
-  // the night shift: one draw, then frozen whatever moves, but for its size; a press answers in blue
+  // two words that would touch take two rows (CLOUD 14:20 and III 14:30 are 10 px apart here), under the gaps' glyphs
+  const noon = baseVm(structuredClone(obs)), texts = [];
+  noon.obs.s = noon.obs.forecast.fromS = hhS(12);
+  noon.obs.news = [{atS: noon.obs.s, kind: 'cloud', fromS: hhS(14, 20), toS: null, text: ''}];
+  const {v: s2, cv: cv2, doc: doc2} = mount(createLiveStack, 336, 164);
+  cv2.getContext('2d').fillText = (t, x, y) => texts.push([t, y]);
+  s2.update(noon);
+  const yOf = w => texts.find(([t]) => t === w)[1], G = s2.debug.geom;
+  assert.deepEqual([yOf('CLOUD'), yOf('III')], [G.y1, G.y1 + 10]);
+  // at rest the stack redraws at most STACK_MAX_HZ a real second: at 1,620x the now line steps and the
+  // executor bumps the plan every frame; a change still lands within 0.1 real s
+  const d0 = st.draws, gap = 1000 / V.STACK_MAX_HZ;
+  for (let f = 1; f <= 60; f++) { vm.frame.nowMs += 16; vm.obs.s += 27; vm.obs.plan.rev++; stack.update(vm); }
+  const draws = st.draws - d0; // (a draw on the first 16-ms frame at least 0.1 s after the last)
+  assert.ok(draws <= V.STACK_MAX_HZ && draws >= 60 / Math.ceil(gap / 16) - 1, draws + ' draws in 0.96 real s');
+  vm.frame.nowMs += gap; vm.obs.plan.rev++; stack.update(vm);
+  assert.equal(st.draws - d0, draws + 1, 'a plan change draws within 0.1 real s');
+  // the night shift: one draw (its text says so), then frozen whatever moves, but for its size; a press answers in
+  // blue and its note goes as any note; no tip about 21:00's plan
   vm.obs.nightShift = true; vm.frame.nowMs += 16; stack.update(vm);
+  assert.match(cv.getAttribute('aria-label'), / The night shift has the desk: the stack is frozen until 04:00\./);
   const n0 = st.draws;
   for (let f = 0; f < 30; f++) { vm.frame.nowMs += 200; vm.obs.s += 400; vm.obs.plan.rev++; stack.update(vm); }
   assert.equal(st.draws, n0, 'frozen');
   stack.el.clientWidth = 1248; stack.el.clientHeight = 420; stack.update(vm);
   assert.equal(st.draws, n0 + 1, 'a new size draws once');
   cv.dispatch('pointerdown', {clientX: 200, clientY: 80, pointerId: 1});
-  assert.equal(stack.debug.message, 'The night shift has the desk until 04:00: the stack is frozen');
+  assert.equal(stack.debug.message, 'The night shift has the desk: the stack is frozen until 04:00');
   assert.ok(stack.el.querySelector('.livestack-msg').classList.contains('info'), 'in blue (Q-41)');
-  assert.deepEqual(doc.canvasStats.bad, []);
+  vm.frame.nowMs += 4016; stack.update(vm);
+  assert.equal(stack.debug.message, '', 'gone after 4 real s, frozen as it is');
+  cv.dispatch('pointermove', {clientX: 600, clientY: 300});
+  assert.ok(stack.el.querySelector('.livestack-tip').hidden);
+  assert.deepEqual([st.draws, ...[...doc.canvasStats.bad, ...doc2.canvasStats.bad]], [n0 + 1]);
 });
