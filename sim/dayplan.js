@@ -81,6 +81,8 @@ export function preroll(seed, scn, regime) {
     add(III, on, 'heatOnset', {clearMuAtLeast: scn.events.heat.clearMu});
     add(III, endS, 'heatEnd', {});
     ons.push(on), away(on);
+    const t = a3.trip, l = trip(r(), toS(t.windowH[0]), toS(t.windowH[1])); // Q-85: heat days keep the evening trip
+    if (l >= 0) add(III, l, 'unitTrip', {rule: 'largest', lockoutS: mins(r(), t.lockoutMin)});
   } else if (cls === 'storm') {
     const x = a3.storm, at = win(r(), x.arriveH, MIN, true), co = at + mins(r(), x.cutoutAfterMin);
     const passS = Math.min(at + x.passAfterMin * MIN, toS(x.passByH)), after = m => at + m * MIN;

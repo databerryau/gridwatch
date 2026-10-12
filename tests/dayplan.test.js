@@ -176,7 +176,7 @@ test('Acts II and III (Q-66, Q-67): one crisis each; the trips spread over their
     if (kinds[0] === 'front' && pickWith(uniform(d.seed, STREAM.EXT_EVENTS, V.DAYPLAN_SLOT_BASE + 3, 0), Object.keys(m), x => m[x]) !== 'front') fell++;
     for (const e of d.evs.filter(x => x.act === 2 && x.contingency)) a2[k].push(e.atS);
     const evening = d.evs.filter(e => e.act === 3 && e.type === 'unitTrip');
-    assert.equal(evening.length, cls === 'calm' || cls === 'drought' ? 1 : 0, d.seed + ' ' + cls + ' evening trip');
+    assert.equal(evening.length, cls === 'storm' ? 0 : 1, d.seed + ' ' + cls + ' evening trip'); // Q-85: heat days too
     a3.push(...evening.map(e => e.atS));
     assert.equal(of(d, 'heatAnnounce').length, +heat);
     assert.equal(of(d, 'stormWarn').length, +(cls === 'storm'));
