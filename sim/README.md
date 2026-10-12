@@ -2300,8 +2300,12 @@ test-only way to put a record on a day (createState takes no test parameter):
 - `balanceOpening` balances **lit** demand, `fleet.litDemandMW(state)`: the online hydro machines
   take the difference within their range as before, and whatever hydro cannot take above its
   floor comes off the online coal machines evenly, each kept at or above its `minMW`. Lit demand
-  equals `env.demandMW` when nothing is dark, and hydro is never at a limit at 04:00, so classic
-  and desk open exactly as before.
+  equals `env.demandMW` when nothing is dark, and hydro is then never at a limit at 04:00, so classic
+  and a desk day without the restore task open exactly as before. On a task morning (two feeders
+  held dark, about 230 MW) hydro opens lower: on HOT days it takes all of it (1–45 MW left) and
+  the coal machines stay at their no-task 540 MW; on most MILD days it reaches its 0-MW floor and
+  the coal machines give the rest, a few MW to 25 MW each below 540 (`tests/state.test.js`, the
+  opening on both game days, checks each task morning against the same date without the task).
 - `scenarioHash(scn)` is the `scnHash` createState computes (`canonicalHash` of the scenario's
   data), for the daily list's build stamp (Q-75).
 - **The night flip** (wave 1, `grid`; Q-64, Q-73): on a `scn.night` scenario, `gridSecond` right

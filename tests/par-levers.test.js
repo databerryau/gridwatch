@@ -8,7 +8,7 @@ import {createState, step, observe, applyInput} from '../sim/step.js';
 import {createSystem, systemInputs, commitSig} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {DESK, CLASSIC} from '../content/scenarios.js';
-import {ticksAt, TPS, clone, legacyDesk} from './lib/sim-helpers.js';
+import {ticksAt, TPS, clone, legacyDesk, withoutTask} from './lib/sim-helpers.js';
 
 const S_AT = (h, m = 0) => ticksAt(h, m) / TPS;
 const RULE = /^rule[1-9]$/;
@@ -180,6 +180,22 @@ test('S-14 rule 5 books only when its relief lands on the first short step: not 
 
 // ---------------------------------------------------------------- the day-ahead line and the system (§31.9.9, §31.3.11)
 
+// DESK seed 2 without the restore task (Q-68): a plan made at dawn applies the present dark share to
+// every column (dark.js until wave 2's announced return, §32.4.2), and the flex sits inside litMW, so
+// two held feeders would scale the soak at noon by their share. The subject here is the flex line.
+// TODO(2c-w2-par): on plain DESK seed 2 HAR4 is held until 06:35 and HAR3 until 07:55. Today a plan
+// made at dawn counts them dark at every column: the noon cover is 1,149 MW, not 1,506, and the soak
+// shows as 130.8 MW, not 140. Once dark.js counts a district lit from its clearS, both tests below pass
+// on DESK: the two {todo} copies run them there. Then drop NOTASK and the copies.
+const NOTASK = withoutTask(DESK);
+const ANNOUNCED_RETURN = {todo: '2c-w2-par: the announced return (Q-69, §32.4.2); then run the test above on DESK and drop this copy'};
+/** The copies' fixture: DESK seed 2 opens with HAR3 and HAR4 held, both handed back before the soak starts at 10:30. */
+function taskMorning() {
+  const held = observe(createState(2, DESK)).districts.filter(d => d.dark && d.clearS >= 0);
+  assert.deepEqual(held.map(d => d.id).sort(), ['HAR3', 'HAR4'], 'DESK seed 2 is a task morning');
+  assert.ok(held.every(d => d.clearS < S_AT(10, 30)), 'both handed back by 10:30: ' + held.map(d => d.clearS));
+}
+
 /** Column k's cover (what the stations and the tie must supply) after `replan` on obs with plan P. */
 function covers(P, obs) {
   const memo = createAutopilot({proxy: 'planOnly'});
@@ -198,8 +214,11 @@ function flexAtObs(obs, s) {
   return mw;
 }
 
-test('§31.9.9: the plan stores the day-ahead line without flex and adds the booked flex beyond the 4.5-h forecast once; a late heatwave lifts the demand, never the flex', () => {
-  const s = createState(2, DESK);
+const FLEX_LINE = '§31.9.9: the plan stores the day-ahead line without flex and adds the booked flex beyond the 4.5-h forecast once; a late heatwave lifts the demand, never the flex';
+test(FLEX_LINE, () => flexLine(NOTASK));
+test(FLEX_LINE + ' (DESK seed 2, HAR3 and HAR4 held until their clearS)', ANNOUNCED_RETURN, () => { taskMorning(); flexLine(DESK); });
+function flexLine(scn) {
+  const s = createState(2, scn);
   while (s.tick < V.PLAYER_START_TICK) step(s);
   const before = preDispatch(observe(s, {dayAhead: true}));
   assert.equal(applyInput(s, {type: 'flex', suburb: 'HAZ', lever: 'soak', atS: S_AT(10, 30)}).ok, true);
@@ -229,10 +248,22 @@ test('§31.9.9: the plan stores the day-ahead line without flex and adds the boo
   for (const o of [obs, bare]) o.news.push(clone(heat));
   const H = check(obs, bare);
   assert.ok(H[cols[2]] - A[cols[2]] > 100, 'the heat lifts the 23:00 demand');
-});
+}
 
-test('§31.3.11 commitSig gains obs.levers.rev: in player mode a soak booked at 05:00 re-flows the plan at the system\'s next look, with the soak in it', () => {
-  const s = createState(2, DESK), sys = createSystem({commit: 'player'});
+const REFLOW = '§31.3.11 commitSig gains obs.levers.rev: in player mode a soak booked at 05:00 re-flows the plan at the system\'s next look, with the soak in it';
+test(REFLOW, () => {
+  soakReflow(NOTASK);
+  // CLASSIC has no levers: rev stays 0.
+  assert.equal(observe(createState(2, CLASSIC)).levers.rev, 0);
+});
+test(REFLOW + ' (DESK seed 2, HAR3 and HAR4 held until their clearS); the noon cover is the day\'s without the task', ANNOUNCED_RETURN, () => {
+  taskMorning();
+  const c0 = soakReflow(DESK), free = soakReflow(NOTASK);
+  assert.ok(Math.abs(c0 - free) < 1, 'the plan after 05:00 counts both feeders lit at 12:00: ' + c0.toFixed(1) + ' MW, without the task ' + free.toFixed(1));
+});
+/** Player mode on seed 2: a soak booked just after the system's first dispatch past 05:00 re-flows the plan; returns the noon cover before it. */
+function soakReflow(scn) {
+  const s = createState(2, scn), sys = createSystem({commit: 'player'});
   while (s.tick < ticksAt(5)) step(s, systemInputs(sys, s));
   const loads = () => s.log.filter(r => r.type === 'planLoad').length;
   let n = loads();
@@ -246,6 +277,5 @@ test('§31.3.11 commitSig gains obs.levers.rev: in player mode a soak booked at 
   while (loads() === n) step(s, systemInputs(sys, s));
   assert.ok((s.tick - t0) / TPS <= V.PAR_DECIDE_EVERY_S + 1, 're-dispatched ' + (s.tick - t0) / TPS + ' s after the booking');
   assert.ok(Math.abs(cover() - c0 - 140) < 1, 'the soak is load in the plan at 12:00: +' + (cover() - c0).toFixed(1) + ' MW');
-  // CLASSIC has no levers: rev stays 0.
-  assert.equal(observe(createState(2, CLASSIC)).levers.rev, 0);
-});
+  return c0;
+}

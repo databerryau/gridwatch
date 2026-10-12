@@ -10,6 +10,7 @@ import {V} from '../sim/params.js';
 import {createState, observe} from '../sim/step.js';
 import {setDistrictDark} from '../sim/fleet.js';
 import {DESK} from '../content/scenarios.js';
+import {withoutTask} from './lib/sim-helpers.js';
 
 const START = V.PLAYER_START_S, DAY = V.DAY_S;
 const rng = (x => () => (x = (Math.imul(x, 1664525) + 1013904223) >>> 0) / 2 ** 32)(12345);
@@ -143,7 +144,7 @@ test('2c imports (desk/README §32.4, §32.5.2): clock.js and dark.js import par
 });
 
 test('dark.js: darkShareAt and litMW are autopilot\'s darkShare and litMW (a dark district, then the forecast as lit demand)', () => {
-  const s = createState(8, DESK);
+  const s = createState(8, withoutTask(DESK)); // (no restore task: the one dark district is the test's own)
   s.tick = 7 * 3600 * V.TICKS_PER_S;
   const d = s.city.districts.findIndex(x => x.id === 'SAL4');
   setDistrictDark(s, d, true, 'directed');
@@ -152,5 +153,5 @@ test('dark.js: darkShareAt and litMW are autopilot\'s darkShare and litMW (a dar
   assert.equal(D.shed, o.districts[d].share);
   assert.equal(D.roof, sal.capMW / 6 / o.rooftop.capMW);
   assert.equal(litMW(4000, 1000, D), (4000 + 1000) * (1 - D.shed) - 1000 * (1 - D.roof));
-  assert.deepEqual(darkShareAt(observe(createState(8, DESK)), 0), {shed: 0, roof: 0});
+  assert.deepEqual(darkShareAt(observe(createState(8, withoutTask(DESK))), 0), {shed: 0, roof: 0});
 });

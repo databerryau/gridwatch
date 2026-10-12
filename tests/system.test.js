@@ -8,7 +8,7 @@ import {runPar} from '../sim/autopilot.js';
 import {createSystem, systemInputs, redispatch, commitSig, heldByHand, DISPATCH_S} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {ticksAt, injectTrip, legacyDesk} from './lib/sim-helpers.js';
+import {ticksAt, injectTrip, legacyDesk, withoutTask} from './lib/sim-helpers.js';
 import {followDay} from './lib/follow.js';
 import {quotedSaving, stopLines, skipping, planCost, dearerThanPar, SKIPPED, PLAN_COST_KEYS} from '../tools/follow.mjs';
 import * as fleet from '../sim/fleet.js';
@@ -212,7 +212,8 @@ test('§21.3 player mode in the belly: units at their floor, the tie at the expo
   // opens with; C-14 is tuned in stage C, the asserts do not count machines) and more sun than load.
   // A regression guard: the dispatch before wave 2 already planned this noon so. What it got wrong
   // is below (a dark suburb that is a net exporter) and in 'a battery order re-flows the plan'.
-  const {s, sys} = playerDay(1, DESK_WEEKEND, ticksAt(12, 30));
+  // (The day without the restore task, Q-68: the dark suburb below is the only darkness at noon.)
+  const {s, sys} = playerDay(1, withoutTask(DESK_WEEKEND), ticksAt(12, 30));
   const obs = observe(s);
   const spill = obs.wind.autoMW + obs.solar.autoMW;
   assert.ok(spill > V.SURPLUS_MIN_MW, 'the fixture: ' + spill.toFixed(0) + ' MW being spilled');
