@@ -127,13 +127,13 @@ function setSetting(game, key, value) {
   return '';
 }
 
-/** The game's scenario for a seed (C-2, Q-75): its date's (attempt k is YYYYMMDD + k·10⁸). */
+// C-2, Q-75: the scenario of the seed's date
 export const scenarioForSeed = seed => SCENARIOS[scenarioIdOf(ymdOf(seed))];
 
 // The build stamp a daily list is gated under (Q-75). TODO(2c-merge): step.scenarioHash.
 export const dailyStamp = () => SIM_VERSION + '|' + canonicalHash(SCENARIOS.desk) + '|' + canonicalHash(SCENARIOS['desk-weekend']);
 
-/** The day a query asks for (Q-75): ?seed=N (gated only as its date's listed attempt), ?date=YYYY-MM-DD, else today's daily. */
+// Q-75: ?seed=N, ?date=YYYY-MM-DD, else today's daily (§32.5.3)
 export function dailyFrom(search, date) {
   const q = new URLSearchParams(search || ''), n = Number(q.get('seed')), t = q.get('date'), st = dailyStamp();
   if (q.get('seed') && Number.isFinite(n)) {
@@ -633,7 +633,7 @@ export function restorePreview(game, districtId) {
 
 const PEAK = A.PEAK_H;
 
-// K-12's offer, or '' (§32.4.8). mode: the page's director mode until Q-78; omitted, D-5's window (obs.inRespond).
+// K-12 (§32.4.8). mode: the page's, until Q-78; omitted: D-5's window, obs.inRespond.
 export function offerWhy(obs, tally, mode) {
   if (tally.n >= MAX_OFFERS) return '';
   return (mode === undefined ? obs.inRespond : mode === 'RESPOND' || mode === 'RESPOND-CARD') ? 'respond' : obs.sec.level !== 'SECURE' ? 'tight'

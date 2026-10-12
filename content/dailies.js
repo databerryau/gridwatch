@@ -5,7 +5,6 @@ export const seedOf = (ymd, k = 0) => ymd + k * 1e8;
 export const ymdOf = seed => (seed >>> 0) % 1e8;
 const ymdIn = d => typeof d === 'number' ? d : d instanceof Date ? d.getFullYear() * 1e4 + (d.getMonth() + 1) * 100 + d.getDate()
   : /^\d{4}-\d\d-\d\d$/.test(d) ? +d.replace(/-/g, '') : NaN;
-// a calendar date's UTC Date, else null
 const dayOf = ymd => {
   const y = Math.floor(ymd / 1e4), m = Math.floor(ymd / 100) % 100, d = ymd % 100, t = new Date(Date.UTC(y, m - 1, d));
   return y >= 1900 && t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d ? t : null;

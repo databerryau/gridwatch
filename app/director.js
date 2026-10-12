@@ -185,9 +185,9 @@ export function rateOfLastTick(d, state) {
 /**
  * What the rate badge shows (F-5: the rate is always visible).
  * @returns {{mode:'OVER'|'HIDDEN'|'ALARMS'|'PAUSE'|'WATCH'|'RESPOND-CARD'|'FOCUS'|'RESPOND'|'FAST'|'CRUISE'|'DEBUG',
- *   rate:number, watchS:number, locked:boolean, watchVersion:'full'|'compact'|null, canSkip:boolean, segment:string, act:number, night:boolean}}
+ *   rate:number, watchS:number, locked:boolean, watchVersion:'full'|'compact'|null}} (+ canSkip, below; segment, act, night: §32.4.8)
  *   watchS: grid seconds since the contingency (-1 outside a watch); locked: desk locked (K-15);
- *   watchVersion: the version of the watch in progress (null outside one or while skipped); segment, act, night: §32.4.8.
+ *   watchVersion: the version of the watch in progress (null outside one or while skipped).
  */
 export function modeOf(d, state) {
   const c = watching(state);
