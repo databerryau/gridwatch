@@ -17,7 +17,7 @@ const DR_MW = V.DR_MW, DR_PRICE = V.DR_PRICE;
 const NORMAL_LO = V.NORMAL_LO_HZ, NORMAL_HI = V.NORMAL_HI_HZ;
 const SPARK_BLOCK_S = V.SPARK_BLOCK_S, SPARK_LAST = V.SPARK_BLOCKS - 1;
 const SUSTAINED_S = V.SUSTAINED_INTERRUPTION_S, S_PER_MIN = V.S_PER_MIN;
-const RESTORE_INTERVAL_S = V.RESTORE_INTERVAL_S, PACE_S = V.RESTORE_PACE_MAX_S;
+const RESTORE_INTERVAL_S = V.RESTORE_INTERVAL_S, PACE_S = V.RESTORE_PACE_MAX_S, DAY_S = V.DAY_S;
 
 // S-2 variable cost per MWh by machine: the P-6 offer for thermal plant (cost-based offers
 // ARE the fuel cost), HYDRO_VAR_COST for hydro (the water value is an offer, not a cost).
@@ -365,25 +365,24 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
   resetAcc(acc);
 }
 
-// Split second t's unserved energy by why the dark districts are dark (end-of-second shares;
-// UFLS acts mid-second, so the split is exact only in total); with nothing dark then, by the
-// districts relit in t. The restore task (Q-69): sim/README.md §11 market.js.
+// Split second t's unserved energy by why the dark districts are dark (end-of-second shares, a task
+// feeder closed at the second's end counted dark; UFLS acts mid-second, so the split is exact only
+// in total); with nothing dark then, by the districts relit in t. Q-69: sim/README.md §11 market.js.
 function splitShed(state, sc, shedMWh, t) {
   let total = 0, ufls = 0, directed = 0, task = 0, late = 0, relit = 0, rTask = 0, rLate = 0;
-  const ds = state.city.districts, last = state.city.lastRestoreS + RESTORE_INTERVAL_S;
+  const ds = state.city.districts;
   for (let d = 0; d < ds.length; d++) {
-    const x = ds[d], w = x.share, isLate = t >= Math.max(x.clearS, last) + PACE_S;
-    if (!x.dark) {
+    const x = ds[d], w = x.share, own = x.darkSinceS < x.clearS && x.clearS <= t; // a task feeder, the operator's in t
+    if (x.dark ? x.shedBy === 'task' : own && x.restoredAtS === t + 1) {
+      if (x.clearS > t) continue; // held
+      task += w;
+      if (t >= restoreAllowedS(ds, d) + PACE_S) late += w;
+    } else if (!x.dark) {
       if (x.restoredAtS >= t && x.restoredAtS <= t + 1) {
         relit += w;
-        if (x.darkSinceS < x.clearS) { rTask += w; if (isLate) rLate += w; }
+        if (own) { rTask += w; if (t >= restoreAllowedS(ds, d) + PACE_S) rLate += w; }
       }
       continue;
-    }
-    if (x.shedBy === 'task') {
-      if (x.clearS > t) continue;
-      task += w;
-      if (isLate) late += w;
     } else if (x.shedBy === 'directed') directed += w;
     else ufls += w;
     total += w;
@@ -401,6 +400,18 @@ function splitShed(state, sc, shedMWh, t) {
   } else {
     sc.uflsMWh += shedMWh;
   }
+}
+
+/**
+ * Q-69, Q-70: the second district d may be closed (for a lit one, might have been at its last
+ * close): the later of its clearS and the restore before + RESTORE_INTERVAL_S. Reads districts[]
+ * {dark, clearS, restoredAtS} only, so state.city.districts and observe().districts agree.
+ */
+export function restoreAllowedS(ds, d) {
+  const x = ds[d], end = x.dark ? Infinity : x.restoredAtS;
+  let p = -1;
+  for (const y of ds) if (y.restoredAtS > p && y.restoredAtS < end) p = y.restoredAtS;
+  return Math.max(x.clearS, (p < 0 ? -DAY_S : p) + RESTORE_INTERVAL_S);
 }
 
 // Q-48 (desk/README.md §30.7): SAIDI, SAIFI, MAIFI per household for second t. A relight on the

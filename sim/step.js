@@ -486,7 +486,7 @@ export function observe(state, opts) {
       renPfrMW: ph.renPfrMW, roofPfrMW: ph.roofPfrMW},
     demand: {nowMW: env.demandMW, servedMW: ph.servedMW, shedMW: ph.shedMW, heatActive: env.heatActive, tempC: env.tempC,
       underlyingMW: env.underlyingMW, rooftopMW: env.rooftopMW, litMW: fleet.litDemandMW(state),
-      unservedMW: totalMW * city.shedFrac, flexMW: env.flexMW},
+      unservedMW: totalMW * (city.shedFrac - city.heldFrac), flexMW: env.flexMW},
     units: state.units.map(u => {
       const m = V.MACHINES[u.k];
       const r = {id: u.id, station: u.station, name: m.name, cls: m.cls, mode: u.mode, sync: u.sync, timerS: u.timerS,

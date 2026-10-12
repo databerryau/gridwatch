@@ -54,6 +54,7 @@ test('Q-69: a held task feeder is the network\'s outage: the gate, no unserved M
   assert.ok(sc.heldMWh > 0);
   assert.ok(isPerfect(sc, s.black));
   assert.notEqual(o.sec.level, 'SHEDDING');
+  assert.equal(o.demand.unservedMW, 0, 'the SHED mark on the dial: held is not unserved');
   const r = applyInput(s, {type: 'directShed'});
   assert.equal(r.ok, false);
   assert.match(r.reason, /^DIRECT SHED is for a shortfall/);
@@ -75,7 +76,9 @@ test('Q-69: the hand-back drops heldFrac by its share; the next settled second b
     if (t === CA) { // FEEDER_CLEAR has run: A is the operator's, nothing booked yet
       assert.ok(Math.abs(x.city.heldFrac - (held - a)) < 1e-12);
       assert.equal(sc.taskMWh, 0);
-      assert.equal(observe(x).districts[idx(x, A)].restoreBlock, '');
+      const o = observe(x);
+      assert.equal(o.districts[idx(x, A)].restoreBlock, '');
+      assert.ok(Math.abs(o.demand.unservedMW - baseLoadMW(x) * a) < 1e-9, 'A is unserved from its hand-back');
     }
     if (t === CA + 1) assert.ok(sc.taskMWh > 0 && Math.abs(sc.taskMWh - G[0]) < 0.01 * G[0]); // second CA settled
     if (t === CA + PACE) assert.equal(sc.taskLateMWh, 0, 'inside the pace');
@@ -145,4 +148,24 @@ test('preview neutrality: previews and the restore preview leave state exactly a
   same('restore preview');
   assert.equal(restorePermissive(s, idx(s, B), {preview: true}), 'feeder under repair until 07:05');
   same('held');
+});
+
+test('Q-69 / S-6: the closing second is judged with the rest: a feeder closed past its allowed second + RESTORE_PACE_MAX_S books late MWh, at a boundary or mid-second, with the other feeder held or handed back and dark', () => {
+  const close = (s0, tick) => { // restore A at tick, settle two seconds more: [late MWh > 0, perfect]
+    const s = clone(s0);
+    run(s, 0, null, tick);
+    assert.ok(restore(s, A).ok);
+    run(s, Math.floor(tick / TPS) + 3);
+    return [s.score.taskLateMWh > 0, isPerfect(s.score, s.black)];
+  };
+  const due = (CA + PACE) * TPS; // A's allowed second (its clearS) + the pace: the first late second begins
+  for (const [s0, other] of [[run(clone(at0644()), CA + PACE - 2), 'B held'], [run(day(CA, CA + 60), CA + PACE - 2), 'B handed back, dark']]) {
+    assert.deepEqual(close(s0, due - TPS + 17), [false, true], other + ': mid-second, before it');
+    assert.deepEqual(close(s0, due), [false, true], other + ': at the end of the pace exactly');
+    assert.deepEqual(close(s0, due + TPS), [true, false], other + ': at the end of the first late second (dark through it)');
+    // mid-second inside the first late second: a fraction of a second late. Booked when nothing else is dark at the
+    // second's end; with another feeder dark then, restoredAtS cannot tell it from a close at its start (in time), so
+    // it goes with that feeder: a sub-second tolerance, the player's way (sim/README.md §11 market.js)
+    assert.deepEqual(close(s0, due + 17), other === 'B held' ? [true, false] : [false, true], other + ': mid-second, inside it');
+  }
 });
