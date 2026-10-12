@@ -2,6 +2,7 @@
 // Contract: desk/README.md §31.8 render/livestack.js.
 
 import {V} from '../sim/params.js';
+import {ACT_S} from '../sim/clock.js';
 import * as PV from '../app/planview.js';
 import {COLOURS, UI, SUBURBS} from './mapdata.js';
 import {clockText, mw as fmtMW, priceText} from './format.js';
@@ -31,6 +32,15 @@ const GHOST = {precool: 'pre-cool', snapback: 'snapback', night: 'night heating'
 /** K-23 (Q-57): an obs.levers block in words. */
 export const blockText = b => LEVER[b.lever] + ' ' + SUBURBS.find(q => q.id === b.suburb).name + ' ' + fmtMW(Math.round(b.effMW)) + ' MW ' +
   clockText(b.atS, false) + ' to ' + clockText(b.endS, false);
+
+const ONSET = {heat: 'HEAT', storm: 'STORM', cloud: 'CLOUD', drought: 'LOW WIND'};
+/** Q-78 (pure): the act ticks and warned onsets in (obs.s, toS], by time: [{atS, text, act?}]. */
+export function stackMarks(obs, toS) {
+  const out = [], ahead = t => t > obs.s && t <= toS;
+  for (let a = 1; a < 4; a++) if (ahead(ACT_S[a])) out.push({atS: ACT_S[a], text: ['', 'II', 'III', 'NIGHT'][a], act: a});
+  for (const n of obs.news || []) if (ONSET[n.kind] && ahead(n.fromS)) out.push({atS: n.fromS, text: ONSET[n.kind]});
+  return out.sort((a, b) => a.atS - b.atS);
+}
 
 /** K-22: how each gap kind is told apart without colour: hatch direction and a glyph over each run. */
 export const GAP_MARK = Object.freeze({
@@ -63,6 +73,8 @@ export function stackSummary(proj, obs, locked) {
   say.push('Live Stack at ' + clockText(obs.s, false) + ': the plan for the next 4.5 hours.');
   say.push('Planned supply ' + fmtMW(Math.round(proj.supply[0])) + ' MW against a forecast of ' + fmtMW(Math.round(proj.p50[0])) + ' MW; ' +
     fmtMW(Math.round(proj.supply[far])) + ' against ' + fmtMW(Math.round(proj.p50[far])) + ' MW by ' + clockText(proj.times[far], false) + '.');
+  const mk = stackMarks(obs, proj.times[far]);
+  if (mk.length) say.push('Marked: ' + mk.map(k => (k.act < 3 ? 'Act ' : '') + k.text + ' ' + clockText(k.atS, false)).join(', ') + '.');
   for (const r of runs.slice(0, 4)) {
     say.push(GAP_MARK[r.kind].word + ' ' + clockText(proj.times[r.k0] - STEP, false) + ' to ' + clockText(proj.times[r.k1], false) + ', up to ' +
       fmtMW(Math.round(r.mw)) + ' MW ' + (r.kind === 'red' ? 'below the forecast.' : 'below the top of the likely range.'));
@@ -96,7 +108,7 @@ const layerOfControl = id => {
 /** Projection cache key: everything project() reads that changes the answer (not the clock). */
 function signature(obs) {
   const p = obs.plan || {};
-  let s = (p.rev ?? 0) + '|' + (p.madeAtS ?? -1) + '|' + Math.floor(obs.s / RECOMPUTE_S) + '|';
+  let s = (p.rev ?? 0) + '|' + (p.madeAtS ?? -1) + '|';
   for (const u of obs.units) s += u.mode[0] + u.mode[1] + ',';
   const b = obs.battery, t = obs.tie, r = obs.rert;
   s += b.mode + b.orderMW + '/' + b.guardMW + '|' + t.setMW + (t.tripped ? 'T' : '') + '|' + (r.armed ? 'A' : '') + (r.standingDown ? 'D' : '') +
@@ -147,9 +159,9 @@ export function createLiveStack(doc, root, actions) {
   let drag = null, sel = null, pending = null, message = null, hoverLayer = null, hoverGap = null, hoverBlue = null, sentHover = undefined, glowLocal = new Set();
   let expanded = false, drawMs = 0, lastDrop = null, nowMs = 0, curB = null, runs = [], blues = [], ariaAt = -1e9, ariaText = '', flex = [];
   // gapMarks: one 'kind:hatch:glyph' per red, amber and blue run drawn; rooftop, surplus, price: what Phase 2a drew
-  const stats = {draws: 0, skips: 0, recomputes: 0, tear: null, gapMarks: [],
+  const stats = {draws: 0, skips: 0, recomputes: 0, tear: null, gapMarks: [], marks: [],
     rooftop: {mw: 0, future: false, past: 0, word: false}, surplus: {cols: 0, minPx: 0, word: 0}, price: {text: '', spill: false}};
-  let drawnKey = '';
+  let drawnKey = '', drawnStep = '', drawnAt = -1e9;
 
   // Q-41: kind 'info' help (blue), 'no' a refusal (red), else amber
   const say = (text, kind) => {
@@ -160,10 +172,10 @@ export function createLiveStack(doc, root, actions) {
   };
   // the desk's form (desk/util.js unitLabel): 'CCGT 2', but 'GT·A' (one machine)
   const unitName = (st, u) => (NAMES[st] || st) + (V.STATIONS[st] && V.STATIONS[st].machines > 1 ? ' ' + u.replace(/\D/g, '') : '');
-  const sayLocked = () => say('Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
+  const sayLocked = () => say(vm.obs.nightShift ? 'The night shift has the desk until 04:00: the stack is frozen' : 'Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
 
   function ensureProj() {
-    const obs = vm.obs, k = signature(obs);
+    const obs = vm.obs, k = signature(obs) + '|' + Math.floor(obs.s / RECOMPUTE_S);
     if (!proj || k !== sig) { proj = PV.project(obs, {hist: vm.hist}); sig = k; stats.recomputes++; runs = gapRuns(proj); blues = PV.blueRuns(proj); }
     else if (vm.hist) proj.past = PV.pastFromHist(vm.hist, proj.pastTimes);
     return proj;
@@ -223,7 +235,7 @@ export function createLiveStack(doc, root, actions) {
       for (const e of plan.starts) {
         const m = V.MACHINES.find(q => q.id === e.unit);
         if (!m) continue;
-        const onAt = e.atS + m.t1S + V.AUTO_SYNC_S + m.t2S;
+        const onAt = Math.max(e.atS, obs.units[m.k].outUntilS ?? -1) + m.t1S + V.AUTO_SYNC_S + m.t2S;
         if (onAt > G.tB) continue;
         const li = layerIndex(m.station), c = colOf(Math.max(s, onAt));
         out.push({kind: 'start', unit: e.unit, station: m.station, onAtS: onAt, x: G.x(Math.max(s, onAt)), y: G.y(B.base[li][c] + m.minMW)});
@@ -550,6 +562,18 @@ export function createLiveStack(doc, root, actions) {
     if (G.big) { ctx.fillStyle = UI.text; ctx.textAlign = 'right'; ctx.textBaseline = 'bottom'; ctx.fillText('LIKELY RANGE', G.x1, G.y(proj.p90[n - 1]) - 2); }
     // now line
     ctx.fillStyle = UI.bright; ctx.fillRect(Math.round(xNow), G.y1, 1, G.y0 - G.y1);
+    // Q-78: act ticks and warned onsets ahead, each a dotted line under its word
+    stats.marks = [];
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.setLineDash([1, 2]); ctx.lineWidth = 1;
+    for (const k of stackMarks(obs, G.tB)) {
+      const x = Math.round(G.x(k.atS)) + 0.5, w = ctx.measureText(k.text).width + 4;
+      ctx.strokeStyle = k.act ? UI.text : UI.amber;
+      ctx.beginPath(); ctx.moveTo(x, G.y1 + 10); ctx.lineTo(x, G.y0); ctx.stroke();
+      ctx.fillStyle = UI.bg; ctx.fillRect(x - w / 2, G.y1, w, 10);
+      ctx.fillStyle = ctx.strokeStyle; ctx.fillText(k.text, x, G.y1);
+      stats.marks.push(k.text);
+    }
+    ctx.setLineDash([]);
     // earliest-start lines and ghosts of off units (L-4)
     ctx.setLineDash([2, 2]); ctx.lineWidth = 1;
     for (const gh of ghosts) {
@@ -585,7 +609,7 @@ export function createLiveStack(doc, root, actions) {
     if (pending && nowMs > pending.until) pending = null;
     if (nowMs - ariaAt >= 1000 || nowMs < ariaAt) { // the text alternative, at most once per real second (K-23)
       ariaAt = nowMs;
-      const text = stackSummary(proj, obs, readOnly());
+      const text = stackSummary(proj, obs, locked());
       if (text !== ariaText) { ariaText = text; cv.setAttribute('aria-label', text); }
     }
     stats.draws++;
@@ -835,7 +859,7 @@ export function createLiveStack(doc, root, actions) {
     return true;
   }
 
-  const readOnly = () => !!(vm && vm.mode && vm.mode.locked);
+  const locked = () => !!(vm && vm.mode && vm.mode.locked), readOnly = () => locked() || !!(vm && vm.obs.nightShift);
 
   cv.addEventListener('pointerdown', ev => {
     if (!vm || !G) return;
@@ -1057,16 +1081,20 @@ export function createLiveStack(doc, root, actions) {
     // line (one step per NOW_STEP_S grid-s, under 0.3 px at the floor; the past columns and their
     // rooftop move with it), the price to the dollar, the size and the cross-highlights; anything
     // live (a drag, a selection, a ghost, a message, a hover, the watch's tear) draws every frame.
-    const live = drag || sel || pending || message || hoverLayer || hoverGap || hoverBlue || readOnly();
-    let key = '';
+    // The now line's step at most STACK_MAX_HZ a real second; frozen at night but for its size (2c).
+    const night = v.obs.nightShift, live = !night && (drag || sel || pending || message || hoverLayer || hoverGap || hoverBlue || readOnly());
+    let key = '', step = '';
     if (!live) {
       let glow = '';
       if (v.glow && typeof v.glow.forEach === 'function') v.glow.forEach(id => { glow += id + ','; });
-      key = signature(v.obs) + '|' + Math.floor(v.obs.s / NOW_STEP_S) + '|' + (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' +
-        expanded + '|' + (v.hover || '') + '|' + glow + '|' + (globalThis.devicePixelRatio || 1) + '|' + Math.round(priceNow(v.obs)) + (spillingNow(v.obs) ? 'S' : '');
-    // (the S: the word SPILL comes and goes with the spill at the same price)
+      key = (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' + expanded + '|' + (globalThis.devicePixelRatio || 1) + (night ? 'N' : '|' + signature(v.obs) + '|' +
+        (v.hover || '') + '|' + glow + '|' + Math.round(priceNow(v.obs)) + (spillingNow(v.obs) ? 'S' : ''));
+      // (the S: the word SPILL comes and goes with the spill at the same price)
+      if (!night) step = Math.floor(v.obs.s / NOW_STEP_S);
     }
-    if (live || key !== drawnKey) { drawnKey = key; draw(); } else stats.skips++;
+    if (live || key !== drawnKey || (step !== drawnStep && !(nowMs - drawnAt < 1000 / V.STACK_MAX_HZ && nowMs >= drawnAt))) {
+      drawnKey = key; drawnStep = step; drawnAt = nowMs; draw();
+    } else stats.skips++;
   }
 
   return {
