@@ -200,7 +200,7 @@ export function bootGame(doc, deps) {
   const mm = o.matchMedia === undefined ? (typeof globalThis.matchMedia === 'function' ? q => globalThis.matchMedia(q) : null) : o.matchMedia;
   let rmQuery = null;
   try { rmQuery = mm ? mm('(prefers-reduced-motion: reduce)') : null; } catch { rmQuery = null; }
-  const game = G.createGame({seed: G.seedFrom(search, o.date), system: o.system, planview: o.planview, scenario: o.scenario, commit: o.commit,
+  const game = G.createGame({daily: G.dailyFrom(search, o.date), system: o.system, planview: o.planview, scenario: o.scenario, commit: o.commit,
     startPaused: o.startPaused, par: o.par,
     storage: o.storage === undefined ? safeStorage() : o.storage, reducedMotion: () => !!(rmQuery && rmQuery.matches)});
   const audio = createAudio(o.audioWin === undefined ? globalThis : o.audioWin);
