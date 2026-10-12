@@ -1410,7 +1410,8 @@ Phase 2a (desk/README.md §19.2; P-12, C-8, C-7), each labelled in params.js:
   - Load on NET blocks: G = env.demandMW + env.rooftopMW is the total before rooftop. The relay
     MW (phys.shedMW, the ufls record) is the dark districts' net load, G x shedFrac -
     city.roofDarkMW (near zero or negative at a sunny noon); the unserved RATE is their
-    underlying load, G x shedFrac, into acc.unservedMWs. fleet.refreshRoof keeps the two city
+    underlying load, G x shedFrac (2c, Q-69: less city.heldFrac, a held task feeder being the
+    network's outage), into acc.unservedMWs. fleet.refreshRoof keeps the two city
     sums, so the tick has no district loop. With rooftop zero every term is today's value.
     One labelled case: a stage that sheds a district relit under ROOF_RECONNECT_S + ROOF_RAMP_S
     ago. Its `ufls` record nets only the rooftop the district had connected (what the relays
