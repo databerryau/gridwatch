@@ -2766,19 +2766,27 @@ and obs.levers.
           its card."
 
 Slice 2c (desk/README.md §32.7.4; Q-69, Q-73). A task feeder before its clearS is the network's
-outage, not the desk's (darkOf(obs, id): a suburb's dark count and its held districts' hand-back
-times, clearS > obs.s, in order):
-  Label   while every dark district of a suburb is held, its label is blue ('info', framed) and
-          says when they come back: "SALTBUSH BAY: 2 DARK · BACK 06:45, 07:05", then
-          "SALTBUSH BAY: 1 DARK · BACK 07:05" once the first is closed; from the first hand-back
-          not yet closed it is today's red alarm, "SALTBUSH BAY: 2 DARK" (the count is every
-          dark district, as the bay and the objective line count them). The suburb's name, as
-          every map alarm, not its code.
+outage, not the desk's. darkOf(obs, id) (exported; the suburb card says the same words) gives a
+suburb's dark districts {n, h, back, text}: n dark, h of them held (clearS > obs.s), back their
+hand-back times in order, each time once (2e's forced first shift gives both feeders one
+clearance: "BACK 06:45"), and text: "2 DARK · BACK 06:45, 07:05" while all are held, "2 DARK
+(1 BACK 07:05)" while some are the desk's (a feeder handed back and not yet closed, or a shed one
+beside the held: "3 DARK (2 BACK 06:45, 07:05)"), "2 DARK" with none held.
+  Label   while every dark district of a suburb is held, its label is blue ('info', framed):
+          "SALTBUSH BAY: 2 DARK · BACK 06:45, 07:05", then "SALTBUSH BAY: 1 DARK · BACK 07:05"
+          once the first is closed; while one is the desk's it is today's red alarm,
+          "SALTBUSH BAY: 2 DARK (1 BACK 07:05)" (the count is every dark district, as the bay
+          and the objective line count them; the bracket says which are not yet yours). The
+          suburb's name, as every map alarm, not its code. A held label replaces the plain
+          hover name (pointing at it, or arrowing to it, keeps the times), and the held labels
+          come after every red alarm, so a blue label never takes one of the 3 rest places
+          from a red one.
   Click   a suburb whose every dark district is held opens its card without the RESTORE focus
           (nothing to restore yet; the card says when); one with a feeder that is the desk's
           sends {do: 'focus', target: 'bay-restore'} first, as before.
   Text    "Districts dark: Saltbush Bay 2 (under repair until 06:45, 07:05)." (the permissive's
-          own words for a held feeder).
+          own words for a held feeder); "Saltbush Bay 2 (1 under repair until 07:05)" when not
+          all are held.
   Windows the occupancy curve, G-3 above.
 ```
 
@@ -2866,30 +2874,44 @@ what it does:
   redraw  signature() includes obs.levers.rev: a booking or a cancel while paused redraws.
 
 Slice 2c, the day (desk/README.md §32.7.4; Q-63, Q-68, Q-69, Q-73, Q-78). Imports sim/clock.js too.
-  load    the skyline, the band, the gaps and the projected spill are the lit city's per column
-          (app/planview.js project: a held task feeder is off the load until its announced
-          return), so no red gap the size of the held load stands before its hand-back.
+  load    the skyline, the band, the gaps and the projected spill leave out the task feeders
+          held at each column's time, past columns too (app/planview.js project and
+          pastFromHist with obs): a held feeder is off the load until its announced return,
+          then on it (a step up at each clearS), so no red gap the size of the held load
+          stands before its hand-back and the past skyline meets the first future column
+          (HOT 20261007 at 05:00: 3,779 against 3,778 MW, where the whole city's history stood
+          256 MW above). UFLS and directed darkness stay on the load: the player's to relight,
+          a red gap as in 2b (the respond card's glow and the line read it).
   marks   stackMarks(obs, toS) (pure): the act ticks ahead from clock.ACT_S, 'II' 09:00, 'III'
           14:30, 'NIGHT' 21:00 (Act I's 04:30 is the day's start, not a tick), and a marker at
           each warned weather onset ahead, from obs.news fromS: HEAT, STORM (its arrival),
           CLOUD (the front over its first suburb), LOW WIND (a wind drought); a tie derate, an
           outage or the feeders' ETR is no onset (their cards and the bay carry them). Each is
           a dotted line from the top of the plot to the axis under its word on a dark plate (an
-          act in the axis grey, an onset in amber; the word tells them apart, K-22).
+          act in the axis grey, an onset in amber; the word tells them apart, K-22). Laid out
+          left to right: a plate that would touch the one before drops to a second row 10 px
+          lower (a heat onset at 14:20 beside III at 14:30 is 10 px off at 336 px). Drawn after
+          the rooftop and before the gaps, so a gap's '!' or '~' glyph is never under a plate.
           stackSummary says them after the supply sentence: "Marked: Act III 14:30, STORM
           16:40." (stats.marks: the words drawn, for tests.)
-  redraw  the idle redraw key is split: what changes the picture (the projection's signature,
-          now without its RECOMPUTE_S step, which ensureProj adds; the size, the hover, the
-          glow, the price) draws at once, as before; the now line's NOW_STEP_S step draws at
-          most STACK_MAX_HZ (10) times a real second (Q-63: 15 grid-s is every frame at 2,100x,
-          and a full redraw is 3-5 ms). From obs.nightShift the stack is frozen: one draw as the
-          night shift takes the desk, then only a new size, expansion or pixel ratio redraws
-          (no now line, no plan change, no hover, no drag); the K-23 label stays as it was. A
-          press or an edit key there says, in blue, "The night shift has the desk until 04:00:
-          the stack is frozen" (readOnly() covers the night; the label's "Read-only during the
-          watch." reads the watch alone).
+  redraw  every idle redraw (the projection's signature, now without its RECOMPUTE_S step,
+          which ensureProj adds; the now line's NOW_STEP_S step; the hover, the glow, the
+          price) waits until 1 / STACK_MAX_HZ (0.1) real s after the last draw, and the key is
+          kept, so the newest picture lands on the first frame after it (Q-63: at 1,620x the
+          executor bumps the plan on most frames and the step comes every frame at 2,100x; a
+          full redraw is 3-5 ms). Only a new size, expansion or pixel ratio, or the night's
+          flip, draws at once; a drag, a selection, a ghost, a note, a hover and the watch draw
+          every frame as before. From obs.nightShift the stack is frozen: one draw as the night
+          shift takes the desk (its text alternative written then, saying "The night shift has
+          the desk: the stack is frozen until 04:00."), then only a new size, expansion or pixel
+          ratio redraws (no now line, no plan change, no tip, no drag). A press or an edit key
+          there says the same words in blue (Q-73's lead; readOnly() covers the night; the
+          label's "Read-only during the watch." reads the watch alone), and a note expires in
+          update(), not in draw, so it goes after MSG_MS (4 s) while frozen.
   starts  a booked START's handle sits where the unit comes on: max(atS, its outUntilS) +
-          startToMin (Q-68, the sim's startDueS).
+          startToMin (Q-68, the sim's startDueS). An outage says why a ghost is late: its tip
+          reads "CCGT 2 is on outage until 07:30: earliest on 08:19" and a drag before it
+          "Too soon: CCGT 2 is on outage until 07:30, so earliest 08:30. ...".
 ```
 
 #### app/keys.js
@@ -3008,8 +3030,9 @@ with a booked cycle's two-line row; padding 4 px, p margins 0 and .sc-r 2 px tak
   n DARK: [RESTORE] (city-<ID>-restore: focus bay-restore; the card stays)   only with dark districts
     (2c, Q-69: a task feeder before its clearS is the network's: "2 DARK · BACK 06:45, 07:05" in
     blue with no RESTORE while every dark district is held, so card.focus() goes to the first
-    CANCEL or BOOK and nothing steals the focus before the hand-back; "2 DARK · BACK 07:05
-    [RESTORE]" once one is the desk's; the shape key tells held ('h') from restorable ('d'))
+    CANCEL or BOOK and nothing steals the focus before the hand-back; "2 DARK (1 BACK 07:05):
+    [RESTORE]" once one is the desk's; the words are render/map.js darkOf's, the map's; the
+    shape key tells held ('h') from restorable ('d'))
   “U-1's dry wit”
   patience 40: 90% respond (all respond from 50; air-con locked under 25; only on a day air-con
     is offered, else "patience 40": it scales air-con alone, P2) · draws <lit MW> · roofs <MW>
@@ -4486,17 +4509,28 @@ stack draws the plan, not the seconds). Where the executor's contract is loose t
 named in a comment; stage C checks the projection against a stepped sim.
 
 Slice 2c (§32.7.4; Q-68, Q-69):
-  load     each column's demand is the lit city's at its time, as par's (sim/dark.js):
-           p50, p10 and p90 are litMW(forecast x, rooftop column, darkShareAt(obs, column
-           time)), and load, deficit, the gaps and the projected spill read them (the sim's
-           cut, grid.js surplusMW, is on lit demand too). A dark district is off the load; a
-           held task feeder comes back at its announced return once dark.js counts it lit
-           from clearS (par's, wave 2), so before its hand-back the stack shows no red gap the
-           size of its load (+251 MW at 04:35 on DESK seed 2 before this), and at clearS the
-           skyline steps up. With nothing dark, litMW gives P50 (within a float's rounding).
+  load     each column's demand leaves out the task feeders held at its time (sim/dark.js,
+           par's functions): p50, p10 and p90 are litMW(forecast x, rooftop column, D) with
+           D = darkShareAt(obs', t), where obs' has exactly the districts with 0 <= t < clearS
+           dark (heldAt: a task feeder is dark from 04:00 and cannot be closed before its
+           clearS, so this is the held set at any t, past or future, on this branch and with
+           par's announced return alike). Load, deficit, the gaps and the projected spill read
+           them. So before its hand-back a held feeder leaves no red gap the size of its load
+           (+251 MW at 04:35 on DESK seed 2 before 2c), and at clearS the skyline steps up: from
+           then it is the desk's to close. UFLS and directed darkness (clearS -1) stay on the
+           load, as in 2b: the shed load is a red gap the player relights into, and the respond
+           card's K-16 glow (app/game.js firstGap), the objective's planShort and Q-77's proxy
+           read that gap; par plans on lit demand, the stack shows what the city wants. With
+           nothing held the forecast is used as it is (classic exactly as before).
+           pastFromHist(hist, pastTimes, obs): the history's demand (the whole city's, app/game.js
+           histSecond) less the feeders held at each past column's end, the same way, so the
+           past skyline meets the first future column.
   tie      the import limit holds until tie.limitUntilS, then TIE_MAX_MW, column by column;
            an arrive-by tie key leads from the imports the limit lets run on both ends, as
-           grid.js tiePlanSecond.
+           grid.js tiePlanSecond. glowCandidates: a tie set within SNAP_MW of its limit (and
+           under TIE_MAX_MW - SNAP_MW) is a candidate from the limit's end (L-9: it can add
+           50 MW then, so a gap after the derate glows the knob); set past the limit, it rises
+           by itself at the end and is none.
   outage   earliestOnAt for an off unit is max(s + wait, outUntilS) + startToMin, so the
            earliest line, the ghost, glowCandidates, snapStart and earliestArrival put a unit
            on outage no earlier than its return + startToMin; simInit copies outUntilS and a
