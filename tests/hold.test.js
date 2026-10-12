@@ -9,7 +9,7 @@
 // Sampled, not streamed: the sim jumps between moments and a frame is drawn around each press.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {openGame} from './lib/play.js';
+import {openGame, FRAME_DT} from './lib/play.js';
 import {injectTrip} from './lib/sim-helpers.js';
 import {V} from '../sim/params.js';
 import {hashState} from '../sim/step.js';
@@ -282,8 +282,9 @@ test('Q-48 skeleton: par is stepped once a frame from TAKE THE DESK in every mod
   assert.deepEqual(calls, [3000, 3000, 3000], 'PAUSE, ALARMS, PAUSE: one slice a frame');
   // the driver's jumps step it as the page's frames do (headless parity)
   p.key(' ');
+  const n0 = calls.length, rate = p.vm().mode.rate; // (the rate read, never a literal: slice 2c's profile)
   p.to('+1m', {stop: []});
-  assert.ok(calls.length > 20 && calls.every(c => c === 3000), calls.length + ' slices in a minute at CRUISE');
+  assert.ok(calls.length - n0 >= Math.floor(60 / rate / FRAME_DT) && calls.every(c => c === 3000), (calls.length - n0) + ' slices in a grid minute at CRUISE ' + rate + '×');
   p.game.state.over = true;
   p.frame();
   assert.equal(calls.at(-1), 6000, 'a bigger slice once the day is over');

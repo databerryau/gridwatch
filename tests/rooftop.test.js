@@ -11,7 +11,7 @@ import {sampleSecond, forecast, demandBaseMW, underlyingBaseMW, rooftopClearSkyM
 import {createState, step, observe, hashState} from '../sim/step.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {TPS, clone, withoutContingencies} from './lib/sim-helpers.js';
+import {TPS, clone, withoutContingencies, legacyDesk} from './lib/sim-helpers.js';
 
 const H = 3600, secOf = (h, m = 0) => (h - V.DAY_START_H) * H + m * 60;
 const NOON_S = secOf(13); // solar noon: the shape table's 1000 per-mille point (C-4)
@@ -100,7 +100,7 @@ test('P-2 / C-3: the x 0.92 heat derate follows the heat window\'s ramp (truth f
 });
 
 test('P-1: demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW) on every second of a DESK day, through a smelter trip and its return', () => {
-  const s = createState(8, DESK); // MILD; the potline trips at 12:23 and is back by 13:19
+  const s = createState(8, legacyDesk()); // MILD; the potline trips at 12:23 and is back by 13:19 (today's desk events)
   assert.ok(s.ext.events.some(e => e.type === 'smelterTrip'));
   let bad = 0, worst = 0, off = 0, part = 0, peak = 0, minMW = Infinity;
   for (let sec = 0; sec < V.DAY_S; sec++) {
@@ -121,7 +121,7 @@ test('P-1: demandMW = underlyingMW - rooftopMW - (SMELTER_MW - smelter.loadMW) o
 });
 
 test('P-1: the identity holds each grid second through step() (04:00 to 06:45, past sunrise), and observe() exposes U, R and op', () => {
-  const s = createState(1, DESK);
+  const s = createState(1, legacyDesk());
   let seconds = 0, bad = 0;
   while (!s.over && s.tick < secOf(6, 45) * TPS) {
     step(s);
@@ -143,7 +143,7 @@ test('P-1: the identity holds each grid second through step() across a potline t
   // Seed 87 is a HOT weekday whose potline trips at 10:16:32 for 45 min; with no input the day
   // runs clean to that point and through the return ramp (no district dark). The real grid second
   // is exercised here: applyDue (the trip, the return), planSecond, sampleSecond, the units, physics.
-  const s = createState(87, DESK);
+  const s = createState(87, legacyDesk()); // (today's desk events: the dayplan, slice 2c, moves them)
   const trip = s.ext.events.find(e => e.type === 'smelterTrip'), end = secOf(11, 15);
   assert.equal(s.ext.regime.temp, 'HOT');
   assert.ok(trip.atS > secOf(10) && trip.atS + 45 * 60 + 700 < end, 'the trip and its return are inside the run: second ' + trip.atS);

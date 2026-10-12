@@ -2,12 +2,13 @@
 // Contract: desk/README.md §32.12 app/game.js.
 
 import {V} from '../sim/params.js';
-import {createState, step, observe, applyInput, hashState, replay, SIM_VERSION} from '../sim/step.js';
+import {createState, step, observe, applyInput, hashState, replay, canonicalHash, SIM_VERSION} from '../sim/step.js';
 import * as physics from '../sim/physics.js';
 import * as grid from '../sim/grid.js';
 import * as fleet from '../sim/fleet.js';
 import * as weather from '../sim/weather.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
+import {scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
 import {objective, consequence, steady, masked} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
@@ -112,30 +113,20 @@ function setSetting(game, key, value) {
   return '';
 }
 
-/** Today's seed: the date as YYYYMMDD (local time). */
-export function todaySeed(date) {
-  const d = date || new Date();
-  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
-}
+// C-2, Q-75: the scenario of the seed's date
+export const scenarioForSeed = seed => SCENARIOS[scenarioIdOf(ymdOf(seed))];
 
-/** The seed from a query string (?seed=N), else today's. */
-export function seedFrom(search, date) {
-  const q = new URLSearchParams(search || '');
-  const n = Number(q.get('seed'));
-  return q.has('seed') && Number.isFinite(n) && q.get('seed') !== '' ? n >>> 0 : todaySeed(date);
-}
+// The build stamp a daily list is gated under (Q-75). TODO(2c-merge): step.scenarioHash.
+export const dailyStamp = () => SIM_VERSION + '|' + canonicalHash(SCENARIOS.desk) + '|' + canonicalHash(SCENARIOS['desk-weekend']);
 
-/**
- * The game's scenario for a seed (desk/README.md C-2): 'desk-weekend' when the seed reads as a
- * valid YYYYMMDD date that falls on a Saturday or Sunday, else 'desk' (any other seed is a weekday).
- */
-export function scenarioForSeed(seed) {
-  const n = seed >>> 0, y = Math.floor(n / 10000), m = Math.floor(n / 100) % 100, d = n % 100;
-  if (y >= 1900 && y <= 9999 && m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-    const t = new Date(Date.UTC(y, m - 1, d));
-    if (t.getUTCMonth() === m - 1 && t.getUTCDate() === d && (t.getUTCDay() === 0 || t.getUTCDay() === 6)) return SCENARIOS['desk-weekend'];
+// Q-75: ?seed=N, ?date=YYYY-MM-DD, else today's daily (§32.5.3)
+export function dailyFrom(search, date) {
+  const q = new URLSearchParams(search || ''), n = Number(q.get('seed')), t = q.get('date'), st = dailyStamp();
+  if (q.get('seed') && Number.isFinite(n)) {
+    const s = n >>> 0, d = dailyFor(ymdOf(s), st);
+    return {seed: s, scenarioId: d.scenarioId, ymd: d.ymd, gated: d.gated && d.seed === s};
   }
-  return SCENARIOS.desk;
+  return dailyFor(/^\d{4}-\d\d-\d\d$/.test(t) ? t : date || new Date(), st);
 }
 
 // ------------------------------------------------------------------ the session
@@ -150,15 +141,17 @@ export function scenarioForSeed(seed) {
  *   prefers-reduced-motion (the shell passes a function reading matchMedia), used while the
  *   player has made no choice of their own.
  *   par (Q-48): false (default), true (app/par.js), a runner, or a finished one's {score, series?, black?, at?} (tests).
+ *   daily (Q-75): dailyFrom's {seed, scenarioId, gated, ymd}, in place of seed.
  */
 export function createGame(o) {
+  const seed = (o.daily ? o.daily.seed : o.seed) >>> 0;
   const scenarioOf = typeof o.scenario === 'function' ? o.scenario : null;
-  const scenario = scenarioOf ? scenarioOf(o.seed >>> 0) : o.scenario || CLASSIC;
+  const scenario = scenarioOf ? scenarioOf(seed) : o.scenario || CLASSIC;
   const storage = o.storage === undefined ? null : o.storage;
   const seen = readJson(storage, SEEN_KEY) || {};
   const settings = cleanSettings(readJson(storage, SETTINGS_KEY));
   const game = {
-    seed: o.seed >>> 0, scenario, scenarioOf, storage, sysMod: o.system || null, planview: o.planview || null,
+    seed, daily: o.daily || null, scenario, scenarioOf, storage, sysMod: o.system || null, planview: o.planview || null,
     // SPEC §9.1 Q-18: 'player' = the commitment is the player's (the real page); 'system' = the
     // Phase 1a system operator, which commits units itself. startPaused: the desk opens at 04:30
     // with the clock held, so the first decision is made before anything moves.
@@ -200,6 +193,7 @@ function parFor(game) {
 /** In-page reset (C-3): a new day (the same seed by default) on the same game object. */
 export function resetDay(game, seed) {
   if (seed !== undefined) game.seed = seed >>> 0;
+  if (game.daily && game.daily.seed !== game.seed) game.daily = null; // another seed is not that daily (Q-75)
   if (game.scenarioOf) game.scenario = game.scenarioOf(game.seed);
   game.state = createState(game.seed, game.scenario);
   game.suburbs = null;
@@ -625,19 +619,23 @@ export function restorePreview(game, districtId) {
 
 const PEAK = A.PEAK_H;
 
+// K-12 (§32.4.8). mode: the page's, until Q-78; omitted: D-5's window, obs.inRespond.
+export function offerWhy(obs, tally, mode) {
+  if (tally.n >= MAX_OFFERS) return '';
+  return (mode === undefined ? obs.inRespond : mode === 'RESPOND' || mode === 'RESPOND-CARD') ? 'respond' : obs.sec.level !== 'SECURE' ? 'tight'
+    : obs.clock.h >= PEAK[0] && obs.clock.h < PEAK[1] ? 'peak' : '';
+}
+
 // K-12 / A-4: which ready units the bay offers now.
 function updateOffers(game, obs, mode) {
   const out = [];
-  const respond = mode === 'RESPOND' || mode === 'RESPOND-CARD';
-  const tight = obs.sec.level !== 'SECURE';
-  const peak = obs.clock.h >= PEAK[0] && obs.clock.h < PEAK[1];
   for (const u of obs.units) {
     // One offer per ready period: the record lives while the unit waits at full speed.
     if (u.mode !== 'ready') { delete game.offered[u.id]; continue; }
     const rec = game.offered[u.id];
     if (rec) { out.push({unit: u.id, why: rec.why}); continue; }
-    const why = respond ? 'respond' : tight ? 'tight' : peak ? 'peak' : '';
-    if (!why || game.offersToday >= MAX_OFFERS) continue;
+    const why = offerWhy(obs, {n: game.offersToday, extra: 0, contN: -1}, mode);
+    if (!why) continue;
     game.offersToday++;
     game.offered[u.id] = {why, taken: false};
     out.push({unit: u.id, why});
@@ -769,7 +767,8 @@ export function buildVm(game, f) {
     // Q-48: black is an F at once; par's ALL-IN and the grade are filled in place below, on the frame par has its score
     const allIn = S.allIn(obs.score, game.households);
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: state.log.length, seed: game.seed, v: SIM_VERSION,
-      allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null};
+      allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null,
+      handFlown: !!state.control.handFlown, gated: game.daily ? game.daily.gated : null}; // Q-64, Q-75 (null: not a daily)
   }
   const par = game.par, end = game.end; // (a par day that went black gives no grade)
   if (end && !end.parAllIn && par && par.done && par.score && !par.black) {

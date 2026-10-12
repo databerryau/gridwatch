@@ -25,6 +25,7 @@ import {followDay} from './lib/follow.js';
 import * as FOLLOW from '../tools/follow.mjs';
 import {LINE_REACT_S} from '../app/game.js';
 import {FLAT_RATE} from '../app/director.js';
+import {legacyDesk} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S;
 const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN;
@@ -44,6 +45,8 @@ const unit = (obs, id) => obs.units.find(u => u.id === id);
 // ------------------------------------------------------------------ the followed MILD morning (run once)
 
 const MILD_SEED = 8;
+// Today's desk events (tests/lib/sim-helpers.js legacyDesk): the dayplan, slice 2c, moves desk's, and these tests are not about it.
+const LEGACY = legacyDesk();
 let morningRun = null;
 /**
  * DESK seed 8 (a MILD weekday) followed to 13:00: every line the follower read, a copy of the
@@ -53,7 +56,8 @@ let morningRun = null;
 function morning() {
   if (morningRun) return morningRun;
   const lines = [], keep = {}, sweep = [];
-  const first = (name, obs) => { if (!keep[name]) keep[name] = copy(obs); };
+  // (kept as DESK's: the objective finds the scenario's event menu by id, and legacy desk's is DESK's own)
+  const first = (name, obs) => { if (!keep[name]) keep[name] = Object.assign(copy(obs), {scenarioId: DESK.id}); };
   const rec = (obs, ctx) => {
     const x = objective(obs, ctx);
     lines.push({s: obs.s, kind: x.kind, level: x.level, text: x.text, action: x.action, targets: x.targets, startBy: x.startBy});
@@ -72,7 +76,7 @@ function morning() {
       if (c) sweep.push({s: obs.s, target: g + u.id, text: c.text});
     }
   };
-  const day = followDay(MILD_SEED, DESK, {untilH: 13, objective: rec, onMinute});
+  const day = followDay(MILD_SEED, LEGACY, {untilH: 13, objective: rec, onMinute});
   morningRun = {day, lines, keep, sweep};
   return morningRun;
 }
@@ -124,7 +128,7 @@ let idleRun = null;
  * the no-input test below plays its own copy on to 21:00 (followDay's loop with no input is the
  * system's inputs and step, so the copy played on is the day followDay would give to 21:00).
  */
-const idleMorning = () => idleRun ||= followDay(MILD_SEED, DESK, {follow: false, untilH: 8});
+const idleMorning = () => idleRun ||= followDay(MILD_SEED, LEGACY, {follow: false, untilH: 8});
 
 test('player mode: the system never books a start or a stop, and re-dispatches what is committed', () => {
   const {st, sys} = idleMorning();
@@ -134,7 +138,7 @@ test('player mode: the system never books a start or a stop, and re-dispatches w
   assert.equal(st.log.filter(r => r.type === 'start' || r.type === 'planStart').length, 0);
   assert.equal(sys.commit, 'player');
   // F-6: the day is its log.
-  assert.equal(hashState(replay(MILD_SEED, DESK, st.log, {untilTick: st.tick})), hashState(st));
+  assert.equal(hashState(replay(MILD_SEED, LEGACY, st.log, {untilTick: st.tick})), hashState(st));
 });
 
 test('the objective sees the morning shortfall ahead and names the CCGT, with its lead time and a deadline', () => {
@@ -668,10 +672,11 @@ test('the HOT-morning STOP guard reads the heatwave the sim has pre-rolled: its 
   // announcement or the window, this fails instead of the guard holding STOPs for a heatwave that cannot come)
   let n = 0;
   for (let seed = 1; seed <= 120; seed++) {
-    const st = createState(seed, DESK), ev = st.ext.events.filter(e => e.type === 'heatAnnounce');
+    const st = createState(seed, LEGACY), ev = st.ext.events.filter(e => e.type === 'heatAnnounce');
     if (!ev.length) continue;
     n++;
-    const obs = observe(st), w = O.heatWorstCase(obs);
+    const obs = Object.assign(observe(st), {scenarioId: DESK.id}); // (the guard finds the menu by id: legacy desk's is DESK's own)
+    const w = O.heatWorstCase(obs);
     assert.equal(obs.day.temp, 'HOT', 'seed ' + seed + ': a heatwave day reads HOT until it is announced');
     assert.ok(w && w.fromS === ev[0].args.onsetS && w.toS === ev[0].args.endS, 'seed ' + seed + ': ' + JSON.stringify(w) + ' vs ' + JSON.stringify(ev[0].args));
     obs.s = ev[0].atS - 1;

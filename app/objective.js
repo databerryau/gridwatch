@@ -737,7 +737,7 @@ export const cityAim = (o, lever, id) => { const a = o && o.kind === 'city' && o
 function city(X, line, x, lever, atS, head, tail) {
   const soak = lever === 'soak', by = soak ? atS : atS - V.PRECOOL_S, lv = X.obs.levers;
   return line({level: by - X.s <= X.act ? 'act' : 'plan', kind: 'city', targets: ['suburb-' + x.id], action: {type: 'flex', suburb: x.id, lever, atS}, startBy: by,
-    text: head + (soak ? 'Book a HOT WATER SOAK in ' : 'Book an AIR-CON CYCLE in ') + SCENARIOS[X.obs.scenarioId].city.suburbs[lv.suburbs.indexOf(x)].name + ', ' + at(atS) + '–' +
+    text: head + (soak ? 'Book a HOT WATER SOAK in ' : 'Book an AIR-CON CYCLE in ') + (SCENARIOS[X.obs.scenarioId] || SCENARIOS.classic).city.suburbs[lv.suburbs.indexOf(x)].name + ', ' + at(atS) + '–' +
       at(atS + (soak ? V.SOAK_S : V.AIRCON_S)) + ' (' + Math.round(x[lever].mw) + ' MW): ' + tail});
 }
 

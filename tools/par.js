@@ -244,6 +244,8 @@ const f3 = x => (Number.isFinite(x) ? x.toFixed(3) : '-');
 const median = xs => { const s = xs.slice().sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
 const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const pct = (k, n) => (n ? (100 * k / n).toFixed(1) + '%' : '-');
+// Q-69's clean day: not black, no UFLS or directed shedding (a task feeder's lag is not). TODO(2c-merge): market.isClean.
+const isClean = (sc, black) => !black && sc.uflsMWh + sc.directedMWh === 0;
 
 function table(rows, cols) {
   const w = cols.map(c => Math.max(c[0].length, ...rows.map(r => String(c[1](r)).length)));
@@ -253,9 +255,9 @@ function table(rows, cols) {
 }
 
 function summary(title, rows) {
-  const n = rows.length, isClean = r => r.unservedMWh === 0 && !r.black, clean = rows.filter(isClean).length;
+  const n = rows.length, ok = r => isClean(r, r.black), clean = rows.filter(ok).length;
   const byW = {};
-  for (const r of rows) { const g = byW[r.weather] || (byW[r.weather] = {n: 0, clean: 0, rert: 0}); g.n++; if (isClean(r)) g.clean++; if (r.rert) g.rert++; }
+  for (const r of rows) { const g = byW[r.weather] || (byW[r.weather] = {n: 0, clean: 0, rert: 0}); g.n++; if (ok(r)) g.clean++; if (r.rert) g.rert++; }
   const black = rows.filter(r => r.black), rertN = rows.filter(r => r.rert).length, sum = k => rows.reduce((a, r) => a + r[k], 0);
   console.log('\n' + title);
   table([
@@ -281,7 +283,7 @@ function summary(title, rows) {
   table(types.concat(types.length > 1 ? ['all'] : []).map(d => {
     const g = d === 'all' ? rows : rows.filter(r => r.day === d);
     const neg = g.map(r => r.negPriceH), hi = g.reduce((a, r) => (r.maxHz > a.maxHz ? r : a), g[0]), lo = g.reduce((a, r) => (r.minDemandMW < a.minDemandMW ? r : a), g[0]);
-    const cleanN = g.filter(isClean).length, rertG = g.filter(r => r.rert).length;
+    const cleanN = g.filter(ok).length, rertG = g.filter(r => r.rert).length;
     return {d, n: g.length, clean: cleanN + ' (' + pct(cleanN, g.length) + ')', black: g.filter(r => r.black).length, rert: rertG + ' (' + pct(rertG, g.length) + ')',
       minDem: f1(median(g.map(r => r.minDemandMW))) + ' / ' + f1(lo.minDemandMW) + ' (seed ' + lo.seed + ')',
       neg: f2(median(neg)) + ' / ' + f2(mean(neg)) + ' / ' + f2(Math.max(...neg)), negDays: g.filter(r => r.negPriceH > 0).length,

@@ -50,6 +50,8 @@ const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 
 export const PLAN_COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'flex'];
 export const planCost = cost => PLAN_COST_KEYS.reduce((a, k) => a + cost[k], 0);
 const totalCost = cost => COST_KEYS.reduce((a, k) => a + (cost[k] || 0), 0);
+// Q-69's clean day: not black, no UFLS or directed shedding. TODO(2c-merge): market.isClean.
+const isClean = (sc, black) => !black && sc.uflsMWh + sc.directedMWh === 0;
 /** 16:30, the start of the evening discharge window (PAR_BATT_DISCHARGE_H): where the battery's level is compared. */
 const EVENING_S = (V.PAR_BATT_DISCHARGE_H[0] - V.DAY_START_H) * V.S_PER_H;
 
@@ -153,7 +155,7 @@ export function stopLines(said) {
 
 function summaryOf(r) {
   const sc = r.score;
-  return {black: r.st.black, endsAt: hhmm(Math.floor(r.st.tick / V.TICKS_PER_S)), unservedMWh: sc.unservedMWh, cost: Object.fromEntries(COST_KEYS.map(k => [k, sc.cost[k] || 0])),
+  return {black: r.st.black, endsAt: hhmm(Math.floor(r.st.tick / V.TICKS_PER_S)), unservedMWh: sc.unservedMWh, uflsMWh: sc.uflsMWh, directedMWh: sc.directedMWh, cost: Object.fromEntries(COST_KEYS.map(k => [k, sc.cost[k] || 0])),
     planCost: planCost(sc.cost), totalCost: totalCost(sc.cost), spillMWh: sc.spillMWh || 0};
 }
 
@@ -270,7 +272,7 @@ function report(o, scenario, rows, wallS) {
   console.log('\nby day type');
   table(types.concat(types.length > 1 ? ['all'] : []).map(d => {
     const g = d === 'all' ? rows : rows.filter(r => r.day === d);
-    const clean = g.filter(r => r.unservedMWh === 0 && !r.black).length, black = g.filter(r => r.black);
+    const clean = g.filter(r => isClean(r, r.black)).length, black = g.filter(r => r.black);
     const dp = o.par ? dearerThanPar(g) : null, pts = g.filter(r => r.points !== null && r.points !== undefined).map(r => r.points);
     return {d, n: g.length, clean: clean + ' (' + pct(clean, g.length) + ')', black: black.length + (black.length ? ': ' + black.map(r => r.seed).join(', ') : ''),
       un: f1(median(g.map(r => r.unservedMWh))) + ' / ' + f1(Math.max(...g.map(r => r.unservedMWh))), plan: k$(median(g.map(r => r.planCost))), total: k$(median(g.map(r => r.totalCost))),

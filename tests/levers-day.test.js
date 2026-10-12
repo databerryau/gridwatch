@@ -16,8 +16,8 @@ import * as grid from '../sim/grid.js';
 import * as market from '../sim/market.js';
 import * as physics from '../sim/physics.js';
 import {V} from '../sim/params.js';
-import {DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {commit, supplyMW, clone} from './lib/sim-helpers.js';
+import {DESK} from '../content/scenarios.js';
+import {commit, supplyMW, clone, legacyDeskWeekend} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S, DT = V.PHYS_DT, F0 = V.F0_HZ;
 const at = (h, m = 0) => (h - V.DAY_START_H) * 3600 + m * 60;
@@ -246,7 +246,7 @@ test('U-6 / §31.3.12: cost.flex pays AIRCON_PRICE per MWh of relief delivered o
 // ONE par morning on a mild weekend (DESK_WEEKEND seed 8, 10:30), shared by the tests below as JSON copies.
 let MORNING = null;
 const morning = () => {
-  if (!MORNING) MORNING = JSON.stringify(runPar(8, DESK_WEEKEND, {untilTick: at(10, 30) * TPS + 1}).state);
+  if (!MORNING) MORNING = JSON.stringify(runPar(8, legacyDeskWeekend(), {untilTick: at(10, 30) * TPS + 1}).state); // (today's desk events)
   return JSON.parse(MORNING);
 };
 const go = (s, t, each) => { while (!s.over && s.tick < t) { const ev = step(s); if (each) each(s, ev); } return s; };

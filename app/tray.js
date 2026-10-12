@@ -13,7 +13,11 @@ export const MAX_WORDS = 25;
 /** LOG entries kept. */
 export const MAX_LOG = 200;
 
-export const SENDERS = Object.freeze({weather: 'WEATHER BUREAU', market: 'MARKET NOTICE', station: 'STATION', city: 'CITY DESK'});
+export const SENDERS = Object.freeze({weather: 'WEATHER BUREAU', market: 'MARKET NOTICE', station: 'STATION', city: 'CITY DESK', network: 'NETWORK'});
+// Q-82: a news kind's sender, button and target ('': the lever of the unit its text names); the rest: weather.
+// TODO(2c wave 2, desk): A.isWeather replaces WX.
+const NEWS = {tie: ['market', 'TO THE TIE', 'knob-tie'], outage: ['station', 'TO THE LEVER', ''], network: ['network', 'TO THE RESTORE BAY', 'bay-restore']};
+const WX = ['heat', 'storm', 'cloud', 'drought'];
 
 /** Cut text to MAX_WORDS words (an ellipsis marks a cut). */
 export function words(text, max = MAX_WORDS) {
@@ -25,8 +29,8 @@ const leverOf = unitId => {
   const st = unitId.replace(/\d+$/, '');
   return st === 'hydro' ? 'wheel-hydro' : V.STATION_IDS.includes(st) ? 'lever-' + st : 'stack';
 };
-// the lever of the unit a log line names
-const leverOfMsg = msg => { const m = V.MACHINES.find(x => msg.includes(x.name + ':')); return m ? leverOf(m.id) : 'stack'; };
+// the lever of the unit a text names by its full name (a log line: 'name:')
+const leverIn = (t, end = '') => { const m = V.MACHINES.find(x => t.includes(x.name + end)); return m ? leverOf(m.id) : 'stack'; };
 const unitName = id => { const m = V.MACHINES.find(x => x.id === id); return m ? m.name : id; };
 const hhmm = s => {
   const sod = ((V.DAY_START_H * V.S_PER_H + s) % V.DAY_S + V.DAY_S) % V.DAY_S;
@@ -71,9 +75,8 @@ function mslCard(r) {
 export function cardOf(r) {
   switch (r.kind) {
     case 'announce': {
-      const n = r.news;
-      const target = n.kind === 'heat' || n.kind === 'storm' || n.kind === 'drought' || n.kind === 'cloud' ? 'stack' : 'map';
-      return {key: 'news:' + n.kind + ':' + n.fromS, from: SENDERS.weather, sev: 'warn', text: n.text, button: {label: 'SEE THE STACK', target}};
+      const n = r.news, [from, label, target] = NEWS[n.kind] || ['weather', 'SEE THE STACK', WX.includes(n.kind) ? 'stack' : 'map'], to = target || leverIn(n.text);
+      return {key: 'news:' + n.kind + ':' + n.fromS, from: SENDERS[from], sev: 'warn', text: n.text, button: {label: to === 'stack' ? 'SEE THE STACK' : label, target: to}};
     }
     case 'contingency':
       if (r.cause === 'unit') return {key: 'trip:' + r.id + ':' + r.tick, from: SENDERS.station, sev: 'warn',
@@ -98,7 +101,7 @@ export function cardOf(r) {
         // each command taken, at once (no key: each one a card)
         case 'UNIT_START': case 'UNIT_STOP': case 'UNIT_CANCEL': case 'UNIT_ABORT_STOP':
           return {key: null, from: SENDERS.station, sev: 'info', text: clockOf(r),
-            button: {label: 'TO THE LEVER', target: leverOfMsg(r.msg)}};
+            button: {label: 'TO THE LEVER', target: leverIn(r.msg, ':')}};
         case 'UNIT_RELEASED': return {key: 'rel:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: r.msg,
           button: {label: 'TO THE STACK', target: 'stack'}};
         case 'HYDRO_WATER': case 'HYDRO_EMPTY': return {key: 'water:' + r.code + ':' + r.msg.slice(0, 40), from: SENDERS.station, sev: 'warn',

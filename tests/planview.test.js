@@ -474,8 +474,8 @@ async function mildWeekend() {
   if (!MILD) {
     const {followDay} = await import('./lib/follow.js');
     const {observe} = await import('../sim/step.js');
-    const {DESK_WEEKEND} = await import('../content/scenarios.js');
-    const {st, sys} = followDay(8, DESK_WEEKEND, {follow: false, untilH: 11});
+    const {legacyDeskWeekend} = await import('./lib/sim-helpers.js'); // (today's desk events: no contingency by 12:00)
+    const {st, sys} = followDay(8, legacyDeskWeekend(), {follow: false, untilH: 11});
     MILD = {st: JSON.stringify(st), sys: JSON.stringify(sys), obs: observe(st)};
   }
   // (the state and the system operator as JSON copies: both are plain JSON, and the C-11 rows step

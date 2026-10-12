@@ -47,9 +47,11 @@ test('F-5: precedence PAUSE > WATCH > RESPOND-CARD > FOCUS > RESPOND > FAST > CR
   const s = createState(3, CLASSIC);
   for (let i = 0; i < 10; i++) step(s);
   const d = D.createDirector({game: true, paused: false, seen: {watch: true}});
-  assert.deepEqual([D.modeOf(d, s).mode, D.rateOf(d, s)], ['CRUISE', D.FLAT_RATE]);
+  const cruise = D.rateOf(d, s); // (read, not a literal: the D-2 profile moves it, slice 2c)
+  assert.ok(cruise > 0);
+  assert.deepEqual([D.modeOf(d, s).mode, D.modeOf(d, s).rate], ['CRUISE', cruise]);
   assert.equal(D.setFast(d, s, true), true);
-  assert.deepEqual([D.modeOf(d, s).mode, D.rateOf(d, s)], ['FAST', D.FAST_FACTOR * D.FLAT_RATE]);
+  assert.deepEqual([D.modeOf(d, s).mode, D.rateOf(d, s)], ['FAST', D.FAST_FACTOR * cruise]);
   D.focusRestore(d, s);
   assert.deepEqual([D.modeOf(d, s).mode, D.rateOf(d, s)], ['FOCUS', 1], 'a restore close plays at 1x');
   for (let i = 0; i < D.RESTORE_FOCUS_S * TPS; i++) step(s);
@@ -210,12 +212,14 @@ test('F-4 / C-7: the same inputs give the same hashState whatever the modes (FAS
   const inputs = [[V.PLAYER_START_TICK + 777, {type: 'tie', mw: 300}], [V.PLAYER_START_TICK + 5001, {type: 'guard', mw: 150}],
     [V.PLAYER_START_TICK + 30000, {type: 'battery', mode: 'discharge', mw: 100}]];
   const until = V.PLAYER_START_TICK + 45 * 60 * TPS;
+  let skipped = -1;
   const run = style => {
     let hash = 0;
     const game = G.createGame({seed: 5, storage: null, beforeTick: g => {
       for (const [t, x] of inputs) if (g.state.tick === t) assert.equal(G.sendInput(g, x), '');
       if (g.state.tick === until) hash = hashState(g.state); // frames overshoot differently at each rate
     }});
+    game.director.seen.watch = true; // a full watch seen before: Esc skips this one (K-15)
     G.takeDesk(game);
     injectTrip(game.state, V.PLAYER_START_S + 900);
     let i = 0;
@@ -230,9 +234,11 @@ test('F-4 / C-7: the same inputs give the same hashState whatever the modes (FAS
       if (game.director.paused && game.phase === 'play' && i % 97 > 3) G.ui(game, {do: 'pause'});
     }
     G.runTo(game, until + 1);
+    if (style === 'skip') skipped = game.director.skipN === game.state.conts.at(-1).n ? game.state.conts.length : 0;
     return {hash, log: game.state.log.length};
   };
   const ref = run('cruise');
   assert.equal(ref.log, 3);
   for (const style of ['fast', 'pausey', 'skip', 'holdcard', 'slowframes']) assert.deepEqual(run(style), ref, style);
+  assert.ok(skipped >= 1, 'the skip style skipped the latest watch (Esc)');
 });
