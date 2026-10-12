@@ -2,10 +2,12 @@
 // Contract: desk/README.md §32.12 app/director.js.
 
 import {V} from '../sim/params.js';
+import {SEGMENTS, NIGHT_S, segmentAt, actAt, targetRate, rateAt} from '../sim/clock.js';
+import {restoreAllowedS} from '../sim/market.js';
 
-const TPS = V.TICKS_PER_S;
+const TPS = V.TICKS_PER_S, NIGHT_T = NIGHT_S * TPS;
 
-/** F-5: before Phase 2 CRUISE is a flat 120x. */
+/** The bench's CRUISE: a flat 120x (the game plays the D-2 profile, sim/clock.js; Q-63). */
 export const FLAT_RATE = 120;
 /** FAST is this multiple of CRUISE while F is held (desk/README.md §2). */
 export const FAST_FACTOR = 3;
@@ -60,7 +62,7 @@ export function createDirector(opts) {
     skipN: -1,                // contingency n whose watch is being skipped
     game: !!o.game,            // FAST / RESPOND-CARD / RESPOND / FOCUS and the compact watch
     fast: false, fastN: -1,    // F held; the contingency count when it was pressed (a new one ends it)
-    seen: Object.assign({watch: false, ufls: false, rocof: false}, o.seen || {}),
+    seen: Object.assign({watch: false, ufls: false, rocof: false, restore: false}, o.seen || {}),
     versionN: -1, version: 'full', upgraded: false, // the watch version chosen for contingency versionN
     cardDoneN: -1,             // latest contingency n whose respond card was dismissed
     cardAtTick: -1,            // tick the latest card was dismissed (RESPOND runs from it)
@@ -69,11 +71,17 @@ export function createDirector(opts) {
   };
 }
 
+// Q-73: a night scenario's roll (from NIGHT_S); a contingency in it is logged only (no watch, card or RESPOND)
+const nightAt = (state, t) => !!state.scn.night && t >= NIGHT_T;
+// The latest contingency record, unless the night roll keeps it off the screen
+function latest(state) {
+  const c = state.contIdx < 0 ? null : state.conts[state.contIdx];
+  return c && !nightAt(state, c.startTick) ? c : null;
+}
 // The latest contingency record while its watch runs, else null (the sim's inWatch).
 function watching(state) {
-  if (state.contIdx < 0) return null;
-  const c = state.conts[state.contIdx];
-  return state.tick < c.watchEndTick ? c : null;
+  const c = latest(state);
+  return c && state.tick < c.watchEndTick ? c : null;
 }
 
 // Choose (once) and upgrade the watch version for contingency c. Mutates only the director.
@@ -96,26 +104,48 @@ export function scheduleFor(d, c) {
 
 // Game-mode state checks (all cheap).
 function cardOpen(d, state) {
-  if (!d.game || state.contIdx < 0) return false;
-  const c = state.conts[state.contIdx];
-  return state.tick >= c.watchEndTick && c.n !== d.cardDoneN;
+  const c = d.game && latest(state);
+  return !!c && state.tick >= c.watchEndTick && c.n !== d.cardDoneN;
 }
 function responding(d, state) {
-  if (!d.game || state.contIdx < 0) return false;
-  const c = state.conts[state.contIdx];
-  if (c.n !== d.cardDoneN) return false;
-  return c.backInBandTick < 0 && state.tick < c.watchEndTick + RESPOND_MAX_S * TPS;
+  const c = d.game && latest(state);
+  return !!c && c.n === d.cardDoneN && c.backInBandTick < 0 && state.tick < c.watchEndTick + RESPOND_MAX_S * TPS;
 }
 function focusing(d, state) {
   if (!d.game) return false;
   const sc = state.scope;
   return (sc !== undefined && sc !== null && sc.unit !== '' && sc.unit !== undefined) || state.tick < d.focusUntilTick;
 }
+// Q-70: RESTORE's rate inside a task feeder's window (its allowed second, market.restoreAllowedS, until
+// it is closed or RESTORE_PACE_MAX_S), else 0. 10x until this browser has closed one (seen.restore).
+function restoring(d, state) {
+  const ds = state.city.districts, s = state.tick / TPS;
+  if (!d.game || s >= NIGHT_S) return 0;
+  for (let i = 0; i < ds.length; i++) {
+    if (ds[i].clearS < 0 || !ds[i].dark || ds[i].shedBy !== 'task') continue;
+    const a = restoreAllowedS(ds, i);
+    if (s >= a && s < a + V.RESTORE_PACE_MAX_S) return d.seen.restore ? V.RESTORE_PACE_RATE : V.RESTORE_FIRST_RATE;
+  }
+  return 0;
+}
 function contCount(state) {
   return state.contIdx < 0 ? 0 : state.conts[state.contIdx].n + 1;
 }
 function fastNow(d, state) {
   return d.game && d.fast && d.fastN === contCount(state);
+}
+// CRUISE: the D-2 profile, eased (Q-62), halved in HAND before 21:00 (Q-64); the bench's flat speed.
+// rateAt is asked only inside an ease: between two, its flat stretch is kept (d.flat; the ease's
+// half-width as sim/clock.js computes it), so a tick at 2,100x costs no search.
+const ease = (k, hand) => { const a = targetRate(SEGMENTS[k - 1].a, hand), b = targetRate(SEGMENTS[k].a, hand); return V.CLOCK_EASE_REAL_S * a * b / (a + b); };
+function cruise(d, state) {
+  if (!d.game) return d.speed;
+  const s = state.tick / TPS, hand = state.control.handFlown, f = d.flat;
+  if (f && f.hand === hand && s >= f.lo && s < f.hi) return f.rate;
+  const j = segmentAt(s), lo = j ? SEGMENTS[j].a + ease(j, hand) : -Infinity, hi = j < SEGMENTS.length - 1 ? SEGMENTS[j].b - ease(j + 1, hand) : Infinity;
+  if (s < lo || s >= hi) return rateAt(s, hand);
+  d.flat = {hand, lo, hi, rate: targetRate(s, hand)};
+  return d.flat.rate;
 }
 
 /** The rate right now (grid seconds per real second). Cheap: called between every two ticks. */
@@ -124,14 +154,15 @@ export function rateOf(d, state) {
   const c = watching(state);
   if (c !== null) {
     if (c.n !== d.skipN) return watchRate(state.tick - c.startTick, scheduleFor(d, c));
-    return d.speed;
+    return cruise(d, state);
   }
   if (!d.game) return d.speed;
   if (cardOpen(d, state)) return 0;
   if (focusing(d, state)) return FOCUS_RATE;
+  const r = restoring(d, state);
+  if (r) return r;
   if (responding(d, state)) return RESPOND_RATE;
-  if (fastNow(d, state)) return FAST_FACTOR * d.speed;
-  return d.speed;
+  return (fastNow(d, state) && !nightAt(state, state.tick) ? FAST_FACTOR : 1) * cruise(d, state);
 }
 
 /**
@@ -143,17 +174,16 @@ export function rateOf(d, state) {
  */
 export function rateOfLastTick(d, state) {
   if (d.paused || d.hidden || d.held) return 0;
-  if (state.contIdx >= 0) {
-    const c = state.conts[state.contIdx], t = state.tick - 1;
-    if (t >= c.startTick && t < c.watchEndTick && c.n !== d.skipN) return watchRate(t - c.startTick, scheduleFor(d, c));
-  }
+  const c = latest(state), t = state.tick - 1;
+  if (c && t >= c.startTick && t < c.watchEndTick && c.n !== d.skipN) return watchRate(t - c.startTick, scheduleFor(d, c));
   return d.game ? 0 : d.speed;
 }
 
 /**
  * What the rate badge shows (F-5: the rate is always visible).
- * @returns {{mode:'OVER'|'HIDDEN'|'ALARMS'|'PAUSE'|'WATCH'|'RESPOND-CARD'|'FOCUS'|'RESPOND'|'FAST'|'CRUISE'|'DEBUG',
+ * @returns {{mode:'OVER'|'HIDDEN'|'ALARMS'|'PAUSE'|'WATCH'|'RESPOND-CARD'|'FOCUS'|'RESTORE'|'RESPOND'|'NIGHT'|'FAST'|'CRUISE'|'DEBUG',
  *   rate:number, watchS:number, locked:boolean, watchVersion:'full'|'compact'|null}} (+ canSkip, below; segment, act, night: §32.4.8)
+ *   rate: rateOf's, but CRUISE, NIGHT and FAST show the segment's target (Q-63: never a number counting through an ease);
  *   watchS: grid seconds since the contingency (-1 outside a watch); locked: desk locked (K-15);
  *   watchVersion: the version of the watch in progress (null outside one or while skipped).
  */
@@ -161,35 +191,40 @@ export function modeOf(d, state) {
   const c = watching(state);
   const watchS = c ? (state.tick - c.startTick) / TPS : -1;
   const locked = c !== null;
-  const rate = rateOf(d, state);
+  let rate = rateOf(d, state);
   const watchVersion = c && c.n !== d.skipN ? versionFor(d, c) : null;
   // canSkip: Esc would skip this watch now (in the game, only once a full watch has been seen)
   const canSkip = !!c && c.n !== d.skipN && (!d.game || !!d.seen.watch);
-  const r = mode => ({mode, rate, watchS, locked, watchVersion, canSkip, segment: '', act: 0, night: false});
+  const s = state.tick / TPS, g = d.game, night = nightAt(state, state.tick);
+  const r = mode => ({mode, rate, watchS, locked, watchVersion, canSkip, segment: g ? SEGMENTS[segmentAt(s)].name : '', act: g ? actAt(s) : 0, night});
+  const t = (mode, k = 1) => { rate = k * targetRate(s, state.control.handFlown); return r(mode); };
   if (state.over) return r('OVER');
   if (d.hidden) return r('HIDDEN');
   if (d.held) return r('ALARMS');
   if (d.paused) return r('PAUSE');
   if (c && c.n !== d.skipN) return r('WATCH');
-  if (!d.game) return r(d.speed === FLAT_RATE ? 'CRUISE' : 'DEBUG');
-  if (c) return r('CRUISE'); // a skipped watch plays at CRUISE
+  if (!g) return r(d.speed === FLAT_RATE ? 'CRUISE' : 'DEBUG');
+  if (c) return t('CRUISE'); // a skipped watch plays at CRUISE
   if (cardOpen(d, state)) return r('RESPOND-CARD');
   if (focusing(d, state)) return r('FOCUS');
+  if (restoring(d, state)) return r('RESTORE');
   if (responding(d, state)) return r('RESPOND');
-  if (fastNow(d, state)) return r('FAST');
-  return r(d.speed === FLAT_RATE ? 'CRUISE' : 'DEBUG');
+  if (night) return t('NIGHT');
+  return fastNow(d, state) ? t('FAST', FAST_FACTOR) : t('CRUISE');
 }
 
+// FAST is refused in these, and ends when one comes (Q-63)
+const NO_FAST = /^(WATCH|RESPOND-CARD|RESPOND|FOCUS|ALARMS|RESTORE|NIGHT)$/;
+
 /**
- * Once per frame (game): FAST ends when a watch, the card, RESPOND, FOCUS or ALARMS is on; a watch
- * that has ended marks what it showed as seen. Returns true when `d.seen` changed (save it).
+ * Once per frame (game): FAST ends in a NO_FAST mode; a watch that has ended marks what it
+ * showed as seen. Returns true when `d.seen` changed (save it).
  */
 export function directorFrame(d, state) {
-  const m = modeOf(d, state).mode;
-  if (m === 'WATCH' || m === 'RESPOND-CARD' || m === 'RESPOND' || m === 'FOCUS' || m === 'ALARMS') d.fast = false;
+  if (NO_FAST.test(modeOf(d, state).mode)) d.fast = false;
   let changed = false;
-  if (state.contIdx >= 0) {
-    const c = state.conts[state.contIdx];
+  const c = latest(state);
+  if (c) {
     if (state.tick >= c.watchEndTick && d.versionN === c.n) {
       const shown = c.n !== d.skipN || d.version === 'full';
       if (d.version === 'full' && c.n !== d.skipN && !d.seen.watch) { d.seen.watch = true; changed = true; }
@@ -213,12 +248,11 @@ export function setSpeed(d, rate) {
   d.speed = rate;
 }
 
-/** F held (on) or released (off). Pressing it during a watch, the card, FOCUS or ALARMS does nothing. */
+/** F held (on) or released (off). Pressing it in a NO_FAST mode does nothing. */
 export function setFast(d, state, on) {
   if (!d.game) return false;
   if (!on) { d.fast = false; return false; }
-  const m = modeOf(d, state).mode;
-  if (m === 'WATCH' || m === 'RESPOND-CARD' || m === 'RESPOND' || m === 'FOCUS' || m === 'ALARMS') return false;
+  if (NO_FAST.test(modeOf(d, state).mode)) return false;
   d.fast = true;
   d.fastN = contCount(state);
   return true;
@@ -254,7 +288,13 @@ export function dismissCard(d, state) {
   return true;
 }
 
-/** A restore input was accepted: FOCUS (1x) for RESTORE_FOCUS_S grid seconds. */
-export function focusRestore(d, state) {
+/**
+ * A restore input was accepted: FOCUS (1x) for RESTORE_FOCUS_S grid seconds. The first of a task
+ * feeder (clearS >= 0) sets seen.restore (Q-70); returns true when `d.seen` changed (save it).
+ */
+export function focusRestore(d, state, id) {
   d.focusUntilTick = state.tick + RESTORE_FOCUS_S * TPS;
+  const x = id && state.city.districts.find(y => y.id === id);
+  if (!x || x.clearS < 0 || d.seen.restore) return false;
+  return d.seenDirty = d.seen.restore = true;
 }

@@ -89,23 +89,28 @@ export const co2Text = score => (score.co2tPerMWh > 0 && Number.isFinite(score.c
 export const VCR_TEXT = '$' + mw(V.VCR), VER_TEXT = '$' + mw(V.VER);
 export const allInCents = a => (a && a.askedMWh > 0 && Number.isFinite(a.cents) ? a.cents.toFixed(1) : '-');
 
-const MODE_LABEL = {OVER: 'DAY OVER', HIDDEN: 'PAUSE', ALARMS: 'HELD', PAUSE: 'PAUSE', WATCH: 'WATCH', 'RESPOND-CARD': 'HELD', FOCUS: 'FOCUS',
-  RESPOND: 'RESPOND', FAST: 'FAST', CRUISE: 'CRUISE', DEBUG: 'DEBUG'};
+const MODE_LABEL = {OVER: 'DAY OVER', HIDDEN: 'PAUSE', ALARMS: 'HELD', 'RESPOND-CARD': 'HELD'};
 
 /**
- * The rate badge (F-5: the mode and the rate are always visible): 'CRUISE 120×', 'FAST 360×',
- * 'WATCH T+1.23 s ×0.15', 'HELD 0× · Enter' (the RESPOND card), 'HELD 0× · Esc' (the alarm
- * panel, Q-46), 'PAUSE 0×', 'DAY OVER'.
- * @param {{mode:string, rate:number, watchS:number}} m director.modeOf()
+ * The rate badge (F-5: the mode and the rate are always visible): the D-2 segment and its target
+ * rate in CRUISE and NIGHT ('PEAK 150×', HAND 'PEAK 75×', 'NIGHT ROLL 2,100×'; Q-78), 'FAST 1,620×',
+ * 'RESTORE 30×', 'WATCH T+1.23 s ×0.15', 'HELD 0× · Enter' (the RESPOND card), 'HELD 0× · Esc' (the
+ * alarm panel, Q-46), 'PAUSE 0×', 'DAY OVER'. The bench's modes have no segment: 'CRUISE 120×'.
+ * @param {{mode:string, rate:number, watchS:number, segment?:string}} m director.modeOf()
  */
 export function badgeText(m) {
-  const label = MODE_LABEL[m.mode] || m.mode;
+  const label = (/^(CRUISE|NIGHT)$/.test(m.mode) && m.segment) || MODE_LABEL[m.mode] || m.mode;
   if (m.mode === 'OVER') return label;
   if (m.mode === 'WATCH') return 'WATCH T+' + Math.max(0, m.watchS).toFixed(2) + ' s ×' + rateText(m.rate).replace('×', '');
   if (m.mode === 'RESPOND-CARD') return 'HELD 0× · Enter';
   if (m.mode === 'ALARMS') return 'HELD 0× · Esc';
   return label + ' ' + rateText(m.rate);
 }
+
+/** The act of the day in words (D-1, Q-78): the badge's title. modeOf().act 1-4; '' before 04:30. */
+export const ACT_TITLES = ['', 'Act I, the morning ramp: the city wakes and demand climbs', 'Act II, the belly: rooftop solar floods in',
+  'Act III, neck and peak: the sun sets as demand peaks', 'The night roll: the night shift runs the grid to 04:00'];
+export const badgeTitle = m => ACT_TITLES[m.act] || '';
 
 /**
  * One event-log line for a step() record, or null for records the log leaves out (a
