@@ -731,7 +731,7 @@ function to(s, S, each) {
   return out;
 }
 const agcActs = s => s.agc.requestMW !== 0 || s.battery.agcTrimMW !== 0 || s.units.some(u => u.agcTrimMW !== 0);
-let hand = null; // one HAND day, stepped on by the four tests below in order
+let hand = null; // one HAND day, stepped on by the four tests below (each reaches its own start)
 function handDay() {
   if (hand) return hand;
   const s = hand = createState(SEED, NIGHT);
@@ -748,9 +748,14 @@ for (const [a, b, name] of [[hhS(6), hhS(6, 30), '06:00-06:30'], [hhS(12), hhS(1
   test('D-7 (Q-64): AGC never acts in HAND before 21:00: every second of ' + name + ', after a jump', () => {
     const s = handDay();
     to(s, a);
-    let n = 0;
-    to(s, b, x => { n++; assert.ok(!agcActs(x), 'AGC acted in HAND at ' + observe(x).clock.text); });
+    let n = 0, ace = 0; // ace: seconds with the ACE outside the deadband, when AGC would have acted
+    to(s, b, (x, t) => {
+      n++;
+      assert.ok(!agcActs(x) && x.agc.nextCycleS === t, 'AGC acted in HAND at ' + observe(x).clock.text);
+      if (x.agc.aceMW !== 0) ace++;
+    });
     assert.equal(n, b - a);
+    assert.ok(ace > 0, 'there was an error to answer');
     assert.ok(!s.over);
     assert.equal(s.control.mode, 'HAND');
     assert.equal(s.control.nightShift, false);
@@ -759,8 +764,9 @@ for (const [a, b, name] of [[hhS(6), hhS(6, 30), '06:00-06:30'], [hhS(12), hhS(1
 }
 
 test('Q-64 / Q-73: from 21:00 the night shift has the desk: AGC on, every MAN flag cleared, NIGHT_SHIFT logged, the HAND tag kept; AGC acts', () => {
-  const s = hand;
-  assert.ok(s && s.tick === NIGHT_S * TPS, 'runs on the HAND day above');
+  const s = handDay();
+  to(s, NIGHT_S);
+  assert.ok(s.tick === NIGHT_S * TPS && s.control.mode === 'HAND');
   const out = step(s);
   assert.equal(out.filter(r => r.code === 'NIGHT_SHIFT').length, 1);
   assert.equal(s.control.mode, 'AGC');
@@ -774,7 +780,7 @@ test('Q-64 / Q-73: from 21:00 the night shift has the desk: AGC on, every MAN fl
   assert.equal(more.filter(r => r.code === 'NIGHT_SHIFT').length, 0, 'once');
 });
 
-test('Q-73: the night flip keys on scn.night (classic and a night-less desk keep HAND past 21:00) and takes the synchroscope', () => {
+test('Q-73: the night flip keys on scn.night (classic and a night-less desk keep HAND past 21:00), takes the synchroscope and gives a waiting unit the wait of the auto-synchroniser', () => {
   for (const scn of [CLASSIC, legacyDesk(), NIGHT]) {
     const s = createState(SEED, scn);
     assert.ok(applyInput(s, {type: 'mode', agc: false}).ok);
@@ -786,7 +792,13 @@ test('Q-73: the night flip keys on scn.night (classic and a night-less desk keep
     assert.equal(s.control.mode, scn.night ? 'AGC' : 'HAND', scn.id);
     assert.equal(out.some(r => r.code === 'NIGHT_SHIFT'), scn.night, scn.id);
     assert.equal(s.scope.unit, scn.night ? '' : 'gta1', scn.id);
-    assert.equal(u.mode, scn.night ? 'loading' : 'ready', scn.id + ': the auto-synchroniser closes it');
+    assert.equal(u.mode, 'ready', scn.id);
+    if (!scn.night) continue;
+    assert.equal(u.timerS, V.AUTO_SYNC_S - 1, 'the AGC wait, counting from the flip');
+    to(s, NIGHT_S + V.AUTO_SYNC_S - 1);
+    assert.equal(u.mode, 'ready');
+    to(s, NIGHT_S + V.AUTO_SYNC_S);
+    assert.equal(u.mode, 'loading', 'the auto-synchroniser closes it');
   }
 });
 

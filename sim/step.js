@@ -178,13 +178,14 @@ function gridSecond(state, out) {
   const c = state.control;
   if (state.scn.night && !c.nightShift && state.tick >= NIGHT_S * TPS) { // Q-64, Q-73: the night shift takes the desk
     c.nightShift = true;
+    if (c.mode === 'HAND') for (const u of state.units) if (u.mode === 'ready') u.timerS = V.AUTO_SYNC_S; // the AGC wait (K-12)
     c.mode = 'AGC';
     for (const ps of state.plan.stations) ps.man = false;
     state.plan.rev += 1;
     state.scope.unit = ''; // the auto-synchroniser's wait (A-4) is the player's
     out.push({tick: state.tick, kind: 'log', sev: 'info', code: 'NIGHT_SHIFT', msg: 'The night shift has the desk: AGC on until 04:00.'});
   }
-  grid.planSecond(state, out);                         // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)
+  grid.planSecond(state, out);                          // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)
   weather.sampleSecond(state);                          // env for this second
   if (state.env.s % MSL_CHECK_S === 0) {                // P-4 (Phase 2a): the MSL level, from one forecast per check
     events.mslSecond(state, weather.forecast(state, V.FC_HORIZON_S, V.FC_STEP_S), out);
