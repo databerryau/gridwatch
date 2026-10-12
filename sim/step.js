@@ -102,8 +102,6 @@ export function createState(seed, scenario) {
   const scn = scenarioData(scenario);
   const regime = weather.prerollRegime(seed, scn);
   const evs = scn.dayplan ? dayplan.preroll(seed, scn, regime) : events.prerollEvents(seed, scn, regime); // Q-65
-  const series = weather.prerollSeries(seed, scn, regime, evs);
-  const ha = evs.find(e => e.type === 'heatAnnounce');
   const c = scn.commitment;
   const units = fleet.buildUnits(scn);
   const nSub = scn.city.suburbs.length, ids = x => x.suburbs.map(y => y.id) + '';
@@ -111,9 +109,7 @@ export function createState(seed, scenario) {
   const state = {
     v: SIM_VERSION, seed, scenarioId: scn.id, tick: 0, over: false, black: false,
     scn, scnHash: canonicalHash(scn),
-    // ext.rooftop: the per-suburb clearness series (P-2, C-5), null when the scenario has no rooftop.
-    ext: {regime, events: evs, series, rooftop: weather.prerollRooftop(seed, scn, evs),
-      heat: ha ? {announceS: ha.atS, onsetS: ha.args.onsetS, endS: ha.args.endS} : null},
+    ext: {regime, events: evs, series: null, rooftop: null, heat: null}, // the rest: deriveExt
     evNext: 0,
     // Phase 2a (desk/README.md §19.2, C-2): the public kind of day. The hidden ext.regime.temp is
     // read here once and nowhere else; a heatwave day reads 'HOT' (its heat is announced at 10:30).
@@ -158,11 +154,26 @@ export function createState(seed, scenario) {
     scope: {unit: '', nextAutoTick: -1}, // K-12: the unit on the synchroscope ('' none); the next syncAuto close tick
     levers: {rev: 0, patience: scn.levers ? scn.levers.suburbs.map(x => x.patience) : [], blocks: []}, // 2b (U-2, U-4)
   };
+  deriveExt(state);
   state.phys.ekMWs = fleet.ekMWs(state);
   weather.sampleSecond(state);
-  events.applyDue(state, []); // Q-81: the atS-0 records (briefing news, task districts, the tie limit, the outage)
-  balanceOpening(state);
+  openDay(state);
   return state;
+}
+
+/** ext.series, ext.rooftop (null with no rooftop: P-2, C-5) and ext.heat from ext.events: createState's own code. */
+export function deriveExt(state) {
+  const x = state.ext, ha = x.events.find(e => e.type === 'heatAnnounce');
+  x.series = weather.prerollSeries(state.seed, state.scn, x.regime, x.events);
+  x.rooftop = weather.prerollRooftop(state.seed, state.scn, x.events);
+  x.heat = ha ? {announceS: ha.atS, onsetS: ha.args.onsetS, endS: ha.args.endS} : null;
+}
+
+/** The opening (Q-81): the atS-0 records (briefing news, task districts, the tie limit, the outage; scratch out), env, the balance. */
+export function openDay(state) {
+  events.applyDue(state, []);
+  weather.sampleSecond(state);
+  balanceOpening(state);
 }
 
 /** state.scnHash for a scenario (createState's): the canonical hash of its data without source keys. */
