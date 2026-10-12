@@ -134,6 +134,15 @@ test('the drought on a dayplan day: droughtWarn is the news (its mean as a per-m
   }
 });
 
+test('stormWarn\'s news ends at args.passS when the record carries it (a dayplan storm), else null as today (§32.4.6)', () => {
+  const warn = extra => ({atS: 60, type: 'stormWarn', args: {arriveS: 3600, ...extra}});
+  const s = stateWith(2, DESK, [warn({cutoutFromS: 5400, cutoutToS: 7200, passS: 9000})]), c = stateWith(2, CLASSIC, [warn({})]);
+  runTo(s, 61);
+  runTo(c, 61);
+  assert.deepEqual([s.news[0].kind, s.news[0].fromS, s.news[0].toS], ['storm', 3600, 9000]);
+  assert.deepEqual([c.news[0].kind, c.news[0].fromS, c.news[0].toS], ['storm', 3600, null]);
+});
+
 test('Q-74 COVER: securedTick latches at the first tick past the watch with R5 >= L; a UFLS district blocks it, a task district does not', () => {
   const trip = {atS: 61, type: 'smelterTrip', args: {offS: 2700}};
   const s = stateWith(4, CLASSIC, [trip]);

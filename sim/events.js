@@ -301,7 +301,7 @@ function applyEvent(state, e, out) {
         Math.round(V.HEAT_RAMP_S / S_PER_MIN) + ' min.');
       return;
     case 'stormWarn':
-      announce(state, out, e, 'storm', a.arriveS, null, stormText(scn, a), 'STORM_WARNING');
+      announce(state, out, e, 'storm', a.arriveS, 'passS' in a ? a.passS : null, stormText(scn, a), 'STORM_WARNING'); // toS: §32.4.6
       return;
     case 'stormArrive':
       log(out, tick, 'crit', 'STORM_ARRIVE', 'STORM ARRIVAL: wind farms heading for storm output (about ' + pct(a.windMu) +
