@@ -225,7 +225,7 @@ export const DESK = Object.assign({}, CLASSIC, {
     precinctLagMin: 50, // Q-79: the solar precinct, east of SAL
   },
   weather: {
-    src: 'S-10 heat share as the classic day (params HEAT_SHARE); storm 0.25 and drought 0.20 are D-8(a) overlays, shares of all days drawn among the days that are not heatwaves (desk/README.md Q-66). mildShare: SPEC J-13 / P-3 day types, heat 15 / hot 30 / mild 55 (a starting value; desk/README.md C-2: drawn among the days that are not heatwaves)',
+    src: 'S-10 heat share as the classic day (params HEAT_SHARE); storm and drought: D-8(a) overlays (desk/README.md Q-66). mildShare: SPEC J-13 / P-3 day types, heat 15 / hot 30 / mild 55 (a starting value; desk/README.md C-2: drawn among the days that are not heatwaves)',
     heatShare: P.HEAT_SHARE.value,
     stormShare: 0.25,
     droughtShare: 0.20,
@@ -238,7 +238,7 @@ export const DESK = Object.assign({}, CLASSIC, {
     act1: {
       derateP: 0.5, derate: {limitMW: [400, 550], untilH: [10, 12]},
       late: {unit: 'ccgt2', untilH: [6.5, 8]},
-      task: {p: 0, clearH: [6.5, 8], gapMin: 15}, // p 0.85 (Q-68), staged at 0 until grid's semantics merge (§32.6.1)
+      task: {p: 0, clearH: [6.5, 8], gapMin: 15}, // staged: Q-68's 0.85 at the wave-1 merge
     },
     act2: {
       windowH: [9, 14.5],

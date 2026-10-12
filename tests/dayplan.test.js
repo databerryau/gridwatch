@@ -9,7 +9,7 @@ import {prerollRegime as weatherRegime} from '../sim/weather.js';
 import {prerollEvents, applyDue} from '../sim/events.js';
 import {stepReal, NIGHT_S} from '../sim/clock.js';
 import {canonicalHash} from '../sim/step.js';
-import {STREAM, uniform} from '../sim/rng.js';
+import {STREAM, uniform, pickWith} from '../sim/rng.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {scenarioIdOf} from '../content/dailies.js';
@@ -152,6 +152,7 @@ test('Act I (Q-68): one constraint every date, its unit off at 04:00; the task o
 
 test('Acts II and III (Q-66, Q-67): one crisis each; the trips spread over their windows; the storm\'s link trip realised share', t => {
   const mix = {heat: {}, other: {}}, a2 = {heat: [], other: []}, a3 = [], links = [];
+  let fell = 0; // non-heat days whose drawn trip had no feasible minute: the front instead (Q-67)
   for (const d of ALL) {
     const cls = d.regime.cls, heat = cls === 'heat', k = heat ? 'heat' : 'other';
     const kinds = [of(d, 'cloudWarn').length && 'front', ...d.evs.filter(e => e.act === 2 && e.contingency)
@@ -159,6 +160,8 @@ test('Acts II and III (Q-66, Q-67): one crisis each; the trips spread over their
     assert.ok(kinds.length <= 1, d.seed + ' one belly crisis: ' + kinds);
     assert.ok(!(heat && kinds[0] === 'front'), 'no front under a heatwave');
     mix[k][kinds[0] || 'none'] = (mix[k][kinds[0] || 'none'] || 0) + 1;
+    const m = d.scn.dayplan.act2.mix; // the drawn kind: Act II's slot is the fourth (sim/README §11 dayplan.js), its first draw
+    if (kinds[0] === 'front' && pickWith(uniform(d.seed, STREAM.EXT_EVENTS, V.DAYPLAN_SLOT_BASE + 3, 0), Object.keys(m), x => m[x]) !== 'front') fell++;
     for (const e of d.evs.filter(x => x.act === 2 && x.contingency)) a2[k].push(e.atS);
     const evening = d.evs.filter(e => e.act === 3 && e.type === 'unitTrip');
     assert.equal(evening.length, cls === 'calm' || cls === 'drought' ? 1 : 0, d.seed + ' ' + cls + ' evening trip');
@@ -171,9 +174,12 @@ test('Acts II and III (Q-66, Q-67): one crisis each; the trips spread over their
   }
   const hist = (xs, from, to) => { const n = {}; for (let h = from; h < to; h++) n[h] = 0; for (const s of xs) n[Math.min(to - 1, Math.floor(s / 3600) + 4)]++; return n; };
   const shares = m => { const n = Object.values(m).reduce((a, b) => a + b, 0); return Object.entries(m).map(([k, v]) => k + ' ' + pct(v / n)).join(', '); };
-  t.diagnostic('Act II mix, non-heat: ' + shares(mix.other) + '; heat: ' + shares(mix.heat));
-  t.diagnostic('Act II trips by hour, non-heat: ' + JSON.stringify(hist(a2.other, 9, 15)) + '; heat days: ' + JSON.stringify(hist(a2.heat, 9, 15)));
-  t.diagnostic('Act III evening trips by hour: ' + JSON.stringify(hist(a3, 17, 20)));
+  const med = xs => { const s = xs.slice().sort((p, q) => p - q), m = s[s.length >> 1] / 60 + 240; return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0'); };
+  const early = xs => pct(xs.filter(s => s < H(9.4)).length / xs.length);
+  t.diagnostic('Act II mix, non-heat: ' + shares(mix.other) + ' (' + fell + ' of them the front for want of a feasible trip minute); heat: ' + shares(mix.heat) + ' (none: ' + (mix.heat.none || 0) + ')');
+  t.diagnostic('Act II trips by hour, non-heat: ' + JSON.stringify(hist(a2.other, 9, 15)) + ', median ' + med(a2.other) + ', ' + early(a2.other) + ' before 09:24; heat days: ' +
+    JSON.stringify(hist(a2.heat, 9, 15)) + ', median ' + med(a2.heat) + ', ' + early(a2.heat) + ' before 09:24');
+  t.diagnostic('Act III evening trips by hour: ' + JSON.stringify(hist(a3, 17, 20)) + ', median ' + med(a3));
   const link = links.filter(Boolean).length / links.length;
   t.diagnostic('storm link trip realised on ' + pct(link) + ' of ' + links.length + ' storm days');
   // not degenerate: the joint draw does not push the belly's trips into 09:00-09:24

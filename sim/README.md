@@ -74,8 +74,9 @@ profile (`stepReal`, autopilot's `profileReal` moved bit for bit), with exact in
 director, the D-8 leads, the objective, the tray and the stack read it from wave 2. `dark.js` holds
 `darkShareAt` and `litMW`, moved out of autopilot so `app/planview.js` can share them (wave 2).
 `dayplan.js` is the event director (Q-65): `createState` and `weather.prerollRegime` hand a
-scenario with a `dayplan` block to it; at stage A it is neutral (today's regime formula, the
-legacy menu), and wave 1 (`plan`) makes it real. Classic (`dayplan: null`) never reaches it.
+scenario with a `dayplan` block to it; it was neutral at stage A (today's regime formula, the
+legacy menu), and wave 1 (`plan`) made it the designed day (§11 dayplan.js). Classic (`dayplan:
+null`) never reaches it.
 
 **New state fields.** `createState` (step.js) builds every field, and `hashState` and the
 frozen `observe()` shape need no edits when state grows (§8, §9). If a wave-1 owner truly needs
@@ -183,8 +184,8 @@ On a scenario with no rooftop `mslSecond` returns at once.
 
 | Stream | Counters | Used for | When |
 |---|---|---|---|
-| `EXT_REGIME` | a = 0; a = 1 | a = 0: weather class (heat / storm / calm). a = 1 (Phase 2a; desk/README.md §18 C-2): the day's temperature type, MILD when `uniform < mildShare / (1 - heatShare)` and the class is not heat, else HOT; hidden as `ext.regime.temp` | createState |
-| `EXT_EVENTS` | a = menu slot, b = draw number | event times, targets, lockouts | createState |
+| `EXT_REGIME` | a = 0; a = 1; a = 2 | a = 0: weather class (heat / storm / calm; on a dayplan day heat only). a = 1 (Phase 2a; desk/README.md §18 C-2): the day's temperature type, MILD when `uniform < mildShare / (1 - heatShare)` and the class is not heat, else HOT; hidden as `ext.regime.temp`. a = 2 (2c, dayplan days only, Q-66): the overlay among non-heat days, storm / drought / calm | createState |
+| `EXT_EVENTS` | a = menu slot, b = draw number | event times, targets, lockouts (2c: the dayplan's slots from `DAYPLAN_SLOT_BASE`, §11 dayplan.js) | createState |
 | `EXT_DEMAND` | a = minute sample | demand noise series | createState |
 | `EXT_WIND` | a = minute sample | wind fraction series | createState |
 | `EXT_CLOUD` | a = minute sample | utility-solar clearness series | createState |
@@ -284,7 +285,7 @@ explicit keys without `clampOn` and `lastMW`.
 
 | Field | Meaning |
 |---|---|
-| `regime` | `{cls: 'heat'\|'storm'\|'calm', temp: 'HEATWAVE'\|'MILD'\|'HOT'}` from `EXT_REGIME` (S-10: heat 15%, storm 30%). `temp` is `'HEATWAVE'` iff `cls` is `'heat'`; MILD needs `scn.weather.mildShare` > 0 (CLASSIC 0, DESK 0.55). Only createState reads `temp`, once, for `state.day`; code tolerates it missing (Phase 2a; desk/README.md §19.2) |
+| `regime` | `{cls: 'heat'\|'storm'\|'calm', temp: 'HEATWAVE'\|'MILD'\|'HOT'}` from `EXT_REGIME` (S-10: heat 15%, storm 30%; on a dayplan day `cls` is `'heat'\|'storm'\|'drought'\|'calm'`, 15 / 25 / 20 / 40%, Q-66). `temp` is `'HEATWAVE'` iff `cls` is `'heat'`; MILD needs `scn.weather.mildShare` > 0 (CLASSIC 0, DESK 0.55). Only createState reads `temp`, once, for `state.day`; code tolerates it missing (Phase 2a; desk/README.md §19.2) |
 | `events[]` | `{id: 'e7', atS, type, args, contingency: bool, warned: bool, act, crisis: bool}`, sorted by `atS`, then type order, then menu slot; contingencies never share a second. 2c (Q-65): `act` is the act the plan designed the record for (1, 2 or 3, Act I's briefing items included; 0 on legacy records and notices) and `crisis` whether it is the act's crisis; the legacy `prerollEvents` sets `act: 0, crisis: false`. Hidden (tests, tools, 2d's debrief) |
 | `heat` | `{announceS, onsetS, endS}` or `null` |
 | `series` | `{stepS: 60, demandNoiseMW: int[1441], windPm: int[1441], clearPm: int[1441]}` |
@@ -305,12 +306,14 @@ from wave 1; `TYPE_ORDER` puts them before `smelterReturn`, so classic's sort is
 {unit, untilS}` (atS 0; the unit must be off), `unitReturn {unit}` (at `untilS`), `droughtWarn
 {onsetS, muPm}` (the warning; `muPm` the drought's wind mean as an integer per-mille, never
 `windMu`: §7's series-keys rule). On a dayplan day the atS-0 records are the briefing's items,
-applied by `createState` itself (§11 step.js).
+applied by `createState` itself (§11 step.js). The plan's records also widen three legacy types
+(§32.4.6): `stormWarn {arriveS, cutoutFromS, cutoutToS, passS}`, `cloudWarn {onsetS, frontPm,
+roofDropMW}` and `cloudOnset {clearMu, suburbs: true, clearS}`.
 
 **On a `scn.dayplan` scenario** `weather.prerollRegime` hands the draw to
 `dayplan.prerollRegime`, and `createState` takes `events` from `dayplan.preroll` instead of
-`events.prerollEvents` (`sim/dayplan.js`). At stage A the plan is neutral: its regime is today's formula and its records the legacy menu's,
-so `desk` and `desk-weekend` pre-roll exactly as before. Classic (`dayplan: null`) never reaches it.
+`events.prerollEvents` (`sim/dayplan.js`): the designed day of §11 dayplan.js (neutral at stage
+A, real from wave 1). Classic (`dayplan: null`) never reaches it.
 
 ### env (weather.sampleSecond, every grid second; public "present" values)
 
@@ -1174,6 +1177,20 @@ While returning, `smelter.loadMW` = min(SMELTER_MW, max(loadMW, `SMELTER_RETURN_
 Texts state only what the sim will really do (the scenario's own numbers: uplift, derate, times,
 the storm's cut-out window), never a hidden outcome (whether the link will trip, when the cloud
 clears). Invariant: each event applies exactly once; nothing in ext is modified.
+
+**2c, wave 1 (`plan`): the dayplan-day weather texts.** On a `scn.dayplan` day heatText, stormText,
+cloudText and the drought's onset text read their record's args only (the scenario's events block
+is never read: a test runs them with it removed), with the clock's `hhmm`, in at most 25 words and
+with no sender (the tray names WEATHER BUREAU). Heat: "Heatwave 12:30-19:00: demand up to +6.5%
+(building from 11:30, easing by 20:00), coal and gas capacity -7%, clear skies." Storm: "Storm
+front arriving about 17:10: wind surges, then falls away as turbines cut out, starting
+17:40-18:40. Interconnector faults possible until it passes, about 19:30." (the cut-out window is
+the climatology the warning carries, `cutoutFromS`..`cutoutToS`, never the drawn cut-out). Cloud:
+"Cloud front over the suburbs from about 12:10, west to east: skies near 32% of clear, rooftop
+solar down about 1,550 MW." (the last clause only when the record carries `roofDropMW`). Drought
+(a `windDrought` with no `droughtWarn` before it, which the plan never rolls): "Wind drought: a
+high-pressure ridge has settled in; wind falling toward about 12% of capacity." Each classic
+branch is unedited: `tests/dayplan.test.js` pins classic's four strings.
 
 **Phase 2a "world"** (P-4; desk/README.md C-9, §21.1): `mslSecond(state, fc, out)`. step()
 calls it straight after `weather.sampleSecond` on every `MSL_CHECK_S`-th grid second with that
@@ -2095,13 +2112,84 @@ The event director: the day's designed plan ("director" stays the app's rate dir
 `params.js`, `rng.js`, `clock.js` and `events.js` only, never `weather.js` (linted).
 `prerollRegime(seed, scn)` and `preroll(seed, scn, regime)` are called by `weather.prerollRegime`
 and `createState` when the scenario has a `dayplan` block (`desk`, `desk-weekend`); classic keeps
-the legacy `prerollRegime` and `prerollEvents` untouched. **Stage A (neutral):** `prerollRegime`
-is today's formula and `preroll` returns `events.prerollEvents` (whose records already carry `act:
-0, crisis: false`), so a desk day pre-rolls exactly as before. **Wave 1 (`plan`)** makes it the
-real plan: the a = 2 overlay draw (heat | storm | drought | calm), Act I's constraint and restore
-task, Act III's one crisis, Act II's belly crisis, the notices, on `EXT_EVENTS` slots from
-`DAYPLAN_SLOT_BASE`, warned by Q-71's leads and spaced by Q-72's rules; every share, window and
-size from the scenario's dayplan block, the one climatology on a dayplan day.
+the legacy `prerollRegime` and `prerollEvents` untouched. At stage A it was neutral (today's
+formula, the legacy menu). **Wave 1 (`plan`) made it the designed day**: every share, window and
+size from the scenario's dayplan block, the one climatology on a dayplan day (the one value read
+from elsewhere is the heat's clear sky, `scn.events.heat.clearMu`, desk/README.md §32.4.3).
+
+**`prerollRegime(seed, scn)`** (Q-66). `EXT_REGIME` a = 0 is the heat draw (u < `heatShare`) and
+a = 1 MILD or HOT as before, so every pinned seed keeps its day type; a = 2 picks the overlay among
+the non-heat days: storm if u2 < `stormShare` / (1 − `heatShare`), drought if u2 < (`stormShare` +
+`droughtShare`) / (1 − `heatShare`), else calm. So the shares are shares of all days: desk 15 / 25
+/ 20 / 40. `cls` is `heat` | `storm` | `drought` | `calm`; `temp` as before.
+
+**`preroll(seed, scn, regime)`** returns §5's records sorted by (atS, `TYPE_ORDER`, the order made),
+ids `e1`... Each carries `act` (1, 2 or 3 as designed; 0 the notices) and `crisis`: the act's
+designed crisis (Act I's constraint, Act II's belly crisis, every record of Act III's, on a drought
+day its trip too); the restore task is Act I's but not its crisis. `contingency` from
+`CONTINGENCY_TYPES`; `warned` on every plan record but the trips and the notices (the smelter's
+return is announced at its trip).
+
+*Draws.* Four `EXT_EVENTS` slots from `DAYPLAN_SLOT_BASE`, in this order, each with its own counter:
+the constraint, the restore task, Act III, Act II. The task has its own slot, so its `p` (0 staged
+until grid's semantics merge, then 0.85) moves no other draw, and a gate always draws first, so the
+task's dates are exactly those with that draw under `p`. One helper picks uniformly over the whole
+steps of [a, b] (both ends in) that no open ban (lo, hi) holds. Briefing times (the derate's end,
+the late return, the clearances) and heat onsets sit on `DAYPLAN_MARK_S` 5-min marks (an ETR and a
+notice give round times); hazards in play and trips on whole minutes; the derate's limit on 50-MW
+steps; lockouts and the clear-after on whole minutes.
+
+*Act I* (Q-68). On `derateP` a `tieDerate {limitMW, untilS}` at 04:00 and its `tieDerateEnd`, else
+the late return, `unitOutage {unit, untilS}` and its `unitReturn`. The late unit must be off in the
+scenario's 04:00 commitment: `fleet.setOutage` throws in `createState` if it is not, so a data error
+is loud. On `task.p`: a suburb uniformly among those with two or more rotation districts (a
+district's suburb is its id less its digits), two distinct districts of it, and two clearances: the
+first uniform over the marks of `clearH`, the second over the marks at least `gapMin` from it,
+sorted (the first district drawn gets the earlier). `feederOut` at 04:00 and a `feederClear` at each.
+
+*Act III before Act II* (Q-66), so the belly's trip is drawn over what the evening leaves (Q-72).
+Heat: the onset on a mark in `onsetH`, the end min(onset + `lastsH`, `endByH`), `heatAnnounce` at
+04:00 (uplift and derate per-mille from params, as the legacy menu), `heatOnset` and `heatEnd`.
+Storm: the arrival in `arriveH`, the cut-out start arrival + `cutoutAfterMin`, the pass min(arrival
++ `passAfterMin`, `passByH`); `stormWarn` carries the climatological cut-out window (arrival +
+`cutoutAfterMin`'s ends: what the forecast assumes, never the drawn start) and `passS`; the link
+trip on `linkTripP`, over the whole minutes from 30 real s after the cut-out start to before the
+pass that the rules leave, or none. Drought: the onset in `onsetH`, `droughtWarn {onsetS, muPm}`,
+`windDrought {windMu}` at the onset. Calm and drought: the evening trip of the largest machine over
+`act3.trip.windowH`.
+
+*Act II* (Q-67). The kind by `mix` (`heatMix` on a heat day); a trip (a unit, the smelter with its
+return `smelterOffMin` later, or the tie) over `act2.windowH`; with no feasible minute the front on a
+non-heat day, none on a heat day. The front: its onset over [max(`onsetH[0]`, the derate's end +
+`afterDerateMin`), `onsetH[1]`], not within 30 real s of a trip; `cloudWarn {onsetS, frontPm,
+roofDropMW}`, `cloudOnset {clearMu: frontMu, suburbs: true, clearS}`, `cloudClear {clearMu}` after
+`clearAfterMin`. The front's onset is its first suburb's (the lags are from it). `roofDropMW` (Q-79)
+is each suburb's rooftop fall once the front is over it, from scenario data and the warned onset
+only: Σ capacity × share × clearFactor × cloudBite × (`cloud.mu` − `frontMu`) × the shape table's
+point at or after onset + lag + `frontRampMin`, rounded to 50 MW (about, as the text says).
+
+*Then the notices*, `dayplan.notices` at their hours (desk: MORNING_RAMP 05:50, DUCK 15:00; no
+TROUGH, nothing from 21:00).
+
+*Q-71.* A warning is at the latest whole minute with `stepReal(warn, onset)` ≥ `LEAD_REAL_S`:
+`floor(gridBefore(onset, LEAD_REAL_S) / 60) × 60`, exact (§11 clock.js). The floor of a GT's start +
+2 grid-min never binds (the shortest lead is 65 grid-min), so it is a test, not code.
+
+*Q-72, by construction.* A trip is drawn over the minutes no ban holds: each warned onset so far
+(heat onset, storm arrival, cut-out start, drought onset) bans (`gridBefore`(x, 30), `stepAfter`(x,
+30)) on the step profile, and each trip so far bans (min(`gridBefore`(x, 90), x − 3,600), max(`stepAfter`(x,
+90), x + 3,600)). Acts II and III hold one trip each at most, so two a day; the windows of the data
+keep them from 09:00 and before 21:00 (the guard test checks all five rules on 4,000 days).
+
+*Measured* (`tests/dayplan.test.js`, 2,000 dates from 2026-01-01 with each date's scenario and desk
+seeds 1-2,000, the task live): classes 14.9 / 24.8 / 20.5 / 39.7% (dates) and 15.4 / 25.7 / 18.8 /
+40.2% (seeds); leads storm 65-115, cloud 130-175, drought 65-123 grid-min; the task on 84.7%, the
+derate on 49.5%; Act II on non-heat days front 41.4, unit 24.6, smelter 19.0, tie 14.9% (no trip ever
+lacked a feasible minute), on heat days unit 40.5, smelter 31.6, tie 27.8%; non-heat belly trips by
+hour 09-14: 502 / 489 / 387 / 304 / 217 / 89 (median 11:00, 9.3% before 09:24), heat days' 370 / 171
+/ 66 / 0 / 0 / 0 (median 09:43: the 30 real s before a heat onset at 12:30-14:30 reach back to
+09:24-12:00); evening trips 17-19: 724 / 971 / 689 (median 18:31); the storm's link trip on 27.7%
+of 1,009 storm days.
 
 ## 12. Decisions stage A made (and where the spec is loose)
 

@@ -110,8 +110,7 @@ export function preroll(seed, scn, regime) {
   }
   const fr = a2.front, on = kind === 'front' ?
     pick(r(), Math.max(toS(fr.onsetH[0]), free && free + fr.afterDerateMin * MIN), toS(fr.onsetH[1]), trs.map(y => ban(y, OC))) : -1;
-  if (on >= 0) {
-    // Q-79: each suburb's rooftop fall once the front is over it (lag + ramp), from scenario data and the onset only
+  if (on >= 0) { // roofDropMW: Q-79
     const R = scn.rooftop, clearS = on + mins(r(), fr.clearAfterMin);
     let f = 0;
     scn.city.suburbs.forEach((b, j) => {
