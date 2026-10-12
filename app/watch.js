@@ -180,7 +180,7 @@ export function respondCard(obs, c, o) {
   const line2 = 'Caught by: ' + ['spin', ...parts.map(p => p[0] + ' ' + mw(p[1]) + ' MW')].join(' → ') + '.';
   const sec = obs.sec, short = Math.max(0, sec.lMW - sec.r5MW);
   const secureInS = Math.max(0, (c.secureByTick - obs.tick) / TPS);
-  const dark = obs.districts.filter(d => d.dark);
+  const dark = obs.districts.filter(d => d.dark && !(d.shedBy === 'task' && d.clearS > obs.s)); // (held: the network's, Q-69)
   const darkMW = dark.reduce((a, d) => a + d.coldLoadMW, 0);
   let problem;
   if (sec.level === 'SECURE') problem = 'N-1 SECURE: the fleet can take the next trip.';

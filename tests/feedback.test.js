@@ -28,8 +28,7 @@ import {openGame, diffLooks} from './lib/play.js';
 import {PLANTS, SUBURBS} from '../render/mapdata.js';
 import * as D from '../app/director.js';
 import {badgeText} from '../render/format.js';
-import {legacyDesk, withoutTask} from './lib/sim-helpers.js';
-import {DESK as DESK_DAY} from '../content/scenarios.js';
+import {legacyDesk} from './lib/sim-helpers.js';
 
 const A = 1 / 60;               // real s after a press: one frame (CLAUDE.md: sample, don't stream)
 const covered = new Set();
@@ -125,11 +124,9 @@ const mapLabel = p => p.h.mods.map.el.getAttribute('aria-label') || '';
 
 // ---------------------------------------------------------------- the briefing
 
-// (20261007 without the Act I restore task, Q-68: on the live day its two held feeders put the bay on RESTORE at 04:30,
-// and the HAND day below presses the SYNC view's BYPASS; neither test is about the task)
 const H = {};
 test('every press answers: the briefing (AGC/HAND, Space, the rate badge, F, Tab, Enter: a HAND day)', () => {
-  const p = H.p = openGame({take: false, scenario: withoutTask(DESK_DAY)});
+  const p = H.p = openGame({take: false});
   click(p, 'btn-hand', /btn-hand "[^"]*" \[[^\]]*on/, 'brief-hand');
   click(p, 'btn-agc', /btn-agc "[^"]*" \[[^\]]*on/, 'brief-agc');
   click(p, 'btn-hand', /btn-hand "[^"]*" \[[^\]]*on/, 'brief-hand');
@@ -422,6 +419,7 @@ test('every press answers: a HAND day (the MAN lamp, P / Shift+P, BYPASS, a drag
   tap(p, 'p', /man-ccgt "P"/, 'keys-ss-xx-p');
   tap(p, 'ArrowUp', /man-ccgt "M"/, 'lever-track');
   tap(p, 'P', /^NOTE blue [^\n]*CCGT KEEP: the plan goes on from here$/m, 'keys-ss-xx-p', {shiftKey: true});
+  p.click('bay-sync');   // (20261007's two held task feeders put the bay's own view on RESTORE at 04:30: desk/bay.js, wave-2 desk)
   click(p, 'sync-bypass', /sync-bypass "● BYPASS"/, 'sync-bypass');
   tap(p, 'b', r => /sync-bypass "BYPASS"/.test(r.after), 'sync-bypass');
   act(p, () => { p.pointer('lever-gtc', 'pointerdown', 20, 18); p.pointer('lever-gtc', 'pointermove', 20, 16); p.pointer('lever-gtc', 'pointerup', 20, 16); p.frame(); },

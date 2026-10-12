@@ -4458,7 +4458,8 @@ A trace or record from before Phase 2a has no inverterMW: it reads as 0.
 The respond card (K-16) is <= 4 lines, with no buttons: the nadir against the standard, the
 MW each source caught (the record's caught at the extreme, which is the trace value at the
 nadir), the problem in plain words (the H-4 level, R5 - L if short, the 30:00 countdown from
-secureByTick, dark districts), and "Enter (or a click) to take the desk".
+secureByTick, dark districts except a held task feeder, the network's outage: Q-69), and "Enter
+(or a click) to take the desk".
 ```
 
 #### audio/audio.js

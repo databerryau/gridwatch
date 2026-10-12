@@ -644,6 +644,29 @@ test('K-16 model: every number on the card equals the record (and so the trace)'
   for (const id of fb) assert.match(id, /^(guard-start-[a-z]+\d|dial-battery|knob-tie)$/);
 });
 
+test('Q-69 on the RESPOND card: a held task feeder is the network\'s outage (not counted dark, no RESTORE glow); handed back and still dark it is the operator\'s', () => {
+  const game = G.createGame({seed: 20261007, scenario: DESK, storage: null});   // RED5 and RED7 held from 04:00 until 07:15 and 06:45
+  G.takeDesk(game);
+  injectTrip(game.state, V.PLAYER_START_S + 3600);
+  G.runTo(game, V.PLAYER_START_TICK + 3600 * TPS + V.WATCH_S * TPS + 5);
+  const obs = observe(game.state), c = obs.contingency, task = obs.districts.filter(d => d.shedBy === 'task');
+  assert.ok(task.length === 2 && task.every(d => d.dark && d.clearS > obs.s) && obs.districts.every(d => !d.dark || d.shedBy === 'task'));
+  const held = W.respondCard(obs, c, {glow: []});
+  assert.deepEqual([held.numbers.darkCount, held.numbers.darkMW, held.glow.includes('bay-restore')], [0, 0, false]);
+  assert.ok(!/dark/.test(held.lines[2]), held.lines[2]);
+  // SHEDDING beside them (a UFLS district, test poke): it alone is counted
+  const shed = structuredClone(obs), u = shed.districts.find(d => !d.dark);
+  Object.assign(u, {dark: true, shedBy: 'ufls'});
+  shed.sec.level = 'SHEDDING';
+  assert.equal(W.respondCard(shed, c, {glow: []}).lines[2], 'SHEDDING: 1 districts dark (' + Math.round(u.coldLoadMW) + ' MW). Restore when the lamp lights.');
+  // one handed back (its clearS reached, test poke): the operator's to restore
+  const back = structuredClone(obs), r = back.districts.find(d => d.id === task[0].id);
+  r.clearS = back.s;
+  const own = W.respondCard(back, c, {glow: []});
+  assert.deepEqual([own.numbers.darkCount, own.numbers.darkMW, own.glow.includes('bay-restore')], [1, r.coldLoadMW, true]);
+  assert.ok(own.lines[2].endsWith(' 1 district dark (' + Math.round(r.coldLoadMW) + ' MW).'), own.lines[2]);
+});
+
 // ------------------------------------------------------------------ Phase 2a wave 3 (desk/README.md §21.4): the app's side of the belly
 
 // A potline trip at grid second atS, through the public path (as tests/lib/sim-helpers.js injectTrip does for a unit).
