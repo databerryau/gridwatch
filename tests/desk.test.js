@@ -30,6 +30,7 @@ import {security} from '../sim/grid.js';
 import {runPar} from '../sim/autopilot.js';
 import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
 import {followDay} from './lib/follow.js';
+import {withoutTask} from './lib/sim-helpers.js';
 import * as fleet from '../sim/fleet.js';
 
 const TPS = V.TICKS_PER_S;
@@ -1348,10 +1349,12 @@ let NOON = null;
 /**
  * A real mild weekend at 12:30 on the game's scenario with nobody at the desk (desk-weekend,
  * seed 1): the roofs near their peak, Solstice Rise feeding back, the dispatch spilling. Each
- * caller gets its own copy of the state.
+ * caller gets its own copy of the state. Without the Act I restore task (withoutTask, Q-68):
+ * these tests are about the belly, and nobody restores the task's feeders on this day, so every
+ * district lit at noon is the fixture.
  */
 function noonState() {
-  NOON ||= followDay(1, DESK_WEEKEND, {follow: false, untilH: 12.5}).st;
+  NOON ||= followDay(1, withoutTask(DESK_WEEKEND), {follow: false, untilH: 12.5}).st;
   return structuredClone(NOON);
 }
 const considers = a => a.uis.filter(u => u.do === 'consider').map(u => u.target);
@@ -1819,6 +1822,18 @@ test('P-12 on the dial (2a): the SHED mark shows the dark customers\' load (unse
   assert.equal(shedMarkMW(old), 0);
   old.balance.shedMW = 180;
   assert.equal(shedMarkMW(old), 180);
+  // the restore task's feeders (Q-69): held until their hand-back they are the network's outage, never SHED; handed
+  // back and still dark they are the operator's, and the mark shows their customers' load
+  const task = createState(1, DESK_WEEKEND), held = task.city.districts.filter(d => d.dark && d.shedBy === 'task');
+  assert.ok(held.length === 2 && held.every(d => d.clearS > 0), 'the live plan puts the task on this date');
+  const heldO = observe(task);
+  assert.equal(shedMarkMW(heldO), 0);
+  assert.equal(mount(at(baseVm(heldO), 1000)).$('bar-imbalance').querySelector('.dk-imb-shed').hidden, true, 'no SHED mark over held feeders');
+  held[0].clearS = 0;   // test poke: its hand-back reached (feederClear's applier calls refreshHeld)
+  fleet.refreshHeld(task);
+  const back = observe(task);
+  assert.ok(back.demand.unservedMW > 50 && shedMarkMW(back) === back.demand.unservedMW, 'handed back, still dark: ' + shedMarkMW(back).toFixed(0) + ' MW');
+  assert.equal(mount(at(baseVm(back), 1000)).$('bar-imbalance').querySelector('.dk-imb-shed').textContent, '✕ SHED ' + Math.round(back.demand.unservedMW) + ' MW');
 });
 
 test('K-7 / M-2: DIRECT SHED names the district the sim will shed and its load; "about 0 MW" when it has none to give', () => {

@@ -28,7 +28,8 @@ import {openGame, diffLooks} from './lib/play.js';
 import {PLANTS, SUBURBS} from '../render/mapdata.js';
 import * as D from '../app/director.js';
 import {badgeText} from '../render/format.js';
-import {legacyDesk} from './lib/sim-helpers.js';
+import {legacyDesk, withoutTask} from './lib/sim-helpers.js';
+import {DESK as DESK_DAY} from '../content/scenarios.js';
 
 const A = 1 / 60;               // real s after a press: one frame (CLAUDE.md: sample, don't stream)
 const covered = new Set();
@@ -124,9 +125,11 @@ const mapLabel = p => p.h.mods.map.el.getAttribute('aria-label') || '';
 
 // ---------------------------------------------------------------- the briefing
 
+// (20261007 without the Act I restore task, Q-68: on the live day its two held feeders put the bay on RESTORE at 04:30,
+// and the HAND day below presses the SYNC view's BYPASS; neither test is about the task)
 const H = {};
 test('every press answers: the briefing (AGC/HAND, Space, the rate badge, F, Tab, Enter: a HAND day)', () => {
-  const p = H.p = openGame({take: false});
+  const p = H.p = openGame({take: false, scenario: withoutTask(DESK_DAY)});
   click(p, 'btn-hand', /btn-hand "[^"]*" \[[^\]]*on/, 'brief-hand');
   click(p, 'btn-agc', /btn-agc "[^"]*" \[[^\]]*on/, 'brief-agc');
   click(p, 'btn-hand', /btn-hand "[^"]*" \[[^\]]*on/, 'brief-hand');

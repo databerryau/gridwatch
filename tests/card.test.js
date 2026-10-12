@@ -18,10 +18,13 @@ import {DESK} from '../content/scenarios.js';
 import {clockOf as hm} from '../desk/util.js';
 import {makeDocument} from './lib/dom.js';
 import {openGame} from './lib/play.js';
-import {injectTrip} from './lib/sim-helpers.js';
+import {injectTrip, withoutTask} from './lib/sim-helpers.js';
 
 const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S, HOT = 20261007, MILD = 20261014; // DESK weekdays: a heatwave day, a calm mild day
+// HOT's day without the Act I restore task (Q-68), for the tests that read Redgum Flats' card at 04:30: on HOT the task's
+// two feeders are Redgum Flats', held dark from 04:00, and these tests are about the card's face and a dark suburb it pokes.
+const NOTASK = withoutTask(DESK);
 const at = (h, m = 0) => (h - V.DAY_START_H) * V.S_PER_H + m * V.S_PER_MIN;
 const toast = p => (p.$('toast').hidden ? '' : (p.$('toast').classList.contains('info') ? 'blue ' : 'RED ') + p.$('toast').textContent);
 /** The card as the play driver's SUBURB line reads it (its buttons are CTRL lines). */
@@ -61,7 +64,7 @@ test('§31.9.4: the verdict on the line aimFlex uses: ✓ at its default aim, th
 });
 
 test('Q-56 at 04:30 on a hot day: name, homes, wit, patience with what it does, draws and roofs; per lever its MW, the aim (aimFlex over the day-ahead), what it does and the verdict; ◀ ▶ and - = step 15 min inside [fromS, toS], answering at the ends; ↑/↓ move between rows, ←/→ switch suburb', () => {
-  const p = openGame({seed: HOT});
+  const p = openGame({seed: HOT, scenario: NOTASK});
   assert.equal(p.suburb('RED'), '');
   const v = p.vm(), L = lv(p, 'RED'), fc = v.dayAhead, aim = aimFlex(fc, v.obs.levers, 'RED', 'aircon'), soak = aimFlex(fc, v.obs.levers, 'RED', 'soak');
   assert.deepEqual(v.obs.levers.offered, ['soak', 'aircon']);
@@ -260,7 +263,7 @@ test('Q-56 in play: the briefing sends nothing and Enter in the card takes the d
   b.key('Enter');
   assert.deepEqual([b.vm().phase, flexLog(b)], ['play', []], 'Enter in the card takes the desk, as the answer says (Q-41)');
   const seen = {getItem: k => (k === SEEN_KEY ? JSON.stringify({watch: true}) : null), setItem() {}};
-  const p = openGame({seed: HOT, storage: seen}), st = p.game.state;
+  const p = openGame({seed: HOT, scenario: NOTASK, storage: seen}), st = p.game.state;
   setDistrictDark(st, st.city.districts.findIndex(x => x.suburb === 'RED'), true, 'directed');
   p.suburb('RED');
   assert.match(card(p), /^REDGUM FLATS 420k homes 1 DARK: “/);
