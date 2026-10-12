@@ -482,9 +482,9 @@ function skyStep(o, cloud, mu, f) {
   o.vL = o.vL * aL * aL + loc.sigmaPerStep * loc.sigmaPerStep * f;
 }
 
-// The areas under a 0-to-1 ramp of width R, and under its square, up to x.
+// The areas under a 0-to-1 ramp of width R, and under its square (thirds: 1 + 2, F-13), up to x.
 const rampArea = (x, R) => x <= 0 ? 0 : x < R ? x * x / (2 * R) : x - R / 2;
-const rampSq = (x, R) => x <= 0 ? 0 : x < R ? x * x * x / (3 * R * R) : x - 2 * R / 3;
+const rampSq = (x, R) => x <= 0 ? 0 : x < R ? x * x * x / ((1 + 2) * R * R) : x - 2 * R / (1 + 2);
 
 // The smelter's expected load at second t: out until its announced return (smelter.returnS,
 // set by events at the trip: what the potline's owner tells the operator), then back at
@@ -541,7 +541,7 @@ export function forecast(state, horizonS, stepS) {
     if (news && x) { // a front over the suburbs; its clear window narrowed by what the places' skies show now
       const f = front = {on: news.fromS, c0: x.clearAfterMin[0] * S_PER_MIN, c1: x.clearAfterMin[1] * S_PER_MIN,
         R: x.clearRampMin * S_PER_MIN, inS: x.frontRampMin * S_PER_MIN, mu: x.frontMu, cMu: x.clearMu};
-      const d = 3 * Math.sqrt(locStat2) / (f.cMu - f.mu);
+      const d = V.FRONT_READ_SD * Math.sqrt(locStat2) / (f.cMu - f.mu);
       let lo = f.c0, c = Infinity;
       for (let j = 0; j <= nS; j++) {
         const y = s0 - f.on - (j < nS ? subs[j].frontLagMin : roof.precinctLagMin) * S_PER_MIN;

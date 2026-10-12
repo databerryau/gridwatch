@@ -1182,9 +1182,10 @@ operational demand in daylight), small against the band and left labelled.
   - **What the skies show now** (public: `obs.rooftop.suburbs[].clearness` and the precinct's
     `obs.sky.clearness`; S-4 lets the forecast read `env`). A place whose time since its onset, y,
     is at least c0 and the ramp-in, and under c1 + the clear ramp R, is either held or clearing.
-    Held means its clearness is under frontMu + 3 sd of the local term (the regional sky is set
-    exactly under a front, so only the local term moves it; the precinct has none): then c > y - R
-    x that threshold's share of the ramp, and the window starts there (a truncated uniform).
+    Held means its clearness is under frontMu + `FRONT_READ_SD` (3) sd of the local term (the
+    regional sky is set exactly under a front, so only the local term moves it; the precinct has
+    none; at 3 sd a held suburb reads as clearing about once in 700): then c > y - R x that
+    threshold's share of the ramp, and the window starts there (a truncated uniform).
     Clearing puts c at y - R x q, q its share of the clear ramp done ((k - frontMu) / (clearMu -
     frontMu), at most 1, so a cleared place only bounds c from above); the forecast takes the
     smallest such c (the place furthest behind on its ramp reads it best) and then knows the clear
