@@ -128,8 +128,8 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.deepEqual([q.className, q.getAttribute('aria-controls')], ['q inline', 'popover']);
   q.click();
   assert.equal(b.$('popover').hidden, false);
-  // (2c, Q-69: the entry is renamed, "count the outages you cause"; until stage C it `replaces` the title the "?" names)
-  const rel = TEXT.abstractions.find(x => (x.row === endCard.RELIABILITY_ROW || x.replaces === endCard.RELIABILITY_ROW) && x.game === 'drawer');
+  // (2c, Q-69: the entry is renamed, "count the outages you cause", and the "?" names the new row, not the title it `replaces`)
+  const rel = TEXT.abstractions.find(x => x.row === endCard.RELIABILITY_ROW && x.game === 'drawer');
   assert.ok(rel && b.$('popover').textContent.startsWith(rel.row + 'Real world: '), b.$('popover').textContent.slice(0, 120));
   assert.deepEqual(b.h.mods.errors, []);
 });

@@ -68,9 +68,10 @@ function mslCard(r) {
 
 /**
  * The card a record makes, or null. Pure (tests call it). {log: true, from, text}: a LOG line only, no card.
+ * night: the night shift has the desk (Q-73): a unit at full speed is its own to close, so its card offers no SYNC and goes to the lever.
  * @returns {{key:string, from:string, sev:'info'|'warn', text:string, button:{label:string, target:string}}|{log:true, from:string, text:string}|null}
  */
-export function cardOf(r) {
+export function cardOf(r, night = false) {
   switch (r.kind) {
     case 'announce': {
       const n = r.news, [from, label, target] = NEWS[n.kind] || ['weather', 'SEE THE STACK', isWeather(n.kind) ? 'stack' : 'map'], to = target || leverIn(n.text);
@@ -95,8 +96,8 @@ export function cardOf(r) {
         text: 'District ' + r.district + ' shed (' + r.why + ', ' + Math.round(r.mw) + ' MW).', button: {label: 'TO THE RESTORE BAY', target: 'bay-restore'}};
     case 'log':
       switch (r.code) {
-        case 'UNIT_READY': return {key: 'ready:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: clockOf(r),
-          button: {label: 'TO THE SCOPE', target: 'bay-sync'}};
+        case 'UNIT_READY': return {key: 'ready:' + r.tick + ':' + r.msg, from: SENDERS.station, sev: 'info', text: night ? clockOf(r).replace(' (or SYNC now)', '') : clockOf(r),
+          button: night ? {label: 'TO THE LEVER', target: leverIn(r.msg, ' at full speed')} : {label: 'TO THE SCOPE', target: 'bay-sync'}};
         // each command taken, at once (no key: each one a card)
         case 'UNIT_START': case 'UNIT_STOP': case 'UNIT_CANCEL': case 'UNIT_ABORT_STOP':
           return {key: null, from: SENDERS.station, sev: 'info', text: clockOf(r),
@@ -158,7 +159,7 @@ export function trayRecords(tr, recs) {
   let made = 0;
   for (const r of recs) {
     if (r.code === 'NIGHT_SHIFT') tr.night = true;
-    const c = cardOf(r);
+    const c = cardOf(r, tr.night);
     // an announce's log twin: no second card
     if (!c || r.kind === 'log' && recs.some(x => x.kind === 'announce' && x.news.text === r.msg)) continue;
     if (c.log) { toLog(tr, {from: c.from, atS: Math.floor(r.tick / TPS), text: c.text, sev: 'info'}); continue; }
