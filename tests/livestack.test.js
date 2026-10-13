@@ -245,6 +245,7 @@ test('K-22: red and amber gaps differ by hatch direction and glyph, not only by 
   wide.obs.forecast.demandP50 = wide.obs.forecast.demandP50.map(v => v * 0.5);
   wide.obs.forecast.demandP90 = wide.obs.forecast.demandP90.map(v => v * 2);
   wide.obs.plan.rev++;
+  wide.frame.nowMs = calm.frame.nowMs + 1000 / V.STACK_MAX_HZ; // (an idle redraw at most STACK_MAX_HZ a real second, 2c Q-63)
   const c0 = doc.canvasStats.calls;
   stack.update(wide);
   const marks = stack.debug.stats.gapMarks;
@@ -558,6 +559,7 @@ test('C-11 / K-22: blue SURPLUS columns carry bars, a glyph and the word, never 
   assert.equal(stack.debug.hitTest(x, y, true).kind, 'surplus');
   at(cv, 'pointerleave', 0, 0);
   log.length = 0;
+  vm.frame.nowMs += 1000 / V.STACK_MAX_HZ; // (back at rest: the next idle draw, 2c Q-63)
   stack.update(vm);
   assert.ok(blueFills(log).length === cols.length && blueFills(log).every(f => alphaOf(f.style) === rest), 'at rest again');
   // a small spill is still seen: 60 MW is under 1 px of this axis and is drawn SURPLUS_MIN_PX tall, the glyph alone over a narrow run
@@ -591,17 +593,19 @@ test('P-9: the price goes through priceText; a negative price is in its own colo
   stack.update(vm);
   assert.deepEqual(stack.debug.stats.price, {text: 'SPILL \u2212$20/MWh', spill: true});
   assert.deepEqual(text.filter(t => /MWh$/.test(t.text)), [{text: 'SPILL \u2212$20/MWh', fill: UI.blue}]);
-  // an unchanged frame is skipped; the price alone changing is drawn at once
+  // an unchanged frame is skipped; the price alone changing is drawn on the next idle draw (2c Q-63: 0.1 real s)
   const d0 = stack.debug.stats.draws;
   stack.update(vm);
   assert.equal(stack.debug.stats.draws, d0);
   text.length = 0;
   vm.obs.price.mwh = 26.4;
+  vm.frame.nowMs += 1000 / V.STACK_MAX_HZ;
   stack.update(vm);
   assert.equal(stack.debug.stats.draws, d0 + 1);
   assert.deepEqual(text.filter(t => /MWh$/.test(t.text)), [{text: '$26/MWh', fill: UI.text}]);
   text.length = 0;
   vm.obs.price.mwh = 1400;
+  vm.frame.nowMs += 1000 / V.STACK_MAX_HZ;
   stack.update(vm);
   assert.deepEqual(text.filter(t => /MWh$/.test(t.text)), [{text: '$1,400/MWh', fill: UI.amber}]);
   // a layer's tooltip prices its offer the same way (wind and solar bid below zero)
@@ -661,9 +665,13 @@ test('F-11 / §21.5: what the belly adds is in the redraw key; the projection to
   for (let i = 0; i < 5; i++) stack.update(vm);
   assert.equal(st.draws, d0, 'at rest the belly costs no redraw');
   assert.equal(st.skips, 5);
-  // the past rooftop moves with the now line: a new history is on the next 15-grid-s step
+  // the past rooftop moves with the now line: a new history is on the next 15-grid-s step (at most
+  // STACK_MAX_HZ times a real second, 2c Q-63: the step comes a real 0.1 s after the last draw)
   vm.hist.rooftop = vm.hist.rooftop.map((v, i) => (i < 3 ? NaN : v));
   vm.obs.s += 15;
+  stack.update(vm);
+  assert.equal(st.draws, d0, 'not within 0.1 real s of the last draw');
+  vm.frame.nowMs += 1000 / V.STACK_MAX_HZ;
   stack.update(vm);
   assert.equal(st.draws, d0 + 1);
   assert.equal(st.rooftop.past, 3);
@@ -671,6 +679,9 @@ test('F-11 / §21.5: what the belly adds is in the redraw key; the projection to
   vm.obs.forecast.rooftopMW = vm.obs.forecast.rooftopMW.map(v => v / 2);
   vm.obs.forecast.demandP50 = vm.obs.forecast.demandP50.map(v => v + 5000);
   vm.obs.plan.rev++;
+  stack.update(vm);
+  assert.equal(st.draws, d0 + 1, 'a plan change too waits for the next idle draw');
+  vm.frame.nowMs += 1000 / V.STACK_MAX_HZ;
   stack.update(vm);
   assert.equal(st.draws, d0 + 2);
   assert.ok(Math.abs(st.rooftop.mw - Math.max(...BELLY.forecast.rooftopMW) / 2) < 1e-6);
@@ -739,7 +750,8 @@ test('L-1 (2a): render <= 4 ms with the belly drawn (rooftop bite, past columns,
     // With the clock frozen, as above, 4 frames of 120 draw and that p95 is a skipped frame. In
     // play the clock moves: the now line steps every 15 grid-s (a redraw) and the projection is
     // recomputed every 30. 2 grid-s a frame is the 120x day at 60 fps; at 6 grid-s a frame (fast
-    // forward) two frames in five redraw and one in five recomputes, so the p95 IS such a frame.
+    // forward) the step would come every 2.5 frames, but 2c caps it at STACK_MAX_HZ (Q-63): one
+    // frame in seven redraws and recomputes, so the p95 IS such a frame.
     const s0 = vm.obs.s, N = 150;
     const said = [];
     for (const stepS of [2, 6]) {
@@ -750,17 +762,18 @@ test('L-1 (2a): render <= 4 ms with the belly drawn (rooftop bite, past columns,
         vm.obs.s = s0 + i * stepS;
         stack.update(vm);
       });
-      const draws = st.draws - d0, recomputes = st.recomputes - r0;
-      assert.ok(draws >= N * stepS / 15 - 1 && draws <= N * stepS / 15 + 2 && recomputes >= N * stepS / 30 - 1, stepS + ' grid-s a frame: ' + draws + ' redraws and ' + recomputes + ' recomputes in ' + N + ' frames');
+      const draws = st.draws - d0, recomputes = st.recomputes - r0, want = Math.min(N * stepS / 15, N / Math.ceil(1000 / V.STACK_MAX_HZ / 16));
+      assert.ok(draws >= want - 1 && draws <= want + 2 && recomputes >= Math.min(N * stepS / 30, want) - 1, stepS + ' grid-s a frame: ' + draws + ' redraws and ' + recomputes + ' recomputes in ' + N + ' frames');
       if (stepS === 6) assert.ok(recomputes > 0.05 * N, 'more than one frame in twenty recomputes and redraws: the p95 frame is one of them');
       assert.ok(!over(p95), w + ' px, the clock moving ' + stepS + ' grid-s a frame: p95 ' + p95.toFixed(2) + ' ms (budget ' + (4 * scale).toFixed(2) + ' ms here)');
       said.push(stepS + ' grid-s a frame ' + p95.toFixed(2) + ' ms');
     }
     vm.obs.s = s0;
-    // and every frame recomputing and redrawing everything (a plan edited every frame)
+    // and every frame recomputing and redrawing everything (a plan edited every frame; the frames
+    // 0.1 real s apart, as STACK_MAX_HZ allows an idle redraw, 2c Q-63)
     const d1 = st.draws, r1 = st.recomputes;
     const full = quietP95(40, () => {
-      vm.frame = {nowMs: 1000 + f++ * 16, dtS: 1 / 60, alpha: 0};
+      vm.frame = {nowMs: 1000 + f++ * 1000 / V.STACK_MAX_HZ, dtS: 1 / 60, alpha: 0};
       vm.obs.plan.rev++;
       stack.update(vm);
     });

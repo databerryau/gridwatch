@@ -55,7 +55,7 @@ test('Q-61: slice 2c keeps the first visit within the post-move total + 14.6 KB 
 // texts and the end card (§30.9), W3 the alarm panel and its explainers; Q-49: the ?perf overlay; Q-56: the suburb card, 2b's card;
 // 2b raised the texts 17 -> 18.5 KB (the city levers' three entries); 2c (Q-61) the texts to 20 KB, the alarm help to 5.5 KB).
 const ON_DEMAND = Object.freeze({'content/text.js': 20 * 1024, 'app/alarmpanel.js': 6 * 1024, 'content/alarmhelp.js': 5.5 * 1024, 'app/endcard.js': 5 * 1024,
-  'app/perf.js': 2 * 1024, 'app/suburbcard.js': 6 * 1024});
+  'app/perf.js': 2 * 1024, 'app/suburbcard.js': 6.5 * 1024}); // (2c map: a held suburb's face, §32.11, 6 -> 6.5 KB)
 
 test('Q-44: the on-demand modules stay out of the first visit, are the only ones loaded by import(), bring only each other, and keep their caps', () => {
   const first = new Set(firstVisit('next.html').map(f => f.path));

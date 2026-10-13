@@ -2,6 +2,7 @@
 // Contract: desk/README.md §31.8 render/livestack.js.
 
 import {V} from '../sim/params.js';
+import {ACT_S} from '../sim/clock.js';
 import * as PV from '../app/planview.js';
 import {COLOURS, UI, SUBURBS} from './mapdata.js';
 import {clockText, mw as fmtMW, priceText} from './format.js';
@@ -31,6 +32,15 @@ const GHOST = {precool: 'pre-cool', snapback: 'snapback', night: 'night heating'
 /** K-23 (Q-57): an obs.levers block in words. */
 export const blockText = b => LEVER[b.lever] + ' ' + SUBURBS.find(q => q.id === b.suburb).name + ' ' + fmtMW(Math.round(b.effMW)) + ' MW ' +
   clockText(b.atS, false) + ' to ' + clockText(b.endS, false);
+
+const ONSET = {heat: 'HEAT', storm: 'STORM', cloud: 'CLOUD', drought: 'LOW WIND'}, NIGHT_NOTE = 'The night shift has the desk: the stack is frozen until 04:00';
+/** Q-78 (pure): the act ticks and warned onsets in (obs.s, toS], by time: [{atS, text, act?}]. */
+export function stackMarks(obs, toS) {
+  const out = [], ahead = t => t > obs.s && t <= toS;
+  for (let a = 1; a < 4; a++) if (ahead(ACT_S[a])) out.push({atS: ACT_S[a], text: ['', 'II', 'III', 'NIGHT'][a], act: a});
+  for (const n of obs.news || []) if (ONSET[n.kind] && ahead(n.fromS)) out.push({atS: n.fromS, text: ONSET[n.kind]});
+  return out.sort((a, b) => a.atS - b.atS);
+}
 
 /** K-22: how each gap kind is told apart without colour: hatch direction and a glyph over each run. */
 export const GAP_MARK = Object.freeze({
@@ -63,12 +73,15 @@ export function stackSummary(proj, obs, locked) {
   say.push('Live Stack at ' + clockText(obs.s, false) + ': the plan for the next 4.5 hours.');
   say.push('Planned supply ' + fmtMW(Math.round(proj.supply[0])) + ' MW against a forecast of ' + fmtMW(Math.round(proj.p50[0])) + ' MW; ' +
     fmtMW(Math.round(proj.supply[far])) + ' against ' + fmtMW(Math.round(proj.p50[far])) + ' MW by ' + clockText(proj.times[far], false) + '.');
+  const mk = stackMarks(obs, proj.times[far]);
+  if (mk.length) say.push('Marked: ' + mk.map(k => (k.act < 3 ? 'Act ' : '') + k.text + ' ' + clockText(k.atS, false)).join(', ') + '.');
   for (const r of runs.slice(0, 4)) {
     say.push(GAP_MARK[r.kind].word + ' ' + clockText(proj.times[r.k0] - STEP, false) + ' to ' + clockText(proj.times[r.k1], false) + ', up to ' +
       fmtMW(Math.round(r.mw)) + ' MW ' + (r.kind === 'red' ? 'below the forecast.' : 'below the top of the likely range.'));
   }
   if (!runs.length) say.push('No gaps.');
   if (locked) say.push('Read-only during the watch.');
+  if (obs.nightShift) say.push(NIGHT_NOTE + '.');
   for (const r of PV.blueRuns(proj).slice(0, 2)) {
     say.push(GAP_MARK.blue.word + ' ' + clockText(proj.times[r.k0] - STEP, false) + ' to ' + clockText(proj.times[r.k1], false) + ', up to ' +
       fmtMW(Math.round(r.mw)) + ' MW will be spilled.');
@@ -96,7 +109,7 @@ const layerOfControl = id => {
 /** Projection cache key: everything project() reads that changes the answer (not the clock). */
 function signature(obs) {
   const p = obs.plan || {};
-  let s = (p.rev ?? 0) + '|' + (p.madeAtS ?? -1) + '|' + Math.floor(obs.s / RECOMPUTE_S) + '|';
+  let s = (p.rev ?? 0) + '|' + (p.madeAtS ?? -1) + '|';
   for (const u of obs.units) s += u.mode[0] + u.mode[1] + ',';
   const b = obs.battery, t = obs.tie, r = obs.rert;
   s += b.mode + b.orderMW + '/' + b.guardMW + '|' + t.setMW + (t.tripped ? 'T' : '') + '|' + (r.armed ? 'A' : '') + (r.standingDown ? 'D' : '') +
@@ -147,9 +160,9 @@ export function createLiveStack(doc, root, actions) {
   let drag = null, sel = null, pending = null, message = null, hoverLayer = null, hoverGap = null, hoverBlue = null, sentHover = undefined, glowLocal = new Set();
   let expanded = false, drawMs = 0, lastDrop = null, nowMs = 0, curB = null, runs = [], blues = [], ariaAt = -1e9, ariaText = '', flex = [];
   // gapMarks: one 'kind:hatch:glyph' per red, amber and blue run drawn; rooftop, surplus, price: what Phase 2a drew
-  const stats = {draws: 0, skips: 0, recomputes: 0, tear: null, gapMarks: [],
+  const stats = {draws: 0, skips: 0, recomputes: 0, tear: null, gapMarks: [], marks: [],
     rooftop: {mw: 0, future: false, past: 0, word: false}, surplus: {cols: 0, minPx: 0, word: 0}, price: {text: '', spill: false}};
-  let drawnKey = '';
+  let drawnKey = '', drawnSize = '', drawnAt = -1e9;
 
   // Q-41: kind 'info' help (blue), 'no' a refusal (red), else amber
   const say = (text, kind) => {
@@ -160,12 +173,14 @@ export function createLiveStack(doc, root, actions) {
   };
   // the desk's form (desk/util.js unitLabel): 'CCGT 2', but 'GT·A' (one machine)
   const unitName = (st, u) => (NAMES[st] || st) + (V.STATIONS[st] && V.STATIONS[st].machines > 1 ? ' ' + u.replace(/\D/g, '') : '');
-  const sayLocked = () => say('Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
+  // Q-68: why a ghost sits late
+  const outage = us => { const u = vm.obs.units.find(q => us.includes(q.id) && q.outUntilS > vm.obs.s); return u ? unitName(u.station, u.id) + ' is on outage until ' + clockText(u.outUntilS, false) : ''; };
+  const sayLocked = () => say(vm.obs.nightShift ? NIGHT_NOTE : 'Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
 
   function ensureProj() {
-    const obs = vm.obs, k = signature(obs);
+    const obs = vm.obs, k = signature(obs) + '|' + Math.floor(obs.s / RECOMPUTE_S);
     if (!proj || k !== sig) { proj = PV.project(obs, {hist: vm.hist}); sig = k; stats.recomputes++; runs = gapRuns(proj); blues = PV.blueRuns(proj); }
-    else if (vm.hist) proj.past = PV.pastFromHist(vm.hist, proj.pastTimes);
+    else if (vm.hist) proj.past = PV.pastFromHist(vm.hist, proj.pastTimes, obs);
     return proj;
   }
 
@@ -223,7 +238,7 @@ export function createLiveStack(doc, root, actions) {
       for (const e of plan.starts) {
         const m = V.MACHINES.find(q => q.id === e.unit);
         if (!m) continue;
-        const onAt = e.atS + m.t1S + V.AUTO_SYNC_S + m.t2S;
+        const onAt = Math.max(e.atS, obs.units[m.k].outUntilS ?? -1) + m.t1S + V.AUTO_SYNC_S + m.t2S;
         if (onAt > G.tB) continue;
         const li = layerIndex(m.station), c = colOf(Math.max(s, onAt));
         out.push({kind: 'start', unit: e.unit, station: m.station, onAtS: onAt, x: G.x(Math.max(s, onAt)), y: G.y(B.base[li][c] + m.minMW)});
@@ -515,6 +530,20 @@ export function createLiveStack(doc, root, actions) {
     drawExtraLoad(ctx, xs);
     // the rooftop bite and the silhouette above the skyline (L-2, Phase 2a)
     drawRooftop(ctx, xs);
+    // Q-78: act ticks and warned onsets ahead, in two rows (§31.8)
+    stats.marks = [];
+    ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.setLineDash([1, 2]); ctx.lineWidth = 1;
+    const ends = [-1e9, -1e9];
+    for (const k of stackMarks(obs, G.tB)) {
+      const x = Math.round(G.x(k.atS)) + 0.5, w = ctx.measureText(k.text).width + 4, row = x - w / 2 < ends[0] ? 1 : 0, y = G.y1 + 10 * row;
+      ends[row] = x + w / 2;
+      ctx.strokeStyle = k.act ? UI.text : UI.amber;
+      ctx.beginPath(); ctx.moveTo(x, y + 10); ctx.lineTo(x, G.y0); ctx.stroke();
+      ctx.fillStyle = UI.bg; ctx.fillRect(x - w / 2, y, w, 10);
+      ctx.fillStyle = ctx.strokeStyle; ctx.fillText(k.text, x, y);
+      stats.marks.push(k.text);
+    }
+    ctx.setLineDash([]);
     // gaps (L-5): red below P50, amber below P90
     for (let k = 0; k < n; k++) {
       const g = proj.gap[k];
@@ -581,11 +610,10 @@ export function createLiveStack(doc, root, actions) {
     ctx.fillText(price, G.x1, 1);
     stats.price.text = price; stats.price.spill = spill;
     if (vm.mode && vm.mode.locked) { ctx.fillStyle = UI.red; ctx.textAlign = 'center'; ctx.fillText('READ-ONLY: WATCH', (G.x0 + G.x1) / 2, 1); }
-    if (message && nowMs > message.until) say('');
     if (pending && nowMs > pending.until) pending = null;
-    if (nowMs - ariaAt >= 1000 || nowMs < ariaAt) { // the text alternative, at most once per real second (K-23)
+    if (nowMs - ariaAt >= 1000 || nowMs < ariaAt || obs.nightShift) { // the text alternative, at most once per real second (K-23)
       ariaAt = nowMs;
-      const text = stackSummary(proj, obs, readOnly());
+      const text = stackSummary(proj, obs, locked());
       if (text !== ariaText) { ariaText = text; cv.setAttribute('aria-label', text); }
     }
     stats.draws++;
@@ -813,8 +841,8 @@ export function createLiveStack(doc, root, actions) {
     if (r.infeasible) {
       if (!r.ghost) { say(r.reason || 'Cannot arrive in the window'); return; }
       pending = {result: r, until: nowMs + GHOST_MS};
-      const at = r.unit ? r.ghost.onAtS : r.ghost.atS;
-      say('Too soon: earliest ' + clockText(at, false) + '. Click the ghost or press Enter to book it.', 'info');
+      const at = r.unit ? r.ghost.onAtS : r.ghost.atS, why = outage(r.ghost.inputs.map(x => x.unit));
+      say('Too soon: ' + (why && why + ', so ') + 'earliest ' + clockText(at, false) + '. Click the ghost or press Enter to book it.', 'info');
       return;
     }
     const inputs = [];
@@ -835,7 +863,7 @@ export function createLiveStack(doc, root, actions) {
     return true;
   }
 
-  const readOnly = () => !!(vm && vm.mode && vm.mode.locked);
+  const locked = () => !!(vm && vm.mode && vm.mode.locked), readOnly = () => locked() || !!(vm && vm.obs.nightShift);
 
   cv.addEventListener('pointerdown', ev => {
     if (!vm || !G) return;
@@ -900,10 +928,9 @@ export function createLiveStack(doc, root, actions) {
   }
 
   function hover(p) {
-    const h = hitTest(p.x, p.y, true);
+    const obs = vm.obs, h = !obs.nightShift && hitTest(p.x, p.y, true);
     hoverLayer = null; hoverGap = null; hoverBlue = null; glowLocal = new Set();
     if (!h || h.kind === 'empty' || h.kind === 'past') { tip.hidden = true; sendHover(null); return; }
-    const obs = vm.obs;
     let text = '';
     if (h.kind === 'flex') { text = blockText(h.b) + (PART[h.part] || ''); sendHover({do: 'hover', target: 'suburb-' + h.b.suburb}); } // the map rings it (L-9)
     else if (h.kind === 'surplus') {
@@ -935,7 +962,7 @@ export function createLiveStack(doc, root, actions) {
       const k = h.k ?? colOf(Math.max(obs.s, G.t(p.x)));
       const L = proj.layers.find(q => q.id === id);
       const mwv = L ? L.mw[k] : 0;
-      if (h.kind === 'ghost') text = unitName(id, h.unit) + ' is off: earliest on ' + clockText(h.atS, false) + '\nDrag to book its START';
+      if (h.kind === 'ghost') text = (outage([h.unit]) || unitName(id, h.unit) + ' is off') + ': earliest on ' + clockText(h.atS, false) + '\nDrag to book its START';
       else if (h.kind === 'start') text = 'START booked: on at MIN ' + clockText(h.onAtS, false) + '\nDrag below the axis to unbook';
       else if (f) {
         text = (f.name || NAMES[id]) + '  ' + Math.round(mwv) + ' MW at ' + clockText(proj.times[k], false) +
@@ -1057,16 +1084,20 @@ export function createLiveStack(doc, root, actions) {
     // line (one step per NOW_STEP_S grid-s, under 0.3 px at the floor; the past columns and their
     // rooftop move with it), the price to the dollar, the size and the cross-highlights; anything
     // live (a drag, a selection, a ghost, a message, a hover, the watch's tear) draws every frame.
-    const live = drag || sel || pending || message || hoverLayer || hoverGap || hoverBlue || readOnly();
+    // 2c: at rest at most STACK_MAX_HZ a real second but for the size; frozen at night but for it.
+    if (message && nowMs > message.until) say('');
+    const night = v.obs.nightShift, live = !night && (drag || sel || pending || message || hoverLayer || hoverGap || hoverBlue || readOnly());
+    const size = (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' + expanded + '|' + (globalThis.devicePixelRatio || 1) + (night ? 'N' : '');
     let key = '';
-    if (!live) {
+    if (!live && !night) {
       let glow = '';
       if (v.glow && typeof v.glow.forEach === 'function') v.glow.forEach(id => { glow += id + ','; });
-      key = signature(v.obs) + '|' + Math.floor(v.obs.s / NOW_STEP_S) + '|' + (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' +
-        expanded + '|' + (v.hover || '') + '|' + glow + '|' + (globalThis.devicePixelRatio || 1) + '|' + Math.round(priceNow(v.obs)) + (spillingNow(v.obs) ? 'S' : '');
-    // (the S: the word SPILL comes and goes with the spill at the same price)
+      key = signature(v.obs) + '|' + Math.floor(v.obs.s / NOW_STEP_S) + '|' + (v.hover || '') + '|' + glow + '|' + Math.round(priceNow(v.obs)) + (spillingNow(v.obs) ? 'S' : '');
+      // (the S: the word SPILL comes and goes with the spill at the same price)
     }
-    if (live || key !== drawnKey) { drawnKey = key; draw(); } else stats.skips++;
+    if (live || size !== drawnSize || (key !== drawnKey && !(nowMs - drawnAt < 1000 / V.STACK_MAX_HZ && nowMs >= drawnAt))) {
+      drawnSize = size; drawnKey = key; drawnAt = nowMs; draw();
+    } else stats.skips++;
   }
 
   return {

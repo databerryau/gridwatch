@@ -83,7 +83,7 @@ test('Q-57 / §31.3.11: a soak booked while paused redraws the stack; each core 
   assert.equal(S.draws, d0, 'at rest: no redraw');
   // the clock held (paused): a real booking at 04:30 for 10:30 is the only change, and it redraws
   book(st, 'HAZ', 'soak', at(10, 30));
-  const paused = baseVm(observe(st), {frame: vm.frame});
+  const paused = baseVm(observe(st), {frame: {...vm.frame, nowMs: vm.frame.nowMs + 1000 / V.STACK_MAX_HZ}}); // (the next idle draw, 2c Q-63)
   assert.equal(paused.obs.s, vm.obs.s);
   stack.update(paused);
   assert.equal(S.draws, d0 + 1, 'obs.levers.rev is in the redraw key');
@@ -126,8 +126,8 @@ test('Q-57 / §31.3.11: a soak booked while paused redraws the stack; each core 
 });
 
 test('Q-57: air-con: the relief band above the skyline, pre-cool and snapback dashed below it, the night fall dashed above; codes in both layouts; the hover names the block and its part, rings its suburb, and yields to a red gap', () => {
-  // (NOTASK: the live day holds HAR3/HAR4 dark, and until wave-2 map's per-column lit load (§32.7.4) the stack's red
-  // gap is wider by their load and takes the pre-cool's hover point; this test is about the bands)
+  // (NOTASK: on the live day HAR4's load is back on the stack's columns from its 06:35 hand-back (the announced
+  // return, §32.7.4), and that real red gap takes the pre-cool's hover point; this test is about the bands)
   const st = at0430(2, NOTASK);
   assert.equal(st.day.temp, 'HOT');
   poke(st, 'TAL', 'aircon', at(6), 13.5);   // pre-cool 05:00, relief 06:00-07:30, snapback to 09:00
@@ -267,11 +267,13 @@ test('Q-57 / §31.9.10: the map rings the open card\'s suburb and a glowing one,
   const frame = over => { log.frames.length = 0; log.texts.length = 0; vm.frame.nowMs += 16; Object.assign(vm, over); map.update(vm); };
   frame({suburb: 'RED'});
   const b = D.SUBURBS.find(s => s.id === 'RED').box;
-  assert.deepEqual(log.frames.filter(f => f.style === D.UI.blue).map(f => [f.x, f.y]), [[L.dx + b[0] * L.scale - 3, L.dy + (b[1] - L.srcY) * L.scale - 3]], 'the open card\'s suburb');
+  // (blue frames taller than a 13-px label: seed 2 holds HAR3/HAR4, whose label is blue, 2c Q-69)
+  const blueBoxes = () => log.frames.filter(f => f.style === D.UI.blue && f.h > 13);
+  assert.deepEqual(blueBoxes().map(f => [f.x, f.y]), [[L.dx + b[0] * L.scale - 3, L.dy + (b[1] - L.srcY) * L.scale - 3]], 'the open card\'s suburb');
   const tags = ['SOAK 10:00', 'AIR 19:00 ☺ 80', 'AIR 15:00 ☹ 15 LOCKED', 'SOAK 10:30'];
   for (const t of tags) assert.ok(log.texts.includes(t), t + ' in ' + log.texts);
   frame({suburb: 'RED', mode: {mode: 'WATCH', rate: 0.15, watchS: 1, locked: true}});
-  assert.equal(log.frames.filter(f => f.style === D.UI.blue).length, 0, 'hidden with the card in the watch');
+  assert.equal(blueBoxes().length, 0, 'hidden with the card in the watch');
   assert.deepEqual(log.texts.filter(t => tags.includes(t)), [], 'and the tags (the spotlight dims all but the cause)');
   frame({suburb: null, mode: {mode: 'CRUISE', rate: 120, watchS: -1, locked: false}, glow: new Set(['suburb-SAL', 'suburb-HAZ'])});
   assert.equal(map.debug.fx.rings, 2, 'a glowing suburb rings (the objective names it)');

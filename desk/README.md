@@ -54,7 +54,8 @@ Frozen for stage B (nobody edits): `index.html`, `tools/harness.js`, `tools/poli
 Cross-module rules outside `sim/` (checked by tests):
 1. `render/`, `desk/`, `audio/` read the **view model** (§5) only: `observe()` output plus app
    state. They never import `sim/` except `sim/params.js` (public constants) and never touch
-   `state`. `app/planview.js` imports only `sim/params.js`.
+   `state`. `app/planview.js` imports only `sim/params.js`. (2c, §32.7.4: `render/` may import
+   `sim/clock.js` too, and `app/planview.js` `sim/dark.js`, both pure.)
 2. Everything that changes the grid is a sim input sent through `actions.input(x)` (§4).
    Presentation (focus, expand, ACK, SILENCE, pause, rate, FAST, skip, scope *offers*) never is.
 3. `Math.random` only under `render/` and `audio/` (F-3). Relative `.js` imports only; no
@@ -309,7 +310,7 @@ Every control ≥ 24×24 px; no horizontal scroll at 1280 px. Layout per SPEC §
 
 ## 7. The Live Stack and the map (stack+map agent)
 
-**`app/planview.js`** (pure; imports `sim/params.js` only; reads `obs` only):
+**`app/planview.js`** (pure; imports `sim/params.js` only, and `sim/dark.js` from 2c; reads `obs` only):
 * `project(obs, opts)` → per 5-min column from now−30 min to now+4.5 h (6 past + 54
   future): each station's projected lever MW from `obs.plan` (keys, bookings, the executor's
   arrive-by rule, ramps, T1/T2 of booked starts, the stop profile), the tie, wind/solar
@@ -2710,8 +2711,13 @@ What it shows
        focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
        target}); vm.hover rings the plant back. A click: see the click listener (Q-41).
   G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
-       west; long warm light and long shadows at sunset; lit windows at night, as many as
-       the city is using (underlying demand). Rooftop PV
+       west; long warm light and long shadows at sunset; lit windows at night: the homes
+       awake (occupancy(h), 2c Q-73: 0.9 until 21:00, falling linearly to 0.15 by 01:00,
+       flat to 05:30, waking linearly to 0.9 by 07:30) times what the city is using (0.3 +
+       0.8 x underlying demand / 8 GW, so a 6-GW evening is 0.9), rounded to 30 steps: in the
+       night roll the city goes dark window by window (each window has a fixed switch-off
+       order, hash01 <= lit) in about 23 cached redraws, and Act I opens on a sleeping city
+       that wakes. Rooftop PV
        (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
        layer, cached) and a glint on them each frame: per suburb, as bright as its output
        over its capacity (cloud dims it) and as the light; never on a dark district, on a
@@ -2764,6 +2770,30 @@ and obs.levers.
             colour emoji is drawn, use 'P80', 'P40 ▼', 'P15 LOCKED'.
   Text    mapSummary (K-23) names the hovered suburb's tag: "On <name> <tag>: Enter opens
           its card."
+
+Slice 2c (desk/README.md §32.7.4; Q-69, Q-73). A task feeder before its clearS is the network's
+outage, not the desk's. darkOf(obs, id) (exported; the suburb card says the same words) gives a
+suburb's dark districts {n, h, back, text}: n dark, h of them held (clearS > obs.s), back their
+hand-back times in order, each time once (2e's forced first shift gives both feeders one
+clearance: "BACK 06:45"), and text: "2 DARK · BACK 06:45, 07:05" while all are held, "2 DARK
+(1 BACK 07:05)" while some are the desk's (a feeder handed back and not yet closed, or a shed one
+beside the held: "3 DARK (2 BACK 06:45, 07:05)"), "2 DARK" with none held.
+  Label   while every dark district of a suburb is held, its label is blue ('info', framed):
+          "SALTBUSH BAY: 2 DARK · BACK 06:45, 07:05", then "SALTBUSH BAY: 1 DARK · BACK 07:05"
+          once the first is closed; while one is the desk's it is today's red alarm,
+          "SALTBUSH BAY: 2 DARK (1 BACK 07:05)" (the count is every dark district, as the bay
+          and the objective line count them; the bracket says which are not yet yours). The
+          suburb's name, as every map alarm, not its code. A held label replaces the plain
+          hover name (pointing at it, or arrowing to it, keeps the times), and the held labels
+          come after every red alarm, so a blue label never takes one of the 3 rest places
+          from a red one.
+  Click   a suburb whose every dark district is held opens its card without the RESTORE focus
+          (nothing to restore yet; the card says when); one with a feeder that is the desk's
+          sends {do: 'focus', target: 'bay-restore'} first, as before.
+  Text    "Districts dark: Saltbush Bay 2 (under repair until 06:45, 07:05)." (the permissive's
+          own words for a held feeder); "Saltbush Bay 2 (1 under repair until 07:05)" when not
+          all are held.
+  Windows the occupancy curve, G-3 above.
 ```
 
 #### render/livestack.js
@@ -2848,6 +2878,46 @@ what it does:
           band: the hover never names a block where the press does something else, but over
           a SHORT run a relief band hovers only in its top pixels.
   redraw  signature() includes obs.levers.rev: a booking or a cancel while paused redraws.
+
+Slice 2c, the day (desk/README.md §32.7.4; Q-63, Q-68, Q-69, Q-73, Q-78). Imports sim/clock.js too.
+  load    the skyline, the band, the gaps and the projected spill leave out the task feeders
+          held at each column's time, past columns too (app/planview.js project and
+          pastFromHist with obs): a held feeder is off the load until its announced return,
+          then on it (a step up at each clearS), so no red gap the size of the held load
+          stands before its hand-back and the past skyline meets the first future column
+          (HOT 20261007 at 05:00: 3,779 against 3,778 MW, where the whole city's history stood
+          256 MW above). UFLS and directed darkness stay on the load: the player's to relight,
+          a red gap as in 2b (the respond card's glow and the line read it).
+  marks   stackMarks(obs, toS) (pure): the act ticks ahead from clock.ACT_S, 'II' 09:00, 'III'
+          14:30, 'NIGHT' 21:00 (Act I's 04:30 is the day's start, not a tick), and a marker at
+          each warned weather onset ahead, from obs.news fromS: HEAT, STORM (its arrival),
+          CLOUD (the front over its first suburb), LOW WIND (a wind drought); a tie derate, an
+          outage or the feeders' ETR is no onset (their cards and the bay carry them). Each is
+          a dotted line from the top of the plot to the axis under its word on a dark plate (an
+          act in the axis grey, an onset in amber; the word tells them apart, K-22). Laid out
+          left to right: a plate that would touch the one before drops to a second row 10 px
+          lower (a heat onset at 14:20 beside III at 14:30 is 10 px off at 336 px). Drawn after
+          the rooftop and before the gaps, so a gap's '!' or '~' glyph is never under a plate.
+          stackSummary says them after the supply sentence: "Marked: Act III 14:30, STORM
+          16:40." (stats.marks: the words drawn, for tests.)
+  redraw  every idle redraw (the projection's signature, now without its RECOMPUTE_S step,
+          which ensureProj adds; the now line's NOW_STEP_S step; the hover, the glow, the
+          price) waits until 1 / STACK_MAX_HZ (0.1) real s after the last draw, and the key is
+          kept, so the newest picture lands on the first frame after it (Q-63: at 1,620x the
+          executor bumps the plan on most frames and the step comes every frame at 2,100x; a
+          full redraw is 3-5 ms). Only a new size, expansion or pixel ratio, or the night's
+          flip, draws at once; a drag, a selection, a ghost, a note, a hover and the watch draw
+          every frame as before. From obs.nightShift the stack is frozen: one draw as the night
+          shift takes the desk (its text alternative written then, saying "The night shift has
+          the desk: the stack is frozen until 04:00."), then only a new size, expansion or pixel
+          ratio redraws (no now line, no plan change, no tip, no drag). A press or an edit key
+          there says the same words in blue (Q-73's lead; readOnly() covers the night; the
+          label's "Read-only during the watch." reads the watch alone), and a note expires in
+          update(), not in draw, so it goes after MSG_MS (4 s) while frozen.
+  starts  a booked START's handle sits where the unit comes on: max(atS, its outUntilS) +
+          startToMin (Q-68, the sim's startDueS). An outage says why a ghost is late: its tip
+          reads "CCGT 2 is on outage until 07:30: earliest on 08:19" and a drag before it
+          "Too soon: CCGT 2 is on outage until 07:30, so earliest 08:30. ...".
 ```
 
 #### app/keys.js
@@ -2947,7 +3017,7 @@ desk date (DESK 20261008: 5 audible, the PEAK horn at 16:30, none from 21:00).
 
 ```text
 app/suburbcard.js: a suburb's card (SPEC §9.1 Q-56; §31.6 card, §31.9.3-§31.9.7). On demand (Q-44,
-cap 6 KB in tests/budget.test.js); its CSS is injected once (#sc-css). Presentation and two sim
+cap 6.5 KB in tests/budget.test.js since 2c); its CSS is injected once (#sc-css). Presentation and two sim
 inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch and the focus.
 
   const card = createSuburbCard(doc, root, actions, {toast, loadText, toggleHelp, now});
@@ -2972,6 +3042,11 @@ seen in a browser: lines 14.85 px, buttons 24 px; a HOT card ~180 px before the 
 with a booked cycle's two-line row; padding 4 px, p margins 0 and .sc-r 2 px take 20 px off):
   NAME · 420k homes · ✕ (btn-suburb-close)
   n DARK: [RESTORE] (city-<ID>-restore: focus bay-restore; the card stays)   only with dark districts
+    (2c, Q-69: a task feeder before its clearS is the network's: "2 DARK · BACK 06:45, 07:05" in
+    blue with no RESTORE while every dark district is held, so card.focus() goes to the first
+    CANCEL or BOOK and nothing steals the focus before the hand-back; "2 DARK (1 BACK 07:05):
+    [RESTORE]" once one is the desk's; the words are render/map.js darkOf's, the map's; the
+    shape key tells held ('h') from restorable ('d'))
   “U-1's dry wit”
   patience 40: 90% respond (all respond from 50; air-con locked under 25; only on a day air-con
     is offered, else "patience 40": it scales air-con alone, P2) · draws <lit MW> · roofs <MW>
@@ -3012,7 +3087,8 @@ late today: soaks start by 11:00", "too late today: cycles start by 19:30 (pre-c
 and "no room today for another cycle around the booked one", the rest as the sim says them
 (2b final review P4: the sim's strings refuse a proposed time, and nothing was proposed). A refusal from the sim stays the
 shell's red toast. "Outside the window" is LV.block's: the card never holds an aim outside
-[fromS, toS]. A suburb with dark districts shows its "n DARK: RESTORE" line first and still
+[fromS, toS]. A suburb with dark districts shows its "n DARK: RESTORE" line first (2c: while
+every one is a held task feeder, "n DARK · BACK HH:MM" with no RESTORE, Q-69) and still
 books (Q-50: a dark district's flex just stops; eligibility only through LV.block, §31.3.7),
 so §31.6's "a dark suburb's RESTORE first" is that line, not a blue refusal.
 
@@ -4429,7 +4505,8 @@ frame times. Only startRaf() touches the browser, and only when called.
 ```text
 app/planview.js: the Live Stack's plan view (desk/README.md §7; SPEC L-1..L-9). Pure: it
 reads an observe() snapshot (and, for the past columns, the shell's history) and imports
-only sim/params.js. Nothing here changes the grid; the stack sends what snapDrop returns.
+only sim/params.js and (2c) sim/dark.js. Nothing here changes the grid; the stack sends what
+snapDrop returns.
 
 project(obs, opts)            the next 4.5 h per 5-min column: each layer's MW as the sim's
                               plan executor will move it (desk/README §3.1), supply and gaps,
@@ -4447,6 +4524,35 @@ starts, the unload + T4 stop profile, min up/down, clamps and the arrive-by lead
 the sim to within one step; AGC trims, governors and heat derate changes are left out (the
 stack draws the plan, not the seconds). Where the executor's contract is loose the choice is
 named in a comment; stage C checks the projection against a stepped sim.
+
+Slice 2c (§32.7.4; Q-68, Q-69):
+  load     each column's demand leaves out the task feeders held at its time (sim/dark.js,
+           par's functions): p50, p10 and p90 are litMW(forecast x, rooftop column, D) with
+           D = darkShareAt(obs', t), where obs' has exactly the districts with 0 <= t < clearS
+           dark (heldAt: a task feeder is dark from 04:00 and cannot be closed before its
+           clearS, so this is the held set at any t, past or future, on this branch and with
+           par's announced return alike). Load, deficit, the gaps and the projected spill read
+           them. So before its hand-back a held feeder leaves no red gap the size of its load
+           (+251 MW at 04:35 on DESK seed 2 before 2c), and at clearS the skyline steps up: from
+           then it is the desk's to close. UFLS and directed darkness (clearS -1) stay on the
+           load, as in 2b: the shed load is a red gap the player relights into, and the respond
+           card's K-16 glow (app/game.js firstGap), the objective's planShort and Q-77's proxy
+           read that gap; par plans on lit demand, the stack shows what the city wants. With
+           nothing held the forecast is used as it is (classic exactly as before).
+           pastFromHist(hist, pastTimes, obs): the history's demand (the whole city's, app/game.js
+           histSecond) less the feeders held at each past column's end, the same way, so the
+           past skyline meets the first future column.
+  tie      the import limit holds until tie.limitUntilS, then TIE_MAX_MW, column by column;
+           an arrive-by tie key leads from the imports the limit lets run on both ends, as
+           grid.js tiePlanSecond. glowCandidates: a tie set within SNAP_MW of its limit (and
+           under TIE_MAX_MW - SNAP_MW) is a candidate from the limit's end (L-9: it can add
+           50 MW then, so a gap after the derate glows the knob); set past the limit, it rises
+           by itself at the end and is none.
+  outage   earliestOnAt for an off unit is max(s + wait, outUntilS) + startToMin, so the
+           earliest line, the ghost, glowCandidates, snapStart and earliestArrival put a unit
+           on outage no earlier than its return + startToMin; simInit copies outUntilS and a
+           booked START is due at max(atS, outUntilS) (grid.js startDueS): the mirror leaves it
+           pending until the return, without blocking later bookings, and starts it then.
 ```
 
 #### app/record.js

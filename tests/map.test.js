@@ -564,10 +564,10 @@ test('G-1 performance shape: a frame allocates no layers and does no per-block s
   assert.ok(ms[Math.floor(ms.length * 0.95)] < 8, 'p95 ' + ms[Math.floor(ms.length * 0.95)].toFixed(2) + ' ms on the stand-in canvas');
 });
 
-test('render/map*.js import only sim/params.js and their own render modules', () => {
+test('render/map*.js import only sim/params.js (and the clock, 2c), and their own render modules', () => {
   for (const f of ['map.js', 'mapdata.js', 'livestack.js']) {
     const src = readFileSync(new URL('../render/' + f, import.meta.url), 'utf8');
-    for (const s of importSpecifiers(tokenize(src))) assert.ok(['../sim/params.js', './mapdata.js', './format.js', '../app/planview.js'].includes(s), f + ' imports ' + s);
+    for (const s of importSpecifiers(tokenize(src))) assert.ok(['../sim/params.js', '../sim/clock.js', './mapdata.js', './format.js', '../app/planview.js'].includes(s), f + ' imports ' + s);
   }
 });
 
@@ -963,5 +963,5 @@ test('Q-41 / Q-56: every click on the map answers: a plant its control, a suburb
   for (const d of vm.obs.districts) d.dark = d.suburb === 'SAL' || d.suburb === 'RED';
   const ls = mapLabels(vm, 'coal', 'wind');
   assert.deepEqual(ls.map(l => l.kind), ['info', 'hover', 'alarm', 'alarm']);
-  assert.deepEqual(ls.filter(l => l.kind === 'alarm').map(l => l.text.replace(/\d+/, 'N')), ['REDGUM FLATS: N DARK', 'SALTBUSH BAY: N DARK']);
+  assert.deepEqual(ls.filter(l => l.kind === 'alarm').map(l => l.text.replace(/\d+/, 'N')), ['REDGUM FLATS: N DARK', 'SALTBUSH BAY: N DARK (2 BACK 07:20, 07:50)']); // (2c: SAL's held task feeders, Q-69)
 });
