@@ -1,5 +1,9 @@
 // content/dailies.js: the gate-checked dailies (D-9, Q-75): exceptions only. desk/README.md §32.4.8.
-export const DAILIES = {v: '', from: '', to: '', attempts: {}};
+export const DAILIES = {v: 'v4-core-2c.1|1197493074|4158738639', from: '2026-10-12', to: '2027-10-11', attempts: {
+  20261023: 2, 20261026: 7, 20261127: 8, 20261207: 2, 20261214: 11, 20261216: 7, 20261217: 32, 20270128: 4,
+  20270507: 7, 20270512: 25, 20270514: 18, 20270517: 8, 20270704: 4, 20270728: 3, 20270806: 2, 20270924: 8,
+  20270927: 5,
+}};
 
 export const seedOf = (ymd, k = 0) => ymd + k * 1e8;
 export const ymdOf = seed => (seed >>> 0) % 1e8;
