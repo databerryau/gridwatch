@@ -2163,7 +2163,9 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
   Q-91: competent, but each feeder card holds the clock `PROXY_SLOW_RESTORE_REAL_S` 15 real s, its
   `cardS`: the 15 s pass on the held clock, so it closes each feeder when competent does; under
   Q-70's pace it saw each one 15 real s of `refRealSeconds` late and scored a median 656 against
-  991); `commitAll` (S-11: START every
+  991). Since `holdOf` is at least each proxy's own gap, `slow` equals `competent` **by
+  construction**: it is now a regression guard (a card never makes a proxy late), not a measure
+  of Q-91; the page's hold itself is tested in `tests/feeder-card.test.js`; `commitAll` (S-11: START every
   offline machine at tick 0 in one batch, bypassing pace and the 04:30 start, then par without
   rule 4); `fuzz` (private hash of the seed, never the sim's streams); `night` (2c: `nightMemo`'s, all
   rules at `NIGHT_ACTION_S`, STOPs kept; the player proxies become it at 21:00 on a `night` scenario).

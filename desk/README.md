@@ -3584,28 +3584,28 @@ This is the contract after its review (§32.13): where a row changed, the review
 - **D-1:** the suburb card is part of the map.
 - **D-2:** "today's build runs at 2 (120×)" goes; the ease is linear in pace (Q-62); RESPOND
   "0–10 s". **Accept:** the profile integrates to 245 ± 3 s (AGC; HAND 478 ± 3). A scripted run
-  presses TAKE THE DESK, Space (Q-18's held start), then Enter on each card. From Space to the
-  verdict it is within ±5 s of E = `realBetween(04:30, end)` plus, for each span played off the
-  profile, its real seconds minus `realBetween` over that span's grid seconds. The spans are
-  each watch, each card, RESPOND's 30× part and Q-70's RESTORE at each allowed second, each
-  read from the sim's records (the contingency's watch and card ticks, `backInBandTick` or
-  +300 grid-s; the allowed second to the restore input or +300 grid-s), not from the director.
-  With no input every clearance is a full RESTORE (10 real s against 1.1 s at 270×), so E ≈ 245
-  + Σ watch + Σ RESPOND + 17.8 s on the 85% of dates with the task. The session table gains a
-  row "RESTORE at 30× (Q-70): about 1–10 s per clearance, two on 85% of dates, one on the forced
-  first shift" (17.8 s if never restored); the returning SHARE estimate moves to ≈5:34–5:58 and
-  the first shift's to ≈6:42–6:58 (its upper end is over ≤6:50: a 2e risk, so 2e's scripted
-  first shift restores at its introduction). "Link opened to SHARE ≤6:00 / ≤6:50" is measured
-  when 2d's debrief and 2e's first shift land; 2c measures the verdict half, and the Phase 2 box
-  "D-2 timing runs" stays open. F-5's "(a flat 120× before Phase 2)" and desk/README §2 follow.
-  F-5 gains RESTORE (30× at each hand-back until restored or 5 grid-min; 10× until the first)
-  and NIGHT (the profile; desk locked to sim inputs); CRUISE reads "75×–2,100× (HAND halves
-  04:30–21:00)".
+  presses TAKE THE DESK, Space (Q-18's held start), then Enter on each card, feeder cards
+  included (Q-91). From Space to the verdict it is within ±5 s of E = `realBetween(04:30, end)`
+  plus, for each span played off the profile, its real seconds minus `realBetween` over that
+  span's grid seconds. The spans are each watch, each card, RESPOND's 30× part and each feeder
+  card's hold (Q-91, in place of Q-70's RESTORE: the real seconds held at the tick after a task
+  feeder's allowed second), each read from the sim's records (the contingency's watch and card
+  ticks, `backInBandTick` or +300 grid-s; the feeder's allowed second, `market.restoreAllowedS`),
+  not from the director. With no input the first feeder card holds the clock until it is
+  answered, as the respond card does. The session table gains a row "the hand-back's card
+  (Q-91): held while the player reads it, two on 85% of dates, one on the forced first shift";
+  the returning SHARE and first-shift estimates lose Q-70's RESTORE term (up to 17.8 s) and gain
+  each card's reading time (2e's scripted first shift restores at its introduction). "Link opened
+  to SHARE ≤6:00 / ≤6:50" is measured when 2d's debrief and 2e's first shift land; 2c measures
+  the verdict half, and the Phase 2 box "D-2 timing runs" stays open. F-5's "(a flat 120× before
+  Phase 2)" and desk/README §2 follow. F-5 gains FEEDER-CARD (rate 0 at each hand-back until the
+  feeder is restored or its card answered: Q-91) and NIGHT (the profile; desk locked to sim
+  inputs); CRUISE reads "75×–2,100× (HAND halves 04:30–21:00)".
 - **D-3:** "Watch for" ≤ 30 words inside the card's 60.
 - **D-5:** "pre-rolled" unwarned contingencies (an H-2 hot trip is the player's own); "secure
   30:00" is named COVER: R5 ≥ L with no UFLS or directed district dark, with ✓ and a label
   (Q-74).
-- **D-6:** "disabled during WATCH and RESPOND" means RESPOND's 30× part (and RESTORE, NIGHT); it
+- **D-6:** "disabled during WATCH and RESPOND" means RESPOND's 30× part (and the feeder card, NIGHT); it
   releases on "any new ringing tray card, P1/P2 alarm, ask or contingency (P3 tiles and MSL1 do
   not)". The accept's end-state hash is checked on a 2-h slice in the suite and on one whole
   desk day once at stage C.
@@ -3654,7 +3654,8 @@ This is the contract after its review (§32.13): where a row changed, the review
   permissive** (a task feeder's first condition is the hand-back; until then "feeder under repair
   until HH:MM"); **AGC band** (HAND turns AGC off until 21:00). Added: the night shift; HAND;
   Act I's warned constraints; every daily is solvable (a fairness rule, not a property of real
-  grids); game-sized warning leads; COVER (Q-74); RESTORE pace.
+  grids); game-sized warning leads; COVER (Q-74); the clock holds at each hand-back (Q-91,
+  `content/text.js` 'feeder-hold', in place of Q-70's RESTORE pace).
 
 ### 32.3 Who builds what, and in what order
 
@@ -4264,7 +4265,8 @@ also rewritten; the cap at 20 KB); `content/anchors.js`. Tests:
 `OBJ_EVERY_REAL_S` and `STACK_MAX_HZ` once, no other lever); `tools/par.js` S-12 on `desk` and
 `desk-weekend` (200 raw, 100 forced heat, `--proxy competent,lean,commitAll --allin`, P-3's
 medians, P-4's MSL frequencies) plus a 'slow' proxy once (competent, each task restore 15 real s
-after `clearS`; if it trails competent by more than 150 points, report it to the owner and name
+after `clearS`; since Q-91 it holds each feeder card 15 real s and equals competent by construction,
+§32.11's Q-91 block; if it trails competent by more than 150 points, report it to the owner and name
 `RESTORE_PACE_MAX_S` 600 as the lever, which moves par's mirror and so is a named exception to
 "never par"); the follower; the Q-77 proxy on 100 dates (D-8, K-12); `tools/daily-gen.js` on 365
 dates from 2026-10-12 with `-j` (D-9's attempts, D-10 by class, the heat share); `tools/l2.mjs`
@@ -4296,7 +4298,8 @@ and Build lines only); **`tools/daily-gen.js` once more** (365 dates, `-j`), the
 sim-dependent step: it writes the shipped `content/dailies.js` with the build stamp, and §32.11
 and SPEC record its D-9, D-10 and heat-share numbers (a named exception to "once each"); the one
 browser pass (one pane; 1280×600, 1280×720, 1920×1080): the badge through the segments, the COVER
-row after a trip, the RESTORE pace at a hand-back, the night strip and the dark windows, the
+row after a trip, the feeder card at a hand-back (Q-91: its keys, RESTORE and GO ON, the amber
+lamp line after a trip, the card over the map and off the stack when it is out), the night strip and the dark windows, the
 briefing's "Watch for", HAND-FLOWN. Any sim/ or desk-scenario change after the last daily-gen run
 means bumping `SIM_VERSION` and running it again.
 
@@ -4549,6 +4552,56 @@ merge:
   - `heatWorstCase`.
 - **Stage C:** the D-2 timing on 5 dates; the first shift's RESTORE term for 2e.
 
+**Q-91 (the owner's call, 2026-10-13), built in stage C** (branch `2c-c-q91`, a builder, three
+reviewers and a fix pass). §32.2 and §32.10 are rewritten in place (they are still to be written
+into SPEC and to run).
+
+*Amendments* (override §32.1–§32.10 where they differ):
+- **Superseded lines.** §32.4.1: `RESTORE_PACE_RATE` and `RESTORE_FIRST_RATE` are retired;
+  `RESTORE_PACE_MAX_S` 300 stays as S-6's PERFECT window and Q-88's restore-first window;
+  `PROXY_SLOW_RESTORE_REAL_S` 15 is the slow proxy's hold at each card. §32.4.8's precedence (and
+  wave 2's OFFER amendment's) reads OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD >
+  FEEDER-CARD > FOCUS > RESPOND > OFFER > NIGHT > FAST > CRUISE. §32.7.2's RESTORE at each allowed
+  second (30×, 10× until `seen.restore`) is FEEDER-CARD; `seen.restore` is gone, so `--returning`
+  storage holds `seen.watch` only; `tests/clock-director.test.js` checks the hold, not "RESTORE at
+  both rates and the flag" or "245 + 17.78 with two unrestored clearances".
+- **The hold's tick.** The card holds from the tick after its allowed second's own: that second's
+  step applies the `feederClear` event (the network's hand-back, its ringing NETWORK tray card), so
+  the tray card is up as the card shows and never after the restore. The clock still reads the
+  allowed second; a restore at the card lands in that grid second, so PERFECT and par are unchanged.
+- **Keys and the mouse.** R or Enter restores the card's feeder and Esc goes on, before any control
+  hears them, but Enter on a RESTORE row (a CLOSE is the bay's: another feeder's answers the card,
+  its own restores it), on the suburb card or on the card's own buttons is that control's. A key's
+  auto-repeat is swallowed (K-3), and so is an Enter or R within `FEEDER_ARM_MS` 250 real ms of the
+  Enter that closed the RESPOND card (a queued card shows on that press), with a blue answer. The
+  card has two blue buttons, RESTORE <id> and GO ON; a click on its body focuses that feeder's CLOSE
+  in the RESTORE bay, and the bay's choice follows the card as it shows.
+- **What the card says.** Before any press, when the restore would be refused now (the bay's
+  RESTORE PREVIEW: the permissive, the reserve, the preview's nadir), an amber line says why and
+  that Esc goes on; a refused press turns it into the red refusal. A line at ‼ URGENT stays up under
+  the card (the respond card still hides the line).
+- **Hidden cards.** `D.feederCard` ignores PAUSE, ALARMS and a hidden tab; the page shows the card
+  only in FEEDER-CARD, and a desk input answers only the card shown (`G.shownFeeder`), so an input
+  made while paused leaves the hand-back's card for after the pause.
+- **The tray.** FEEDER_CLEAR reads "<id> feeder repaired and handed back: close its breaker (R or
+  Enter at its card, or from the RESTORE bay)."; that district's restore moves the card to the LOG.
+- **Par's proxies.** Each card is a hold of `holdOf(proxy)` = max(`REF_RESPOND_CARD_S` or the
+  proxy's `cardS`, its own gap) real s at zero grid time: par 3, competent 6, slow 15. Q-91's Par
+  bullet holds for par to the letter; a proxy that paces itself slower takes its own pace at the
+  card, so a card never makes a proxy late. So **`slow` equals `competent` by construction**: the
+  100-seed run's identical letters are that arithmetic, not a measure of the hold; it stays as a
+  regression guard (`tests/restore-first.test.js`). The page's hold is tested in
+  `tests/feeder-card.test.js`.
+- **D-2's RESTORE term** (`tests/lib/play.js clockReport`) counts the frames that run no tick at a
+  feeder card's hold tick (`feederHeldAt`, from the sim alone), so a pause or a FOCUS frame after GO
+  ON or another input is never the card's.
+
+*For the owner:* a hand-back inside a trip's watch shows its card as the RESPOND card closes, while
+frequency is still low and RESPOND's 30× is what would bring it back; the held clock keeps it low,
+so R is refused there and Esc (gone for good) is the way on. Q-91 says the card waits for the watch
+and its card and stays on a refusal, so it was kept; the amber line now says so before the press.
+Waiting also for RESPOND (frequency back in band) is the alternative, the owner's call.
+
 ### 32.12 Module headers (moved from the files, Q-61)
 
 Stage A (prose) moved here, verbatim, the leading header comments of the first-visit files that
@@ -4605,7 +4658,9 @@ FEEDER-CARD: Q-91, in RESTORE's place):
                 input): a hold on the clock (K-16), as PAUSE and the feeder card
   FEEDER-CARD   Q-91 (the owner's call, in place of Q-70's RESTORE pace): rate 0 at each task
                 feeder's allowed second (sim/market.js restoreAllowedS, the one rule: the later of
-                its clearS and the last restore + RESTORE_INTERVAL_S), while it is dark with shedBy
+                its clearS and the last restore + RESTORE_INTERVAL_S), from the tick after that
+                second's own (whose step hands the feeder back: feederClear, the tray's NETWORK
+                card, so the card never shows before it), while it is dark with shedBy
                 'task' and before 21:00, after any watch and the respond card (it waits for both:
                 feederOn), the earliest allowed first. It holds until the feeder is restored (it is
                 no longer dark), or the card is answered (answerFeeder): Esc goes on (app/game.js
@@ -4614,12 +4669,14 @@ FEEDER-CARD: Q-91, in RESTORE's place):
                 with the card shown at the press), so a later restore that moves its allowed second
                 holds it again. The restore of its own feeder keeps it when refused (the reason
                 stays on the card: app/game.js feederWhy). feederCard(d, state) names the feeder
-                shown ('' under PAUSE, ALARMS or a hidden tab: they hide it, as the respond card).
+                whose card is due; it ignores PAUSE, ALARMS and a hidden tab (the page shows the
+                card only in FEEDER-CARD, and app/game.js shownFeeder answers only a card shown).
                 The dark task feeders' [i, clearS, allowed second] are kept on the director (d.rw,
                 windows) per input-log length (only a logged restore relights a district) and
                 checked against each feeder's dark, shedBy and clearS; a state with no log is read
                 afresh (stage C: rateOf asks it between every two ticks). tests/lib/play.js
-                feederDue reads from the sim's state alone whether a card may hold, for D-2's E.
+                feederDue reads from the sim's state alone whether a card may hold, and
+                feederHeldAt whether one holds at this tick, for D-2's E.
   RESPOND       30x from the card's dismissal until frequency is back in 49.85-50.15 Hz
                 (contingency.backInBandTick >= 0) or 5 grid-min after the card, then the profile
   FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
@@ -4728,14 +4785,17 @@ Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
   From the night flip `vm.offers` lists none, so an offer made before 21:00 leaves the bay's SYNC
   glow with the director's OFFER (stage C).
 - **The feeder card (Q-91):** `sendInput(game, x, shown)` answers the card shown at the press
-  (`D.feederCard`, or `shown`: `redispatch` passes the one shown at RE-DISPATCH, so its inputs never
+  (`shownFeeder(game)`: `D.feederCard` while the director plays FEEDER-CARD, else '', so an input
+  made under PAUSE, ALARMS or a hidden tab leaves the card; or `shown`: `redispatch` passes the one
+  shown at RE-DISPATCH, so its inputs never
   answer the next card) with `D.answerFeeder(d, state, id, false)` for any input but the restore of
   that card's own feeder; that restore relights it (the card goes), and refused it keeps the card with
   the reason (`game.feederWhy`, on the card until that feeder's card goes). A feeder card queued behind
   the respond card is never answered by the input that dismisses the respond card. `ui({do: 'goOn'})`
   is Esc at the card (`answerFeeder(..., true)`: never held again; 'no card' without one). The restore
   input's FOCUS is `D.focusRestore(d, state)`. `vm.feeder` is the card's model while the director plays
-  FEEDER-CARD: `W.feederCard(obs, id, scenario.city.suburbs, why)` (app/watch.js).
+  FEEDER-CARD: `W.feederCard(obs, id, scenario.city.suburbs, why, lamp)` (app/watch.js; `lamp`, before
+  a refused press, is `restorePreview(game, id)`, once a grid second).
 
 #### app/loop.js
 
@@ -4864,13 +4924,18 @@ desk/README.md §32.8.2 (2c): the briefing's Watch for (Q-81), the header's HAND
 strip in the objective's place from 21:00 and the end card fetched then (Q-73). Enter at the RESPOND card
 closes it on the capture phase, before any control's own Enter (K-16: a RESTORE row's would close a breaker).
 Q-91: the feeder card (#feeder-card, drawFeeder from vm.feeder: what, the keys in blue, what going on means,
-and a refused restore's reason in red, the grid's refusal). On the capture phase (feederFirst, after Esc's
-closeTop: an Esc that closed something stops there), while the director plays FEEDER-CARD, Enter or R sends
-the restore of the feeder it names (actions.input: a refusal toasts in red and the card stays) and Esc goes
-on (ui 'goOn'), but in SETTINGS, the drawer and "?"; a click on the card focuses the RESTORE bay and the card
-stays. It sits over the map (never the desk's Live Stack or bay); with the stack out (L) the body class
-stack-out (placeStack) moves it over the lever bank. The objective line waits while it shows, as at the
-respond card: the card is the one instruction while the clock holds.
+before a press why a restore would be refused now in amber (vm.feeder.lamp), a refused restore's reason in
+red (the grid's refusal), and two blue buttons: #feeder-restore "RESTORE <id>" (the restore of its feeder)
+and #feeder-go-on "GO ON" (ui 'goOn')). On the capture phase (feederFirst, after Esc's closeTop: an Esc that
+closed something stops there), while the director plays FEEDER-CARD, Enter or R sends the restore of the
+feeder it names (actions.input: a refusal toasts in red and the card stays) and Esc goes on, but in
+SETTINGS, the drawer and "?", and but Enter on a RESTORE row (the bay's CLOSE), the suburb card or the
+card's own buttons, which is theirs. A key's auto-repeat is swallowed, and so is an Enter or R within
+FEEDER_ARM_MS (250 real ms) of the Enter that closed the RESPOND card (cardFirst; a queued card shows on
+that press), with a blue answer. A click on the card's body focuses its feeder's CLOSE (restore-<id>) and
+the card stays. It sits over the map (never the desk's Live Stack or bay); with the stack out (L) the body
+class stack-out (placeStack) moves it over the lever bank. The objective line waits while it shows, as at
+the respond card (the card is the one instruction while the clock holds), but a ‼ URGENT line stays up.
 ```
 
 #### app/system.js
@@ -4953,7 +5018,8 @@ Cards never pause play (§7).
   the same 'announce' path (sender, button, seen key), atS 0 ("04:00"); one 'ring2' if it made
   any, else [] (classic announces nothing at 04:00); over three, the oldest cards go first.
 - Log cards: `FEEDER_CLEAR` rings (NETWORK): "<id> feeder repaired and handed back: close its
-  breaker (R, then Enter)." with its button to the restore bay (Q-70); `UNIT_AVAILABLE` (STATION,
+  breaker (R or Enter at its card, or from the RESTORE bay)." with its button to the restore bay
+  (Q-70, Q-91); that district's `restore` record moves it to the LOG (`done`); `UNIT_AVAILABLE` (STATION,
   to the unit's lever) and `TIE_LIMIT_END` (MARKET NOTICE, to the tie) are information; the
   weather onsets keep one rule: a `crit` log (heat onset, storm arrival, wind cut-out) rings, and
   on a dayplan day the front's `CLOUD_ONSET` over the suburbs and a warned drought's
@@ -5004,10 +5070,11 @@ shortfall when R5 < L); "N-1 SHORT: n MW short: cover it within m:ss."; "N-1 TIG
 covers the next trip, without SECURE's margin." (TIGHT already covers: no countdown); SECURE as
 before.
 fallbackGlow's tie test reads obs.tie.importLimitMW (a derate's limit, Q-68).
-Q-91: feederCard(obs, id, suburbs, why) is the feeder card's model (the clock held at a hand-back): the
-feeder, its suburb's name and its pickup with its cold load to the 10 MW ("SAL4's feeder in Saltbush Bay
-is repaired: about 230 MW with its cold load."), the keys (FEEDER_KEYS "R or Enter: restore it now · Esc:
-go on"), what going on means (FEEDER_ON) and a refused restore's reason.
+Q-91: feederCard(obs, id, suburbs, why, lamp) is the feeder card's model (the clock held at a hand-back):
+the feeder, its suburb's name and its pickup with its cold load to the 10 MW ("SAL4's feeder in Saltbush
+Bay is repaired: about 230 MW with its cold load."), the keys (FEEDER_KEYS "R or Enter: restore it now ·
+Esc: go on"), what going on means (FEEDER_ON), a refused restore's reason (why), and before one why a
+restore would be refused now (lamp: the RESTORE PREVIEW's reason, '' once why is set).
 ```
 
 #### audio/audio.js
@@ -5113,11 +5180,12 @@ line do, but the tab is lit amber only when one is the player's), and a press on
 the red refusal with the sim's reason ("feeder under repair until HH:MM"), as every permissive
 refusal. From its hand-back the row reads "<id> · REPAIRED" (the FEEDER_CLEAR card's word). The
 RESTORE tab glows while a feeder card holds the clock (vm.feeder, Q-91: from each allowed second
-until that feeder is restored or its card answered), not all day; at the card its R and Enter are
-the shell's (they restore the feeder the card names), and a CLOSE press is the bay's as ever. R
-(once the card is gone), and each hand-back while the list's choice is held or none, choose the
-feeder handed back last that can close, else the first that can, else the first that is the
-player's (the tray card's "R, then Enter"); Enter on the RESTORE tab does what R does.
+until that feeder is restored or its card answered), not all day; at the card its R is the
+shell's (it restores the feeder the card names), and so is Enter but on a row (a CLOSE press, or
+Enter on a row, is the bay's as ever); the list's choice moves to the card's feeder as each card
+shows (vm.feeder). R (once the card is gone), and each hand-back while the list's choice is held or
+none, choose the feeder handed back last that can close, else the first that can, else the first
+that is the player's (the bay's "R, then Enter"); Enter on the RESTORE tab does what R does.
 Keys (K-23): O opens the first READY unit's scope (an offered one first; again: closes it),
 B is the bypass key (HAND). The scope canvas is role="img" with a text alternative that changes
 at most once per real second. Foley (K-20): buttons and tabs cue `button`, the bypass key `key`;

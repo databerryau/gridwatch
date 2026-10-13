@@ -3,7 +3,8 @@
 // at the feeder card would; outside that window rule 9 keeps its place. Q-91: the feeder card holds
 // the clock at the allowed second, so par's reference playback counts a hold there (zero grid time,
 // at least the proxy's own pace), and §32.10's 'slow' proxy holds each card PROXY_SLOW_RESTORE_REAL_S:
-// its 15 real s pass on the held clock. Classic has no task feeders, so it never opens the window
+// its 15 real s pass on the held clock, so it equals competent by construction (a regression guard,
+// not a measure). Classic has no task feeders, so it never opens the window
 // (tests/baseline-v4.test.js holds classic's par bit for bit).
 import {test, before} from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,7 +46,9 @@ test('Q-88, Q-91: on a task date par, competent and slow close each handed-back 
   }
 });
 
-test('§32.10, Q-91: the slow proxy\'s 15 real s pass on the held clock: it closes each feeder when competent does', () => {
+// (slow equals competent by construction: holdOf is at least each proxy's own gap, so a card never makes a proxy
+// late. This is the guard on that; the page's hold itself is tests/feeder-card.test.js's.)
+test('§32.10, Q-91: the slow proxy\'s 15 real s pass on the held clock: it closes each feeder when competent does (a regression guard)', () => {
   assert.ok(PROXY_NAMES.includes('slow'));
   const comp = closes(RUNS.competent), slow = closes(RUNS.slow);
   assert.deepEqual(slow.map(c => [c.id, c.s]), comp.map(c => [c.id, c.s]));

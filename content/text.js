@@ -763,9 +763,11 @@ const ABSTRACTIONS = [
     real: 'A network hands a repaired feeder back and the control room closes it within minutes; nobody stops time to do it.',
     ours: 'When a feeder under repair may be closed (at its hand-back, and no sooner than ' + minutes(V.RESTORE_INTERVAL_S) +
       ' grid-minutes after the last restore) the clock holds on a card that names it and its pickup with its cold load; the badge ' +
-      'reads HELD. R or Enter restores it (refused, the card says why and stays); Esc goes on, and the feeder stays dark and is ' +
-      'yours from its hand-back: the RESTORE bay and the line still ask, and no card holds for it again. Any other press on the ' +
-      'desk goes on too. One card per feeder, after a watch and its card, none from ' + hhmm(NIGHT_H) + '. Closed within ' +
+      'reads HELD. R, Enter or the card\'s RESTORE restores it (refused, the card says why and stays; it warns you before you ' +
+      'press, too); Esc or GO ON goes on, and the feeder stays dark and is yours from its hand-back: the RESTORE bay and the line ' +
+      'still ask, and no card holds for it again. Any other press on the desk puts the card off and is applied: a later restore ' +
+      'that moves the feeder\'s allowed time brings it back. One card per feeder per allowed time, after a watch and its card, ' +
+      'none from ' + hhmm(NIGHT_H) + '. Closed within ' +
       minutes(V.RESTORE_PACE_MAX_S) + ' grid-minutes of when it may be, the day can still be PERFECT. Par\'s reference playback counts ' +
       'each card as ' + num(V.REF_RESPOND_CARD_S) + ' real s, as the respond card.',
     why: 'At the profile\'s speeds one real second is minutes of a dark district: the held clock makes the hand-back a decision ' +
