@@ -22,8 +22,10 @@
 // Q-77, the returning player: competent (runPar's harness, night memo included) plus every
 // restore the lamp allows (a dark district whose permissive is '') plus every scope the game
 // offers, taken and closed cleanly (scope, then AUTO: the clean pass through 0 degrees), looking
-// every 30 grid-s (1 real s at RESTORE's 30x; a ready unit waits AUTO_SYNC_S). Offers come from the game's own rule, G.offerWhy(obs, tally) with two arguments
-// (D-5's window is obs.inRespond), one per ready period, at most MAX_OFFERS a day. A SYNC MATTERS
+// every 30 grid-s (1 real s at RESTORE's 30x; a ready unit waits AUTO_SYNC_S), until the night shift
+// takes the desk at 21:00 (Q-73; nothing is offered from then, Q-78). Offers come from the game's own rule, G.offerWhy(obs, tally) with two arguments
+// (D-5's window is obs.inRespond), one per ready period (a unit with no reason yet is looked at again,
+// as app/game.js updateOffers keeps no record of it), at most MAX_OFFERS a day. A SYNC MATTERS
 // (K-12) when a stack column of app/planview.js project(obs) at the offer, in [close, close +
 // AUTO_SYNC_S], is red or amber and the MW the clean close gains there over the auto-synchroniser's
 // close (the sync block, then the T2 ramp toward MIN) covers its gap (P50 for red, P90 for amber,
@@ -143,6 +145,8 @@ export function returning(seed, scn) {
     const r = runPar(seed, scn, memo ? {state, memo, untilTick: t, hashEveryS: V.DAY_S + 1} : {state, proxy: 'competent', untilTick: t, hashEveryS: V.DAY_S + 1});
     memo = r.memo;
     if (state.over) break;
+    // Q-73/Q-78: the night shift has the desk and nothing is offered from 21:00; runPar plays the night
+    if (state.control.nightShift) { runPar(seed, scn, {state, memo, hashEveryS: V.DAY_S + 1}); break; }
     // every restore the lamp allows (the input runs the real restore preview)
     const ds = state.city.districts;
     for (let i = 0; i < ds.length; i++) {
@@ -155,9 +159,9 @@ export function returning(seed, scn) {
     if (!ready.length || state.control.mode !== 'AGC') continue;
     const obs = observe(state);
     for (const u of ready) {
-      offered.add(u.id);
       const why = offerWhy(obs, tally);
-      if (!why) continue;
+      if (!why) continue; // as app/game.js updateOffers: no record, so the unit is looked at again
+      offered.add(u.id);
       tally.n++;
       if (why !== 'respond') tally.extra++;
       else if (obs.contingencies.length) tally.contN = obs.contingencies[obs.contingencies.length - 1].n;

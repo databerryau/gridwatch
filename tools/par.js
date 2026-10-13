@@ -120,7 +120,7 @@ function runOne(S, scenario, seed, proxy, withActions, probe) {
   const t0 = process.hrtime.bigint();
   const r = S.runPar(seed, scenario, {proxy, onStep: st => {
     const t = st.tick;
-    if (firstShed < 0 && t % TPS === 1 && st.city.shedFrac - st.city.heldFrac > 1e-9) firstShed = t; // (2c: held task feeders are the network's)
+    if (firstShed < 0 && t % TPS === 1 && st.city.districts.some(d => d.dark && (d.shedBy === 'ufls' || d.shedBy === 'directed'))) firstShed = t; // (2c: isClean's darkness; task feeders are not shed)
     if (t % TPS !== 0 || st.over) return;
     // A completed grid second (as tools/baseline-v4.js samples it): state.price is its price.
     if (st.env.demandMW < minDemandMW) { minDemandMW = st.env.demandMW; minDemandTick = t; }
