@@ -69,7 +69,7 @@ export function createDirector(opts) {
     cardDoneN: -1,             // latest contingency n whose respond card was dismissed
     cardAtTick: -1,            // tick the latest card was dismissed (RESPOND runs from it)
     focusUntilTick: -1,        // FOCUS after a restore input until this tick
-    offer: null,               // OFFER: {i: the offered unit's index, untilTick}
+    offers: {},                // OFFER: {an offered unit's index: the tick its window ends}
     seenDirty: false,          // seen changed: the game saves it
   };
 }
@@ -132,15 +132,18 @@ function restoring(d, state) {
   }
   return 0;
 }
-// K-12: an offered unit still at full speed, for at most AUTO_SYNC_S from the offer
+// K-12: any offered unit still at full speed, each for at most AUTO_SYNC_S from its own offer (a window
+// ends when its unit leaves full speed); none once the night shift has the desk (Q-73)
 function offering(d, state) {
-  const o = d.offer;
-  return !!o && d.game && state.tick < o.untilTick && state.units[o.i].mode === 'ready';
+  if (!d.game || night(state)) return false;
+  let on = false;
+  for (const i in d.offers) if (state.tick < d.offers[i] && state.units[i].mode === 'ready') on = true; else delete d.offers[i];
+  return on;
 }
-/** The game offers unit `id` (app/game.js updateOffers): OFFER until it is taken, closed or AUTO_SYNC_S passes. */
+/** The game offers unit `id` (app/game.js updateOffers): OFFER while it or another offered unit waits, up to AUTO_SYNC_S each. */
 export function offerPace(d, state, id) {
   const i = state.units.findIndex(u => u.id === id);
-  if (i >= 0) d.offer = {i, untilTick: state.tick + V.AUTO_SYNC_S * TPS};
+  if (i >= 0) d.offers[i] = state.tick + V.AUTO_SYNC_S * TPS;
 }
 function contCount(state) {
   return state.contIdx < 0 ? 0 : state.conts[state.contIdx].n + 1;

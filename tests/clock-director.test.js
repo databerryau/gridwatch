@@ -159,6 +159,13 @@ test('K-12, Q-78: a scope offer plays OFFER (SYNC 30×) while its unit waits at 
   const take = o => { const why = G.offerWhy(o, tally); if (why) G.tallyOffer(tally, why, o); return why; };
   assert.deepEqual([take(obs(0)), take(obs(0)), take(obs(-1, 'SECURE', 13 * H)), take(obs(1))], ['respond', 'tight', '', 'respond']);
   assert.deepEqual([tally, take(obs(2))], [{n: 3, extra: 1, contN: 1}, '']);
+  // two offers at once (a 'respond', then a 'tight' a minute later): the later one taken first, OFFER plays on for the earlier one to its own end
+  const two = fake({s: 10 * H, units: [{id: 'gta1', mode: 'ready'}, {id: 'gtb1', mode: 'ready'}]}), e = director({watch: true});
+  D.offerPace(e, two, 'gta1'); two.tick += 60 * TPS; D.offerPace(e, two, 'gtb1');
+  two.units[1].mode = 'loading';
+  assert.deepEqual([mode(e, two), D.rateOf(e, two)], ['OFFER', 30], 'GT·B 1 closed: GT·A still waits');
+  two.tick += (V.AUTO_SYNC_S - 60) * TPS;
+  assert.equal(mode(e, two), 'CRUISE', 'GT·A\'s own window has passed');
 });
 
 test('Q-73: NIGHT with the night shift on a night scenario: the profile eased in, no FAST, and no watch, card or RESPOND from it (one begun before 21:00 included); classic keeps its watch', () => {
@@ -187,6 +194,12 @@ test('Q-73: NIGHT with the night shift on a night scenario: the profile eased in
   assert.equal(mode(f, resp), 'RESPOND');
   resp.tick = NIGHT_T + TPS; resp.control.nightShift = true;
   assert.equal(mode(f, resp), 'NIGHT');
+  // an offer at 20:59 (its window runs to 21:03): NIGHT from the flip, never SYNC 30x under the lock
+  const off = fake({s: NIGHT_S - 60, units: [{id: 'gta1', mode: 'ready'}]}), o = director({watch: true});
+  D.offerPace(o, off, 'gta1');
+  assert.equal(mode(o, off), 'OFFER');
+  off.tick = NIGHT_T + 30 * TPS; off.control.nightShift = true;
+  assert.deepEqual([mode(o, off), badgeText(D.modeOf(o, off)), D.rateOf(o, off) > 300], ['NIGHT', 'NIGHT ROLL 2,100×', true]);
   const classic = fake({s: NIGHT_S + H, night: false});
   trip(classic);
   assert.equal(mode(d, classic), 'WATCH', 'classic (night: false) keeps its watch');
@@ -205,15 +218,16 @@ test('Q-73 on the page: the sim\'s night flip is the one test (badge, mode, lock
   assert.deepEqual([p.mode(), st.control.nightShift, lines(p.look(), /^CLOCK/)[0].split(' | ')[1]], ['NIGHT', true, 'NIGHT ROLL 2,100×']);
   assert.match(p.$('rate-badge').title, /^The night roll: the night shift runs the grid to 04:00\. /);
   assert.match(p.pressKey('f', {}, {after: 1 / 60}).during, /^TOAST blue FAST waits: the night shift runs the roll to 04:00$/m);
-  const lock = new RegExp('^TOAST blue ' + G.NIGHT_LOCK.replace(/[.:]/g, '\\$&') + '$', 'm');
+  // the lock answers in blue with its own words (the shell's toast here; desk's own night note, the same words, once it merges), never in red
+  const lock = new RegExp('^(TOAST blue|NOTE blue [^\\n]*?:) ' + G.NIGHT_LOCK.replace(/[.:]/g, '\\$&') + '$', 'm');
+  const blue = (look, what) => { assert.match(look, lock, what); assert.doesNotMatch(look, /^NOTE RED/m, what + ': one answer, no red note beside the control'); };
+  const line = /^LINE \? IF PRESSED The night shift has the desk: /m;
   p.click('guard-start-gta1');
+  assert.deepEqual([line.test(p.look()), /^LINE ● ARMED/m.test(p.look())], [true, false], 'no cover to confirm under the lock');
   const s = p.press('guard-start-gta1', {after: 1 / 60});
-  assert.match(s.during, lock);
-  assert.match(s.during, /^LINE \? IF PRESSED The night shift has the desk: /m, 'the line never promises what the lock refuses');
-  assert.doesNotMatch(s.during, /^NOTE RED/m, 'one answer: no red note beside the control');
-  const r = p.press('btn-redispatch', {after: 1 / 60});
-  assert.match(r.during, lock);
-  assert.doesNotMatch(r.during, /^NOTE RED/m);
+  blue(s.during, 'START');
+  assert.match(s.during, line, 'the line never promises what the lock refuses');
+  blue(p.press('btn-redispatch', {after: 1 / 60}).during, 'RE-DISPATCH');
   assert.deepEqual([G.sendInput(p.game, {type: 'tie', mw: 100}), G.redispatch(p.game)], [G.NIGHT_LOCK, G.NIGHT_LOCK]);
   assert.ok(!st.log.some(r => r.type === 'start' || r.type === 'tie'), 'no START or tie of the player is logged');
   for (const cmd of [{do: 'pause'}, {do: 'pause'}, {do: 'ack'}, {do: 'volume', volume: 0.5}, {do: 'drawer'}, {do: 'drawer'}]) assert.equal(G.ui(p.game, cmd), '', cmd.do);
@@ -274,9 +288,14 @@ test('Q-64: in the briefing AGC/HAND is the sim\'s mode: the desk\'s key and the
   assert.deepEqual([st.control.mode, st.control.handFlown, p.mode()], ['HAND', true, 'CRUISE']);
   assert.match(p.look({controls: false}), /^CLOCK 04:3\d:\d\d \| PRE-DAWN 270× /m, 'HAND halves the profile');
   // RESTORE and OFFER answer F with why (a hand-back moved to now; an offer)
-  const x = p.game.state.city.districts.find(q => q.clearS >= 0);
+  const x = p.game.state.city.districts.find(q => q.clearS >= 0), clearS = x.clearS;
   x.clearS = Math.floor(p.game.state.tick / TPS);
   assert.match(p.pressKey('f', {}, {after: 1 / 60}).during, /^TOAST blue FAST waits: a repaired feeder is yours now: close its breaker \(R, then Enter\)$/m);
+  x.clearS = clearS;                                                     // (HAND has no auto-synchroniser: the answer is true in both modes)
+  assert.equal(p.send({type: 'start', unit: 'gta1'}), '');
+  p.until('mode', {max: '+15m'});
+  assert.equal(p.mode(), 'OFFER');
+  assert.match(p.pressKey('f', {}, {after: 1 / 60}).during, /^TOAST blue FAST waits: a unit is at full speed: O opens its synchroscope \(30× for at most 8 s\)$/m);
   G.resetDay(p.game);
   p.frame();
   assert.match(p.look(), on('btn-agc'), 'a new day: the card reads AGC');

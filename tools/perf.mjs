@@ -101,7 +101,7 @@ export async function simCost(seed, rate, frames) {
   const planview = await import('../app/planview.js');
   const {V} = await import('../sim/params.js');
   const game = G.createGame({seed, system, planview, storage: null, scenario: G.scenarioForSeed, commit: 'player'});
-  G.takeDesk(game, {agc: true});
+  G.takeDesk(game);
   const perFrame = Math.max(1, Math.round(rate * V.TICKS_PER_S / 60));
   const sim = [], vm = [];
   let nowMs = 0, actedS = -Infinity, actions = 0;

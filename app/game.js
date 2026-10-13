@@ -819,8 +819,8 @@ export function buildVm(game, f) {
     // C-10 (§19.5): {target, text, level} for the guard being hovered, focused or lifted, or null;
     // the shell shows it in #objective with the word '? IF PRESSED', in place of the objective.
     consider: game.consider,
-    // the guard with its cover up, or null; levers held by hand
-    armed: game.ui.armed, held: game.commit === 'player' && heldByHand(game),
+    // the guard with its cover up, or null (none under the night lock: no press to confirm, Q-73); levers held by hand
+    armed: obs.nightShift ? null : game.ui.armed, held: game.commit === 'player' && heldByHand(game),
     alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
     suburb: game.ui.suburb, dayAhead: game.dayAhead,
   };

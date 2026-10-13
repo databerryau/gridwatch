@@ -901,7 +901,7 @@ test('§21.4: in player mode an accepted start, stop, abortStop, battery, guard,
 // 04:32:00 and looks again at 04:33:00 (an input made now is not seen by it for half a minute).
 function playerGame(o = {}) { // (today's desk events, legacyDesk: the plan keeps CCGT 2 out on seed 7)
   const game = G.createGame(Object.assign({seed: 7, scenario: legacyDesk(), system: SYS, planview: PVW, commit: 'player', storage: null}, o));
-  G.takeDesk(game, {agc: true});
+  G.takeDesk(game);
   G.runTo(game, V.PLAYER_START_TICK + 130 * TPS + 25);
   return game;
 }

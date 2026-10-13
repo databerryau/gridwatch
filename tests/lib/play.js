@@ -245,14 +245,15 @@ export function openGame(o = {}) {
   const game = h.game, $ = id => doc.getElementById(id);
   let hovered = null, lastLook = '';
   // D-2's clock (clockReport): the page time and tick of the Space that ran the clock, and from then every
-  // frame's [grid s before, grid s after, real s, the sim's synchroscope open and the game's scope offer open at its start]
+  // frame's [grid s before, grid s after, real s, the sim's synchroscope open and a scope offer open at its start:
+  // any offered unit at full speed within AUTO_SYNC_S of its own offer, before the night shift has the desk]
   let spaceMs = -1, spaceTick = -1;
   const played = [];
   const gridS = () => game.state.tick / TPS;
   const pre = () => {
     if (spaceMs < 0) return null;
     const st = game.state, o = game.offered;
-    return [st.scope.unit !== '', st.units.some(u => u.mode === 'ready' && o[u.id] && st.tick < o[u.id].tick + V.AUTO_SYNC_S * TPS)];
+    return [st.scope.unit !== '', !st.control.nightShift && st.units.some(u => u.mode === 'ready' && o[u.id] && st.tick < o[u.id].tick + V.AUTO_SYNC_S * TPS)];
   };
   const acct = (s0, dt, f0) => { if (spaceMs >= 0) played.push([s0, gridS(), dt, f0 || [false, false]]); };
 
@@ -595,8 +596,9 @@ export function openGame(o = {}) {
    * synchroscope open, and RESTORE_FOCUS_S after each accepted restore input), RESTORE (each task
    * feeder's allowed second, market.restoreAllowedS, re-armed by every later restore of any
    * district, to its own restore or + RESTORE_PACE_MAX_S, before 21:00), RESPOND's 30x part (the
-   * card to backInBandTick or + RESPOND_MAX_S) and OFFER (a scope offer while its unit waits at
-   * full speed, at most AUTO_SYNC_S). A frame counts in the first of these holding its middle, in
+   * card to backInBandTick or + RESPOND_MAX_S; no card or RESPOND from a night scenario's 21:00) and
+   * OFFER (any offered unit while it waits at full speed, at most AUTO_SYNC_S from its own offer,
+   * before the night shift has the desk). A frame counts in the first of these holding its middle, in
    * the director's precedence (a frame that runs no tick at a watch's end: the card). parts[k].n
    * counts the spans begun after Space and before now.
    * @returns {{fromS, toS, sinceS, profileS, E, offS, parts: {WATCH, card, FOCUS, RESTORE, RESPOND, OFFER: {n, realS, overS}}}|null}
@@ -609,8 +611,10 @@ export function openGame(o = {}) {
       if (c.startTick < spaceTick || c.startTick / TPS >= nightS) continue;
       const w = c.watchEndTick / TPS, back = c.backInBandTick < 0 ? Infinity : c.backInBandTick / TPS;
       spans.WATCH.push({a: c.startTick / TPS, b: w});
+      if (w > nightS) continue;                          // (from the night flip no card or RESPOND plays)
       cards.push(w);
-      if (Math.min(back, w + V.RESPOND_MAX_S) > w) spans.RESPOND.push({a: w, b: Math.min(back, w + V.RESPOND_MAX_S)});
+      const b = Math.min(back, w + V.RESPOND_MAX_S, nightS);
+      if (b > w) spans.RESPOND.push({a: w, b});
     }
     // every accepted restore, in tick order: the restore's own FOCUS, and the second it moves every dark task feeder's allowed second to
     const rs = st.log.filter(r => r.type === 'restore').map(r => ({t: r.tick / TPS, id: r.args.district}));

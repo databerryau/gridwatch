@@ -24,7 +24,7 @@ const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNO
 const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
   RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE',
   ALARMS: 'the alarm panel holds the clock: Esc closes it', RESTORE: 'a repaired feeder is yours now: close its breaker (R, then Enter)',
-  OFFER: 'a unit is at full speed: SYNC it by hand (O), or auto-sync closes it', NIGHT: 'the night shift runs the roll to 04:00'};
+  OFFER: 'a unit is at full speed: O opens its synchroscope (30× for at most 8 s)', NIGHT: 'the night shift runs the roll to 04:00'};
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
 // Q-46 (§30.3.6): the alarm panel's own keys inside it; the keys that never close it (F: refused, FAST_WAIT).
