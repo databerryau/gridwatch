@@ -8,7 +8,7 @@ import {runPar} from '../sim/autopilot.js';
 import {createSystem, systemInputs, redispatch, commitSig, heldByHand, DISPATCH_S} from '../app/system.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {ticksAt, injectTrip} from './lib/sim-helpers.js';
+import {ticksAt, injectTrip, legacyDesk, withoutTask} from './lib/sim-helpers.js';
 import {followDay} from './lib/follow.js';
 import {quotedSaving, stopLines, skipping, planCost, dearerThanPar, SKIPPED, PLAN_COST_KEYS} from '../tools/follow.mjs';
 import * as fleet from '../sim/fleet.js';
@@ -106,7 +106,7 @@ test('L-0 re-flow: while districts are dark the system re-dispatches for the lit
 });
 
 test('heldByHand: a lever or plan key moved by hand counts at once, not at the system\'s next look; a commitment input is not one', () => {
-  const s = createState(7, DESK), sys = createSystem({commit: 'player'});
+  const s = createState(7, legacyDesk()), sys = createSystem({commit: 'player'}); // (today's desk events: the plan keeps CCGT 2 out on seed 7)
   // 04:32:10 and a half: the system looked at 04:32:00 and looks again at 04:33:00
   while (s.tick < V.PLAYER_START_TICK + 130 * TPS + 25) step(s, systemInputs(sys, s));
   assert.equal(heldByHand(sys, s), false);
@@ -185,6 +185,9 @@ test('§21.3 commitSig: the dispatch is made over the battery\'s mode, order and
 
 test('§21.3 player mode: a battery order re-flows the plan at the system\'s next look, not at the next 5-minute dispatch; the plan carries it', () => {
   const {s, sys} = playerDay(2, DESK, ticksAt(10));
+  // (Q-69: HAR3 and HAR4 were handed back at 06:35 and 07:55 and nobody closed them. A handed-back feeder
+  // counts dark, so AGC did not carry its load into the battery: 648 MWh measured, full when it counted lit.)
+  assert.ok(['HAR3', 'HAR4'].every(id => s.city.districts.find(d => d.id === id).dark) && s.battery.socMWh < 0.75 * V.BATT_MWH, s.battery.socMWh.toFixed(0) + ' MWh');
   let n = planLoads(s);
   while (planLoads(s) === n) step(s, systemInputs(sys, s)); // just after a 5-minute dispatch
   const before = planCover(sys, s, 2), t0 = s.tick;
@@ -212,7 +215,8 @@ test('§21.3 player mode in the belly: units at their floor, the tie at the expo
   // opens with; C-14 is tuned in stage C, the asserts do not count machines) and more sun than load.
   // A regression guard: the dispatch before wave 2 already planned this noon so. What it got wrong
   // is below (a dark suburb that is a net exporter) and in 'a battery order re-flows the plan'.
-  const {s, sys} = playerDay(1, DESK_WEEKEND, ticksAt(12, 30));
+  // (The day without the restore task, Q-68: the dark suburb below is the only darkness at noon.)
+  const {s, sys} = playerDay(1, withoutTask(DESK_WEEKEND), ticksAt(12, 30));
   const obs = observe(s);
   const spill = obs.wind.autoMW + obs.solar.autoMW;
   assert.ok(spill > V.SURPLUS_MIN_MW, 'the fixture: ' + spill.toFixed(0) + ' MW being spilled');

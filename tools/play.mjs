@@ -11,13 +11,14 @@
 // The first argument is the seed (default 20261007; a Saturday or Sunday seed plays the weekend
 // day, as the page does). Steps:
 //   to=HH:MM | to=+30m      jump to a grid time; stops early at a trip or a change of director
-//                           mode (WATCH, the RESPOND card, RESPOND, OVER...), then draws one frame
-//   jump=HH:MM              the same, stopping only where the clock holds (the card, the end)
-//   until=EV[,EV][@MAX]     jump until an event: trip, card, mode, notice (a tray card or news),
+//                           mode (WATCH, the RESPOND card, a feeder card, RESPOND, OVER...), then draws one frame
+//   jump=HH:MM              the same, stopping only where the clock holds (a card, the end)
+//   until=EV[,EV][@MAX]     jump until an event: trip, card (the RESPOND card or a feeder card), mode, notice (a tray card or news),
 //                           line (the objective's text changed), ask (a new ask to act), event
 //                           (all but line); MAX ('HH:MM', '+2h') guards it (default: day's end)
-//   look                    the full snapshot (CLOCK, LINE, WATCH, CARD, BALANCE, DIAL, N-1,
-//                           TRAY, NOTE, TOAST... and CTRL: every visible control, id "label")
+//   look                    the full snapshot (CLOCK with the header's chips: ALL-IN or SCORE, and on a
+//                           HAND day HAND, then HAND-FLOWN · NIGHT SHIFT ON AGC; LINE, NIGHT, WATCH, CARD, FEEDER,
+//                           BALANCE, DIAL, N-1, TRAY, NOTE, TOAST... and CTRL: every visible control, id "label")
 //   brief                   the snapshot without the CTRL lines
 //   diff                    the snapshot lines that changed since the previous look/brief/diff
 //   buttons                 every visible, enabled control: id "label" [state]
@@ -34,9 +35,15 @@
 //                           -later (◀ ▶), city-HAZ-soak-cancel-1030 (CANCEL the 10:30 block), city-HAZ-restore; look
 //                           shows it as a SUBURB line. Keys in the card: ←/→ suburb, ↑/↓ row, - = time, Enter
 //   timeline=FROM-TO/EVERY  look() every EVERY (30m) from FROM to TO, plus every event; prints the
-//                           changed lines (presses Enter at each RESPOND card)
+//                           changed lines (presses Enter at each card: the RESPOND card goes, a feeder
+//                           card restores its feeder, then Esc if that was refused)
 //   state                   tick, grid time, mode, contingencies, inputs logged
-// Flags: --hand (HAND at the briefing) | --no-run (leave the clock held at 04:30) |
+//   clock                   D-2's clock: real seconds from Space to now against E (the D-2 profile's
+//                           real seconds plus each span played off it: WATCH, the card, FOCUS, RESTORE
+//                           (the feeder cards' held real seconds, Q-91), RESPOND's 30x part, OFFER; read
+//                           from the sim's records and the game's offers), with each term
+// Flags: --hand (HAND at the briefing) | --returning (a returning player's storage: seen.watch, so a
+//   compact watch) | --no-run (leave the clock held at 04:30) |
 //   --scenario=ID (desk, desk-weekend, classic) | --line=near (faster jumps: the objective line
 //   is computed only over the last 20 grid min before a to() target, so a held line may show a
 //   fresher figure) | --aria (add the screen-reader live region to look) | --help.
@@ -49,13 +56,14 @@
 // its first commit). After a jump, the frame shows the state at the stop tick exactly (sim,
 // objective line, annunciator, tray, the watch, the card). Readouts that ease and refresh at
 // most every 0.5 real s (the frequency dial's figure) show the current value at once, where
-// frame-by-frame play shows one up to 0.5 real s (60 grid s at CRUISE) old; the screen-reader
+// frame-by-frame play shows one up to 0.5 real s (75-270 grid s of the profile) old; the screen-reader
 // live region is left out of look (its queue follows drawn frames). Held keys are not polled
 // during a jump (release F/D/E first).
 
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
-import {openGame, diffLooks} from '../tests/lib/play.js';
+import {openGame, diffLooks, clockOfS} from '../tests/lib/play.js';
+import {SEEN_KEY} from '../app/game.js';
 
 const argv = process.argv.slice(2);
 if (argv.includes('--help') || argv.includes('-h')) {
@@ -71,8 +79,13 @@ const line = flag('line') === 'near' ? 'near' : 'exact';
 const lookOpts = {aria: !!flag('aria')};
 
 const t0 = performance.now();
-const p = openGame({seed, agc: !flag('hand'), run: !flag('no-run'), scenario: typeof flag('scenario') === 'string' ? flag('scenario') : undefined});
-console.log('# seed ' + seed + ' · ' + p.game.scenario.id + ' · ' + (flag('hand') ? 'HAND' : 'AGC') + ' · opened in ' + Math.round(performance.now() - t0) + ' ms');
+// --returning: a browser that has seen a full watch (gridwatch:v4:seen)
+const mem = new Map(flag('returning') ? [[SEEN_KEY, JSON.stringify({watch: true})]] : []);
+const storage = flag('returning') ? {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v))} : null;
+const p = openGame({seed, agc: !flag('hand'), run: !flag('no-run'), storage, scenario: typeof flag('scenario') === 'string' ? flag('scenario') : undefined});
+console.log('# seed ' + seed + ' · ' + p.game.scenario.id + ' · ' + (flag('hand') ? 'HAND' : 'AGC') + (flag('returning') ? ' · returning' : '') +
+  ' · opened in ' + Math.round(performance.now() - t0) + ' ms');
+const sec = x => (x >= 0 ? '+' : '') + x.toFixed(1);
 
 let prev = '';
 const KEY_ALIAS = {space: ' ', spc: ' ', esc: 'Escape', enter: 'Enter', tab: 'Tab'};
@@ -124,6 +137,14 @@ for (const step of rest) {
       case 'state': {
         const s = p.game.state;
         out = 'tick ' + s.tick + ' · ' + p.clock() + ' · ' + p.mode() + ' · contingencies ' + s.conts.length + ' · inputs ' + s.log.length + (s.over ? ' · OVER' : '');
+        break;
+      }
+      case 'clock': {
+        const r = p.clockReport();
+        if (!r) { out = 'the clock has not run (Space)'; break; }
+        out = r.sinceS.toFixed(1) + ' real s from Space (' + clockOfS(r.fromS) + ') to ' + clockOfS(r.toS) + ' · E ' + r.E.toFixed(1) +
+          ' = profile ' + r.profileS.toFixed(1) + Object.entries(r.parts).map(([k, x]) => ' + ' + k + ' ' + x.n + 'x ' + sec(x.overS) +
+          ' (' + x.realS.toFixed(1) + ' real s)').join('') + ' · off by ' + sec(r.offS) + ' s';
         break;
       }
       case 'timeline': {

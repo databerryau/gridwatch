@@ -16,6 +16,7 @@ import {V} from '../sim/params.js';
 import {step, observe, createState} from '../sim/step.js';
 import * as fleet from '../sim/fleet.js';
 import {DESK_WEEKEND} from '../content/scenarios.js';
+import {withoutTask} from './lib/sim-helpers.js';
 import {tokenize, importSpecifiers} from './lib/js-tokens.js';
 import * as D from '../render/mapdata.js';
 import {createMap, mapLabels, mapSummary, mapKeyOrder, mapPinText, skyState, weatherOf, MAX_REST_LABELS} from '../render/map.js';
@@ -563,19 +564,23 @@ test('G-1 performance shape: a frame allocates no layers and does no per-block s
   assert.ok(ms[Math.floor(ms.length * 0.95)] < 8, 'p95 ' + ms[Math.floor(ms.length * 0.95)].toFixed(2) + ' ms on the stand-in canvas');
 });
 
-test('render/map*.js import only sim/params.js and their own render modules', () => {
+test('render/map*.js import only sim/params.js (and the clock, 2c), and their own render modules', () => {
   for (const f of ['map.js', 'mapdata.js', 'livestack.js']) {
     const src = readFileSync(new URL('../render/' + f, import.meta.url), 'utf8');
-    for (const s of importSpecifiers(tokenize(src))) assert.ok(['../sim/params.js', './mapdata.js', './format.js', '../app/planview.js'].includes(s), f + ' imports ' + s);
+    for (const s of importSpecifiers(tokenize(src))) assert.ok(['../sim/params.js', '../sim/clock.js', './mapdata.js', './format.js', '../app/planview.js'].includes(s), f + ' imports ' + s);
   }
 });
 
 // ------------------------------------------------------------------ Phase 2a: rooftop PV (desk/README §21.5; G-3)
 
 let NOON = null;
-/** A real mild weekend at 12:30 on the game's scenario, nobody at the desk: every suburb's roofs near their peak. */
+/**
+ * A real mild weekend at 12:30 on the game's scenario, nobody at the desk: every suburb's roofs near their peak.
+ * Without the Act I restore task (withoutTask, Q-68): nobody restores its feeders on this day, and these tests
+ * need every district lit at noon (their subject is the roofs, not the task).
+ */
 function noonVm(over) {
-  NOON ||= deskDayVm({seed: 5, untilH: 12.5, scenario: DESK_WEEKEND, follow: false}).obs;
+  NOON ||= deskDayVm({seed: 5, untilH: 12.5, scenario: withoutTask(DESK_WEEKEND), follow: false}).obs;
   return baseVm(structuredClone(NOON), over);
 }
 
@@ -958,5 +963,5 @@ test('Q-41 / Q-56: every click on the map answers: a plant its control, a suburb
   for (const d of vm.obs.districts) d.dark = d.suburb === 'SAL' || d.suburb === 'RED';
   const ls = mapLabels(vm, 'coal', 'wind');
   assert.deepEqual(ls.map(l => l.kind), ['info', 'hover', 'alarm', 'alarm']);
-  assert.deepEqual(ls.filter(l => l.kind === 'alarm').map(l => l.text.replace(/\d+/, 'N')), ['REDGUM FLATS: N DARK', 'SALTBUSH BAY: N DARK']);
+  assert.deepEqual(ls.filter(l => l.kind === 'alarm').map(l => l.text.replace(/\d+/, 'N')), ['REDGUM FLATS: N DARK', 'SALTBUSH BAY: N DARK (2 BACK 07:20, 07:50)']); // (2c: SAL's held task feeders, Q-69)
 });

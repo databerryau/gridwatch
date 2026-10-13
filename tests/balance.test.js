@@ -15,6 +15,7 @@ import {V} from '../sim/params.js';
 import {createState, step, observe} from '../sim/step.js';
 import * as fleet from '../sim/fleet.js';
 import {DESK} from '../content/scenarios.js';
+import {withoutTask} from './lib/sim-helpers.js';
 import {imbalanceSegments} from '../desk/calc.js';
 import * as D from '../desk/dial.js';
 
@@ -30,14 +31,16 @@ const RESPOND = {mode: 'RESPOND', rate: 30, watchS: -1, locked: false, watchVers
 // ---------------------------------------------------------------- fixture: the owner's day, a minute in
 
 /**
- * Seed 20261007 (a Wednesday: the page plays it on DESK). `cruise`: 120 frames at 120× (one every
+ * Seed 20261007 (a Wednesday: the page plays it on DESK), without the restore task (Q-68: its two
+ * feeders dark from 04:00 move the opening and so the regulation noise; the subject here is the bar,
+ * not the task). `cruise`: 120 frames at 120× (one every
  * two grid seconds) after a minute to settle. Then the battery is ordered to charge 200 MW and,
  * once it charges 100, the largest unit trips: `tripped` is the tick after, `watch` the 60 ticks
  * after that (the watch's first 1.2 grid s), `trip` half a second in, where H-10 has suspended
  * the charge (below 49.85 Hz).
  */
 const FIX = (() => {
-  const st = createState(20261007, DESK);
+  const st = createState(20261007, withoutTask(DESK));
   for (let k = 0; k < 60 * TPS; k++) step(st);
   const cruise = [];
   for (let f = 0; f < 120; f++) {

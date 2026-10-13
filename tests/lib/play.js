@@ -12,16 +12,18 @@
 //   const s = p.press('guard-start-gta1');   // {before, during, after, diff}: three sampled looks
 //
 // WHY. One drawn frame costs ~3-5 ms in the stand-in DOM (the desk, map, Live Stack and shell
-// all draw); at CRUISE a 60-fps frame is only 2 grid seconds, so frame-by-frame play to the
-// afternoon is ~20,000 frames (1-2 minutes). The sim alone runs a grid hour in ~0.12 s.
+// all draw); a 60-fps frame is 2.5-9 grid seconds of the D-2 profile before 21:00 (150x-540x;
+// HAND halves it), so frame-by-frame play to the afternoon is ~8,000 frames (30-40 s). The sim
+// alone runs a grid hour in ~0.12 s.
 //
 // HOW A JUMP WORKS (to / until)
 //   A jump plays VIRTUAL FRAMES: the page's own frame (1/60 real s) without the drawing. Each
 //   runs app/loop.js runFrame on the page's pacer with the director's rates (so every tick is
 //   G.tickOnce, the function the page's loop calls, and lands in the same frame as in play),
 //   then the frame's model work: D.directorFrame, and G.buildVm itself whenever it would
-//   recompute the objective line (every 30 grid s, a watch/RESPOND change, a guard under the
-//   hand) or a unit is READY (the offers). Its other frames skip buildVm's view building and run
+//   recompute the objective line (G.objectiveDue: every max(30 grid s, 0.4 real s of the profile),
+//   a watch/card/RESPOND/NIGHT change; a guard under the hand) or a unit is READY (the offers).
+//   Its other frames skip buildVm's view building and run
 //   only the parts with memory: the annunciator (A.updateAlarms on A.alarmInputFromState, which
 //   tests keep equal to buildVm's input) and the tray's ageing. Only the drawing is skipped
 //   (map, desk, Live Stack, shell overlays, sound: ~95% of a frame's cost).
@@ -29,19 +31,20 @@
 //   Then ONE frame is drawn (handle.frame): the frame that held the stop tick, at the same page
 //   time and running no tick; the pacer keeps what it owed (the rest of that frame's ticks, or
 //   the re-charge of the tick that opened a watch), so the frames after go on as play would.
-//   A jump never runs while the clock is held (PAUSE, the RESPOND card, the day over): it
-//   returns {why: 'held:<MODE>'} at once, as play would not move either.
+//   A jump never runs while the clock is held (PAUSE, the RESPOND card, a feeder card, the day
+//   over): it returns {why: 'held:<MODE>'} at once, as play would not move either.
 //
 // REAL TIME. The page's own clock (`now`, which bootGame reads) is the driver's. frames()/real()
 // advance it by their frame time; a jump advances it 1/60 s per virtual frame, i.e. by the real
-// time a player at 60 fps would have watched at the director's rates (1 real s per 120 grid s at
-// CRUISE, the watch's slow motion at its own). So line holds (4 real s), the annunciator's
-// real-time timers (AGC LIMIT 5 real s, re-sound hold-offs), guard covers, notes and the toast
-// age across a jump exactly as in play.
+// time a player at 60 fps would have watched at the director's rates (the D-2 profile at CRUISE,
+// 1 real s per 540 grid s before 06:00 and 150 in the peak; the watch's slow motion at its own).
+// So line holds (4 real s), the annunciator's real-time timers (AGC LIMIT 5 real s, re-sound
+// hold-offs), guard covers, notes and the toast age across a jump exactly as in play.
+// clockReport() splits the real seconds since Space into D-2's terms (tools/play.mjs `clock`).
 //
 // EVENTS (until(what) and to()'s `stop` option; a name, an array of names or a function)
 //   'trip'    a contingency began (state.conts grew): the watch's first tick
-//   'card'    the RESPOND card opened (the watch ended; the clock holds)
+//   'card'    the RESPOND card opened (the watch ended), or a feeder card (Q-91, a hand-back): the clock holds
 //   'mode'    the director's mode changed (CRUISE -> WATCH / RESPOND / FOCUS, FAST ended, OVER...)
 //   'notice'  a new tray card or a news item
 //   'line'    the objective line's text changed (checked where buildVm recomputes it)
@@ -56,7 +59,7 @@
 
 import {readFileSync} from 'node:fs';
 import {makeDocument, installGlobals} from './dom.js';
-import {bootGame, PAR_STEP_TICKS} from '../../app/shell.js';
+import {bootGame, PAR_STEP_TICKS, FEEDER_ARM_MS} from '../../app/shell.js';
 import {createDesk} from '../../desk/desk.js';
 import {createMap} from '../../render/map.js';
 import {createLiveStack} from '../../render/livestack.js';
@@ -68,6 +71,8 @@ import {runFrame} from '../../app/loop.js';
 import * as A from '../../app/alarms.js';
 import * as T from '../../app/tray.js';
 import {V} from '../../sim/params.js';
+import {realBetween, NIGHT_S} from '../../sim/clock.js';
+import {restoreAllowedS} from '../../sim/market.js';
 import {SCENARIOS} from '../../content/scenarios.js';
 // Q-44: the page loads these on demand; the driver hands them to the shell up front (synchronous)
 import {TEXT} from '../../content/text.js';
@@ -190,6 +195,34 @@ export function diffLooks(prev, now) {
 const fmtControl = c => (c.id || '?') + ' "' + c.label + '"' + (c.value !== undefined && c.value !== null ? '=' + c.value : '') +
   (c.state.length ? ' [' + c.state.join(',') + ']' : '');
 
+/**
+ * Q-91: may a feeder card hold the clock in this state (app/director.js FEEDER-CARD), read from the
+ * sim alone: a task feeder (clearS >= 0) dark with shedBy 'task' whose allowed second
+ * (market.restoreAllowedS: the later of its clearS and the last restore of any district +
+ * RESTORE_INTERVAL_S) has come (from the tick after that second's own, whose step hands it back),
+ * before 21:00. The director adds only which card was answered (Esc, another input), and queues one
+ * behind a watch and the respond card.
+ */
+export function feederDue(state) {
+  const ds = state.city.districts, t = state.tick;
+  if (t >= NIGHT_S * TPS) return false;
+  for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task' && t > restoreAllowedS(ds, i) * TPS) return true;
+  return false;
+}
+
+/**
+ * Q-91, D-2's RESTORE term: does a feeder card hold the clock at this very tick, read from the sim
+ * alone: the tick after a dark task feeder's allowed second's own, before 21:00. A card holds there
+ * and nowhere else (no tick runs while it shows; one queued behind the respond card holds at the
+ * watch's end, the card's frames), so a pause or a FOCUS frame after an Esc is never counted.
+ */
+export function feederHeldAt(state) {
+  const ds = state.city.districts, t = state.tick;
+  if (t >= NIGHT_S * TPS) return false;
+  for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task' && restoreAllowedS(ds, i) * TPS + 1 === t) return true;
+  return false;
+}
+
 // ------------------------------------------------------------------ the driver
 
 /**
@@ -218,9 +251,23 @@ export function openGame(o = {}) {
   } finally { restore(); }
   const game = h.game, $ = id => doc.getElementById(id);
   let hovered = null, lastLook = '';
+  // D-2's clock (clockReport): the page time and tick of the Space that ran the clock, and from then every
+  // frame's [grid s before, grid s after, real s, the sim's synchroscope open, a scope offer open (any offered
+  // unit at full speed within AUTO_SYNC_S of its own offer, before the night shift has the desk) and a feeder
+  // card's hold tick (feederHeldAt), at its start]
+  let spaceMs = -1, spaceTick = -1;
+  const played = [];
+  const gridS = () => game.state.tick / TPS;
+  const pre = () => {
+    if (spaceMs < 0) return null;
+    const st = game.state, o = game.offered;
+    return [st.scope.unit !== '', !st.control.nightShift && st.units.some(u => u.mode === 'ready' && o[u.id] && st.tick < o[u.id].tick + V.AUTO_SYNC_S * TPS),
+      feederHeldAt(st)];
+  };
+  const acct = (s0, dt, f0) => { if (spaceMs >= 0) played.push([s0, gridS(), dt, f0 || [false, false, false]]); };
 
   // ---------------------------------------------------------------- frames (real time)
-  function frame(dtS = FRAME_DT) { t += dtS * 1000; h.frame(dtS); return api; }
+  function frame(dtS = FRAME_DT) { const s0 = gridS(), f0 = pre(); t += dtS * 1000; h.frame(dtS); acct(s0, dtS, f0); return api; }
   function frames(n, dtS = FRAME_DT) { for (let i = 0; i < n; i++) frame(dtS); return api; }
   function real(seconds, dtS = FRAME_DT) { return frames(Math.max(1, Math.round(seconds / dtS)), dtS); }
 
@@ -258,6 +305,7 @@ export function openGame(o = {}) {
   }
   /** A key press (keydown + keyup to the focused element, bubbling to the document); then one frame. */
   function key(k, extra = {}, opts = {}) {
+    if (k === ' ' && spaceMs < 0 && game.phase === 'play' && game.director.paused) { spaceMs = t; spaceTick = game.state.tick; }
     doc.dispatch('keydown', Object.assign({key: k}, extra));
     doc.dispatch('keyup', Object.assign({key: k}, extra));
     if (opts.frame !== false) frame();
@@ -306,18 +354,14 @@ export function openGame(o = {}) {
     try { if (game.storage) game.storage.setItem(G.SEEN_KEY, JSON.stringify(game.director.seen)); } catch { /* optional (C-8) */ }
     game.director.seenDirty = false;
   }
-  // buildVm recomputes the objective line this frame (its own test, app/game.js), or a unit is
+  // buildVm recomputes the objective line this frame (its own test, G.objectiveDue), or a unit is
   // READY (the offers): then the virtual frame runs buildVm itself.
   function vmDue(lineFrom) {
     const s = game.state;
     if (s.units.some(u => u.mode === 'ready')) return true;
     if (s.tick < lineFrom) return false;
     if (game.phase !== 'play' || game.commit !== 'player' || !game.planview) return false;
-    if (game.considerDirty) return true;
-    const sec = Math.floor(s.tick / TPS);
-    if (sec - game.objectiveS >= G.OBJECTIVE_EVERY_S || sec < game.objectiveS) return true;
-    const m = modeNow();
-    return m !== game.objectiveMode && /WATCH|RESPOND|OVER/.test(m + game.objectiveMode);
+    return game.considerDirty || !!G.objectiveDue(game, Math.floor(s.tick / TPS), modeNow());
   }
   // The rest of buildVm's per-frame work that has memory: the annunciator (on
   // alarmInputFromState, which tests keep equal to alarmInput(observe), and the page's own
@@ -380,12 +424,12 @@ export function openGame(o = {}) {
         const m = modeNow();
         if (m !== mode) {
           mode = m;
-          if (m === 'RESPOND-CARD' && set.has('card')) why = why || 'card';
+          if ((m === 'RESPOND-CARD' || m === 'FEEDER-CARD') && set.has('card')) why = why || 'card';
           else if (set.has('mode')) why = why || 'mode';
         }
       }
       if (!why && fns.length && !o.vm) for (const f of fns) if (f({state, game, tick: state.tick})) { why = 'pred'; break; }
-      if (!why && state.tick >= toTick) why = 'target';
+      if (!why && state.tick >= toTick) why = state.over ? 'over' : 'target'; // (the day's end is 'over', target or not)
     };
     // done() is asked before every tick: it stops the frame at the event, keeping what the pacer owes.
     const hooks = {rate: () => D.rateOf(d, state), rateLast: () => D.rateOfLastTick(d, state), tick,
@@ -394,7 +438,10 @@ export function openGame(o = {}) {
       if (rateNow() === 0) { why = why || (state.over ? 'over' : 'held:' + modeNow()); break; }
       t += FRAME_MS;
       saved = null;
+      const s0 = gridS(), f0 = pre();
       runFrame(p, FRAME_DT, hooks);
+      // (a frame stopped inside: its real time is the drawn frame's, in finish)
+      acct(s0, why || state.over ? 0 : FRAME_DT, f0);
       if (why || state.over) { midFrame = true; why = why || 'over'; break; }   // the drawn frame is this frame
       if (D.directorFrame(d, state)) saveSeen();
       if (game.par && !game.par.done) game.par.step(PAR_STEP_TICKS); // par, a slice a frame, as the page's onFrame (Q-48)
@@ -449,8 +496,9 @@ export function openGame(o = {}) {
 
   // ---------------------------------------------------------------- reading
   /**
-   * What the player sees, one line per thing: CLOCK (and mode, chips), BRIEFING, ALARMS (the panel: its tile and what it means), LINE (the objective),
-   * WATCH, CARD, END, SUBURB (the suburb card), TOAST (blue or RED), BALANCE, DIAL, N-1, NOTE (desk notes, blue or RED), TRAY (the cards), then CTRL lines:
+   * What the player sees, one line per thing: CLOCK (and mode, the chips: LIGHTS ON, COST, CO₂, ALL-IN or SCORE, and the HAND chip on a
+   * HAND day: 'HAND', then 'HAND-FLOWN · NIGHT SHIFT ON AGC'), BRIEFING, ALARMS (the panel: its tile and what it means), LINE (the objective),
+   * WATCH, CARD, FEEDER (a feeder card), END, SUBURB (the suburb card), TOAST (blue or RED), BALANCE, DIAL, N-1, NOTE (desk notes, blue or RED), TRAY (the cards), then CTRL lines:
    * every visible control as id "label"=value [disabled,pressed,on,selected,ARMED,open,focus].
    * opts.controls: false leaves the CTRL lines out; opts.aria: true adds the screen-reader live region.
    */
@@ -459,9 +507,9 @@ export function openGame(o = {}) {
     const hid = id => { const e = $(id); return !e || isHidden(e); };
     const tx = (id, skip) => textOf($(id), skip);
     const obs = vm ? vm.obs : null;
-    const ck = tx('clock-text'), allIn = tx('chip-allin'); // (the ALL-IN chip, Q-48: empty while hidden)
+    const ck = tx('clock-text'), allIn = tx('chip-allin'), hand = tx('chip-hand'); // (the ALL-IN chip, Q-48, and HAND, D-7: empty while hidden)
     L.push('CLOCK ' + ck + (obs && /^\d\d:\d\d$/.test(ck) ? ':' + pad(Math.floor(obs.s) % 60) : '') + ' | ' + tx('rate-text') +
-      ' | ' + ['chip-lights', 'chip-cost', 'chip-co2'].map(id => tx(id)).join(' | ') + (allIn ? ' | ' + allIn : ''));
+      ' | ' + ['chip-lights', 'chip-cost', 'chip-co2'].map(id => tx(id)).join(' | ') + (allIn ? ' | ' + allIn : '') + (hand ? ' | ' + hand : ''));
     if (!hid('briefing-card')) L.push('BRIEFING ' + tx('briefing-day') + ' ' + tx('briefing-watch'));
     // Q-46: the alarm panel, its selection and the first sentence of its explainer (#ap-means, as shown)
     if (!hid('alarm-panel')) {
@@ -469,8 +517,10 @@ export function openGame(o = {}) {
       L.push('ALARMS open: ' + (sel ? sel.label : vm && vm.alarmsSel ? vm.alarmsSel : '(none)') + (first ? ' · ' + first[0] : ''));
     }
     if (!hid('objective')) L.push('LINE ' + tx('objective-level') + ' ' + tx('objective-text'));
+    if (!hid('night-strip')) L.push('NIGHT ' + tx('night-strip')); // (Q-73: the night strip, in the objective's place from 21:00)
     if (!hid('watch-vignette')) L.push('WATCH ' + tx('stopwatch') + ' | ' + tx('beat-caption') + ' | ' + tx('beat-steps'));
     if (!hid('respond-card')) L.push('CARD ' + tx('respond-card'));
+    if (!hid('feeder-card')) L.push('FEEDER ' + textOf($('feeder-card'), e => e.tagName === 'BUTTON')); // (Q-91: a hand-back's card, its refusal (the grid's) or lamp on it; RESTORE and GO ON are CTRL lines)
     if (!hid('end-card')) L.push('END ' + textOf($('end-card'), e => e.tagName === 'BUTTON'));
     // Q-56: the suburb card's text (its presses are CTRL lines: city-<ID>-soak, -aircon, -earlier, -later, -cancel-HHMM, -restore)
     if (!hid('suburb-card')) L.push('SUBURB ' + textOf($('suburb-card'), e => e.tagName === 'BUTTON'));
@@ -514,7 +564,8 @@ export function openGame(o = {}) {
   /**
    * look() across a span: one at `from`, every `every` grid seconds/time ('30m') to `to`, and at
    * every event that stops a jump on the way (trip, card, mode change, notice by default). At a
-   * RESPOND card it presses Enter after looking (as a player must, to go on).
+   * card that holds the clock it presses Enter after looking (as a player must, to go on): the
+   * RESPOND card goes, a feeder card restores its feeder (Q-91), and Esc goes on if that was refused.
    * @returns {Array<{at, why, look, diff, ms}>}
    */
   function timeline(o = {}) {
@@ -525,6 +576,15 @@ export function openGame(o = {}) {
       const l = look(o.look);
       out.push({at: clockOfS(game.state.tick / TPS), why, look: l, diff: diffLooks(prev, l), ms});
     };
+    const held = why => why === 'card' || why === 'held:RESPOND-CARD' || why === 'held:FEEDER-CARD';
+    const answer = ms => {
+      const feeder = modeNow() === 'FEEDER-CARD', id = D.feederCard(game.director, game.state);
+      rec(feeder ? 'feeder' : 'card', ms);
+      key('Enter');
+      // (a feeder card queued behind the respond card shows on that Enter: the page takes its Enter FEEDER_ARM_MS later)
+      if (!feeder && modeNow() === 'FEEDER-CARD') real(FEEDER_ARM_MS / 1000);
+      if (feeder && modeNow() === 'FEEDER-CARD' && D.feederCard(game.director, game.state) === id) key('Escape');
+    };
     if (o.from !== undefined) { const r = to(o.from, {line: o.line}); rec(r.why === 'target' ? 'from' : r.why, r.ms); } else rec('from', 0);
     const end = o.to === undefined ? DAY_S : parseTime(o.to, game.state.tick / TPS);
     const stop = o.stop || ['trip', 'card', 'mode', 'notice'];
@@ -532,13 +592,13 @@ export function openGame(o = {}) {
     let guard = 0;
     while (game.state.tick / TPS < end && !game.state.over && guard++ < 10000) {
       const r = jump(Math.min(next, end), stop, {line: o.line});
-      if (r.why === 'held:RESPOND-CARD' || r.why === 'card') { rec('card', r.ms); key('Enter'); continue; }
+      if (held(r.why)) { answer(r.ms); continue; }
       if (r.why.startsWith('held:')) { rec(r.why, r.ms); break; }
       if (r.why === 'trip') {
         rec('trip', r.ms);
         // the watch, headless (real time at the watch's rates), to the card
         const c = jump(end, ['card', 'mode'], {line: o.line});
-        if (c.why === 'card' || c.why === 'held:RESPOND-CARD') { rec('card', c.ms); key('Enter'); } else rec(c.why, c.ms);
+        if (held(c.why)) answer(c.ms); else rec(c.why, c.ms);
         continue;
       }
       if (r.why === 'mode' || r.why === 'notice') { rec(r.why + ':' + modeNow(), r.ms); continue; }
@@ -549,10 +609,67 @@ export function openGame(o = {}) {
     return out;
   }
 
+  /**
+   * D-2's clock (desk/README.md §32.2): the real seconds from the Space that ran the clock to now
+   * against E, the profile's real seconds over the same grid time (sim/clock.js realBetween) plus,
+   * for each span played off the profile, its real seconds as played minus the profile's. The
+   * spans come from the sim's records and the game's offers, not the director: each watch
+   * (startTick to watchEndTick), each card (the frames held at its watchEndTick), FOCUS (the
+   * synchroscope open, and RESTORE_FOCUS_S after each accepted restore input), RESTORE (Q-91: the
+   * feeder cards' held real s, the frames that run no tick from a feeder card's hold tick,
+   * feederHeldAt: the tick after a dark task feeder's allowed second's own, re-armed by every later
+   * restore of any district, before 21:00), RESPOND's 30x part (the card to backInBandTick or + RESPOND_MAX_S;
+   * no card or RESPOND from a night scenario's 21:00) and OFFER (any offered unit while it waits at
+   * full speed, at most AUTO_SYNC_S from its own offer, before the night shift has the desk). A frame
+   * counts in the first of these holding its middle, in the director's precedence (a frame that
+   * runs no tick at a watch's end: the card, a feeder card queued behind it included; a feeder
+   * card holds over FOCUS). parts[k].n counts the spans begun after Space and before now
+   * (RESTORE: the holds).
+   * @returns {{fromS, toS, sinceS, profileS, E, offS, parts: {WATCH, card, FOCUS, RESTORE, RESPOND, OFFER: {n, realS, overS}}}|null}
+   */
+  function clockReport() {
+    if (spaceMs < 0) return null;
+    const st = game.state, hand = st.control.handFlown, nightS = st.scn.night ? NIGHT_S : Infinity;
+    const fromS = spaceTick / TPS, toS = gridS(), spans = {WATCH: [], FOCUS: [], RESPOND: []}, cards = [];
+    for (const c of st.conts) {
+      if (c.startTick < spaceTick || c.startTick / TPS >= nightS) continue;
+      const w = c.watchEndTick / TPS, back = c.backInBandTick < 0 ? Infinity : c.backInBandTick / TPS;
+      spans.WATCH.push({a: c.startTick / TPS, b: w});
+      if (w > nightS) continue;                          // (from the night flip no card or RESPOND plays)
+      cards.push(w);
+      const b = Math.min(back, w + V.RESPOND_MAX_S, nightS);
+      if (b > w) spans.RESPOND.push({a: w, b});
+    }
+    // every accepted restore: its own FOCUS
+    for (const r of st.log) if (r.type === 'restore') spans.FOCUS.push({a: r.tick / TPS, b: r.tick / TPS + D.RESTORE_FOCUS_S});
+    const K = ['WATCH', 'card', 'FOCUS', 'RESTORE', 'RESPOND', 'OFFER'], parts = {};
+    for (const k of K) parts[k] = {n: 0, realS: 0, overS: 0};
+    for (const k of Object.keys(spans)) parts[k].n = spans[k].filter(x => x.a >= fromS && x.a < toS).length;
+    parts.card.n = cards.filter(w => w < toS).length;
+    const inside = (k, m) => spans[k].some(x => m >= x.a && m < x.b);
+    let sinceS = 0, scope0 = false, offer0 = false, hold0 = false;
+    for (const [s0, s1, dt, [scope, offer, hold]] of played) {
+      sinceS += dt;
+      // (a frame of the watch's slow part may run no tick: it is the watch's all the same)
+      const m = (s0 + s1) / 2, card = s1 === s0 && cards.some(w => Math.abs(w - s0) < 1 / TPS);
+      const k = card ? 'card' : inside('WATCH', m) ? 'WATCH' : s1 === s0 && hold ? 'RESTORE' : scope || inside('FOCUS', m) ? 'FOCUS'
+        : inside('RESPOND', m) ? 'RESPOND' : offer ? 'OFFER' : '';
+      if (scope && !scope0) parts.FOCUS.n++;
+      if (offer && !offer0) parts.OFFER.n++;
+      if (k === 'RESTORE' && !hold0) parts.RESTORE.n++;
+      scope0 = scope; offer0 = offer; hold0 = k === 'RESTORE';
+      if (k) { parts[k].realS += dt; parts[k].overS += dt - realBetween(s0, s1, hand); }
+    }
+    const profileS = realBetween(fromS, toS, hand), E = profileS + Object.values(parts).reduce((a, x) => a + x.overS, 0);
+    return {fromS, toS, sinceS, profileS, E, offS: sinceS - E, parts};
+  }
+
   const api = {
     doc, h, game, $,
     get now() { return t; },
-    frame, frames, real, to, until, look, lookDiff, buttons, timeline,
+    /** The page time of the Space that ran the clock (-1 before it), for D-2's clock (clockReport). */
+    get spaceMs() { return spaceMs; },
+    frame, frames, real, to, until, look, lookDiff, buttons, timeline, clockReport,
     click, hover, key, keyDown, keyUp, hold, pointer, send, suburb, press, pressKey,
     vm: () => h.vm(),
     clock: () => clockOfS(game.state.tick / TPS),

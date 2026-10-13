@@ -30,9 +30,19 @@
 // follows whatever the line says THEN (the battery and commit-later branches under the STOP
 // branch are not hidden behind a STOP line nobody presses). The quoted saving is line.saving or
 // line.action.saving when the objective gives one, else the first "$N" after "save" in the text;
-// n/a when there is none. Until the objective has STOP lines (Phase 2a wave 3) the STOP table is
+// n/a when there is none. That skip forgoes the STOPs queued behind the kept unit (the line proposes the
+// dearest gas unit only) and runs to 04:00, so stage C adds the quote's own counterfactual beside it, ONE
+// BY ONE: every other followed action replayed at its minute and only that STOP left out (replaying), the
+// plan cost at the quote's horizon (21:00 on a night scenario, where the night shift's own decisions from
+// two different 21:00 states take over; else 04:00). Until the objective has STOP lines (Phase 2a wave 3) the STOP table is
 // empty. The day type is the seed's hidden regime (a measurement tool reads state.ext for
-// reporting only; the objective never sees it).
+// reporting only; the objective never sees it). The game's day (slice 2c, desk/README.md §32): the
+// weather is the regime's class (heat, storm, drought, calm), Act I its briefing items (the tie's
+// derate, a unit's late return, the feeders under repair: actOneOf), the restore task's MWh (task:
+// the operator's from each hand-back; held: the network's; late: past RESTORE_PACE_MAX_S) and
+// S-6's PERFECT, and the night: the inputs logged from 21:00 (the night shift's on a night
+// scenario) and the asks the player followed then (Q-73: the line is quiet, so none). A table
+// by weather follows the one by day type.
 
 import {fork} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -43,6 +53,8 @@ import {runPar} from '../sim/autopilot.js';
 import {getScenario} from '../content/scenarios.js';
 import {V, SIM_VERSION} from '../sim/params.js';
 import {allIn, grade} from '../app/score.js';
+import {isClean, isPerfect} from '../sim/market.js'; // Q-69's clean day: not black, no UFLS or directed shedding; S-6's PERFECT
+import {NIGHT_S} from '../sim/clock.js';
 
 const FILE = fileURLToPath(import.meta.url);
 const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'];
@@ -90,6 +102,23 @@ function dayType(st) {
 }
 
 /**
+ * Act I's briefing items (2c, Q-68), from the day's 04:00 records: 'tie 450 to 10:45', 'ccgt2 out
+ * to 07:45', '2 feeders to 07:15' (the last hand-back), joined by ', '; '' on a day with none.
+ * @param {object} st a state (its ext.events)
+ * @returns {string}
+ */
+export function actOneOf(st) {
+  const out = [];
+  for (const e of st.ext.events) {
+    if (e.atS !== 0) continue;
+    if (e.type === 'tieDerate') out.push('tie ' + e.args.limitMW + ' to ' + hhmm(e.args.untilS));
+    else if (e.type === 'unitOutage') out.push(e.args.unit + ' out to ' + hhmm(e.args.untilS));
+    else if (e.type === 'feederOut') out.push(e.args.districts.length + ' feeders to ' + hhmm(Math.max(...e.args.clearS)));
+  }
+  return out.join(', ');
+}
+
+/**
  * The saving a STOP line quotes, in dollars, or null: line.saving or line.action.saving if the
  * objective carries the number, else the first dollar amount after "save" in its text
  * ("Stop it: saves about $41,000.").
@@ -132,6 +161,24 @@ export function skipping(stop, untilS, line = standingObjective) {
 }
 
 /**
+ * The line's own counterfactual for one followed STOP (stage C): the day with every other action the player
+ * followed replayed at its minute, and only this STOP left out (the unit's next START, refused on a running
+ * unit, goes with it). skipping() lets the player read the line again instead, and the line's STOP branch
+ * proposes the dearest gas unit only, so while the kept unit runs no later STOP comes: its realised figure is
+ * the whole queue's (desk/README.md §27 P-1), and the day after it is another day's.
+ * @param {Array<object>} said followDay's said
+ * @param {object} stop the STOP's said entry
+ * @param {number} untilS the second the day next started the unit (stopLines)
+ */
+export function replaying(said, stop, untilS) {
+  const by = new Map(said.map(x => [x.s, x])), unit = stop.action.unit;
+  return obs => {
+    const x = by.get(obs.s);
+    return !x || x === stop || (x.s === untilS && x.action.type === 'start' && x.action.unit === unit) ? null : {kind: x.kind, level: x.level, text: x.text, action: x.action};
+  };
+}
+
+/**
  * How many of these rows cost more than par on the accept's cost, among the days that can be
  * compared: a day that ended black (the player's or par's) stopped paying when it stopped, so it
  * is counted in `na`, never as cheaper.
@@ -153,7 +200,7 @@ export function stopLines(said) {
 
 function summaryOf(r) {
   const sc = r.score;
-  return {black: r.st.black, endsAt: hhmm(Math.floor(r.st.tick / V.TICKS_PER_S)), unservedMWh: sc.unservedMWh, cost: Object.fromEntries(COST_KEYS.map(k => [k, sc.cost[k] || 0])),
+  return {black: r.st.black, endsAt: hhmm(Math.floor(r.st.tick / V.TICKS_PER_S)), unservedMWh: sc.unservedMWh, uflsMWh: sc.uflsMWh, directedMWh: sc.directedMWh, cost: Object.fromEntries(COST_KEYS.map(k => [k, sc.cost[k] || 0])),
     planCost: planCost(sc.cost), totalCost: totalCost(sc.cost), spillMWh: sc.spillMWh || 0};
 }
 
@@ -169,9 +216,17 @@ function summaryOf(r) {
 export function followSeed(scenario, seed, o) {
   const t0 = process.hrtime.bigint();
   let batt = null; // the battery at 16:30 (§21.4 accept: on hot days at or above par's level)
+  // the plan cost at a STOP quote's horizon: 21:00 on a night scenario, where the night shift takes the desk (Q-73), else the day's end
+  const cutS = scenario.night ? NIGHT_S : Infinity, cut = (r, score) => r.cutCost ?? planCost(score.cost);
+  const atCut = (r, st, obs) => { if (r.cutCost === undefined && obs.s >= cutS) r.cutCost = planCost(st.score.cost); };
+  const base = {};
   const day = followDay(seed, scenario, {follow: o.follow, untilH: o.untilH, objective: o.objective,
-    onMinute: (st, obs) => { if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh; }});
-  const row = Object.assign({seed, day: dayType(day.st)}, summaryOf(day));
+    onMinute: (st, obs) => { atCut(base, st, obs); if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh; }});
+  const row = Object.assign({seed, day: dayType(day.st), weather: day.st.ext.regime.cls || '', actOne: actOneOf(day.st)}, summaryOf(day));
+  // the restore task (Q-69) and the night (Q-73)
+  const sc = day.score, nightTick = NIGHT_S * V.TICKS_PER_S;
+  Object.assign(row, {taskMWh: sc.taskMWh || 0, heldMWh: sc.heldMWh || 0, lateMWh: sc.taskLateMWh || 0, perfect: isPerfect(sc, day.st.black),
+    nightInputs: day.st.log.filter(x => x.tick > nightTick).length, nightAsks: day.said.filter(x => x.s >= NIGHT_S).length});
   const kinds = {};
   for (const x of day.said) {
     if (!x.accepted) continue;
@@ -192,8 +247,10 @@ export function followSeed(scenario, seed, o) {
   if (o.stops !== false && o.follow !== false) {
     for (const {line, untilS} of stopLines(day.said)) {
       const alt = summaryOf(followDay(seed, scenario, {untilH: o.untilH, objective: skipping(line, untilS, o.objective)}));
+      const one = {}, kept = followDay(seed, scenario, {untilH: o.untilH, objective: replaying(day.said, line, untilS), onMinute: (st, obs) => atCut(one, st, obs)});
       row.stops.push({atS: line.s, at: hhmm(line.s), unit: line.action.unit, until: hhmm(untilS), quoted: quotedSaving(line), realised: alt.planCost - row.planCost,
-        realisedTotal: alt.totalCost - row.totalCost, unservedSkipped: alt.unservedMWh, blackSkipped: alt.black});
+        realisedTotal: alt.totalCost - row.totalCost, unservedSkipped: alt.unservedMWh, blackSkipped: alt.black,
+        oneByOne: cut(one, kept.score) - cut(base, day.score)});
     }
   }
   if (o.par) {
@@ -236,6 +293,7 @@ const usd = x => (x === null || x === undefined || !Number.isFinite(x) ? 'n/a' :
 const k$ = x => (Number.isFinite(x) ? (x / 1000).toFixed(0) : '-');
 const f1 = x => (Number.isFinite(x) ? x.toFixed(1) : '-');
 const pct = (k, n) => (n ? (100 * k / n).toFixed(1) + '%' : '-');
+const mean = xs => (xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : NaN);
 const median = xs => { const s = xs.slice().sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
 
 function table(rows, cols) {
@@ -248,7 +306,9 @@ function table(rows, cols) {
 
 function report(o, scenario, rows, wallS) {
   console.log('\n' + (o.follow ? 'the hint-following player' : 'a day with no input') + ' on ' + scenario.id + ' (SIM ' + SIM_VERSION + '), ' + rows.length + ' seeds, wall ' + wallS.toFixed(0) + ' s; costs in $1,000');
-  const cols = [['seed', r => r.seed], ['day', r => r.day], ['black', r => (r.black ? 'BLACK ' + r.endsAt : '')], ['unserved MWh', r => f1(r.unservedMWh)],
+  const cols = [['seed', r => r.seed], ['day', r => r.day], ['weather', r => r.weather], ['Act I', r => r.actOne], ['black', r => (r.black ? 'BLACK ' + r.endsAt : '')], ['unserved MWh', r => f1(r.unservedMWh)],
+    ['task / held / late MWh', r => f1(r.taskMWh) + ' / ' + f1(r.heldMWh) + ' / ' + f1(r.lateMWh)], ['PERFECT', r => (r.perfect ? 'yes' : '')],
+    ['from 21:00 inputs / asks', r => r.nightInputs + ' / ' + r.nightAsks],
     ...COST_KEYS.map(k => [k, r => k$(r.cost[k])]), ['plan cost', r => k$(r.planCost)], ['total', r => k$(r.totalCost)], ['soak / air-con', r => r.soaks + ' / ' + r.aircons],
     ['ALL-IN', r => k$(r.allIn)]];
   if (o.par) cols.push(['par plan cost', r => k$(r.par.planCost)], ['par total', r => k$(r.par.totalCost)], ['par ALL-IN', r => k$(r.par.allIn)], ['points', r => r.points ?? 'n/a'],
@@ -260,26 +320,38 @@ function report(o, scenario, rows, wallS) {
   const stops = rows.flatMap(r => r.stops.map(s => Object.assign({seed: r.seed, day: r.day}, s)));
   console.log('\nSTOP lines followed: ' + stops.length + (stops.length ? '' : (o.stops && o.follow ? ' (the objective proposed no STOP; n/a)' : ' (not measured)')));
   // §21.4 accept: each quoted saving within +-30% or $10,000 of the realised difference.
-  const within = s => s.quoted !== null && (Math.abs(s.quoted - s.realised) <= 10000 || Math.abs(s.quoted - s.realised) <= 0.3 * Math.abs(s.realised));
+  const near = (q, r) => q !== null && Number.isFinite(r) && (Math.abs(q - r) <= 10000 || Math.abs(q - r) <= 0.3 * Math.abs(r));
+  const within = s => near(s.quoted, s.realised), withinOne = s => near(s.quoted, s.oneByOne), to = scenario.night ? 'to 21:00' : 'to 04:00';
   table(stops, [['seed', s => s.seed], ['day', s => s.day], ['at', s => s.at], ['unit', s => s.unit], ['next start', s => s.until], ['quoted saving', s => usd(s.quoted)],
     ['realised (plan cost)', s => usd(s.realised)], ['realised (total)', s => usd(s.realisedTotal)], ['within 30% or $10k', s => (s.quoted === null ? 'n/a' : within(s) ? 'yes' : 'NO')],
-    ['skipped: unserved', s => f1(s.unservedSkipped) + (s.blackSkipped ? ' BLACK' : '')]]);
-  if (stops.length) console.log('quoted within +-30% or $10,000 of realised: ' + stops.filter(within).length + ' of ' + stops.filter(s => s.quoted !== null).length + ' quoted (' + stops.filter(s => s.quoted === null).length + ' n/a)');
+    ['skipped: unserved', s => f1(s.unservedSkipped) + (s.blackSkipped ? ' BLACK' : '')], ['one by one (' + to + ')', s => usd(s.oneByOne)], ['within', s => (s.quoted === null ? 'n/a' : withinOne(s) ? 'yes' : 'NO')]]);
+  if (stops.length) {
+    console.log('quoted within +-30% or $10,000 of realised: ' + stops.filter(within).length + ' of ' + stops.filter(s => s.quoted !== null).length + ' quoted (' + stops.filter(s => s.quoted === null).length + ' n/a)');
+    console.log('one by one (every other followed action replayed, the plan cost ' + to + ', the quote\'s horizon): ' + stops.filter(withinOne).length + ' of ' + stops.filter(s => s.quoted !== null).length + ' quoted');
+  }
 
-  const types = [...new Set(rows.map(r => r.day))].sort();
-  console.log('\nby day type');
-  table(types.concat(types.length > 1 ? ['all'] : []).map(d => {
-    const g = d === 'all' ? rows : rows.filter(r => r.day === d);
-    const clean = g.filter(r => r.unservedMWh === 0 && !r.black).length, black = g.filter(r => r.black);
-    const dp = o.par ? dearerThanPar(g) : null, pts = g.filter(r => r.points !== null && r.points !== undefined).map(r => r.points);
-    return {d, n: g.length, clean: clean + ' (' + pct(clean, g.length) + ')', black: black.length + (black.length ? ': ' + black.map(r => r.seed).join(', ') : ''),
-      un: f1(median(g.map(r => r.unservedMWh))) + ' / ' + f1(Math.max(...g.map(r => r.unservedMWh))), plan: k$(median(g.map(r => r.planCost))), total: k$(median(g.map(r => r.totalCost))),
-      par: o.par ? k$(median(g.map(r => r.par.planCost))) + ' / ' + k$(median(g.map(r => r.par.totalCost))) : '-', dearer: dp ? dp.dearer + ' of ' + dp.of + (dp.na ? ' (' + dp.na + ' black: n/a)' : '') : '-',
-      stops: g.reduce((a, r) => a + r.stops.length, 0), city: g.filter(r => r.soaks).length + ' / ' + g.filter(r => r.aircons).length,
-      pts: pts.length ? median(pts) + ' (' + Math.min(...pts) + '-' + Math.max(...pts) + ')' : '-'};
-  }), [['day type', r => r.d], ['n', r => r.n], ['zero unserved', r => r.clean], ['black', r => r.black], ['unserved MWh (median / max)', r => r.un],
-    ['plan cost (median)', r => r.plan], ['total (median)', r => r.total], ['par plan / total (median)', r => r.par], ['player dearer than par (plan cost)', r => r.dearer], ['STOPs', r => r.stops],
-    ['days soaked / cycled', r => r.city], ['ALL-IN points (median, range)', r => r.pts]]);
+  // by day type, then (2c) by weather: the regime's class
+  const by = (title, key) => {
+    const types = [...new Set(rows.map(key))].sort();
+    console.log('\nby ' + title);
+    table(types.concat(types.length > 1 ? ['all'] : []).map(d => {
+      const g = d === 'all' ? rows : rows.filter(r => key(r) === d);
+      const clean = g.filter(r => isClean(r, r.black)).length, black = g.filter(r => r.black);
+      const dp = o.par ? dearerThanPar(g) : null, pts = g.filter(r => r.points !== null && r.points !== undefined).map(r => r.points);
+      return {d, n: g.length, clean: clean + ' (' + pct(clean, g.length) + ')', black: black.length + (black.length ? ': ' + black.map(r => r.seed).join(', ') : ''),
+        un: f1(median(g.map(r => r.unservedMWh))) + ' / ' + f1(Math.max(...g.map(r => r.unservedMWh))), plan: k$(median(g.map(r => r.planCost))), total: k$(median(g.map(r => r.totalCost))),
+        par: o.par ? k$(median(g.map(r => r.par.planCost))) + ' / ' + k$(median(g.map(r => r.par.totalCost))) : '-', dearer: dp ? dp.dearer + ' of ' + dp.of + (dp.na ? ' (' + dp.na + ' black: n/a)' : '') : '-',
+        stops: g.reduce((a, r) => a + r.stops.length, 0), city: g.filter(r => r.soaks).length + ' / ' + g.filter(r => r.aircons).length,
+        pts: pts.length ? median(pts) + ' (' + Math.min(...pts) + '-' + Math.max(...pts) + ')' : '-',
+        perfect: g.filter(r => r.perfect).length + ' (' + pct(g.filter(r => r.perfect).length, g.length) + ')', task: f1(mean(g.map(r => r.taskMWh))) + ' / ' + f1(mean(g.map(r => r.lateMWh))),
+        night: g.reduce((x, r) => x + r.nightAsks, 0)};
+    }), [[title, r => r.d], ['n', r => r.n], ['zero unserved', r => r.clean], ['black', r => r.black], ['unserved MWh (median / max)', r => r.un],
+      ['plan cost (median)', r => r.plan], ['total (median)', r => r.total], ['par plan / total (median)', r => r.par], ['player dearer than par (plan cost)', r => r.dearer], ['STOPs', r => r.stops],
+      ['days soaked / cycled', r => r.city], ['ALL-IN points (median, range)', r => r.pts], ['PERFECT', r => r.perfect], ['task / late MWh (mean)', r => r.task],
+      ['asks followed from 21:00', r => r.night]]);
+  };
+  by('day type', r => r.day);
+  if (rows.some(r => r.weather)) by('weather', r => r.weather);
 }
 
 async function main() {

@@ -6,13 +6,15 @@ import {readFileSync} from 'node:fs';
 import {V} from '../sim/params.js';
 import {createState, step, observe} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
-import {CLASSIC, DESK_WEEKEND} from '../content/scenarios.js';
+import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {followDay} from './lib/follow.js';
 import * as A from '../app/alarms.js';
 import * as T from '../app/tray.js';
+import {stepReal, stepAfter, NIGHT_S} from '../sim/clock.js';
 import {makeDocument} from './lib/dom.js';
 import {createDesk} from '../desk/desk.js';
 import {baseVm} from './lib/vm-fixture.js';
+import {legacyDeskWeekend} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S;
 
@@ -268,7 +270,7 @@ test('K-21: during the watch sounds are held; still unacknowledged, they sound o
   assert.equal(b.audible, 0);
   // WEATHER (P3) sets silently; STORAGE LOW (P2) chimes once and does not keep sounding.
   const c = A.createAlarms();
-  r = A.updateAlarms(c, snap({newsCount: 1, news: {atS: 9000, fromS: 12000, toS: null, kind: 'storm'}}), {nowMs: 0});
+  r = A.updateAlarms(c, snap({newsCount: 1, news: [{atS: 9000, fromS: 12000, toS: null, kind: 'storm'}]}), {nowMs: 0}); // (2c: every item, Q-82)
   assert.equal(tile(c, 'weather').state, 'alarm');
   assert.deepEqual(r.cues, []);
   r = A.updateAlarms(c, snap({s: 10001, hydroFrac: 0.29}), {nowMs: 1000});
@@ -293,12 +295,13 @@ test('K-8: N-1 INSECURE after 10 grid-s not SECURE; it clears after a 30-min sec
   assert.equal(tile(a, 'n1').state, 'normal');
   // AGC LIMIT: real seconds, not grid seconds.
   for (let i = 0; i < 300; i++) up('SECURE', 10, i + 1, 0.016);
-  assert.equal(tile(a, 'agcLimit').state, 'normal', '300 grid-s at 120x is 4.8 real s');
+  assert.equal(tile(a, 'agcLimit').state, 'normal', '300 updates of 0.016 real s are 4.8 real s');
   for (let i = 0; i < 20; i++) up('SECURE', 10, 400 + i, 0.016);
   assert.equal(tile(a, 'agcLimit').state, 'alarm');
-  // PEAK: 17:00-20:00 and not SECURE.
+  // PEAK: D-2's Peak, 16:30-20:00 (2c, Q-78), and not SECURE.
+  assert.deepEqual(A.PEAK_H, [16.5, 20]);
   const b = A.createAlarms();
-  for (let i = 0; i < 12; i++) A.updateAlarms(b, snap({s: 50000 + i, h: 16.5, level: 'TIGHT'}), {nowMs: i});
+  for (let i = 0; i < 12; i++) A.updateAlarms(b, snap({s: 50000 + i, h: 16.4, level: 'TIGHT'}), {nowMs: i});
   assert.equal(tile(b, 'peak').state, 'normal');
   A.updateAlarms(b, snap({s: 50020, h: 17.1, level: 'TIGHT'}), {nowMs: 100});
   assert.equal(tile(b, 'peak').state, 'alarm');
@@ -377,18 +380,19 @@ test('MIN GEN on a real belly: observe() and state give the same spillMW; the ti
 });
 
 /** Count the competent proxy's audible alarms over a day; the operator ACKs 3 real s after each sound. */
-function competentDay(seed) {
+function competentDay(seed, scn) {
   const a = A.createAlarms();
   let realMs = 0, lastS = -1, ackAt = Infinity;
   const stationOf = id => id.replace(/\d+$/, '');
-  runPar(seed, CLASSIC, {proxy: 'competent', onStep: st => {
+  runPar(seed, scn, {proxy: 'competent', onStep: st => {
     A.sampleTick(a, st);
     if (st.tick % TPS !== 0 || st.tick < V.PLAYER_START_TICK) return;
     const x = A.alarmInputFromState(st);
-    // Real time: 120x at CRUISE, about 1x in the watch.
-    realMs += (lastS < 0 ? 0 : x.s - lastS) * 1000 / (x.inWatch ? 1 : 120);
+    // Real time (2c, Q-82): the D-2 profile on the step clock (clock.stepReal, as par paces), about 1x in the watch.
+    const dtS = lastS < 0 ? 0 : x.inWatch ? x.s - lastS : stepReal(lastS, x.s);
+    realMs += dtS * 1000;
     lastS = x.s;
-    const r = A.updateAlarms(a, x, {nowMs: realMs, realDtS: 1 / (x.inWatch ? 1 : 120), stationOf});
+    const r = A.updateAlarms(a, x, {nowMs: realMs, realDtS: dtS, stationOf});
     if (r.cues.length || r.newAlarm) ackAt = Math.min(ackAt, realMs + 3000);
     if (realMs >= ackAt) { A.ackAll(a); ackAt = Infinity; }
   }});
@@ -396,13 +400,15 @@ function competentDay(seed) {
 }
 
 test('K-8 accept: the competent proxy triggers <= 8 audible alarms in a day', () => {
-  // "Per daily": a daily is a seed that passes D-9's gate, so par must shed nothing on it; seed 1
-  // is one. Seeds par cannot solve (practice "Hard days" at most) are not held to it (stage C:
-  // seed 4, where par sheds 559 MWh, sounds 10). One whole day: the count is a day's.
-  const seeds = [1];
+  // "Per daily": a daily is a seed that passes D-9's gate, so par must shed nothing on it. Seeds par
+  // cannot solve (practice "Hard days" at most) are not held to it (stage C: classic seed 4, where par
+  // sheds 559 MWh, sounds 10). One whole day, the player's (2c, Q-82): a desk date with its designed
+  // events, the 16:30 PEAK and the quiet night roll (Q-73: nothing sounds from 21:00).
+  const seeds = [20261008];
   const counts = seeds.map(seed => {
-    const a = competentDay(seed);
+    const a = competentDay(seed, DESK);
     assert.ok(a.audible <= 8, 'seed ' + seed + ': ' + a.audible + ' audible alarms ' + JSON.stringify(a.sounds));
+    assert.deepEqual(a.sounds.filter(x => x.atS >= NIGHT_S), [], 'the night roll is quiet');
     return a.audible;
   });
   assert.ok(counts.every(n => n >= 1), 'a day is not silent: ' + counts);
@@ -435,7 +441,7 @@ test('K-9: at most 3 cards; warning cards ring twice and never repeat; <= 25 wor
     assert.match(c.time, /^\d\d:\d\d$/);
   }
   assert.equal(v.cards.find(c => /tripped/.test(c.text)).button.target, 'lever-coal');
-  T.trayFrame(tr, 202 + T.CARD_TTL_S + 1);
+  T.trayFrame(tr, stepAfter(V.PLAYER_START_S, V.TRAY_LIFE_REAL_S)); // (2c, Q-63: 20 real s of the profile from 04:30)
   assert.equal(T.trayView(tr).cards.length, 0, 'old cards go to the LOG');
   assert.equal(T.trayView(tr).log.length, 4);
   assert.equal(tr.rings, 3, 'three warnings rang');
@@ -516,7 +522,7 @@ test('MSL cards: MARKET NOTICE, the forecast minimum and its time and the one th
 
 test('MSL cards from a real belly: every MSL record the sim logs on a mild weekend makes a card with the minimum it names', () => {
   // DESK_WEEKEND seed 8: MSL1 at 12:25 (the minimum is then the present: 1,471 MW), cancelled at 13:20
-  const st = createState(8, DESK_WEEKEND), recs = [];
+  const st = createState(8, legacyDeskWeekend()), recs = []; // (today's desk events: the plan moves seed 8's belly)
   const until = (13.5 - V.DAY_START_H) * V.S_PER_H * TPS;
   while (st.tick < until) for (const r of step(st)) if (r.kind === 'log' && /^MSL/.test(r.code)) recs.push(r);
   assert.deepEqual(recs.map(r => r.code), ['MSL1', 'MSL_CLEAR'], 'a mild weekend raises an MSL1 notice by 13:30 and cancels it');

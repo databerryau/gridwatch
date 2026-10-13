@@ -1,23 +1,9 @@
 // sim/fleet.js: equipment construction and the shared equipment actions (spec F-13, H-3,
 // H-9, H-4 "L", K-15 contingency records).
-//
-// Stage A owns this file (implemented). Every module that trips, syncs, sheds, moves a
-// relay or sets a base point calls these functions instead of writing the fields itself,
-// so the invariants below hold (any module may call them; see sim/README.md §11):
-//   - phys.ekMWs === sum of V.MACHINES[k].ekMWs over units with sync === true (H-3)
-//   - stations[st].basePointMW === sum of units[].basePointMW over that station's machines
-//     in mode 'on'; every other unit has basePointMW 0 (K-1: units carry the base points)
-//   - city.shedFrac === sum of district.share over dark districts
-//   - city.roofDarkMW / roofOffMW === the rooftop PV off with dark districts / off in total (dark,
-//     or relit and still waiting or ramping back), from env.roofSubMW (Phase 2a: P-12, C-8;
-//     refreshRoof, called by setDistrictDark and once a grid second by grid.fosSecond); 2b:
-//     city.flexDarkMW === the dark districts' flex shares, from env.flexSubMW
-//   - ufls.operated[k] is true iff stage k's districts were shed by UFLS and not re-armed
-//   - ofgs.trippedFrac === (number of tripped OFGS stages) x OFGS_STAGE_FRAC
-//   - a contingency record is opened for every trip larger than EVENT_THRESHOLD_MW (K-15)
-//   - sec.dirty is set whenever the commitment or L may have changed
+// Contract: sim/README.md §11 fleet.js.
 
 import {V} from './params.js';
+import {hhmm} from './clock.js';
 
 const TPS = V.TICKS_PER_S, M = V.MACHINES, MW_EPS = V.MW_EPS;
 const ROOF_RECONNECT_S = V.ROOF_RECONNECT_S, ROOF_RAMP_S = V.ROOF_RAMP_S;
@@ -54,6 +40,7 @@ export function buildUnits(scn) {
       // to a reverse-power trip after a slow close (0 none); kickMW until kickEndTick: a rough
       // close's one-second MW swing.
       slipHz: 0, slipToHz: 0, slipAtTick: 0, phaseAtDeg: 0, autoTick: -1, revTripS: 0, kickMW: 0, kickEndTick: 0,
+      outUntilS: -1, // Q-68
     };
   });
 }
@@ -86,10 +73,11 @@ export function buildCity(scn) {
         uflsStage: stage + 1, rot: c.rotation.indexOf(id),
         dark: false, shedBy: null, darkSinceS: -1, restoredAtS: -1, surgeMW: 0,
         sub: k, roofFrac: 1 / sub.districts, reconnectS: -1,
+        clearS: -1, // Q-69
       });
     }
   }
-  return {districts, shedFrac: 0, coldLoadMW: 0, lastRestoreS: -V.DAY_S, roofDarkMW: 0, roofOffMW: 0, flexDarkMW: 0};
+  return {districts, shedFrac: 0, coldLoadMW: 0, lastRestoreS: -V.DAY_S, roofDarkMW: 0, roofOffMW: 0, flexDarkMW: 0, heldFrac: 0};
 }
 
 /** A fresh per-second accumulator (README §5 "acc"). */
@@ -202,7 +190,8 @@ export function largestContingency(state) {
 export function startBlock(state, i) {
   const u = state.units[i], m = M[i];
   if (u.mode !== 'off') return 'unit is ' + u.mode;
-  const down = gridSecond(state) - u.downSinceS;
+  const s = gridSecond(state), down = s - u.downSinceS;
+  if (u.outUntilS > s) return 'on outage until ' + hhmm(u.outUntilS);
   if (u.downWhy !== 'trip' && down < m.minDownS) return 'minimum down time: ' + Math.ceil((m.minDownS - down) / V.S_PER_MIN) + ' min left';
   if (m.station === 'hydro' && state.hydro.storageMWh <= V.HYDRO_STOP_MWH) return 'no water';
   return '';
@@ -250,6 +239,7 @@ export function startContingency(state, cause, id, lostMW, ekBeforeMWs, out) {
     caught: {inertiaMW: 0, batteryMW: 0, guardMW: 0, governorsMW: 0, loadReliefMW: 0, uflsMW: 0, inverterMW: 0},
     uflsStages: 0, contained: true, backInBandTick: -1,
     watchEndTick: tick + V.WATCH_S * TPS, secureByTick: tick + V.SECURE_AGAIN_S * TPS,
+    securedTick: -1, // Q-74
   };
   state.conts.push(rec);
   state.contIdx = state.conts.length - 1;
@@ -319,7 +309,7 @@ export function tripSmelter(state, offS, out) {
  * back, so a restore picks up the full underlying load first. Then refreshRoof, also when
  * physics calls mid-second (a UFLS stage).
  * Reads: tick, city, env.{roofSubMW, flexSubMW}. Writes: districts[d].{dark, shedBy, darkSinceS, restoredAtS,
- * reconnectS}, city.shedFrac, and what refreshRoof writes.
+ * reconnectS}, city.shedFrac, and what refreshRoof and refreshHeld (city.heldFrac) write.
  */
 export function setDistrictDark(state, d, dark, why) {
   const city = state.city, dist = city.districts[d];
@@ -332,7 +322,30 @@ export function setDistrictDark(state, d, dark, why) {
   for (const x of city.districts) if (x.dark) f += x.share;
   city.shedFrac = f;
   refreshRoof(state);
+  refreshHeld(state);
   return dist.share;
+}
+
+/** city.heldFrac (Q-69); idempotent. */
+export function refreshHeld(state) {
+  const s = gridSecond(state);
+  let f = 0;
+  for (const x of state.city.districts) if (x.dark && x.shedBy === 'task' && x.clearS > s) f += x.share;
+  state.city.heldFrac = f;
+}
+
+/** Q-68: the tie's import limit until untilS (-1 none). */
+export function setTieLimit(state, mw, untilS) {
+  state.tie.limitMW = mw;
+  state.tie.limitUntilS = untilS;
+  state.sec.dirty = true;
+}
+
+/** Q-68: unit k (off) on outage until untilS (-1 none). */
+export function setOutage(state, k, untilS) {
+  const u = state.units[k];
+  if (untilS >= 0 && u.mode !== 'off') throw new Error('setOutage: ' + u.id + ' is ' + u.mode);
+  u.outUntilS = untilS;
 }
 
 /** G0 (2b, I2): the customers' own load before rooftop, flex out. Every G site uses it. */

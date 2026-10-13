@@ -4,22 +4,28 @@
 // figure aside: it eases and refreshes every 0.5 real s, so frame-by-frame play shows an older one).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {openGame, parseTime, diffLooks} from './lib/play.js';
+import {openGame, diffLooks} from './lib/play.js';
+import {badgeText} from '../render/format.js';
+import {V} from '../sim/params.js';
 
-test('play driver: a jump shows what frame-by-frame play shows; look, buttons, click, until', () => {
-  // frame-by-frame reference: 04:30:02 + 150 frames of 2 grid s = 04:35:02
+const TPS = V.TICKS_PER_S;
+
+test('play driver: a jump shows what frame-by-frame play shows; look, buttons, click, until; the D-2 clock since Space', () => {
+  // frame-by-frame reference: 150 frames from 04:30:09 (9 grid s each at the profile's 540x: 04:52:39); the jump goes where they went
   const slow = openGame({seed: 20261007});
   slow.frames(150);
+  const at = slow.clock();
   const fast = openGame({seed: 20261007});
-  const r = fast.to('04:35:02');
-  assert.deepEqual([r.why, r.at], ['target', '04:35:02']);
+  const r = fast.to(slow.game.state.tick / TPS);
+  assert.deepEqual([r.why, r.at], ['target', at]);
   assert.equal(fast.game.state.tick, slow.game.state.tick);
   assert.equal(fast.now, slow.now, 'the page clock advanced as 150 frames would');
   const noDial = l => l.split('\n').filter(x => !x.startsWith('DIAL ')).join('\n');
   assert.equal(noDial(fast.look()), noDial(slow.look()));
 
   const l = fast.look();
-  assert.match(l, /^CLOCK 04:35:02 \| CRUISE 120× \|/m);
+  assert.equal(fast.mode(), 'CRUISE');
+  assert.ok(l.startsWith('CLOCK ' + at + ' | ' + badgeText(fast.vm().mode) + ' |'), l.split('\n')[0]); // (the rate read: slice 2c's profile)
   assert.match(l, /^LINE \S/m);
   assert.match(l, /^BALANCE \S/m);
   assert.match(l, /^CTRL .*btn-pause "PAUSE"/m);
@@ -32,11 +38,14 @@ test('play driver: a jump shows what frame-by-frame play shows; look, buttons, c
   assert.match(armed, /^LINE ● ARMED Press again to confirm\. START GT·A/m);
   assert.match(diffLooks(l, armed), /^CTRL .*guard-start-gta1 "START\?"/m);
 
-  // until: no trip this early, so the guard stops it; the cover dropped on the way (2 real s)
-  const u = fast.until('trip', {max: '+20m'});
+  // until: no trip this early, so the guard stops it; the cover dropped on the way (a click's 5 real s: an hour at 540x)
+  const t0 = fast.game.state.tick, u = fast.until('trip', {max: '+1h'});
   assert.equal(u.why, 'target');
-  assert.equal(fast.game.state.tick, (parseTime('04:35:02') + 1200) * 50 + 100);
+  assert.equal(fast.game.state.tick, t0 + 3600 * TPS);
   assert.match(fast.look(), /guard-start-gta1 "○1"/);
+  // D-2's clock (tools/play.mjs clock): every real second since Space is the profile's, the frames and jumps alike
+  const ck = fast.clockReport();
+  assert.ok(fast.spaceMs > 0 && Math.abs(ck.sinceS - (fast.now - fast.spaceMs) / 1000) < 1e-6 && Math.abs(ck.offS) < 0.1, JSON.stringify(ck));
   assert.throws(() => fast.click('no such control'), /no element or visible control/);
 
   // press(): three samples (before, the press frame, 0.5 real s after) and the diff across them

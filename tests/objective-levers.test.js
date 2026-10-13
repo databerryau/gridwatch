@@ -13,6 +13,7 @@ import {DESK, CLASSIC} from '../content/scenarios.js';
 import * as PV from '../app/planview.js';
 import {objective, capacityGap, stick, LINE_MAX_CHARS, ACT_WITHIN_S} from '../app/objective.js';
 import {followDay} from './lib/follow.js';
+import {withoutTask} from './lib/sim-helpers.js';
 
 const H = 3600;
 const inWin = t => t >= V.SOAK_FROM_S && t <= V.SOAK_TO_S;
@@ -24,11 +25,15 @@ const isCity = (x, lever) => x.kind === 'city' && !!x.action && x.action.lever =
 // accepted by the sim on a copy of the state the observation came from
 const accepted = (st, action) => applyInput(JSON.parse(JSON.stringify(st)), action, []).ok;
 
-// The followed mornings, once each: DESK seed 8 (MILD) to 06:30, seed 7 (HOT) to 05:00.
+// The followed mornings, once each: DESK seed 8 (MILD) to 06:30, seed 7 (HOT) to 05:00. Seed 8 is
+// a restore-task date whose first feeder is handed back at 06:30, and its restore line rightly
+// comes first (Q-69, Q-70): these tests are about the city levers, so seed 8's morning is the live
+// plan without the task (withoutTask), observed as DESK's (the line finds suburb names by id).
+const NOTASK = withoutTask(DESK);
 const runs = {};
-function morning(seed, h) {
-  const key = seed + '@' + h;
-  if (!runs[key]) { const d = followDay(seed, DESK, {untilH: h}); runs[key] = {st: d.st, obs: observe(d.st, {dayAhead: true})}; }
+function morning(seed, h, scn = DESK) {
+  const key = scn.id + ':' + seed + '@' + h;
+  if (!runs[key]) { const d = followDay(seed, scn, {untilH: h}); runs[key] = {st: d.st, obs: Object.assign(observe(d.st, {dayAhead: true}), {scenarioId: DESK.id})}; }
   return {st: runs[key].st, obs: copy(runs[key].obs)};
 }
 const hot = () => morning(7, 5);
@@ -36,7 +41,7 @@ const hot = () => morning(7, 5);
 // the projection (it ends at 11:00); `low` false keeps the day's own aim, 11:00-15:00.
 const NOON = (12 - V.DAY_START_H) * H;
 function mild(low = true) {
-  const m = morning(8, 6.5), da = m.obs.dayAhead;
+  const m = morning(8, 6.5, NOTASK), da = m.obs.dayAhead;
   if (low) da.demandP50[Math.round((NOON - da.fromS) / da.stepS) - 1] = Math.min(...da.demandP50) - 100;
   return m;
 }

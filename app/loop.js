@@ -1,24 +1,5 @@
 // app/loop.js: the frame loop (spec F-5, X-26).
-//
-// Each animation frame adds min(frameDt, MAX_FRAME_DT_S) x rate grid-seconds to an
-// accumulator (kept in ticks) and runs whole 20-ms ticks, up to a per-frame cap and a time
-// budget. The rules this file guarantees (tests/loop.test.js):
-//   * every tick is run exactly once, in order: nothing here skips or repeats a tick, and
-//     the sim never sees the frame rate (the same input log at any rate or display refresh
-//     gives the same state at the same tick; F-4, D-6);
-//   * a lagging frame (cap or budget hit) slows play: the time it could not run is dropped,
-//     never the ticks, so play resumes at its rate from the next frame instead of spiralling;
-//   * when the rate changes between two ticks (a contingency opens the watch, a watch
-//     segment ends), the time still owed is converted to the new rate at once, so the
-//     watch's 0.15x segment starts at once, not a frame later. A contingency is known only
-//     after the tick that opened it (a pre-rolled trip happens inside step()), so that tick
-//     was charged at the old rate; rateLast() lets the loop re-charge it at the watch rate
-//     (the accumulator may then owe time, i.e. go below 0, and the next tick waits for it),
-//     so the watch lasts its full real time from its first tick;
-//   * draw never runs inside step(): runFrame only steps; the caller draws after it returns.
-//
-// Pure: runFrame takes callbacks and a pacer object, so Node tests drive it with fake
-// frame times. Only startRaf() touches the browser, and only when called.
+// Contract: desk/README.md §32.12 app/loop.js.
 
 import {V} from '../sim/params.js';
 

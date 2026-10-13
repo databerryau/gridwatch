@@ -15,9 +15,14 @@ import * as SYS from '../app/system.js';
 import * as PVW from '../app/planview.js';
 import {consequence} from '../app/objective.js';
 import {unitLabel} from '../desk/util.js';
+import {legacyDesk} from './lib/sim-helpers.js';
+import {realBetween} from '../sim/clock.js';
+import {FAST_FACTOR} from '../app/director.js';
 
 const TPS = V.TICKS_PER_S;
-const game04 = (o = {}) => G.createGame(Object.assign({seed: 7, scenario: DESK, system: SYS, planview: PVW, commit: 'player', storage: null}, o));
+// Today's desk events (legacyDesk): the plan's late return keeps CCGT 2 out on seed 7, and these tests are not about it.
+const LEGACY = legacyDesk();
+const game04 = (o = {}) => G.createGame(Object.assign({seed: 7, scenario: LEGACY, system: SYS, planview: PVW, commit: 'player', storage: null}, o));
 
 // ------------------------------------------------------------------ the line holds still (Q-18)
 
@@ -103,7 +108,7 @@ test('Q-18 in the game: an accepted input, or a mode change that is news (the wa
   assert.equal(game.objectiveMode, 'PAUSE');
 });
 
-test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once, so the first "Start CCGT 2 now" leaves its CRUISE reading time (at least 8 real s)', () => {
+test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once (one look of the line and a frame past it at most), so a "Start CCGT 2 now" runs out its deadline at CRUISE', () => {
   const guard = {kind: 'spare', level: 'act', text: 'Raise the battery GUARD to 400 MW.', action: {type: 'guard', mw: 400}};
   const start = {kind: 'commit', level: 'act', text: 'Start CCGT 2 now.', action: {type: 'start', unit: 'ccgt2'}};
   assert.equal(G.newAsk(guard, start), true);
@@ -114,32 +119,37 @@ test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once, so
   assert.equal(G.newAsk(guard, null), false);
   const game = game04({seed: 20261007});
   G.takeDesk(game); // 04:30, the clock running
-  // F held from 04:30 (pressed again whenever something else ended it) until a start is asked
-  let nowMs = 1, vm = G.buildVm(game, {nowMs}), was = null, up = 0, ask = null;
-  for (let n = 0; !ask && n < 200; n++) {
-    if (vm.mode.mode === 'CRUISE') G.ui(game, {do: 'fast', on: true});
-    was = vm.objective; up = game.lineMs;
+  // (2c: at the profile's 540x the 13-real-s reading lead is two grid-hours, so the start is asked at 04:30 already;
+  // the ask over another one at FAST is posed: the GUARD ask just shown, F held, until the line's next look)
+  let nowMs = 1, vm = G.buildVm(game, {nowMs}), ask = null;
+  assert.ok(vm.objective && vm.objective.action.type === 'start' && / now/.test(vm.objective.text), 'the start asked at 04:30');
+  game.objective = Object.assign({targets: ['ring-guard']}, guard); game.lineMs = nowMs;
+  const was = game.objective, up = game.lineMs, s0 = vm.obs.s;
+  for (let n = 0; !ask && n < 50; n++) {
+    G.ui(game, {do: 'fast', on: true}); // F held (pressed again whenever an alarm ended it)
     nowMs += 100; G.frame(game, 0.1, () => nowMs); vm = G.buildVm(game, {nowMs});
     const o = vm.objective;
     if (o && o.action && o.action.type === 'start' && / now/.test(o.text)) ask = o;
   }
-  assert.ok(ask, 'a start asked by 05:00');
+  assert.ok(ask, 'the start asked again');
   assert.equal(vm.mode.mode, 'FAST', 'asked while at FAST');
-  assert.ok(was && was.action && was.action.type !== 'start' && nowMs - up < G.LINE_DWELL_MS, 'over another ask up for ' + (nowMs - up) + ' ms, at once');
+  assert.ok(was.action.type !== 'start' && nowMs - up < G.LINE_DWELL_MS, 'over another ask up for ' + (nowMs - up) + ' ms, at once');
   const next = G.buildVm(game, {nowMs: nowMs + 16}).mode;
-  assert.equal(next.mode, 'CRUISE');
-  const realS = (ask.startBy - vm.obs.s) / next.rate;
-  assert.ok(realS >= 8, 'the deadline ' + realS.toFixed(1) + ' real s away');
+  assert.equal(next.mode, 'CRUISE', 'FAST ended: the deadline\'s real seconds are the profile\'s');
+  const used = realBetween(s0, vm.obs.s, false);                          // the profile's real s FAST played from F to the ask
+  assert.ok(used <= V.OBJ_EVERY_REAL_S + FAST_FACTOR * 0.1 + 1e-9 && ask.startBy > vm.obs.s, 'FAST ran ' + used.toFixed(2) + ' real s of the profile past it');
   // the same ask again does not end FAST a second time (the player may skip on)
   assert.equal(G.ui(game, {do: 'fast', on: true}), '');
   game.objectiveS = -1e9;
   assert.equal(G.buildVm(game, {nowMs: nowMs + 32}).objective.action.type, 'start');
   assert.equal(G.buildVm(game, {nowMs: nowMs + 48}).mode.mode, 'FAST');
-  // at CRUISE another ask waits out the dwell, as any line does
+  // at CRUISE another ask waits out the dwell, as any line does: its words and glow, never its action, which the
+  // fresh line no longer carries (stage C: a held START of another unit was a press that started the slower one)
   G.ui(game, {do: 'fast', on: false});
   const other = Object.assign({}, ask, {text: 'Another ask.', action: {type: 'tie', mw: 0}});
   game.objective = other; game.lineMs = nowMs + 48; game.objectiveS = -1e9;
-  assert.equal(G.buildVm(game, {nowMs: nowMs + 64}).objective, other);
+  const held = G.buildVm(game, {nowMs: nowMs + 64}).objective;
+  assert.deepEqual([held.text, held.targets, held.action], [other.text, other.targets, null]);
   assert.equal(game.objectiveHeld.line.action.type, 'start');
 });
 
@@ -160,7 +170,7 @@ test('C-4: the line names every unit as the desk labels it (CCGT 2, COAL 4, HYDR
 // ------------------------------------------------------------------ the tray logs every command (C-12, K-9)
 
 test('K-9: every START, STOP, CANCEL and ABORT the station takes is a STATION card at once (an information tick), with a jump to its lever or the HYDRO wheel; each one, even with the clock held', () => {
-  const st = createState(7, DESK), out = [];
+  const st = createState(7, LEGACY), out = [];
   for (const x of [{type: 'start', unit: 'ccgt2'}, {type: 'stop', unit: 'ccgt2'}, {type: 'start', unit: 'gta1'}, {type: 'stop', unit: 'coal1'},
     {type: 'stop', unit: 'hydro1'}, {type: 'abortStop', unit: 'hydro1'}]) assert.equal(applyInput(st, x, out).ok, true, JSON.stringify(x));
   assert.deepEqual(out.map(r => r.code), ['UNIT_START', 'UNIT_CANCEL', 'UNIT_START', 'UNIT_STOP', 'UNIT_STOP', 'UNIT_ABORT_STOP']);
@@ -260,12 +270,14 @@ test('C-2: while a guard\'s cover is up, what the press would do holds still as 
 
 test('C-2 seam: vm.held is true once a lever is moved by hand in player mode (app/system.js heldByHand), and never with the system\'s commitment', () => {
   const game = game04();
+  G.takeDesk(game); // (2c, Q-64: the briefing takes no input but AGC/HAND: the desk first)
   assert.equal(G.buildVm(game, {nowMs: 0}).held, false);
   assert.equal(G.sendInput(game, {type: 'basePoint', station: 'coal', mw: 1500}), '');
   assert.equal(G.buildVm(game, {nowMs: 16}).held, true, 'at once, not at the system\'s next look');
   G.resetDay(game);
   assert.equal(G.buildVm(game, {nowMs: 32}).held, false, 'a new day');
   const sys = game04({commit: 'system'});
+  G.takeDesk(sys);
   assert.equal(G.sendInput(sys, {type: 'basePoint', station: 'coal', mw: 1500}), '');
   assert.equal(G.buildVm(sys, {nowMs: 0}).held, false);
   const bare = game04({system: null});

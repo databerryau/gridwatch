@@ -1,39 +1,5 @@
 // app/system.js: the game's system operator (desk/README.md §3.4; SPEC L-0, A-1). DOM-free.
-//
-// The player is the control-room operator; this is the market and dispatch system around them,
-// which in the NEM runs whether anyone touches the desk or not:
-//   * 04:30 PRE-DISPATCH (L-0): the merit-order plan for the P50 forecast (autopilot.preDispatch,
-//     made once from the day-ahead forecast), loaded into the sim's plan as a planLoad input, stops
-//     included. The stack never starts empty; the levers follow it (K-2, L-6).
-//   * RE-FLOW FOR THE LIT LOAD (L-0): while districts are dark, dispatch targets metered demand:
-//     the plan is re-dispatched for the lit load whenever the dark share moves, and every
-//     PLAN_REFLOW_S while any district stays dark (AEMO's pre-dispatch cadence), so a day with no
-//     input is never black. The periodic re-flow waits while the player owns the plan: once they
-//     have edited it (a lever or tie move, a plan edit) since the system's last planLoad, their
-//     edits win until they press RE-DISPATCH (which hands it back) or the dark share moves again.
-//   * RE-DISPATCH (A-1): redispatch() re-runs the pre-dispatch from now to 04:00 over the
-//     commitment the player has now (par's amend: units on and coming, the booked starts and
-//     stops kept), and every lever glides to the new plan.
-//
-// Two modes (createSystem({commit})):
-//   'system'  the Phase 1a behaviour above: the 04:30 plan commits units too (its booked STARTs
-//             and STOPs). The bench and the planOnly proxy use it.
-//   'player'  the game (SPEC §9.1 Q-18): COMMITMENT IS THE PLAYER'S. The system never books a
-//             start or a stop. At 04:30 it dispatches only what is running; from then it
-//             re-dispatches the committed units (the same planLoad RE-DISPATCH sends) whenever the
-//             commitment changes (a start, a stop, a booking, a unit synchronised or tripped; from
-//             Phase 2a also the battery's order or GUARD, from 2b a city lever booked or
-//             cancelled (obs.levers.rev): commitSig) and
-//             every DISPATCH_S (5 grid-minutes, as NEMDE does) for the newer forecast. Which units run, and when, is the
-//             player's plan; a day with no input runs short. A lever, tie or plan-key edit by hand
-//             still takes the levers over until RE-DISPATCH.
-//             The belly (Phase 2a, desk/README.md §21.3): the dispatch is for the lit operational
-//             demand against the wind and solar AVAILABLE; in a surplus it takes every unit to its
-//             floor and the tie to the export limit, and the sim's own cut spills the rest (C-6). A
-//             battery order counts for the energy behind it (autopilot batteryOrder).
-// Everything it does is a sim input (planLoad), logged, so replay() reproduces a game day (F-6).
-// It runs on the autopilot's 'planOnly' memory and runPar's cadence: a game day with no player
-// input is the planOnly proxy's day, hash for hash (tests/system.test.js).
+// Contract: desk/README.md §32.12 app/system.js.
 
 import {V} from '../sim/params.js';
 import {observe, inWatch} from '../sim/step.js';
@@ -55,7 +21,7 @@ export const DISPATCH_S = 300;
  */
 export function createSystem(opts) {
   return {memo: AP.createAutopilot({proxy: 'planOnly'}), loadTick: -1, logIdx: 0, edited: false, loads: 0,
-    commit: opts && opts.commit === 'player' ? 'player' : 'system', sig: '', dispatchS: -1};
+    commit: opts && opts.commit === 'player' ? 'player' : 'system', sig: '', dispatchS: -1, night: null, origin: 'system'};
 }
 
 // 'player' mode: what the dispatch is made over. It changes when a unit starts, synchronises,
@@ -121,6 +87,7 @@ function scanEdits(sys, state) {
  * @returns {boolean} sys.edited, fresh
  */
 export function heldByHand(sys, state) {
+  if (state.control.nightShift) return false; // Q-73 (§32.12)
   scanEdits(sys, state);
   return sys.edited;
 }
@@ -135,7 +102,7 @@ function loaded(sys, state, n) {
 /**
  * The system's inputs for this tick (usually none): at the first tick of a grid second
  * (tick % 50 === 1) after 04:30, every PAR_DECIDE_EVERY_S and at the first second after each
- * watch, the 04:30 pre-dispatch planLoad and the lit-load re-flows (see the file header). Call
+ * watch, the 04:30 pre-dispatch planLoad and the lit-load re-flows (desk/README.md §32.12). Call
  * once per tick before step(state, inputs), never inside it; apply what it returns (through
  * step or applyInput) at this tick.
  * @param {object} sys from createSystem
@@ -145,12 +112,19 @@ function loaded(sys, state, n) {
 export function systemInputs(sys, state) {
   const t = state.tick;
   if (state.over || t % TPS !== 1 || t <= START_TICK) return EMPTY;
-  const memo = sys.memo;
+  const memo = sys.night || sys.memo;
   if (inWatch(state)) { memo.afterWatch = true; return EMPTY; }
   const s = (t - 1) / TPS;
   if (!memo.afterWatch && s < memo.nextS) return EMPTY;
   memo.afterWatch = false;
   memo.nextS = s + EVERY_S;
+  if (state.control.nightShift) { // Q-73: the night shift, runPar's own step on AP.nightMemo (§32.12)
+    const obs = observe(state, sys.night ? undefined : DAY_AHEAD);
+    if (!sys.night) sys.night = Object.assign(AP.nightMemo(obs), {nextS: s + EVERY_S});
+    const out = AP.decide(obs, sys.night).concat(AP.planUpdates(obs, sys.night));
+    sys.origin = 'night';
+    return out.length ? out : EMPTY;
+  }
   scanEdits(sys, state);
   if (sys.commit === 'player') return playerInputs(sys, state, s);
   const obs = observe(state, memo.plan === null ? DAY_AHEAD : undefined);
@@ -170,6 +144,7 @@ export function systemInputs(sys, state) {
 export function redispatch(sys, state) {
   if (state.over) return {input: null, reason: 'the day is over'};
   if (inWatch(state)) return {input: null, reason: 'not during the watch'};
+  if (state.control.nightShift) return {input: null, reason: 'the night shift has the desk'};
   if (sys.memo.plan === null || state.tick < START_TICK) return {input: null, reason: 'no plan before 04:30'};
   const input = AP.replan(observe(state), sys.memo);
   if (!input) return {input: null, reason: 'no plan before 04:30'};

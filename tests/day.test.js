@@ -16,6 +16,7 @@ import {readFileSync} from 'node:fs';
 import {makeDocument, installGlobals} from './lib/dom.js';
 import {bootGame, ARMED_WORD, UNDER_WAY_WORD} from '../app/shell.js';
 import {runTo} from '../app/game.js';
+import * as D from '../app/director.js';
 import {createDesk} from '../desk/desk.js';
 import {createMap} from '../render/map.js';
 import {createLiveStack} from '../render/livestack.js';
@@ -23,6 +24,7 @@ import * as system from '../app/system.js';
 import * as planview from '../app/planview.js';
 import * as fleet from '../sim/fleet.js';
 import {V} from '../sim/params.js';
+import {realBetween} from '../sim/clock.js';
 import {replay, hashState} from '../sim/step.js';
 import {CLASSIC} from '../content/scenarios.js';
 
@@ -38,7 +40,7 @@ function boot(seed) {
     audioWin: {}, raf: false, now: () => t});
   restore();
   const $ = id => doc.getElementById(id);
-  // Frames of 0.1 real s (F-5's longest counted frame): 12 grid-s each at CRUISE.
+  // Frames of 0.1 real s (F-5's longest counted frame): 0.1 x the rate in grid s each (12 at 120x).
   const frame = (dtS = 0.1) => { t += dtS * 1000; h.frame(dtS); };
   const refusals = [];
   const send = x => { const r = h.actions.input(x); if (r) refusals.push(x.type + ': ' + r); return r; };
@@ -91,9 +93,10 @@ test('greybox day, 04:00-09:00: desk, Live Stack and RE-DISPATCH inputs through 
     respondAndRestore(g);
     act(g.h.vm().obs);
     did.add(name);
-    const t0 = g.st().tick;
+    const t0 = g.st().tick, m = D.modeOf(g.h.game.director, g.st()); // (the rate read, never a literal: slice 2c's profile)
+    assert.equal(m.mode, 'CRUISE', name);
     g.frame();
-    assert.equal(g.st().tick - t0, 12 * TPS, name + ': a 0.1-s frame at CRUISE runs 12 grid s (the page runs the clock)');
+    assert.ok(Math.abs(g.st().tick - t0 - m.rate * 0.1 * TPS) <= 1, name + ': a 0.1-s frame at CRUISE runs 0.1 s x ' + m.rate + ' (the page runs the clock): ' + (g.st().tick - t0) + ' ticks');
   };
   at(7, 'lever', o => { // 07:00: the CCGT lever up 100 MW (K-1 / L-6)
     const st = o.stations.find(x => x.id === 'ccgt');
@@ -198,12 +201,6 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   let n = count('basePoint');
   for (let i = 0; i < 3; i++) tap('ArrowUp');
   assert.ok(count('basePoint') > n, 'the lever moved by arrows');
-  // 3: GT·A, S S starts its machine (K-3: never on one press).
-  tap('3');
-  tap('s');
-  assert.equal(count('start'), 0, 'one S does nothing');
-  tap('s');
-  assert.equal(count('start'), 1, 'S S starts GT·A');
   // 7: the battery to DISCHARGE and up; G: the GUARD ring; 8: the tie.
   tap('7'); tap('ArrowRight'); tap('ArrowUp');
   assert.ok(count('battery') >= 1, 'battery order by keys');
@@ -239,6 +236,13 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   tap(' ');
   assert.equal(g.h.vm().mode.mode, 'CRUISE', 'Space again resumes the clock');
   assert.equal(g.st().log.length, n, 'presentation keys are not sim inputs');
+  // 3: GT·A, S S starts its machine (K-3: never on one press). (2c: pressed here, after the keys above,
+  // so it is still starting when sampled below: those keys' frames are ~12 grid-min at the profile's 540x.)
+  tap('3');
+  tap('s');
+  assert.equal(count('start'), 0, 'one S does nothing');
+  tap('s');
+  assert.equal(count('start'), 1, 'S S starts GT·A');
 
   // GT·A reaches full speed: O opens its scope (FOCUS, 1x), U closes it cleanly (K-12). Its
   // start is sampled every 30 grid s (it then waits AUTO_SYNC_S, 240 s, at full speed).
@@ -294,7 +298,7 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
 // ---------------------------------------------------------------- SPEC §9.1 Q-18: the page as boot.js boots it
 
 test('Q-18, the real page: the clock is held at 04:30, the objective names a unit, starting it by keys clears the line; a slow double click starts one too; the tray says so', async () => {
-  const {DESK} = await import('../content/scenarios.js');
+  const DESK = (await import('./lib/sim-helpers.js')).legacyDesk(); // (today's desk events: the plan keeps CCGT 2 out on seed 7)
   const doc = makeDocument(NEXT);
   let t = 1000;
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
@@ -312,6 +316,7 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   const tick0 = h.game.state.tick;
   for (let i = 0; i < 20; i++) frame();
   assert.equal(h.game.state.tick, tick0);
+  const heldAsk = /CCGT 2 now/.test($('objective-text').textContent); // (2c: asked on the held desk at 04:30?)
   tap(' ');
   // Run until the line asks for the CCGT now, doing nothing else.
   let n = 0;
@@ -320,9 +325,11 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   assert.ok(h.vm().glow.has('guard-start-ccgt2'), 'and its START guard is lit');
   assert.equal($('objective').className, 'act');
   assert.match($('objective-level').textContent, /ACT NOW/);
-  // asked early enough to read and answer at this rate (LINE_REACT_S): its deadline is real seconds away
+  // asked early enough to read and answer at this rate (LINE_REACT_S): its deadline is real seconds away (2c: at 540x CCGT 2's
+  // deadline is 5.6 real s from 04:30, so the line asks on the held desk, before Space: Q-18's held start is the reading time)
   const ask = h.vm().objective;
-  assert.ok((ask.startBy - h.vm().obs.s) / h.vm().mode.rate >= 10, 'the deadline ' + ((ask.startBy - h.vm().obs.s) / h.vm().mode.rate).toFixed(1) + ' real s away');
+  const realS = realBetween(h.vm().obs.s, ask.startBy, h.vm().obs.handFlown); // (2c: real s on the D-2 profile, not at one rate)
+  assert.ok(realS >= 10 || (n === 0 && heldAsk), 'the deadline ' + realS.toFixed(1) + ' real s away');
   tap('2'); tap('s');
   // C-10: the guard is lifted (armed), and before the second press the line says what it would do
   frame();

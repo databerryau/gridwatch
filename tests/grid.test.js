@@ -10,6 +10,14 @@ import {unitIndex, largestContingency, setBasePoint, tripUnit, setOfgsStage, dis
 import {uniform, STREAM} from '../sim/rng.js';
 import {V} from '../sim/params.js';
 import {opening, commit, TPS} from './lib/sim-helpers.js';
+// 2c wave 1 (the whole-sim checks at the end)
+import {createState, step, applyInput, observe} from '../sim/step.js';
+import {setDistrictDark} from '../sim/fleet.js';
+import {preDispatch} from '../sim/autopilot.js';
+import {NIGHT_S} from '../sim/clock.js';
+import {CLASSIC} from '../content/scenarios.js';
+import {stateWith} from './lib/inject.js';
+import {legacyDesk} from './lib/sim-helpers.js';
 
 /** n grid seconds of grid logic; physics replaced by "output = schedule" at frequency fHz. */
 function seconds(s, n, fHz = V.F0_HZ) {
@@ -708,4 +716,136 @@ test('H-4 / K-10: securitySecond re-runs the preview only when dirty, when L cha
   grid.securitySecond(s, []);
   assert.equal(sec.previewAtS, at2 + 2, 'frequency moved beyond the tolerance');
   assert.equal(sec.previewFHz, V.F0_HZ - 2 * fTol);
+});
+
+// ------------------------------------------------------------------ 2c wave 1 (desk/README.md §32.6.2): whole-sim checks
+// HAND and the night shift (Q-64, Q-73), and COVER's securedTick (Q-74, stage A's code), on neutral desk days with
+// records put on them by tests/lib/inject.js. These step the real sim headless, jumping between the moments they check.
+
+const SEED = 20261007, NIGHT = {...legacyDesk(), id: 'desk-legacy-night', night: true};
+const hhS = (h, m = 0) => (h - V.DAY_START_H) * 3600 + m * 60;
+/** Step to grid second S; each(s, t) after grid second t's update; returns the records. */
+function to(s, S, each) {
+  const out = [];
+  while (s.tick < S * TPS && !s.over) { out.push(...step(s)); if (each && s.tick % TPS === 1) each(s, (s.tick - 1) / TPS); }
+  return out;
+}
+const agcActs = s => s.agc.requestMW !== 0 || s.battery.agcTrimMW !== 0 || s.units.some(u => u.agcTrimMW !== 0);
+let hand = null; // one HAND day, stepped on by the four tests below (each reaches its own start)
+function handDay() {
+  if (hand) return hand;
+  const s = hand = createState(SEED, NIGHT);
+  assert.ok(applyInput(s, {type: 'mode', agc: false}).ok);
+  to(s, V.PLAYER_START_S + 1);
+  assert.ok(s.control.handFlown);
+  assert.ok(applyInput(s, preDispatch(observe(s, {dayAhead: true})).load).ok); // the plan, as the system operator loads it
+  to(s, hhS(5));
+  assert.ok(applyInput(s, {type: 'basePoint', station: 'hydro', mw: 300}).ok); // a lever grabbed by hand: MAN
+  return s;
+}
+
+for (const [a, b, name] of [[hhS(6), hhS(6, 30), '06:00-06:30'], [hhS(12), hhS(12, 30), '12:00-12:30'], [hhS(20, 30), hhS(21), '20:30-21:00']]) {
+  test('D-7 (Q-64): AGC never acts in HAND before 21:00: every second of ' + name + ', after a jump', () => {
+    const s = handDay();
+    to(s, a);
+    let n = 0, ace = 0; // ace: seconds with the ACE outside the deadband, when AGC would have acted
+    to(s, b, (x, t) => {
+      n++;
+      assert.ok(!agcActs(x) && x.agc.nextCycleS === t, 'AGC acted in HAND at ' + observe(x).clock.text);
+      if (x.agc.aceMW !== 0) ace++;
+    });
+    assert.equal(n, b - a);
+    assert.ok(ace > 0, 'there was an error to answer');
+    assert.ok(!s.over);
+    assert.equal(s.control.mode, 'HAND');
+    assert.equal(s.control.nightShift, false);
+    assert.ok(s.plan.stations.find(p => p.id === 'hydro').man);
+  });
+}
+
+test('Q-64 / Q-73: from 21:00 the night shift has the desk: AGC on, every MAN flag cleared, NIGHT_SHIFT logged, the HAND tag kept; AGC acts', () => {
+  const s = handDay();
+  to(s, NIGHT_S);
+  assert.ok(s.tick === NIGHT_S * TPS && s.control.mode === 'HAND');
+  const out = step(s);
+  assert.equal(out.filter(r => r.code === 'NIGHT_SHIFT').length, 1);
+  assert.equal(s.control.mode, 'AGC');
+  assert.ok(s.control.nightShift && s.control.handFlown);
+  assert.ok(s.plan.stations.every(p => !p.man));
+  const o = observe(s);
+  assert.ok(o.nightShift && o.handFlown && o.mode === 'AGC');
+  let acted = false;
+  const more = to(s, NIGHT_S + 60, x => { acted = acted || agcActs(x); });
+  assert.ok(acted, 'AGC acts after 21:00');
+  assert.equal(more.filter(r => r.code === 'NIGHT_SHIFT').length, 0, 'once');
+});
+
+test('Q-73: the night flip keys on scn.night (classic and a night-less desk keep HAND past 21:00), takes the synchroscope and gives a waiting unit the wait of the auto-synchroniser', () => {
+  for (const scn of [CLASSIC, legacyDesk(), NIGHT]) {
+    const s = createState(SEED, scn);
+    assert.ok(applyInput(s, {type: 'mode', agc: false}).ok);
+    s.tick = NIGHT_S * TPS; // a jump by poke: only the rule is under test
+    const u = unit(s, 'gta1');
+    u.mode = 'ready'; u.timerS = 0; s.scope.unit = 'gta1'; // a unit left on the synchroscope at 21:00 (poke)
+    const out = step(s);
+    assert.equal(s.control.nightShift, scn.night, scn.id);
+    assert.equal(s.control.mode, scn.night ? 'AGC' : 'HAND', scn.id);
+    assert.equal(out.some(r => r.code === 'NIGHT_SHIFT'), scn.night, scn.id);
+    assert.equal(s.scope.unit, scn.night ? '' : 'gta1', scn.id);
+    assert.equal(u.mode, 'ready', scn.id);
+    if (!scn.night) continue;
+    assert.equal(u.timerS, V.AUTO_SYNC_S - 1, 'the AGC wait, counting from the flip');
+    to(s, NIGHT_S + V.AUTO_SYNC_S - 1);
+    assert.equal(u.mode, 'ready');
+    to(s, NIGHT_S + V.AUTO_SYNC_S);
+    assert.equal(u.mode, 'loading', 'the auto-synchroniser closes it');
+  }
+});
+
+/** A desk morning with the largest unit tripped at 04:01 (an injected record), stepped to the trip. */
+function tripped(recs = []) {
+  const s = stateWith(SEED, legacyDesk(), [...recs, {atS: 60, type: 'unitTrip', args: {rule: 'largest', lockoutS: 3600}}]);
+  to(s, 61);
+  assert.equal(s.conts.length, 1);
+  return s;
+}
+const dIdx = (s, id) => s.city.districts.findIndex(d => d.id === id);
+const WATCH_END = 60 + V.WATCH_S;
+
+test('Q-74: securedTick stays -1 while a UFLS district is dark with R5 >= L, and is set at the second the last is relit', () => {
+  const s = tripped(), c = s.conts[0];
+  setDistrictDark(s, dIdx(s, 'RED1'), true, 'ufls');
+  let covered = 0;
+  to(s, WATCH_END + 120, (x, t) => { assert.equal(c.securedTick, -1); if (t >= WATCH_END && x.sec.r5MW >= x.sec.lMW) covered++; });
+  assert.ok(covered > 60, 'R5 >= L while it waits');
+  setDistrictDark(s, dIdx(s, 'RED1'), false, null);
+  const t = s.tick;
+  step(s);
+  assert.equal(c.securedTick, t);
+  assert.equal(observe(s).contingencies[0].securedS, t / TPS);
+});
+
+test('Q-74: securedTick stays -1 after fos.directed ends with directed districts still dark; set at the second the last is relit', () => {
+  const s = tripped(), c = s.conts[0];
+  s.fos.directed = true; s.fos.nextShedS = V.DAY_S; // directed shedding in force (test poke), no more sheds
+  for (const id of ['SOL3', 'HAZ4']) setDistrictDark(s, dIdx(s, id), true, 'directed');
+  const out = to(s, WATCH_END + 60, () => assert.equal(c.securedTick, -1));
+  assert.ok(out.some(r => r.code === 'DIRECTED_END') && !s.fos.directed);
+  setDistrictDark(s, dIdx(s, 'SOL3'), false, null);
+  to(s, WATCH_END + 90, () => assert.equal(c.securedTick, -1));
+  assert.ok(s.sec.r5MW >= s.sec.lMW);
+  setDistrictDark(s, dIdx(s, 'HAZ4'), false, null);
+  const t = s.tick;
+  step(s);
+  assert.equal(c.securedTick, t);
+});
+
+test('Q-74: task feeders, held or handed back and still dark, never block securedTick', () => {
+  const s = tripped([{atS: 0, type: 'feederOut', args: {districts: ['TAL3', 'TAL4'], clearS: [30, hhS(7)]}},
+    {atS: 30, type: 'feederClear', args: {district: 'TAL3'}}, {atS: hhS(7), type: 'feederClear', args: {district: 'TAL4'}}]);
+  const c = s.conts[0];
+  to(s, WATCH_END + 1);
+  assert.ok(s.city.districts[dIdx(s, 'TAL3')].dark && s.city.districts[dIdx(s, 'TAL4')].dark && s.city.heldFrac > 0);
+  assert.ok(s.sec.r5MW >= s.sec.lMW);
+  assert.equal(c.securedTick, WATCH_END * TPS);
 });

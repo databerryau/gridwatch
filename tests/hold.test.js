@@ -9,8 +9,8 @@
 // Sampled, not streamed: the sim jumps between moments and a frame is drawn around each press.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {openGame} from './lib/play.js';
-import {injectTrip} from './lib/sim-helpers.js';
+import {openGame, FRAME_DT} from './lib/play.js';
+import {injectTrip, legacyDesk, legacyDeskWeekend} from './lib/sim-helpers.js';
 import {V} from '../sim/params.js';
 import {hashState} from '../sim/step.js';
 import * as G from '../app/game.js';
@@ -20,7 +20,7 @@ const TPS = V.TICKS_PER_S;
 const held = p => ({mode: p.mode(), open: p.game.ui.alarmsOpen, paused: p.game.director.paused, held: p.game.director.held});
 
 test('Q-46: W holds the clock and closing returns to exactly CRUISE or PAUSE; the badge, PLAY, FAST and the look say so', () => {
-  const p = openGame({seed: 20261007});
+  const p = openGame({seed: 20261007, scenario: legacyDesk()}); // (today's desk events: no 04:00 news to pick)
   assert.equal(p.mode(), 'CRUISE');
   p.key('w');
   assert.deepEqual(held(p), {mode: 'ALARMS', open: true, paused: false, held: true});
@@ -200,7 +200,7 @@ test('Q-47: with the map focused and the drawer open, one Esc closes the drawer 
 });
 
 test('Q-46: with the panel open, 1 then S S closes it, pauses, and the START is sent; any other desk key, in the panel or out, closes it first', () => {
-  const p = openGame({seed: 20261004}); // a weekend: one coal unit is off
+  const p = openGame({seed: 20261004, scenario: legacyDeskWeekend()}); // a weekend: one coal unit is off (today's desk events: free to start)
   const starts = n => p.game.state.log.slice(n).filter(r => r.type === 'start').map(r => r.args.unit);
   p.key('w');
   assert.equal(p.doc.activeElement.id, 'btn-alarms-close');
@@ -282,8 +282,9 @@ test('Q-48 skeleton: par is stepped once a frame from TAKE THE DESK in every mod
   assert.deepEqual(calls, [3000, 3000, 3000], 'PAUSE, ALARMS, PAUSE: one slice a frame');
   // the driver's jumps step it as the page's frames do (headless parity)
   p.key(' ');
+  const n0 = calls.length, rate = p.vm().mode.rate; // (the rate read, never a literal: slice 2c's profile)
   p.to('+1m', {stop: []});
-  assert.ok(calls.length > 20 && calls.every(c => c === 3000), calls.length + ' slices in a minute at CRUISE');
+  assert.ok(calls.length - n0 >= Math.floor(60 / rate / FRAME_DT) && calls.every(c => c === 3000), (calls.length - n0) + ' slices in a grid minute at CRUISE ' + rate + '×');
   p.game.state.over = true;
   p.frame();
   assert.equal(calls.at(-1), 6000, 'a bigger slice once the day is over');

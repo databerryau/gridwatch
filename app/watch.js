@@ -1,29 +1,5 @@
 // app/watch.js: the K-15 watch's beat model and the K-16 respond card model. Pure, DOM-free.
-//
-// The watch plays five beats in the physical order (J-25): inertia -> battery -> governors ->
-// UFLS -> settle. Which beat is live is read from the contingency's TRACE (app/record.js: the
-// frequency and what each source had caught at every tick), never from a script, so the
-// caption always says what the physics is doing:
-//   inertia    stored spin carries the hole (its catch exceeds the battery's and the governors')
-//   battery    the battery (its droop plus the GUARD's fast frequency response) catches more
-//              than inertia; "YOUR GUARD: N MW" when the ring holds some back
-//   governors  governor response overtakes the battery, until the fall stops and 10 s pass
-//   ufls       from the first relay operation (only below 49.0 Hz) for 2 grid-s
-//   settle     from 10 grid-s: droop parks frequency below 50 Hz
-// The beat index never goes back (a subsequence of the order above, K-15).
-//
-// Phase 2a (desk/README.md §19.2, §21.4; C-7): a contingency can be a loss of LOAD (the smelter's
-// potline), and wind, utility solar and rooftop solar answer over-frequency. So the beats read
-// the trace by the event's sign (a rise is caught by the same sources working the other way),
-// the inverters' catch (caught.inverterMW) counts with the governors' beat, and the captions
-// and the card say it in words for both signs: negative = "solar and wind backed off N MW" (a
-// rise caught), positive = "gave back N MW" (they were backed off before a loss of supply).
-// A trace or record from before Phase 2a has no inverterMW: it reads as 0.
-//
-// The respond card (K-16) is <= 4 lines, with no buttons: the nadir against the standard, the
-// MW each source caught (the record's caught at the extreme, which is the trace value at the
-// nadir), the problem in plain words (the H-4 level, R5 - L if short, the 30:00 countdown from
-// secureByTick, dark districts), and "Enter (or a click) to take the desk".
+// Contract: desk/README.md §32.12 app/watch.js.
 
 import {V} from '../sim/params.js';
 
@@ -204,15 +180,15 @@ export function respondCard(obs, c, o) {
   const line2 = 'Caught by: ' + ['spin', ...parts.map(p => p[0] + ' ' + mw(p[1]) + ' MW')].join(' → ') + '.';
   const sec = obs.sec, short = Math.max(0, sec.lMW - sec.r5MW);
   const secureInS = Math.max(0, (c.secureByTick - obs.tick) / TPS);
-  const dark = obs.districts.filter(d => d.dark);
+  const dark = obs.districts.filter(d => d.dark && !(d.shedBy === 'task' && d.clearS > obs.s)); // (Q-69: not held)
   const darkMW = dark.reduce((a, d) => a + d.coldLoadMW, 0);
-  let problem;
+  const n = dark.length, ds = n + ' district' + (n > 1 ? 's' : '') + ' dark (' + mw(darkMW) + ' MW)';
+  let problem;   // (COVER's words, Q-74)
   if (sec.level === 'SECURE') problem = 'N-1 SECURE: the fleet can take the next trip.';
-  else if (sec.level === 'SHORT' || short > 0) problem = 'N-1 INSECURE: ' + mw(short) + ' MW short, ' + mmss(secureInS) + '.';
-  else if (sec.level === 'TIGHT') problem = 'N-1 TIGHT: secure it within ' + mmss(secureInS) + '.';
-  else problem = 'SHEDDING: ' + dark.length + ' districts dark.';
-  if (dark.length && sec.level !== 'SHEDDING') problem += ' ' + dark.length + ' district' + (dark.length > 1 ? 's' : '') + ' dark (' + mw(darkMW) + ' MW).';
-  else if (dark.length) problem = problem.replace(/\.$/, ' (' + mw(darkMW) + ' MW). Restore when the lamp lights.');
+  else if (sec.level === 'SHEDDING') problem = 'SHEDDING: ' + ds + ': relight ' + (n > 1 ? 'them' : 'it') + (short > 0 ? ' and cover ' + mw(short) + ' MW' : '') + ' within ' + mmss(secureInS) + '.';
+  else if (sec.level === 'SHORT' || short > 0) problem = 'N-1 SHORT: ' + mw(short) + ' MW short: cover it within ' + mmss(secureInS) + '.';
+  else problem = 'N-1 TIGHT: spare covers the next trip, without SECURE\'s margin.';
+  if (n && sec.level !== 'SHEDDING') problem += ' ' + ds + '.';
   const glow = new Set(o && o.glow ? o.glow : []);
   if (dark.length) glow.add('bay-restore');
   return {
@@ -223,6 +199,22 @@ export function respondCard(obs, c, o) {
     level: sec.level},
     glow: [...glow],
   };
+}
+
+/** Q-91: the feeder card's keys, and what going on means. */
+export const FEEDER_KEYS = 'R or Enter: restore it now · Esc: go on', FEEDER_ON = 'Gone on, it stays dark and is yours: the RESTORE bay still has it.';
+
+/**
+ * Q-91: the feeder card at a hand-back (the clock holds): the feeder, its suburb (from `suburbs`, the
+ * scenario's) and its pickup with its cold load, to the 10 MW; `why`: a refused restore's reason;
+ * `lamp`: before any press, why a restore would be refused now (the bay's RESTORE PREVIEW), or ''.
+ * @returns {{id:string, mw:number, text:string, keys:string, on:string, why:string, lamp:string}}
+ */
+export function feederCard(obs, id, suburbs, why, lamp) {
+  const x = obs.districts.find(d => d.id === id), sub = x && (suburbs || []).find(s => s.id === x.suburb);
+  const pick = x ? Math.round(x.coldLoadMW / 10) * 10 : 0;
+  return {id, mw: pick, text: id + '\'s feeder' + (sub ? ' in ' + sub.name : '') + ' is repaired: about ' + pick + ' MW with its cold load.',
+    keys: FEEDER_KEYS, on: FEEDER_ON, why: why || '', lamp: why ? '' : lamp || ''};
 }
 
 /**
@@ -236,6 +228,6 @@ export function fallbackGlow(obs, c) {
   const left = (c.secureByTick - obs.tick) / TPS;
   for (const u of obs.units) if (u.mode === 'off' && u.startBlock === '' && u.startToMinS <= left) out.push('guard-start-' + u.id);
   if (obs.battery.guardMW < V.BATT_MW) out.push('dial-battery');
-  if (!obs.tie.tripped && obs.tie.setMW < V.TIE_MAX_MW) out.push('knob-tie');
+  if (!obs.tie.tripped && obs.tie.setMW < obs.tie.importLimitMW) out.push('knob-tie');
   return out;
 }

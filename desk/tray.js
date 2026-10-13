@@ -1,8 +1,5 @@
-// desk/tray.js: the K-9 message tray view (desk/README.md §6). At most 3 cards from
-// vm.tray.cards (app/tray.js owns the model), each with one button that only focuses a control
-// (actions.ui({do:'focus'})): a tray button never dispatches (K-9). LOG shows the rest.
-// Keys (K-23): M (the shell) focuses the tray, which lands on the first card's button; ←→ / ↑↓
-// move between the cards' buttons and LOG; Enter presses.
+// desk/tray.js: the K-9 message tray view (desk/README.md §6).
+// Contract: desk/README.md §32.12 desk/tray.js.
 
 import {el, setText, setAttr, setCls, setHidden, clockOf, PAN} from './util.js';
 import {lockedNote} from './emergency.js';
@@ -58,7 +55,7 @@ export function createTray(ctx, parent) {
         b.type = 'button';
         b.dataset.target = c.button.target;
         // Presentation only: the button focuses (and lights) a control; it never sends an input.
-        b.addEventListener('click', () => { if (ctx.locked()) lockedNote(ctx, box); else { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); } });
+        b.addEventListener('click', () => { if (ctx.viewLocked()) lockedNote(ctx, box); else { ctx.cue('button', PAN.panel); ctx.ui({do: 'focus', target: b.dataset.target}); } });
         b.setAttribute('aria-label', (c.button.label || 'SHOW') + ': go to the control for "' + (c.text || '') + '"');
         card.appendChild(b);
       }
@@ -71,7 +68,7 @@ export function createTray(ctx, parent) {
     const list = (vm.tray && vm.tray.cards) || [];
     const k = list.map(c => c.id + ':' + (c.text || '').length).join('|');
     if (k !== key) { key = k; build(list); }
-    for (const b of cards.querySelectorAll('button')) setAttr(b, 'aria-disabled', ctx.locked() ? 'true' : 'false');
+    for (const b of cards.querySelectorAll('button')) setAttr(b, 'aria-disabled', ctx.viewLocked() ? 'true' : 'false');
     setHidden(log, !showLog);
     setHidden(cards, showLog);
     setAttr(logBtn, 'aria-pressed', showLog ? 'true' : 'false');

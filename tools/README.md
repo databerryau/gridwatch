@@ -38,7 +38,35 @@ node tools/follow.mjs --scenario desk-weekend --seeds 1-11 --lines      # the hi
 node tools/baseline-v4.js               # the SPEC §6 rows for the v4 core, ~5 min on 11 workers
 node tools/baseline-v4.js --quick       # section 1 plus par on seeds 1-2, ~10 s
 npm run golden:v4                       # re-record tools/baseline-v4.golden.md
+node tools/daily-gen.js --from 2026-10-12 --days 365 -j 8   # D-9: gate the dailies, write content/dailies.js
+node tools/daily-gen.js --check -j 8    # re-gate the shipped list under this build (no write)
+node tools/day-measure.mjs --from 2026-10-12 --days 100 -j 8  # D-10 per act, the Q-77 returning player
+node tools/par.js --scenario desk --seeds 1-100 -j 8 --proxy competent,slow --allin   # §32.10: the slow proxy beside competent
+node tools/d6.mjs 20261012              # D-6: one input log at 1x, with F held and with 50 pauses: one hash (~30 s)
+node tools/l2.mjs --scenario desk --seeds 1-100                 # L-2: the forecast's P10-P90 coverage at 1 h and 4 h
 ```
+
+`tools/d6.mjs` (2c, desk/README.md §32.10) is D-6's whole-day replay: one date through the real
+page (`tests/lib/play.js openGame`), par's discrete actions to 21:00 sent through the page's actions
+at par's ticks, played at the profile (1x), with F held throughout (pressed again whenever the
+director could play FAST and does not) and with 50 seeded random pauses; it prints the three
+end-of-day `hashState` values and MATCH or DIFFER (exit 1); every feeder card is gone on from (Esc),
+so the log stays par's. `tools/par.js --proxy slow` is §32.10's 'slow' proxy: competent, but each
+feeder card holds the clock 15 real s (Q-91: the player reads it that long, at zero grid time, then
+restores). From stage C (Q-88) par and every proxy ask rule 9 first while a task feeder's RESTORE
+window is open (its allowed second to `RESTORE_PACE_MAX_S` later).
+`tools/l2.mjs --scenario desk-weekend` prints desk's numbers exactly, and rightly: the weekend's
+factor scales the forecast and the realised demand alike, and the errors and the band are in MW.
+
+`tools/daily-gen.js` (2c, desk/README.md Q-75) plays par on each date's candidates (attempt k is
+`YYYYMMDD + k x 10^8`, the date's scenario, the same class as attempt 0) and keeps the first that
+passes D-9's gate along par's day: the optimistic bound (plus air-con at rated MW in its window)
+never below demand before booked flex, and `market.isClean`. It writes the exceptions to
+`content/dailies.js` under the build stamp (`app/game.js dailyStamp()`), fails loudly when a
+date has no passing attempt by k = 40 (and writes nothing), and reports the attempts, the class
+shares, the Hard-day pool, D-10 by class and the wall and single-core times. A par day is about
+2-2.5 s here, so 365 dates are about 15 min on one core. `tools/day-measure.mjs` holds D-10's
+pure gap function (`tests/gaps.test.js`) and the returning-player proxy of Q-77.
 
 `tools/par.js --scenario desk | desk-weekend` measures the game's own days (rooftop PV, day
 types; Phase 2a): each row carries the day type, the minimum operational demand, the hours at a
@@ -49,7 +77,11 @@ every row as a JSON line. From 2b (desk/README.md §31.6) each row also carries 
 `airconDays` (1 when the proxy booked any block of that lever), `soakMWh` and `reliefMWh` (the
 booked cores' energy, effMW × (block length − FLEX_RAMP_S), not metered) and `flexDollars`
 (`score.cost.flex`); the summary adds their totals and a "soak / air-con days" column by day
-type. `tools/baseline-v4.js` and its golden stay on the classic day, which has no rooftop PV: it
+type. From 2c (desk/README.md §32.7.1) a clean day is `market.isClean` (a task feeder's lag never
+makes a day unclean), each row carries the restore task's `taskMWh`, `heldMWh` and `lateMWh` and
+S-6's PERFECT, the weather column is the regime's class (heat, storm, drought, calm on the game's
+days), and `actions` counts the log's rule origins (the night memo's from 21:00 as
+`nightActions`). `tools/baseline-v4.js` and its golden stay on the classic day, which has no rooftop PV: it
 is the regression anchor.
 
 `tools/follow.mjs` runs the hint-following player (`tests/lib/follow.js`: a day in which the
@@ -110,6 +142,7 @@ paths it names, and runs the tests that depend on something changed. The whole s
 | File | What it is |
 |---|---|
 | `play.mjs` | Plays next.html headless and fast; prints what the player sees (`tests/lib/play.js`). An ES module. |
+| `d6.mjs` | D-6's whole-day replay through the real page: one input log at 1x, F held and 50 pauses, one hash (2c). An ES module. |
 | `changed-tests.mjs` | Runs only the test files a change can affect (`npm run test:changed`). An ES module. |
 | `par.js` | v4 par and the proxies over seeds (S-4, S-5, S-11, S-12, S-14) on any scenario; `-j N` forks workers. Exports `grade()`. |
 | `follow.mjs` | The hint-following player over seeds, against par (SPEC §9.1 Q-18; desk/README.md §21.4). An ES module. |

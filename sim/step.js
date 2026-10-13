@@ -1,17 +1,5 @@
 // sim/step.js: the sim's public API (spec F-2, F-3, F-4, F-6, C-6, C-7).
-//
-//   createState(seed, scenario) -> state      plain JSON, ext timeline pre-rolled
-//   step(state, inputs)         -> events[]   one 20-ms physics tick; every 50th tick
-//                                             also runs the 1-s grid update first
-//   applyInput(state, input, out)             validate + apply + log one input
-//   observe(state, opts)        -> obs        the player's view (desk, map, autopilot)
-//   hashState(state)            -> u32        fingerprint of all state except scn and ext
-//   replay(seed, scenario, log) -> state      F-6 headless replay (throws on divergence)
-//
-// Stage A wrote this file and it works as far as its callees do; stage B owner
-// "integration" keeps it. The order of calls in step() is part of the contract
-// (sim/README.md §3): change it only through the README. The observe() shape is frozen
-// (README §8, tests/state.test.js); hashState needs no edits when state grows.
+// Contract: sim/README.md §11 step.js.
 
 import {V, SIM_VERSION} from './params.js';
 import * as weather from './weather.js';
@@ -20,7 +8,9 @@ import * as fleet from './fleet.js';
 import * as physics from './physics.js';
 import * as grid from './grid.js';
 import * as market from './market.js';
+import * as dayplan from './dayplan.js';
 import {hash32} from './rng.js';
+import {NIGHT_S} from './clock.js';
 
 export {SIM_VERSION};
 
@@ -50,6 +40,7 @@ function scenarioData(x) {
 
 function freshScore() {
   return {servedMWh: 0, unservedMWh: 0, uflsMWh: 0, directedMWh: 0, taskMWh: 0,
+    heldMWh: 0, taskLateMWh: 0, // Q-69
     cost: {fuel: 0, noLoad: 0, starts: 0, tie: 0, battWear: 0, dr: 0, rert: 0, flex: 0},
     co2t: 0, genMWh: 0, marketBill: 0, minHz: F0, maxHz: F0, outsideNormalS: 0, spark: zeros(V.SPARK_BLOCKS), starts: 0,
     spillMWh: 0, // Phase 2a (desk/README.md §19.2): wind and solar energy held back or backed off; counted, never charged for
@@ -71,8 +62,19 @@ function balanceOpening(state) {
     if (u.station === 'hydro') hyd.push(u); else other += u.outMW;
   }
   if (!hyd.length) return;
-  const m = V.MACHINES[hyd[0].k];
-  const each = Math.min(m.ratingMW, Math.max(m.minMW, (env.demandMW - other) / hyd.length));
+  const m = V.MACHINES[hyd[0].k], lit = fleet.litDemandMW(state); // Q-81
+  let each = (lit - other) / hyd.length;
+  if (each < m.minMW) { // the rest off the coal machines, evenly, each >= MIN
+    const coal = state.units.filter(u => u.sync && u.station === 'coal'), cut = (m.minMW - each) * hyd.length / coal.length;
+    for (const u of coal) {
+      const mw = Math.max(V.MACHINES[u.k].minMW, u.outMW - cut);
+      other -= u.outMW - mw;
+      u.basePointMW = mw; u.schedMW = mw; u.outMW = mw;
+    }
+    fleet.refreshLever(state, 'coal');
+    each = (lit - other) / hyd.length;
+  }
+  each = Math.min(m.ratingMW, Math.max(m.minMW, each));
   for (const u of hyd) { u.basePointMW = each; u.schedMW = each; u.outMW = each; }
   fleet.refreshLever(state, 'hydro');
 }
@@ -88,9 +90,7 @@ export function createState(seed, scenario) {
   seed = seed >>> 0;
   const scn = scenarioData(scenario);
   const regime = weather.prerollRegime(seed, scn);
-  const evs = events.prerollEvents(seed, scn, regime);
-  const series = weather.prerollSeries(seed, scn, regime, evs);
-  const ha = evs.find(e => e.type === 'heatAnnounce');
+  const evs = scn.dayplan ? dayplan.preroll(seed, scn, regime) : events.prerollEvents(seed, scn, regime); // Q-65
   const c = scn.commitment;
   const units = fleet.buildUnits(scn);
   const nSub = scn.city.suburbs.length, ids = x => x.suburbs.map(y => y.id) + '';
@@ -98,9 +98,7 @@ export function createState(seed, scenario) {
   const state = {
     v: SIM_VERSION, seed, scenarioId: scn.id, tick: 0, over: false, black: false,
     scn, scnHash: canonicalHash(scn),
-    // ext.rooftop: the per-suburb clearness series (P-2, C-5), null when the scenario has no rooftop.
-    ext: {regime, events: evs, series, rooftop: weather.prerollRooftop(seed, scn, evs),
-      heat: ha ? {announceS: ha.atS, onsetS: ha.args.onsetS, endS: ha.args.endS} : null},
+    ext: {regime, events: evs, series: null, rooftop: null, heat: null}, // the rest: deriveExt
     evNext: 0,
     // Phase 2a (desk/README.md §19.2, C-2): the public kind of day. The hidden ext.regime.temp is
     // read here once and nowhere else; a heatwave day reads 'HOT' (its heat is announced at 10:30).
@@ -110,12 +108,12 @@ export function createState(seed, scenario) {
       rooftopMW: 0, roofSubMW: zeros(nSub), roofClearFrac: ones(nSub), // Phase 2a: as if every inverter were connected
       flexMW: 0, flexSubMW: zeros(nSub), reliefSubMW: zeros(nSub)}, // 2b: city flex, as if lit
     msl: {level: 0, minMW: 0, atS: -1, sinceS: -1}, // P-4 (Phase 2a, C-9): events.mslSecond, every MSL_CHECK_S; never written with no rooftop
-    control: {mode: c.mode, modeLocked: false},
+    control: {mode: c.mode, modeLocked: false, handFlown: false, nightShift: false}, // Q-64, Q-73
     stations: fleet.buildStations(units),
     units,
     battery: {mode: c.battery.mode, orderMW: c.battery.mw, guardMW: c.battery.guardMW, schedMW: 0, agcTrimMW: 0,
       pfrMW: 0, ffrMW: 0, ffrFiredTick: -1, outMW: 0, socMWh: c.battery.socMWh, fullHold: false, ufSuspend: false},
-    tie: {setMW: c.tieMW, flowMW: c.tieMW, tripped: false, lockoutS: 0},
+    tie: {setMW: c.tieMW, flowMW: c.tieMW, tripped: false, lockoutS: 0, limitMW: V.TIE_MAX_MW, limitUntilS: -1}, // Q-68
     ren: {windLimitPct: c.windLimitPct, solarLimitPct: c.solarLimitPct, windMW: 0, solarMW: 0,
       windCurtMW: 0, solarCurtMW: 0, // curtailed MW (grid: they move at CURTAIL_RAMP_FRAC_MIN)
       windAutoMW: 0, solarAutoMW: 0}, // Phase 2a (C-6): MW held back by the dispatch, on top of the manual LIMIT
@@ -145,18 +143,48 @@ export function createState(seed, scenario) {
     scope: {unit: '', nextAutoTick: -1}, // K-12: the unit on the synchroscope ('' none); the next syncAuto close tick
     levers: {rev: 0, patience: scn.levers ? scn.levers.suburbs.map(x => x.patience) : [], blocks: []}, // 2b (U-2, U-4)
   };
+  deriveExt(state);
   state.phys.ekMWs = fleet.ekMWs(state);
   weather.sampleSecond(state);
-  balanceOpening(state);
+  openDay(state);
   return state;
 }
+
+/** ext.series, ext.rooftop and ext.heat from ext.events (createState's). */
+export function deriveExt(state) {
+  const x = state.ext, ha = x.events.find(e => e.type === 'heatAnnounce');
+  x.series = weather.prerollSeries(state.seed, state.scn, x.regime, x.events);
+  x.rooftop = weather.prerollRooftop(state.seed, state.scn, x.events);
+  x.heat = ha ? {announceS: ha.atS, onsetS: ha.args.onsetS, endS: ha.args.endS} : null;
+}
+
+/** Q-81: the atS-0 records (scratch out), env, the opening balance. */
+export function openDay(state) {
+  events.applyDue(state, []);
+  weather.sampleSecond(state);
+  balanceOpening(state);
+}
+
+/** createState's state.scnHash of a scenario. */
+export const scenarioHash = scn => canonicalHash(scenarioData(scn));
 
 // ------------------------------------------------------------------ step
 
 // The 1-s grid update, at the start of every grid second (tick % 50 === 0).
 function gridSecond(state, out) {
+  if (state.tick === V.PLAYER_START_TICK && state.control.mode === 'HAND') state.control.handFlown = true; // Q-64
   if (state.tick > 0) market.settleSecond(state, out); // the second that just ended
   events.applyDue(state, out);                          // ext events due now (trips, weather, news)
+  const c = state.control;
+  if (state.scn.night && !c.nightShift && state.tick >= NIGHT_S * TPS) { // Q-64, Q-73: the night shift takes the desk
+    c.nightShift = true;
+    if (c.mode === 'HAND') for (const u of state.units) if (u.mode === 'ready') u.timerS = V.AUTO_SYNC_S; // the AGC wait (K-12)
+    c.mode = 'AGC';
+    for (const ps of state.plan.stations) ps.man = false;
+    state.plan.rev += 1;
+    state.scope.unit = ''; // the auto-synchroniser's wait (A-4) is the player's
+    out.push({tick: state.tick, kind: 'log', sev: 'info', code: 'NIGHT_SHIFT', msg: 'The night shift has the desk: AGC on until 04:00.'});
+  }
   grid.planSecond(state, out);                          // the plan: booked stops, starts, keyframes, tie keys (Phase 1a)
   weather.sampleSecond(state);                          // env for this second
   if (state.env.s % MSL_CHECK_S === 0) {                // P-4 (Phase 2a): the MSL level, from one forecast per check
@@ -392,13 +420,13 @@ function planView(P) {
 const FOS_KEYS = ['outsideS', 'belowContainS', 'countdownS', 'directed', 'nextShedS'];
 const AGC_KEYS = ['nextCycleS', 'requestMW', 'unmetMW', 'atLimitS', 'aceMW'];
 const PRICE_KEYS = ['mwh', 'marginalId', 'adder', 'exhausted', 'x'];
-const SCORE_KEYS = ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'cost', 'co2t', 'genMWh', 'marketBill', 'minHz',
+const SCORE_KEYS = ['servedMWh', 'unservedMWh', 'uflsMWh', 'directedMWh', 'taskMWh', 'heldMWh', 'taskLateMWh', 'cost', 'co2t', 'genMWh', 'marketBill', 'minHz',
   'maxHz', 'outsideNormalS', 'spark', 'starts', 'spillMWh', 'saidiMin', 'saifi', 'maifi'];
 const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'];
 const CAUGHT_KEYS = ['inertiaMW', 'batteryMW', 'guardMW', 'governorsMW', 'loadReliefMW', 'uflsMW', 'inverterMW'];
 const MSL_KEYS = ['level', 'minMW', 'atS', 'sinceS'];
 const CONT_KEYS = ['n', 'startTick', 'cause', 'id', 'lostMW', 'fStartHz', 'ekBeforeMWs', 'ekAfterMWs', 'rocofHzS', 'extremeHz',
-  'extremeTick', 'pre', 'caught', 'uflsStages', 'contained', 'backInBandTick', 'watchEndTick', 'secureByTick'];
+  'extremeTick', 'pre', 'caught', 'uflsStages', 'contained', 'backInBandTick', 'watchEndTick', 'secureByTick', 'securedTick'];
 
 // A copy of o with exactly `keys` (values deep-copied as plain JSON).
 function pick(o, keys) {
@@ -449,6 +477,7 @@ export function observe(state, opts) {
     v: state.v, scenarioId: state.scenarioId, tick: state.tick, s, clock: clockOf(state.scn, s),
     over: state.over, black: state.black, mode: state.control.mode,
     modeLocked: state.control.modeLocked || state.tick >= V.PLAYER_START_TICK,
+    handFlown: state.control.handFlown, nightShift: state.control.nightShift,
     inWatch: inWatch(state),
     inRespond: cont !== null && state.tick < cont.secureByTick,
     f: {hz: ph.fHz, devHz: ph.fHz - F0, rocofHzS: ph.rocofHzS, ekGWs: ph.ekMWs / V.MW_PER_GW},
@@ -458,7 +487,7 @@ export function observe(state, opts) {
       renPfrMW: ph.renPfrMW, roofPfrMW: ph.roofPfrMW},
     demand: {nowMW: env.demandMW, servedMW: ph.servedMW, shedMW: ph.shedMW, heatActive: env.heatActive, tempC: env.tempC,
       underlyingMW: env.underlyingMW, rooftopMW: env.rooftopMW, litMW: fleet.litDemandMW(state),
-      unservedMW: totalMW * city.shedFrac, flexMW: env.flexMW},
+      unservedMW: totalMW * (city.shedFrac - city.heldFrac), flexMW: env.flexMW},
     units: state.units.map(u => {
       const m = V.MACHINES[u.k];
       const r = {id: u.id, station: u.station, name: m.name, cls: m.cls, mode: u.mode, sync: u.sync, timerS: u.timerS,
@@ -467,7 +496,7 @@ export function observe(state, opts) {
         startToMinS: m.t1S + V.AUTO_SYNC_S + m.t2S, hotS: u.hotS, starts: u.starts,
         upForS: s - u.upSinceS, downForS: s - u.downSinceS,
         startBlock: fleet.startBlock(state, u.k), stopBlock: fleet.stopBlock(state, u.k),
-        slipHz: 0, phaseDeg: 0};
+        slipHz: 0, phaseDeg: 0, outUntilS: u.outUntilS};
       if (u.mode === 'ready') { const a = grid.syncAt(u, state.tick); r.slipHz = a.slipHz; r.phaseDeg = a.phaseDeg; }
       return r;
     }),
@@ -479,8 +508,8 @@ export function observe(state, opts) {
     battery: {mode: b.mode, orderMW: b.orderMW, guardMW: b.guardMW, schedMW: b.schedMW, agcTrimMW: b.agcTrimMW,
       pfrMW: b.pfrMW, ffrMW: b.ffrMW, guardFired: b.ffrFiredTick >= 0, outMW: b.outMW, socMWh: b.socMWh,
       capMWh: V.BATT_MWH, ratedMW: V.BATT_MW, fullHold: b.fullHold, ufSuspend: b.ufSuspend},
-    tie: {setMW: t.setMW, flowMW: t.flowMW, tripped: t.tripped, lockoutS: t.lockoutS, importLimitMW: V.TIE_MAX_MW,
-      exportLimitMW: env.exportLimitMW, neighbourPrice: env.neighbourPrice},
+    tie: {setMW: t.setMW, flowMW: t.flowMW, tripped: t.tripped, lockoutS: t.lockoutS, importLimitMW: t.limitMW,
+      limitUntilS: t.limitUntilS, exportLimitMW: env.exportLimitMW, neighbourPrice: env.neighbourPrice},
     wind: {availMW: env.windAvailMW, outMW: windOut, limitPct: state.ren.windLimitPct, ofgsTrippedFrac: state.ofgs.trippedFrac,
       autoMW: state.ren.windAutoMW},
     solar: {availMW: env.solarAvailMW, outMW: state.ren.solarMW, limitPct: state.ren.solarLimitPct, autoMW: state.ren.solarAutoMW},
@@ -496,12 +525,13 @@ export function observe(state, opts) {
     districts: state.city.districts.map((d, i) => ({id: d.id, suburb: d.suburb, share: d.share, uflsStage: d.uflsStage,
       rot: d.rot, dark: d.dark, shedBy: d.shedBy, darkSinceS: d.darkSinceS, restoredAtS: d.restoredAtS,
       coldLoadMW: fleet.districtColdLoadMW(state, i),
-      restoreBlock: d.dark ? grid.restorePermissive(state, i) : fleet.DISTRICT_LIT, reconnectS: d.reconnectS})),
+      restoreBlock: d.dark ? grid.restorePermissive(state, i) : fleet.DISTRICT_LIT, reconnectS: d.reconnectS, clearS: d.clearS})),
     news: state.news.map(n => ({atS: n.atS, kind: n.kind, fromS: n.fromS, toS: n.toS, text: n.text})),
     contingency: cont ? contingencyView(cont) : null,
     contingencies: state.conts.map(c => ({n: c.n, startS: Math.floor(c.startTick / TPS), cause: c.cause, id: c.id,
       lostMW: c.lostMW, watchEndS: Math.floor(c.watchEndTick / TPS),
-      backInBandS: c.backInBandTick < 0 ? -1 : Math.floor(c.backInBandTick / TPS)})),
+      backInBandS: c.backInBandTick < 0 ? -1 : Math.floor(c.backInBandTick / TPS),
+      securedS: c.securedTick < 0 ? -1 : Math.floor(c.securedTick / TPS)})),
     forecast: weather.forecast(state, V.FC_HORIZON_S, V.FC_STEP_S),
     dayAhead: opts && opts.dayAhead ? weather.forecast(state, DAY_S - s, V.FC_STEP_S) : null,
     plan: planView(state.plan),

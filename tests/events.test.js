@@ -10,7 +10,7 @@ import {createState, step} from '../sim/step.js';
 import {largestContingency} from '../sim/fleet.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {TPS, clone} from './lib/sim-helpers.js';
+import {TPS, clone, legacyDesk, legacyDeskWeekend} from './lib/sim-helpers.js';
 
 /** Advance to grid second s applying due events (no physics or grid logic). */
 function goTo(state, s, out = []) {
@@ -221,8 +221,8 @@ test('S-4 (DESK): forecast() never reads the rooftop skies or the hidden day typ
     for (const seed of [1, 2, 4]) {
       const s = createState(seed, scn);
       assert.equal(s.ext.regime.temp, temps[seed], 'seed ' + seed);
-      goTo(s, secOf(10)); // 10:00: seed 4's heatwave is not announced until 10:30
-      assert.equal(s.news.filter(n => n.kind === 'heat').length, 0);
+      goTo(s, secOf(10)); // 10:00: seed 4's heatwave is news from 04:00 (Q-80); its onset, 12:30, is ahead
+      assert.equal(s.news.filter(n => n.kind === 'heat').length, +(seed === 4));
       const a = FC(s), day = forecast(s, V.DAY_S - s.env.s, V.FC_STEP_S);
       assert.ok(a.rooftopMW.every(x => x > 1000), 'a sunny window: the rooftop forecast is in play');
       const later = clone(s);
@@ -248,7 +248,7 @@ test('S-4 (DESK): forecast() never reads the rooftop skies or the hidden day typ
 });
 
 test('P-1 forecast: demandP50 is operational; underlyingP50 = demandP50 + rooftopMW + the smelter\'s expected missing load, column by column', () => {
-  const s = createState(8, DESK); // MILD; the potline trips at 12:23 for 45 min
+  const s = createState(8, legacyDesk()); // MILD; the potline trips at 12:23 for 45 min (today's desk events)
   const e = s.ext.events.find(x => x.type === 'smelterTrip');
   goTo(s, e.atS);
   const fc = FC(s), back = s.smelter.returnS, full = back + V.SMELTER_MW / V.SMELTER_RETURN_MW_MIN * 60;
@@ -303,7 +303,7 @@ test('P-2 forecast: rooftop follows the capacity-weighted clearness now toward t
   for (const k of [0, 5, 11]) assert.equal(fine.rooftopMW[(k + 1) * 5 - 1], fc.rooftopMW[k], 'the same whatever the column step');
   assert.ok(fine.rooftopMW[1] > fine.rooftopMW[0] && fine.rooftopMW[1] < fine.rooftopMW[4], 'and in between, in proportion');
   // Heat: seed 4 at its 10:30 warning, against the same state with the news withheld.
-  const heat = createState(4, DESK);
+  const heat = createState(4, legacyDesk()); // (today's desk events: the plan announces it at 04:00)
   goTo(heat, secOf(10, 30));
   const quiet = clone(heat);
   quiet.news = quiet.news.filter(n => n.kind !== 'heat');
@@ -324,7 +324,7 @@ test('P-2 forecast: rooftop follows the capacity-weighted clearness now toward t
 
 test('C-5 forecast: a cloud front is over the solar precinct only: its news moves the utility-solar forecast and nothing of the rooftop or demand forecast', () => {
   for (const seed of [7, 4]) { // 7: HOT, cloud warned 11:29; 4: a heatwave announced 10:30, cloud warned 10:32
-    const s = createState(seed, DESK);
+    const s = createState(seed, legacyDesk()); // the legacy front; a dayplan day's crosses the suburbs (tests/front.test.js)
     const warn = s.ext.events.find(e => e.type === 'cloudWarn');
     assert.ok(warn.atS > secOf(9) && warn.atS < secOf(13), 'seed ' + seed + ': a front warned in the sunny morning');
     goTo(s, warn.atS + 60);
@@ -377,7 +377,7 @@ const fcMin = (s, min) => ({fromS: s.env.s, stepS: 300, n: 3, demandP50: [5000, 
 const words = msg => msg.trim().split(/\s+/).length;
 
 test('P-4 / C-9: the MSL level is the forecast minimum against 1,600 / 1,300 / 1,000 MW: reached at or below, left 100 MW above; one record per change', () => {
-  const s = createState(1, DESK_WEEKEND);
+  const s = createState(1, legacyDeskWeekend()); // (today's desk events: no 04:00 briefing news)
   goTo(s, secOf(9));
   const out = [], atS = s.env.s + 600;
   const check = min => { const n = out.length; mslSecond(s, fcMin(s, min), out); return out.slice(n); };
@@ -601,7 +601,7 @@ test('P-4: the check runs straight after the weather, before grid.unitsSecond co
 });
 
 test('P-4: on a mild weekend a potline trip at noon brings MSL1 at the next check, as a log record; it is cancelled once the potline is back', () => {
-  const s = createState(8, DESK_WEEKEND), out = []; // the potline trips at 12:23 for 45 min
+  const s = createState(8, legacyDeskWeekend()), out = []; // the potline trips at 12:23 for 45 min (today's desk events)
   const trip = s.ext.events.find(e => e.type === 'smelterTrip').atS;
   for (let sec = 0; sec < secOf(15); sec++) {
     goTo(s, sec, out);

@@ -50,6 +50,8 @@ const MIDDAY_TIE_MW = 600;
 const MIDDAY_RUN_S = 60;
 const EVENING_H = 18.5;              // H-5 evening probe (the review's 18:30)
 const F3_PROXIES = ['doNothing', 'fuzz'];
+// Q-69's clean day: not black, no UFLS or directed shedding (classic has no task: the same days as zero unserved): market.isClean, set by sim().
+let isClean = null;
 
 // ---------------------------------------------------------------- arguments
 function parseArgs(argv) {
@@ -106,6 +108,7 @@ async function sim() {
     load('sim/step.js'), load('sim/params.js'), load('content/scenarios.js'), load('sim/autopilot.js'), load('sim/physics.js'),
     load('sim/grid.js'), load('sim/market.js'), load('sim/weather.js'), load('sim/events.js'), load('sim/fleet.js'),
     load('tests/lib/sim-helpers.js'), load('app/loop.js'), load('app/assist.js')]);
+  isClean = market.isClean;
   return {step, V: params.V, SIM_VERSION: params.SIM_VERSION, CLASSIC: scen.CLASSIC, autopilot, physics, grid, market, weather, events,
     fleet, H: helpers, loop, assist};
 }
@@ -598,7 +601,7 @@ function report(S, o, plan, results, wallS) {
   const proxyBy = new Map(results.filter(r => r.kind === 'proxy' || r.kind === 'f3').map(r => [r.proxy + ':' + r.seed, r]));
   const raw = plan.raw.map(s => parBy.get(s));
   const heat = plan.heat.map(s => parBy.get(s));
-  const clean = r => r.unservedMWh === 0 && !r.black;
+  const clean = r => isClean(r, r.black);
   const args = [];
   for (let i = 2; i < process.argv.length; i++) { if (process.argv[i] === '--out') i++; else args.push(process.argv[i]); }
   const cmd = ['node tools/baseline-v4.js', ...args].join(' ');

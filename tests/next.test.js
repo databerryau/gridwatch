@@ -12,12 +12,13 @@ import {V, SIM_VERSION} from '../sim/params.js';
 import {hashState, observe} from '../sim/step.js';
 import {CLASSIC, DESK} from '../content/scenarios.js';
 import {makeDocument, installGlobals} from './lib/dom.js';
-import {injectTrip} from './lib/sim-helpers.js';
+import {injectTrip, legacyDesk} from './lib/sim-helpers.js';
 import * as G from '../app/game.js';
 import * as W from '../app/watch.js';
 import * as K from '../app/keys.js';
 import * as PF from '../app/perf.js';
 import * as D from '../app/director.js';
+import {badgeText} from '../render/format.js';
 import {bootGame, layoutSizes, createLive, liveFrame, bandOf, LIVE_GAP_MS, objectiveWord, CONSIDER_WORD, ARMED_WORD, UNDER_WAY_WORD,
   dayText} from '../app/shell.js';
 import {traceOf, createRecorder, commitMinute, MINUTE_FIELDS, CAUGHT_KEYS} from '../app/record.js';
@@ -26,6 +27,7 @@ import * as PVW from '../app/planview.js';
 import {LINE_MAX_CHARS} from '../app/objective.js';
 import {REDISPATCH_AFTER as FOLLOWER_REDISPATCH_AFTER} from './lib/follow.js';
 import {TEXT} from '../content/text.js';
+import {ALARM_HELP} from '../content/alarmhelp.js';
 import * as alarmPanel from '../app/alarmpanel.js';
 import * as endCard from '../app/endcard.js';
 import * as suburbCard from '../app/suburbcard.js';
@@ -182,13 +184,13 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   assert.ok($('stack-slot').contains($('stack-el')), 'the Live Stack mounts in the desk\'s #stack-slot');
   const vm = h.vm();
   for (const k of VM_KEYS) assert.ok(k in vm, 'vm.' + k);
-  assert.deepEqual(Object.keys(vm.mode).sort(), ['canSkip', 'locked', 'mode', 'rate', 'watchS', 'watchVersion']);
+  assert.deepEqual(Object.keys(vm.mode).sort(), ['act', 'canSkip', 'locked', 'mode', 'night', 'rate', 'segment', 'watchS', 'watchVersion']);
   assert.ok(vm.glow instanceof Set);
   assert.equal(vm.alarms.tiles.length, 12);
   assert.equal(vm.hist.freq.length, G.HIST_FREQ_S);
   assert.deepEqual(Object.keys(vm.hist.stations), [...V.STATION_IDS, 'wind', 'solar', 'tie', 'battery', 'rert', 'dr']);
   assert.equal(mods.seen.desk.at(-1), mods.seen.map.at(-1), 'every module reads the same vm');
-  assert.equal(h.actions.redispatch(), 'no plan before 04:30');
+  assert.equal(h.actions.redispatch(), G.BRIEF_LOCK, 'Q-64: RE-DISPATCH sends a planLoad: in the briefing, the lock');
   // HAND, then TAKE THE DESK (Enter works too): 04:00-04:30 runs headless, then CRUISE.
   $('btn-hand').click();
   key('Enter');
@@ -198,7 +200,7 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   assert.ok(h.game.state.tick >= V.PLAYER_START_TICK);
   assert.ok(system.log.inputs >= V.PLAYER_START_TICK, 'the system operator is asked every tick');
   frames(30);
-  assert.match($('rate-text').textContent, /^CRUISE 120×$/);
+  assert.deepEqual([h.vm().mode.mode, $('rate-text').textContent], ['CRUISE', badgeText(h.vm().mode)]); // (the rate read: slice 2c's profile)
   assert.match($('clock-text').textContent, /^04:3\d$/);
   assert.equal($('chip-lights-v').textContent, '100%');
   assert.match($('chip-cost-v').textContent, /^\d+\.\d$/);
@@ -249,10 +251,11 @@ test('K-23 keys: Space, 1-8, A / Shift+A, T, L (twice), F hold, ?, Esc; typing i
   assert.ok($('stack-slot').contains($('stack-el')) && $('stack-overlay').hidden, 'and back into its slot');
   key('f');
   frames(1);
-  assert.match($('rate-text').textContent, /^FAST 360×$/);
+  assert.deepEqual([h.vm().mode.mode, $('rate-text').textContent], ['FAST', badgeText(h.vm().mode)]);
+  assert.equal(h.vm().mode.rate, D.FAST_FACTOR * D.rateOf(Object.assign({}, h.game.director, {fast: false}), h.game.state), 'FAST is 3 x CRUISE');
   keyUp('f');
   frames(1);
-  assert.match($('rate-text').textContent, /^CRUISE/);
+  assert.deepEqual([h.vm().mode.mode, $('rate-text').textContent], ['CRUISE', badgeText(h.vm().mode)]);
   key('?');
   frames(1);
   assert.equal($('drawer').hidden, false);
@@ -272,7 +275,7 @@ test('K-23 keys: Space, 1-8, A / Shift+A, T, L (twice), F hold, ?, Esc; typing i
   input.focus();
   doc.dispatch('keydown', {key: ' '});
   frames(1);
-  assert.match($('rate-text').textContent, /^CRUISE/);
+  assert.deepEqual([h.vm().mode.mode, $('rate-text').textContent], ['CRUISE', badgeText(h.vm().mode)]); // (2c: the badge names the segment)
 });
 
 test('K-23 Tab with the real map: the first Tab puts the keyboard on the map\'s focusable .citymap (not its #map box), so ←/→ step through the plants', async () => {
@@ -403,7 +406,8 @@ test('K-15 / K-16 through the shell: vignette and stopwatch, beats in physical o
   frames(1);
   assert.equal(card.hidden, true);
   assert.ok(game.state.tick > held);
-  assert.match($('rate-text').textContent, /^(RESPOND 30×|CRUISE 120×)$/);
+  assert.match(h.vm().mode.mode, /^(RESPOND|CRUISE)$/);
+  assert.equal($('rate-text').textContent, badgeText(h.vm().mode));
 });
 
 test('K-16 via the shell: the respond card goes with a click on it, as with Enter (a press on the desk: the K-9 test)', () => {
@@ -575,7 +579,7 @@ test('F-6 / C-3 via the shell: the day ends with the end card; its replay log re
   assert.equal($('briefing-card').hidden, false);
 });
 
-test('K-12 offers (A-4): offered only while RESPOND, TIGHT or worse, or the evening peak; at most 3 a day', () => {
+test('K-12 offers (A-4, Q-78): offered only in D-5\'s window, at TIGHT or worse, or in the Peak; tight and peak share one a day', () => {
   const game = G.createGame({seed: 7, storage: null});
   G.takeDesk(game);
   const vm0 = G.buildVm(game, {nowMs: 0});
@@ -585,11 +589,10 @@ test('K-12 offers (A-4): offered only while RESPOND, TIGHT or worse, or the even
   for (const u of ready) u.mode = 'ready';
   game.state.sec.level = 'SECURE';
   const quiet = G.buildVm(game, {nowMs: 1});
-  if (quiet.obs.clock.h < 17 || quiet.obs.clock.h >= 20) assert.deepEqual(quiet.offers, [], 'routine starts sync quietly');
+  assert.deepEqual(quiet.offers, [], 'routine starts sync quietly (04:30 is outside D-2\'s Peak)'); // (2c, Q-78: these two lines)
   game.state.sec.level = 'TIGHT';
   const v = G.buildVm(game, {nowMs: 2});
-  assert.equal(v.offers.length, G.MAX_OFFERS, 'never more than 3 a day');
-  assert.ok(v.offers.every(o => o.why === 'tight'));
+  assert.deepEqual(v.offers.map(o => o.why), ['tight'], 'tight and peak share one offer a day (Q-78)');
   assert.ok(v.glow.has('bay-sync'), 'the SYNC key glows');
   assert.equal(G.ui(game, {do: 'offerTaken', unit: v.offers[0].unit}), '');
   assert.equal(G.ui(game, {do: 'offerTaken', unit: 'coal1'}), 'not offered');
@@ -639,6 +642,30 @@ test('K-16 model: every number on the card equals the record (and so the trace)'
   assert.ok(card.glow.includes('dial-battery'));
   const fb = W.fallbackGlow(obs, c);
   for (const id of fb) assert.match(id, /^(guard-start-[a-z]+\d|dial-battery|knob-tie)$/);
+});
+
+test('Q-69 on the RESPOND card and the UFLS explainer: a held task feeder is the network\'s outage (not counted dark, no RESTORE glow); handed back and still dark it is the operator\'s', () => {
+  const game = G.createGame({seed: 20261007, scenario: DESK, storage: null});   // RED5 and RED7 held from 04:00 until 07:15 and 06:45
+  G.takeDesk(game);
+  injectTrip(game.state, V.PLAYER_START_S + 3600);
+  G.runTo(game, V.PLAYER_START_TICK + 3600 * TPS + V.WATCH_S * TPS + 5);
+  const obs = observe(game.state), c = obs.contingency, task = obs.districts.filter(d => d.shedBy === 'task');
+  assert.ok(task.length === 2 && task.every(d => d.dark && d.clearS > obs.s) && obs.districts.every(d => !d.dark || d.shedBy === 'task'));
+  const held = W.respondCard(obs, c, {glow: []});
+  assert.deepEqual([held.numbers.darkCount, held.numbers.darkMW, held.glow.includes('bay-restore')], [0, 0, false]);
+  assert.ok(!/dark/.test(held.lines[2]), held.lines[2]);
+  // SHEDDING beside them (a UFLS district, test poke): it alone is counted
+  const shed = structuredClone(obs), u = shed.districts.find(d => !d.dark);
+  Object.assign(u, {dark: true, shedBy: 'ufls'});
+  shed.sec.level = 'SHEDDING';
+  assert.match(W.respondCard(shed, c, {glow: []}).lines[2], new RegExp('^SHEDDING: 1 district dark \\(' + Math.round(u.coldLoadMW) + ' MW\\): relight it( and cover [\\d,]+ MW)? within \\d+:\\d\\d\\.$')); // (2c: COVER's words, Q-74)
+  assert.ok(ALARM_HELP.ufls.reading(shed).startsWith('districts dark: 1 · '), 'the UFLS explainer\'s reading counts as its MW do');
+  // one handed back (its clearS reached, test poke): the operator's to restore
+  const back = structuredClone(obs), r = back.districts.find(d => d.id === task[0].id);
+  r.clearS = back.s;
+  const own = W.respondCard(back, c, {glow: []});
+  assert.deepEqual([own.numbers.darkCount, own.numbers.darkMW, own.glow.includes('bay-restore')], [1, r.coldLoadMW, true]);
+  assert.ok(own.lines[2].endsWith(' 1 district dark (' + Math.round(r.coldLoadMW) + ' MW).'), own.lines[2]);
 });
 
 // ------------------------------------------------------------------ Phase 2a wave 3 (desk/README.md §21.4): the app's side of the belly
@@ -743,7 +770,7 @@ test('Q-18 / K-22: the word beside the objective is by level, and by kind where 
 });
 
 test('C-10 via the shell: while a guard is under the player\'s hand the line says what the press would do, as "? IF PRESSED" with its level\'s class; "● ARMED" while its cover is up, "✓ UNDER WAY" once started', () => {
-  const {$, h, frames} = boot('?seed=7', {system: SYS, planview: PVW, scenario: DESK, commit: 'player', startPaused: true});
+  const {$, h, frames} = boot('?seed=7', {system: SYS, planview: PVW, scenario: legacyDesk(), commit: 'player', startPaused: true}); // (the plan keeps CCGT 2 out on seed 7)
   $('btn-take').click();
   frames(2);
   assert.equal(h.vm().mode.mode, 'PAUSE');
@@ -872,9 +899,9 @@ test('§21.4: in player mode an accepted start, stop, abortStop, battery, guard,
 
 // A player-mode game with the real system operator at 04:32:10 and a half: the system looked at
 // 04:32:00 and looks again at 04:33:00 (an input made now is not seen by it for half a minute).
-function playerGame(o = {}) {
-  const game = G.createGame(Object.assign({seed: 7, scenario: DESK, system: SYS, planview: PVW, commit: 'player', storage: null}, o));
-  G.takeDesk(game, {agc: true});
+function playerGame(o = {}) { // (today's desk events, legacyDesk: the plan keeps CCGT 2 out on seed 7)
+  const game = G.createGame(Object.assign({seed: 7, scenario: legacyDesk(), system: SYS, planview: PVW, commit: 'player', storage: null}, o));
+  G.takeDesk(game);
   G.runTo(game, V.PLAYER_START_TICK + 130 * TPS + 25);
   return game;
 }
@@ -920,7 +947,7 @@ test('the line\'s errors are kept, not swallowed: an exception in the objective 
   assert.equal(game.objectiveError, 'objective: boom');
   // the next line clears it
   game.planview = PVW;
-  G.runTo(game, game.state.tick + G.OBJECTIVE_EVERY_S * TPS);
+  while (!G.objectiveDue(game, Math.floor(game.state.tick / TPS), 'CRUISE')) G.runTo(game, game.state.tick + TPS); // the line's next look (2c, Q-63: the profile's cadence)
   vm = G.buildVm(game, {nowMs: 16, dtS: 0});
   assert.equal(typeof vm.objective.text, 'string');
   assert.equal(vm.objectiveError, '');
@@ -947,7 +974,7 @@ test('F-11: one projection and one day-ahead forecast per line; a new consider t
   assert.equal(projects, 1, 'a new target: no new projection and no new line');
   assert.equal(game.objectiveHeld, held);
   // the line's own cadence still runs, and an accepted input still refreshes both at once
-  G.runTo(game, game.state.tick + G.OBJECTIVE_EVERY_S * TPS);
+  while (!G.objectiveDue(game, Math.floor(game.state.tick / TPS), 'CRUISE')) G.runTo(game, game.state.tick + TPS); // (2c, Q-63: the profile's cadence)
   G.buildVm(game, {nowMs: 32, dtS: 0});
   assert.equal(projects, 2);
   assert.equal(G.sendInput(game, {type: 'guard', mw: 100}), '');
@@ -979,7 +1006,8 @@ test('C-2 at boot: a seed that reads as a Saturday or Sunday plays desk-weekend;
   const d = boot('?seed=7', {scenario: G.scenarioForSeed});
   d.frames(2);
   assert.equal(d.h.game.scenario.id, 'desk');
-  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday. A heatwave warning, if one comes, comes mid-morning.');
+  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday. No heatwave is forecast.'); // (2c, Q-80: a planned day's heat is news at 04:00, and seed 7 has none)
+  assert.equal(dayText({temp: 'HOT', weekend: false}, {heat: true}), 'Today: a hot weekday, with a heatwave this afternoon (Watch for, below).');
   // PLAY AGAIN asks the function again (the same seed: the same scenario)
   G.resetDay(w.h.game);
   assert.equal(w.h.game.scenario.id, 'desk-weekend');
@@ -997,13 +1025,17 @@ test('the game shows the line through steady(): a line the player has not acted 
     const o = h.vm().objective;
     if (o && (!seen.length || seen.at(-1).text !== o.text)) seen.push({s: game.state.env.s, text: o.text, action: o.action, level: o.level});
   }
+  // (2c wave 3: a shown line may wait out its LINE_DWELL_MS: play on past it to the next recompute, then it is the held line)
+  for (let i = 0; i < 300 && game.lastFrameMs - game.lineMs < G.LINE_DWELL_MS; i++) frames(1, 1 / 30);
+  for (let i = 0, s0 = game.objectiveS; i < 60 && game.objectiveS === s0; i++) frames(1, 1 / 30);
   assert.ok(game.objectiveHeld && game.objectiveHeld.line === game.objective, 'vm.objective is the held line');
   const mins = Math.round((game.state.env.s - V.PLAYER_START_S) / 60);
   assert.ok(mins >= 20, mins + ' grid-min played');
   assert.ok(seen.length >= 1 && seen.length <= 2 + Math.ceil(mins / 15) * 2, 'a calm line: ' + seen.length + ' texts in ' + mins + ' grid-min:\n' + seen.map(x => x.text).join('\n'));
   for (const x of seen) assert.ok(x.text.length <= LINE_MAX_CHARS);
-  // the GUARD line stood with its first figure while the preview's hundredths moved under it
-  assert.match(seen[0].text, /^If your biggest unit tripped now, frequency would fall to 49\.\d\d Hz: too low to be secure\. Raise the battery GUARD to \d+ MW/);
+  // the first ask stood as it was said while its figures moved under it (2c: at 540x the 13-real-s reading
+  // lead, gridAfter, is two grid-hours, so GT·A's START outranks the GUARD line at 04:30; wave 3: with Q-68's reason, CCGT 2's outage)
+  assert.match(seen[0].text, /^You will be \d+ MW short from \d\d:\d\d \(CCGT 2 out until \d\d:\d\d\)\. Start GT·A now/);
   assert.deepEqual(h.vm().objective.action, game.objectiveHeld.line.action);
 });
 
@@ -1086,7 +1118,7 @@ test('F-11: the ?perf overlay shows the budget marks; ?debug exposes the boot ha
   assert.equal('gridwatch' in globalThis, false, 'no ?debug: no global');
   plain.$('btn-take').click();
   plain.frames(45);
-  assert.match(plain.$('perf').textContent, /frame ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget 8 ms\)\nsim ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget 1 ms\) at ≤150×/);
+  assert.match(plain.$('perf').textContent, /frame ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget 8 ms\)\nsim ms p50 [\d.]+ · p95 [\d.]+ {2}(OK|OVER) \(budget (1 ms\) at ≤150|3 ms\) at >150)×/); // (2c: the profile's rate picks the mark)
   try {
     const dbg = boot('?seed=7&debug');
     assert.equal(globalThis.gridwatch, dbg.h, 'the handle bootGame returned');
@@ -1169,13 +1201,19 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   assert.equal(h.live.primed, false);
   frames(1);
   $('btn-take').click();
-  frames(2);
+  // (2c: frames of 2 grid-s, as at the old flat 120x: the profile plays 540x at 04:30, where the classic day's N-1 alarm would speak first)
+  const g2 = 1 / 270;
+  frames(2, g2);
   advance(2500);
-  frames(1);
-  assert.equal($('aria-live').textContent, 'CRUISE 120×', 'the mode change after the briefing');
+  frames(1, g2);
+  const cruise = badgeText(h.vm().mode); // (the rate read: slice 2c's profile)
+  assert.equal(h.vm().mode.mode, 'CRUISE');
+  // (2c, Q-78 / K-23: the act changes at TAKE THE DESK too, so its words come first)
+  const said = 'Act I, the morning ramp: the city wakes and demand climbs. ' + cruise;
+  assert.equal($('aria-live').textContent, said, 'the mode change after the briefing');
   key(' ');
   frames(1);
-  assert.equal($('aria-live').textContent, 'CRUISE 120×', 'inside 2 real s: not yet');
+  assert.equal($('aria-live').textContent, said, 'inside 2 real s: not yet');
   advance(2500);
   frames(1);
   assert.equal($('aria-live').textContent, 'PAUSE 0×');
@@ -1183,7 +1221,7 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   // A new alarm's label (test poke: storage low).
   h.game.state.hydro.storageMWh = 0.2 * V.HYDRO_ALLOCATION_MWH;
   advance(2500);
-  frames(2);
+  frames(2, g2);
   assert.equal($('aria-live').textContent, 'Alarm: STORAGE LOW, P2');
   // The header's own controls say what they are and which key reaches them.
   for (const [id, keys] of [['btn-pause', 'Space'], ['btn-mute', 'Shift+M'], ['btn-settings', ','], ['btn-help', '?']]) {

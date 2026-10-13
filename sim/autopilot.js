@@ -4,6 +4,8 @@
 
 import {V} from './params.js';
 import {createState, step, observe, hashState, applyInput, inWatch} from './step.js';
+import {stepReal, NIGHT_S} from './clock.js';
+import {darkShareAt, litMW} from './dark.js';
 
 // ------------------------------------------------------------------ constants (hoisted)
 
@@ -57,6 +59,7 @@ const CHARGE_MAX = V.PAR_BATT_CHARGE_MAX_MW, ORDER_TOL = V.PAR_BATT_ORDER_TOL_MW
 const REBASE = V.PAR_REBASE_MW, REBASE_COLS = S_PER_H / STEP_S;
 const NADIR_MIN = V.PAR_NADIR_MIN_HZ, NADIR_RELAX = V.PAR_NADIR_RELAX_HZ;
 const GUARD_STEP = V.PAR_GUARD_STEP_MW, GUARD_MAX = V.PAR_GUARD_MAX_MW, GUARD_SUSTAIN_H = V.GUARD_SUSTAIN_S / S_PER_H;
+const NIGHT_STOP_GUARD = V.PAR_NIGHT_STOP_GUARD_MW;
 const RERT_LOOK_S = V.PAR_RERT_LOOKAHEAD_MIN * S_PER_MIN, RERT_MARGIN = V.PAR_RERT_MARGIN_MW;
 const RERT_STANDDOWN_S = V.PAR_RERT_STANDDOWN_MIN * S_PER_MIN, DR_MARGIN = V.PAR_DR_MARGIN_MW;
 const NORMAL_LO = V.NORMAL_LO_HZ, RESTORE_MIN_HZ = V.RESTORE_MIN_HZ, SECURE_AGAIN_S = V.SECURE_AGAIN_S;
@@ -76,10 +79,14 @@ const PROXIES = {
   doNothing: {rules: [], gapS: GAP_REAL_S, plan: false, stops: false},
   lean: {rules: ['rule1', 'rule2', 'rule7', 'rule8', 'rule9'], gapS: GAP_REAL_S, plan: true, stops: true},
   competent: {rules: ALL_RULES, gapS: COMPETENT_GAP_REAL_S, plan: true, stops: false},
+  // §32.10, Q-91: competent, but each feeder card holds the clock cardS real s (feederHolds)
+  slow: {rules: ALL_RULES, gapS: COMPETENT_GAP_REAL_S, plan: true, stops: false, cardS: V.PROXY_SLOW_RESTORE_REAL_S},
   commitAll: {rules: ALL_RULES.filter(r => r !== 'rule4'), gapS: GAP_REAL_S, plan: true, stops: false},
   fuzz: {rules: [], gapS: GAP_REAL_S, plan: false, stops: false},
+  night: {rules: ALL_RULES, gapS: GAP_REAL_S, plan: true, stops: true, gridS: V.NIGHT_ACTION_S}, // Q-73
 };
 export const PROXY_NAMES = Object.freeze(Object.keys(PROXIES));
+const NIGHT_OF = new Set(['par', 'competent', 'slow', 'lean', 'commitAll', 'planOnly']);
 
 // ------------------------------------------------------------------ small helpers
 
@@ -115,40 +122,15 @@ function onFromNow(u, i, now, auto) {
 
 const committedMode = mode => mode === 'on' || mode === 'loading' || mode === 'starting' || mode === 'ready';
 const hydroWet = obs => obs.hydro.storageMWh > HYDRO_STOP + EPS;
+/** Q-68: the tie's import limit at grid second t (a derate until obs.tie.limitUntilS). */
+const tieLimAt = (obs, t) => (obs.tie.limitUntilS < 0 || t < obs.tie.limitUntilS ? obs.tie.importLimitMW : TIE_MAX);
 
-/**
- * The dark part of the city (obs only): `shed`, the dark districts' share of the customers, and
- * `roof`, their share of the rooftop PV (a district holds an equal part of its suburb's nameplate;
- * 0 on a scenario with no rooftop). Phase 2a (P-12): the roofs go off with their feeder.
- */
-function darkShare(obs) {
-  const D = {shed: 0, roof: 0};
-  const roofs = obs.rooftop;
-  for (const d of obs.districts) {
-    if (!d.dark) continue;
-    D.shed += d.share;
-    if (!roofs || !(roofs.capMW > 0)) continue;
-    let inSuburb = 0, capMW = 0;
-    for (const x of obs.districts) if (x.suburb === d.suburb) inSuburb++;
-    for (const sub of roofs.suburbs) if (sub.id === d.suburb) capMW = sub.capMW;
-    D.roof += capMW / inSuburb / roofs.capMW;
-  }
-  return D;
-}
-
-/**
- * Lit operational demand of a forecast column (P-12; the sim's fleet.litDemandMW on the
- * forecast): the lit customers draw (P50 + rooftop) x (1 - shed) and the rooftop still connected
- * comes off it. Not P50 x (1 - shed): a dark district's roofs are off with it. With rooftop zero
- * it is P50 x (1 - shed) exactly (the classic day).
- */
-const litMW = (p50, roofMW, D) => (p50 + roofMW) * (1 - D.shed) - roofMW * (1 - D.roof);
 /** A forecast's rooftop column (zeros on an observation made before Phase 2a). */
 const roofColumn = fc => fc.rooftopMW || fc.demandP50.map(() => 0);
-/** A forecast's columns as lit operational demand (litMW over its P50 and its rooftop column). */
-function litColumns(fc, D) {
+/** A forecast's columns as lit operational demand (litMW over its P50 and its rooftop column, each at its own dark share). */
+function litColumns(fc, obs) {
   const roof = roofColumn(fc);
-  return fc.demandP50.map((p50, j) => litMW(p50, roof[j], D));
+  return fc.demandP50.map((p50, j) => litMW(p50, roof[j], darkShareAt(obs, fc.fromS + (j + 1) * fc.stepS)));
 }
 /**
  * Plan column k (at grid second t) as lit operational demand from the plan's DAY-AHEAD columns,
@@ -172,28 +154,17 @@ function flexOf(lv, t) {
 // ------------------------------------------------------------------ reference playback (D-2, D-5)
 
 const PROF = V.REF_PROFILE.map(p => ({a: secOfH(p.fromH), b: secOfH(p.toH), rate: p.rate}));
-const PROF_FIRST = PROF[0], PROF_LAST = PROF[PROF.length - 1];
+const PROF_LAST = PROF[PROF.length - 1];
 const WATCH_REAL = V.REF_WATCH_REAL_S, CARD_REAL = V.REF_RESPOND_CARD_S;
 const RESPOND_RATE = V.RESPOND_RATE, RESPOND_MAX = V.RESPOND_MAX_S;
-
-/** Real seconds for grid seconds [a, b) at the D-2 profile alone (first / last rate outside it). */
-function profileReal(a, b) {
-  if (!(b > a)) return 0;
-  let r = 0;
-  if (a < PROF_FIRST.a) r += (Math.min(b, PROF_FIRST.a) - a) / PROF_FIRST.rate;
-  for (const p of PROF) {
-    const lo = Math.max(a, p.a), hi = Math.min(b, p.b);
-    if (hi > lo) r += (hi - lo) / p.rate;
-  }
-  if (b > PROF_LAST.b) r += (b - Math.max(a, PROF_LAST.b)) / PROF_LAST.rate;
-  return r;
-}
+const PACE_MAX = V.RESTORE_PACE_MAX_S, RESTORE_GAP = V.RESTORE_INTERVAL_S;
 
 /** Grid seconds until the proxy of `memo` may act again after an action now: its S-4 gap at the D-2 profile's present rate. */
 function paceS(now, memo) {
   let rate = PROF_LAST.rate;
   for (let j = PROF.length - 1; j >= 0; j--) if (now < PROF[j].b) rate = PROF[j].rate;
-  return PROXIES[memo.proxy].gapS * rate;
+  const p = PROXIES[memo.proxy];
+  return p.gridS || p.gapS * rate;
 }
 
 /** End of a contingency's RESPOND segment at RESPOND_RATE (D-5). */
@@ -211,18 +182,21 @@ function respondEnd(c) {
  * watchEndS until backInBandS (or for RESPOND_MAX_S if it is -1 or later). Before
  * PLAYER_START_H the rate is that of the profile's first segment. Pure; used for the S-4
  * pace rule and by tests. Overlapping contingencies: a watch wins over a RESPOND segment,
- * and each card counts once.
+ * and each card counts once. 2c (Q-91): each feeder card in [fromS, toS) holds the clock its
+ * realS real s at zero grid time, as the respond card does.
  * @param {number} fromS
  * @param {number} toS
  * @param {Array<{startS:number, watchEndS:number, backInBandS:number}>} conts obs.contingencies
+ * @param {Array<{atS:number, realS:number}>} [holds] Q-91's feeder cards (feederHolds(obs, realS))
  * @returns {number}
  */
-export function refRealSeconds(fromS, toS, conts) {
+export function refRealSeconds(fromS, toS, conts, holds = []) {
   if (!(toS > fromS)) return 0;
   const cs = conts || [];
-  if (cs.length === 0) return profileReal(fromS, toS);
-  const pts = [fromS, toS];
   let r = 0;
+  for (const h of holds) if (h.atS >= fromS && h.atS < toS) r += h.realS;
+  if (cs.length === 0) return r + stepReal(fromS, toS);
+  const pts = [fromS, toS];
   for (const c of cs) {
     const ends = [c.startS, c.watchEndS, respondEnd(c)];
     for (const x of ends) if (x > fromS && x < toS) pts.push(x);
@@ -242,9 +216,49 @@ export function refRealSeconds(fromS, toS, conts) {
         respond = true;
       }
     }
-    r += watchRate >= 0 ? (b - a) * watchRate : respond ? (b - a) / RESPOND_RATE : profileReal(a, b);
+    r += watchRate >= 0 ? (b - a) * watchRate : respond ? (b - a) / RESPOND_RATE : stepReal(a, b);
   }
   return r;
+}
+
+/** market.restoreAllowedS's rule, copied (S-4). */
+function allowedS(ds, i) {
+  const x = ds[i], end = x.dark ? Infinity : x.restoredAtS;
+  let p = -1;
+  for (const y of ds) if (y.restoredAtS > p && y.restoredAtS < end) p = y.restoredAtS;
+  return Math.max(x.clearS, (p < 0 ? -DAY_S : p) + RESTORE_GAP);
+}
+/**
+ * Q-91's feeder cards in obs, each held realS real s at zero grid time (sim/README §11 autopilot.js).
+ * A proxy's card lasts REF_RESPOND_CARD_S (the slow proxy's cardS) and never less than its own pace:
+ * on the held clock a player takes the time they need, so the card never makes a restore late.
+ */
+const holdOf = p => Math.max(p.cardS || CARD_REAL, p.gapS);
+function feederHolds(obs, realS) {
+  const ds = obs.districts, out = [];
+  for (let i = 0; i < ds.length; i++) {
+    const d = ds[i];
+    if (d.clearS < 0 || (d.dark && d.shedBy !== 'task')) continue;
+    const a = allowedS(ds, i);
+    if (a < NIGHT_S) out.push({atS: a, realS});
+  }
+  return out;
+}
+/**
+ * Q-88: is a task feeder's RESTORE window open (rule 9 asked first)? From its allowed second until
+ * it is closed or RESTORE_PACE_MAX_S later (S-6's PERFECT pace), none from NIGHT_S: the feeder card
+ * (Q-91, app/director.js) holds the clock at the allowed second, so every proxy restores there.
+ */
+function restoreWindow(obs) {
+  const ds = obs.districts, s = obs.s;
+  if (s >= NIGHT_S) return false;
+  for (let i = 0; i < ds.length; i++) {
+    const d = ds[i];
+    if (d.clearS < 0 || !d.dark || d.shedBy !== 'task') continue;
+    const a = allowedS(ds, i);
+    if (s >= a && s < a + PACE_MAX) return true;
+  }
+  return false;
 }
 
 // Contingencies as par may count them at decision time: a RESPOND segment still open
@@ -317,10 +331,10 @@ function context(obs, P, k0, par, memo, keepStops) {
   // a re-flow of it, the player's RE-DISPATCH; par decommits by rule 4 only). They are carried
   // into the planLoad the re-dispatch sends, which replaces every entry from now on.
   for (const e of obs.plan.starts) {
-    const i = V.MACHINE_IDS.indexOf(e.unit);
-    if (e.atS >= now && cx.on[i] < 0 && (obs.units[i].mode === 'off' || obs.units[i].mode === 'tripped')) {
-      cx.on[i] = e.atS + obs.units[i].startToMinS; cx.off[i] = NEVER;
-      cx.starts.push({unit: e.unit, atS: e.atS});
+    const i = V.MACHINE_IDS.indexOf(e.unit), atS = Math.max(e.atS, obs.units[i].outUntilS); // Q-68: due at the return (startDueS)
+    if (atS >= now && cx.on[i] < 0 && (obs.units[i].mode === 'off' || obs.units[i].mode === 'tripped')) {
+      cx.on[i] = atS + obs.units[i].startToMinS; cx.off[i] = NEVER;
+      cx.starts.push({unit: e.unit, atS});
     }
   }
   if (keepStops) {
@@ -333,11 +347,10 @@ function context(obs, P, k0, par, memo, keepStops) {
   // obs.demand.litMW (each suburb's sky as it is, relit roofs still waiting or ramping), a forecast
   // column goes through litMW() (the dark districts' roofs are off with them), and a plan column
   // inside the first forecast step lies between the two (fcAt), as for every other series.
-  const D = darkShare(obs);
   // Load the forecast does not carry (the cold-load surge of restored districts, K-13), fading
   // out over COLD_LOAD_DECAY_S as it does in the grid.
   const coldNow = par ? Math.max(0, obs.balance.servedMW + obs.dr.mw - obs.demand.litMW) : 0;
-  const ofgs = obs.wind.ofgsTrippedFrac, fc = obs.forecast, fn = fc.n, fcLit = litColumns(fc, D);
+  const ofgs = obs.wind.ofgsTrippedFrac, fc = obs.forecast, fn = fc.n, fcLit = litColumns(fc, obs);
   // The battery's order counts for the energy behind it (batteryOrder): wind and solar the
   // dispatch is holding back are NOT netted off: the forecast and the present here are what is
   // AVAILABLE (obs.wind.availMW), so a curtailed present never reads as a low forecast.
@@ -360,7 +373,7 @@ function context(obs, P, k0, par, memo, keepStops) {
     let price = fcAt(fc.neighbourPrice, obs.tie.neighbourPrice, fn, lead);
     let expLim = fcAt(fc.exportLimitMW, obs.tie.exportLimitMW, fn, lead);
     if (lit === null) { // beyond the 4.5-h forecast: the day-ahead values (litDayAhead: with an announced heatwave)
-      lit = litDayAhead(P, k, t, heat, D, obs.levers);
+      lit = litDayAhead(P, k, t, heat, darkShareAt(obs, t), obs.levers);
       wind = P.fc.wind[k]; solar = P.fc.solar[k]; price = P.fc.price[k]; expLim = P.fc.expLim[k];
     }
     let other = 0;
@@ -377,7 +390,7 @@ function context(obs, P, k0, par, memo, keepStops) {
     cx.cover[k] = lit - wind * (1 - ofgs) - solar - other;
     cx.price[k] = price;
     cx.expLim[k] = expLim;
-    cx.tieCap[k] = t < tieBack ? 0 : TIE_MAX;
+    cx.tieCap[k] = t < tieBack ? 0 : tieLimAt(obs, t);
   }
   return cx;
 }
@@ -459,7 +472,7 @@ function commitPlan(obs, P, cx) {
         // D1: a tripped unit waits out its lockout only; minimum down time follows a planned
         // stop, and startBlock says whether it still binds.
         const wait = u.mode === 'tripped' ? u.timerS : u.startBlock === '' ? 0 : Math.max(0, m.minDownS - u.downForS);
-        earliest = now + wait + u.startToMinS;
+        earliest = Math.max(now + wait, u.outUntilS) + u.startToMinS; // Q-68: not before a late return
       }
       if (earliest <= t1) { best = i; bestOn = earliest; break; }
       if (earliest < bestOn) { best = i; bestOn = earliest; }
@@ -818,7 +831,7 @@ export function replan(obs, memo) {
  * action's tick, and the harness's decision cadence (nextS, the next decision's grid second;
  * afterWatch, decide at the first second after a watch), which runPar, the bench's assist and
  * app/system.js keep here rather than in their own locals.
- * @param {{proxy?:'par'|'planOnly'|'doNothing'|'lean'|'competent'|'commitAll'|'fuzz'}} [opts]
+ * @param {{proxy?:'par'|'planOnly'|'doNothing'|'lean'|'competent'|'slow'|'commitAll'|'fuzz'}} [opts]
  * @returns {object} memo
  */
 export function createAutopilot(opts) {
@@ -827,6 +840,14 @@ export function createAutopilot(opts) {
   return {proxy, plan: null, outbox: [], lastActTick: -1, lastOrigin: '', actions: 0,
     amendDue: false, seenConts: 0, trip: null, tieHoldS: -1, tieHoldMW: 0, secureTieMW: 0, guardHoldS: -1, rebaseQuietS: -1,
     water: 'hold', rertSinceS: -1, planShed: 0, reflowS: -1, nextS: -1, afterWatch: false, belly: false, coalStops: 0};
+}
+
+/** Q-73: the night shift's memory from one observation with dayAhead (sim/README §11 autopilot.js). */
+export function nightMemo(obs) {
+  const memo = createAutopilot({proxy: 'night'}), P = preDispatch(obs);
+  delete P.load;
+  return Object.assign(memo, {plan: P, rertSinceS: obs.rert.armed ? obs.s - RERT_STANDDOWN_S : -1, night: true,
+    seenConts: obs.contingencies.length, amendDue: true}); // the day's trips were the day's to answer; the night plan is sent at once
 }
 
 /** Make the day's plan from a day-ahead observation; its planLoad (origin 'plan') waits in the outbox. */
@@ -908,17 +929,41 @@ function situation(obs, memo) {
     if (PAR_LOADING * u.availMW > big) big = PAR_LOADING * u.availMW;
   }
   // Hydro counts for the water it may use this hour (rule 5's keep line).
-  capCommitted += Math.min(hydroCap, Math.max(0, obs.hydro.storageMWh - keepMWh(now)));
+  const water = Math.max(0, obs.hydro.storageMWh - keepMWh(now)), hydroIn = Math.min(hydroCap, water);
+  capCommitted += hydroIn;
   memo.secureTieMW = big;
   const b = obs.battery;
   const battMW = Math.max(0, Math.min(b.ratedMW, b.socMWh / SUSTAIN_H));
+  // Q-73: on a proxy that keeps the booked stops (the night's), a committed unit counts as off
+  // from its booked STOP's time: what it adds to capCommitted is added to net from that column on.
+  const offS = new Array(NU).fill(NEVER);
+  if (PROXIES[memo.proxy].stops) {
+    for (const e of obs.plan.stops) {
+      const i = V.MACHINE_IDS.indexOf(e.unit);
+      if (committedMode(obs.units[i].mode) && stopRuns(obs.units[i], i, e.atS - now)) offS[i] = Math.min(offS[i], e.atS);
+    }
+  }
   // Net demand the fleet must cover in forecast column k: P50 - wind - solar - the tie's planned import.
   const net = new Array(fc.n);
   for (let k = 0; k < fc.n; k++) {
     const t = fc.fromS + (k + 1) * fc.stepS;
-    net[k] = fc.demandP50[k] - fc.windMW[k] - fc.solarMW[k] - tieImportAt(obs, memo, t);
+    let off = 0, hydroOff = 0;
+    for (let i = 0; i < NU; i++) if (offS[i] <= t) { if (M[i].station === 'hydro') hydroOff += obs.units[i].availMW; else off += obs.units[i].availMW; }
+    if (hydroOff > 0) off += hydroIn - Math.min(hydroCap - hydroOff, water);
+    net[k] = fc.demandP50[k] - fc.windMW[k] - fc.solarMW[k] - tieImportAt(obs, memo, t) + off;
   }
-  return {now, fc, capCommitted, battMW, net};
+  return {now, fc, capCommitted, battMW, net, offS};
+}
+
+/**
+ * Does a STOP booked `wait` s ahead run on committed unit i (an observe row)? The executor drops one
+ * fleet.stopBlock refuses: inside the minimum up time from the breaker's close (a start not yet
+ * synchronised by then is aborted).
+ */
+function stopRuns(u, i, wait) {
+  if (u.mode === 'on' || u.mode === 'loading') return u.upForS + wait >= M[i].minUpS;
+  const syncIn = u.timerS + (u.mode === 'starting' ? AUTO_SYNC_S : 0);
+  return wait < syncIn || wait - syncIn >= M[i].minUpS;
 }
 
 /** The tie's planned import at grid second t, counted at most up to its secure cap (0 while tripped). */
@@ -963,7 +1008,7 @@ const startInput = i => ({type: 'start', unit: M[i].id});
 // held there until the trip's RESPOND window ends, then back to the plan. v4 form: the
 // maximum SECURE import, at most the largest unit's output (an 800-MW tie at 20 GW.s
 // previews near 48.4 Hz); par's plan still imports more if the P50 would be short. With no
-// peaker left to start, DR is the next fast block (tuning pass, see the file header).
+// peaker left to start, DR is the next fast block (tuning pass, sim/README §11).
 function rule1(obs, memo) {
   const tr = memo.trip;
   if (tr === null) return null;
@@ -978,7 +1023,7 @@ function rule1(obs, memo) {
   }
   if (tr.tie) {
     tr.tie = false;
-    const mw = Math.floor(Math.min(TIE_MAX, largestUnitMW(obs)));
+    const mw = Math.floor(Math.min(tieLimAt(obs, obs.s), largestUnitMW(obs)));
     if (!obs.tie.tripped && obs.tie.setMW < mw - KEYFRAME_MIN) {
       memo.tieHoldS = tr.untilS; memo.tieHoldMW = mw;
       return {type: 'tie', mw};
@@ -1010,12 +1055,13 @@ function rule2(obs, memo) {
   const sustains = mw => b.socMWh >= mw * GUARD_SUSTAIN_H;
   if (lowNadir && calm && b.guardMW + GUARD_STEP <= GUARD_MAX && sustains(b.guardMW + GUARD_STEP)) return {type: 'guard', mw: b.guardMW + GUARD_STEP};
   const shortR5 = sec.lMW > 0 && sec.r5MW < TIGHT * sec.lMW;
-  if (lowNadir || shortR5) {
+  // Q-73: at night one peaker on its way at a time
+  if ((lowNadir || shortR5) && !(memo.night && obs.units.some((u, i) => PEAKER[i] && u.mode !== 'on' && committedMode(u.mode)))) {
     const i = nextStart(obs, true);
     if (i >= 0) return startInput(i);
   }
   if (shortR5) {
-    const mw = Math.floor(Math.min(TIE_MAX, largestUnitMW(obs)));
+    const mw = Math.floor(Math.min(tieLimAt(obs, obs.s), largestUnitMW(obs)));
     if (!obs.tie.tripped && obs.tie.setMW < mw - KEYFRAME_MIN) {
       memo.tieHoldS = obs.s + SECURE_AGAIN_S; memo.tieHoldMW = mw;
       return {type: 'tie', mw};
@@ -1042,22 +1088,37 @@ function rule3(obs, memo, C) {
 // cycled (coal's 8-h minimum times; hydro costs nothing to keep spinning).
 function rule4(obs, memo, C) {
   if (rertStandDown(obs, memo)) return {type: 'standDownRERT'}; // the dearest resource first (rule 8's test)
-  const mx = peakNet(C, DECOMMIT_CLEAR_S);
+  if (memo.night && !nightStopHolds(obs)) return null;
+  const mx = peakNet(C, DECOMMIT_CLEAR_S), gone = [];
+  // Q-73: a unit whose booked STOP falls in the window is left to it, and N-1 is tested without it too
+  for (let i = 0; i < NU; i++) if (C.offS[i] <= obs.s + DECOMMIT_CLEAR_S) gone.push(M[i].id);
   for (const i of MERIT_DESC) {
     const u = obs.units[i], m = M[i];
-    if (u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S) continue;
+    if (u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S || gone.includes(u.id)) continue;
     if (m.cls === 'coal' || m.cls === 'hydro') continue;
     if (mx + COMMIT_MARGIN + DECOMMIT_EXTRA + u.availMW >= C.capCommitted + C.battMW / 2) continue;
-    if (!n1Without(obs, u)) continue;
+    if (!n1Without(obs, u, gone)) continue;
     return {type: 'stop', unit: u.id};
   }
-  return coalStop(obs, memo);
+  return coalStop(obs, memo, gone);
 }
 
-/** N-1 in minutes still holds with unit u (an observe row) stopped: R5 without its headroom against L without it. */
-function n1Without(obs, u) {
-  const r5Without = obs.sec.r5MW - Math.max(0, Math.min(u.availMW - u.outMW, u.rampMWMin * R5_MIN));
-  const lWithout = obs.sec.lId === u.id ? secondLargest(obs, u.id) : obs.sec.lMW;
+/**
+ * Q-73: at night a stop must leave rule 2 an answer that is not a start: the trip preview above
+ * PAR_NADIR_RELAX_HZ, or at least PAR_NADIR_MIN_HZ with PAR_NIGHT_STOP_GUARD_MW of GUARD still to raise.
+ */
+function nightStopHolds(obs) {
+  const sec = obs.sec, b = obs.battery, mw = b.guardMW + NIGHT_STOP_GUARD;
+  if (sec.lKind === 'none' || sec.previewNadirHz > NADIR_RELAX) return true;
+  return sec.previewNadirHz >= NADIR_MIN && mw <= GUARD_MAX && b.socMWh >= mw * GUARD_SUSTAIN_H;
+}
+
+/** N-1 in minutes still holds with unit u (an observe row) stopped, and the units `gone` (ids) too: R5 without their headroom against L without them. */
+function n1Without(obs, u, gone) {
+  const room = v => Math.max(0, Math.min(v.availMW - v.outMW, v.rampMWMin * R5_MIN)), out = gone.concat(u.id);
+  let r5Without = obs.sec.r5MW - room(u);
+  for (const v of obs.units) if (v !== u && v.sync && gone.includes(v.id)) r5Without -= room(v);
+  const lWithout = out.includes(obs.sec.lId) ? secondLargest(obs, out) : obs.sec.lMW;
   return r5Without >= TIGHT * lWithout;
 }
 
@@ -1068,15 +1129,15 @@ function n1Without(obs, u) {
 // for the evening by the code's timing: unload to MIN, T4, the minimum down time (from breaker
 // open to the next START order), then its start: a 10:00 stop is back at MIN at 21:14.
 // Expected never to fire on the game's days (MSL2 for three hours does not occur there).
-function coalStop(obs, memo) {
+function coalStop(obs, memo, gone) {
   const stopped = memo.coalStops || 0; // (a memo saved before Phase 2a has no count)
   if (!memo.plan || stopped >= COAL_STOPS_DAY) return null;
   for (let i = 0; i < NU; i++) if (M[i].thermal && M[i].cls !== 'coal' && committedMode(obs.units[i].mode)) return null;
   if (msl2S(obs) < COAL_MSL2_S) return null;
   for (const i of MERIT_DESC) {
     const u = obs.units[i], m = M[i];
-    if (m.cls !== 'coal' || u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S) continue;
-    if (!n1Without(obs, u)) continue;
+    if (m.cls !== 'coal' || u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S || gone.includes(u.id)) continue;
+    if (!n1Without(obs, u, gone)) continue;
     const backS = obs.s + Math.max(0, u.outMW - m.minMW) / m.rampMWs + m.t4S + m.minDownS + u.startToMinS;
     if (!eveningHolds(obs, memo, i, backS)) continue;
     memo.coalStops = stopped + 1;
@@ -1117,7 +1178,7 @@ function eveningHolds(obs, memo, without, backS) {
     if (t > backS) break;
     let lit = fcAt(A.lit, obs.demand.litMW, fc.n, lead), wind = fcAt(fc.windMW, obs.wind.availMW, fc.n, lead);
     let solar = fcAt(fc.solarMW, obs.solar.availMW, fc.n, lead);
-    if (lit === null) { lit = litDayAhead(P, k, t, A.heat, A.dark, obs.levers); wind = P.fc.wind[k]; solar = P.fc.solar[k]; }
+    if (lit === null) { lit = litDayAhead(P, k, t, A.heat, darkShareAt(obs, t), obs.levers); wind = P.fc.wind[k]; solar = P.fc.solar[k]; }
     let thermal = 0, hydro = 0, big = 0;
     for (let j = 0; j < NU; j++) {
       if (j === without || A.onAt[j] < 0 || A.onAt[j] > t) continue;
@@ -1126,16 +1187,16 @@ function eveningHolds(obs, memo, without, backS) {
       if (m.station === 'hydro') hydro += mw; else thermal += mw;
       if (mw > big) big = mw;
     }
-    const tie = t < A.tieBack ? 0 : Math.min(TIE_MAX, big);
+    const tie = t < A.tieBack ? 0 : Math.min(tieLimAt(obs, t), big);
     const firm = thermal + Math.min(hydro, water) + tie - Math.max(big, tie);
     if (lit - wind - solar + COMMIT_MARGIN > firm) return false;
   }
   return true;
 }
 
-function secondLargest(obs, id) {
+function secondLargest(obs, ids) {
   let big = obs.tie.tripped ? 0 : Math.max(0, obs.tie.flowMW);
-  for (const u of obs.units) if (u.sync && u.id !== id && u.outMW > big) big = u.outMW;
+  for (const u of obs.units) if (u.sync && !ids.includes(u.id) && u.outMW > big) big = u.outMW;
   return big;
 }
 
@@ -1350,17 +1411,16 @@ function agcCarriedMW(obs) {
 /** Once per decision: the dark share and the forecast as lit demand, when each machine can be on, the tie's return, the pool's energy. */
 function adequacySetup(obs) {
   const now = obs.s, auto = obs.mode === 'AGC', b = obs.battery, dr = obs.dr;
-  const dark = darkShare(obs);
   const wet = hydroWet(obs);
   const onAt = new Array(NU).fill(-1);
   for (let i = 0; i < NU; i++) {
     const u = obs.units[i];
     if (M[i].station === 'hydro' && !wet) continue;
     if (committedMode(u.mode)) onAt[i] = onFromNow(u, i, now, auto);
-    else if (u.mode === 'off' && u.startBlock === '') onAt[i] = now + u.startToMinS;
+    else if (u.mode === 'off' && (u.startBlock === '' || u.outUntilS > now)) onAt[i] = Math.max(now, u.outUntilS) + u.startToMinS;
     else if (u.mode === 'tripped') onAt[i] = now + u.timerS + u.startToMinS;
   }
-  return {obs, now, dark, lit: litColumns(obs.forecast, dark), onAt, heat: latestNews(obs, 'heat'), tieBack: obs.tie.tripped ? now + obs.tie.lockoutS : now,
+  return {obs, now, lit: litColumns(obs.forecast, obs), onAt, heat: latestNews(obs, 'heat'), tieBack: obs.tie.tripped ? now + obs.tie.lockoutS : now,
     hydroE: Math.max(0, obs.hydro.storageMWh - WATER_FLOOR), drE: DR_MW * (dr.callsLeft + Math.max(0, dr.activeS) / S_PER_H),
     battE: Math.max(0, b.socMWh - BATT_RESERVE_MWH), battP: b.ratedMW};
 }
@@ -1396,7 +1456,7 @@ function walk(A, rertLead) {
     const net = k === 0 ? obs.demand.litMW - windNow - solarNow
       : A.lit[k - 1] - fc.windMW[k - 1] - fc.solarMW[k - 1];
     const U = unitsAt(A, t);
-    let firm = U.th + (t < A.tieBack ? 0 : Math.min(TIE_MAX, TIE_COL / STEP_S * (t - A.tieBack) + (obs.tie.tripped ? 0 : TIE_MAX)));
+    let firm = U.th + (t < A.tieBack ? 0 : Math.min(tieLimAt(obs, t), TIE_COL / STEP_S * (t - A.tieBack) + (obs.tie.tripped ? 0 : TIE_MAX)));
     if (rertLead === RERT_AS_ARMED && rert.armed && !rert.standingDown) firm += lead >= rert.leadS ? RERT_MW : rert.outMW;
     else if (rertLead >= 0 && lead >= rertLead) firm += RERT_MW;
     const d = net + RERT_MARGIN - firm;
@@ -1484,8 +1544,10 @@ function rule9(obs) {
   if (obs.f.hz < RESTORE_MIN_HZ || sec.lMW <= 0) return null;
   const F0 = V.F0_HZ, drop = Math.max(0, F0 - sec.previewNadirHz);
   const spillMW = obs.wind.autoMW + obs.solar.autoMW;
+  const ds = obs.districts;
   let best = null;
-  for (const d of obs.districts) {
+  for (let i = 0; i < ds.length; i++) {
+    const d = ds[i];
     if (!d.dark || d.restoreBlock !== '') continue;
     // No larger than L, except in the belly (Phase 2a): there L is a machine at its floor (240 MW)
     // and a dark district's pickup is its underlying load with its roofs off (250-290 MW), so the
@@ -1506,6 +1568,9 @@ const NEEDS_SITUATION = new Set(['rule3', 'rule4']);
 // for the proxies that run rule 6 (its origin is 'rule6').
 const RULE_ORDER = Object.fromEntries(Object.entries(PROXIES).map(([k, p]) => [k,
   p.rules.includes('rule6') ? p.rules.flatMap(r => (r === 'rule1' ? ['rule1', 'rule6end'] : [r])) : p.rules]));
+// Q-88: the order while a task feeder's RESTORE window is open (restoreWindow): rule 9 first.
+const RESTORE_ORDER = Object.fromEntries(Object.entries(RULE_ORDER).map(([k, rs]) => [k,
+  rs.includes('rule9') ? ['rule9'].concat(rs.filter(r => r !== 'rule9')) : rs]));
 const originOf = r => (r === 'rule6end' ? 'rule6' : r);
 
 /**
@@ -1540,12 +1605,13 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
 /**
  * One discrete decision. Returns at most ONE input (S-4 pace: at most one discrete action
  * per PAR_ACTION_GAP_REAL_S of refRealSeconds since the previous one, counting the watch
- * and respond time of contingencies in between, from obs.contingencies), and none during a
+ * and respond time of contingencies in between, from obs.contingencies, and each feeder card's
+ * hold, Q-91's feederHolds), and none during a
  * watch (obs.inWatch) or before PLAYER_START_H. Rules, in order (S-4), the first that
  * wants an action wins:
  *   1 after any trip: start the next peaker and set the tie to maximum import
  *   2 if R5 < PAR_TIGHT_RATIO x L: move the tie toward import and start the next peaker
- *     (v4 form: also the seconds half of N-1, see the file header)
+ *     (v4 form: also the seconds half of N-1, sim/README §11)
  *   3 commit a unit when forecast net demand over (its start time + PAR_COMMIT_LEAD_MIN),
  *     plus PAR_COMMIT_MARGIN_MW, exceeds committed capacity plus half the battery
  *   4 decommit only after PAR_DECOMMIT_MIN_ON_MIN on, when not needed for
@@ -1556,7 +1622,7 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
  *     first (2b, S-14 rule 1) on an MSL1 notice ahead in the soak window, soak the free suburb
  *     with the most soak MW (aimFlex)
  *   7 keep units at or below PAR_MAX_LOADING unless that would shed load (and re-dispatch
- *     the plan when it has drifted off the forecast, see the file header)
+ *     the plan when it has drifted off the forecast, sim/README §11)
  *   8 pre-arm RERT when the projected PAR_RERT_LOOKAHEAD_MIN shortfall is within
  *     PAR_RERT_MARGIN_MW of firm capacity; call DR on a present shortfall; before arming (2b,
  *     S-14 rule 5, not lean) cycle the free suburb with the most relief when it lands on the
@@ -1565,8 +1631,10 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
  *     restore one dark district whose obs.districts[].restoreBlock is '': the lowest UFLS
  *     stage first, then rotation order (rot). The K-13 permissive holds all the thresholds.
  * Rule 6's window end (a discharge order past 22:00 or at the reserve) is asked right after
- * rule 1 (rule6End, see the file header).
- * Every action amends memo.plan (a re-dispatch from now, see the file header). AGC stays
+ * rule 1 (rule6End, sim/README §11). Q-88: while a task feeder's RESTORE window is open (from
+ * its allowed second until it is closed or RESTORE_PACE_MAX_S later; restoreWindow) rule 9 is
+ * asked first.
+ * Every action amends memo.plan (a re-dispatch from now, sim/README §11). AGC stays
  * on; par never takes the synchroscope (its starts auto-sync, K-12). Proxies change this
  * function as listed in runPar.
  * @param {object} obs observe(state)
@@ -1589,9 +1657,10 @@ export function decide(obs, memo) {
   // planLoad waits in the outbox (planUpdates sends it, origin 'replan').
   if (memo.amendDue && memo.plan) memo.outbox.push({input: amend(obs, memo, memo.plan), tag: 'replan'});
   memo.amendDue = false;
-  if (memo.lastActTick >= 0 && refRealSeconds(memo.lastActTick / TPS, obs.tick / TPS, paceConts(obs)) < proxy.gapS) return [];
+  if (memo.lastActTick >= 0 && (proxy.gridS ? obs.tick - memo.lastActTick < proxy.gridS * TPS
+    : refRealSeconds(memo.lastActTick / TPS, obs.tick / TPS, paceConts(obs), feederHolds(obs, holdOf(proxy))) < proxy.gapS)) return [];
   let C = null;
-  for (const r of RULE_ORDER[memo.proxy]) {
+  for (const r of (restoreWindow(obs) ? RESTORE_ORDER : RULE_ORDER)[memo.proxy]) {
     if (NEEDS_SITUATION.has(r) && C === null) C = situation(obs, memo);
     const want = RULE_FNS[r](obs, memo, C);
     if (!want) continue;
@@ -1676,6 +1745,8 @@ const DAY_AHEAD = Object.freeze({dayAhead: true});
  *   'doNothing' no input at all, not even the plan (F-3)
  *   'lean'      plan + reaction only: rules 1, 2, 7, 8, 9 (no forward planning; S-5, S-12)
  *   'competent' plan + rules 1-9 at PROXY_COMPETENT_GAP_REAL_S (a good human; H-1, F-3, K-8)
+ *   'slow'      competent, but each feeder card holds the clock PROXY_SLOW_RESTORE_REAL_S (the
+ *               player reads 15 real s, then restores at the allowed second; §32.10, Q-91)
  *   'commitAll' S-11: at 04:00 (tick 0, bypassing the pace and the 04:30 start) START every
  *               machine that is off, then par with rule 4 disabled (never decommits)
  *   'fuzz'      random valid inputs from a PRIVATE hash of the seed (never the sim's streams)
@@ -1695,7 +1766,7 @@ const DAY_AHEAD = Object.freeze({dayAhead: true});
  * @returns {{score:object, summary:object, log:Array<object>, origins:string[], hashes:number[],
  *   black:boolean, plan:object|null, state:object, memo:object}}
  *   origins[i] is 'plan' (the L-0 plan), 'replan' (par's re-dispatched schedule after an
- *   action, see the file header), 'rule1'..'rule9', or the proxy name for log[i] ('external'
+ *   action, sim/README §11), 'rule1'..'rule9', or the proxy name for log[i] ('external'
  *   for records already in opts.state's log).
  */
 export function runPar(seed, scenario, opts) {
@@ -1723,8 +1794,8 @@ export function runPar(seed, scenario, opts) {
     for (const u of state.units) if (u.mode === 'off') starts.push({type: 'start', unit: u.id});
     feed(starts, proxy);
   }
-  const acts = P.rules.length > 0, usesPlan = P.plan, fuzz = proxy === 'fuzz';
-  const active = acts || usesPlan || fuzz;
+  let acts = P.rules.length > 0, usesPlan = P.plan;
+  const fuzz = proxy === 'fuzz', active = acts || usesPlan || fuzz;
   while (!state.over && state.tick < until) {
     const t = state.tick;
     if (active && t % TPS === 1 && t > V.PLAYER_START_TICK) {
@@ -1735,7 +1806,10 @@ export function runPar(seed, scenario, opts) {
         if (memo.afterWatch || s >= memo.nextS) {
           memo.afterWatch = false;
           memo.nextS = s + DECIDE_EVERY_S;
-          const obs = observe(state, usesPlan && memo.plan === null ? DAY_AHEAD : undefined);
+          // Q-73: a player proxy becomes the night memo, in place, once
+          const night = !memo.night && state.control.nightShift && NIGHT_OF.has(memo.proxy);
+          const obs = observe(state, night || (usesPlan && memo.plan === null) ? DAY_AHEAD : undefined);
+          if (night) { Object.assign(memo, nightMemo(obs), {nextS: s + DECIDE_EVERY_S}); acts = usesPlan = true; }
           if (usesPlan && memo.plan === null) makePlan(obs, memo);
           if (fuzz) feed(fuzzInput(seed, obs), proxy);
           if (acts) {

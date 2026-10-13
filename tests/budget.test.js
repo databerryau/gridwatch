@@ -1,6 +1,7 @@
 // F-11 (Phase 1b): the parts of the performance budget that do not depend on the machine.
-// The first visit to next.html transfers <= 400 KB compressed, in files this repo serves
-// itself (C-1). Frame and draw times are measured by `node tools/perf.mjs` and next.html?perf.
+// Q-84 (the owner, 2026-10-13): the first visit's size is measured and reported, not capped; what
+// stays a test is its shape (the page loads the whole game from this repo, C-1, and nothing else).
+// Frame and draw times are measured by `node tools/perf.mjs` and next.html?perf.
 // Q-44 (desk/README.md §30.3.1): the help texts and the alarm panel load on demand, outside it.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,16 +9,17 @@ import {readFileSync, existsSync} from 'node:fs';
 import {gzipSync} from 'node:zlib';
 import {dirname, join, relative, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {firstVisit, moduleClosure, BUDGET} from '../tools/perf.mjs';
+import {firstVisit, moduleClosure} from '../tools/perf.mjs';
 import {tokenize, jsFiles} from './lib/js-tokens.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const rel = p => relative(ROOT, p).split(sep).join('/');
 
-test('F-11: the first visit to next.html is at most 400 KB gzip-compressed', () => {
+test('F-11 (Q-84): the first visit to next.html is the whole game; its size is reported, not capped', t => {
   const files = firstVisit('next.html');
   const gz = files.reduce((a, f) => a + f.gzip, 0);
-  assert.ok(gz <= BUDGET.firstVisitGzipBytes, 'first visit is ' + (gz / 1024).toFixed(1) + ' KB gzip over ' + files.length + ' files');
+  t.diagnostic('first visit ' + gz + ' B gzip (' + (gz / 1024).toFixed(1) + ' KB) over ' + files.length + ' files; 2c so far +' +
+    (gz - POST_MOVE_GZIP) + ' B after the Q-61 move (desk/README §32.3 keeps what each part cost)');
   // The walk found the whole game, not just the page: every layer of the site is in it.
   const paths = files.map(f => f.path);
   for (const p of ['next.html', 'desk/desk.css', 'app/boot.js', 'app/shell.js', 'app/game.js', 'sim/step.js', 'sim/physics.js',
@@ -30,13 +32,16 @@ test('F-11: next.html loads nothing the legacy game or the tools need (no tools/
   for (const f of firstVisit('next.html')) assert.ok(!/^(tools|tests)\//.test(f.path), f.path);
 });
 
-// Q-44: the modules that load on demand, each with its gzip -9 cap (bytes; their owners: W5 the
-// texts and the end card (§30.9), W3 the alarm panel and its explainers; Q-49: the ?perf overlay; Q-56: the suburb card, 2b's card;
-// 2b raised the texts 17 -> 18.5 KB (the city levers' three entries)).
-const ON_DEMAND = Object.freeze({'content/text.js': 18.5 * 1024, 'app/alarmpanel.js': 6 * 1024, 'content/alarmhelp.js': 5 * 1024, 'app/endcard.js': 5 * 1024,
-  'app/perf.js': 2 * 1024, 'app/suburbcard.js': 6 * 1024});
+// Q-61: the first visit after stage A's second header move (`node tools/perf.mjs --sizes`), the base of the report above.
+const POST_MOVE_GZIP = 385154;
 
-test('Q-44: the on-demand modules stay out of the first visit, are the only ones loaded by import(), bring only each other, and keep their caps', () => {
+// Q-44: the modules that load on demand, each with the gzip -9 size it was given (bytes, reported since Q-84; their owners: W5 the
+// texts and the end card (§30.9), W3 the alarm panel and its explainers; Q-49: the ?perf overlay; Q-56: the suburb card, 2b's card;
+// 2b raised the texts 17 -> 18.5 KB (the city levers' three entries); 2c (Q-61) the texts to 20 KB, the alarm help to 5.5 KB).
+const ON_DEMAND = Object.freeze({'content/text.js': 20 * 1024, 'app/alarmpanel.js': 6 * 1024, 'content/alarmhelp.js': 5.5 * 1024, 'app/endcard.js': 5 * 1024,
+  'app/perf.js': 2 * 1024, 'app/suburbcard.js': 6.5 * 1024}); // (2c map: a held suburb's face, §32.11, 6 -> 6.5 KB)
+
+test('Q-44: the on-demand modules stay out of the first visit, are the only ones loaded by import(), bring only each other (sizes reported, Q-84)', t => {
   const first = new Set(firstVisit('next.html').map(f => f.path));
   const named = Object.keys(ON_DEMAND);
   // (a) none is in the first visit
@@ -58,8 +63,8 @@ test('Q-44: the on-demand modules stay out of the first visit, are the only ones
     if (!existsSync(join(ROOT, m))) continue;
     // (c) what it imports statically is in the first visit already, or on demand itself
     for (const f of moduleClosure(m)) assert.ok(first.has(f.path) || named.includes(f.path), m + ' brings ' + f.path + ' with it');
-    // (d) its cap
+    // (d) its size, reported against what it was given (Q-84: not a gate)
     const gz = gzipSync(readFileSync(join(ROOT, m)), {level: 9}).length;
-    assert.ok(gz <= ON_DEMAND[m], m + ' is ' + (gz / 1024).toFixed(1) + ' KB gzip, over its ' + ON_DEMAND[m] / 1024 + ' KB');
+    t.diagnostic(m + ' ' + gz + ' B gzip (given ' + ON_DEMAND[m] + ')');
   }
 });

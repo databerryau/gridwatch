@@ -5,13 +5,17 @@
 // reliability readouts (SAIDI, SAIFI, MAIFI: beside OUTAGES, never added in) and their "?"; the seed
 // and hash; DOWNLOAD REPLAY LOG and PLAY THIS DAY AGAIN. Prices come from V.VCR and V.VER, never typed
 // in. While par runs the card says how far it has got; it is redrawn when par's ALL-IN arrives
-// (game.end is filled in place, app/game.js buildVm).
+// (game.end is filled in place, app/game.js buildVm). 2c (desk/README.md §32.7.3): under the h2,
+// HAND-FLOWN (game.end.handFlown, Q-64; "until the night shift took the desk at 21:00" only after
+// that flip, obs.nightShift: a black day ends before it) and "Not gate-checked" only when game.end.gated === false
+// (Q-75; null is not a daily); in the reliability block, on a day with feeders under repair
+// (score.heldMWh > 0), that they count from their hand-back (Q-69).
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
 
-/** The reliability readouts' §8.2 row (content/text.js, a drawer entry): the card's "?" opens it. */
-export const RELIABILITY_ROW = 'SAIDI, SAIFI and MAIFI count the shedding you cause, per household, in grid-minutes';
+/** The reliability readouts' §8.2 row (content/text.js, a drawer entry, renamed in 2c: Q-69): the card's "?" opens it. */
+export const RELIABILITY_ROW = 'SAIDI, SAIFI and MAIFI count the outages you cause, per household, in grid-minutes';
 
 // An ALL-IN's parts as the card names them, and why a gap to par opens on each (d: the gap in $; city: either day paid cost.flex, §31.9.11).
 const PARTS = [
@@ -69,6 +73,9 @@ export function createEndCard(doc, root, actions, deps) {
     const e = v.end;
     root.replaceChildren();
     el('h2', e.black ? 'The grid went black.' : 'Day over: 04:00.', '', root);
+    // 2c: the HAND tag (Q-64) and a daily the gate did not check (Q-75; null is not a daily: no label)
+    if (e.handFlown) line(root, 'HAND-FLOWN: AGC off from 04:30' + (v.obs && v.obs.nightShift ? ' until the night shift took the desk at 21:00' : '') + '.', 'score').id = 'end-hand';
+    if (e.gated === false) line(root, 'Not gate-checked: this day may not be solvable.', 'score').id = 'end-gate';
     body = el('div', '', '', root);
     line(root, 'Seed ' + e.seed + ' · ' + e.v + ' · ' + e.inputs + ' inputs · hash 0x' + (e.hash >>> 0).toString(16).padStart(8, '0'), 'score');
     q = el('button', '?', 'q inline');
@@ -135,6 +142,9 @@ export function createEndCard(doc, root, actions, deps) {
     r.id = 'end-reliability';
     line(r, 'SAIDI ' + m.saidiMin.toFixed(1) + ' min · SAIFI ' + m.saifi.toFixed(2) + ' · MAIFI ' + m.maifi.toFixed(2) + ' per household today' +
       (p ? ' (par: SAIDI ' + p.saidiMin.toFixed(1) + ' min)' : ''));
+    // Q-69: a feeder under repair is the network's until its hand-back, then every minute dark is yours (and counts here)
+    const held = e.score && e.score.heldMWh;
+    if (held > 0) line(r, 'Feeders under repair count from their hand-back: the ' + mw(held, 1) + ' MWh dark before it were the network\'s outage, not priced.');
     line(r, m.saidiMin > 0 ? 'Each SAIDI-minute today cost customers about ' + dollars(m.outage / m.saidiMin) + ' at VCR. A distributor\'s STPIS ' +
       'would not count this shedding ' : 'No household was off for more than ' + mw(V.SUSTAINED_INTERRUPTION_S / V.S_PER_MIN) + ' minutes. ').appendChild(q);
   }

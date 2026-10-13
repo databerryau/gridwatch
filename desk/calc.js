@@ -1,6 +1,5 @@
-// desk/calc.js: the numbers the desk derives from the view model (desk/README.md §6). Pure
-// functions of observe() values and sim/params.js constants: no DOM, no state, no engine. Each is
-// unit-tested in tests/desk.test.js or tests/balance.test.js.
+// desk/calc.js: the numbers the desk derives from the view model (desk/README.md §6).
+// Contract: desk/README.md §32.12 desk/calc.js.
 
 import {V} from '../sim/params.js';
 
@@ -236,11 +235,11 @@ export function guardFromAngle(angleDeg) {
   return clamp(Math.round(knobValue(angleDeg, 0, GUARD_MAX_MW) / step) * step, 0, GUARD_MAX_MW);
 }
 
-/** K-6 tie knob detents; a drag snaps to one within TIE_SNAP_MW. */
+/** K-6 tie knob detents; a drag snaps to one within TIE_SNAP_MW, never past the import limit. */
 export const TIE_DETENTS = Object.freeze([-800, -500, -250, 0, 250, 500, 800]);
 export const TIE_SNAP_MW = 20;
-export function tieSnap(mwv) {
-  const v = clamp(Math.round(fin(mwv)), -V.TIE_MAX_MW, V.TIE_MAX_MW);
-  for (const d of TIE_DETENTS) if (Math.abs(v - d) <= TIE_SNAP_MW) return d;
+export function tieSnap(mwv, limitMW = V.TIE_MAX_MW) {
+  const v = clamp(Math.round(fin(mwv)), -V.TIE_MAX_MW, limitMW);
+  for (const d of TIE_DETENTS) if (d <= limitMW && Math.abs(v - d) <= TIE_SNAP_MW) return d;
   return v;
 }

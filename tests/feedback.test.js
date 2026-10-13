@@ -26,6 +26,9 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {openGame, diffLooks} from './lib/play.js';
 import {PLANTS, SUBURBS} from '../render/mapdata.js';
+import * as D from '../app/director.js';
+import {badgeText} from '../render/format.js';
+import {legacyDesk} from './lib/sim-helpers.js';
 
 const A = 1 / 60;               // real s after a press: one frame (CLAUDE.md: sample, don't stream)
 const covered = new Set();
@@ -79,6 +82,8 @@ const down = (p, id) => () => { p.pointer(id, 'pointerdown'); p.pointer(id, 'poi
 const HOLD = 0.62;              // a hold commits after 0.6 s
 const focused = p => { const a = p.doc.activeElement; return a ? a.id || a.className : ''; };
 const lock = /^NOTE blue [^\n]*: desk locked while the grid catches itself: watch this one$/m;
+// The badge the page shows once `f` has changed a copy of the director, in mode `mode`: the rate read, never a 120× literal (slice 2c's profile).
+const badge = (p, mode, f) => { const d = Object.assign({}, p.game.director); f(d, p.game.state); const m = D.modeOf(d, p.game.state); assert.equal(m.mode, mode); return new RegExp(badgeText(m).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); };
 
 // The Live Stack's canvas: a point in canvas px -> the page's clientX/Y (the stand-in rect).
 function stackAt(p) {
@@ -140,9 +145,9 @@ test('every press answers: the briefing (AGC/HAND, Space, the rate badge, F, Tab
 const B = {};
 test('every press answers: the quiet desk, header and help (clock held at 04:30)', () => {
   const p = B.p = openGame({run: false});
-  click(p, 'btn-pause', /CRUISE 120×/, 'hdr-pause');
+  click(p, 'btn-pause', badge(p, 'CRUISE', d => { d.paused = false; }), 'hdr-pause');
   click(p, 'rate-badge', /PAUSE 0×/, 'hdr-rate-badge');
-  tap(p, ' ', /CRUISE 120×/, 'key-space');
+  tap(p, ' ', badge(p, 'CRUISE', d => { d.paused = false; }), 'key-space');
   tap(p, ' ', /PAUSE 0×/, 'key-space');
   tap(p, 'f', /^TOAST blue FAST needs the clock running: Space$/m, 'key-f-fast');
   click(p, 'btn-mute', /btn-mute "SOUND OFF"/, 'hdr-mute');
@@ -279,9 +284,9 @@ test('every press answers: the quiet desk, levers, guards, rotaries, emergency, 
 
 test('every press answers: the desk running (FAST, a READY unit and its scope, the tray, STOP)', () => {
   const p = B.p;
-  tap(p, ' ', /CRUISE 120×/, 'key-space');
-  act(p, () => { p.keyDown('f'); p.frame(); }, /FAST 360×/, 'key-f-fast', 'F held');
-  act(p, () => { p.keyUp('f'); p.frame(); }, /CRUISE 120×/, 'key-f-fast', 'F up');
+  tap(p, ' ', badge(p, 'CRUISE', d => { d.paused = false; }), 'key-space');
+  act(p, () => { p.keyDown('f'); p.frame(); }, badge(p, 'FAST', (d, s) => D.setFast(d, s, true)), 'key-f-fast', 'F held');
+  act(p, () => { p.keyUp('f'); p.frame(); }, badge(p, 'CRUISE', d => { d.fast = false; }), 'key-f-fast', 'F up');
   const ready = () => p.game.state.units.find(u => u.id === 'gta1').mode === 'ready';
   const r = p.until(() => ready(), {max: '+20m'});
   assert.ok(ready(), 'GT·A at full speed: ' + r.why + ' ' + r.at);
@@ -319,7 +324,7 @@ test('every press answers: the desk running (FAST, a READY unit and its scope, t
 
 const W = {};
 test('every press answers: the watch (the first full one: the desk answers with the lock note)', () => {
-  const p = W.p = openGame();
+  const p = W.p = openGame({scenario: legacyDesk()}); // (today's desk events: the dayplan, slice 2c, moves them)
   const r = p.until('trip', {max: '13:00', line: 'near'});
   assert.equal(r.why, 'trip');
   assert.equal(p.mode(), 'WATCH');
@@ -414,6 +419,7 @@ test('every press answers: a HAND day (the MAN lamp, P / Shift+P, BYPASS, a drag
   tap(p, 'p', /man-ccgt "P"/, 'keys-ss-xx-p');
   tap(p, 'ArrowUp', /man-ccgt "M"/, 'lever-track');
   tap(p, 'P', /^NOTE blue [^\n]*CCGT KEEP: the plan goes on from here$/m, 'keys-ss-xx-p', {shiftKey: true});
+  p.click('bay-sync');   // (20261007's two held task feeders put the bay's own view on RESTORE at 04:30: desk/bay.js, wave-2 desk)
   click(p, 'sync-bypass', /sync-bypass "● BYPASS"/, 'sync-bypass');
   tap(p, 'b', r => /sync-bypass "BYPASS"/.test(r.after), 'sync-bypass');
   act(p, () => { p.pointer('lever-gtc', 'pointerdown', 20, 18); p.pointer('lever-gtc', 'pointermove', 20, 16); p.pointer('lever-gtc', 'pointerup', 20, 16); p.frame(); },

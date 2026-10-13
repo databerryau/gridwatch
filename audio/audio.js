@@ -1,21 +1,5 @@
 // audio/audio.js: WebAudio for the game (K-19 hum, K-20 foley, K-21 tones, K-22 buses).
-//
-// Created on the first user gesture (browsers refuse to start audio before one) and silent
-// when WebAudio is missing or refuses (C-8: the game plays fully without sound). Everything is
-// synthesised; no samples: a foley voice is mixed from its recipe (audio/model.js VOICES) into
-// a buffer the first time it is asked for. Math.random is allowed here (fx only, F-3): the
-// noise layers.
-//
-//   master <- hum bus (the hum's two gains) | fx bus | alarms bus      gains: vm.settings
-//
-// At most MAX_NODES nodes live at once, the hum, the buses and the master included; a cue that
-// would pass the budget is dropped and counted (au.dropped). A delayed cue (delayS) holds no
-// nodes until it is due: it waits in au.pending and update() starts it, on time, a frame ahead.
-//
-//   const au = createAudio(globalThis);   // nothing happens yet
-//   au.start();                           // on the first pointerdown / keydown
-//   au.update(vm);                        // every frame: hum follows vm.needleHz; vm.settings; vm.cues play
-//   au.cue('breaker'); au.cue({name: 'clack', pan: -0.2, delayS: 0.09});
+// Contract: desk/README.md §32.12 audio/audio.js.
 
 import {humPartials, HUM_K, MAX_NODES, BASE_NODES, TONES, VOICES, RATE, nodesFor, busOf, busGains, normCue,
   rateAllows, durationOf, renderVoice} from './model.js';

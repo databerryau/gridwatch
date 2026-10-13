@@ -6,6 +6,7 @@ import {V} from './params.js';
 import * as fleet from './fleet.js';
 import {previewTrip} from './physics.js';
 import {STREAM, uniform} from './rng.js';
+import {hhmm} from './clock.js';
 
 // ------------------------------------------------------------------ constants (hoisted)
 
@@ -23,7 +24,7 @@ const AGC_CYCLE_S = V.AGC_CYCLE_S, AGC_BIAS = V.AGC_BIAS_MW_PER_HZ, AGC_KI = V.A
 const BATT_MW = V.BATT_MW, BATT_MWH = V.BATT_MWH, BATT_RAMP = V.BATT_DISPATCH_RAMP_MW_S;
 const BATT_EFF = V.BATT_CHARGE_EFF, BATT_FULL_EPS = V.BATT_FULL_EPS_MWH, BATT_SUSTAIN_H = V.BATT_R5_SUSTAIN_H;
 
-const TIE_MAX = V.TIE_MAX_MW, TIE_STEP = V.TIE_RAMP_MW_MIN / S_PER_MIN;
+const TIE_STEP = V.TIE_RAMP_MW_MIN / S_PER_MIN;
 const TIE_R5_MW = V.TIE_RAMP_MW_MIN * V.R5_WINDOW_MIN;
 const R5_WINDOW_S = V.R5_WINDOW_MIN * S_PER_MIN;
 
@@ -867,7 +868,7 @@ function agcSpillMW(state) {
  *     (+ discharge, - charge; charge part 0 while fullHold), tapered near empty / full;
  *     schedMW moves toward it at BATT_DISPATCH_RAMP_MW_S (K-5: guard MW are never available
  *     to orders or AGC).
- *   tie: flowMW toward clamp(setMW, -env.exportLimitMW, TIE_MAX_MW) at TIE_RAMP_MW_MIN / 60
+ *   tie: flowMW toward clamp(setMW, -env.exportLimitMW, tie.limitMW) at TIE_RAMP_MW_MIN / 60
  *     per second (0 while tripped).
  *   ren: windCurtMW moves toward env.windAvailMW x (100 - windLimitPct) / 100 at the curtailment
  *     ramp, solarCurtMW likewise (the manual LIMIT). rert.outMW ramps at RERT_RAMP_MW_MIN once
@@ -916,7 +917,7 @@ export function dispatchSecond(state, out) {
   b.schedMW = toward(b.schedMW, target, BATT_RAMP);
 
   const t = state.tie;
-  t.flowMW = t.tripped ? 0 : toward(t.flowMW, clamp(t.setMW, -env.exportLimitMW, TIE_MAX), TIE_STEP);
+  t.flowMW = t.tripped ? 0 : toward(t.flowMW, clamp(t.setMW, -env.exportLimitMW, t.limitMW), TIE_STEP);
 
   // Renewables, the manual LIMIT: the curtailed MW (available minus the LIMIT) move at the
   // curtailment ramp (integration, CURTAIL_RAMP_FRAC_MIN); the weather passes straight through.
@@ -1126,6 +1127,16 @@ export function securitySecond(state, out) {
     log(state, out, SEV[r.level], 'SECURITY', 'SECURITY ' + r.level + ': spare in 5 min ' + Math.round(r.r5MW) + ' MW, biggest risk ' +
       (r.lKind === 'none' ? 'none' : r.lId + ' ' + Math.round(r.riskMW) + ' MW') + ', trip preview ' + r.previewNadirHz.toFixed(2) + ' Hz.');
   }
+  const cs = state.conts; // Q-74 COVER (sim/README.md §5 conts[])
+  for (let n = 0; n < cs.length; n++) {
+    const c = cs[n];
+    if (c.securedTick < 0 && state.tick >= c.watchEndTick && sec.r5MW >= sec.lMW && !shedOwn(state.city.districts)) c.securedTick = state.tick;
+  }
+}
+
+function shedOwn(ds) { // a UFLS or directed district dark
+  for (let d = 0; d < ds.length; d++) if (ds[d].dark && (ds[d].shedBy === 'ufls' || ds[d].shedBy === 'directed')) return true;
+  return false;
 }
 
 /**
@@ -1134,14 +1145,14 @@ export function securitySecond(state, out) {
  *   R5 = sum over units in mode 'on' of min(availMW - outMW, rampMWs * R5_WINDOW_MIN * 60)
  *        (loading, unloading and shutdown units offer no headroom, H-1)
  *      + battery min(BATT_MW - outMW, socMWh / BATT_R5_SUSTAIN_H)
- *      + tie (not tripped) min(TIE_MAX_MW - flowMW, TIE_RAMP_MW_MIN * R5_WINDOW_MIN)
+ *      + tie (not tripped) min(tie.limitMW - flowMW, TIE_RAMP_MW_MIN * R5_WINDOW_MIN)
  *      (each term floored at 0: a unit above its derated capacity has no headroom, not less)
  *   L  = fleet.largestContingency(state): lMW is the larger MW (the R5 test, ratio, the P-7 x)
  *   ratio = R5 / L, capped at SEC_RATIO_MAX (finite when L is 0)
  *   previews (A-2, N1_PREVIEW_ALL): the largest unit (previewUnitHz) and the tie import
  *          (previewLinkHz, when importing); lKind / lId / previewNadirHz / riskMW name the worse
  *          one, ties to the unit ("BIGGEST RISK", K-10). Without N1_PREVIEW_ALL: L's preview only.
- *   level: 'SHEDDING' if city.shedFrac > 0; 'SHORT' if R5 < L; 'TIGHT' if R5 < SECURE_RATIO*L
+ *   level: 'SHEDDING' if a UFLS or directed district is dark (Q-69); 'SHORT' if R5 < L; 'TIGHT' if R5 < SECURE_RATIO*L
  *          or previewNadirHz < SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ (with N1_PREVIEW_ALL: either
  *          preview); else 'SECURE' (the margin covers what the frozen-schedule preview cannot see:
  *          H-8 containment, tuning pass), plus PREVIEW_AGE_MARGIN_HZ_S x opts.previewAgeS for a
@@ -1167,7 +1178,7 @@ export function security(state, opts) {
   if (hb > 0) r5 += hb;
   const t = state.tie;
   if (!t.tripped) {
-    const ht = Math.min(TIE_MAX - t.flowMW, TIE_R5_MW);
+    const ht = Math.min(t.limitMW - t.flowMW, TIE_R5_MW);
     if (ht > 0) r5 += ht;
   }
   r5 += 0;
@@ -1195,7 +1206,7 @@ export function security(state, opts) {
   const cached = opts && (typeof opts.previewUnitHz === 'number' || legacy);
   const needHz = SECURE_NADIR + (cached && opts.previewAgeS > 0 ? AGE_MARGIN * opts.previewAgeS : 0);
   const ratio = L.mw > 0 ? Math.min(SEC_RATIO_MAX, r5 / L.mw) : SEC_RATIO_MAX;
-  const level = state.city.shedFrac > 0 ? 'SHEDDING'
+  const level = shedOwn(state.city.districts) ? 'SHEDDING'
     : r5 < L.mw ? 'SHORT'
       : r5 < SECURE_RATIO * L.mw || nadir < needHz ? 'TIGHT' : 'SECURE';
   return {r5MW: r5, lMW: L.mw, lKind: kind, lId: id, riskMW, ratio, previewNadirHz: nadir, previewUnitHz: unitHz, previewLinkHz: linkHz, level};
@@ -1283,14 +1294,22 @@ function leverKey(state, ps, s, mw, leadS, onCount) {
   if (onCount > 0) { ps.clampedMW = 0; ps.lastMW = mw; ps.clampOn = onCount; }
 }
 
-/** Run the bookings of list (sorted by atS) due at s through the input path; a refused one is dropped with a PLAN log line. */
+/**
+ * Run the bookings of list (sorted by atS) due at s through the input path; a refused one is dropped with a PLAN log
+ * line. A START of a unit on outage waits for its return (Q-68). Returns true if any ran.
+ */
 function runBookings(state, list, type, s, out) {
-  while (list.length !== 0 && list[0].atS <= s) {
-    const b = list.shift();
+  let k = 0, ran = false;
+  while (k < list.length && list[k].atS <= s) {
+    const b = list[k], i = fleet.unitIndex(b.unit);
+    if (type === 'start' && state.units[i].outUntilS > s) { k++; continue; }
+    list.splice(k, 1);
+    ran = true;
     const why = applyCommand(state, {type, unit: b.unit}, out);
-    if (why) log(state, out, 'warn', 'PLAN', 'PLAN: ' + type.toUpperCase() + ' ' + nameOf(fleet.unitIndex(b.unit)) + ' dropped: ' + why + '.');
+    if (why) log(state, out, 'warn', 'PLAN', 'PLAN: ' + type.toUpperCase() + ' ' + nameOf(i) + ' dropped: ' + why + '.');
   }
-  state.sec.dirty = true;
+  if (ran) state.sec.dirty = true;
+  return ran;
 }
 
 /** The executor for station j (not MAN). Returns true if it changed the plan's bookkeeping. */
@@ -1334,7 +1353,8 @@ function tiePlanSecond(state, s) {
   while (k < keys.length && keys[k].atS <= tp.doneS) k++;
   if (k === keys.length) return false;
   let key = keys[k];
-  if (!(key.atS <= s || s + Math.abs(key.mw - t.setMW) / TIE_STEP >= key.atS)) return false;
+  const lim = mw => Math.min(mw, t.limitMW); // the import the dispatch will run to (Q-68)
+  if (!(key.atS <= s || s + Math.abs(lim(key.mw) - lim(t.setMW)) / TIE_STEP >= key.atS)) return false;
   while (k + 1 < keys.length && keys[k + 1].atS <= s) key = keys[++k];
   t.setMW = key.mw;
   tp.doneS = key.atS;
@@ -1353,8 +1373,8 @@ function tiePlanSecond(state, s) {
 export function planSecond(state, out) {
   const P = state.plan, s = secondOf(state);
   let changed = false;
-  if (P.stops.length !== 0 && P.stops[0].atS <= s) { runBookings(state, P.stops, 'stop', s, out); changed = true; }
-  if (P.starts.length !== 0 && P.starts[0].atS <= s) { runBookings(state, P.starts, 'start', s, out); changed = true; }
+  if (P.stops.length !== 0 && P.stops[0].atS <= s && runBookings(state, P.stops, 'stop', s, out)) changed = true;
+  if (P.starts.length !== 0 && P.starts[0].atS <= s && runBookings(state, P.starts, 'start', s, out)) changed = true;
   const old = s - PLAN_KEEP_S;
   for (let j = 0; j < NS; j++) {
     const ps = P.stations[j];
@@ -1370,6 +1390,8 @@ export function planSecond(state, out) {
 // ---- projections for plan edits (inputs only; they may allocate)
 
 const bookingOf = (list, unit) => { for (const b of list) if (b.unit === unit) return b; return null; };
+/** The second a booked START runs: its atS, or its unit's return from an outage (Q-68). */
+const startDueS = (state, b) => Math.max(b.atS, state.units[fleet.unitIndex(b.unit)].outUntilS);
 
 /** Seconds from START to MIN for machine i now (auto-sync counted in AGC mode only; HAND closes by hand). */
 const startToMinS = (state, i) => M[i].t1S + (state.control.mode === 'AGC' ? AUTO_SYNC_S : 0) + M[i].t2S;
@@ -1384,7 +1406,7 @@ function onAtS(state, i, s) {
     case 'starting': return s + u.timerS + (auto ? AUTO_SYNC_S : 0) + m.t2S;
     default: {
       const b = bookingOf(state.plan.starts, u.id);
-      return b ? b.atS + startToMinS(state, i) : -1;
+      return b ? startDueS(state, b) + startToMinS(state, i) : -1;
     }
   }
 }
@@ -1395,7 +1417,7 @@ function startFreeAt(state, i, s) {
   if (m.station === 'hydro' && state.hydro.storageMWh <= HYDRO_STOP_MWH) return -1;
   if (u.mode === 'tripped') return s + u.timerS;
   if (u.mode !== 'off') return -1;
-  return u.downWhy !== 'trip' ? Math.max(s, u.downSinceS + m.minDownS) : s;
+  return Math.max(u.downWhy !== 'trip' ? Math.max(s, u.downSinceS + m.minDownS) : s, u.outUntilS);
 }
 
 /** Station j's machines on by grid second t (their MIN, rating and ramp summed), with `extra` a start booked but not yet stored. */
@@ -1507,13 +1529,13 @@ function planStart(state, cmd, s) {
   return '';
 }
 
-/** planStop {unit, atS}: book a STOP (replacing the unit's booking); the unit must be committed or booked to start before atS. */
+/** planStop {unit, atS}: book a STOP (replacing the unit's booking); the unit must be committed or booked to start (startDueS) before atS. */
 function planStop(state, cmd, s) {
   if (cmd.atS < s) return 'that time has passed';
   const u = state.units[fleet.unitIndex(cmd.unit)];
   const b = bookingOf(state.plan.starts, cmd.unit);
   const committed = u.mode === 'on' || u.mode === 'loading' || u.mode === 'starting' || u.mode === 'ready';
-  if (!committed && !(b !== null && b.atS < cmd.atS)) return 'unit is ' + u.mode;
+  if (!committed && !(b !== null && startDueS(state, b) < cmd.atS)) return 'unit is ' + u.mode;
   book(state.plan.stops, {unit: cmd.unit, atS: cmd.atS});
   state.plan.rev += 1;
   return '';
@@ -1548,9 +1570,10 @@ function planRejoin(state, cmd, s) {
 }
 
 /**
- * planLoad {fromS, stations, tie, starts, stops}: replace every plan entry with atS >= fromS by
- * the lists given (step.js has checked their shape and order); MAN flags clear; madeAtS = now. A
- * key the executor had already applied at or after fromS is superseded (doneS moves back).
+ * planLoad {fromS, stations, tie, starts, stops}: replace every plan entry with atS >= fromS (a
+ * START held for an outage: its unit's return) by the lists given (step.js has checked their
+ * shape and order); MAN flags clear; madeAtS = now. A key the executor had already applied at or
+ * after fromS is superseded (doneS moves back).
  */
 function planLoad(state, cmd, s) {
   const from = cmd.fromS;
@@ -1567,7 +1590,7 @@ function planLoad(state, cmd, s) {
   }
   P.tie.keys = P.tie.keys.filter(k => k.atS < from).concat(cmd.tie.map(e => ({atS: e[0], mw: e[1]})));
   if (P.tie.doneS >= from) P.tie.doneS = from - 1;
-  P.starts = P.starts.filter(b => b.atS < from).concat(cmd.starts.map(e => ({unit: e[0], atS: e[1]})));
+  P.starts = P.starts.filter(b => startDueS(state, b) < from).concat(cmd.starts.map(e => ({unit: e[0], atS: e[1]})));
   P.stops = P.stops.filter(b => b.atS < from).concat(cmd.stops.map(e => ({unit: e[0], atS: e[1]})));
   P.madeAtS = s;
   P.rev += 1;
@@ -1730,8 +1753,8 @@ function reverseTrip(state, i, out) {
 const RESTORE_WITH_PREVIEW = Object.freeze({preview: true});
 
 /**
- * K-13 restore permissive for district index d. Returns fleet.DISTRICT_LIT if the district
- * is not dark; '' if last.fMeanHz >= RESTORE_MIN_HZ and RESTORE_INTERVAL_S have passed since
+ * K-13 restore permissive for district index d. Returns, first, a held task district's repair
+ * (Q-69); fleet.DISTRICT_LIT if the district is not dark; '' if last.fMeanHz >= RESTORE_MIN_HZ and RESTORE_INTERVAL_S have passed since
  * city.lastRestoreS and, with opts.preview, the RESTORE PREVIEW (physics.previewTrip kind
  * 'district': the district's cold-load MW picked up now, on the same engine as the TRIP
  * PREVIEW) keeps the nadir at or above SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ; else the first
@@ -1748,6 +1771,7 @@ const RESTORE_WITH_PREVIEW = Object.freeze({preview: true});
 export function restorePermissive(state, d, opts) {
   const dist = state.city.districts[d];
   if (!dist) return 'unknown district';
+  if (dist.clearS > secondOf(state)) return 'feeder under repair until ' + hhmm(dist.clearS); // Q-69: held
   if (!dist.dark) return fleet.DISTRICT_LIT;
   if (state.last.fMeanHz < RESTORE_MIN_HZ) return 'frequency below ' + RESTORE_MIN_HZ + ' Hz';
   const since = secondOf(state) - state.city.lastRestoreS;

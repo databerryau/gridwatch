@@ -22,7 +22,7 @@
 // patience, flex/flexDel; classic has no levers, so only hashes move.
 // 2b.1: par's lever rules (S-14 rules 1 and 5) and the end of slice 2b (desk/README.md §31.12);
 // classic still has no levers.
-export const SIM_VERSION = 'v4-core-2b.1';
+export const SIM_VERSION = 'v4-core-2c.1';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);
@@ -487,6 +487,29 @@ export const P = {
   SOAK_PRICE: simp(0, '$/MWh', 'U-6'),
   AIRCON_PRICE: simp(400, '$/MWh', 'U-6'),
   // ---- phase 2b "levers" block: end
+  //
+  // ---- phase 2c "the day" block: begin (desk/README.md §32; the reasons are in §32.1)
+  HAND_RATE_FACTOR: simp(0.5, 'x rate', 'Q-64 / D-7: HAND halves every profile speed before 21:00'),
+  CLOCK_EASE_REAL_S: simp(2, 'real s', 'Q-62: each interior profile boundary eases over 2 real s'),
+  CLOCK_SEGMENT_NAMES: simp(['PRE-DAWN', 'MORNING RAMP', 'SOLAR RISING', 'MIDDAY SOLAR', 'EVENING RAMP', 'PEAK',
+    'PEAK EASING', 'NIGHT ROLL'], 'names', 'Q-78: the badge\'s words, one per REF_PROFILE segment'),
+  RESTORE_PACE_MAX_S: simp(300, 's', 'Q-69 / S-6: PERFECT closes a hand-back within 5 grid-min'),
+  LEAD_REAL_S: simp(26, 'real s', 'Q-71 / D-8(d): 25 real s of warning plus a 1-s margin'),
+  SPACING_REAL_S: simp(90, 'real s', 'Q-72 / D-8(c): unwarned contingencies >= 90 real s apart'),
+  SPACING_GRID_S: simp(3600, 's', 'Q-72: and >= 60 grid-min apart (none inside a RESPOND window)'),
+  ONSET_CLEAR_REAL_S: simp(30, 'real s', 'Q-72: no unwarned trip within 30 real s of a warned onset'),
+  DAYPLAN_SLOT_BASE: simp(64, 'slot', 'Q-65: the plan\'s EXT_EVENTS slots start here (legacy keep theirs)'),
+  DAYPLAN_MARK_S: simp(300, 's', 'Q-65: clearances and heat onsets on 5-min marks'),
+  DAYPLAN_MW_STEP: simp(50, 'MW', 'Q-68 / Q-79: the derate\'s limit and the front\'s rooftop drop in 50-MW steps'),
+  TRAY_LIFE_REAL_S: simp(20, 'real s', 'Q-63: a tray card lives 20 real s of the step profile'),
+  OBJ_EVERY_REAL_S: simp(0.4, 'real s', 'Q-63: the objective recomputes every 0.4 real s (>= 30 grid-s)'),
+  STACK_MAX_HZ: simp(10, '1/real s', 'Q-63: the stack\'s idle redraw at most 10 times a real second'),
+  NIGHT_ACTION_S: simp(300, 's', 'Q-73: the night shift acts once per 5 grid-min (the dispatch step)'),
+  CLOCK_SEARCH_S: simp(1e-6, 's', 'clock.js: the step inverses search from this close (numerical)'),
+  FRONT_READ_SD: simp(3, 'sd', 'Q-79: the forecast reads a place as clearing this far above frontMu'),
+  PAR_NIGHT_STOP_GUARD_MW: simp(200, 'MW', 'Q-73: at night rule 4 stops a unit with the trip preview at or below PAR_NADIR_RELAX_HZ only while the GUARD can still rise this much, sustained (a gas unit\'s stop cost the preview about 0.3 Hz)'),
+  PROXY_SLOW_RESTORE_REAL_S: simp(15, 'real s', '§32.10 / Q-91: the slow proxy holds each feeder card 15 real s'),
+  // ---- phase 2c "the day" block: end
 };
 
 // ------------------------------------------------------------------ plain values

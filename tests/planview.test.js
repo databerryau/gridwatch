@@ -474,8 +474,8 @@ async function mildWeekend() {
   if (!MILD) {
     const {followDay} = await import('./lib/follow.js');
     const {observe} = await import('../sim/step.js');
-    const {DESK_WEEKEND} = await import('../content/scenarios.js');
-    const {st, sys} = followDay(8, DESK_WEEKEND, {follow: false, untilH: 11});
+    const {legacyDeskWeekend} = await import('./lib/sim-helpers.js'); // (today's desk events: no contingency by 12:00)
+    const {st, sys} = followDay(8, legacyDeskWeekend(), {follow: false, untilH: 11});
     MILD = {st: JSON.stringify(st), sys: JSON.stringify(sys), obs: observe(st)};
   }
   // (the state and the system operator as JSON copies: both are plain JSON, and the C-11 rows step
@@ -635,8 +635,8 @@ test('C-11 with a soak booked (2b, Q-50; desk/README §28 and §31): the flex is
   assert.ok(blue(P) < blue(PV.project(dry)), 'blue columns in the hour: ' + blue(P) + ' with the soaks, ' + blue(PV.project(dry)) + ' without');
 });
 
-test('planview imports only sim/params.js and uses no Math.random', () => {
+test('planview imports only sim/params.js and sim/dark.js (2c: lit demand, as par\'s) and uses no Math.random', () => {
   const src = readFileSync(new URL('../app/planview.js', import.meta.url), 'utf8');
-  assert.deepEqual(importSpecifiers(tokenize(src)), ['../sim/params.js']);
+  assert.deepEqual(importSpecifiers(tokenize(src)), ['../sim/params.js', '../sim/dark.js']);
   assert.ok(!/Math\.random/.test(src));
 });
