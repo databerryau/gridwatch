@@ -393,7 +393,7 @@ export function runTo(game, tick) {
 export function takeDesk(game) {
   if (game.phase !== 'briefing') return false;
   runTo(game, V.PLAYER_START_TICK);
-  if (T.trayBriefing) for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c); // TODO(2c-w2-merge): the guard goes once desk's is in
+  for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c);
   game.phase = 'play';
   game.director.paused = game.startPaused;
   game.director.held = game.ui.alarmsOpen; // Q-46: an alarm panel opened in the briefing holds the clock now

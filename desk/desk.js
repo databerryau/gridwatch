@@ -10,7 +10,7 @@ import {createGauge} from './gauge.js';
 import {createFreqDial, createImbalanceBar} from './dial.js';
 import {createBay} from './bay.js';
 import {el, makeGuards, makeHolds, setCls, fin, clamp, feelOf, RATCHET_MS, LEVER_STATIONS, GUARD_MS} from './util.js';
-import {isLock} from '../render/format.js';
+import {isLock, NIGHT_LOCK} from '../render/format.js';
 
 /** K-23 keys 1-8 focus these. */
 export const SLOT_IDS = Object.freeze(['lever-coal', 'lever-ccgt', 'lever-gta', 'lever-gtb', 'lever-gtc', 'wheel-hydro', 'dial-battery', 'knob-tie']);
@@ -36,7 +36,7 @@ export const LAYOUT = Object.freeze({
 
 export const NOTE_MS = 2500;   // a refusal / hint stays on its control this long
 /** Q-73: a press in the night (blue). */
-export const NIGHT_NOTE = 'The night shift has the desk: it stands down what the night does not need. Your day is scored at 04:00.';
+export const NIGHT_NOTE = NIGHT_LOCK; // Q-73: one sentence for the lock and its note
 export const CONSIDER_HOLD_MS = 6000;   // C-10: a guard lifted by key stays the considered one this long after its cover drops
 export const PRESS_FOCUS_MS = 1000;     // C-10: a focus this soon after a pointer came up on the guard is that press's, not the keyboard's
 
