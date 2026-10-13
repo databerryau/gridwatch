@@ -2624,7 +2624,11 @@ discharge as an evening gap grows: each order is sized for the gap 20 min ahead.
     what it asks for and its other words stay the same is kept as it was said, and a quiet line
     for STEADY_QUIET_S against another quiet line (the game holds `held`; the objective itself
     stays pure, and the action a line carries is never held back or changed). hand: the clock
-    is HAND's (app/director.js handAt), for spanAt.
+    is HAND's (app/director.js handAt), for spanAt. Its figures (masked) are the numbers, times
+    and dollars, and since stage C the part of the day a time falls in ("for the afternoon" and
+    "for the evening" near 17:00 are the shortfall's time moving, and alternated look to look).
+    The game's 4-s dwell (app/game.js holdLine) holds a line's words and glow but never an action
+    the fresh line no longer carries (heldLine: another unit or control, or none, drops it).
 
 The day (slice 2c, desk/README.md §32.8.1):
   - A heatwave is news from 04:00 (Q-80): the look-ahead derates its window from the news;
@@ -2647,7 +2651,9 @@ The day (slice 2c, desk/README.md §32.8.1):
     never chase each other); "arm it by" is 20 min before the shortfall the line names. The
     battery's late charging band stays grid time (a band, not a reaction).
   - Act I's constraints (Q-68): the tie's import limit per column until its limitUntilS; a booked
-    start due at a unit's return; a unit out for maintenance planned from its return (startable
+    start due at a unit's return; a unit out for maintenance planned from its return, or from the
+    end of a minimum down time that outlasts it (stage C: sim/fleet.js startBlock names only the
+    outage while it lasts, so startable reads downForS; app/planview.js's earliest line does too) (startable
     with later: "Start CCGT 2 at 07:45, when it is back", never an ask or a lit START before it;
     its START press says "out for maintenance until 07:45"); the reserve diesel's line comes
     before it only when it is back too late for the diesel's shortfall. A capacity ask (commit,
@@ -4715,6 +4721,8 @@ Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
   the contingency the last 'respond' offer was for (-1 none); `game.tally` keeps the page's, and
   `tallyOffer(tally, why, obs)` (pure, exported) is the one step after an offer, for par's proxy
   too. A new offer plays the director's OFFER (`offerPace`), each offered unit with its own window.
+  From the night flip `vm.offers` lists none, so an offer made before 21:00 leaves the bay's SYNC
+  glow with the director's OFFER (stage C).
 
 #### app/loop.js
 
@@ -4933,7 +4941,8 @@ Cards never pause play (§7).
   drought, announced at its onset, makes one card: the log line that twins an `announce` of the
   same batch (same text) makes none.
 - The night (Q-73): from the sim's `NIGHT_SHIFT` record the tray's cards are quiet (made and
-  logged, no cue).
+  logged, no cue), and a unit the night shift brings to full speed is its own to close: its
+  `UNIT_READY` card drops "(or SYNC now)" and goes TO THE LEVER (`cardOf(r, night)`, stage C).
 ```
 
 #### app/watch.js
