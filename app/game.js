@@ -174,8 +174,8 @@ export function createGame(o) {
       alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
-    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, restore: !!seen.restore},
-    cues: [], refusal: null, respond: null, respondGlow: [], offers: [], offered: {}, tally: null,
+    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof},
+    cues: [], refusal: null, respond: null, respondGlow: [], feeder: null, feederWhy: null, offers: [], offered: {}, tally: null,
     previewCache: new Map(), previewS: -1, restoreCache: new Map(), restoreS: -1,
     hist: null, histView: null, histViewS: -1,
     hashes: [], lastFrameMs: -1, end: null,
@@ -220,7 +220,7 @@ export function resetDay(game, seed) {
   game.phase = 'briefing';
   Object.assign(game.ui, {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null,
     trayOpen: false, consider: null, armed: null, alarmsOpen: false, alarmsSel: null, alarmsPick: null, suburb: null, suburbLast: null});
-  game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = [];
+  game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = []; game.feeder = null; game.feederWhy = null;
   game.offers = []; game.offered = {}; game.tally = {n: 0, extra: 0, contN: -1};
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
   game.hist = createHist();
@@ -404,14 +404,18 @@ export function takeDesk(game) {
 
 /**
  * A sim input from the desk, the stack, the map or the keys, applied now (between ticks).
- * Any desk input dismisses the respond card first (K-16). Returns '' or the refusal reason.
- * The briefing takes only AGC/HAND (Q-64) and the night roll none (Q-73): BRIEF_LOCK, NIGHT_LOCK.
+ * Any desk input dismisses the respond card first (K-16), and the feeder card (Q-91) but for the
+ * restore of its own feeder: refused, that card stays with the reason (game.feederWhy). Returns ''
+ * or the refusal reason. The briefing takes only AGC/HAND (Q-64) and the night roll none (Q-73):
+ * BRIEF_LOCK, NIGHT_LOCK. `shown`: the feeder card the press was made at (redispatch's), else now's.
  */
-export function sendInput(game, x) {
-  const state = game.state;
+export function sendInput(game, x, shown) {
+  const state = game.state, d = game.director;
   const lock = game.phase === 'briefing' ? (x && x.type === 'mode' ? '' : BRIEF_LOCK) : state.control.nightShift ? NIGHT_LOCK : '';
   if (lock) return lock;
-  D.dismissCard(game.director, state);
+  const fc = shown === undefined ? D.feederCard(d, state) : shown, own = !!fc && !!x && x.type === 'restore' && x.district === fc;
+  // (fc: a card already showing, never one queued behind the respond card this input dismisses)
+  if (!own) { D.dismissCard(d, state); if (fc) D.answerFeeder(d, state, fc, false); }
   const out = [];
   const r = applyInput(state, x, out);
   if (out.length) handleRecords(game, out, '');
@@ -419,9 +423,9 @@ export function sendInput(game, x) {
     game.objectiveS = -1e9; game.lineFresh = true;
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
-    if (x.type === 'restore' && D.focusRestore(game.director, state, x.district)) saveSeen(game);
+    if (x.type === 'restore') D.focusRestore(d, state);
     if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
-  }
+  } else if (own) game.feederWhy = {id: fc, why: r.reason};
   return r.ok ? '' : r.reason;
 }
 
@@ -453,6 +457,7 @@ export function redispatch(game) {
   if (game.phase === 'briefing') return BRIEF_LOCK;
   if (game.state.control.nightShift) return NIGHT_LOCK;
   if (!game.sysMod || !game.sys) return 'RE-DISPATCH needs the system operator' + (game.sysError ? ' (' + game.sysError + ')' : '');
+  const fc = D.feederCard(game.director, game.state); // (Q-91: its inputs answer the card shown, never the next one)
   D.dismissCard(game.director, game.state);
   let r;
   try {
@@ -468,7 +473,7 @@ export function redispatch(game) {
   }
   const list = Array.isArray(r) ? r : r ? [r] : [];
   for (const x of list) {
-    const why = sendInput(game, x);
+    const why = sendInput(game, x, fc);
     if (why) return why;
   }
   return '';
@@ -528,6 +533,8 @@ export function ui(game, cmd) {
       if (!game.offered[cmd.unit]) return 'not offered';
       game.offered[cmd.unit].taken = true; return '';
     case 'dismissRespond': return D.dismissCard(d, state) ? '' : 'no card';
+    // Q-91: Esc at the feeder card goes on (the feeder stays dark and is not held again)
+    case 'goOn': { const fc = D.feederCard(d, state); return fc && D.answerFeeder(d, state, fc, true) ? '' : 'no card'; }
     case 'pause':
       if (u.alarmsOpen) { close(); if (play) d.paused = false; return play ? '' : 'not now'; } // Q-46: closes it, then runs
       if (!play) return 'not now';
@@ -672,7 +679,7 @@ export const newAsk = (shown, next) => !!next && !!next.action && LEVELS.indexOf
 
 /** Q-63: the objective line is due at grid second s in director mode `mode` ('news', true or false; buildVm and tests/lib/play.js). */
 export function objectiveDue(game, s, mode) {
-  if (game.objectiveMode !== mode && /WATCH|RESPOND|RESTORE|NIGHT|OVER/.test(mode + game.objectiveMode)) return 'news';
+  if (game.objectiveMode !== mode && /WATCH|RESPOND|FEEDER|NIGHT|OVER/.test(mode + game.objectiveMode)) return 'news';
   return s - game.objectiveS >= Math.max(OBJECTIVE_EVERY_S, rateAt(s, D.handAt(game.state)) * V.OBJ_EVERY_REAL_S) || s < game.objectiveS;
 }
 
@@ -723,6 +730,10 @@ export function buildVm(game, f) {
   }
   if (mode.mode !== 'RESPOND-CARD') game.respond = null;
   if (mode.mode !== 'RESPOND-CARD' && mode.mode !== 'RESPOND') game.respondGlow = [];
+  // Q-91: the feeder card while it holds the clock; a refused restore's reason stays on it while that feeder's card is due
+  const due = D.feederCard(d, state), why = game.feederWhy && game.feederWhy.id === due ? game.feederWhy.why : '';
+  if (!why) game.feederWhy = null;
+  game.feeder = mode.mode === 'FEEDER-CARD' && due ? W.feederCard(obs, due, game.scenario.city.suburbs, why) : null;
 
   const offers = game.phase === 'play' ? updateOffers(game, obs) : [];
   const glow = new Set(game.respondGlow);
@@ -814,7 +825,7 @@ export function buildVm(game, f) {
     obs, mode, frame: {nowMs, dtS: f && f.dtS ? f.dtS : 0, alpha: game.pacer.alpha},
     alarms: A.alarmsView(game.alarms), tray: T.trayView(game.tray),
     focus: game.ui.focus, hover: game.ui.hover, stackExpanded: game.ui.stackExpanded, previewOn: game.ui.previewOn,
-    previewGuardMW: game.ui.previewGuardMW, offers, respond: game.respond, glow, hist: histView(game),
+    previewGuardMW: game.ui.previewGuardMW, offers, respond: game.respond, feeder: game.feeder, glow, hist: histView(game),
     settings: settingsView(game),
     // Shell additions (desk/README.md §5 plus): what the overlays and audio read. cues: this
     // frame's sounds, each a name or {name, pan?, gain?, delayS?} (§13.2).

@@ -914,7 +914,7 @@ test('a unit still loading in the belly (final review of Phase 2a): the dispatch
 
 const S_OF = (h, m = 0) => ticksAt(h, m) / TPS;
 
-test('2c par: the announced feeders wait at the gate by themselves (rule 9 reads the permissive\'s reason) and close at their allowed second; par\'s pace counts Q-70\'s RESTORE segments', () => {
+test('2c par: the announced feeders wait at the gate by themselves (rule 9 reads the permissive\'s reason) and close at their allowed second; par\'s pace counts Q-91\'s feeder cards', () => {
   // DESK seed 1 (par's shared day to 08:00): RED6 is handed back at 06:50 and RED7 at 07:15 (Q-68).
   const s0 = createState(1, DESK), clear = Object.fromEntries(s0.city.districts.filter(d => d.clearS >= 0).map(d => [d.id, d.clearS]));
   assert.deepEqual(clear, {RED6: S_OF(6, 50), RED7: S_OF(7, 15)});
@@ -926,20 +926,21 @@ test('2c par: the announced feeders wait at the gate by themselves (rule 9 reads
     assert.ok(s >= c && s < c + V.RESTORE_PACE_MAX_S, x.args.district + ' closed at +' + (s - c) + ' s: inside the pace');
   }
   assert.equal(s8.score.taskLateMWh, 0, 'PERFECT\'s pace (S-6)');
-  // The pace: a RESTORE segment runs at RESTORE_PACE_RATE (where no watch covers it); classic passes none.
-  const a = S_OF(6, 50), seg = [{fromS: a, toS: a + V.RESTORE_PACE_MAX_S}];
-  assert.ok(Math.abs(refRealSeconds(a - 600, a + 900, [], seg) - (refRealSeconds(a - 600, a, []) + V.RESTORE_PACE_MAX_S / V.RESTORE_PACE_RATE + refRealSeconds(a + 300, a + 900, []))) < 1e-9);
+  // The pace: a feeder card holds the clock its real s at zero grid time, counted in [fromS, toS) as the respond card is; classic passes none.
+  const a = S_OF(6, 50), hold = [{atS: a, realS: V.REF_RESPOND_CARD_S}];
+  assert.ok(Math.abs(refRealSeconds(a - 600, a + 900, [], hold) - (refRealSeconds(a - 600, a + 900, []) + V.REF_RESPOND_CARD_S)) < 1e-9);
+  assert.deepEqual([refRealSeconds(a, a + 1, [], hold) > V.REF_RESPOND_CARD_S, refRealSeconds(a - 1, a, [], hold) < 1], [true, true], 'from its second, not before');
   assert.equal(refRealSeconds(a - 600, a + 900, []), refRealSeconds(a - 600, a + 900, [], []));
-  const watch = [{startS: a + 100, watchEndS: a + 130, backInBandS: a + 120}];
-  assert.ok(Math.abs(refRealSeconds(a + 100, a + 130, watch, seg) - V.REF_WATCH_REAL_S) < 1e-9, 'a watch wins over the segment');
-  // ... and decide() reads them from obs: 100 grid-s after an action at 06:50:00 RED6 may close (3.3 real s at 30x); with no
-  // hand-back (clearS -1) the profile's 0.4 s holds par back. (The 08:00 observation, its clock and RED6 put back.)
+  const watch = [{startS: a - 10, watchEndS: a + 20, backInBandS: a + 15}];
+  assert.ok(Math.abs(refRealSeconds(a - 10, a + 20, watch, hold) - V.REF_WATCH_REAL_S - V.REF_RESPOND_CARD_S) < 1e-9, 'one inside a watch still counts');
+  // ... and decide() reads them from obs: 10 grid-s after an action at 06:49:50, at 06:50:00 RED6 may close (its card's 3 real
+  // s cover par's pace); with no hand-back (clearS -1) the profile's 0.04 s holds par back. (The 08:00 observation, its clock and RED6 put back.)
   const poke = clearS => {
     const obs = observe(s8);
-    Object.assign(obs, {s: a + 100, tick: (a + 100) * TPS + 1});
+    Object.assign(obs, {s: a, tick: a * TPS + 1});
     for (const d of obs.districts) d.restoredAtS = -1;
     Object.assign(obs.districts.find(d => d.id === 'RED6'), {dark: true, shedBy: 'task', clearS, restoreBlock: ''});
-    return decide(obs, Object.assign(createAutopilot(), {lastActTick: a * TPS + 1}));
+    return decide(obs, Object.assign(createAutopilot(), {lastActTick: (a - 10) * TPS + 1}));
   };
   assert.equal(poke(a).length, 1);
   assert.deepEqual(poke(-1), []);

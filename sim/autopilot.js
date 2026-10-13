@@ -79,8 +79,8 @@ const PROXIES = {
   doNothing: {rules: [], gapS: GAP_REAL_S, plan: false, stops: false},
   lean: {rules: ['rule1', 'rule2', 'rule7', 'rule8', 'rule9'], gapS: GAP_REAL_S, plan: true, stops: true},
   competent: {rules: ALL_RULES, gapS: COMPETENT_GAP_REAL_S, plan: true, stops: false},
-  // §32.10 (F-8): competent, but each task feeder is seen restoreLateS real s after it may close
-  slow: {rules: ALL_RULES, gapS: COMPETENT_GAP_REAL_S, plan: true, stops: false, restoreLateS: V.PROXY_SLOW_RESTORE_REAL_S},
+  // §32.10, Q-91: competent, but each feeder card holds the clock cardS real s (feederHolds)
+  slow: {rules: ALL_RULES, gapS: COMPETENT_GAP_REAL_S, plan: true, stops: false, cardS: V.PROXY_SLOW_RESTORE_REAL_S},
   commitAll: {rules: ALL_RULES.filter(r => r !== 'rule4'), gapS: GAP_REAL_S, plan: true, stops: false},
   fuzz: {rules: [], gapS: GAP_REAL_S, plan: false, stops: false},
   night: {rules: ALL_RULES, gapS: GAP_REAL_S, plan: true, stops: true, gridS: V.NIGHT_ACTION_S}, // Q-73
@@ -157,7 +157,7 @@ const PROF = V.REF_PROFILE.map(p => ({a: secOfH(p.fromH), b: secOfH(p.toH), rate
 const PROF_LAST = PROF[PROF.length - 1];
 const WATCH_REAL = V.REF_WATCH_REAL_S, CARD_REAL = V.REF_RESPOND_CARD_S;
 const RESPOND_RATE = V.RESPOND_RATE, RESPOND_MAX = V.RESPOND_MAX_S;
-const PACE_RATE = V.RESTORE_PACE_RATE, PACE_MAX = V.RESTORE_PACE_MAX_S, RESTORE_GAP = V.RESTORE_INTERVAL_S;
+const PACE_MAX = V.RESTORE_PACE_MAX_S, RESTORE_GAP = V.RESTORE_INTERVAL_S;
 
 /** Grid seconds until the proxy of `memo` may act again after an action now: its S-4 gap at the D-2 profile's present rate. */
 function paceS(now, memo) {
@@ -182,25 +182,26 @@ function respondEnd(c) {
  * watchEndS until backInBandS (or for RESPOND_MAX_S if it is -1 or later). Before
  * PLAYER_START_H the rate is that of the profile's first segment. Pure; used for the S-4
  * pace rule and by tests. Overlapping contingencies: a watch wins over a RESPOND segment,
- * and each card counts once. 2c: a RESTORE segment (Q-70) runs at RESTORE_PACE_RATE but in a watch.
+ * and each card counts once. 2c (Q-91): each feeder card in [fromS, toS) holds the clock its
+ * realS real s at zero grid time, as the respond card does.
  * @param {number} fromS
  * @param {number} toS
  * @param {Array<{startS:number, watchEndS:number, backInBandS:number}>} conts obs.contingencies
- * @param {Array<{fromS:number, toS:number}>} [clears] Q-70's RESTORE segments (restoreSegs(obs))
+ * @param {Array<{atS:number, realS:number}>} [holds] Q-91's feeder cards (feederHolds(obs, realS))
  * @returns {number}
  */
-export function refRealSeconds(fromS, toS, conts, clears = []) {
+export function refRealSeconds(fromS, toS, conts, holds = []) {
   if (!(toS > fromS)) return 0;
   const cs = conts || [];
-  if (cs.length === 0 && clears.length === 0) return stepReal(fromS, toS);
-  const pts = [fromS, toS];
   let r = 0;
+  for (const h of holds) if (h.atS >= fromS && h.atS < toS) r += h.realS;
+  if (cs.length === 0) return r + stepReal(fromS, toS);
+  const pts = [fromS, toS];
   for (const c of cs) {
     const ends = [c.startS, c.watchEndS, respondEnd(c)];
     for (const x of ends) if (x > fromS && x < toS) pts.push(x);
     if (c.watchEndS >= fromS && c.watchEndS < toS) r += CARD_REAL;
   }
-  for (const g of clears) for (const x of [g.fromS, g.toS]) if (x > fromS && x < toS) pts.push(x);
   pts.sort((x, y) => x - y);
   for (let j = 1; j < pts.length; j++) {
     const a = pts[j - 1], b = pts[j];
@@ -215,8 +216,7 @@ export function refRealSeconds(fromS, toS, conts, clears = []) {
         respond = true;
       }
     }
-    const restore = clears.some(g => mid >= g.fromS && mid < g.toS);
-    r += watchRate >= 0 ? (b - a) * watchRate : restore ? (b - a) / PACE_RATE : respond ? (b - a) / RESPOND_RATE : stepReal(a, b);
+    r += watchRate >= 0 ? (b - a) * watchRate : respond ? (b - a) / RESPOND_RATE : stepReal(a, b);
   }
   return r;
 }
@@ -228,32 +228,35 @@ function allowedS(ds, i) {
   for (const y of ds) if (y.restoredAtS > p && y.restoredAtS < end) p = y.restoredAtS;
   return Math.max(x.clearS, (p < 0 ? -DAY_S : p) + RESTORE_GAP);
 }
-/** Q-70's RESTORE segments in obs (sim/README §11 autopilot.js). */
-function restoreSegs(obs) {
+/**
+ * Q-91's feeder cards in obs, each held realS real s at zero grid time (sim/README §11 autopilot.js).
+ * A proxy's card lasts REF_RESPOND_CARD_S (the slow proxy's cardS) and never less than its own pace:
+ * on the held clock a player takes the time they need, so the card never makes a restore late.
+ */
+const holdOf = p => Math.max(p.cardS || CARD_REAL, p.gapS);
+function feederHolds(obs, realS) {
   const ds = obs.districts, out = [];
   for (let i = 0; i < ds.length; i++) {
     const d = ds[i];
     if (d.clearS < 0 || (d.dark && d.shedBy !== 'task')) continue;
     const a = allowedS(ds, i);
-    out.push({fromS: a, toS: Math.min(a + PACE_MAX, d.dark ? Infinity : d.restoredAtS)});
+    if (a < NIGHT_S) out.push({atS: a, realS});
   }
   return out;
 }
-/** A held-back proxy (slow, §32.10) sees a task feeder allowed at `a` once lateS real s of the reference playback have passed. */
-const seenLate = (obs, a, lateS) => obs.s >= a && refRealSeconds(a, obs.s, paceConts(obs), restoreSegs(obs)) >= lateS;
 /**
  * Q-88: is a task feeder's RESTORE window open (rule 9 asked first)? From its allowed second until
- * it is closed or RESTORE_PACE_MAX_S later, none from NIGHT_S (app/director.js restoring()'s rule,
- * from obs); for a proxy with lateS > 0, from the second it sees the feeder until it is closed.
+ * it is closed or RESTORE_PACE_MAX_S later (S-6's PERFECT pace), none from NIGHT_S: the feeder card
+ * (Q-91, app/director.js) holds the clock at the allowed second, so every proxy restores there.
  */
-function restoreWindow(obs, lateS) {
+function restoreWindow(obs) {
   const ds = obs.districts, s = obs.s;
   if (s >= NIGHT_S) return false;
   for (let i = 0; i < ds.length; i++) {
     const d = ds[i];
     if (d.clearS < 0 || !d.dark || d.shedBy !== 'task') continue;
     const a = allowedS(ds, i);
-    if (lateS > 0 ? seenLate(obs, a, lateS) : s >= a && s < a + PACE_MAX) return true;
+    if (s >= a && s < a + PACE_MAX) return true;
   }
   return false;
 }
@@ -1535,19 +1538,17 @@ function rertStandDown(obs, memo, A0) {
 // its dip; par restores only when that estimate holds the K-13 restore preview's line
 // (SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ; the restore input runs the real restore preview and
 // refuses below it, so a looser estimate only spends par's pace on refused inputs: 32 refused
-// of 77 tried over 200 raw seeds at 49.2 Hz, 2 of 37 at this line). The slow proxy (§32.10) leaves
-// a task feeder until it sees it (seenLate).
-function rule9(obs, memo) {
+// of 77 tried over 200 raw seeds at 49.2 Hz, 2 of 37 at this line).
+function rule9(obs) {
   const sec = obs.sec;
   if (obs.f.hz < RESTORE_MIN_HZ || sec.lMW <= 0) return null;
   const F0 = V.F0_HZ, drop = Math.max(0, F0 - sec.previewNadirHz);
   const spillMW = obs.wind.autoMW + obs.solar.autoMW;
-  const ds = obs.districts, lateS = PROXIES[memo.proxy].restoreLateS || 0;
+  const ds = obs.districts;
   let best = null;
   for (let i = 0; i < ds.length; i++) {
     const d = ds[i];
     if (!d.dark || d.restoreBlock !== '') continue;
-    if (lateS > 0 && d.clearS >= 0 && d.shedBy === 'task' && !seenLate(obs, allowedS(ds, i), lateS)) continue;
     // No larger than L, except in the belly (Phase 2a): there L is a machine at its floor (240 MW)
     // and a dark district's pickup is its underlying load with its roofs off (250-290 MW), so the
     // cap refused every district for hours while the dispatch spilled four times the pickup. When
@@ -1604,7 +1605,8 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
 /**
  * One discrete decision. Returns at most ONE input (S-4 pace: at most one discrete action
  * per PAR_ACTION_GAP_REAL_S of refRealSeconds since the previous one, counting the watch
- * and respond time of contingencies in between, from obs.contingencies), and none during a
+ * and respond time of contingencies in between, from obs.contingencies, and each feeder card's
+ * hold, Q-91's feederHolds), and none during a
  * watch (obs.inWatch) or before PLAYER_START_H. Rules, in order (S-4), the first that
  * wants an action wins:
  *   1 after any trip: start the next peaker and set the tie to maximum import
@@ -1656,9 +1658,9 @@ export function decide(obs, memo) {
   if (memo.amendDue && memo.plan) memo.outbox.push({input: amend(obs, memo, memo.plan), tag: 'replan'});
   memo.amendDue = false;
   if (memo.lastActTick >= 0 && (proxy.gridS ? obs.tick - memo.lastActTick < proxy.gridS * TPS
-    : refRealSeconds(memo.lastActTick / TPS, obs.tick / TPS, paceConts(obs), restoreSegs(obs)) < proxy.gapS)) return [];
+    : refRealSeconds(memo.lastActTick / TPS, obs.tick / TPS, paceConts(obs), feederHolds(obs, holdOf(proxy))) < proxy.gapS)) return [];
   let C = null;
-  for (const r of (restoreWindow(obs, proxy.restoreLateS || 0) ? RESTORE_ORDER : RULE_ORDER)[memo.proxy]) {
+  for (const r of (restoreWindow(obs) ? RESTORE_ORDER : RULE_ORDER)[memo.proxy]) {
     if (NEEDS_SITUATION.has(r) && C === null) C = situation(obs, memo);
     const want = RULE_FNS[r](obs, memo, C);
     if (!want) continue;
@@ -1743,8 +1745,8 @@ const DAY_AHEAD = Object.freeze({dayAhead: true});
  *   'doNothing' no input at all, not even the plan (F-3)
  *   'lean'      plan + reaction only: rules 1, 2, 7, 8, 9 (no forward planning; S-5, S-12)
  *   'competent' plan + rules 1-9 at PROXY_COMPETENT_GAP_REAL_S (a good human; H-1, F-3, K-8)
- *   'slow'      competent, but each task feeder is closed no earlier than PROXY_SLOW_RESTORE_REAL_S
- *               of refRealSeconds after its allowed second, rule 9 first from then (§32.10, F-8)
+ *   'slow'      competent, but each feeder card holds the clock PROXY_SLOW_RESTORE_REAL_S (the
+ *               player reads 15 real s, then restores at the allowed second; §32.10, Q-91)
  *   'commitAll' S-11: at 04:00 (tick 0, bypassing the pace and the 04:30 start) START every
  *               machine that is off, then par with rule 4 disabled (never decommits)
  *   'fuzz'      random valid inputs from a PRIVATE hash of the seed (never the sim's streams)

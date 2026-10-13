@@ -10,7 +10,7 @@ import {createAudio} from '../audio/audio.js';
 import {ANCHORS} from '../content/anchors.js';
 import {badgeText, badgeTitle, BADGE_HELP, NIGHT_LOCK, lightsText, centsText, co2Text, clockText, allInCents, mw, VCR_TEXT, VER_TEXT} from '../render/format.js';
 import {BEATS} from './watch.js';
-import {modeOf} from './director.js';
+import {modeOf, feederCard} from './director.js';
 import {observe} from '../sim/step.js';
 import {unitLabel} from '../desk/util.js';
 
@@ -25,7 +25,7 @@ const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNO
 // Why F did nothing, by mode (the director's setFast refuses these).
 const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
   RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE',
-  ALARMS: 'the alarm panel holds the clock: Esc closes it', RESTORE: 'a repaired feeder is yours now: close its breaker (R, then Enter)',
+  ALARMS: 'the alarm panel holds the clock: Esc closes it', 'FEEDER-CARD': 'a repaired feeder holds the clock: R or Enter restores it, Esc goes on',
   OFFER: 'a unit is at full speed: O opens its synchroscope (30× for at most 8 s)', NIGHT: 'the night shift runs the roll to 04:00'};
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
@@ -341,6 +341,7 @@ export function bootGame(doc, deps) {
   // K-16: a click on the card or the desk takes the desk, as Enter does
   const dismissCard = () => { if (game.respond) actions.ui({do: 'dismissRespond'}); };
   on('respond-card', 'click', dismissCard);
+  on('feeder-card', 'click', () => actions.ui({do: 'focus', target: 'bay-restore'})); // Q-91: to the RESTORE bay; the card stays
   on('desk', 'pointerdown', dismissCard);
   on('annun-slot', 'pointerdown', ev => { if (!within('btn-explain', ev.target)) dismissCard(); }); // (§30.4; EXPLAIN: back on its close)
   on('btn-mute', 'click', () => { actions.ui({do: 'mute'}); });
@@ -686,6 +687,22 @@ export function bootGame(doc, deps) {
     });
   }
 
+  // Q-91: the feeder card while a hand-back holds the clock: what, the keys (blue), a refused restore's reason (red: the grid's)
+  function drawFeeder(v) {
+    const card = $('feeder-card'), f = v.feeder;
+    if (!card) return;
+    card.hidden = !f;
+    if (!f) return;
+    if (!card.children.length) for (const c of ['what', 'hint', 'on', 'why']) { const p = doc.createElement('p'); p.className = c; card.appendChild(p); }
+    const [what, hint, gone, why] = card.children;
+    if (what.textContent !== f.text) what.textContent = f.text;
+    if (hint.textContent !== f.keys) hint.textContent = f.keys;
+    if (gone.textContent !== f.on) gone.textContent = f.on;
+    const w = f.why ? '✕ Refused: ' + f.why + '. Esc goes on.' : '';
+    if (why.textContent !== w) why.textContent = w;
+    if (why.hidden !== !w) why.hidden = !w;
+  }
+
   // Q-48 (§30.9): the end card, on demand (app/endcard.js), mounted into #end-card when the day ends (hidden while it loads);
   // fetched from 21:00 when a night shift has the desk (Q-73), so 04:00 shows it at once.
   let endCard = null, endState = '';
@@ -708,6 +725,7 @@ export function bootGame(doc, deps) {
     const ov = $('stack-overlay');
     if (!ov || v.stackExpanded === stackOut) return;
     stackOut = v.stackExpanded;
+    doc.body.classList.toggle('stack-out', stackOut); // (Q-91: the feeder card moves off it)
     if (stackOut) { ov.appendChild(mods.stack.el); ov.hidden = false; } else { slot.appendChild(mods.stack.el); ov.hidden = true; }
   }
 
@@ -789,7 +807,7 @@ export function bootGame(doc, deps) {
     if (mods.desk) timed('desk', () => mods.desk.update(vm));
     if (mods.stack) timed('stack', () => mods.stack.update(vm));
     timed('shell', () => {
-      drawHeader(vm); drawObjective(vm); drawNight(vm); drawSettings(vm.settings, vm.settingsOpen); drawWatch(vm); drawRespond(vm); drawEnd(vm); placeStack(vm);
+      drawHeader(vm); drawObjective(vm); drawNight(vm); drawSettings(vm.settings, vm.settingsOpen); drawWatch(vm); drawRespond(vm); drawFeeder(vm); drawEnd(vm); placeStack(vm);
       drawAlarmPanel(vm); drawSuburbCard(vm);
       announce(vm, t1);
       const b = $('briefing-card');
@@ -849,9 +867,20 @@ export function bootGame(doc, deps) {
     ev.preventDefault(); ev.stopPropagation();
     actions.ui({do: 'dismissRespond'});
   }
+  // Q-91: at the feeder card Enter or R restores its feeder and Esc goes on (an Esc that closed something stops there),
+  // before any control hears them (the bay's R, a RESTORE row's Enter), but in SETTINGS, the drawer and "?".
+  function feederFirst(ev) {
+    const t = ev.target, k = ev.key;
+    if (ev.defaultPrevented || mod(ev) || !/^(Enter|r|R|Escape)$/.test(k) || ['settings', 'drawer', 'popover'].some(id => within(id, t))) return;
+    const id = modeOf(game.director, game.state).mode === 'FEEDER-CARD' ? feederCard(game.director, game.state) : '';
+    if (!id) return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (k === 'Escape') actions.ui({do: 'goOn'}); else actions.input({type: 'restore', district: id});
+  }
   doc.addEventListener('keydown', escFirst, true);
   doc.addEventListener('keydown', panelFirst, true);
   doc.addEventListener('keydown', cardFirst, true);
+  doc.addEventListener('keydown', feederFirst, true);
 
   // The page's one key listener (§13.3; the order is app/keys.js bindKeys'): text fields and
   // consumed keys are left alone, then the desk, the stack, the map, then the fallback map.
@@ -886,7 +915,7 @@ export function bootGame(doc, deps) {
     get perf() { return perf; },
     frame: onFrame,
     vm: () => vm,
-    unbind() { unbindKeys(); for (const f of [escFirst, panelFirst, cardFirst]) doc.removeEventListener('keydown', f, true); if (stopRaf) stopRaf(); },
+    unbind() { unbindKeys(); for (const f of [escFirst, panelFirst, cardFirst, feederFirst]) doc.removeEventListener('keydown', f, true); if (stopRaf) stopRaf(); },
   };
   // F-11: ?debug exposes the boot handle for stage C's shot and perf tools (nothing else may use it).
   if (query.has('debug')) globalThis.gridwatch = handle;

@@ -7,8 +7,8 @@
 // dark; the night ends at 04:00 by itself (never a card or a hold) within 15 real s of 21:00, and the END
 // line is there at once. Par is a finished stand-in, so the strip shows SCORE. (The end card's fetch at
 // 21:00 and the strip's redraw cadence are tests/briefing.test.js's, on the shell alone.) The file takes
-// 4.6-5.4 s alone, nearly all of it the sim's day and night (a date with no task feeders; app/director.js
-// restoring() keeps its windows per input-log length since stage C, so a task date's jump costs about the same).
+// 4.6-5.4 s alone, nearly all of it the sim's day and night (a date with no task feeders, so no feeder card
+// holds the jump, Q-91; app/director.js keeps the feeders' allowed seconds per input-log length since stage C).
 import {test, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {openGame} from './lib/play.js';
@@ -17,8 +17,8 @@ import {NIGHT_LOCK} from '../render/format.js';
 import {PAR_MARK_S} from '../app/par.js';
 import {V} from '../sim/params.js';
 
-const SEED = 20261202;   // no task feeders (no RESTORE windows: the cheapest day to jump); two trips, their cards answered by the loop
-const mem = new Map([[G.SEEN_KEY, JSON.stringify({watch: true, restore: true})]]);
+const SEED = 20261202;   // no task feeders (no feeder cards: the cheapest day to jump); two trips, their cards answered by the loop
+const mem = new Map([[G.SEEN_KEY, JSON.stringify({watch: true})]]);
 const storage = {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v))};
 // par: its running totals at its 5-minute marks (app/par.js), a steady day's
 const row = s => ({costDollars: 50 * s, servedMWh: 1.4 * s, lightsMWh: 0, co2tPerMWh: 0.6, saidiMin: 0, saifi: 0, maifi: 0});

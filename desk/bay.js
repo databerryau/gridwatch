@@ -359,7 +359,7 @@ export function createBay(ctx, parent) {
     setText(permit, lamp ? 'P ✓' : 'P ✕');
     setCls(permit, 'lit', lamp);
     setCls(tSync, 'glow', !!(vm.glow && vm.glow.has('bay-sync')));
-    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')) || !!(vm.mode && vm.mode.mode === 'RESTORE'));   // (Q-70)
+    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')) || !!vm.feeder);   // (Q-91: while a feeder card holds the clock)
     if (view === 'sync') renderSync(); else renderRestore();
   }
 

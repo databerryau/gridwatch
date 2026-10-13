@@ -219,13 +219,13 @@ test('§32.11 (desk): held feeders never choose the bay\'s view; their rows read
   assert.deepEqual(m.a.inputs, [], 'nothing sent');
 });
 
-test('Q-70: at a hand-back the bay opens on RESTORE with that feeder chosen (REPAIRED), the tab glows while the clock plays RESTORE, and R chooses the feeder that can close', () => {
+test('Q-70, Q-91: at a hand-back the bay opens on RESTORE with that feeder chosen (REPAIRED), the tab glows while its feeder card holds the clock, and R chooses the feeder that can close', () => {
   const m = mount(DAY.back), {$} = m;
   const tal3 = DAY.back.districts.find(d => d.id === 'TAL3'), tal4 = DAY.back.districts.find(d => d.id === 'TAL4');
   assert.deepEqual([tal3.dark, tal3.clearS <= DAY.back.s, tal4.clearS > DAY.back.s], [true, true, true]);
   assert.equal($('restore-list').parentElement.hidden, false, 'RESTORE: a feeder is the player\'s now');
-  assert.deepEqual(['glow', 'lit'].map(c => $('bay-restore').classList.contains(c)), [false, true], 'lit: one is the player\'s; no glow out of the RESTORE pace');
-  m.up(1500, {mode: {mode: 'RESTORE', rate: 30, watchS: -1, locked: false, watchVersion: null}});
+  assert.deepEqual(['glow', 'lit'].map(c => $('bay-restore').classList.contains(c)), [false, true], 'lit: one is the player\'s; no glow without its card');
+  m.up(1500, {mode: {mode: 'FEEDER-CARD', rate: 0, watchS: -1, locked: false, watchVersion: null}, feeder: {id: 'TAL3'}});
   assert.equal($('bay-restore').classList.contains('glow'), true, 'the hand-back\'s moment');
   const names = () => $('restore-list').querySelectorAll('.dk-feeder-name').map(n => n.textContent);
   assert.deepEqual(names(), ['▸ TAL3 · REPAIRED', 'TAL4 · FAULT · BACK 07:00']);
