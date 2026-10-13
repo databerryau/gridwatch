@@ -5,7 +5,7 @@
 // line reads the heat from the 04:00 news. D-7 / Q-64: the header's HAND chip, amber with its word. And
 // the shell's other 2c faces (§32.11's hand-offs): the badge's RESTORE, OFFER and NIGHT looks, each with its
 // word; the live region on a new D-2 segment (with the act's words on a new act); a toast that lives
-// max(3 s, 0.3 s a word).
+// max(3 s, 0.3 s a word); the end card fetched when the night shift takes the desk (Q-73).
 //
 // Headless (CLAUDE.md): the shell alone on next.html (no desk, map or stack), booted at 04:00; the chip's
 // states are set on the state (the sim's own flags), never played to.
@@ -14,7 +14,10 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {bootGame, watchFor, watchForText, NOT_GATED, dayText, HAND_CHIP, createLive, liveFrame, LIVE_GAP_MS, TOAST_MS, TOAST_WORD_MS} from '../app/shell.js';
 import * as G from '../app/game.js';
+import * as endCard from '../app/endcard.js';
 import {createState, observe} from '../sim/step.js';
+import {NIGHT_S} from '../sim/clock.js';
+import {V} from '../sim/params.js';
 import {CLASSIC} from '../content/scenarios.js';
 import {clockText, badgeText, NIGHT_LOCK} from '../render/format.js';
 import {makeDocument} from './lib/dom.js';
@@ -143,4 +146,32 @@ test('§32.11: a toast lives max(3 s, 0.3 s a word): the briefing\'s answer and 
   assert.ok(ms === 300 * NIGHT_LOCK.split(' ').length && ms > 6000, ms + ' ms: 0.3 s a word');
   assert.deepEqual([shownAt(10000 + ms - 50), shownAt(10000 + ms + 50)], [true, false]);
   assert.deepEqual(b.h.mods.errors, []);
+});
+
+test('Q-73: the end card is fetched when the night shift takes the desk (hidden), so 04:00 shows it on its first frame; a classic night fetches nothing early', async () => {
+  const boot2 = (seed, scenario) => {
+    let loads = 0;
+    const doc = makeDocument(NEXT), h = bootGame(doc, {search: '?seed=' + seed, scenario, storage: null, audioWin: {}, raf: false, now: () => 0,
+      endCard: () => { loads++; return Promise.resolve(endCard); }});
+    doc.getElementById('btn-take').click();
+    h.game.director.paused = true;   // (the clock held: the frames below run no tick)
+    h.frame(1 / 60);
+    return {h, st: h.game.state, $: id => doc.getElementById(id), loads: () => loads};
+  };
+  const b = boot2(20261005, G.scenarioForSeed);
+  assert.equal(b.loads(), 0, 'nothing before 21:00');
+  b.st.control.nightShift = true;   // (the sim's flag from 21:00)
+  b.h.frame(1 / 60);
+  await new Promise(r => setTimeout(r, 0));   // (the page's import() is asynchronous)
+  b.h.frame(1 / 60);
+  assert.deepEqual([b.loads(), b.$('end-card').hidden], [1, true], 'fetched at the flip, still hidden');
+  b.st.over = true;
+  b.h.frame(1 / 60);
+  assert.deepEqual([b.loads(), b.$('end-card').hidden, b.$('end-card').firstElementChild.textContent], [1, false, 'Day over: 04:00.'], 'shown on the frame the day ends');
+  const c = boot2(4, CLASSIC);
+  c.st.tick = (NIGHT_S + 3600) * V.TICKS_PER_S;   // (22:00 on a day with no night shift)
+  c.h.frame(1 / 60);
+  await new Promise(r => setTimeout(r, 0));
+  assert.equal(c.loads(), 0, 'classic: no night shift, no early fetch');
+  assert.deepEqual([b.h.mods.errors, c.h.mods.errors], [[], []]);
 });

@@ -4,21 +4,17 @@
 // looks: at 21:00 the plan bar is the night strip (the lock's words over the day's totals) and the badge
 // reads NIGHT ROLL; at 01:00 every figure has counted up and the city's windows have gone dark; the night
 // ends at 04:00 by itself (never a card or a hold) within 15 real s of 21:00, and the END line is there at
-// once. Par is a finished stand-in, so the strip shows SCORE. The end card's fetch at 21:00 is checked on
-// the shell alone. The file takes about 5.5 s alone, nearly all of it the sim's day and night.
+// once. Par is a finished stand-in, so the strip shows SCORE. (The end card's fetch at 21:00 is
+// tests/briefing.test.js's, on the shell alone.) The file takes about 5.5 s alone, nearly all of it the
+// sim's day and night.
 import {test, before} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {openGame} from './lib/play.js';
-import {makeDocument} from './lib/dom.js';
 import * as G from '../app/game.js';
-import {bootGame, NIGHT_REDRAW_MS} from '../app/shell.js';
-import * as endCard from '../app/endcard.js';
+import {NIGHT_REDRAW_MS} from '../app/shell.js';
 import {NIGHT_LOCK} from '../render/format.js';
 import {PAR_MARK_S} from '../app/par.js';
-import {NIGHT_S} from '../sim/clock.js';
 import {V} from '../sim/params.js';
-import {CLASSIC} from '../content/scenarios.js';
 
 const SEED = 20261013;   // a storm day with no trip before 21:00 (the loop still answers any card)
 const mem = new Map([[G.SEEN_KEY, JSON.stringify({watch: true, restore: true})]]);
@@ -80,32 +76,4 @@ test('D-11 (Q-73): at 01:00 every figure has counted up and the windows are dark
   assert.match(look, /^END Day over: 04:00\. /m, 'the end card at once');
   assert.deepEqual(lines(look, 'NIGHT '), [], 'the strip gives way to the card');
   assert.deepEqual(p.h.mods.errors, []);
-});
-
-// (the shell alone on next.html, its flags set as the sim sets them: no second played game)
-test('Q-73: the end card is fetched when the night shift takes the desk (hidden), so 04:00 shows it on its first frame; a classic night fetches nothing early', async () => {
-  const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
-  const boot = scenario => {
-    let loads = 0;
-    const doc = makeDocument(NEXT), h = bootGame(doc, {search: '?seed=' + SEED, scenario, storage: null, audioWin: {}, raf: false, now: () => 0,
-      endCard: () => { loads++; return Promise.resolve(endCard); }});
-    doc.getElementById('btn-take').click();
-    h.frame(1 / 60);
-    return {h, $: id => doc.getElementById(id), loads: () => loads};
-  };
-  const b = boot(G.scenarioForSeed);
-  assert.equal(b.loads(), 0, 'nothing before 21:00');
-  b.h.game.state.control.nightShift = true; // (the sim's flag from 21:00, Q-73)
-  b.h.frame(1 / 60);
-  await new Promise(r => setTimeout(r, 0));   // (the page's import() is asynchronous)
-  b.h.frame(1 / 60);
-  assert.deepEqual([b.loads(), b.$('end-card').hidden], [1, true], 'fetched at the flip, still hidden');
-  b.h.game.state.over = true;
-  b.h.frame(1 / 60);
-  assert.deepEqual([b.loads(), b.$('end-card').hidden, b.$('end-card').firstElementChild.textContent], [1, false, 'Day over: 04:00.'], 'shown on the frame the day ends');
-  const c = boot(CLASSIC);
-  c.h.game.state.tick = (NIGHT_S + 3600) * V.TICKS_PER_S; // (22:00 on a day with no night shift)
-  c.h.frame(1 / 60);
-  assert.equal(c.loads(), 0, 'classic: no night shift, no early fetch');
-  assert.deepEqual([b.h.mods.errors, c.h.mods.errors], [[], []]);
 });
