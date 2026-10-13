@@ -1205,10 +1205,12 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   frames(1, g2);
   const cruise = badgeText(h.vm().mode); // (the rate read: slice 2c's profile)
   assert.equal(h.vm().mode.mode, 'CRUISE');
-  assert.equal($('aria-live').textContent, cruise, 'the mode change after the briefing');
+  // (2c, Q-78 / K-23: the act changes at TAKE THE DESK too, so its words come first)
+  const said = 'Act I, the morning ramp: the city wakes and demand climbs. ' + cruise;
+  assert.equal($('aria-live').textContent, said, 'the mode change after the briefing');
   key(' ');
   frames(1);
-  assert.equal($('aria-live').textContent, cruise, 'inside 2 real s: not yet');
+  assert.equal($('aria-live').textContent, said, 'inside 2 real s: not yet');
   advance(2500);
   frames(1);
   assert.equal($('aria-live').textContent, 'PAUSE 0×');

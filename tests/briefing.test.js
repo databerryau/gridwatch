@@ -1,18 +1,21 @@
 // Q-81 (desk/README.md §32.8.2): the briefing's "Watch for" gives one brief per news item announced at
 // 04:00, composed from its kind and the public obs (heat 'heatwave 13:20–19:50', tie 'tie import ≤ 500 MW
 // until 10:00', outage 'CCGT 2 out until 07:45', network 'RED5, RED6 feeders back 06:45, 07:05'), each
-// <= 8 words and <= 30 in all (D-3); a daily outside the gate-checked list says so (Q-75). Q-80: the day's
+// <= 8 words and <= 30 in all (D-3), under a bold head in the card's own colour; a daily outside the
+// gate-checked list says so on its own line (Q-75), in the end card's and the drawer's words. Q-80: the day's
 // line reads the heat from the 04:00 news. D-7 / Q-64: the header's HAND chip, amber with its word. And
 // the shell's other 2c faces (§32.11's hand-offs): the badge's RESTORE, OFFER and NIGHT looks, each with its
-// word; the live region on a new D-2 segment (with the act's words on a new act); a toast that lives
-// max(3 s, 0.3 s a word); the end card fetched when the night shift takes the desk (Q-73).
+// word; the live region on a new D-2 segment or act (a watch's said after it); a toast that lives
+// max(3 s, 0.3 s a word); the night strip's redraw cadence; the end card fetched when the night shift takes
+// the desk (Q-73).
 //
 // Headless (CLAUDE.md): the shell alone on next.html (no desk, map or stack), booted at 04:00; the chip's
 // states are set on the state (the sim's own flags), never played to.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {bootGame, watchFor, watchForText, NOT_GATED, dayText, HAND_CHIP, createLive, liveFrame, LIVE_GAP_MS, TOAST_MS, TOAST_WORD_MS} from '../app/shell.js';
+import {bootGame, watchFor, watchForInto, NOT_GATED, dayText, HAND_CHIP, createLive, liveFrame, LIVE_GAP_MS, TOAST_MS, TOAST_WORD_MS,
+  NIGHT_REDRAW_MS} from '../app/shell.js';
 import * as G from '../app/game.js';
 import * as endCard from '../app/endcard.js';
 import {createState, observe} from '../sim/step.js';
@@ -20,6 +23,7 @@ import {NIGHT_S} from '../sim/clock.js';
 import {V} from '../sim/params.js';
 import {CLASSIC} from '../content/scenarios.js';
 import {clockText, badgeText, NIGHT_LOCK} from '../render/format.js';
+import {TEXT} from '../content/text.js';
 import {makeDocument} from './lib/dom.js';
 
 const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
@@ -34,7 +38,7 @@ function boot(seed, clock = {t: 0}) {
   return {doc, h, game: h.game, $: id => doc.getElementById(id)};
 }
 /** The "Watch for" briefs on the card, in order. */
-const briefsOn = b => /^Watch for: (.*?)\. /.exec(b.$('briefing-watch').textContent)[1].split('; ');
+const briefsOn = b => /^Watch for: (.*?)\.(?: |$)/.exec(b.$('briefing-watch').textContent)[1].split('; ');
 
 test('Q-81: a heat + tie derate + feeder date (20261005): Watch for names all three, from the news and the public obs, in <= 30 words', () => {
   const b = boot(20261005), obs = observe(b.game.state), at0 = obs.news.filter(n => n.atS === 0), of = k => at0.find(n => n.kind === k);
@@ -52,7 +56,12 @@ test('Q-81: a heat + tie derate + feeder date (20261005): Watch for names all th
   assert.ok(words('Watch for: ' + briefs.join('; ')) <= 30);
   // a bare seed is not that date's listed daily (the shipped list is empty until stage C): it says so, before play
   assert.equal(b.game.daily.gated, false);
-  assert.ok(b.$('briefing-watch').textContent.includes(NOT_GATED), b.$('briefing-watch').textContent);
+  const w = b.$('briefing-watch'), [head, gate] = w.children.filter(c => c.tagName);
+  assert.deepEqual([w.className, head.tagName, head.textContent, gate.className, gate.textContent], ['', 'B', 'Watch for:', 'gate', NOT_GATED],
+    'Watch for in the card\'s own colour with a bold head, the label on its own line');
+  assert.match(NEXT, /<p id="briefing-watch"><\/p>\s*<p id="briefing-seed" class="dim"><\/p>/);
+  assert.match(NEXT, /#briefing-watch \.gate \{ display: block; \}/);
+  assert.equal(b.$('briefing-seed').textContent, 'Seed 20261005 · AGC is on by default; HAND turns it off from 04:30 to 21:00.', 'the small print apart');
   // Q-80: the heat is news at 04:00, so the day's line can say it
   assert.equal(b.$('briefing-day').textContent, 'Today: a hot weekday, with a heatwave this afternoon (Watch for, below).');
   assert.deepEqual(b.h.mods.errors, []);
@@ -63,11 +72,13 @@ test('Q-81: a late return names the unit as the desk does (weekday CCGT 2, weeke
   assert.deepEqual(watchFor(day), ['heatwave 14:05–20:00', 'RED7, RED5 feeders back 06:45, 07:15', 'CCGT 2 out until 07:45']);
   const weekend = observe(createState(20261011, G.scenarioForSeed(20261011)));
   assert.deepEqual(watchFor(weekend), ['TAL3, TAL5 feeders back 06:30, 07:35', 'COAL 4 out until 11:30']);
-  assert.equal(watchForText(weekend, true), 'Watch for: TAL3, TAL5 feeders back 06:30, 07:35; COAL 4 out until 11:30. ', 'gated: no label');
-  assert.equal(watchForText(weekend, null), watchForText(weekend, true), 'null (not a daily): no label either');
-  assert.ok(watchForText(weekend, false).endsWith(NOT_GATED + ' '));
+  const doc = makeDocument('<p id="w"></p>'), w = doc.getElementById('w'), into = (obs, gated) => { watchForInto(doc, w, obs, gated); return [w.hidden, w.textContent]; };
+  assert.deepEqual(into(weekend, true), [false, 'Watch for: TAL3, TAL5 feeders back 06:30, 07:35; COAL 4 out until 11:30.'], 'gated: no label');
+  assert.deepEqual(into(weekend, null), into(weekend, true), 'null (not a daily): no label either');
+  assert.deepEqual(into(weekend, false), [false, 'Watch for: TAL3, TAL5 feeders back 06:30, 07:35; COAL 4 out until 11:30. ' + NOT_GATED]);
   const classic = observe(createState(4, CLASSIC));
-  assert.deepEqual([watchFor(classic), watchForText(classic, null)], [[], ''], 'nothing announced at 04:00, nothing to watch for');
+  assert.deepEqual([watchFor(classic), into(classic, null)], [[], [true, '']], 'nothing announced at 04:00, nothing to watch for: hidden');
+  assert.deepEqual(into(classic, false), [false, ' ' + NOT_GATED], 'the label alone');
   // one feeder alone, and two on one clearance (2e's first shift): the brief reads in the singular, one time
   const one = {news: [{atS: 0, kind: 'network', fromS: 9000, toS: 9000}], districts: [{id: 'SAL3', clearS: 9000}, {id: 'SAL4', clearS: -1}]};
   const same = {news: one.news, districts: [{id: 'SAL3', clearS: 9000}, {id: 'SAL4', clearS: 9000}]};
@@ -98,6 +109,9 @@ test('D-7 / Q-64: the header\'s HAND chip: HAND (amber, with the word) from obs.
   st.control.handFlown = true; st.control.nightShift = true; st.control.mode = 'AGC'; // (the sim's flip at 21:00: AGC on, the tag kept)
   frame();
   assert.deepEqual(look(), [false, 'HAND-FLOWN · NIGHT SHIFT ON AGC', 'chip night', HAND_CHIP.night[1]]);
+  assert.deepEqual(chip.children.filter(c => c.tagName).map(c => c.textContent), ['HAND-FLOWN ·', 'NIGHT SHIFT ON AGC'], 'two lines, broken at the dot');
+  assert.match(NEXT, /#chip-hand span \{ display: block; white-space: nowrap; \}/);
+  assert.match(NEXT, /#chip-hand\.night \{ font-size: 10px; line-height: 11px;/, 'no smaller than 10 px');
   st.control.handFlown = false;
   frame();
   assert.equal(chip.hidden, true, 'an AGC day after the flip: no chip');
@@ -126,6 +140,14 @@ test('K-23 (§32.11): the live region names a new D-2 segment, the act\'s words 
   assert.equal(say(mk('WATCH', 'PEAK EASING', 3, 0.15)), 'WATCH');
   assert.equal(say(mk('WATCH', 'PEAK EASING', 3, 1)), null, 'the watch is said once');
   assert.equal(say(mk('NIGHT', 'NIGHT ROLL', 4, 2100, true)), 'The night roll: the night shift runs the grid to 04:00. NIGHT ROLL 2,100×');
+  // TAKE THE DESK at 04:30: the act changes alone, the clock held (Q-18), then Space; a segment that changes inside a watch is said after it
+  const L2 = createLive(), say2 = v => liveFrame(L2, v, t += LIVE_GAP_MS), held = mk('PAUSE', 'PRE-DAWN', 1, 0);
+  assert.equal(say2(mk('PAUSE', 'PRE-DAWN', 0, 0)), null, 'the briefing');
+  assert.equal(say2(held), 'Act I, the morning ramp: the city wakes and demand climbs. ' + badgeText(held.mode));
+  assert.equal(say2(mk('CRUISE', 'PRE-DAWN', 1, 540)), 'PRE-DAWN 540×');
+  assert.equal(say2(mk('WATCH', 'PRE-DAWN', 1, 0.15)), 'WATCH');
+  assert.equal(say2(mk('WATCH', 'MORNING RAMP', 1, 1)), null, 'not inside the watch');
+  assert.equal(say2(mk('RESPOND-CARD', 'MORNING RAMP', 1, 0)), 'MORNING RAMP, HELD 0× · Enter', 'the segment, when the watch ends');
 });
 
 test('§32.11: a toast lives max(3 s, 0.3 s a word): the briefing\'s answer and the night lock\'s stay up long enough to read', () => {
@@ -145,6 +167,25 @@ test('§32.11: a toast lives max(3 s, 0.3 s a word): the briefing\'s answer and 
   ms = life();
   assert.ok(ms === 300 * NIGHT_LOCK.split(' ').length && ms > 6000, ms + ' ms: 0.3 s a word');
   assert.deepEqual([shownAt(10000 + ms - 50), shownAt(10000 + ms + 50)], [true, false]);
+  assert.deepEqual(b.h.mods.errors, []);
+});
+
+test('Q-73: the night strip redraws its figures at most every NIGHT_REDRAW_MS; with no par its ALL-IN is the header chip\'s c/kWh too, in step', () => {
+  const clock = {t: 1000}, b = boot(20261005, clock), st = b.game.state, figs = b.$('night-figs');
+  b.$('btn-take').click();
+  b.game.director.paused = true; st.control.nightShift = true;   // (the night shift's desk, the clock held: the totals move by hand)
+  const draws = [];
+  for (let k = 0; k < 30; k++) {   // 3 real s, a frame every 100 ms, the supply and its cost rising on every one
+    clock.t += 100; st.score.cost.fuel += 1e6; st.score.servedMWh += 100;
+    b.h.frame(1 / 60);
+    if (!draws.length || draws.at(-1)[1] !== figs.textContent) draws.push([clock.t, figs.textContent]);
+    // no par to compare (the header's chip reads ALL-IN in cents): the strip carries the same figure, on every frame
+    const [, cents] = /\(([\d.]+)c\/kWh\)$/.exec(figs.textContent) || [];
+    assert.deepEqual([b.$('chip-allin-k').textContent, b.$('chip-allin-v').textContent], ['ALL-IN', cents + 'c'], clock.t + ': ' + figs.textContent);
+  }
+  assert.equal(draws.length, 6, 'one draw per NIGHT_REDRAW_MS: ' + draws.map(d => d[0]));
+  for (let i = 1; i < draws.length; i++) assert.ok(draws[i][0] - draws[i - 1][0] >= NIGHT_REDRAW_MS, draws[i][0] + ' after ' + draws[i - 1][0]);
+  assert.equal(b.$('night-note').textContent, NIGHT_LOCK);
   assert.deepEqual(b.h.mods.errors, []);
 });
 
@@ -168,6 +209,8 @@ test('Q-73: the end card is fetched when the night shift takes the desk (hidden)
   b.st.over = true;
   b.h.frame(1 / 60);
   assert.deepEqual([b.loads(), b.$('end-card').hidden, b.$('end-card').firstElementChild.textContent], [1, false, 'Day over: 04:00.'], 'shown on the frame the day ends');
+  assert.equal(b.$('end-gate').textContent, NOT_GATED, 'Q-75: the end card says the briefing\'s words');
+  assert.ok(TEXT.abstractions.find(e => e.id === 'gated-dailies').ours.includes('"' + NOT_GATED.slice(0, -1) + '"'), 'and the drawer quotes them');
   const c = boot2(4, CLASSIC);
   c.st.tick = (NIGHT_S + 3600) * V.TICKS_PER_S;   // (22:00 on a day with no night shift)
   c.h.frame(1 / 60);

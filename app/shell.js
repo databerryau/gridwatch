@@ -98,10 +98,16 @@ const BRIEF = {
 export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]).map(n => BRIEF[n.kind](n, obs));
 /** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
 export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
-/** "Watch for: …. " (<= 30 words, D-3) and, when `gated` is false, NOT_GATED. */
-export function watchForText(obs, gated) {
-  const b = watchFor(obs);
-  return (b.length ? 'Watch for: ' + b.join('; ') + '. ' : '') + (gated === false ? NOT_GATED + ' ' : '');
+/**
+ * The briefing's "Watch for" into `w` (next.html #briefing-watch, in the card's own colour): a bold head and the
+ * day's briefs (<= 30 words, D-3), then NOT_GATED on its own line when `gated` is false; hidden with neither.
+ */
+export function watchForInto(doc, w, obs, gated) {
+  const b = watchFor(obs), el = (tag, s) => { const e = doc.createElement(tag); e.textContent = s; return e; };
+  w.replaceChildren();
+  if (b.length) w.append(el('b', 'Watch for:'), ' ' + b.join('; ') + '.');
+  if (gated === false) { const g = el('span', NOT_GATED); g.className = 'gate'; w.append(' ', g); }
+  w.hidden = !b.length && gated !== false;
 }
 
 /** The briefing's goals (Q-48, §30.7; Q-69): the ALL-IN score's three parts, their prices from the params, and par (<= 60 words). */
@@ -145,13 +151,13 @@ export function createLive() {
 // What the mode slot says: the badge; on a new D-2 segment its name first if the badge has it not
 // ('PEAK, FAST 450×'), and on a new act the act's words before it (render/format.js badgeTitle; Q-78).
 function modeWords(m, seg, act) {
-  const b = badgeText(m), name = seg && !b.startsWith(m.segment) ? m.segment + ', ' : '';
-  return (seg && act ? badgeTitle(m).slice(0, -BADGE_HELP.length).trim() + ' ' : '') + name + b;
+  const b = badgeText(m), name = seg && !b.startsWith(m.segment) ? m.segment + ', ' : '', t = act ? badgeTitle(m).slice(0, -BADGE_HELP.length).trim() : '';
+  return (t ? t + ' ' : '') + name + b;
 }
 
 /**
- * One frame of the live region: note what changed in `vm` (the mode or the D-2 segment, the
- * frequency band, the N-1 word, a tile going into alarm or escalating, a new tray warning) and
+ * One frame of the live region: note what changed in `vm` (the mode, the D-2 segment or the act,
+ * the frequency band, the N-1 word, a tile going into alarm or escalating, a new tray warning) and
  * return the one message to say now, or null. At most one per LIVE_GAP_MS; the rest wait, one per kind.
  */
 export function liveFrame(L, vm, nowMs) {
@@ -161,11 +167,11 @@ export function liveFrame(L, vm, nowMs) {
   const first = !L.primed;
   L.primed = true;
   const m = vm.mode, mode = m.mode, seg = (m.segment || '') !== L.seg, act = (m.act || 0) !== L.act;
-  if (mode !== L.mode || seg) {
-    const was = L.mode;
+  // (a watch is said once; a segment or an act that changed inside it is said when it ends)
+  if (mode === 'WATCH') { if (L.mode !== mode && !first) L.q.mode = 'WATCH'; L.mode = mode; }
+  else if (mode !== L.mode || seg || act) {
     L.mode = mode; L.seg = m.segment || ''; L.act = m.act || 0;
-    if (!first && mode !== 'WATCH') L.q.mode = modeWords(m, seg, act);
-    else if (!first && was !== 'WATCH') L.q.mode = 'WATCH';
+    if (!first) L.q.mode = modeWords(m, seg, act);
   }
   const band = bandOf(obs.f.hz);
   if (band !== L.band) { L.band = band; if (first) L.bandSaid = band; else L.q.band = BAND_TEXT[band] + ', ' + obs.f.hz.toFixed(2) + ' Hz'; }
@@ -361,7 +367,9 @@ export function bootGame(doc, deps) {
     const st = game.state, obs = observe(st), day = $('briefing-day'), goals = $('briefing-goals'), w = $('briefing-watch');
     if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
     if (goals) goals.textContent = GOALS_TEXT;
-    if (w) w.textContent = watchForText(obs, game.daily ? game.daily.gated : null) + 'Seed ' + game.seed + ' · AGC is on by default; HAND turns it off from 04:30 to 21:00.';
+    if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
+    const seed = $('briefing-seed');
+    if (seed) seed.textContent = 'Seed ' + game.seed + ' · AGC is on by default; HAND turns it off from 04:30 to 21:00.';
   }
 
   // ---------------------------------------------------------------- on demand (Q-44): a module passed in (tests), a loader, or import()
@@ -440,7 +448,8 @@ export function bootGame(doc, deps) {
     const pop = $('popover'), body = $('pop-body'), T = loadText(), de = doc.documentElement;
     body.replaceChildren();
     for (const row of popRows) {
-      const e = T && T.abstractions.find(x => x.row === row);
+      // (a "?" may still name the title SPEC §8.2 has, which a renamed entry `replaces` until stage C)
+      const e = T && T.abstractions.find(x => x.row === row || x.replaces === row);
       if (e) entryNodes(body, e, 'h4'); else body.appendChild(doc.createElement('h4')).textContent = row;
     }
     pop.style.maxHeight = ''; // (its own height)
@@ -560,8 +569,8 @@ export function bootGame(doc, deps) {
     if (!box) return;
     const o = v.objective, c = v.consider || null;
     const paused = v.mode.mode === 'PAUSE' && v.phase === 'play' && !v.obs.over;
-    // (Q-73: in the night roll the night strip stands in its place, but for what a press would do)
-    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond || (v.obs.nightShift && !c);
+    // (Q-73: in the night roll the night strip stands in its place; a press there answers with the lock's note)
+    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond || v.obs.nightShift;
     if (box.hidden) return;
     const armed = !!c && v.armed === c.target;
     const cls = c ? (armed && c.level !== 'crit' ? 'act' : c.level) + ' consider' : o.level;
@@ -594,9 +603,12 @@ export function bootGame(doc, deps) {
     if (!chip) return;
     const k = o.nightShift ? (o.handFlown ? 'night' : '') : o.mode === 'HAND' ? 'day' : '';
     if (chip.hidden !== !k) chip.hidden = !k;
-    if (!k) return;
-    setText('chip-hand', HAND_CHIP[k][0]);
-    if (chip.className !== 'chip ' + k) { chip.className = 'chip ' + k; chip.title = HAND_CHIP[k][1]; }
+    if (!k || chip.className === 'chip ' + k) return;
+    chip.className = 'chip ' + k; chip.title = HAND_CHIP[k][1];
+    // (the night's words on two lines, broken only at the '·': next.html #chip-hand span)
+    chip.replaceChildren(...HAND_CHIP[k][0].split(' · ').flatMap((s, i, a) => {
+      const e = doc.createElement('span'); e.textContent = s + (i < a.length - 1 ? ' ·' : ''); return i ? [' ', e] : [e];
+    }));
   }
 
   // Q-48 (§30.7): you and par at the same grid time (once graded, the end card's grade); `off`: no par to compare (off, black, no score).
@@ -612,7 +624,8 @@ export function bootGame(doc, deps) {
     const chip = $('chip-allin');
     if (!chip) return;
     chip.hidden = v.phase !== 'play';
-    if (chip.hidden) return;
+    // (Q-73: in the night roll it moves with the night strip, every NIGHT_REDRAW_MS, so the two say the same)
+    if (chip.hidden || (v.obs.nightShift && !v.obs.over && v.frame.nowMs - nightMs < NIGHT_REDRAW_MS)) return;
     const {you, p, off, g0, g} = scoreOf(v), c = allInCents(you);
     setText('chip-allin-k', off && !g0 ? 'ALL-IN' : 'SCORE');
     setText('chip-allin-v', off && !g0 ? c + 'c' : g ? String(g.points) : '…');
@@ -623,17 +636,18 @@ export function bootGame(doc, deps) {
   }
 
   // Q-73 (§32.8.2): the night strip in the plan bar while the night shift has the desk: the lock's words and
-  // the day's totals counting up to 04:00 (SCORE against par as the chip), redrawn every NIGHT_REDRAW_MS; nothing to press.
+  // the day's totals counting up to 04:00 (SCORE against par as the chip; with no par, ALL-IN also in the chip's
+  // c/kWh), redrawn every NIGHT_REDRAW_MS; nothing to press, and it stays while the pointer crosses the desk.
   let nightMs = -Infinity;
   function drawNight(v) {
-    const box = $('night-strip'), on = v.phase === 'play' && v.obs.nightShift && !v.obs.over && !v.consider;
+    const box = $('night-strip'), on = v.phase === 'play' && v.obs.nightShift && !v.obs.over;
     if (!box) return;
     if (box.hidden === on) { box.hidden = !on; nightMs = -Infinity; setText('night-note', NIGHT_LOCK); }
     if (!on || v.frame.nowMs - nightMs < NIGHT_REDRAW_MS) return;
     nightMs = v.frame.nowMs;
     const {you, off, g0, g} = scoreOf(v);
     setText('night-figs', 'SUPPLY ' + millions(you.supply) + ' · OUTAGES ' + millions(you.outage) + ' · CARBON ' + millions(you.carbon) +
-      ' · ALL-IN ' + millions(you.total) + (off && !g0 ? '' : ' · SCORE ' + (g ? g.points : '…') + ' (par 1000)'));
+      ' · ALL-IN ' + millions(you.total) + (off && !g0 ? ' (' + allInCents(you) + 'c/kWh)' : ' · SCORE ' + (g ? g.points : '…') + ' (par 1000)'));
   }
 
   function drawWatch(v) {
@@ -827,8 +841,17 @@ export function bootGame(doc, deps) {
     if (!game.ui.alarmsOpen || mod(ev) || PANEL_KEEPS.test(k) || (k === 'M' && ev.shiftKey) || within('settings', t)) return;
     if (!((inPanel(t) || within('drawer', t) || k === 'Enter' && t.classList.contains('dk-tile')) && PANEL_OWN.test(k))) actions.ui({do: 'alarmsGoto', target: null}); // (§30.4: Enter on a tile selects it)
   }
+  // K-16: Enter at the RESPOND card closes it before any control under the keys hears it (a RESTORE row's Enter
+  // would close a breaker, a suburb card's button would press), but in the alarm panel, SETTINGS, the drawer and "?".
+  function cardFirst(ev) {
+    const t = ev.target;
+    if (ev.key !== 'Enter' || !game.respond || mod(ev) || game.ui.alarmsOpen || ['settings', 'drawer', 'popover'].some(id => within(id, t))) return;
+    ev.preventDefault(); ev.stopPropagation();
+    actions.ui({do: 'dismissRespond'});
+  }
   doc.addEventListener('keydown', escFirst, true);
   doc.addEventListener('keydown', panelFirst, true);
+  doc.addEventListener('keydown', cardFirst, true);
 
   // The page's one key listener (§13.3; the order is app/keys.js bindKeys'): text fields and
   // consumed keys are left alone, then the desk, the stack, the map, then the fallback map.
@@ -863,7 +886,7 @@ export function bootGame(doc, deps) {
     get perf() { return perf; },
     frame: onFrame,
     vm: () => vm,
-    unbind() { unbindKeys(); for (const f of [escFirst, panelFirst]) doc.removeEventListener('keydown', f, true); if (stopRaf) stopRaf(); },
+    unbind() { unbindKeys(); for (const f of [escFirst, panelFirst, cardFirst]) doc.removeEventListener('keydown', f, true); if (stopRaf) stopRaf(); },
   };
   // F-11: ?debug exposes the boot handle for stage C's shot and perf tools (nothing else may use it).
   if (query.has('debug')) globalThis.gridwatch = handle;

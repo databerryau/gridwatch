@@ -52,9 +52,10 @@
   #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER, #rate-badge.ALARMS { background: #6e768133; border-color: var(--faint); }
   .chip { font: 11px var(--mono); color: var(--dim); padding: 2px 8px; border: 1px solid var(--line); border-radius: 10px; }
   .chip b { color: var(--bright); font-weight: 700; }
-  /* D-7: HAND in amber, with the word; after 21:00 two short lines (the header is full at 1280 px) */
+  /* D-7: HAND in amber, with the word; after 21:00 its words on two lines, broken at the "·" (the header is full at 1280 px) */
   #chip-hand { color: var(--amber); border-color: var(--amber); font-weight: 700; }
-  #chip-hand.night { font-size: 9px; line-height: 10px; padding: 1px 6px; max-width: 112px; text-align: center; border-radius: 6px; }
+  #chip-hand span { display: block; white-space: nowrap; }
+  #chip-hand.night { font-size: 10px; line-height: 11px; padding: 1px 6px; text-align: center; border-radius: 6px; }
   .grow { flex: 1; }
 
   #map { position: relative; min-height: 0; overflow: hidden; background: #0a0e14; }
@@ -111,6 +112,7 @@
   #briefing-card { top: calc(var(--hdr) + 40px); width: 520px; }
   #briefing-card .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   #briefing-card .take { font-weight: 700; padding: 6px 16px; border-color: var(--blue); }
+  #briefing-watch .gate { display: block; }
   #end-card { top: calc(var(--hdr) + 40px); width: 520px; }
   /* B-7: the SETTINGS popover, under its header button. It never pauses the game. */
   #settings { z-index: 16; top: calc(var(--hdr) + 6px); left: auto; right: 8px; transform: none; width: 268px; }
@@ -177,7 +179,7 @@
   <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)" aria-label="What GRIDWATCH simplifies, and why" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="drawer" aria-expanded="false">?</button>
 </header>
 <div id="map" aria-label="The city and its power stations"></div>
-<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="night-strip" aria-label="The night shift: your day's totals so far" hidden><b>☾ NIGHT SHIFT</b><span><span id="night-note"></span><span id="night-figs"></span></span></div><div id="annun-slot" class="dk-vars"></div></div>
+<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="night-strip" role="group" aria-label="The night shift: your day's totals so far" hidden><b>☾ NIGHT SHIFT</b><span><span id="night-note"></span><span id="night-figs"></span></span></div><div id="annun-slot" class="dk-vars"></div></div>
 <div id="desk" aria-label="The control desk"></div>
 <noscript>GRIDWATCH needs JavaScript (ES modules).</noscript>
 
@@ -190,7 +192,8 @@
   <p id="briefing-goals"></p>
   <p id="briefing-how" class="dim">The line above the desk says what is needed next. To start a unit, click its ○ button on the lever bank (hydro units: beside the HYDRO wheel); it turns into START?, so click it again to confirm. Keys: 1–5 pick a lever (6 the HYDRO wheel), then S S. The battery's outer ring is its GUARD: MW held back to catch a trip. Space pauses at any time, and you can act while paused; the clock is held until you first press it. EXPLAIN (W), beside the alarms, holds the clock and explains each one. ? (top right) shows what GRIDWATCH simplifies.</p>
   <p id="briefing-day"></p>
-  <p id="briefing-watch" class="dim"></p>
+  <p id="briefing-watch"></p>
+  <p id="briefing-seed" class="dim"></p>
   <div class="row" id="briefing-mode" role="radiogroup" aria-label="Regulation">
     <button id="btn-agc" class="on" role="radio" aria-checked="true" title="AGC trims every unit inside its band (the default)">AGC</button>
     <button id="btn-hand" role="radio" aria-checked="false" title="Fly by hand: no automatic trim from 04:30 to 21:00 (harder)">HAND</button>

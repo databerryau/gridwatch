@@ -3,23 +3,36 @@
 // sim input lives under the desk (the Live Stack is in it, or over the map while expanded), the map or the
 // suburb card; the briefing sends only `mode` inputs (the card's AGC/HAND, the desk's AGC key, Q-64).
 //
-// Two halves. The source: the modules of next.html (its first visit and the on-demand ones) that call
-// actions.input( or actions.redispatch( are exactly the desk's, the stack's, the suburb card's and the
-// shell's, and the shell's are the briefing's mode and the keys' runner (which carries a desk control's
-// key). The page, headless (tests/lib/play.js), sampled: the briefing and then the quiet desk at 04:30,
+// Two halves. The source: the modules of next.html (its first visit and the on-demand ones, found from its
+// import() calls) that call actions.input( or actions.redispatch( are exactly the desk's, the stack's, the
+// suburb card's and the shell's, and the shell's are the briefing's mode and the keys' runner (which carries
+// a desk control's key). The page, headless (tests/lib/play.js), sampled: the briefing and then the quiet desk at 04:30,
 // every visible control clicked twice (a guard's lift and its confirm), the sends seen at the page's
 // actions and each laid at the control that made it.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {posix} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {openGame} from './lib/play.js';
 import {tokenize} from './lib/js-tokens.js';
-import {firstVisit} from '../tools/perf.mjs';
+import {firstVisit, moduleClosure} from '../tools/perf.mjs';
 import * as G from '../app/game.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const ON_DEMAND = ['app/suburbcard.js', 'app/alarmpanel.js', 'app/endcard.js', 'app/perf.js', 'content/text.js', 'content/alarmhelp.js'];
+/** The page's on-demand modules, from its code: every import('…') reached from `first` (repo paths), and what each brings statically. */
+function onDemand(first) {
+  const seen = new Set(first), out = [], queue = [...first];
+  while (queue.length) {
+    const f = queue.shift(), t = tokenize(readFileSync(ROOT + f, 'utf8'));
+    for (let k = 0; k + 2 < t.length; k++) {
+      if (t[k].text !== 'import' || t[k + 1].text !== '(' || t[k + 2].type !== 'str') continue;
+      const m = posix.join(posix.dirname(f), t[k + 2].text.slice(1, -1));
+      for (const g of [m, ...moduleClosure(m).map(x => x.path)]) if (!seen.has(g)) { seen.add(g); out.push(g); queue.push(g); }
+    }
+  }
+  return out;
+}
 // The regions D-1 allows, by the root each module is mounted on (app/shell.js bootGame).
 const REGIONS = ['desk', 'stack-overlay', 'map', 'suburb-card'];
 
@@ -36,7 +49,9 @@ function sendsIn(src) {
 }
 
 test('D-1, the source: only the desk, the stack, the suburb card and the shell call the page\'s actions; the shell sends the briefing\'s mode and the keys\' inputs', () => {
-  const files = [...firstVisit('next.html').map(f => f.path).filter(p => p.endsWith('.js')), ...ON_DEMAND];
+  const first = firstVisit('next.html').map(f => f.path).filter(p => p.endsWith('.js')), later = onDemand(first), files = [...first, ...later];
+  // (the on-demand list is the page's own, so a module 2d or 2e loads later is audited too)
+  for (const m of ['app/endcard.js', 'app/suburbcard.js', 'content/text.js']) assert.ok(later.includes(m), m + ' is found on demand: ' + later);
   const by = {}, views = /^(desk|render|audio|content)\/|^app\/(shell|boot|keys|suburbcard|alarmpanel|endcard|watch|tray)\.js$/;
   for (const f of files) {
     const src = readFileSync(ROOT + f, 'utf8'), s = sendsIn(src);
