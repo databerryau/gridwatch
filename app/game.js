@@ -742,7 +742,7 @@ export function buildVm(game, f) {
         const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
-        game.objectiveHeld = steady(game.objectiveHeld, next, obs.s);
+        game.objectiveHeld = steady(game.objectiveHeld, next, obs.s, D.handAt(state));
         const line = game.objectiveHeld.line, was = game.objective;
         if (mode.mode === 'FAST' && newAsk(was, line)) { D.endFast(d); fresh = true; }
         if (!holdLine(was, line, nowMs, game.lineMs, fresh)) {

@@ -2516,7 +2516,8 @@ so a unit the line asked for is never one it then asks to stop. What the desk ca
 (every unit at its limits from where it is, the water, the tie at its limit; capacityGap real)
 says whether it is short NOW.
 
-  objective(obs, {edited, planview, proj?, dayAhead?}) -> {level, kind, text, targets, action, startBy, short, long}
+  objective(obs, {edited, planview, proj?, dayAhead?, leadS?, held?}) -> {level, kind, text, targets, action, startBy, short, long} | null
+    (null from obs.nightShift: the night roll has no line, Q-73)
     level   'ok' | 'plan' (act later, or worth doing) | 'act' (act now) | 'crit' (short already)
     kind    which line it is (desk/README.md §19.5): 'watch' | 'held' | 'short' | 'commit' | 'restore' |
             'spare' | 'stop' | 'battery' | 'city' | 'quiet'
@@ -2529,8 +2530,9 @@ says whether it is short NOW.
     long    the spill ahead {atS, endS, mw} or null (planview's first blue run)
     saving  (STOP lines) the dollars the line quotes
 
-Branch order (§21.4; 2b §31.9.8): watch, held, short-now, commit-now, shortAhead, air-con,
-restore, spare, stop, battery, soak, commit-later, quiet. A line that asks for nothing yet (a
+Branch order (§21.4; 2b §31.9.8; 2c): watch, held, short-now, commit-now, shortAhead, air-con,
+restore, spare, pickup (2c), stop, battery, soak, commit-later, quiet; at a hand-back with its
+lamp lit, restore first (2c, below). A line that asks for nothing yet (a
 start more than ACT_WITHIN_S away, a feeder that cannot close yet, spare that nothing can add,
 the reserve diesel on its way) gives way to a lower branch that has something to do now; among
 lines that ask for something, the order above decides; then a critical line; then a city line not
@@ -2617,11 +2619,55 @@ discharge as an evening gap grows: each order is sized for the gap 20 min ahead.
     what a guarded press would do, said before it is made (C-10): target is
     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
 
-  steady(held, next, s) -> {line, seenS, sinceS}
+  steady(held, next, s, hand?) -> {line, seenS, sinceS}
     the line as the desk shows it: a line whose deadline or figure moves with each forecast while
     what it asks for and its other words stay the same is kept as it was said, and a quiet line
     for STEADY_QUIET_S against another quiet line (the game holds `held`; the objective itself
-    stays pure, and the action a line carries is never held back or changed).
+    stays pure, and the action a line carries is never held back or changed). hand: the clock
+    is HAND's (app/director.js handAt), for spanAt.
+
+The day (slice 2c, desk/README.md §32.8.1):
+  - A heatwave is news from 04:00 (Q-80): the look-ahead derates its window from the news;
+    Q-38's HOT-morning worst case is retired (a HOT day with no heat news has none coming).
+  - The night roll (Q-73): from obs.nightShift there is no line (objective() returns null; the
+    shell hides the box and the night strip replaces it, and steady() keeps no day text over
+    it). A shortfall from 21:00 on a night scenario is the night shift's: the commit look-ahead,
+    "Next" and the quiet line's thin and real checks look only at runs that begin before 21:00.
+  - The spans (Q-63): NOW_S, ACT_WITHIN_S and the STEADY spans were tuned at TUNED_RATE (the
+    flat 120x); each means its real seconds there, as the D-2 profile plays them from where it
+    starts (spanAt: cut at a night scenario's 21:00, but never under the span itself, so near
+    21:00 the floor can run a few grid-minutes past it). The act window is one stretch of real
+    seconds (actWithin: the game's reading lead, then ACT_WITHIN_S from where it ends; 18 real
+    s). An instant resource, the battery's order and the demand response call, is asked when the
+    gap opens within instS = max(ACT_WITHIN_S + NOW_S of grid time, NOW_S of the profile): its
+    energy is grid time (an order made earlier is charge the peak will not have), but never
+    less than NOW_S's real seconds to press it; "be ready" until then. The reserve diesel is armed
+    within ACT_WITHIN_S of the profile before its 20 min (no reading lead: it costs by the
+    minute), never past PAR_RERT_STANDDOWN_MIN ahead (spare()'s stand-down look-ahead, so the two
+    never chase each other); "arm it by" is 20 min before the shortfall the line names. The
+    battery's late charging band stays grid time (a band, not a reaction).
+  - Act I's constraints (Q-68): the tie's import limit per column until its limitUntilS; a booked
+    start due at a unit's return; a unit out for maintenance planned from its return (startable
+    with later: "Start CCGT 2 at 07:45, when it is back", never an ask or a lit START before it;
+    its START press says "out for maintenance until 07:45"); the reserve diesel's line comes
+    before it only when it is back too late for the diesel's shortfall. A capacity ask (commit,
+    short now, the spare+commit start, "Next", the battery's, the quiet line's) names what binds
+    (why): "(CCGT 2 out until 07:45; the tie limited to 450 MW until 11:00)", when it fits; a unit
+    is named only when started now it would be in time (its outage is the reason).
+  - The restore task (Q-68, Q-69): the look-ahead takes a feeder under repair off the demand
+    until its clearS (sim/dark.js, as app/planview.js and the dispatch do: the announced return).
+    From PICKUP_AHEAD_S before a hand-back, with no feeder yet the desk's, "SAL4's feeder is back
+    at 06:45: hold 250 MW of spare for its pickup" (its cold load now, with the forecast's
+    underlying demand then, to the 10 MW: a few MW of drift moves it 10 MW, never a 50-MW step;
+    the spare gauge lit, never the bay, whose tab is Q-70's cue at the hand-back; a passive line
+    after spare()'s own, before "Next"). The feeders under repair are named beside the count; R's feeder first (one handed
+    back, the latest first, as desk/bay.js picks); at a hand-back with its lamp lit the restore
+    ask comes before every other branch unless the real check is short within instS (Q-70's
+    pace is for the feeder). spare()'s pickup counts a held feeder only once its return is within
+    the act window (at real sizes a pickup, 200-300 MW, is under the trip's share, 1.05 L).
+  - On a night scenario a STOP saves until the night shift would stop the unit (stopHorizonS:
+    21:00, or PAR_DECOMMIT_MIN_ON_MIN on), and a restart from 21:00 is the night shift's (no
+    start priced, no "Start it again by").
 ```
 
 #### desk/desk.js
