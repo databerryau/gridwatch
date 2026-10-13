@@ -19,7 +19,7 @@ import * as planview from '../app/planview.js';
 import {createPacer, runFrame} from '../app/loop.js';
 import {badgeText, badgeTitle, BADGE_HELP} from '../render/format.js';
 import {injectTrip} from './lib/sim-helpers.js';
-import {openGame, dueSpans} from './lib/play.js';
+import {openGame, feederDue} from './lib/play.js';
 
 const TPS = V.TICKS_PER_S, START = V.PLAYER_START_S, H = 3600, NIGHT_T = NIGHT_S * TPS;
 const CLEARS = [9900, 11700]; // 06:45 and 07:15: two hand-backs on the morning ramp (270x)
@@ -100,26 +100,22 @@ test('Q-91: a hand-back holds the clock (FEEDER-CARD, rate 0, no FAST) until its
   assert.deepEqual([mode(director(), n), D.feederCard(director(), n)], ['NIGHT', '']);
 });
 
-test('Q-91: tests/lib/play.js dueSpans holds every feeder card the director shows, one per feeder per allowed second, re-armed by a later restore of any district (the second feeder closed first)', () => {
+test('Q-91: one card per feeder per allowed second, re-armed by a later restore of any district (the second feeder closed first); tests/lib/play.js feederDue holds whenever one shows', () => {
   // T0 back 06:45 and never closed; T1 back 07:15 and closed at 07:16:00.4; a UFLS district X closed at 07:40:00.2;
   // each card answered by another input the moment it shows
   const st = fake({clears: CLEARS, s: START}), d = director(), ds = st.city.districts;
   ds.push({id: 'X', clearS: -1, dark: true, shedBy: 'ufls', restoredAtS: -1});
-  const rs = [{t: CLEARS[1] + 60.4, id: 'T1'}, {t: 3 * H + 40 * 60 + 0.2, id: 'X'}];
-  const spans = dueSpans(ds, rs), shown = [];
+  const rs = [{t: CLEARS[1] + 60.4, id: 'T1'}, {t: 3 * H + 40 * 60 + 0.2, id: 'X'}], shown = [];
+  let due = 0;
   for (let k = 0, t = START * TPS; t < 5 * H * TPS; t += 10) {                          // every 0.2 grid-s
     for (; k < rs.length && rs[k].t * TPS <= t; k++) Object.assign(ds.find(x => x.id === rs[k].id), {dark: false, restoredAtS: Math.floor(rs[k].t)});
     st.tick = t;
     const id = D.feederCard(d, st);
-    if (id) { shown.push([id, t / TPS]); D.answerFeeder(d, st, id, false); }
+    if (feederDue(st)) due++;
+    if (id) { assert.ok(feederDue(st), id + ' at ' + t / TPS + ' is due by the sim\'s records'); shown.push([id, t / TPS]); D.answerFeeder(d, st, id, false); }
   }
   assert.deepEqual(shown, [['T0', CLEARS[0]], ['T1', CLEARS[1]], ['T0', CLEARS[1] + 60 + 300], ['T0', 3 * H + 45 * 60]]);
-  for (const [id, s] of shown) assert.ok(spans.some(x => x.id === id && s >= x.a && s <= x.b), id + ' at ' + s + ' is due');
-  assert.deepEqual(spans.map(x => [x.id, x.a, x.b]), [
-    ['T0', CLEARS[0], CLEARS[1] + 60.4],                                // 06:45, to T1's restore
-    ['T0', CLEARS[1] + 60 + 300, 3 * H + 40 * 60 + 0.2],                // re-armed by T1's restore: 07:21, to X's
-    ['T0', 3 * H + 45 * 60, Infinity],                                  // and by X's: 07:45
-    ['T1', CLEARS[1], CLEARS[1] + 60.4]]);                              // T1's own, to its restore
+  assert.ok(due > shown.length, 'due longer than shown: the director keeps what was answered');
 });
 
 test('Q-63: FAST is 3 x the profile, refused in WATCH, the cards, RESPOND, FOCUS, ALARMS, OFFER and NIGHT; a ringing tray card ends it (MSL2 does, MSL1 does not)', () => {

@@ -15,7 +15,7 @@
 //
 // Flags: --seed N | --seeds A-B (default 1-20) | --heat N (first N heat seeds, or with --seeds A-B
 // the heat seeds number A..B) | --proxy P (par, planOnly, doNothing, lean, competent, slow,
-// commitAll, fuzz; slow is competent closing each task feeder 15 real s late, §32.10) | --grade (grade the proxy against par on each seed, S-5) | --vs P (also run
+// commitAll, fuzz; slow is competent holding each feeder card 15 real s, §32.10, Q-91) | --grade (grade the proxy against par on each seed, S-5) | --vs P (also run
 // proxy P and count the seeds where it costs more than the main proxy, S-11) | -j/--workers N
 // | --json | --quiet (summary only) | --scenario ID (classic, desk, desk-weekend) | --probe (H-8:
 // trip both credible contingencies in a copy of each SECURE state, as tools/baseline-v4.js does)
@@ -34,7 +34,7 @@
 // effMW x (block length - FLEX_RAMP_S)) and flexDollars (score.cost.flex: the air-con payments).
 // 2c (desk/README.md §32.7.1, Q-69, Q-73): a clean day is market.isClean (a task feeder's lag never
 // makes a day unclean); each row carries the restore task's MWh (taskMWh, the operator's from the
-// hand-back; heldMWh, the network's; lateMWh, past the pace) and S-6's PERFECT; the weather is the
+// hand-back; heldMWh, the network's; lateMWh, past PERFECT's window) and S-6's PERFECT; the weather is the
 // regime's class (heat, storm, drought, calm on the game's days); actions count the log's rule
 // origins, the night memo's (nightActions) among them.
 'use strict';

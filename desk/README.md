@@ -4619,7 +4619,7 @@ FEEDER-CARD: Q-91, in RESTORE's place):
                 windows) per input-log length (only a logged restore relights a district) and
                 checked against each feeder's dark, shedBy and clearS; a state with no log is read
                 afresh (stage C: rateOf asks it between every two ticks). tests/lib/play.js
-                dueSpans rebuilds the seconds a card may hold from the log for D-2's E.
+                feederDue reads from the sim's state alone whether a card may hold, for D-2's E.
   RESPOND       30x from the card's dismissal until frequency is back in 49.85-50.15 Hz
                 (contingency.backInBandTick >= 0) or 5 grid-min after the card, then the profile
   FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
@@ -4869,7 +4869,8 @@ closeTop: an Esc that closed something stops there), while the director plays FE
 the restore of the feeder it names (actions.input: a refusal toasts in red and the card stays) and Esc goes
 on (ui 'goOn'), but in SETTINGS, the drawer and "?"; a click on the card focuses the RESTORE bay and the card
 stays. It sits over the map (never the desk's Live Stack or bay); with the stack out (L) the body class
-stack-out (placeStack) moves it over the lever bank.
+stack-out (placeStack) moves it over the lever bank. The objective line waits while it shows, as at the
+respond card: the card is the one instruction while the clock holds.
 ```
 
 #### app/system.js

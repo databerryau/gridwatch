@@ -72,6 +72,7 @@ import * as A from '../../app/alarms.js';
 import * as T from '../../app/tray.js';
 import {V} from '../../sim/params.js';
 import {realBetween, NIGHT_S} from '../../sim/clock.js';
+import {restoreAllowedS} from '../../sim/market.js';
 import {SCENARIOS} from '../../content/scenarios.js';
 // Q-44: the page loads these on demand; the driver hands them to the shell up front (synchronous)
 import {TEXT} from '../../content/text.js';
@@ -195,27 +196,17 @@ const fmtControl = c => (c.id || '?') + ' "' + c.label + '"' + (c.value !== unde
   (c.state.length ? ' [' + c.state.join(',') + ']' : '');
 
 /**
- * Q-91: when each task feeder's card may hold the clock (app/director.js FEEDER-CARD), from the sim's
- * records: each task feeder (clearS >= 0) from its allowed second (market.restoreAllowedS: the later
- * of its clearS and the last restore of any district + RESTORE_INTERVAL_S, so every restore re-arms
- * it) to its own restore, the next restore or nightS. rs: the accepted restore inputs in tick
- * order, [{t: grid s (tick / TPS), id}]. Returns [{a, b, id}] in grid s, both ends included (a card
- * restored at once holds at a === b). A card holds at zero grid time inside one of them (at its
- * start, or after a watch and the respond card), unless answered.
+ * Q-91: may a feeder card hold the clock in this state (app/director.js FEEDER-CARD), read from the
+ * sim alone: a task feeder (clearS >= 0) dark with shedBy 'task' whose allowed second
+ * (market.restoreAllowedS: the later of its clearS and the last restore of any district +
+ * RESTORE_INTERVAL_S) has come, before a night scenario's 21:00. The director adds only which card
+ * was answered (Esc, another input), and queues one behind a watch and the respond card.
  */
-export function dueSpans(ds, rs, nightS = Infinity) {
-  const out = [];
-  for (const x of ds) {
-    if (x.clearS < 0) continue;
-    const own = rs.find(r => r.id === x.id), end = Math.min(own ? own.t : Infinity, nightS);
-    for (let k = 0; k <= rs.length; k++) {                // between two restores the allowed second stands
-      const t0 = k ? rs[k - 1].t : -Infinity, t1 = k < rs.length ? rs[k].t : Infinity;
-      const a = Math.max(x.clearS, (k ? Math.floor(t0) : -DAY_S) + V.RESTORE_INTERVAL_S);
-      const lo = Math.max(a, t0), hi = Math.min(t1, end);
-      if (hi >= lo && lo < nightS) out.push({a: lo, b: hi, id: x.id});
-    }
-  }
-  return out;
+export function feederDue(state) {
+  const ds = state.city.districts, s = state.tick / TPS;
+  if (state.scn.night && s >= NIGHT_S) return false;
+  for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task' && restoreAllowedS(ds, i) <= s) return true;
+  return false;
 }
 
 // ------------------------------------------------------------------ the driver
@@ -247,17 +238,19 @@ export function openGame(o = {}) {
   const game = h.game, $ = id => doc.getElementById(id);
   let hovered = null, lastLook = '';
   // D-2's clock (clockReport): the page time and tick of the Space that ran the clock, and from then every
-  // frame's [grid s before, grid s after, real s, the sim's synchroscope open and a scope offer open at its start:
-  // any offered unit at full speed within AUTO_SYNC_S of its own offer, before the night shift has the desk]
+  // frame's [grid s before, grid s after, real s, the sim's synchroscope open, a scope offer open (any offered
+  // unit at full speed within AUTO_SYNC_S of its own offer, before the night shift has the desk) and a feeder
+  // card due (feederDue), at its start]
   let spaceMs = -1, spaceTick = -1;
   const played = [];
   const gridS = () => game.state.tick / TPS;
   const pre = () => {
     if (spaceMs < 0) return null;
     const st = game.state, o = game.offered;
-    return [st.scope.unit !== '', !st.control.nightShift && st.units.some(u => u.mode === 'ready' && o[u.id] && st.tick < o[u.id].tick + V.AUTO_SYNC_S * TPS)];
+    return [st.scope.unit !== '', !st.control.nightShift && st.units.some(u => u.mode === 'ready' && o[u.id] && st.tick < o[u.id].tick + V.AUTO_SYNC_S * TPS),
+      feederDue(st)];
   };
-  const acct = (s0, dt, f0) => { if (spaceMs >= 0) played.push([s0, gridS(), dt, f0 || [false, false]]); };
+  const acct = (s0, dt, f0) => { if (spaceMs >= 0) played.push([s0, gridS(), dt, f0 || [false, false, false]]); };
 
   // ---------------------------------------------------------------- frames (real time)
   function frame(dtS = FRAME_DT) { const s0 = gridS(), f0 = pre(); t += dtS * 1000; h.frame(dtS); acct(s0, dtS, f0); return api; }
@@ -607,19 +600,20 @@ export function openGame(o = {}) {
    * spans come from the sim's records and the game's offers, not the director: each watch
    * (startTick to watchEndTick), each card (the frames held at its watchEndTick), FOCUS (the
    * synchroscope open, and RESTORE_FOCUS_S after each accepted restore input), RESTORE (Q-91: the
-   * feeder cards' held real s, the frames that run no tick while a task feeder is due: from its
-   * allowed second, market.restoreAllowedS, re-armed by every later restore of any district, to its
-   * own restore, before 21:00; dueSpans), RESPOND's 30x part (the card to backInBandTick or +
-   * RESPOND_MAX_S; no card or RESPOND from a night scenario's 21:00) and OFFER (any offered unit
-   * while it waits at full speed, at most AUTO_SYNC_S from its own offer, before the night shift has
-   * the desk). A frame counts in the first of these holding its middle, in the director's
-   * precedence (a frame that runs no tick at a watch's end: the card). parts[k].n counts the spans
-   * begun after Space and before now (RESTORE: the holds).
+   * feeder cards' held real s, the frames that run no tick from a start where a feeder card was
+   * due, feederDue: a task feeder dark from its allowed second, re-armed by every later restore of
+   * any district, before 21:00), RESPOND's 30x part (the card to backInBandTick or + RESPOND_MAX_S;
+   * no card or RESPOND from a night scenario's 21:00) and OFFER (any offered unit while it waits at
+   * full speed, at most AUTO_SYNC_S from its own offer, before the night shift has the desk). A frame
+   * counts in the first of these holding its middle, in the director's precedence (a frame that
+   * runs no tick at a watch's end: the card, a feeder card queued behind it included; a feeder
+   * card holds over FOCUS). parts[k].n counts the spans begun after Space and before now
+   * (RESTORE: the holds).
    * @returns {{fromS, toS, sinceS, profileS, E, offS, parts: {WATCH, card, FOCUS, RESTORE, RESPOND, OFFER: {n, realS, overS}}}|null}
    */
   function clockReport() {
     if (spaceMs < 0) return null;
-    const st = game.state, hand = st.control.handFlown, ds = st.city.districts, nightS = st.scn.night ? NIGHT_S : Infinity;
+    const st = game.state, hand = st.control.handFlown, nightS = st.scn.night ? NIGHT_S : Infinity;
     const fromS = spaceTick / TPS, toS = gridS(), spans = {WATCH: [], FOCUS: [], RESPOND: []}, cards = [];
     for (const c of st.conts) {
       if (c.startTick < spaceTick || c.startTick / TPS >= nightS) continue;
@@ -630,23 +624,20 @@ export function openGame(o = {}) {
       const b = Math.min(back, w + V.RESPOND_MAX_S, nightS);
       if (b > w) spans.RESPOND.push({a: w, b});
     }
-    // every accepted restore, in tick order: the restore's own FOCUS, and the second it moves every dark task feeder's allowed second to
-    const rs = st.log.filter(r => r.type === 'restore').map(r => ({t: r.tick / TPS, id: r.args.district}));
-    for (const r of rs) spans.FOCUS.push({a: r.t, b: r.t + D.RESTORE_FOCUS_S});
-    const due = dueSpans(ds, rs, nightS);
+    // every accepted restore: its own FOCUS
+    for (const r of st.log) if (r.type === 'restore') spans.FOCUS.push({a: r.tick / TPS, b: r.tick / TPS + D.RESTORE_FOCUS_S});
     const K = ['WATCH', 'card', 'FOCUS', 'RESTORE', 'RESPOND', 'OFFER'], parts = {};
     for (const k of K) parts[k] = {n: 0, realS: 0, overS: 0};
     for (const k of Object.keys(spans)) parts[k].n = spans[k].filter(x => x.a >= fromS && x.a < toS).length;
     parts.card.n = cards.filter(w => w < toS).length;
     const inside = (k, m) => spans[k].some(x => m >= x.a && m < x.b);
     let sinceS = 0, scope0 = false, offer0 = false, hold0 = false;
-    for (const [s0, s1, dt, [scope, offer]] of played) {
+    for (const [s0, s1, dt, [scope, offer, due]] of played) {
       sinceS += dt;
       // (a frame of the watch's slow part may run no tick: it is the watch's all the same)
       const m = (s0 + s1) / 2, card = s1 === s0 && cards.some(w => Math.abs(w - s0) < 1 / TPS);
-      const hold = !card && s1 === s0 && due.some(x => s0 >= x.a && s0 <= x.b);   // (a feeder card: zero grid time)
-      const k = card ? 'card' : inside('WATCH', m) ? 'WATCH' : scope || inside('FOCUS', m) ? 'FOCUS'
-        : hold ? 'RESTORE' : inside('RESPOND', m) ? 'RESPOND' : offer ? 'OFFER' : '';
+      const k = card ? 'card' : inside('WATCH', m) ? 'WATCH' : s1 === s0 && due ? 'RESTORE' : scope || inside('FOCUS', m) ? 'FOCUS'
+        : inside('RESPOND', m) ? 'RESPOND' : offer ? 'OFFER' : '';
       if (scope && !scope0) parts.FOCUS.n++;
       if (offer && !offer0) parts.OFFER.n++;
       if (k === 'RESTORE' && !hold0) parts.RESTORE.n++;

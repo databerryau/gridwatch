@@ -570,8 +570,9 @@ export function bootGame(doc, deps) {
     if (!box) return;
     const o = v.objective, c = v.consider || null;
     const paused = v.mode.mode === 'PAUSE' && v.phase === 'play' && !v.obs.over;
-    // (Q-73: in the night roll the night strip stands in its place; a press there answers with the lock's note)
-    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond || v.obs.nightShift;
+    // (Q-73: in the night roll the night strip stands in its place; a press there answers with the lock's note;
+    // Q-91: a feeder card, as the respond card, is the one instruction while it holds the clock)
+    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond || !!v.feeder || v.obs.nightShift;
     if (box.hidden) return;
     const armed = !!c && v.armed === c.target;
     const cls = c ? (armed && c.level !== 'crit' ? 'act' : c.level) + ' consider' : o.level;

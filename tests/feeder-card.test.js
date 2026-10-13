@@ -69,11 +69,13 @@ test('B: R at the card restores the feeder it names and the clock runs; a click 
   const k = p.press('feeder-card', {after: A});
   assert.match(k.after, /^CTRL .*bay-restore "[^"]*RESTORE" \[[^\]]*focus/m, 'the bay\'s RESTORE has the keys');
   assert.match(k.after, CARD('RED5', 'Redgum Flats'));
+  assert.doesNotMatch(k.after, /^LINE /m, 'the card is the one instruction while it holds (the line waits, as at the respond card)');
   assert.equal(p.mode(), 'FEEDER-CARD');
-  // the bay's CLOSE on RED5 (the mouse): restored, the card gone
+  // the bay's CLOSE on RED5 (the mouse): restored, the card gone, the line back
   p.click('restore-RED5');
   assert.deepEqual([restores(p), dark(p, 'RED5'), p.mode() === 'FEEDER-CARD'], [['RED7', 'RED5'], false, false]);
   assert.doesNotMatch(p.look(), /^FEEDER /m);
+  assert.match(p.look(), /^LINE /m);
   assert.deepEqual(p.h.mods.errors, []);
 });
 
