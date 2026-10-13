@@ -641,7 +641,7 @@ function updateOffers(game, obs) {
     // One offer per ready period: the record lives while the unit waits at full speed.
     if (u.mode !== 'ready') { delete game.offered[u.id]; continue; }
     const rec = game.offered[u.id];
-    // (none once the night shift has the desk, Q-78: an offer from before 21:00 is not the player's to take)
+    // (none once the night shift has the desk, Q-78)
     if (rec) { if (!obs.nightShift) out.push({unit: u.id, why: rec.why}); continue; }
     const why = offerWhy(obs, t);
     if (!why) continue;
@@ -663,9 +663,9 @@ export function holdLine(shown, next, nowMs, shownMs, fresh) {
   return !!shown && !!next && !fresh && nowMs > 0 && next.text !== shown.text && next.level !== 'crit' && next.kind !== 'watch' &&
     !(next.action && LEVELS.indexOf(next.level) > LEVELS.indexOf(shown.level)) && nowMs - shownMs < LINE_DWELL_MS;
 }
-// The control an action is for (a size or a time aside): a held line keeps its action only while the fresh line asks the same.
+// (an action's control, its size or time aside)
 const askOf = a => (a ? JSON.stringify(a, (k, v) => (k === 'mw' || k === 'atS' ? undefined : v)) : '');
-/** Q-18: what the dwell shows of a held line against the fresh one: its words, never an action the fresh line no longer carries. */
+/** Q-18: a held line against the fresh one: its words, never an action the fresh line no longer carries (§31.8). */
 export const heldLine = (shown, next) => (shown.action && askOf(shown.action) !== askOf(next && next.action) ? Object.assign({}, shown, {action: null}) : shown);
 // A new ask to act: at FAST it ends FAST, as an alarm does, and shows at once.
 export const newAsk = (shown, next) => !!next && !!next.action && LEVELS.indexOf(next.level) > 1 && JSON.stringify(next.action) !== JSON.stringify(shown && shown.action);

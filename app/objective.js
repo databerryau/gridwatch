@@ -271,8 +271,7 @@ export function capacityShort(obs, fc = obs.forecast, o) {
 // lead: START to minimum load; climb: from there to the plan's loading at its ramp (two hours for
 // a coal machine); plan: the lead a start is planned with, the climb counted beyond the half hour
 // the look-ahead already allows (RAMP_HEAD_S), so the unit is at full load when it is needed.
-// later: units out for maintenance too (Q-68), each from the end of its binding block: its return, or its
-// minimum down time where that ends later (sim/fleet.js startBlock names only the outage while it lasts); the others from now.
+// later: units out for maintenance too, each from its return or a minimum down time ending later (Q-68, §31.8); the others from now.
 function startable(obs, later = false) {
   const booked = new Set(obs.plan.starts.map(e => e.unit));
   return obs.units.filter(u => u.mode === 'off' && (u.startBlock === '' || (later && OUT_RE.test(u.startBlock))) && !booked.has(u.id)).map(u => {
@@ -1307,8 +1306,7 @@ export const STEADY_HOLD_S = 900, STEADY_S = 300;
 /** A quiet line is shown for at least this long against another quiet line (grid seconds at TUNED_RATE; spanAt). */
 export const STEADY_QUIET_S = 300;
 
-// A line's words with every number, clock time and dollar figure masked ('49.41 Hz', '16:10', '$43,000', '5,889 MW'), and the
-// part of the day a time falls in (partOfDay, cap: 'for the afternoon' / 'for the evening' near 17:00 is the time moving, not news).
+// A line's words with every number, clock time and dollar figure masked ('49.41 Hz', '16:10', '$43,000', '5,889 MW'), and the part of the day.
 export const masked = t => t.replace(/[$−-]?\d[\d,.:]*/g, '#').replace(/\b(?:[Tt]he (?:morning|afternoon|evening)|[Tt]onight(?:'s peak)?)\b/g, '#');
 
 /**

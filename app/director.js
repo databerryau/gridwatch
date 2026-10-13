@@ -70,7 +70,7 @@ export function createDirector(opts) {
     cardAtTick: -1,            // tick the latest card was dismissed (RESPOND runs from it)
     focusUntilTick: -1,        // FOCUS after a restore input until this tick
     offers: {},                // OFFER: {an offered unit's index: the tick its window ends}
-    rw: null,                  // RESTORE's windows, kept per input-log length (restoring)
+    rw: null,                  // RESTORE's windows (restoring)
     seenDirty: false,          // seen changed: the game saves it
   };
 }
@@ -122,8 +122,7 @@ function focusing(d, state) {
   const sc = state.scope;
   return (sc !== undefined && sc !== null && sc.unit !== '' && sc.unit !== undefined) || state.tick < d.focusUntilTick;
 }
-// Q-70: each dark task feeder's index, clearS and allowed second (flat); kept per input-log length (only a logged
-// restore relights a district), checked against each feeder's own fields; a state with no log (a test's) is read afresh
+// Q-70: the dark task feeders' [i, clearS, allowed second], flat, kept per log length (§32.12 RESTORE)
 function windows(d, state) {
   const ds = state.city.districts, n = state.log ? state.log.length : -1, w = d.rw;
   let ok = !!w && n >= 0 && w.ds === ds && w.len === ds.length && w.n === n;

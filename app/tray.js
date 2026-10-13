@@ -68,7 +68,7 @@ function mslCard(r) {
 
 /**
  * The card a record makes, or null. Pure (tests call it). {log: true, from, text}: a LOG line only, no card.
- * night: the night shift has the desk (Q-73): a unit at full speed is its own to close, so its card offers no SYNC and goes to the lever.
+ * night: the night shift has the desk (Q-73; §32.12).
  * @returns {{key:string, from:string, sev:'info'|'warn', text:string, button:{label:string, target:string}}|{log:true, from:string, text:string}|null}
  */
 export function cardOf(r, night = false) {

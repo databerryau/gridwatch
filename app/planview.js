@@ -65,7 +65,7 @@ function earliestOnAt(obs, u, m) {
       const b = u.startBlock || '';
       let wait = 0;
       if (/water/.test(b)) return Infinity;
-      // (an outage hides a minimum down time behind it: sim/fleet.js startBlock names only the first block)
+      // (an outage hides a minimum down time: §31.8)
       if (/down/.test(b) || (u.outUntilS > s && u.downForS >= 0)) wait = Math.max(0, m.minDownS - (u.downForS || 0));
       return Math.max(s + wait, u.outUntilS ?? -1) + startToMin(m);
     }
