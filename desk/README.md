@@ -3520,6 +3520,7 @@ This is the contract after its review (§32.13): where a row changed, the review
 | **Q-83** | **Classic is untouched.** Every 2c behaviour keys on scenario data (`dayplan`, `night`, a nonzero task or limit) and is exactly neutral on classic. Anything that writes a hashed state field on classic is a stage-A job; after stage A's one re-record, `tests/baseline-v4.test.js` (classic seed 4's row and par's hash) stays green in every worktree. An agent that turns it red stops and reports the cells; only the integrator bumps `SIM_VERSION` or re-records (if a classic hash move after stage A is ever unavoidable, the integrator re-records at that wave's merge, so the next wave starts green). (B1) | The regression anchor stays an anchor. |
 | **Q-84** | **The owner's call, 2026-10-13: F-11 is a measured report, not a gate.** The first-visit size is still measured and reported (`tools/perf.mjs --sizes`, `tests/budget.test.js` prints it), but nothing fails on it: the 400-KB ceiling, the 2c total and the per-agent caps of §32.3 are dropped (the caps stay as a record of what each part cost). The on-demand modules keep their structure checks (nothing else is loaded by `import()`, they bring only each other); their size caps become reports too. Applied at the wave-2 merge (one agent edits `tests/budget.test.js` in wave 2). | Asked directly (§32.11): the limit had cost two rounds of moving comments out of the files and a byte ration in every agent's job, for a fraction of a second of load time on a desktop game. |
 | **Q-85** | **The owner's call, 2026-10-13: heatwave days keep the evening trip.** On a heat day the plan also draws the calm day's unwarned trip of the largest online machine, 17:00–19:30, under every Q-72 rule (it amends D-8(b)'s "the heatwave, otherwise a trip"). Built at once in `sim/dayplan.js` (Act III's slot, after the heat onset). Measured: heat days' longest stretch with no ringing card fell from 128 / 138 / 148 to 72 / 83 / 109 real s (p10 / p50 / p90), and nothing rings after 14:30 on 0% of them (was 95.2%); the belly trip is unchanged (median 09:34). Forced-heat par (S-12 ≥ 75%) is re-measured at stage C. | Thermal plant trips more in heat; the hardest day gets its peak moment instead of an empty evening. |
+| **Q-86** | **OFFER pace (K-12).** An offered scope plays 30× while its unit waits at full speed, for at most  (8 real s), badge "SYNC 30×"; taking it opens the scope, the close ends it; none from 21:00 (§32.11, wave 2). | At the profile's speeds the offer lived under half a real second: the synchroscope moment (K-12) needs time to be seen and taken. A pace, not a hold, at most three a day. |
 
 ### 32.2 SPEC amendments 2c carries (the integrator writes them at stage C)
 
@@ -4386,6 +4387,110 @@ live):
   Raising F-11 stays the owner's call.
 - **Suite:** 817 tests, 814 pass, 1 skipped, 2 todo (par's), 40.3 s; `tests/baseline-v4.test.js`
   green.
+
+**The owner's calls (2026-10-13), between the waves.** Asked directly (§32.1 Q-84, Q-85):
+- F-11 became a measured report.
+- Heatwave days keep the evening trip.
+
+**Wave 2 (2026-10-13).** Workflow `wf_a144ecb4-c43` (par, clock, desk, map; two reviewers each,
+plus a "player" reviewer sampling the page headless for clock, desk and map; one fix pass each).
+A usage limit cut par's and clock's fix passes; `wf_e78b240b-59a` finished them in their worktrees,
+each checked by a skeptic and fixed again. Merged par, desk, map, clock with no conflict. At the
+merge:
+- the `trayBriefing` guard went;
+- desk's night note became `format.js`'s `NIGHT_LOCK` (one sentence);
+- Q-84 was applied to `tests/budget.test.js`;
+- one clock test was narrowed: the night shift's own inputs are logged, so it checks only the
+  player's refused presses.
+
+*Measured:*
+- **The night (par's spike, final code):** played evenings DESK 20261007, 20261008 and
+  DESK_WEEKEND 20261003, with leftovers (`armRERT`, a 22:00 STOP, a discharge, GUARD 300).
+  - No new UFLS or directed district.
+  - The RERT stood down by 21:05.
+  - The booked STOP ran at 22:00, and no unit restarted after its stop.
+  - Night cost $1.5–2.1M, against $35M before 2c (the RERT was never stood down).
+  - Equivalence: `runPar` carrying on and a fresh player-mode system end with the same
+    `hashState` at 04:00 on all three dates.
+  - A no-input player day reaches 04:00, not black: 13 districts dark at 21:00, all closed by
+    the night shift's rule 9.
+  - Sim + system per 2,100× frame: p95 1.0–1.9 ms.
+- **D-2's verdict half** (`tools/play.mjs <date> [--returning] timeline=04:30-04:00/6h clock`,
+  Space to 04:00 against E from the sim's records), off by 0.0 s on all three runs:
+  - 20261013, returning, no trip: 262.8 s (profile 245 + RESTORE 17.7, two clearances unrestored).
+  - 20261012, returning: 302.1 s (+ watches 39.2 + RESTORE 17.8).
+  - 20261007, first time: 353.2 s (+ full watches 50.4 + RESTORE at 10× 57.8).
+
+  The first-time RESTORE pace is the first shift's biggest term, a 2e watch item for D-2's
+  ≤ 6:50.
+- **K-8** on a desk date (20261008): 5 audible alarms, none from 21:00.
+- **Bytes** (Q-84: a report): first visit **405,274 B** gzip (395.8 KB); wave 2 added 9,609 B
+  (par ≈ 1.5, clock ≈ 1.7, desk ≈ 2.6, map ≈ 1.7 KB, plus the merge).
+- **Suite:** 872 tests, 871 pass, 1 skipped (the shipped-list stamp), 41.7 s;
+  `tests/baseline-v4.test.js` green.
+
+*Amendments* (override §32.1–§32.8 where they differ):
+- **Q-86 (owner-delegated): OFFER pace.** A K-12 scope offer (respond, tight or peak) plays the
+  rate director's OFFER at `OFFER_RATE` 30× while the unit waits at full speed, for at most
+  `AUTO_SYNC_S` (8 real s; at 540× the offer lived 0.44 real s). Badge "SYNC 30×".
+  - Taking it opens the scope (FOCUS); the breaker closing ends it. Each offered unit keeps its
+    own window. No FAST, and none from 21:00.
+  - D-2's E gains OFFER and FOCUS terms. Precedence: … FOCUS > RESTORE > RESPOND > OFFER > NIGHT
+    > FAST > CRUISE.
+  - Why: the K-12 moment could not be read at the profile's speeds. A pace, not a hold, at most
+    three a day.
+- **The announced return (§32.4.2, §32.7.1):** a dark district counts lit from its `clearS` only
+  while it is held at `obs.s` (`shedBy 'task'`, `obs.s < clearS`). Handed back, it is the
+  operator's dark district, dark until restored; a re-shed former task district is dark.
+  - Measured (no-input DESK seed 2): AGC 8 / −17 / −59 MW at 07:00 / 08:00 / 09:00, against
+    −157 / −351 / −422 with the literal rule.
+  - `app/planview.js` takes off each column's load only the task feeders held at its time, so
+    UFLS and directed darkness stay on the load and its red gap, as 2b's stack did. The past
+    columns use the same rule.
+- **The night memo (§32.7.1):** `nightMemo(obs)`'s other fields are `createAutopilot`'s defaults
+  except `seenConts` (`obs.contingencies.length`) and `amendDue` (true).
+  - A committed unit with a booked STOP counts off from its stop time in the need tests (rule 3,
+    rule 4, N-1 without, coal stop). Rule 4 leaves a unit whose STOP is near to that STOP.
+  - Rule 2 skips at night while a peaker is starting.
+  - A night stop needs a sustained preview above `PAR_NADIR_RELAX_HZ`, or ≥ `PAR_NADIR_MIN_HZ`
+    with `PAR_NIGHT_STOP_GUARD_MW` of GUARD room (one params line).
+  - §32.7.1's two rows become what the tests assert on DESK 20261008:
+    - Stand-down: gtb1 is stopped by 22:30, then gta1. Each stop is of a unit with upFor ≥
+      `PAR_DECOMMIT_MIN_ON_MIN`, never the booked unit before its STOP, with nothing started in
+      the hour after.
+    - GUARD: the night takes it over by 21:30, and each move is rule 2's, one
+      `PAR_GUARD_STEP_MW` step by the preview's thresholds.
+  - The rows written in the contract were the integrator's guesses: rule 4 frees a unit only as
+    the forecast need falls.
+- **Desk:**
+  - The bay sorts held feeders by their return: "<id> · REPAIRED" after the hand-back, "BACK
+    HH:MM" before it (the map's word).
+  - R and each hand-back choose the feeder that can close; Enter on the RESTORE tab is R.
+  - The tab glows in RESTORE, and its lamp is lit only for the player's feeders.
+  - The tie's import-limit lamp is amber.
+  - The COVER row is hidden in the night roll; "BAND LOW ✕ n MIN OVER" shows in amber.
+  - The respond card says SHEDDING first, with its shortfall.
+  - HAND-FLOWN names the 21:00 handover only after it.
+- **Map:**
+  - A held suburb's label survives the pointer and sits after every red alarm.
+  - "2 DARK (1 BACK 07:15)" once some feeders are the desk's.
+  - The stack's idle redraw is capped at `STACK_MAX_HZ`; its night note expires.
+  - city-view's Q-57 test stays on `withoutTask` for good: HAR4's return from 06:35 is a real gap.
+  - `app/suburbcard.js`'s on-demand size is 6.5 KB (reported).
+
+*Handed to wave 3:*
+- **Shell:**
+  - `#rate-badge` styles for `.RESTORE`, `.NIGHT`, `.OFFER`, and a live-region announcement on a
+    segment change.
+  - An info toast lives max(3 s, 0.3 s a word).
+  - The ALL-IN chip's 2c line.
+  - Night tests jump with `to('21:00:01')`: `to('21:00')` lands before the flip.
+- **Line:**
+  - The standing line stays up all night: the night strip replaces it.
+  - The restore-task asks from the ETR.
+  - `spare()`'s pickup over held feeders.
+  - `heatWorstCase`.
+- **Stage C:** the D-2 timing on 5 dates; the first shift's RESTORE term for 2e.
 
 ### 32.12 Module headers (moved from the files, Q-61)
 
