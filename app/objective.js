@@ -961,7 +961,7 @@ function spare(X, line) {
 }
 
 // 5b. Within PICKUP_AHEAD_S of a hand-back, no feeder yet the desk's: the spare to hold for its cold
-// load (the bay's figure, to the 10 MW). Said after spare()'s own line, before commitLater's "Next";
+// load at its return (pickupMW, to the 10 MW: a few MW of drift moves it 10 MW, never a 50-MW step). Said after spare()'s own line, before commitLater's "Next";
 // the spare gauge glows, never the bay, whose tab is Q-70's cue at the hand-back (§31.8).
 function pickupAhead(X, line) {
   const all = X.obs.districts.filter(d => d.dark);

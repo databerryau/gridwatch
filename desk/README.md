@@ -2658,9 +2658,9 @@ The day (slice 2c, desk/README.md §32.8.1):
     until its clearS (sim/dark.js, as app/planview.js and the dispatch do: the announced return).
     From PICKUP_AHEAD_S before a hand-back, with no feeder yet the desk's, "SAL4's feeder is back
     at 06:45: hold 250 MW of spare for its pickup" (its cold load now, with the forecast's
-    underlying demand then, to the 10 MW as the bay shows it; the spare gauge lit, never the bay,
-    whose tab is Q-70's cue at the hand-back; a passive line after spare()'s own, before
-    "Next"). The feeders under repair are named beside the count; R's feeder first (one handed
+    underlying demand then, to the 10 MW: a few MW of drift moves it 10 MW, never a 50-MW step;
+    the spare gauge lit, never the bay, whose tab is Q-70's cue at the hand-back; a passive line
+    after spare()'s own, before "Next"). The feeders under repair are named beside the count; R's feeder first (one handed
     back, the latest first, as desk/bay.js picks); at a hand-back with its lamp lit the restore
     ask comes before every other branch unless the real check is short within instS (Q-70's
     pace is for the feeder). spare()'s pickup counts a held feeder only once its return is within
