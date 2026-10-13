@@ -4,8 +4,8 @@
 // memo). Built once in before(); the tests read what the runs recorded. Plus one no-input evening.
 import {test, before} from 'node:test';
 import assert from 'node:assert/strict';
-import {runPar} from '../sim/autopilot.js';
-import {step, applyInput, hashState} from '../sim/step.js';
+import {runPar, decide} from '../sim/autopilot.js';
+import {step, applyInput, hashState, observe} from '../sim/step.js';
 import * as fleet from '../sim/fleet.js';
 import {NIGHT_S, hhmm} from '../sim/clock.js';
 import {createSystem, systemInputs, redispatch, heldByHand} from '../app/system.js';
@@ -39,7 +39,7 @@ before(() => {
   const a = runPar(SEED, DESK, {state: clone(s21), memo: clone(r.memo), onStep: s => {
     while (saw.length < s.log.length) saw.push(snap && s.log[saw.length].tick === snap.tick ? snap : null);
     if (s.tick % TPS !== 1) return;
-    snap = {tick: s.tick, nadir: s.sec.previewNadirHz, short: s.agc.unmetMW > 0 || s.phys.fHz < V.NORMAL_LO_HZ || s.fos.outsideS > 0,
+    snap = {tick: s.tick, nadir: s.sec.previewNadirHz, guard: s.battery.guardMW, soc: s.battery.socMWh, short: s.agc.unmetMW > 0 || s.phys.fHz < V.NORMAL_LO_HZ || s.fos.outsideS > 0,
       up: Object.fromEntries(s.units.map(u => [u.id, Math.floor(s.tick / TPS) - u.upSinceS]))};
     for (const d of s.city.districts) if (BAD(d) && d.darkSinceS >= NIGHT_S && !bad.includes(d.id)) bad.push(d.id);
     if (s.tick === (STOP_AT - 1) * TPS + 1) stop.booked = s.plan.stops.some(b => b.unit === STOP_UNIT && b.atS === STOP_AT);
@@ -56,7 +56,7 @@ before(() => {
   E = {r, a, b, sys, n0, night, batches, bad, stop, s21, s2030};
 });
 
-test('Q-73: the night shift swaps in at 21:00 and stands the evening down at its pace: the diesel first, then the gas units rule 4 frees (never the one a booked STOP takes, none started again within the hour); nothing new sheds; the day ends at 04:00, not black', () => {
+test('Q-73: the night shift swaps in at 21:00 and stands the evening down at its pace: the diesel first, then the gas units rule 4 frees while the trip preview leaves rule 2 an answer that is not a start (never the one a booked STOP takes, nothing started in the hour after); nothing new sheds; the day ends at 04:00, not black', () => {
   const {a, night, bad, s21} = E;
   assert.ok(a.memo.night && a.memo.proxy === 'night', 'runPar swapped par\'s memory for the night memo, in place');
   assert.equal(a.state.over && !a.black, true);
@@ -69,19 +69,44 @@ test('Q-73: the night shift swaps in at 21:00 and stands the evening down at its
   const sd = night.find(x => x.type === 'standDownRERT');
   assert.ok(sd && sd.origin === 'rule4' && sd.s <= NIGHT_S + V.PAR_RERT_STANDDOWN_MIN * 60 + V.PAR_DECIDE_EVERY_S, 'stood down at ' + (sd && hhmm(sd.s)));
   assert.equal(acts.find(x => x.origin === 'rule4'), sd);
-  // Rule 4's gas stops (gtb1 22:21, gta1 23:21, ccgt2 00:53 measured; rule 4 frees a unit as the demand
-  // falls, so §32.7.1's "by the later of 21:10 and 90 min on + 10" does not hold and goes back to the
-  // integrator): each of a unit that had run PAR_DECOMMIT_MIN_ON_MIN when its decision looked, never the
-  // CCGT whose 22:00 STOP is booked, and none started again within the hour (the need tests count the
-  // booked STOP from its time; without that, gtb1 is stopped at 21:29 and started again at 22:19).
+  // Rule 4's gas stops (rule 4 frees a unit as the demand falls, so §32.7.1's "by the later of 21:10 and
+  // 90 min on + 10" does not hold and goes back to the integrator). On this date: gtb1 by 22:30 (22:21
+  // measured), then gta1 (03:16); ccgt2 runs to 04:00 (from 22:46 the GUARD is at 300-400, so its stop
+  // would leave rule 2 only a start). Each of a unit that had run PAR_DECOMMIT_MIN_ON_MIN when its decision
+  // looked, never the CCGT whose 22:00 STOP is booked, each decision saw a trip preview that left rule 2
+  // an answer that is not a start, and nothing is started in the hour after a stop (the need tests count
+  // the booked STOP from its time; without that, gtb1 is stopped at 21:29 and started again at 22:19).
   const stops = night.filter(x => x.type === 'stop' && x.origin === 'rule4' && GAS.test(x.args.unit));
-  assert.ok(stops.length >= 1, 'at least one unit stops');
+  assert.deepEqual(stops.map(x => x.args.unit), ['gtb1', 'gta1'], stops.map(x => x.args.unit + ' ' + hhmm(x.s)).join(', '));
+  assert.ok(stops[0].s <= S_AT(22, 30), 'gtb1 at ' + hhmm(stops[0].s));
   for (const x of stops) {
-    assert.ok(x.saw && x.saw.up[x.args.unit] >= V.PAR_DECOMMIT_MIN_ON_MIN * 60, x.args.unit + ' at ' + hhmm(x.s));
+    const w = x.saw, why = x.args.unit + ' at ' + hhmm(x.s) + (w ? ', preview ' + w.nadir.toFixed(2) + ' Hz, GUARD ' + w.guard : '');
+    assert.ok(w && w.up[x.args.unit] >= V.PAR_DECOMMIT_MIN_ON_MIN * 60, why);
     assert.ok(x.args.unit !== STOP_UNIT || x.s > STOP_AT);
-    const again = night.find(y => y.type === 'start' && y.args.unit === x.args.unit && y.s > x.s && y.s < x.s + 3600);
-    assert.equal(again, undefined, x.args.unit + ' stopped ' + hhmm(x.s) + (again ? ', started again ' + hhmm(again.s) + ' by ' + again.origin : ''));
+    const room = w.guard + V.PAR_NIGHT_STOP_GUARD_MW;
+    assert.ok(w.nadir > V.PAR_NADIR_RELAX_HZ || (w.nadir >= V.PAR_NADIR_MIN_HZ && room <= V.PAR_GUARD_MAX_MW &&
+      w.soc * 3600 >= room * V.GUARD_SUSTAIN_S), why);
+    const again = night.find(y => y.type === 'start' && y.s > x.s && y.s < x.s + 3600);
+    assert.equal(again, undefined, x.args.unit + ' stopped ' + hhmm(x.s) + (again ? ', ' + again.args.unit + ' started ' + hhmm(again.s) + ' by ' + again.origin : ''));
   }
+});
+
+test('Q-73: a booked STOP the executor will drop counts for nothing: rule 4 stands gtb1 down as with no booking (a STOP its minimum up time blocks), and holds it while a STOP that runs takes ccgt2', () => {
+  const k = E.night.findIndex(x => x.type === 'stop' && x.origin === 'rule4'), T = E.night[k].s * TPS + 1;
+  const r = runPar(SEED, DESK, {state: clone(E.s21), memo: clone(E.r.memo), untilTick: T});
+  // ccgt2 (on since the morning) with a STOP booked for an hour on, and its breaker closed upForMin ago
+  const ask = upForMin => {
+    const s = clone(r.state), i = s.units.findIndex(u => u.id === 'ccgt2'), now = Math.floor(s.tick / TPS);
+    if (upForMin !== undefined) {
+      s.units[i].upSinceS = now - upForMin * 60;
+      assert.equal(applyInput(s, {type: 'planStop', unit: 'ccgt2', atS: now + 3600}).ok, true);
+    }
+    return decide(observe(s), clone(r.memo));
+  };
+  const minUp = V.MACHINES.find(m => m.id === 'ccgt2').minUpS / 60;
+  assert.deepEqual(ask(), [{type: 'stop', unit: 'gtb1'}], 'the night\'s own decision at ' + hhmm(E.night[k].s));
+  assert.deepEqual(ask(minUp - 90), [{type: 'stop', unit: 'gtb1'}], 'the STOP falls 30 min inside ccgt2\'s minimum up time');
+  assert.deepEqual(ask(minUp), [], 'a STOP that runs: gtb1 is held');
 });
 
 test('Q-73: the player\'s leftovers: the booked STOP is kept and runs at 22:00; the GUARD left on is rule 2\'s from 21:00, moved only as the trip preview its decision saw asks', () => {

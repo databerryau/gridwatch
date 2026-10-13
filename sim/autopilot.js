@@ -59,6 +59,7 @@ const CHARGE_MAX = V.PAR_BATT_CHARGE_MAX_MW, ORDER_TOL = V.PAR_BATT_ORDER_TOL_MW
 const REBASE = V.PAR_REBASE_MW, REBASE_COLS = S_PER_H / STEP_S;
 const NADIR_MIN = V.PAR_NADIR_MIN_HZ, NADIR_RELAX = V.PAR_NADIR_RELAX_HZ;
 const GUARD_STEP = V.PAR_GUARD_STEP_MW, GUARD_MAX = V.PAR_GUARD_MAX_MW, GUARD_SUSTAIN_H = V.GUARD_SUSTAIN_S / S_PER_H;
+const NIGHT_STOP_GUARD = V.PAR_NIGHT_STOP_GUARD_MW;
 const RERT_LOOK_S = V.PAR_RERT_LOOKAHEAD_MIN * S_PER_MIN, RERT_MARGIN = V.PAR_RERT_MARGIN_MW;
 const RERT_STANDDOWN_S = V.PAR_RERT_STANDDOWN_MIN * S_PER_MIN, DR_MARGIN = V.PAR_DR_MARGIN_MW;
 const NORMAL_LO = V.NORMAL_LO_HZ, RESTORE_MIN_HZ = V.RESTORE_MIN_HZ, SECURE_AGAIN_S = V.SECURE_AGAIN_S;
@@ -916,7 +917,7 @@ function situation(obs, memo) {
   if (PROXIES[memo.proxy].stops) {
     for (const e of obs.plan.stops) {
       const i = V.MACHINE_IDS.indexOf(e.unit);
-      if (committedMode(obs.units[i].mode)) offS[i] = Math.min(offS[i], e.atS);
+      if (committedMode(obs.units[i].mode) && stopRuns(obs.units[i], i, e.atS - now)) offS[i] = Math.min(offS[i], e.atS);
     }
   }
   // Net demand the fleet must cover in forecast column k: P50 - wind - solar - the tie's planned import.
@@ -929,6 +930,17 @@ function situation(obs, memo) {
     net[k] = fc.demandP50[k] - fc.windMW[k] - fc.solarMW[k] - tieImportAt(obs, memo, t) + off;
   }
   return {now, fc, capCommitted, battMW, net, offS};
+}
+
+/**
+ * Does a STOP booked `wait` s ahead run on committed unit i (an observe row)? The executor drops one
+ * fleet.stopBlock refuses: inside the minimum up time from the breaker's close (a start not yet
+ * synchronised by then is aborted).
+ */
+function stopRuns(u, i, wait) {
+  if (u.mode === 'on' || u.mode === 'loading') return u.upForS + wait >= M[i].minUpS;
+  const syncIn = u.timerS + (u.mode === 'starting' ? AUTO_SYNC_S : 0);
+  return wait < syncIn || wait - syncIn >= M[i].minUpS;
 }
 
 /** The tie's planned import at grid second t, counted at most up to its secure cap (0 while tripped). */
@@ -1053,6 +1065,7 @@ function rule3(obs, memo, C) {
 // cycled (coal's 8-h minimum times; hydro costs nothing to keep spinning).
 function rule4(obs, memo, C) {
   if (rertStandDown(obs, memo)) return {type: 'standDownRERT'}; // the dearest resource first (rule 8's test)
+  if (memo.night && !nightStopHolds(obs)) return null;
   const mx = peakNet(C, DECOMMIT_CLEAR_S), gone = [];
   // Q-73: a unit whose booked STOP falls in the window is left to it, and N-1 is tested without it too
   for (let i = 0; i < NU; i++) if (C.offS[i] <= obs.s + DECOMMIT_CLEAR_S) gone.push(M[i].id);
@@ -1065,6 +1078,16 @@ function rule4(obs, memo, C) {
     return {type: 'stop', unit: u.id};
   }
   return coalStop(obs, memo, gone);
+}
+
+/**
+ * Q-73: at night a stop must leave rule 2 an answer that is not a start: the trip preview above
+ * PAR_NADIR_RELAX_HZ, or at least PAR_NADIR_MIN_HZ with PAR_NIGHT_STOP_GUARD_MW of GUARD still to raise.
+ */
+function nightStopHolds(obs) {
+  const sec = obs.sec, b = obs.battery, mw = b.guardMW + NIGHT_STOP_GUARD;
+  if (sec.lKind === 'none' || sec.previewNadirHz > NADIR_RELAX) return true;
+  return sec.previewNadirHz >= NADIR_MIN && mw <= GUARD_MAX && b.socMWh >= mw * GUARD_SUSTAIN_H;
 }
 
 /** N-1 in minutes still holds with unit u (an observe row) stopped, and the units `gone` (ids) too: R5 without their headroom against L without them. */

@@ -2127,7 +2127,13 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
     off from its stop time (its capacity added to `net` from that column, so rules 3 and 4 see it),
     and rule 4 leaves a unit whose STOP falls in its window to that STOP and tests N-1 without it
     (`n1Without`'s `gone`); so the night does not stand down a peaker the STOP will need and start
-    it again after. `runPar` swaps a player proxy's memory for it **in place**
+    it again after. A STOP counts only if it will run (`stopRuns`, `fleet.stopBlock`'s test at its
+    time: the executor drops one inside the minimum up time). Rule 4 at night also checks N-1 in
+    seconds (`nightStopHolds`): it stops a unit only while the trip preview leaves rule 2 an answer
+    that is not a start, above `PAR_NADIR_RELAX_HZ`, or at least `PAR_NADIR_MIN_HZ` with
+    `PAR_NIGHT_STOP_GUARD_MW` of GUARD still to raise, sustained. Without it the night stopped GTs
+    into a 48.9-Hz preview on an empty battery and rule 2 started them again, and stopped the last
+    CCGT and started a GT for the nadir (P3/S1, wave 2). `runPar` swaps a player proxy's memory for it **in place**
     at the first decision with `control.nightShift` (par, competent, lean, commitAll, planOnly;
     doNothing and fuzz keep F-3's meaning), once (`memo.night`; `app/par.js`'s chunked resume holds the
     same object, so it swaps once), and from then decides and plans on it; `app/system.js` does the
