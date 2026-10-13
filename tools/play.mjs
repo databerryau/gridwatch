@@ -37,8 +37,9 @@
 //                           changed lines (presses Enter at each RESPOND card)
 //   state                   tick, grid time, mode, contingencies, inputs logged
 //   clock                   D-2's clock: real seconds from Space to now against E (the D-2 profile's
-//                           real seconds plus each span played off it: WATCH, the card, RESPOND's 30x
-//                           part, RESTORE; read from the sim's records), with each term
+//                           real seconds plus each span played off it: WATCH, the card, FOCUS, RESTORE
+//                           (re-armed by each restore), RESPOND's 30x part, OFFER; read from the sim's
+//                           records and the game's offers), with each term
 // Flags: --hand (HAND at the briefing) | --returning (a returning player's storage: seen.watch and
 //   seen.restore, so a compact watch and RESTORE at 30x) | --no-run (leave the clock held at 04:30) |
 //   --scenario=ID (desk, desk-weekend, classic) | --line=near (faster jumps: the objective line

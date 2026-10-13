@@ -72,7 +72,6 @@ import * as A from '../../app/alarms.js';
 import * as T from '../../app/tray.js';
 import {V} from '../../sim/params.js';
 import {realBetween, NIGHT_S} from '../../sim/clock.js';
-import {restoreAllowedS} from '../../sim/market.js';
 import {SCENARIOS} from '../../content/scenarios.js';
 // Q-44: the page loads these on demand; the driver hands them to the shell up front (synchronous)
 import {TEXT} from '../../content/text.js';
@@ -195,6 +194,28 @@ export function diffLooks(prev, now) {
 const fmtControl = c => (c.id || '?') + ' "' + c.label + '"' + (c.value !== undefined && c.value !== null ? '=' + c.value : '') +
   (c.state.length ? ' [' + c.state.join(',') + ']' : '');
 
+/**
+ * Q-70's RESTORE windows as the director plays them (app/director.js restoring), from the sim's
+ * records: each task feeder (clearS >= 0) from its allowed second (market.restoreAllowedS: the later
+ * of its clearS and the last restore of any district + RESTORE_INTERVAL_S, so every restore re-arms
+ * it) for RESTORE_PACE_MAX_S, until its own restore or nightS. rs: the accepted restore inputs in
+ * tick order, [{t: grid s (tick / TPS), id}]. Returns [{a, b, id}] in grid s.
+ */
+export function restoreSpans(ds, rs, nightS = Infinity) {
+  const out = [];
+  for (const x of ds) {
+    if (x.clearS < 0) continue;
+    const own = rs.find(r => r.id === x.id), end = Math.min(own ? own.t : Infinity, nightS);
+    for (let k = 0; k <= rs.length; k++) {                // between two restores the allowed second stands
+      const t0 = k ? rs[k - 1].t : -Infinity, t1 = k < rs.length ? rs[k].t : Infinity;
+      const a = Math.max(x.clearS, (k ? Math.floor(t0) : -DAY_S) + V.RESTORE_INTERVAL_S);
+      const lo = Math.max(a, t0), hi = Math.min(a + V.RESTORE_PACE_MAX_S, t1, end);
+      if (hi > lo) out.push({a: lo, b: hi, id: x.id});
+    }
+  }
+  return out;
+}
+
 // ------------------------------------------------------------------ the driver
 
 /**
@@ -224,14 +245,19 @@ export function openGame(o = {}) {
   const game = h.game, $ = id => doc.getElementById(id);
   let hovered = null, lastLook = '';
   // D-2's clock (clockReport): the page time and tick of the Space that ran the clock, and from then every
-  // frame's [grid s before, grid s after, real s]
+  // frame's [grid s before, grid s after, real s, the sim's synchroscope open and the game's scope offer open at its start]
   let spaceMs = -1, spaceTick = -1;
   const played = [];
   const gridS = () => game.state.tick / TPS;
-  const acct = (s0, dt) => { if (spaceMs >= 0) played.push([s0, gridS(), dt]); };
+  const pre = () => {
+    if (spaceMs < 0) return null;
+    const st = game.state, o = game.offered;
+    return [st.scope.unit !== '', st.units.some(u => u.mode === 'ready' && o[u.id] && st.tick < o[u.id].tick + V.AUTO_SYNC_S * TPS)];
+  };
+  const acct = (s0, dt, f0) => { if (spaceMs >= 0) played.push([s0, gridS(), dt, f0 || [false, false]]); };
 
   // ---------------------------------------------------------------- frames (real time)
-  function frame(dtS = FRAME_DT) { const s0 = gridS(); t += dtS * 1000; h.frame(dtS); acct(s0, dtS); return api; }
+  function frame(dtS = FRAME_DT) { const s0 = gridS(), f0 = pre(); t += dtS * 1000; h.frame(dtS); acct(s0, dtS, f0); return api; }
   function frames(n, dtS = FRAME_DT) { for (let i = 0; i < n; i++) frame(dtS); return api; }
   function real(seconds, dtS = FRAME_DT) { return frames(Math.max(1, Math.round(seconds / dtS)), dtS); }
 
@@ -402,10 +428,10 @@ export function openGame(o = {}) {
       if (rateNow() === 0) { why = why || (state.over ? 'over' : 'held:' + modeNow()); break; }
       t += FRAME_MS;
       saved = null;
-      const s0 = gridS();
+      const s0 = gridS(), f0 = pre();
       runFrame(p, FRAME_DT, hooks);
       // (a frame stopped inside: its real time is the drawn frame's, in finish)
-      acct(s0, why || state.over ? 0 : FRAME_DT);
+      acct(s0, why || state.over ? 0 : FRAME_DT, f0);
       if (why || state.over) { midFrame = true; why = why || 'over'; break; }   // the drawn frame is this frame
       if (D.directorFrame(d, state)) saveSeen();
       if (game.par && !game.par.done) game.par.step(PAR_STEP_TICKS); // par, a slice a frame, as the page's onFrame (Q-48)
@@ -564,38 +590,47 @@ export function openGame(o = {}) {
    * D-2's clock (desk/README.md §32.2): the real seconds from the Space that ran the clock to now
    * against E, the profile's real seconds over the same grid time (sim/clock.js realBetween) plus,
    * for each span played off the profile, its real seconds as played minus the profile's. The
-   * spans come from the sim's records, not the director: each watch (startTick to watchEndTick),
-   * each card (the frames held at its watchEndTick), RESPOND's 30x part (the card to backInBandTick
-   * or + RESPOND_MAX_S) and RESTORE (each task feeder's allowed second, market.restoreAllowedS, to its
-   * restore or + RESTORE_PACE_MAX_S, before 21:00). Each frame counts in the span holding its middle
-   * (a frame that runs no tick at a watch's end: the card).
-   * @returns {{fromS, toS, sinceS, profileS, E, offS, parts: {WATCH, card, RESPOND, RESTORE: {n, realS, overS}}}|null}
+   * spans come from the sim's records and the game's offers, not the director: each watch
+   * (startTick to watchEndTick), each card (the frames held at its watchEndTick), FOCUS (the
+   * synchroscope open, and RESTORE_FOCUS_S after each accepted restore input), RESTORE (each task
+   * feeder's allowed second, market.restoreAllowedS, re-armed by every later restore of any
+   * district, to its own restore or + RESTORE_PACE_MAX_S, before 21:00), RESPOND's 30x part (the
+   * card to backInBandTick or + RESPOND_MAX_S) and OFFER (a scope offer while its unit waits at
+   * full speed, at most AUTO_SYNC_S). A frame counts in the first of these holding its middle, in
+   * the director's precedence (a frame that runs no tick at a watch's end: the card). parts[k].n
+   * counts the spans begun after Space and before now.
+   * @returns {{fromS, toS, sinceS, profileS, E, offS, parts: {WATCH, card, FOCUS, RESTORE, RESPOND, OFFER: {n, realS, overS}}}|null}
    */
   function clockReport() {
     if (spaceMs < 0) return null;
     const st = game.state, hand = st.control.handFlown, ds = st.city.districts, nightS = st.scn.night ? NIGHT_S : Infinity;
-    const fromS = spaceTick / TPS, toS = gridS(), spans = [], cards = [];
+    const fromS = spaceTick / TPS, toS = gridS(), spans = {WATCH: [], FOCUS: [], RESTORE: [], RESPOND: []}, cards = [];
     for (const c of st.conts) {
       if (c.startTick < spaceTick || c.startTick / TPS >= nightS) continue;
       const w = c.watchEndTick / TPS, back = c.backInBandTick < 0 ? Infinity : c.backInBandTick / TPS;
-      spans.push({a: c.startTick / TPS, b: w, k: 'WATCH'});
+      spans.WATCH.push({a: c.startTick / TPS, b: w});
       cards.push(w);
-      if (Math.min(back, w + V.RESPOND_MAX_S) > w) spans.push({a: w, b: Math.min(back, w + V.RESPOND_MAX_S), k: 'RESPOND'});
+      if (Math.min(back, w + V.RESPOND_MAX_S) > w) spans.RESPOND.push({a: w, b: Math.min(back, w + V.RESPOND_MAX_S)});
     }
-    for (let i = 0; i < ds.length; i++) {
-      const x = ds[i];
-      if (x.clearS < 0 || (x.dark && x.shedBy !== 'task')) continue;
-      const a = restoreAllowedS(ds, i), b = Math.min(x.dark ? Infinity : x.restoredAtS, a + V.RESTORE_PACE_MAX_S, nightS);
-      if (b > a) spans.push({a, b, k: 'RESTORE'});
-    }
-    const parts = {};
-    for (const k of ['WATCH', 'card', 'RESPOND', 'RESTORE']) parts[k] = {n: k === 'card' ? cards.length : spans.filter(x => x.k === k).length, realS: 0, overS: 0};
-    let sinceS = 0;
-    for (const [s0, s1, dt] of played) {
+    // every accepted restore, in tick order: the restore's own FOCUS, and the second it moves every dark task feeder's allowed second to
+    const rs = st.log.filter(r => r.type === 'restore').map(r => ({t: r.tick / TPS, id: r.args.district}));
+    for (const r of rs) spans.FOCUS.push({a: r.t, b: r.t + D.RESTORE_FOCUS_S});
+    spans.RESTORE = restoreSpans(ds, rs, nightS);
+    const K = ['WATCH', 'card', 'FOCUS', 'RESTORE', 'RESPOND', 'OFFER'], parts = {};
+    for (const k of K) parts[k] = {n: 0, realS: 0, overS: 0};
+    for (const k of Object.keys(spans)) parts[k].n = spans[k].filter(x => x.a >= fromS && x.a < toS).length;
+    parts.card.n = cards.filter(w => w < toS).length;
+    const inside = (k, m) => spans[k].some(x => m >= x.a && m < x.b);
+    let sinceS = 0, scope0 = false, offer0 = false;
+    for (const [s0, s1, dt, [scope, offer]] of played) {
       sinceS += dt;
       // (a frame of the watch's slow part may run no tick: it is the watch's all the same)
-      const m = (s0 + s1) / 2, card = s1 === s0 && cards.some(w => Math.abs(w - s0) < 1 / TPS), sp = card ? null : spans.find(x => m >= x.a && m < x.b);
-      const k = card ? 'card' : sp ? sp.k : '';
+      const m = (s0 + s1) / 2, card = s1 === s0 && cards.some(w => Math.abs(w - s0) < 1 / TPS);
+      const k = card ? 'card' : inside('WATCH', m) ? 'WATCH' : scope || inside('FOCUS', m) ? 'FOCUS'
+        : inside('RESTORE', m) ? 'RESTORE' : inside('RESPOND', m) ? 'RESPOND' : offer ? 'OFFER' : '';
+      if (scope && !scope0) parts.FOCUS.n++;
+      if (offer && !offer0) parts.OFFER.n++;
+      scope0 = scope; offer0 = offer;
       if (k) { parts[k].realS += dt; parts[k].overS += dt - realBetween(s0, s1, hand); }
     }
     const profileS = realBetween(fromS, toS, hand), E = profileS + Object.values(parts).reduce((a, x) => a + x.overS, 0);
