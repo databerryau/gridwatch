@@ -4370,6 +4370,11 @@ FOCUS > RESTORE > RESPOND > OFFER > NIGHT > FAST > CRUISE (§32.4.8; OFFER: wave
                 offerPace) while it waits at full speed, for at most AUTO_SYNC_S (240 grid-s, so 8
                 real s; at 540x the offer lived 0.44 real s), no FAST. Badge "SYNC 30×". Taking it
                 opens the scope (FOCUS, above); the breaker closing (by hand or auto-sync) ends it.
+                Each offered unit keeps its own window (d.offers: unit index -> the tick it ends;
+                a window ends when its unit leaves full speed), so two offers at once (a 'respond'
+                and a 'tight') play OFFER until the last of them ends. None once the night shift
+                has the desk (an offer made before 21:00 included): NIGHT plays, as the lock
+                refuses the SYNC. tests/lib/play.js clockReport counts OFFER the same way.
   NIGHT         Q-73, once the night shift has the desk: the sim's state.control.nightShift
                 (obs.nightShift, set on stepping 21:00:00 on a night scenario). The game's lock and
                 the views read the same flag. The profile (2,100x, eased into from PEAK EASING's
@@ -4441,7 +4446,8 @@ Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
   volume) stays open. Both locks are help: their words and `isLock` live in render/format.js (G
   re-exports them), the shell's toast is their one answer, in blue, and the views draw no red
   refusal for them (desk/desk.js note, render/livestack.js send). Under the night lock the C-10 line
-  ("? IF PRESSED") says the night shift has the desk, never what the press would do.
+  ("? IF PRESSED") says the night shift has the desk, never what the press would do, and vm.armed
+  is null (no "ARMED", no "Press again to confirm": there is no press to confirm).
 - **The line's cadence** is `objectiveDue(game, s, mode)`: 'news' when the watch, the card, RESPOND,
   RESTORE, NIGHT or OVER came or went (not Space), else due once grid time has moved max(30 s, the
   profile's `rateAt` x `OBJ_EVERY_REAL_S` 0.4 real s): 216 grid-s at 540x, 60 at 150x, the 30-s
@@ -4458,7 +4464,7 @@ Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
   `tally = {n, extra, contN}`: offers made today, 'tight' or 'peak' offers made today, and the n of
   the contingency the last 'respond' offer was for (-1 none); `game.tally` keeps the page's, and
   `tallyOffer(tally, why, obs)` (pure, exported) is the one step after an offer, for par's proxy
-  too. A new offer plays the director's OFFER (`offerPace`).
+  too. A new offer plays the director's OFFER (`offerPace`), each offered unit with its own window.
 
 #### app/loop.js
 
