@@ -19,8 +19,9 @@
 // Numbers in `real` are real-world facts from SPEC.md §8.1 / §8.2, not model values.
 
 import {P, V} from '../sim/params.js';
-import {CLASSIC, DESK} from './scenarios.js';
-import {FLAT_RATE, WATCH_SCHEDULE} from '../app/director.js';
+import {CLASSIC, DESK, DESK_WEEKEND} from './scenarios.js';
+import {SEGMENTS, gridBefore} from '../sim/clock.js';
+import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
 import {HORN_REPEAT_S} from '../app/alarms.js';
 import {LETTERS} from '../app/score.js';
@@ -46,11 +47,9 @@ const usd = x => (x < 0 ? '−' : '') + '$' + num(Math.abs(x));
 
 const station = id => V.STATIONS[id];
 const rates = WATCH_SCHEDULE.map(s => num(s.rate) + '×');
-const profileRates = V.REF_PROFILE.map(p => p.rate);
 const ocgtOffers = V.FLEET.filter(s => s.cls === 'ocgt').map(s => s.offer);
 const gtIds = V.FLEET.filter(s => s.cls === 'ocgt').map(s => s.id);
 const uflsLastHz = V.UFLS_FIRST_HZ - (V.UFLS_STAGES - 1) * V.UFLS_STEP_HZ;
-const ev = CLASSIC.events;
 const peakMW = Math.max(...CLASSIC.demand.baseMW.map(p => p[1]));
 const households = CLASSIC.city.suburbs.reduce((a, s) => a + s.households, 0);
 const coal = station('coal');
@@ -59,7 +58,7 @@ const autoSyncRange = P.AUTO_SYNC_S.range || [V.AUTO_SYNC_S, V.AUTO_SYNC_S];
 
 // Phase 2a (desk/README.md §19.5): the belly. The rooftop, day-type and heat values are the game
 // day's (DESK), read here; the model values are params.
-const roof = DESK.rooftop, heat = DESK.events.heat, ccgt = station('ccgt');
+const roof = DESK.rooftop, ccgt = station('ccgt');
 const roofPeak = roof.shapePm.reduce((a, p) => (p[1] > a[1] ? p : a));
 const mildShare = DESK.weather.mildShare, hotShare = 1 - DESK.weather.heatShare - mildShare;
 /** START to breaker close in AGC mode, in minutes: the run-up to full speed plus the auto-sync delay. */
@@ -67,6 +66,22 @@ const startToSyncMin = st => st.t1Min + V.AUTO_SYNC_S / V.S_PER_MIN;
 const mslStep = (a, b) => num(a - b);
 /** 2b: a lever's MW summed over the game day's suburbs (U-1). */
 const sumOf = k => DESK.levers.suburbs.reduce((a, s) => a + s[k], 0);
+
+// 2c (desk/README.md §32): the game's designed day (DESK.dayplan, Q-65-Q-68) and the D-2 clock (sim/clock.js).
+const plan = DESK.dayplan, a1 = plan.act1, a2 = plan.act2, a3 = plan.act3;
+const NIGHT = V.REF_PROFILE[V.REF_PROFILE.length - 1], NIGHT_H = NIGHT.fromH;
+/** The step profile's real seconds from 04:30 to 04:00; HAND scales every speed before 21:00 (Q-64). */
+const dayReal = hand => Math.round(V.REF_PROFILE.reduce((a, p) => a + (p.toH - p.fromH) * V.S_PER_H / p.rate /
+  (hand && p.fromH < NIGHT_H ? V.HAND_RATE_FACTOR : 1), 0));
+const nightReal = (NIGHT.toH - NIGHT.fromH) * V.S_PER_H / NIGHT.rate;
+const lateOf = scn => { const l = scn.dayplan.act1.late; return V.MACHINES.find(m => m.id === l.unit).name + ' until ' + hhmm(l.untilH[0]) + '–' + hhmm(l.untilH[1]); };
+// Q-71: a warning's lead (grid-min) for an onset at s: the latest whole minute with LEAD_REAL_S of the step profile before it
+const secOf = h => (h - V.DAY_START_H) * V.S_PER_H;
+const leads = [a2.front.onsetH, a3.storm.arriveH, a3.drought.onsetH].flatMap(([h0, h1]) => {
+  const out = [];
+  for (let s = secOf(h0); s <= secOf(h1); s += V.S_PER_MIN) out.push((s - Math.floor(gridBefore(s, V.LEAD_REAL_S) / V.S_PER_MIN) * V.S_PER_MIN) / V.S_PER_MIN);
+  return out;
+});
 
 // The K-12 synchroscope's speed, from the sim's Phase 1a params (desk/README.md §3.3) once
 // they exist; until the sim branch merges, the Phase 0.2 stub's text.
@@ -92,27 +107,34 @@ const ABSTRACTIONS = [
     id: 'compressed-playback', row: 'Compressed playback.', anchorId: 'rate-badge', game: 'rate-badge',
     real: 'One clock at 1×: a grid-second takes a real second, and real operators have minutes to act.',
     ours: 'One grid clock. Physics integrates every ' + num(V.PHYS_DT * 1000) + ' ms of grid time and the grid update ' +
-      'runs every grid second, at every speed, so speed changes what you see, never what happens. The bench cruises at a ' +
-      'flat ' + num(FLAT_RATE) + '× (the Phase 2 profile runs ' + num(Math.min(...profileRates)) + '–' +
-      num(Math.max(...profileRates)) + '×) and plays the first ' + num(V.WATCH_S) + ' grid-seconds after a trip live at ' +
-      rates.join(' → ') + '. Pause is free.',
-    why: 'A day in minutes with honest physics.',
-    params: ['PHYS_DT', 'REF_PROFILE', 'WATCH_S'],
+      'runs every grid second, at every speed, so speed changes what you see, never what happens. The game\'s day follows a profile, ' +
+      SEGMENTS.map(x => x.name + ' ' + num(x.rate) + '×').join(', ') + ', easing over ' + num(V.CLOCK_EASE_REAL_S) + ' real s between ' +
+      'them: ' + num(dayReal(false)) + ' real s from ' + hhmm(V.PLAYER_START_H) + ' to ' + hhmm(V.DAY_START_H) + ' (' + num(dayReal(true)) +
+      ' in HAND, which multiplies every speed before ' + hhmm(NIGHT_H) + ' by ' + num(V.HAND_RATE_FACTOR) + '). The first ' + num(V.WATCH_S) +
+      ' grid-seconds after a trip play live at ' + rates.join(' → ') + ' (the watch); its card holds the clock; RESPOND runs ' +
+      num(RESPOND_RATE) + '× until frequency is back in band, for at most ' + minutes(RESPOND_MAX_S) + ' grid-minutes; FAST runs ' +
+      num(FAST_FACTOR) + ' × the profile. The bench cruises at a flat ' + num(FLAT_RATE) + '×. Pause is free.',
+    why: 'A day in minutes with honest physics: slowest at the peak, where the decisions are, fastest in the night, where none are asked.',
+    params: ['PHYS_DT', 'REF_PROFILE', 'CLOCK_SEGMENT_NAMES', 'CLOCK_EASE_REAL_S', 'PLAYER_START_H', 'HAND_RATE_FACTOR', 'WATCH_S'],
   },
   {
     id: 'event-dense-day', row: 'Event-dense day.', anchorId: 'event-log', game: 'tray',
     real: 'Credible unit and link trips are rare: an operator sees a few a year, not one or two a shift. After a ' +
       'protection trip a unit returns in hours to weeks, depending on the fault and the inspection.',
-    ours: 'The classic day always has one large unit trip (the largest online machine), plus an extra unit trip on ' +
-      pct(ev.extraTrip.p) + '% of days, a link trip on ' + pct(ev.linkTrip.p) + '%, a smelter trip on ' + pct(ev.smelter.p) +
-      '%, a cloud front on ' + pct(ev.cloud.p) + '% and a wind drought on ' + pct(ev.drought.p) + '%; a heatwave on ' +
-      pct(V.HEAT_SHARE) + '% of days and a storm on ' + pct(V.STORM_SHARE) + '%. A tripped machine is locked out for ' +
-      num(ev.bigTrip.lockoutMin[0]) + '–' + num(ev.bigTrip.lockoutMin[1]) + ' min (' + minutes(V.HOT_TRIP_LOCKOUT_S) +
-      ' min after an overheat trip), then may hot-start at once: minimum down time (' + num(coal.minDownH) + ' h for coal) ' +
-      'applies only after a planned stop.',
-    why: 'Drama in a short day: every day asks at least one real question of the fleet, and a trip is a problem to solve ' +
-      'within the day, not a lost unit.',
-    params: ['HEAT_SHARE', 'STORM_SHARE', 'HOT_TRIP_LOCKOUT_S', 'FLEET.coal.minDownH'],
+    ours: 'The game\'s day is designed by an event director. Act I opens with a warned constraint and, on ' + pct(a1.task.p) + '% of days, ' +
+      'two feeders to restore. Act II has one belly crisis: without a heatwave, a cloud front over the suburbs (' + pct(a2.mix.front) +
+      '% of those days), a trip of the largest unit (' + pct(a2.mix.unit) + '%), the smelter (' + pct(a2.mix.smelter) + '%) or the tie (' +
+      pct(a2.mix.tie) + '%); under one, a unit, the smelter or the tie. Act III has one: a heatwave on ' + pct(DESK.weather.heatShare) +
+      '% of days, a storm on ' + pct(DESK.weather.stormShare) + '%, a wind drought on ' + pct(DESK.weather.droughtShare) + '%, otherwise a ' +
+      'calm evening; every evening but a storm\'s also has an unwarned trip of the largest unit, ' + hhmm(a3.trip.windowH[0]) + '–' +
+      hhmm(a3.trip.windowH[1]) + ', and a storm may trip the tie. At most two unwarned trips a day, none before ' + hhmm(a2.windowH[0]) +
+      ' or from ' + hhmm(NIGHT_H) + ', at least ' + num(V.SPACING_REAL_S) + ' real s and ' + minutes(V.SPACING_GRID_S) + ' grid-minutes ' +
+      'apart. A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min (' +
+      minutes(V.HOT_TRIP_LOCKOUT_S) + ' min after an overheat trip), then may hot-start at once: minimum down time (' + num(coal.minDownH) +
+      ' h for coal) applies only after a planned stop. The bench\'s classic day keeps the older menu: a large unit trip every day, plus extras.',
+    why: 'Drama in a short day: every act asks a real question of the fleet, and a trip is a problem to solve within the day, not a ' +
+      'lost unit.',
+    params: ['SPACING_REAL_S', 'SPACING_GRID_S', 'HOT_TRIP_LOCKOUT_S', 'FLEET.coal.minDownH'],
   },
   {
     id: 'compressed-synchroscope', row: 'Compressed synchroscope.', anchorId: 'sync-scope', game: 'bay-sync',
@@ -184,10 +206,14 @@ const ABSTRACTIONS = [
   },
   {
     id: 'act-i-restore-task', row: 'Act I restore task', anchorId: 'restore-panel', game: 'bay-restore',
-    real: 'Storm outages and smelter restarts happen, but not every day.',
-    ours: 'Not in Phase 0.2: the classic day has no restore task, so districts go dark only through UFLS or directed ' +
-      'shedding. The Phase 2 event director adds the task.',
-    why: 'So that RESTORE is played by players who never shed.',
+    real: 'Feeders damaged overnight are the network\'s to repair: it gives an estimated time of restoration, and the load is ' +
+      'picked up when the grid can carry it cold. Not every morning has one.',
+    ours: 'On ' + pct(a1.task.p) + '% of game days two rotation districts of one suburb are dark from ' + hhmm(V.DAY_START_H) + ' with ' +
+      'overnight faults, each handed back at its own time between ' + hhmm(a1.task.clearH[0]) + ' and ' + hhmm(a1.task.clearH[1]) +
+      ', at least ' + num(a1.task.gapMin) + ' min apart; both times are announced at ' + hhmm(V.DAY_START_H) + ', and they hold. Until ' +
+      'its hand-back a feeder is the network\'s: under repair, never priced, never SHEDDING. From then it is yours: close its breaker ' +
+      '(R, then Enter); every minute it stays dark counts in OUTAGES and SAIDI. The bench\'s classic day has none.',
+    why: 'So that RESTORE is played by players who never shed, and the morning ramp holds a decision: spare for the pickup.',
     params: [],
   },
   {
@@ -205,10 +231,11 @@ const ABSTRACTIONS = [
     ours: 'AGC trims each machine every ' + num(V.AGC_CYCLE_S) + ' s within a band around its base point: coal ±' +
       pct(V.CLASSES.coal.agcBandFrac) + '%, CCGT ±' + pct(V.CLASSES.ccgt.agcBandFrac) + '%, GT ±' +
       pct(V.CLASSES.ocgt.agcBandFrac) + '%, hydro ±' + pct(V.CLASSES.hydro.agcBandFrac) + '% of rating; the battery ' +
-      'within its range minus the GUARD. It never starts or stops a unit. HAND turns it off for the day.',
+      'within its range minus the GUARD. It never starts or stops a unit. HAND turns it off from ' + hhmm(V.PLAYER_START_H) + ' until ' +
+      hhmm(NIGHT_H) + ', when the night shift turns it back on.',
     why: 'Readable: each lever shows where AGC may move it.',
     params: ['AGC_CYCLE_S', 'CLASSES.coal.agcBandFrac', 'CLASSES.ccgt.agcBandFrac', 'CLASSES.ocgt.agcBandFrac',
-      'CLASSES.hydro.agcBandFrac'],
+      'CLASSES.hydro.agcBandFrac', 'PLAYER_START_H'],
   },
   {
     id: 'dc-tie', row: 'DC tie.', anchorId: 'tie-panel', game: 'knob-tie',
@@ -299,7 +326,8 @@ const ABSTRACTIONS = [
       'biggest risk (L) and a TRIP PREVIEW nadir of at least ' + hz(V.SECURE_NADIR_HZ) + ' Hz plus a ' +
       num(V.PREVIEW_MARGIN_HZ) + ' Hz margin for losing L (plus ' + num(V.PREVIEW_AGE_MARGIN_HZ_S) + ' Hz for each grid-second ' +
       'of the preview\'s age; it is re-run at least every ' + num(V.PREVIEW_REFRESH_S) + ' grid-seconds and whenever frequency ' +
-      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L; SHORT is R5 < L; SHEDDING while load is off. SECURE ' +
+      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L; SHORT is R5 < L; SHEDDING while UFLS or directed shedding has load ' +
+      'off: a feeder under repair, or handed back and not yet closed, is never SHEDDING. SECURE ' +
       'previews the loss of supply, not of load: losing the potline or the export at midday is not on this gauge.',
     why: 'One gauge. The margin covers what a preview with frozen schedules cannot see (demand wobble, AGC and ramps), ' +
       'measured so that no SECURE state misses ' + hz(V.SECURE_NADIR_HZ) + ' Hz when a credible contingency trips. The ' +
@@ -364,10 +392,13 @@ const ABSTRACTIONS = [
       ' that peaks at ' + hhmm(roofPeak[0]) + ' at ' + pct(roof.clearFactor) + '% of capacity. Each suburb has its own sky: one ' +
       'regional clearness plus a small local term, in ' + minutes(roof.cloud.stepS) + '-minute steps; at clearness k a roof gives ' +
       '1 − ' + num(roof.cloudBite) + ' × (1 − k) of its clear-day output. Hot panels give ' + pct(1 - roof.heatFactor) +
-      '% less in a heatwave (' + hhmm(heat.onsetH) + '–' + hhmm(heat.endH) + '), ramping in over the hour before it as the heat ' +
-      'itself does. No cloud front crosses ' +
-      'the suburbs yet: that waits for the Phase 2c event director.',
-    why: 'The belly needs the right size and shape, and six skies make the midday forecast honestly uncertain.',
+      '% less through a heatwave\'s hours, ramping in over the hour before it as the heat itself does. A warned cloud front crosses ' +
+      'the suburbs west to east (' + DESK.city.suburbs.map(s => s.id + ' ' + num(s.frontLagMin)).join(', ') + ' min after it reaches the ' +
+      'west, the solar farm ' + num(roof.precinctLagMin) + '): from its own onset each suburb\'s clearness falls to ' + num(a2.front.frontMu) +
+      ' over ' + num(a2.front.frontRampMin) + ' min, holds, then rises to ' + num(a2.front.clearMu) + ' over ' + num(a2.front.clearRampMin) +
+      ' min. The rooftop forecast carries it from the warning, its band wider while the front lasts.',
+    why: 'The belly needs the right size and shape, and six skies make the midday forecast honestly uncertain; a front warned hours ' +
+      'ahead is a belly crisis the player can plan for.',
     params: [],
   },
   {
@@ -380,8 +411,9 @@ const ABSTRACTIONS = [
       ' heatwaves. A hot day is the classic day. A mild day is the same day without its cooling load: ' +
       num(V.COOLING_MAX_MW / V.COOLING_SPAN_C) + ' MW for each °C the hot day is above ' + num(V.COOLING_BASE_C) + ' °C, all ' +
       num(V.COOLING_MAX_MW) + ' MW at ' + num(V.COOLING_BASE_C + V.COOLING_SPAN_C) + ' °C. A Saturday or Sunday multiplies ' +
-      'demand by ' + num(V.WEEKEND_DEMAND_FACTOR) + ' all day. A heatwave is announced at ' + hhmm(heat.announceH) +
-      ' on the day itself, until day-ahead warnings arrive (D-8).',
+      'demand by ' + num(V.WEEKEND_DEMAND_FACTOR) + ' all day. A heatwave is announced at the ' + hhmm(V.DAY_START_H) + ' briefing with ' +
+      'its hours: it begins between ' + hhmm(a3.heat.onsetH[0]) + ' and ' + hhmm(a3.heat.onsetH[1]) + ' and lasts up to ' + num(a3.heat.lastsH) +
+      ' h, ending by ' + hhmm(a3.heat.endByH) + '; a hot day with no heatwave announced then has none coming.',
     why: 'One tuned day gives three day types, and the mild weekend is where the belly bites.',
     params: ['HEAT_SHARE', 'COOLING_MAX_MW', 'COOLING_BASE_C', 'COOLING_SPAN_C', 'WEEKEND_DEMAND_FACTOR'],
   },
@@ -425,7 +457,8 @@ const ABSTRACTIONS = [
   {
     id: 'restore-permissive', row: 'Restore permissive', anchorId: 'restore-permissive', game: 'bay-restore',
     real: 'AEMO gives permission, and the networks switch small groups back every few minutes.',
-    ours: 'RESTORE is allowed when frequency is at least ' + hz(V.RESTORE_MIN_HZ) + ' Hz, ' + minutes(V.RESTORE_INTERVAL_S) +
+    ours: 'A feeder under repair is refused first ("feeder under repair until HH:MM") until the network hands it back. Then, as ' +
+      'for any dark district, RESTORE is allowed when frequency is at least ' + hz(V.RESTORE_MIN_HZ) + ' Hz, ' + minutes(V.RESTORE_INTERVAL_S) +
       ' grid-minutes have passed since the last restore, spare in ' + num(V.R5_WINDOW_MIN) + ' min (R5) covers the district\'s ' +
       'cold load, and a RESTORE PREVIEW of picking up that cold load ' +
       '(run on the restore itself) keeps the nadir at or above ' + hz(V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ) + ' Hz. The ' +
@@ -577,7 +610,8 @@ const ABSTRACTIONS = [
       'of unserved energy is least. They rank options by the difference in those dollars. Customers pay the market price ' +
       'plus network and retail charges. Those charges, most of a bill, are the same whatever you do and are left out. VCR ' +
       'and VER are what regulators count an outage and a tonne as worth, not money anyone is paid.',
-    ours: 'ALL-IN is SUPPLY, the COST chip\'s dollars; plus OUTAGES, ' + usd(V.VCR) + ' (VCR) for each MWh dark; plus CARBON, ' +
+    ours: 'ALL-IN is SUPPLY, the COST chip\'s dollars; plus OUTAGES, ' + usd(V.VCR) + ' (VCR) for each MWh dark that is yours (a ' +
+      'feeder under repair becomes yours at its hand-back); plus CARBON, ' +
       usd(V.VER) + ' (VER) a tonne on your CO₂ intensity × every MWh the city asked for. SCORE = 1000 × par\'s ALL-IN ÷ ' +
       'yours, par being GRIDWATCH\'s own autopilot on the same day: 1000 is par, more beats it, and a black day scores 0 (F). ' +
       'Letters: ' + LETTERS.slice(0, -1).map(l => l[0] + ' from ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
@@ -589,18 +623,20 @@ const ABSTRACTIONS = [
     params: ['VCR', 'VER'],
   },
   {
-    id: 'allin-vcr', row: 'Every MWh dark is valued at the NEM VCR, $30,000/MWh (2024 dollars)', anchorId: 'allin-vcr', ui: 'drawer',
-    game: 'drawer',
+    // (2c, Q-69: a feeder under repair is the network's until its hand-back; the row is renamed at stage C)
+    id: 'allin-vcr', row: 'Every MWh dark that is yours is valued at the NEM VCR, $30,000/MWh (2024 dollars)', specPending: true,
+    replaces: 'Every MWh dark is valued at the NEM VCR, $30,000/MWh (2024 dollars)', anchorId: 'allin-vcr', ui: 'drawer', game: 'drawer',
     real: 'The AER\'s 2024 values of customer reliability, in 2024 dollars: NEM $30,000/MWh, VIC $35,780, SA $33,320, ' +
       'households across the NEM $41,480. They cover outages up to 12 hours; the AER computes none for widespread or longer ' +
       'outages. The Reliability Panel and AEMO\'s system plan still value unserved energy from a supply shortfall at VCR, ' +
       'and the standard allows 0.002% of a region\'s energy a year unserved.',
-    ours: 'OUTAGES = ' + usd(V.VCR) + ' × every MWh dark: UFLS after a trip, directed shedding and a black grid alike, at the ' +
-      'NEM-wide value whatever the district. CUSTOMER COST still never prices it. At ' + usd(V.VER) + ' a tonne, an MWh dark ' +
-      'weighs as much as ' + num(V.VCR / V.VER) + ' t of CO₂.',
+    ours: 'OUTAGES = ' + usd(V.VCR) + ' × every MWh dark that is yours: UFLS after a trip, directed shedding, a black grid, and a ' +
+      'feeder the network has handed back until you close its breaker, at the NEM-wide value whatever the district. Before its ' +
+      'hand-back a feeder under repair is the network\'s outage: the end card records its MWh and never prices them. CUSTOMER COST ' +
+      'never prices an outage. At ' + usd(V.VER) + ' a tonne, an MWh dark weighs as much as ' + num(V.VCR / V.VER) + ' t of CO₂.',
     why: 'One value for every MWh keeps the rule visible before you act. The reliability standard leaves out non-credible ' +
-      'contingencies, and the AER computes no VCR for a widespread outage: extending the NEM value to every MWh you shed is ' +
-      'GRIDWATCH\'s own rule.',
+      'contingencies, and the AER computes no VCR for a widespread outage: extending the NEM value to every MWh you shed, and to a ' +
+      'repaired feeder left open, is GRIDWATCH\'s own rule.',
     params: ['VCR', 'VER'],
   },
   {
@@ -628,13 +664,123 @@ const ABSTRACTIONS = [
       '3.3(a)(2)–(4) excludes load shed for a generation shortfall, by under-frequency relays or at AEMO\'s direction.',
     ours: 'A district dark longer than ' + minutes(V.SUSTAINED_INTERRUPTION_S) + ' grid-minutes adds its share of the ' +
       'households to SAIFI and, for every minute dark, that share to SAIDI; one relit sooner adds to MAIFI (no reclosers are ' +
-      'modelled, so it is usually 0). They count every outage you cause, before STPIS\'s exclusions (the all-outages basis). ' +
-      'The end card shows them as readouts beside OUTAGES, never added to the score: STPIS\'s rates are built from VCR, so ' +
-      'that would count an outage twice.',
+      'modelled, so it is usually 0). They count the outages you cause, before STPIS\'s exclusions: UFLS, directed shedding, and a ' +
+      'repaired feeder from its hand-back until you close it. Its hours under repair are the network\'s and left out, so for that ' +
+      'feeder they are not the all-outages basis. The end card shows them as readouts beside OUTAGES, never added to the score: ' +
+      'STPIS\'s rates are built from VCR, so that would count an outage twice.',
     why: 'They are how a network reports its reliability, so a dark day reads in a network\'s units. Real STPIS would count ' +
-      'none of this desk\'s shedding; its real case is faults on a network\'s own feeders, the storm feeders that come with ' +
-      'slice 2c.',
+      'none of this desk\'s shedding; its real case is faults on a network\'s own feeders, such as the morning\'s feeders under ' +
+      'repair, whose hours GRIDWATCH leaves to the network.',
     params: ['SUSTAINED_INTERRUPTION_S'],
+  },
+  // 2c (desk/README.md §32.2): the day's rows, added at stage C.
+  {
+    id: 'night-shift', row: 'The night shift runs 21:00–04:00.', specPending: true, anchorId: 'night-shift', ui: 'drawer', game: 'night-strip',
+    real: 'Control rooms hand over between shifts, and overnight the generators stand their own units down through the market; ' +
+      'the operator watches, and directs only when it must.',
+    ours: 'From ' + hhmm(NIGHT_H) + ' on the game\'s day the night shift has the desk, on AGC whichever mode you flew. From the ' +
+      hhmm(NIGHT_H) + ' state alone, par\'s own rules stand down the units the night does not need (keeping any stop you booked), stand ' +
+      'down the reserve diesel and relight dark districts as the permissive allows, one action per ' + minutes(V.NIGHT_ACTION_S) +
+      ' grid-minutes. The clock plays the night at ' + num(NIGHT.rate) + '× (' + num(nightReal) + ' real s); a trip in it is logged, with ' +
+      'no watch or card. Presses that would move the grid are refused with a blue note; views, pause, ACK and the volume still work. ' +
+      'The plan bar counts SUPPLY, OUTAGES, CARBON, ALL-IN and SCORE up to ' + hhmm(V.DAY_START_H) + '.',
+    why: 'The night\'s ' + num(NIGHT.toH - NIGHT.fromH) + ' grid-hours pass in ' + num(nightReal) + ' real seconds and cannot be played, ' +
+      'so nothing asks to be: a handover is how control rooms work, and because par\'s night is the same function on the same state, ' +
+      'a day played as par played it scores the same.',
+    params: ['NIGHT_ACTION_S', 'REF_PROFILE'],
+  },
+  {
+    id: 'hand-mode', row: 'HAND turns AGC off until 21:00.', specPending: true, anchorId: 'hand-mode', ui: 'drawer', game: 'chip-hand',
+    real: 'No NEM region flies without AGC: automatic generation control trims the units every few seconds, day and night.',
+    ours: 'Chosen at the briefing (the card\'s HAND, or the desk\'s AGC key), HAND locks at ' + hhmm(V.PLAYER_START_H) + ': until ' +
+      hhmm(NIGHT_H) + ' AGC trims no unit, so frequency rests on the governors, the battery and the levers you move, and every speed ' +
+      'of the clock is multiplied by ' + num(V.HAND_RATE_FACTOR) + ' (' + num(dayReal(true)) + ' real s for the day instead of ' +
+      num(dayReal(false)) + '). At ' + hhmm(NIGHT_H) + ' the night shift takes the desk on AGC; the end card tags the day HAND-FLOWN.',
+    why: 'A harder way to fly the same day, labelled as a game mode; the handover keeps the night the same for everyone.',
+    params: ['HAND_RATE_FACTOR', 'PLAYER_START_H', 'REF_PROFILE'],
+  },
+  {
+    id: 'act-i-constraints', row: 'Act I\'s constraints are announced at 04:00.', specPending: true, anchorId: 'act-i-constraints',
+    ui: 'drawer', game: 'briefing-watch',
+    real: 'Network outages that limit an interconnector are notified days to hours ahead, and a generator declares a late return ' +
+      'from maintenance as soon as it knows.',
+    ours: 'Every game day opens with one warned constraint, announced at ' + hhmm(V.DAY_START_H) + ' with exact times: on ' +
+      pct(a1.derateP) + '% of days the tie may import at most ' + num(a1.derate.limitMW[0]) + '–' + num(a1.derate.limitMW[1]) +
+      ' MW until ' + hhmm(a1.derate.untilH[0]) + '–' + hhmm(a1.derate.untilH[1]) + '; on the rest a unit is back late from maintenance (' +
+      lateOf(DESK) + ' on weekdays, ' + lateOf(DESK_WEEKEND) + ' at weekends) and cannot be started before then. The briefing\'s Watch ' +
+      'for names them, with a heatwave and the feeders under repair; the tray carries the notices in full.',
+    why: 'Act I gets decisions before the clock runs: start a unit earlier, hold spare for the pickups, plan around a known limit.',
+    params: [],
+  },
+  {
+    id: 'gated-dailies', row: 'Every daily is solvable.', specPending: true, anchorId: 'gated-dailies', ui: 'drawer', game: 'briefing-watch',
+    real: 'Real grids promise nothing of the kind: on some days the plant and the network cannot meet demand, and load is shed ' +
+      'whatever the operator does.',
+    ours: 'Before a date ships, par plays it: the date passes only if the most the fleet, the tie and the air-con cycles could ' +
+      'supply never falls short of demand, and par ends the day with no UFLS or directed shedding and the grid not black. A date ' +
+      'that fails is drawn again as the same kind of day (the same temperature and the same evening crisis). A day outside the ' +
+      'checked list says "Not gate-checked: this day may not be solvable" in the briefing and on the end card.',
+    why: 'A fairness rule, not a property of real grids: a daily nobody can win teaches only that nothing works.',
+    params: [],
+  },
+  {
+    id: 'warning-leads', row: 'Warning leads are game-sized.', specPending: true, anchorId: 'warning-leads', ui: 'drawer', game: 'tray',
+    real: 'The Bureau warns of heatwaves days ahead and of severe storms hours ahead; a cloud band over a city is forecast hours ' +
+      'ahead at best.',
+    ours: 'A weather warning in play comes at the latest whole minute that leaves at least ' + num(V.LEAD_REAL_S) + ' real seconds ' +
+      'before its onset on the clock you play: about ' + num(Math.min(...leads)) + '–' + num(Math.max(...leads)) + ' grid-minutes ' +
+      'ahead. A pause or a watch only adds to it, and the warning ends FAST. The heatwave, the tie limit, a late return and the ' +
+      'feeders\' repair times are announced at ' + hhmm(V.DAY_START_H) + ', before the clock runs. Trips are never warned.',
+    why: 'Hours of grid time pass in seconds of yours: the lead is sized to the time you need to read the card and act, not to ' +
+      'the Bureau\'s.',
+    params: ['LEAD_REAL_S'],
+  },
+  {
+    id: 'cover', row: 'COVER after a trip is R5 ≥ L, not the NEM\'s secure state.', specPending: true, anchorId: 'cover', ui: 'drawer',
+    game: 'gauge-n1',
+    real: 'After a contingency the NEM must be back in a secure operating state within 30 minutes (NER cl. 4.2.6): the next ' +
+      'credible contingency contained above 49.5 Hz.',
+    ours: 'For ' + minutes(V.SECURE_AGAIN_S) + ' grid-minutes after a trip the N-1 gauge\'s COVER row counts down to spare in ' +
+      num(V.R5_WINDOW_MIN) + ' min (R5) of at least the biggest risk (L) with no district dark by UFLS or directed shedding (a feeder ' +
+      'under repair never blocks it): "COVER ✓ T+n MIN" once reached, "COVER LOST" if the level then falls to SHORT or SHEDDING ' +
+      'inside the window, and "COVER ✕ n MIN OVER" in amber after it. Relighting shed load inside the window is GRIDWATCH\'s own ' +
+      'condition. Nothing happens when the window runs out: AEMO would direct a unit on or shed load; GRIDWATCH only counts it.',
+    why: 'The NEM\'s test would call most mornings insecure, par\'s included, so COVER is a floor the gauge can show honestly, and ' +
+      'its own word never contradicts SECURE, TIGHT, SHORT or SHEDDING.',
+    params: ['SECURE_AGAIN_S', 'R5_WINDOW_MIN'],
+  },
+  {
+    id: 'restore-pace', row: 'RESTORE runs at 30× at each hand-back.', specPending: true, anchorId: 'restore-pace', ui: 'drawer',
+    game: 'rate-badge',
+    real: 'A network hands a repaired feeder back and the control room closes it within minutes; nobody slows time to do it.',
+    ours: 'When a feeder under repair may be closed (at its hand-back, and no sooner than ' + minutes(V.RESTORE_INTERVAL_S) +
+      ' grid-minutes after the last restore) the clock slows to ' + num(V.RESTORE_PACE_RATE) + '× until it is closed, for at most ' +
+      minutes(V.RESTORE_PACE_MAX_S) + ' grid-minutes (' + num(V.RESTORE_PACE_MAX_S / V.RESTORE_PACE_RATE) + ' real s): the badge reads ' +
+      'RESTORE. Until this browser has closed one, it plays at ' + num(V.RESTORE_FIRST_RATE) + '× (' +
+      num(V.RESTORE_PACE_MAX_S / V.RESTORE_FIRST_RATE) + ' real s at most). FAST waits for it, and par\'s own playback slows the same way.',
+    why: 'At the profile\'s speeds one real second is minutes of a dark district: the pace makes the hand-back a moment to act ' +
+      'on, not a reflex test.',
+    params: ['RESTORE_INTERVAL_S', 'RESTORE_PACE_RATE', 'RESTORE_PACE_MAX_S', 'RESTORE_FIRST_RATE'],
+  },
+  {
+    id: 'offer-pace', row: 'An offered SYNC runs at 30×.', specPending: true, anchorId: 'offer-pace', ui: 'drawer', game: 'bay-sync',
+    real: 'Synchronising is mostly automatic, at the power station: nobody slows the grid to watch a breaker close.',
+    ours: 'When the desk offers you a unit\'s synchroscope (after a trip, while spare is tight or in the evening peak; a few a day, ' +
+      'none from ' + hhmm(NIGHT_H) + ') the clock plays at ' + num(OFFER_RATE) + '× while the unit waits at full speed, for at most ' +
+      'the ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes the auto-synchroniser would take (' + num(V.AUTO_SYNC_S / OFFER_RATE) +
+      ' real s): the badge reads SYNC. O opens the scope; the breaker closing ends it. FAST waits for it.',
+    why: 'At the profile\'s speeds an offer lived under half a real second: the synchroscope moment needs time to be seen and taken.',
+    params: ['AUTO_SYNC_S'],
+  },
+  {
+    id: 'heat-evening-trip', row: 'Heatwave days keep an evening trip.', specPending: true, anchorId: 'heat-evening-trip', ui: 'drawer',
+    game: 'drawer',
+    real: 'Thermal plant is more likely to trip in extreme heat, but a trip on any one evening is still unusual.',
+    ours: 'On a heatwave day the event director also draws the calm evening\'s unwarned trip of the largest online machine, ' +
+      hhmm(a3.trip.windowH[0]) + '–' + hhmm(a3.trip.windowH[1]) + ', under the same spacing rules as every trip.',
+    why: 'Without it nothing on a heatwave day asked for an answer after mid-afternoon; heat makes a trip plausible, and the ' +
+      'hardest day keeps its peak moment.',
+    params: [],
   },
 ];
 
