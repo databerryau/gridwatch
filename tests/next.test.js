@@ -190,7 +190,7 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   assert.equal(vm.hist.freq.length, G.HIST_FREQ_S);
   assert.deepEqual(Object.keys(vm.hist.stations), [...V.STATION_IDS, 'wind', 'solar', 'tie', 'battery', 'rert', 'dr']);
   assert.equal(mods.seen.desk.at(-1), mods.seen.map.at(-1), 'every module reads the same vm');
-  assert.equal(h.actions.redispatch(), 'no plan before 04:30');
+  assert.equal(h.actions.redispatch(), G.BRIEF_LOCK, 'Q-64: RE-DISPATCH sends a planLoad: in the briefing, the lock');
   // HAND, then TAKE THE DESK (Enter works too): 04:00-04:30 runs headless, then CRUISE.
   $('btn-hand').click();
   key('Enter');

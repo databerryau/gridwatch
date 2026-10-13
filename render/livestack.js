@@ -4,7 +4,7 @@
 import {V} from '../sim/params.js';
 import * as PV from '../app/planview.js';
 import {COLOURS, UI, SUBURBS} from './mapdata.js';
-import {clockText, mw as fmtMW, priceText} from './format.js';
+import {clockText, mw as fmtMW, priceText, isLock} from './format.js';
 
 export const AXIS_MAX_MW = 9000;
 export const HIT_PX = 24;
@@ -799,7 +799,7 @@ export function createLiveStack(doc, root, actions) {
     const refused = [];
     for (const x of inputs) {
       const why = actions.input(x);
-      if (why && !refused.includes(why)) refused.push(why);
+      if (why && !refused.includes(why) && !isLock(why)) refused.push(why); // (a lock: the shell's one blue toast answers, Q-64)
     }
     say(refused.length ? 'Refused: ' + refused.join('; ') : '', 'no');
     return refused;

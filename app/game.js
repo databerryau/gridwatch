@@ -9,6 +9,7 @@ import * as fleet from '../sim/fleet.js';
 import * as weather from '../sim/weather.js';
 import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
+import {BRIEF_LOCK, NIGHT_LOCK} from '../render/format.js';
 import {scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
 import {objective, consequence, steady, masked} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
@@ -37,10 +38,9 @@ export const OBJECTIVE_EVERY_S = 30;
 export const LINE_DWELL_MS = 4000;
 /** A START is "now" this many real s of the profile sooner (ctx.leadS): to read, press twice. */
 export const LINE_REACT_S = 13;
-/** Q-64, Q-73: a sim input's answer in the briefing (but AGC/HAND) and the night roll: help, so blue. */
-export const BRIEF_LOCK = 'Take the desk first: Enter.',
-  NIGHT_LOCK = 'The night shift has the desk: it stands down what the night does not need. Your day is scored at 04:00.';
-export const isLock = r => r === BRIEF_LOCK || r === NIGHT_LOCK;
+/** Q-63: ctx.leadS at grid second s: LINE_REACT_S real s of the profile, never past a night scenario's handover (the night shift's). */
+export const readingLeadS = (s, hand, night) => Math.min(gridAfter(s, LINE_REACT_S, hand) - s, night ? Math.max(0, NIGHT_S - s) : Infinity);
+export {BRIEF_LOCK, NIGHT_LOCK, isLock} from '../render/format.js'; // (Q-64, Q-73: the views read them there too)
 /**
  * Inputs after which the dispatch is re-run in the same call (Phase 2a, desk/README.md §21.4): the
  * commitment and the battery are the player's, and a plan that has not seen the input yet would
@@ -450,6 +450,7 @@ function redispatchAfter(game) {
 
 /** A-1 RE-DISPATCH through app/system.js. Returns '' or the reason it was refused. */
 export function redispatch(game) {
+  if (game.phase === 'briefing') return BRIEF_LOCK;
   if (game.state.control.nightShift) return NIGHT_LOCK;
   if (!game.sysMod || !game.sys) return 'RE-DISPATCH needs the system operator' + (game.sysError ? ' (' + game.sysError + ')' : '');
   D.dismissCard(game.director, game.state);
@@ -626,8 +627,14 @@ export function offerWhy(obs, tally) {
   if (obs.inRespond && obs.contingency.n !== tally.contN) return 'respond';
   return tally.extra ? '' : obs.sec.level !== 'SECURE' ? 'tight' : obs.s >= PEAK[0] && obs.s < PEAK[1] ? 'peak' : '';
 }
+/** Q-78: the tally once an offer for `why` (offerWhy's answer at obs) is made; pure, so par's proxy (Q-77) keeps it the same way. */
+export function tallyOffer(tally, why, obs) {
+  tally.n++;
+  if (why === 'respond') tally.contN = obs.contingency.n; else tally.extra++;
+  return tally;
+}
 
-// K-12 / A-4: which ready units the bay offers now.
+// K-12 / A-4: which ready units the bay offers now; a new offer plays OFFER (app/director.js offerPace).
 function updateOffers(game, obs) {
   const out = [], t = game.tally;
   for (const u of obs.units) {
@@ -637,9 +644,9 @@ function updateOffers(game, obs) {
     if (rec) { out.push({unit: u.id, why: rec.why}); continue; }
     const why = offerWhy(obs, t);
     if (!why) continue;
-    t.n++;
-    if (why === 'respond') t.contN = obs.contingency.n; else t.extra++;
-    game.offered[u.id] = {why, taken: false};
+    tallyOffer(t, why, obs);
+    game.offered[u.id] = {why, taken: false, tick: obs.tick};
+    D.offerPace(game.director, game.state, u.id);
     out.push({unit: u.id, why});
   }
   game.offers = out;
@@ -661,7 +668,7 @@ export const newAsk = (shown, next) => !!next && !!next.action && LEVELS.indexOf
 /** Q-63: the objective line is due at grid second s in director mode `mode` ('news', true or false; buildVm and tests/lib/play.js). */
 export function objectiveDue(game, s, mode) {
   if (game.objectiveMode !== mode && /WATCH|RESPOND|RESTORE|NIGHT|OVER/.test(mode + game.objectiveMode)) return 'news';
-  return s - game.objectiveS >= Math.max(OBJECTIVE_EVERY_S, rateAt(s, game.state.control.handFlown) * V.OBJ_EVERY_REAL_S) || s < game.objectiveS;
+  return s - game.objectiveS >= Math.max(OBJECTIVE_EVERY_S, rateAt(s, D.handAt(game.state)) * V.OBJ_EVERY_REAL_S) || s < game.objectiveS;
 }
 
 /** The annunciator's context (§30.3.5; buildVm and tests/lib/play.js): no real time while the clock is held. */
@@ -732,7 +739,7 @@ export function buildVm(game, f) {
         // projection once per line (F-11: the objective and its STOP saving read the same one).
         game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
         const proj = game.planview.project(obs);
-        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: gridAfter(obs.s, LINE_REACT_S, obs.handFlown) - obs.s, held: game.objective});
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s);
@@ -752,7 +759,9 @@ export function buildVm(game, f) {
       game.considerDirty = false;
       const t = game.ui.consider, was = game.consider;
       game.consider = null;
-      if (t && !mode.locked) {
+      // (the night lock refuses the press: the line says so, never what it would do; Q-73)
+      if (t && !mode.locked && obs.nightShift) game.consider = {target: t, text: NIGHT_LOCK, level: 'plan'};
+      else if (t && !mode.locked) {
         try {
           if (!game.dayAhead) game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
           const c = game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview});

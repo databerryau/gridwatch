@@ -16,6 +16,8 @@ import * as PVW from '../app/planview.js';
 import {consequence} from '../app/objective.js';
 import {unitLabel} from '../desk/util.js';
 import {legacyDesk} from './lib/sim-helpers.js';
+import {realBetween} from '../sim/clock.js';
+import {FAST_FACTOR} from '../app/director.js';
 
 const TPS = V.TICKS_PER_S;
 // Today's desk events (legacyDesk): the plan's late return keeps CCGT 2 out on seed 7, and these tests are not about it.
@@ -106,7 +108,7 @@ test('Q-18 in the game: an accepted input, or a mode change that is news (the wa
   assert.equal(game.objectiveMode, 'PAUSE');
 });
 
-test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once, so a "Start CCGT 2 now" runs out its deadline at CRUISE', () => {
+test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once (one look of the line and a frame past it at most), so a "Start CCGT 2 now" runs out its deadline at CRUISE', () => {
   const guard = {kind: 'spare', level: 'act', text: 'Raise the battery GUARD to 400 MW.', action: {type: 'guard', mw: 400}};
   const start = {kind: 'commit', level: 'act', text: 'Start CCGT 2 now.', action: {type: 'start', unit: 'ccgt2'}};
   assert.equal(G.newAsk(guard, start), true);
@@ -122,7 +124,7 @@ test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once, so
   let nowMs = 1, vm = G.buildVm(game, {nowMs}), ask = null;
   assert.ok(vm.objective && vm.objective.action.type === 'start' && / now/.test(vm.objective.text), 'the start asked at 04:30');
   game.objective = Object.assign({targets: ['ring-guard']}, guard); game.lineMs = nowMs;
-  const was = game.objective, up = game.lineMs;
+  const was = game.objective, up = game.lineMs, s0 = vm.obs.s;
   for (let n = 0; !ask && n < 50; n++) {
     G.ui(game, {do: 'fast', on: true}); // F held (pressed again whenever an alarm ended it)
     nowMs += 100; G.frame(game, 0.1, () => nowMs); vm = G.buildVm(game, {nowMs});
@@ -134,7 +136,8 @@ test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once, so
   assert.ok(was.action.type !== 'start' && nowMs - up < G.LINE_DWELL_MS, 'over another ask up for ' + (nowMs - up) + ' ms, at once');
   const next = G.buildVm(game, {nowMs: nowMs + 16}).mode;
   assert.equal(next.mode, 'CRUISE', 'FAST ended: the deadline\'s real seconds are the profile\'s');
-  assert.ok(ask.startBy > vm.obs.s);
+  const used = realBetween(s0, vm.obs.s, false);                          // the profile's real s FAST played from F to the ask
+  assert.ok(used <= V.OBJ_EVERY_REAL_S + FAST_FACTOR * 0.1 + 1e-9 && ask.startBy > vm.obs.s, 'FAST ran ' + used.toFixed(2) + ' real s of the profile past it');
   // the same ask again does not end FAST a second time (the player may skip on)
   assert.equal(G.ui(game, {do: 'fast', on: true}), '');
   game.objectiveS = -1e9;

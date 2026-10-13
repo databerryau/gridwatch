@@ -10,6 +10,7 @@ import {createGauge} from './gauge.js';
 import {createFreqDial, createImbalanceBar} from './dial.js';
 import {createBay} from './bay.js';
 import {el, makeGuards, makeHolds, setCls, fin, clamp, feelOf, RATCHET_MS, LEVER_STATIONS, GUARD_MS} from './util.js';
+import {isLock} from '../render/format.js';
 
 /** K-23 keys 1-8 focus these. */
 export const SLOT_IDS = Object.freeze(['lever-coal', 'lever-ccgt', 'lever-gta', 'lever-gtb', 'lever-gtc', 'wheel-hydro', 'dial-battery', 'knob-tie']);
@@ -160,6 +161,7 @@ export function createDesk(doc, root, actions, opts = {}) {
     live(text) { live.textContent = text; },
     /** kind 'info': help, not a refusal (K-22). q (Q-47): its "?" or tile: pressed again, it hides the note. */
     note(host, text, ms = NOTE_MS, kind, q) {
+      if (!kind && isLock(text.replace(/^✕ /, ''))) return; // a lock (the briefing, the night) is help: the shell's one blue toast answers it (Q-41, Q-64, Q-73)
       let n = notes.get(host);
       if (!n) { n = {span: el(doc, 'span', 'dk-note'), until: 0, q: null}; host.appendChild(n.span); notes.set(host, n); }
       if (q && n.q === q && !n.span.hidden) return closeNote(n);

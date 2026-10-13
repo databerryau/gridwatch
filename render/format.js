@@ -89,13 +89,23 @@ export const co2Text = score => (score.co2tPerMWh > 0 && Number.isFinite(score.c
 export const VCR_TEXT = '$' + mw(V.VCR), VER_TEXT = '$' + mw(V.VER);
 export const allInCents = a => (a && a.askedMWh > 0 && Number.isFinite(a.cents) ? a.cents.toFixed(1) : '-');
 
-const MODE_LABEL = {OVER: 'DAY OVER', HIDDEN: 'PAUSE', ALARMS: 'HELD', 'RESPOND-CARD': 'HELD'};
+/**
+ * Q-64, Q-73: a sim input's answer in the briefing (but AGC/HAND) and in the night roll (app/game.js
+ * sendInput, redispatch). Help, so blue: the shell's toast is its one answer, and the views draw
+ * no refusal for it (isLock).
+ */
+export const BRIEF_LOCK = 'Take the desk first: Enter.',
+  NIGHT_LOCK = 'The night shift has the desk: it stands down what the night does not need. Your day is scored at 04:00.';
+export const isLock = r => r === BRIEF_LOCK || r === NIGHT_LOCK;
+
+const MODE_LABEL = {OVER: 'DAY OVER', HIDDEN: 'PAUSE', ALARMS: 'HELD', 'RESPOND-CARD': 'HELD', OFFER: 'SYNC'};
 
 /**
  * The rate badge (F-5: the mode and the rate are always visible): the D-2 segment and its target
  * rate in CRUISE and NIGHT ('PEAK 150×', HAND 'PEAK 75×', 'NIGHT ROLL 2,100×'; Q-78), 'FAST 1,620×',
- * 'RESTORE 30×', 'WATCH T+1.23 s ×0.15', 'HELD 0× · Enter' (the RESPOND card), 'HELD 0× · Esc' (the
- * alarm panel, Q-46), 'PAUSE 0×', 'DAY OVER'. The bench's modes have no segment: 'CRUISE 120×'.
+ * 'RESTORE 30×', 'SYNC 30×' (a scope offer), 'WATCH T+1.23 s ×0.15', 'HELD 0× · Enter' (the RESPOND
+ * card), 'HELD 0× · Esc' (the alarm panel, Q-46), 'PAUSE 0×', 'DAY OVER'. The bench's modes have no
+ * segment: 'CRUISE 120×'.
  * @param {{mode:string, rate:number, watchS:number, segment?:string}} m director.modeOf()
  */
 export function badgeText(m) {
@@ -107,10 +117,16 @@ export function badgeText(m) {
   return label + ' ' + rateText(m.rate);
 }
 
-/** The act of the day in words (D-1, Q-78): the badge's title. modeOf().act 1-4; '' before 04:30. */
-export const ACT_TITLES = ['', 'Act I, the morning ramp: the city wakes and demand climbs', 'Act II, the belly: rooftop solar floods in',
-  'Act III, neck and peak: the sun sets as demand peaks', 'The night roll: the night shift runs the grid to 04:00'];
-export const badgeTitle = m => ACT_TITLES[m.act] || '';
+// The act of the day in words (D-1, Q-78), by modeOf().act (1-4; 0 before 04:30); the night shift's only with modeOf().night.
+const ACT_TITLES = ['', 'Act I, the morning ramp: the city wakes and demand climbs', 'Act II, the belly: rooftop solar floods in',
+  'Act III, neck and peak: the sun sets as demand peaks', 'The night roll: the clock runs on to 04:00'];
+/** What the badge is (next.html's title before the first frame). */
+export const BADGE_HELP = 'Mode and playback rate (grid seconds per real second). Click or Space: pause / run';
+/** The badge's title: the act, then BADGE_HELP. */
+export const badgeTitle = m => {
+  const a = m.night ? 'The night roll: the night shift runs the grid to 04:00' : ACT_TITLES[m.act];
+  return (a ? a + '. ' : '') + BADGE_HELP;
+};
 
 /**
  * One event-log line for a step() record, or null for records the log leaves out (a
