@@ -3,7 +3,7 @@
 // Contract: desk/README.md §32.12 content/anchors.js.
 
 export const ANCHORS = Object.freeze([
-  {game: 'rate-badge', rows: ['Compressed playback.', 'RESTORE runs at 30× at each hand-back.']},
+  {game: 'rate-badge', rows: ['Compressed playback.', 'RESTORE slows the clock at each hand-back.']},
   {game: 'tray', rows: ['Event-dense day.', 'MSL3 = 1,000 MW, with MSL2 and MSL1 300 and 600 MW above it', 'Warning leads are game-sized.']},
   {game: 'bay-sync', rows: ['Compressed synchroscope.', 'Auto-sync takes 4 grid-minutes', 'An offered SYNC runs at 30×.']},
   {game: 'stack', rows: ['Pre-dispatch is computed once, at 04:30', 'Cost-based offers; scarcity adder.',
@@ -29,5 +29,5 @@ export const ANCHORS = Object.freeze([
   {game: 'chip-allin', rows: ['The score divides par\'s ALL-IN by yours']}, // Q-48
   {game: 'night-strip', rows: ['The night shift runs 21:00–04:00.']}, // 2c (desk/README.md §32.2)
   {game: 'chip-hand', rows: ['HAND turns AGC off until 21:00.']},
-  {game: 'briefing-watch', rows: ['Act I\'s constraints are announced at 04:00.', 'Every daily is solvable.']},
+  {game: 'briefing-watch', rows: ['Act I\'s constraints are announced at 04:00.', 'Every gate-checked daily is solvable.']},
 ].map(a => Object.freeze({game: a.game, rows: Object.freeze(a.rows)})));

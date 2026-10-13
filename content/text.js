@@ -110,7 +110,8 @@ const ABSTRACTIONS = [
       'runs every grid second, at every speed, so speed changes what you see, never what happens. The game\'s day follows a profile, ' +
       SEGMENTS.map(x => x.name + ' ' + num(x.rate) + '×').join(', ') + ', easing over ' + num(V.CLOCK_EASE_REAL_S) + ' real s between ' +
       'them: ' + num(dayReal(false)) + ' real s from ' + hhmm(V.PLAYER_START_H) + ' to ' + hhmm(V.DAY_START_H) + ' (' + num(dayReal(true)) +
-      ' in HAND, which multiplies every speed before ' + hhmm(NIGHT_H) + ' by ' + num(V.HAND_RATE_FACTOR) + '). The first ' + num(V.WATCH_S) +
+      ' in HAND, which multiplies the profile\'s speeds before ' + hhmm(NIGHT_H) + ' by ' + num(V.HAND_RATE_FACTOR) + ', CRUISE and FAST with ' +
+      'them; the watch, RESPOND, RESTORE and SYNC keep their speeds). The first ' + num(V.WATCH_S) +
       ' grid-seconds after a trip play live at ' + rates.join(' → ') + ' (the watch); its card holds the clock; RESPOND runs ' +
       num(RESPOND_RATE) + '× until frequency is back in band, for at most ' + minutes(RESPOND_MAX_S) + ' grid-minutes; FAST runs ' +
       num(FAST_FACTOR) + ' × the profile. The bench cruises at a flat ' + num(FLAT_RATE) + '×. Pause is free.',
@@ -120,14 +121,15 @@ const ABSTRACTIONS = [
   {
     id: 'event-dense-day', row: 'Event-dense day.', anchorId: 'event-log', game: 'tray',
     real: 'Credible unit and link trips are rare: an operator sees a few a year, not one or two a shift. After a ' +
-      'protection trip a unit returns in hours to weeks, depending on the fault and the inspection.',
+      'protection trip a unit returns in hours to weeks, depending on the fault and the inspection. Thermal plant trips more ' +
+      'often in extreme heat.',
     ours: 'The game\'s day is designed by an event director. Act I opens with a warned constraint and, on ' + pct(a1.task.p) + '% of days, ' +
       'two feeders to restore. Act II has one belly crisis: without a heatwave, a cloud front over the suburbs (' + pct(a2.mix.front) +
       '% of those days), a trip of the largest unit (' + pct(a2.mix.unit) + '%), the smelter (' + pct(a2.mix.smelter) + '%) or the tie (' +
       pct(a2.mix.tie) + '%); under one, a unit, the smelter or the tie. Act III has one: a heatwave on ' + pct(DESK.weather.heatShare) +
       '% of days, a storm on ' + pct(DESK.weather.stormShare) + '%, a wind drought on ' + pct(DESK.weather.droughtShare) + '%, otherwise a ' +
-      'calm evening; every evening but a storm\'s also has an unwarned trip of the largest unit, ' + hhmm(a3.trip.windowH[0]) + '–' +
-      hhmm(a3.trip.windowH[1]) + ', and a storm may trip the tie. At most two unwarned trips a day, none before ' + hhmm(a2.windowH[0]) +
+      'calm evening; most evenings without a storm also bring an unwarned trip of the largest unit, and a storm may trip the tie. ' +
+      'At most two unwarned trips a day, none before ' + hhmm(a2.windowH[0]) +
       ' or from ' + hhmm(NIGHT_H) + ', at least ' + num(V.SPACING_REAL_S) + ' real s and ' + minutes(V.SPACING_GRID_S) + ' grid-minutes ' +
       'apart. A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min (' +
       minutes(V.HOT_TRIP_LOCKOUT_S) + ' min after an overheat trip), then may hot-start at once: minimum down time (' + num(coal.minDownH) +
@@ -150,7 +152,7 @@ const ABSTRACTIONS = [
       'checked (§8.3).',
     ours: 'In AGC mode a machine at full speed closes its own breaker ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes later ' +
       '(tunable ' + minutes(autoSyncRange[0]) + '–' + minutes(autoSyncRange[1]) + '); SYNC closes it sooner. In HAND every ' +
-      'close is manual.',
+      'close is manual until ' + hhmm(NIGHT_H) + ', when the night shift takes the desk on AGC.',
     why: 'It makes SYNC worth doing: a clean manual close brings the unit on sooner.',
     params: ['AUTO_SYNC_S'],
   },
@@ -171,13 +173,14 @@ const ABSTRACTIONS = [
     real: 'AEMO re-runs pre-dispatch every 30 minutes and its dispatch engine re-dispatches every unit every 5 minutes; ' +
       'an operator does not move each generator by hand.',
     ours: 'Par takes at most one discrete action per ' + num(V.PAR_ACTION_GAP_REAL_S) + ' real seconds of the reference ' +
-      'playback, and after each one it re-dispatches every lever and the tie from then to 04:00 over the units it has, ' +
+      'playback until ' + hhmm(NIGHT_H) + ' (from then, as the night shift, one per ' + minutes(V.NIGHT_ACTION_S) + ' grid-minutes), ' +
+      'and after each one it re-dispatches every lever and the tie from then to 04:00 over the units it has, ' +
       'without spending another action. It starts from the ' + hhmm(V.PLAYER_START_H) + ' plan without its planned stops ' +
       '(it stops units by its own rule). On the desk, RE-DISPATCH gives you the same re-dispatch (on the bench, RE-PLAN ' +
       'under ASSIST PLAN).',
     why: 'Par stands for a good operator who keeps the plan current; dragging every layer by hand is not the skill being ' +
       'graded.',
-    params: ['PAR_ACTION_GAP_REAL_S', 'PLAYER_START_H'],
+    params: ['PAR_ACTION_GAP_REAL_S', 'PLAYER_START_H', 'NIGHT_ACTION_S'],
   },
   {
     id: 're-dispatch', row: 'RE-DISPATCH re-runs the pre-dispatch on demand.', anchorId: 'btn-redispatch', ui: 'drawer',
@@ -185,8 +188,9 @@ const ABSTRACTIONS = [
     real: 'AEMO re-runs pre-dispatch every 30 minutes, and its dispatch engine (NEMDE) moves every committed unit every 5 ' +
       'minutes; operators decide commitment, reserves, the interconnector and emergencies, not each base point.',
     ours: 'RE-DISPATCH, a key on the desk, re-runs the ' + hhmm(V.PLAYER_START_H) + ' pre-dispatch from now to 04:00 over the ' +
-      'units you have committed now, and every lever glides to the new plan. It is refused during the watch and before ' +
-      hhmm(V.PLAYER_START_H) + '. Par makes the same re-dispatch after each of its actions, without spending one.',
+      'units you have committed now, and every lever glides to the new plan. It is refused during the watch, before ' +
+      hhmm(V.PLAYER_START_H) + ' and from ' + hhmm(NIGHT_H) + ' (the night shift has the desk). Par makes the same re-dispatch ' +
+      'after each of its actions, without spending one.',
     why: 'The plan coming together is something you cause: commit a unit on the stack, press RE-DISPATCH, and the desk ' +
       're-arranges itself.',
     params: ['PLAYER_START_H'],
@@ -200,7 +204,7 @@ const ABSTRACTIONS = [
     ours: 'UNDER FREQ and OVER FREQ are warnings with one chime, set outside the normal band (' + hz(V.NORMAL_LO_HZ) + '–' +
       hz(V.NORMAL_HI_HZ) + ' Hz). While frequency is outside the containment band (' + hz(V.CONTAIN_LO_HZ) + '–' +
       hz(V.CONTAIN_HI_HZ) + ' Hz) the same tile is escalated: it shows as top priority and sounds the horn every ' +
-      num(HORN_REPEAT_S) + ' s until SILENCE or ACK.',
+      num(HORN_REPEAT_S) + ' s until SILENCE or ACK. In the night roll (from ' + hhmm(NIGHT_H) + ') the horn and the chimes are quiet.',
     why: 'One tile per quantity fits a twelve-tile panel, and the horn is kept for real trouble.',
     params: ['NORMAL_LO_HZ', 'NORMAL_HI_HZ', 'CONTAIN_LO_HZ', 'CONTAIN_HI_HZ'],
   },
@@ -654,7 +658,9 @@ const ABSTRACTIONS = [
     params: ['VER'],
   },
   {
-    id: 'reliability-indices', row: 'SAIDI, SAIFI and MAIFI count the shedding you cause, per household, in grid-minutes',
+    // (2c, Q-69: a repaired feeder left open counts too; the row is renamed at stage C, with app/endcard.js RELIABILITY_ROW)
+    id: 'reliability-indices', row: 'SAIDI, SAIFI and MAIFI count the outages you cause, per household, in grid-minutes', specPending: true,
+    replaces: 'SAIDI, SAIFI and MAIFI count the shedding you cause, per household, in grid-minutes',
     anchorId: 'reliability-indices', ui: 'drawer', game: 'drawer',
     real: 'The AER\'s Distribution Reliability Measures Guideline: an interruption longer than 3 minutes is sustained, 3 ' +
       'minutes or less momentary. SAIDI is the minutes of sustained interruption per customer, SAIFI their number per ' +
@@ -679,8 +685,9 @@ const ABSTRACTIONS = [
     real: 'Control rooms hand over between shifts, and overnight the generators stand their own units down through the market; ' +
       'the operator watches, and directs only when it must.',
     ours: 'From ' + hhmm(NIGHT_H) + ' on the game\'s day the night shift has the desk, on AGC whichever mode you flew. From the ' +
-      hhmm(NIGHT_H) + ' state alone, par\'s own rules stand down the units the night does not need (keeping any stop you booked), stand ' +
-      'down the reserve diesel and relight dark districts as the permissive allows, one action per ' + minutes(V.NIGHT_ACTION_S) +
+      hhmm(NIGHT_H) + ' state alone, par\'s own rules start the units the night needs and stand down those it does not (keeping any ' +
+      'stop you booked), call demand response when short, stand down the reserve diesel and relight dark districts as the ' +
+      'permissive allows, one action per ' + minutes(V.NIGHT_ACTION_S) +
       ' grid-minutes. The clock plays the night at ' + num(NIGHT.rate) + '× (' + num(nightReal) + ' real s); a trip in it is logged, with ' +
       'no watch or card. Presses that would move the grid are refused with a blue note; views, pause, ACK and the volume still work. ' +
       'The plan bar counts SUPPLY, OUTAGES, CARBON, ALL-IN and SCORE up to ' + hhmm(V.DAY_START_H) + '.',
@@ -693,9 +700,10 @@ const ABSTRACTIONS = [
     id: 'hand-mode', row: 'HAND turns AGC off until 21:00.', specPending: true, anchorId: 'hand-mode', ui: 'drawer', game: 'chip-hand',
     real: 'No NEM region flies without AGC: automatic generation control trims the units every few seconds, day and night.',
     ours: 'Chosen at the briefing (the card\'s HAND, or the desk\'s AGC key), HAND locks at ' + hhmm(V.PLAYER_START_H) + ': until ' +
-      hhmm(NIGHT_H) + ' AGC trims no unit, so frequency rests on the governors, the battery and the levers you move, and every speed ' +
-      'of the clock is multiplied by ' + num(V.HAND_RATE_FACTOR) + ' (' + num(dayReal(true)) + ' real s for the day instead of ' +
-      num(dayReal(false)) + '). At ' + hhmm(NIGHT_H) + ' the night shift takes the desk on AGC; the end card tags the day HAND-FLOWN.',
+      hhmm(NIGHT_H) + ' AGC trims no unit, so frequency rests on the governors, the battery and the levers you move, and the profile\'s ' +
+      'speeds (CRUISE, and FAST with it) are multiplied by ' + num(V.HAND_RATE_FACTOR) + ' (' + num(dayReal(true)) + ' real s for the day ' +
+      'instead of ' + num(dayReal(false)) + '); the watch, RESPOND, RESTORE and SYNC keep their speeds. At ' + hhmm(NIGHT_H) +
+      ' the night shift takes the desk on AGC; the end card tags the day HAND-FLOWN.',
     why: 'A harder way to fly the same day, labelled as a game mode; the handover keeps the night the same for everyone.',
     params: ['HAND_RATE_FACTOR', 'PLAYER_START_H', 'REF_PROFILE'],
   },
@@ -713,7 +721,7 @@ const ABSTRACTIONS = [
     params: [],
   },
   {
-    id: 'gated-dailies', row: 'Every daily is solvable.', specPending: true, anchorId: 'gated-dailies', ui: 'drawer', game: 'briefing-watch',
+    id: 'gated-dailies', row: 'Every gate-checked daily is solvable.', specPending: true, anchorId: 'gated-dailies', ui: 'drawer', game: 'briefing-watch',
     real: 'Real grids promise nothing of the kind: on some days the plant and the network cannot meet demand, and load is shed ' +
       'whatever the operator does.',
     ours: 'Before a date ships, par plays it: the date passes only if the most the fleet, the tie and the air-con cycles could ' +
@@ -750,7 +758,7 @@ const ABSTRACTIONS = [
     params: ['SECURE_AGAIN_S', 'R5_WINDOW_MIN'],
   },
   {
-    id: 'restore-pace', row: 'RESTORE runs at 30× at each hand-back.', specPending: true, anchorId: 'restore-pace', ui: 'drawer',
+    id: 'restore-pace', row: 'RESTORE slows the clock at each hand-back.', specPending: true, anchorId: 'restore-pace', ui: 'drawer',
     game: 'rate-badge',
     real: 'A network hands a repaired feeder back and the control room closes it within minutes; nobody slows time to do it.',
     ours: 'When a feeder under repair may be closed (at its hand-back, and no sooner than ' + minutes(V.RESTORE_INTERVAL_S) +
@@ -771,16 +779,6 @@ const ABSTRACTIONS = [
       ' real s): the badge reads SYNC. O opens the scope; the breaker closing ends it. FAST waits for it.',
     why: 'At the profile\'s speeds an offer lived under half a real second: the synchroscope moment needs time to be seen and taken.',
     params: ['AUTO_SYNC_S'],
-  },
-  {
-    id: 'heat-evening-trip', row: 'Heatwave days keep an evening trip.', specPending: true, anchorId: 'heat-evening-trip', ui: 'drawer',
-    game: 'drawer',
-    real: 'Thermal plant is more likely to trip in extreme heat, but a trip on any one evening is still unusual.',
-    ours: 'On a heatwave day the event director also draws the calm evening\'s unwarned trip of the largest online machine, ' +
-      hhmm(a3.trip.windowH[0]) + '–' + hhmm(a3.trip.windowH[1]) + ', under the same spacing rules as every trip.',
-    why: 'Without it nothing on a heatwave day asked for an answer after mid-afternoon; heat makes a trip plausible, and the ' +
-      'hardest day keeps its peak moment.',
-    params: [],
   },
 ];
 
