@@ -2,28 +2,31 @@
 // 04:00, composed from its kind and the public obs (heat 'heatwave 13:20–19:50', tie 'tie import ≤ 500 MW
 // until 10:00', outage 'CCGT 2 out until 07:45', network 'RED5, RED6 feeders back 06:45, 07:05'), each
 // <= 8 words and <= 30 in all (D-3); a daily outside the gate-checked list says so (Q-75). Q-80: the day's
-// line reads the heat from the 04:00 news. D-7 / Q-64: the header's HAND chip, amber with its word.
+// line reads the heat from the 04:00 news. D-7 / Q-64: the header's HAND chip, amber with its word. And
+// the shell's other 2c faces (§32.11's hand-offs): the badge's RESTORE, OFFER and NIGHT looks, each with its
+// word; the live region on a new D-2 segment (with the act's words on a new act); a toast that lives
+// max(3 s, 0.3 s a word).
 //
 // Headless (CLAUDE.md): the shell alone on next.html (no desk, map or stack), booted at 04:00; the chip's
 // states are set on the state (the sim's own flags), never played to.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {bootGame, watchFor, watchForText, NOT_GATED, dayText, HAND_CHIP} from '../app/shell.js';
+import {bootGame, watchFor, watchForText, NOT_GATED, dayText, HAND_CHIP, createLive, liveFrame, LIVE_GAP_MS, TOAST_MS, TOAST_WORD_MS} from '../app/shell.js';
 import * as G from '../app/game.js';
 import {createState, observe} from '../sim/step.js';
 import {CLASSIC} from '../content/scenarios.js';
-import {clockText} from '../render/format.js';
+import {clockText, badgeText, NIGHT_LOCK} from '../render/format.js';
 import {makeDocument} from './lib/dom.js';
 
 const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
 const words = s => s.trim().split(/\s+/).length;
 const hm = s => clockText(s, false);
 
-/** The shell alone on next.html, a date's seed through the page's own daily and scenario (Q-75). */
-function boot(seed) {
+/** The shell alone on next.html, a date's seed through the page's own daily and scenario (Q-75); `clock.t` is its page time. */
+function boot(seed, clock = {t: 0}) {
   const doc = makeDocument(NEXT);
-  const h = bootGame(doc, {search: '?seed=' + seed, scenario: G.scenarioForSeed, storage: null, audioWin: {}, raf: false, now: () => 0});
+  const h = bootGame(doc, {search: '?seed=' + seed, scenario: G.scenarioForSeed, storage: null, audioWin: {}, raf: false, now: () => clock.t});
   h.frame(1 / 60);
   return {doc, h, game: h.game, $: id => doc.getElementById(id)};
 }
@@ -95,5 +98,49 @@ test('D-7 / Q-64: the header\'s HAND chip: HAND (amber, with the word) from obs.
   st.control.handFlown = false;
   frame();
   assert.equal(chip.hidden, true, 'an AGC day after the flip: no chip');
+  assert.deepEqual(b.h.mods.errors, []);
+});
+
+test('§32.11: the badge has a look for RESTORE, OFFER and NIGHT, each with its word (K-22: never colour alone)', () => {
+  for (const m of ['RESTORE', 'OFFER', 'NIGHT']) assert.match(NEXT, new RegExp('#rate-badge\\.' + m + '[ ,][^{]*\\{'), m + ' has a look');
+  assert.deepEqual([badgeText({mode: 'RESTORE', rate: 30}), badgeText({mode: 'OFFER', rate: 30}), badgeText({mode: 'NIGHT', rate: 2100, segment: 'NIGHT ROLL'})],
+    ['RESTORE 30×', 'SYNC 30×', 'NIGHT ROLL 2,100×'], 'and its word');
+  assert.match(readFileSync(new URL('../app/shell.js', import.meta.url), 'utf8'), /badge\.className = m\.mode;/, 'the class is the mode');
+});
+
+test('K-23 (§32.11): the live region names a new D-2 segment, the act\'s words first on a new act, the segment before a badge that lacks it', () => {
+  const mk = (mode, segment, act, rate, night = false) => ({obs: {tick: 100, f: {hz: 50}, sec: {level: 'SECURE'}},
+    mode: {mode, rate, watchS: -1, segment, act, night}, alarms: {tiles: []}, tray: {cards: []}});
+  const L = createLive();
+  let t = 0;
+  const say = v => liveFrame(L, v, t += LIVE_GAP_MS);
+  assert.equal(say(mk('CRUISE', 'MIDDAY SOLAR', 2, 300)), null, 'the first frame only takes note');
+  assert.equal(say(mk('CRUISE', 'MIDDAY SOLAR', 2, 300)), null, 'nothing new');
+  assert.equal(say(mk('CRUISE', 'EVENING RAMP', 3, 240)), 'Act III, neck and peak: the sun sets as demand peaks. EVENING RAMP 240×');
+  assert.equal(say(mk('CRUISE', 'PEAK', 3, 150)), 'PEAK 150×');
+  assert.equal(say(mk('FAST', 'PEAK', 3, 450)), 'FAST 450×', 'a mode alone: its badge');
+  assert.equal(say(mk('FAST', 'PEAK EASING', 3, 900)), 'PEAK EASING, FAST 900×');
+  assert.equal(say(mk('WATCH', 'PEAK EASING', 3, 0.15)), 'WATCH');
+  assert.equal(say(mk('WATCH', 'PEAK EASING', 3, 1)), null, 'the watch is said once');
+  assert.equal(say(mk('NIGHT', 'NIGHT ROLL', 4, 2100, true)), 'The night roll: the night shift runs the grid to 04:00. NIGHT ROLL 2,100×');
+});
+
+test('§32.11: a toast lives max(3 s, 0.3 s a word): the briefing\'s answer and the night lock\'s stay up long enough to read', () => {
+  const clock = {t: 1000}, b = boot(20261005, clock), toast = b.$('toast');
+  const shownAt = ms => { clock.t = ms; b.h.frame(1 / 60); return !toast.hidden; };
+  const life = () => Math.max(TOAST_MS, TOAST_WORD_MS * toast.textContent.split(/\s+/).length);
+  b.h.actions.ui({do: 'pause'});   // the briefing's answer to Space (blue)
+  assert.equal(toast.textContent, 'Take the desk first: Enter. Then Space runs the clock.');
+  let ms = life();
+  assert.equal(ms, 3000, '10 words: the 3-s floor');
+  assert.deepEqual([shownAt(1000 + ms - 50), shownAt(1000 + ms + 50)], [true, false]);
+  b.$('btn-take').click();
+  b.game.director.paused = true; b.game.state.control.nightShift = true;   // (the night shift's desk, the clock held)
+  clock.t = 10000;
+  b.h.actions.input({type: 'tie', mw: 0});
+  assert.deepEqual([toast.className, toast.textContent], ['info', NIGHT_LOCK]);
+  ms = life();
+  assert.ok(ms === 300 * NIGHT_LOCK.split(' ').length && ms > 6000, ms + ' ms: 0.3 s a word');
+  assert.deepEqual([shownAt(10000 + ms - 50), shownAt(10000 + ms + 50)], [true, false]);
   assert.deepEqual(b.h.mods.errors, []);
 });
