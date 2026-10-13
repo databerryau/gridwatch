@@ -46,7 +46,8 @@
   #rate-badge { font: 700 12px var(--mono); padding: 2px 8px; border-radius: 4px; background: #1f6feb22; border: 1px solid var(--blue);
     color: var(--bright); min-width: 170px; text-align: center; cursor: pointer; }
   #rate-badge.WATCH, #rate-badge.RESPOND-CARD { background: #d2992233; border-color: var(--amber); }
-  #rate-badge.RESPOND, #rate-badge.FOCUS, #rate-badge.RESTORE, #rate-badge.OFFER { background: #a371f722; border-color: var(--violet); }
+  #rate-badge.RESPOND, #rate-badge.FOCUS, #rate-badge.OFFER { background: #a371f722; border-color: var(--violet); }
+  #rate-badge.FEEDER-CARD { background: #1f6feb44; border-color: var(--blue); }
   #rate-badge.FAST { background: #3fb95022; border-color: var(--green); }
   #rate-badge.NIGHT { background: #0b1020; border-color: var(--dim); color: var(--dim); }
   #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER, #rate-badge.ALARMS { background: #6e768133; border-color: var(--faint); }
@@ -109,6 +110,17 @@
   @media (max-height: 659px) { #respond-card { top: calc(var(--hdr) + 8px); } }
   #respond-card p { font: 13px/1.4 var(--mono); color: var(--bright); }
   #respond-card p.hint { color: var(--amber); }
+  /* Q-91: a hand-back holds the clock: over the map (never the desk's Live Stack or bay); with the stack out (L), over the levers */
+  #feeder-card { top: calc(var(--hdr) + 60px); width: 560px; border-color: var(--blue); cursor: pointer; }
+  @media (max-height: 659px) { #feeder-card { top: calc(var(--hdr) + 8px); } }
+  body.stack-out #feeder-card { top: auto; bottom: 8px; left: 8px; transform: none; }
+  #feeder-card p.what { font: 600 14px/1.4 system-ui, sans-serif; color: var(--bright); }
+  #feeder-card p.hint { font: 700 13px var(--mono); color: var(--blue); }
+  #feeder-card p.on { color: var(--dim); font-size: 11px; }
+  #feeder-card p.why { color: var(--red); font-weight: 600; }
+  #feeder-card p.why.lamp { color: var(--amber); font-weight: 400; }
+  #feeder-card .row { display: flex; gap: 8px; margin-top: 8px; }
+  #feeder-card button { font-weight: 700; padding: 4px 14px; border-color: var(--blue); color: var(--blue); }
   #briefing-card { top: calc(var(--hdr) + 40px); width: 520px; }
   #briefing-card .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   #briefing-card .take { font-weight: 700; padding: 6px 16px; border-color: var(--blue); }
@@ -186,6 +198,7 @@
 <div id="stack-overlay" hidden></div>
 <div id="watch-vignette" hidden><div id="stopwatch" aria-hidden="true">T+0.00 s ×0.15</div><div id="beat-caption" aria-live="polite"></div><div id="beat-steps" aria-hidden="true"></div></div>
 <div id="respond-card" class="card" role="dialog" aria-label="What happened" hidden></div>
+<div id="feeder-card" class="card" role="dialog" aria-live="polite" aria-label="A repaired feeder: R or Enter restores it, Esc goes on. A click on the card goes to its CLOSE in the RESTORE bay" title="A click on the card goes to its CLOSE in the RESTORE bay" hidden></div>
 <div id="briefing-card" class="card" role="dialog" aria-label="Briefing" hidden>
   <h2>Tonight's desk</h2>
   <p id="briefing-text">You decide which power stations run, and when. The dispatch system sets how hard each running unit works; you start more before the city needs them, and stop them when it does not. A coal unit takes two hours to reach the grid, a gas turbine ten minutes.</p>

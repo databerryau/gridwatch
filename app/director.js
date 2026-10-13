@@ -64,13 +64,14 @@ export function createDirector(opts) {
     skipN: -1,                // contingency n whose watch is being skipped
     game: !!o.game,            // FAST / RESPOND-CARD / RESPOND / FOCUS and the compact watch
     fast: false, fastN: -1,    // F held; the contingency count when it was pressed (a new one ends it)
-    seen: Object.assign({watch: false, ufls: false, rocof: false, restore: false}, o.seen || {}),
+    seen: Object.assign({watch: false, ufls: false, rocof: false}, o.seen || {}),
     versionN: -1, version: 'full', upgraded: false, // the watch version chosen for contingency versionN
     cardDoneN: -1,             // latest contingency n whose respond card was dismissed
     cardAtTick: -1,            // tick the latest card was dismissed (RESPOND runs from it)
     focusUntilTick: -1,        // FOCUS after a restore input until this tick
     offers: {},                // OFFER: {an offered unit's index: the tick its window ends}
-    rw: null,                  // RESTORE's windows (restoring)
+    rw: null,                  // the dark task feeders' allowed seconds (windows)
+    fc: {},                    // FEEDER-CARD: {district id: the allowed second its card was answered at; Infinity once left by Esc}
     seenDirty: false,          // seen changed: the game saves it
   };
 }
@@ -122,7 +123,7 @@ function focusing(d, state) {
   const sc = state.scope;
   return (sc !== undefined && sc !== null && sc.unit !== '' && sc.unit !== undefined) || state.tick < d.focusUntilTick;
 }
-// Q-70: the dark task feeders' [i, clearS, allowed second], flat, kept per log length (§32.12 RESTORE)
+// The dark task feeders' [i, clearS, allowed second], flat, kept per log length (§32.12 FEEDER-CARD)
 function windows(d, state) {
   const ds = state.city.districts, n = state.log ? state.log.length : -1, w = d.rw;
   let ok = !!w && n >= 0 && w.ds === ds && w.len === ds.length && w.n === n;
@@ -133,14 +134,22 @@ function windows(d, state) {
   d.rw = {ds, len: ds.length, n, at};
   return at;
 }
-// Q-70: RESTORE's rate in a task feeder's window, else 0
-function restoring(d, state) {
-  const s = state.tick / TPS;
-  if (!d.game || s >= NIGHT_S) return 0;
-  const at = windows(d, state);
-  for (let j = 2; j < at.length; j += 3) if (s >= at[j] && s < at[j] + V.RESTORE_PACE_MAX_S) return d.seen.restore ? V.RESTORE_PACE_RATE : V.RESTORE_FIRST_RATE;
-  return 0;
+// Q-91: the district index whose feeder card is due (from the tick after its allowed second's, so that
+// second's step has handed the feeder back first, until it is restored or answered at that second;
+// never once left by Esc, nor from 21:00), the earliest allowed first; else -1
+function feederDue(d, state) {
+  const t = state.tick;
+  if (!d.game || t >= NIGHT_S * TPS || night(state)) return -1;
+  const at = windows(d, state), ds = state.city.districts;
+  let best = -1, bestA = Infinity;
+  for (let j = 0; j < at.length; j += 3) {
+    const a = at[j + 2], done = d.fc[ds[at[j]].id];
+    if (t > a * TPS && a < bestA && done !== a && done !== Infinity) { best = at[j]; bestA = a; }
+  }
+  return best;
 }
+// the card shows: due, past any watch and the respond card (it waits for them)
+const feederOn = (d, state) => (watching(state) || cardOpen(d, state) ? -1 : feederDue(d, state));
 // K-12: any offered unit still at full speed, each for at most AUTO_SYNC_S from its own offer (a window
 // ends when its unit leaves full speed); none once the night shift has the desk (Q-73)
 function offering(d, state) {
@@ -181,10 +190,8 @@ export function rateOf(d, state) {
     return cruise(d, state);
   }
   if (!d.game) return d.speed;
-  if (cardOpen(d, state)) return 0;
+  if (cardOpen(d, state) || feederDue(d, state) >= 0) return 0;
   if (focusing(d, state)) return FOCUS_RATE;
-  const r = restoring(d, state);
-  if (r) return r;
   if (responding(d, state)) return RESPOND_RATE;
   if (offering(d, state)) return OFFER_RATE;
   return (fastNow(d, state) && !night(state) ? FAST_FACTOR : 1) * cruise(d, state);
@@ -206,7 +213,7 @@ export function rateOfLastTick(d, state) {
 
 /**
  * What the rate badge shows (F-5: the rate is always visible).
- * @returns {{mode:'OVER'|'HIDDEN'|'ALARMS'|'PAUSE'|'WATCH'|'RESPOND-CARD'|'FOCUS'|'RESTORE'|'RESPOND'|'OFFER'|'NIGHT'|'FAST'|'CRUISE'|'DEBUG',
+ * @returns {{mode:'OVER'|'HIDDEN'|'ALARMS'|'PAUSE'|'WATCH'|'RESPOND-CARD'|'FEEDER-CARD'|'FOCUS'|'RESPOND'|'OFFER'|'NIGHT'|'FAST'|'CRUISE'|'DEBUG',
  *   rate:number, watchS:number, locked:boolean, watchVersion:'full'|'compact'|null}} (+ canSkip, below; segment, act, night: §32.4.8)
  *   rate: rateOf's, but the segment's target in CRUISE, NIGHT and FAST (Q-63);
  *   watchS: grid seconds since the contingency (-1 outside a watch); locked: desk locked (K-15);
@@ -232,8 +239,8 @@ export function modeOf(d, state) {
   if (!g) return r(d.speed === FLAT_RATE ? 'CRUISE' : 'DEBUG');
   if (c) return t('CRUISE'); // a skipped watch plays at CRUISE
   if (cardOpen(d, state)) return r('RESPOND-CARD');
+  if (feederDue(d, state) >= 0) return r('FEEDER-CARD');
   if (focusing(d, state)) return r('FOCUS');
-  if (restoring(d, state)) return r('RESTORE');
   if (responding(d, state)) return r('RESPOND');
   if (offering(d, state)) return r('OFFER');
   if (n) return t('NIGHT');
@@ -241,7 +248,7 @@ export function modeOf(d, state) {
 }
 
 // FAST is refused in these, and ends when one comes (Q-63)
-const NO_FAST = /^(WATCH|RESPOND-CARD|RESPOND|FOCUS|ALARMS|RESTORE|OFFER|NIGHT)$/;
+const NO_FAST = /^(WATCH|RESPOND-CARD|FEEDER-CARD|RESPOND|FOCUS|ALARMS|OFFER|NIGHT)$/;
 
 /**
  * Once per frame (game): FAST ends in a NO_FAST mode; a watch that has ended marks what it
@@ -315,10 +322,30 @@ export function dismissCard(d, state) {
   return true;
 }
 
-/** A restore input was accepted: FOCUS (1x) for RESTORE_FOCUS_S grid s; true when it set seen.restore (Q-70: save it). */
-export function focusRestore(d, state, id) {
+/** A restore input was accepted: FOCUS (1x) for RESTORE_FOCUS_S grid s. */
+export function focusRestore(d, state) {
   d.focusUntilTick = state.tick + RESTORE_FOCUS_S * TPS;
-  const x = id && state.city.districts.find(y => y.id === id);
-  if (!x || x.clearS < 0 || d.seen.restore) return false;
-  return d.seenDirty = d.seen.restore = true;
+}
+
+/**
+ * Q-91: the district id of the feeder card due ('' when none is due past the watch and the respond
+ * card). It ignores PAUSE, ALARMS and a hidden tab: the page shows the card only in FEEDER-CARD
+ * (buildVm's vm.feeder), and app/game.js answers only the card shown (shownFeeder).
+ */
+export function feederCard(d, state) {
+  const i = state.over ? -1 : feederOn(d, state);
+  return i < 0 ? '' : state.city.districts[i].id;
+}
+
+/**
+ * Q-91: answer the feeder card of district `id` while it is the one shown (feederCard's): Esc goes
+ * on (`leave`: never held again), any other desk input dismisses it for this allowed second (a later
+ * one, after another restore, holds again). The restore of its own feeder ends it by relighting it.
+ * Returns true if that card was shown.
+ */
+export function answerFeeder(d, state, id, leave) {
+  if (!id || feederCard(d, state) !== id) return false;
+  const at = d.rw.at, ds = state.city.districts;
+  for (let j = 0; j < at.length; j += 3) if (ds[at[j]].id === id) d.fc[id] = leave ? Infinity : at[j + 2];
+  return true;
 }

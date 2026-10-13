@@ -1,5 +1,5 @@
-// Slice 2c stage C, the app's fix pass (desk/README.md §32.10; the integrator's hand-offs): RESTORE's
-// windows kept per input-log length (app/director.js), the night's READY card (app/tray.js), the night
+// Slice 2c stage C, the app's fix pass (desk/README.md §32.10; the integrator's hand-offs): the feeder cards'
+// allowed seconds kept per input-log length (app/director.js), the night's READY card (app/tray.js), the night
 // lock's words (render/format.js), the HAND chip in tests/lib/play.js look(), a held line's action
 // (app/game.js heldLine), the part of the day as a figure in steady() (app/objective.js masked), a unit
 // whose minimum down time outlasts its outage (app/objective.js startable, app/planview.js), vm.offers
@@ -28,7 +28,7 @@ const TPS = V.TICKS_PER_S, START = V.PLAYER_START_S;
 const secOf = (h, m = 0) => (h - V.DAY_START_H) * V.S_PER_H + m * 60;
 const at = s => clockText(s, false);
 
-// ------------------------------------------------------------------ 1. RESTORE's windows, kept
+// ------------------------------------------------------------------ 1. the feeder cards' allowed seconds, kept
 
 // A state with only what the director reads, with or without an input log.
 const fake = (log, s = START) => ({tick: s * TPS, over: false, contIdx: -1, conts: [], scope: {unit: ''}, units: [], log,
@@ -36,29 +36,30 @@ const fake = (log, s = START) => ({tick: s * TPS, over: false, contIdx: -1, cont
   city: {districts: [{id: 'T0', clearS: 9900, dark: true, shedBy: 'task', restoredAtS: -1}, {id: 'T1', clearS: 11700, dark: true, shedBy: 'task', restoredAtS: -1},
     {id: 'X', clearS: -1, dark: true, shedBy: 'ufls', restoredAtS: -1}]}});
 
-test('Q-70 (stage C): RESTORE\'s windows are kept on the director per input-log length and play exactly as read afresh, a logged restore of any district re-arming them; a poked clearS is seen at once', () => {
-  const kept = fake([]), fresh = fake(undefined), dk = D.createDirector({game: true, paused: false, seen: {restore: true}}), df = D.createDirector({game: true, paused: false, seen: {restore: true}});
-  // T1 closed at 07:16:00.4, the UFLS district X at 07:40:00.2 (each a logged input on the kept state)
+test('Q-91 (stage C): the feeders\' allowed seconds are kept on the director per input-log length and hold exactly as read afresh, a logged restore of any district re-arming them; a poked clearS is seen at once', () => {
+  const kept = fake([]), fresh = fake(undefined), dk = D.createDirector({game: true, paused: false}), df = D.createDirector({game: true, paused: false});
+  // T1 closed at 07:16:00.4, the UFLS district X at 07:40:00.2 (each a logged input on the kept state); each card answered by another input
   const rs = [{t: 11760.4, id: 'T1'}, {t: 3 * 3600 + 40 * 60 + 0.2, id: 'X'}];
-  let k = 0, restore = 0, logs = new Set();
+  let k = 0, cards = 0, logs = new Set();
   for (let t = START * TPS; t < 5 * 3600 * TPS; t += 10) {
     for (; k < rs.length && rs[k].t * TPS <= t; k++) {
       for (const st of [kept, fresh]) Object.assign(st.city.districts.find(x => x.id === rs[k].id), {dark: false, shedBy: null, restoredAtS: Math.floor(rs[k].t)});
       kept.log.push({tick: t, type: 'restore', args: {district: rs[k].id}});
     }
     kept.tick = fresh.tick = t;
-    const m = D.modeOf(dk, kept).mode;
-    assert.equal(m, D.modeOf(df, fresh).mode, 'at ' + (t / TPS) + ' grid s');
-    if (m === 'RESTORE') restore++;
+    const m = D.modeOf(dk, kept).mode, id = D.feederCard(dk, kept);
+    assert.deepEqual([m, id], [D.modeOf(df, fresh).mode, D.feederCard(df, fresh)], 'at ' + (t / TPS) + ' grid s');
+    if (m === 'FEEDER-CARD') { cards++; D.answerFeeder(dk, kept, id, false); D.answerFeeder(df, fresh, id, false); }
     logs.add(dk.rw.n);
   }
-  assert.ok(restore > 0 && dk.rw.ds === kept.city.districts && df.rw.n === -1, 'kept for the logged state, read afresh for the other');
+  assert.ok(cards === 4 && dk.rw.ds === kept.city.districts && df.rw.n === -1, 'kept for the logged state, read afresh for the other: ' + cards + ' cards');
   assert.deepEqual([...logs], [0, 1, 2], 'one set of windows per log length');
-  // a hand-back moved to now on the kept state (a test's poke, no input): RESTORE at once
+  // a hand-back moved to now on the kept state (a test's poke, no input): the card from the next tick
   const st = fake([], secOf(5)), d = D.createDirector({game: true, paused: false});
   assert.equal(D.modeOf(d, st).mode, 'CRUISE');
   st.city.districts[0].clearS = secOf(5);
-  assert.deepEqual([D.modeOf(d, st).mode, D.rateOf(d, st)], ['RESTORE', V.RESTORE_FIRST_RATE]);
+  st.tick++;                                                   // (from the tick after its second's own: the sim's step hands it back there)
+  assert.deepEqual([D.modeOf(d, st).mode, D.rateOf(d, st), D.feederCard(d, st)], ['FEEDER-CARD', 0, 'T0']);
 });
 
 // ------------------------------------------------------------------ 3. the night's READY card

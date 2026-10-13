@@ -201,6 +201,22 @@ export function respondCard(obs, c, o) {
   };
 }
 
+/** Q-91: the feeder card's keys, and what going on means. */
+export const FEEDER_KEYS = 'R or Enter: restore it now · Esc: go on', FEEDER_ON = 'Gone on, it stays dark and is yours: the RESTORE bay still has it.';
+
+/**
+ * Q-91: the feeder card at a hand-back (the clock holds): the feeder, its suburb (from `suburbs`, the
+ * scenario's) and its pickup with its cold load, to the 10 MW; `why`: a refused restore's reason;
+ * `lamp`: before any press, why a restore would be refused now (the bay's RESTORE PREVIEW), or ''.
+ * @returns {{id:string, mw:number, text:string, keys:string, on:string, why:string, lamp:string}}
+ */
+export function feederCard(obs, id, suburbs, why, lamp) {
+  const x = obs.districts.find(d => d.id === id), sub = x && (suburbs || []).find(s => s.id === x.suburb);
+  const pick = x ? Math.round(x.coldLoadMW / 10) * 10 : 0;
+  return {id, mw: pick, text: id + '\'s feeder' + (sub ? ' in ' + sub.name : '') + ' is repaired: about ' + pick + ' MW with its cold load.',
+    keys: FEEDER_KEYS, on: FEEDER_ON, why: why || '', lamp: why ? '' : lamp || ''};
+}
+
 /**
  * The glow set without the Live Stack's planview (fallback until app/planview.js is wired):
  * the START guard of each machine that is off, startable, and can reach MIN before the secure

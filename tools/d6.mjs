@@ -3,7 +3,7 @@
 // (tests/lib/play.js openGame: next.html booted with every real module, the page's system in
 // 'player' mode, the director, the objective line, the tray and the annunciator), one input log
 // played three ways, and the three end-of-day hashState values compared:
-//   cruise   the clock at 1x: the D-2 profile as the director plays it (watches, cards, RESTORE...)
+//   cruise   the clock at 1x: the D-2 profile as the director plays it (watches, cards, feeder cards...)
 //   fast     F held throughout: F pressed again at the first grid second it is not FAST but could be
 //            (CRUISE), whatever released it (a ringing card, an alarm, a trip)
 //   pauses   N seeded random pauses (Space, 1-30 drawn frames, Space), at grid times drawn
@@ -22,13 +22,14 @@
 // the tick par sent each one (game.beforeTick, the hook app/game.js calls before every tick). The
 // page's system dispatches for the player, so its day is not par's and some inputs are refused:
 // the same ones in every run, which is the point (the accepted counts are printed and compared).
-// Every RESPOND card is dismissed (Enter) the frame it is shown.
+// Every RESPOND card is dismissed (Enter) the frame it is shown, and every feeder card (Q-91) gone on
+// from (Esc), so the log stays par's: its restores come at par's ticks.
 // Flags: --pauses N (default 50) | --rng N (the pauses' seed, default 7) | --first (a first-time
-// player: storage empty, so the full watch and RESTORE at 10x; default a returning player's storage,
-// seen.watch and seen.restore) | --line=near (the objective line only near each jump's target: faster,
-// and the line never feeds the sim) | --help.
+// player: storage empty, so the full watch; default a returning player's storage, seen.watch) |
+// --line=near (the objective line only near each jump's target: faster, and the line never feeds the
+// sim) | --help.
 // Prints, per run: the end hash, the inputs accepted, the real seconds from Space, the cards
-// dismissed, the share of the day's grid seconds at FAST (fast run) or the pauses taken; then MATCH
+// dismissed (feeder cards after the +), the share of the day's grid seconds at FAST (fast run) or the pauses taken; then MATCH
 // or DIFFER (with the first grid hour whose hourly hash differs; exit code 1).
 
 import {readFileSync} from 'node:fs';
@@ -72,11 +73,11 @@ function lcg(s) { return () => (s = (s * 1103515245 + 12345) % 2147483648) / 214
 /** One run: a fresh page, the log by tick, played to 04:00 with `each` asked once a grid second. */
 function run(name, o = {}) {
   const a = performance.now();
-  const mem = new Map(first ? [] : [[G.SEEN_KEY, JSON.stringify({watch: true, restore: true})]]);
+  const mem = new Map(first ? [] : [[G.SEEN_KEY, JSON.stringify({watch: true})]]);
   const storage = {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v))};
   const p = openGame({seed, storage});
   const game = p.game;
-  let k = 0, accepted = 0, cards = 0;
+  let k = 0, accepted = 0, cards = 0, feeders = 0;
   game.beforeTick = g => {
     for (; k < LOG.length && LOG[k].tick <= g.state.tick; k++) if (p.h.actions.input(LOG[k].input) === '') accepted++;
   };
@@ -87,6 +88,7 @@ function run(name, o = {}) {
       const r = p.to(toS, {stop, line});
       if (r.why === 'target' || r.why === 'over') return;
       if (r.why === 'held:RESPOND-CARD') { cards++; p.key('Enter'); continue; }
+      if (r.why === 'held:FEEDER-CARD') { feeders++; p.key('Escape'); continue; }
       throw new Error(name + ': the jump stopped (' + r.why + ') at ' + r.at);
     }
     throw new Error(name + ': no end');
@@ -100,7 +102,7 @@ function run(name, o = {}) {
   }
   playTo(DAY_S);
   if (!game.state.over) throw new Error(name + ': the day did not end (' + p.clock() + ')');
-  return {name, hash: hashState(game.state), hourly: game.hashes.slice(), accepted, cards, realS: (p.now - p.spaceMs) / 1000,
+  return {name, hash: hashState(game.state), hourly: game.hashes.slice(), accepted, cards, feeders, realS: (p.now - p.spaceMs) / 1000,
     ms: Math.round(performance.now() - a), refusedLast: game.refusal};
 }
 
@@ -123,7 +125,7 @@ for (const r of runs) {
   const extra = r.F ? ' · FAST ' + r.F.fast + ' of ' + (r.F.fast + r.F.cruise) + ' grid s it could be (' + (100 * r.F.fast / Math.max(1, r.F.fast + r.F.cruise)).toFixed(1) +
     '%), F pressed ' + r.F.presses + 'x' : r.taken !== undefined ? ' · ' + r.taken + ' of ' + nPauses + ' pauses taken' : '';
   console.log(r.name.padEnd(7) + ' hash ' + r.hash + ' · inputs accepted ' + r.accepted + ' of ' + LOG.length + ' · ' + r.realS.toFixed(1) +
-    ' real s from Space · cards ' + r.cards + extra + ' · ' + r.ms + ' ms');
+    ' real s from Space · cards ' + r.cards + '+' + r.feeders + extra + ' · ' + r.ms + ' ms');
 }
 const same = runs.every(r => r.hash === runs[0].hash && r.accepted === runs[0].accepted);
 if (same) console.log('MATCH: one end-of-day hashState (' + runs[0].hash + ') from all three runs');

@@ -613,7 +613,7 @@ market.js): `heldMWh` += G0 x `city.heldFrac` x the second, so `unservedMWh + he
 customer's load; `taskMWh` only from each feeder's `clearS`. **One clean predicate:** `market.isClean(score, black)` = not black and `uflsMWh +
 directedMWh === 0` (D-9's gate (2), S-7's Hard-day trigger, every tool's clean day);
 `market.isPerfect(score, black)` = `isClean` and `taskLateMWh === 0` (S-6's PERFECT); `market.restoreAllowedS(districts, d)`, the
-second a task feeder may be closed (Q-69, Q-70; §11 market.js).
+second a task feeder may be closed, where its feeder card holds the clock (Q-69, Q-91; §11 market.js).
 
 ### conts[] (contingency records; K-15 watch, K-16 respond card, D-21 moment)
 
@@ -1885,7 +1885,7 @@ blocks alone exceed it, on the floor; the automatic cut never moves it (P-5).
   latest `restoredAtS` of any district (while d is dark) or the latest before d's own `restoredAtS`
   (once d is lit: the second it might have been closed at its last close); none: -DAY_S, as
   `city.lastRestoreS` starts. It reads only `districts[].{dark, clearS, restoredAtS}`, so it gives the
-  same on `state.city.districts` and on `observe().districts`: Q-70's RESTORE pace (the director, wave
+  same on `state.city.districts` and on `observe().districts`: Q-91's feeder card (the director, wave
   2 clock) and par's mirror (wave 2 par; autopilot cannot import market.js, S-4, so it copies this
   rule from obs) read it from there. Only a restore input writes `restoredAtS` (and
   `lastRestoreS`, at the same second), so while d is dark it is exactly the permissive's interval.
@@ -1894,9 +1894,9 @@ blocks alone exceed it, on the floor; the automatic cut never moves it (P-5).
   (the second's allowed second is the first's restore + the interval).
 - The split weights skip a dark task feeder with `clearS > t` (held: none of its energy is in the
   second's unserved). A dark task feeder handed back is `taskMWh`, and its part is also
-  `taskLateMWh` once t >= its allowed second + `RESTORE_PACE_MAX_S` (Q-70's RESTORE pace starts at
-  the allowed second: a feeder closed inside the pace books no late MWh). A task feeder closed at
-  the tick ending t (`restoredAtS` t + 1, the boundary input before the settle) was dark through t
+  `taskLateMWh` once t >= its allowed second + `RESTORE_PACE_MAX_S` (S-6's PERFECT window starts at
+  the allowed second, where Q-91's card holds the clock: a feeder closed inside the window books no
+  late MWh). A task feeder closed at the tick ending t (`restoredAtS` t + 1, the boundary input before the settle) was dark through t
   and counts in t's weights as a dark one, so its closing second is judged late with the rest.
 - With nothing dark at the end of t (a restore landed inside it), the energy goes by the districts
   relit in t (`restoredAtS` t or t + 1): a task feeder's share (its darkness began before its
@@ -1945,7 +1945,7 @@ resource cost of serving"):
 `preDispatch(obs) -> plan` (with `plan.load`, its planLoad input), `planUpdates(obs, memo, tags?,
 opts?) -> Input[]`, `createAutopilot(opts) -> memo`, `decide(obs, memo) -> Input[]` (<= 1),
 `replan(obs, memo) -> planLoad|null` (the player's RE-PLAN / RE-DISPATCH), `refRealSeconds(fromS,
-toS, conts, clears = [])` (`clears`: Q-70's RESTORE segments, 2c), `nightMemo(obs) -> memo` (2c,
+toS, conts, holds = [])` (`holds`: Q-91's feeder cards, `[{atS, realS}]`, 2c), `nightMemo(obs) -> memo` (2c,
 Q-73: the night shift's memory), `runPar(seed,
 scenario, opts) -> {score, summary, log, origins, hashes, black, plan, state, memo}`, and (2b)
 `aimFlex(fc, lv, id, lever) -> atS | -1`, the pure aim of desk/README.md
@@ -1975,7 +1975,8 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
   keeping the booked STOPs.
 * **Discrete actions** (`decide`, origin `'rule1'..'rule9'`): S-4 rules 1-8 in order, plus
   rule 9 (restore, §12; asked first while a task feeder's RESTORE window is open, 2c Q-88), at most one per `PAR_ACTION_GAP_REAL_S` of `refRealSeconds` (D-2
-  profile, unwrapped hours, plus each contingency's watch, respond card and RESPOND segment),
+  profile, unwrapped hours, plus each contingency's watch, respond card and RESPOND segment, and
+  each feeder card's hold, 2c Q-91),
   never in a watch, never before 04:30. Tuning pass: rule 8 is an adequacy walk (firm units
   and tie at their real limits plus an energy-limited pool of water, DR hours and battery
   energy above its reserve; arm only on a shortfall the 20-min lead can reach, or earlier when
@@ -2090,8 +2091,8 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
     notice, no suburb.
   * `tools/par.js` rows: `soakDays`, `airconDays` (1 when any block of that lever was booked),
     `soakMWh`, `reliefMWh` (the booked cores' energy) and `flexDollars` (`score.cost.flex`).
-* **The day's constraints and the night** (2c, wave 2 `par`; desk/README.md §32.7.1, Q-68-Q-70,
-  Q-73). Neutral on CLASSIC: no district has a `clearS`, the tie has no limit, no unit an outage,
+* **The day's constraints and the night** (2c, wave 2 `par`; desk/README.md §32.7.1, Q-68-Q-69,
+  Q-73, Q-91). Neutral on CLASSIC: no district has a `clearS`, the tie has no limit, no unit an outage,
   and `night` is false, so classic par is bit-identical (`tests/baseline-v4.test.js`).
   * *The announced return* (Q-69, `sim/dark.js`): a task feeder still held (`shedBy` `'task'`,
     `clearS` ahead of `obs.s`) counts lit in every column at or after its `clearS` (`litColumns`
@@ -2113,16 +2114,22 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
     under repair until HH:MM", so par closes it at the first decision the permissive allows.
   * *Restore first* (Q-88, stage C): while a task feeder's RESTORE window is open (`restoreWindow`:
     dark, `shedBy 'task'`, from its allowed second until it is closed or `RESTORE_PACE_MAX_S`
-    later, none from `NIGHT_S`: `app/director.js restoring()`'s rule, read from obs) every proxy
-    that runs rule 9 asks it first (`RESTORE_ORDER`), as a player following the glowing bay
-    would; outside it rule 9 keeps its place. Rule 9 still picks by its own order (a UFLS stage
-    first) and the permissive still holds it back; a rule 9 that wants nothing passes to rule 1.
-    Classic has no task feeders, so its order never changes. Measured before: par closed DESK seed
-    4's HAR3 24 grid-min late and competent HAR4 42 (`tests/restore-first.test.js`).
-  * *RESTORE segments* (Q-70): par's pace (`decide`) passes `restoreSegs(obs)` to `refRealSeconds`:
-    for each task feeder, from its allowed second (`allowedS`: `market.restoreAllowedS`'s rule,
-    copied because S-4 forbids importing market) until it is closed, at most `RESTORE_PACE_MAX_S`,
-    at `RESTORE_PACE_RATE`; a watch wins over it. A feeder dark again later by UFLS has no segment.
+    later, S-6's PERFECT window, none from `NIGHT_S`, read from obs) every proxy that runs rule 9
+    asks it first (`RESTORE_ORDER`), as a player at the feeder card would; outside it rule 9 keeps
+    its place. Rule 9 still picks by its own order (a UFLS stage first) and the permissive still
+    holds it back; a rule 9 that wants nothing passes to rule 1. Classic has no task feeders, so
+    its order never changes. Measured before: par closed DESK seed 4's HAR3 24 grid-min late and
+    competent HAR4 42 (`tests/restore-first.test.js`).
+  * *Feeder cards* (Q-91, in place of Q-70's 30× RESTORE segments): par's pace (`decide`) passes
+    `feederHolds(obs, realS)` to `refRealSeconds`: for each task feeder (not dark again by UFLS or
+    direction), a hold of `realS` real s at zero grid time at its allowed second (`allowedS`:
+    `market.restoreAllowedS`'s rule, copied because S-4 forbids importing market; the latest one,
+    so a hand-back re-armed by another restore counts once), none from `NIGHT_S`, as the page's
+    card holds the clock there (app/director.js FEEDER-CARD). `realS` is `holdOf(proxy)`:
+    `REF_RESPOND_CARD_S` (the slow proxy's `cardS`), and never less than the proxy's own pace,
+    since on the held clock a player takes the time they need: so every proxy closes a feeder at
+    the first decision at or after its allowed second that the permissive allows (par's 3 real s
+    are its gap; competent's 6).
   * *The night shift* (Q-73): `nightMemo(obs)` builds, from one observation with `dayAhead`, a
     memory for the `night` proxy (all rules, one action per `NIGHT_ACTION_S` grid-s instead of the
     S-4 real-time pace, the booked STOPs kept by every re-dispatch), a `preDispatch` plan whose own
@@ -2153,11 +2160,12 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
 * **Proxies** (`opts.proxy`): `par`; `planOnly` (the plan, nothing else: the L-0 accept);
   `doNothing` (no input at all: F-3); `lean` (plan + rules 1, 2, 7, 8, 9); `competent` (plan +
   rules 1-9 at `PROXY_COMPETENT_GAP_REAL_S`: H-1(b), F-3, K-8); `slow` (2c, desk/README.md §32.10,
-  F-8: competent, but it sees each task feeder `PROXY_SLOW_RESTORE_REAL_S` 15 real s of
-  `refRealSeconds` after its allowed second, the RESTORE pace and any watch counted: rule 9 skips
-  the feeder until then, and is asked first from then until it is closed; at the morning ramp's
-  270× that is the pace's 300 grid-s plus 1,350, so `RESTORE_PACE_MAX_S` 600 would bring it to
-  450); `commitAll` (S-11: START every
+  Q-91: competent, but each feeder card holds the clock `PROXY_SLOW_RESTORE_REAL_S` 15 real s, its
+  `cardS`: the 15 s pass on the held clock, so it closes each feeder when competent does; under
+  Q-70's pace it saw each one 15 real s of `refRealSeconds` late and scored a median 656 against
+  991). Since `holdOf` is at least each proxy's own gap, `slow` equals `competent` **by
+  construction**: it is now a regression guard (a card never makes a proxy late), not a measure
+  of Q-91; the page's hold itself is tested in `tests/feeder-card.test.js`; `commitAll` (S-11: START every
   offline machine at tick 0 in one batch, bypassing pace and the 04:30 start, then par without
   rule 4); `fuzz` (private hash of the seed, never the sim's streams); `night` (2c: `nightMemo`'s, all
   rules at `NIGHT_ACTION_S`, STOPs kept; the player proxies become it at 21:00 on a `night` scenario).
@@ -2279,7 +2287,7 @@ How par edits its plan (SPEC S-4 and §8.2):
 The S-4 pace applies to every discrete action; at the reference playback's night roll
 (2,100x) that is one action per ~105 grid-minutes, so restores after a late shed are slow.
 (2c: on a `night` scenario the night memo takes over at 21:00 at one action per NIGHT_ACTION_S
-grid-s, and par's pace counts the RESTORE segments of Q-70; see "The day's constraints and the
+grid-s, and par's pace counts the feeder cards of Q-91; see "The day's constraints and the
 night" above.)
 
 Phase 2a, the belly (SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §25):

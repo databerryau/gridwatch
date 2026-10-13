@@ -402,7 +402,7 @@ function splitShed(state, sc, shedMWh, t) {
   }
 }
 
-/** Q-69, Q-70: the second district d may be closed (state's or observe()'s districts; sim/README.md §11 market.js). */
+/** Q-69, Q-91: the second district d may be closed (state's or observe()'s districts; sim/README.md §11 market.js). */
 export function restoreAllowedS(ds, d) {
   const x = ds[d], end = x.dark ? Infinity : x.restoredAtS;
   let p = -1;

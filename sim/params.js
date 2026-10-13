@@ -493,9 +493,7 @@ export const P = {
   CLOCK_EASE_REAL_S: simp(2, 'real s', 'Q-62: each interior profile boundary eases over 2 real s'),
   CLOCK_SEGMENT_NAMES: simp(['PRE-DAWN', 'MORNING RAMP', 'SOLAR RISING', 'MIDDAY SOLAR', 'EVENING RAMP', 'PEAK',
     'PEAK EASING', 'NIGHT ROLL'], 'names', 'Q-78: the badge\'s words, one per REF_PROFILE segment'),
-  RESTORE_PACE_RATE: simp(30, 'grid-s per real-s', 'Q-70: RESTORE plays 30x at each hand-back'),
-  RESTORE_FIRST_RATE: simp(10, 'grid-s per real-s', 'Q-70: 10x until this browser has closed a task feeder'),
-  RESTORE_PACE_MAX_S: simp(300, 's', 'Q-70 / S-6: RESTORE lasts at most 5 grid-min; PERFECT\'s pace'),
+  RESTORE_PACE_MAX_S: simp(300, 's', 'Q-69 / S-6: PERFECT closes a hand-back within 5 grid-min'),
   LEAD_REAL_S: simp(26, 'real s', 'Q-71 / D-8(d): 25 real s of warning plus a 1-s margin'),
   SPACING_REAL_S: simp(90, 'real s', 'Q-72 / D-8(c): unwarned contingencies >= 90 real s apart'),
   SPACING_GRID_S: simp(3600, 's', 'Q-72: and >= 60 grid-min apart (none inside a RESPOND window)'),
@@ -510,7 +508,7 @@ export const P = {
   CLOCK_SEARCH_S: simp(1e-6, 's', 'clock.js: the step inverses search from this close (numerical)'),
   FRONT_READ_SD: simp(3, 'sd', 'Q-79: the forecast reads a place as clearing this far above frontMu'),
   PAR_NIGHT_STOP_GUARD_MW: simp(200, 'MW', 'Q-73: at night rule 4 stops a unit with the trip preview at or below PAR_NADIR_RELAX_HZ only while the GUARD can still rise this much, sustained (a gas unit\'s stop cost the preview about 0.3 Hz)'),
-  PROXY_SLOW_RESTORE_REAL_S: simp(15, 'real s', '§32.10 / F-8: the slow proxy closes a task feeder 15 real s late'),
+  PROXY_SLOW_RESTORE_REAL_S: simp(15, 'real s', '§32.10 / Q-91: the slow proxy holds each feeder card 15 real s'),
   // ---- phase 2c "the day" block: end
 };
 

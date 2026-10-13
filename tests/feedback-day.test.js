@@ -7,9 +7,9 @@
 // Headless and sampled (CLAUDE.md, tests/lib/play.js): one game on DESK 20261007, whose 04:00 brings both
 // the feeders under repair (RED7 06:45, RED5 07:15) and the late return (CCGT 2 until 07:45), with a
 // returning player's storage; each press is press()/pressKey() (a look before, on the press frame and one
-// frame after). Then RED7 closed at its hand-back (R, Enter) and Enter at the day's first RESPOND card, the keys
-// still on the RESTORE rows (K-16: it closes the card, never RED5's breaker). The jumps are in before() hooks:
-// the card, then the night by tests/feedback.test.js's card loop to 21:00:01.
+// frame after). Then RED7 closed at its feeder card (R, Q-91), RED5's card gone on from (Esc), and Enter at the
+// day's first RESPOND card, the keys still on the RESTORE rows (K-16: it closes the card, never RED5's breaker).
+// The jumps are in before() hooks: the card, then the night by tests/feedback.test.js's card loop to 21:00:01.
 import {test, describe, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {openGame, diffLooks} from './lib/play.js';
@@ -19,7 +19,7 @@ import {NIGHT_LOCK} from '../render/format.js';
 import {preroll, prerollRegime} from '../sim/dayplan.js';
 
 const SEED = 20261007, A = 1 / 60;
-const mem = new Map([[G.SEEN_KEY, JSON.stringify({watch: true, restore: true})]]);
+const mem = new Map([[G.SEEN_KEY, JSON.stringify({watch: true})]]);
 const storage = {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v))};
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -77,15 +77,18 @@ describe('the first RESPOND card', () => {
   before(() => {
     const p = S.p;
     p.key(' ');   // the clock runs (the desk opens held at 04:30)
-    p.to('06:45:01', {stop: [], line: 'near'});
-    p.key('r'); p.key('Enter');   // RED7's hand-back: R, then Enter, as its card says
+    S.held = p.to('06:45:01', {stop: [], line: 'near'}).why;   // RED7's hand-back holds the clock on its card (Q-91)
+    p.key('r');   // R, as its card says: RED7 restored
     S.restored = restores();
+    S.red5 = p.until('card', {max: '21:00', line: 'near'}).at;   // RED5's card: Esc goes on (it stays dark)
+    p.key('Escape');
+    p.key('r');   // the bay's R: the keys on the RESTORE rows, RED5 waiting there
     S.card = p.until('card', {max: '21:00', line: 'near'});   // the day's first trip (18:00:30), RED5 still open
   });
 
   test('K-16: Enter at a RESPOND card closes it, though the keys are still on the RESTORE rows (it never closes a breaker as well)', () => {
     const p = S.p;
-    assert.deepEqual([S.restored, S.card.why], [['RED7'], 'card']);
+    assert.deepEqual([S.held, S.restored, S.red5, S.card.why, p.mode()], ['held:FEEDER-CARD', ['RED7'], '07:15:00', 'card', 'RESPOND-CARD']);
     assert.equal(p.doc.activeElement && p.doc.activeElement.id, 'restore-list', 'the keys are on the RESTORE rows, RED5 waiting there');
     answers(p, 'Enter', x => /^CARD /m.test(x.before) && !/^CARD /m.test(x.after), 'Enter at the card', true);
     assert.deepEqual(restores(), ['RED7'], 'Enter closed the card and nothing else');
@@ -96,7 +99,7 @@ describe('the first RESPOND card', () => {
 describe('the night roll', () => {
   before(() => {
     const p = S.p;
-    for (let i = 0; i < 8; i++) { const r = p.to('21:00:01', {stop: [], line: 'near'}); if (r.why !== 'held:RESPOND-CARD') break; p.key('Enter'); }
+    for (let i = 0; i < 8; i++) { const r = p.to('21:00:01', {stop: [], line: 'near'}); if (!/^held:(RESPOND|FEEDER)-CARD$/.test(r.why)) break; p.key(r.why === 'held:RESPOND-CARD' ? 'Enter' : 'Escape'); }
     assert.equal(p.clock(), '21:00:01');
   });
 

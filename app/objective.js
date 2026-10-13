@@ -414,7 +414,7 @@ export function objective(obs, ctx) {
   // 3-9. The first branch with something to do now; else the first critical one (the reserve diesel
   // on its way: said, but never in place of what the battery can do meanwhile); else the first with
   // something to say. A city line not yet due comes after both. At a hand-back with its lamp lit the
-  // feeder comes first (Q-70's RESTORE pace is for it) unless the desk is really short within instS.
+  // feeder comes first (Q-91's card holds the clock for it) unless the desk is really short within instS.
   const back = obs.districts.some(d => d.dark && d.shedBy === 'task' && !(d.clearS > s) && d.restoreBlock === '') && !(realShort(X).soonMW >= BATT_MIN_MW);
   let passive = null, crit = null, ask = null;
   for (const branch of [...(back ? [restore] : []), commitNow, shortAhead, aircon, restore, spare, pickupAhead, stop, battery, soak, commitLater]) {
@@ -860,7 +860,7 @@ function restore(X, line) {
   if (!dark.length) return null;
   const n = all.length + (all.length === 1 ? ' district is' : ' districts are') + ' dark' +
     (held.length ? ' (' + held.map(d => d.id).join(', ') + ' under repair until ' + held.map(d => at(d.clearS)).join(', ') + ')' : '');
-  // (desk/bay.js R: a feeder handed back first, the latest first: Q-70's RESTORE)
+  // (desk/bay.js R's choice: a feeder handed back first, the latest first; Q-91's card holds the clock for it)
   const lit = dark.filter(d => d.restoreBlock === ''), ok = lit.filter(d => d.shedBy === 'task').sort((a, b) => b.clearS - a.clearS)[0] || lit[0];
   if (ok) return line({level: 'act', kind: 'restore', text: n + ' and the permissive lamp is lit. Close a feeder: R, then Enter.', targets: ['bay-restore'], action: {type: 'restore', district: ok.id}, startBy: X.s});
   return line({level: 'plan', kind: 'restore', text: n + '. A feeder closes once frequency is steady and there is spare reserve to carry it.', targets: ['bay-restore', 'gauge-n1']});
@@ -963,7 +963,7 @@ function spare(X, line) {
 
 // 5b. Within PICKUP_AHEAD_S of a hand-back, no feeder yet the desk's: the spare to hold for its cold
 // load at its return (pickupMW, to the 10 MW: a few MW of drift moves it 10 MW, never a 50-MW step). Said after spare()'s own line, before commitLater's "Next";
-// the spare gauge glows, never the bay, whose tab is Q-70's cue at the hand-back (§31.8).
+// the spare gauge glows, never the bay, whose tab glows with Q-91's feeder card at the hand-back (§31.8).
 function pickupAhead(X, line) {
   const all = X.obs.districts.filter(d => d.dark);
   if (all.some(d => !heldAt(d, X.s))) return null;

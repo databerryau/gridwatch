@@ -3,7 +3,7 @@
 // Contract: desk/README.md §32.12 content/anchors.js.
 
 export const ANCHORS = Object.freeze([
-  {game: 'rate-badge', rows: ['Compressed playback.', 'RESTORE slows the clock at each hand-back.']},
+  {game: 'rate-badge', rows: ['Compressed playback.', 'The clock holds at each hand-back.']},
   {game: 'tray', rows: ['Event-dense day.', 'MSL3 = 1,000 MW, with MSL2 and MSL1 300 and 600 MW above it', 'Warning leads are game-sized.']},
   {game: 'bay-sync', rows: ['Compressed synchroscope.', 'Auto-sync takes 4 grid-minutes', 'An offered SYNC runs at 30×.']},
   {game: 'stack', rows: ['Pre-dispatch is computed once, at 04:30', 'Cost-based offers; scarcity adder.',

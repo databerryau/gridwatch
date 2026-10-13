@@ -82,11 +82,15 @@ test('Q-63: a warning issued in play is held to its onset while a newer informat
   assert.equal(tr.cards.length, 0, 'gone at its onset');
 });
 
-test('Q-70, Q-82: a feeder handed back rings and says what to press; a unit\'s return and the tie limit\'s end are information; onsets of a front or a drought tick', () => {
-  const one = r => { const tr = T.createTray(), cues = T.trayRecords(tr, [r]); return [cues, tr.cards[0]]; };
-  const [fc, clear] = one(rec('FEEDER_CLEAR'));
+test('Q-91, Q-82: a feeder handed back rings and says what to press, and its restore takes that card to the LOG; a unit\'s return and the tie limit\'s end are information; onsets of a front or a drought tick', () => {
+  const one = r => { const tr = T.createTray(), cues = T.trayRecords(tr, [r]); return [cues, tr.cards[0], tr]; };
+  const [fc, clear, tr] = one(rec('FEEDER_CLEAR'));
   assert.deepEqual([fc, clear.from, clear.sev, clear.button], [['ring2'], 'NETWORK', 'warn', {label: 'TO THE RESTORE BAY', target: 'bay-restore'}]);
-  assert.equal(clear.text, 'TAL3 feeder repaired and handed back: close its breaker (R, then Enter).');
+  assert.equal(clear.text, 'TAL3 feeder repaired and handed back: close its breaker (R or Enter at its card, or from the RESTORE bay).');
+  T.trayRecords(tr, [{tick: 1, kind: 'restore', district: 'TAL4', mw: 200}]);
+  assert.equal(tr.cards.length, 1, 'another district\'s restore leaves it');
+  assert.deepEqual([T.trayRecords(tr, [{tick: 2, kind: 'restore', district: 'TAL3', mw: 200}]), tr.cards.length, tr.log.map(c => c.text)], [[], 0, [clear.text]],
+    'closed: to the LOG, silently');
   const [uc, unit] = one(rec('UNIT_AVAILABLE'));
   assert.deepEqual([uc, unit.from, unit.sev, unit.button.target], [['tick'], 'STATION', 'info', 'lever-ccgt']);
   const [tc, tie] = one(rec('TIE_LIMIT_END'));
@@ -219,13 +223,13 @@ test('§32.11 (desk): held feeders never choose the bay\'s view; their rows read
   assert.deepEqual(m.a.inputs, [], 'nothing sent');
 });
 
-test('Q-70: at a hand-back the bay opens on RESTORE with that feeder chosen (REPAIRED), the tab glows while the clock plays RESTORE, and R chooses the feeder that can close', () => {
+test('Q-70, Q-91: at a hand-back the bay opens on RESTORE with that feeder chosen (REPAIRED), the tab glows while its feeder card holds the clock, and R chooses the feeder that can close', () => {
   const m = mount(DAY.back), {$} = m;
   const tal3 = DAY.back.districts.find(d => d.id === 'TAL3'), tal4 = DAY.back.districts.find(d => d.id === 'TAL4');
   assert.deepEqual([tal3.dark, tal3.clearS <= DAY.back.s, tal4.clearS > DAY.back.s], [true, true, true]);
   assert.equal($('restore-list').parentElement.hidden, false, 'RESTORE: a feeder is the player\'s now');
-  assert.deepEqual(['glow', 'lit'].map(c => $('bay-restore').classList.contains(c)), [false, true], 'lit: one is the player\'s; no glow out of the RESTORE pace');
-  m.up(1500, {mode: {mode: 'RESTORE', rate: 30, watchS: -1, locked: false, watchVersion: null}});
+  assert.deepEqual(['glow', 'lit'].map(c => $('bay-restore').classList.contains(c)), [false, true], 'lit: one is the player\'s; no glow without its card');
+  m.up(1500, {mode: {mode: 'FEEDER-CARD', rate: 0, watchS: -1, locked: false, watchVersion: null}, feeder: {id: 'TAL3'}});
   assert.equal($('bay-restore').classList.contains('glow'), true, 'the hand-back\'s moment');
   const names = () => $('restore-list').querySelectorAll('.dk-feeder-name').map(n => n.textContent);
   assert.deepEqual(names(), ['▸ TAL3 · REPAIRED', 'TAL4 · FAULT · BACK 07:00']);

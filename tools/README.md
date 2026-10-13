@@ -50,10 +50,11 @@ node tools/l2.mjs --scenario desk --seeds 1-100                 # L-2: the forec
 page (`tests/lib/play.js openGame`), par's discrete actions to 21:00 sent through the page's actions
 at par's ticks, played at the profile (1x), with F held throughout (pressed again whenever the
 director could play FAST and does not) and with 50 seeded random pauses; it prints the three
-end-of-day `hashState` values and MATCH or DIFFER (exit 1). `tools/par.js --proxy slow` is §32.10's
-'slow' proxy: competent, but each task feeder closed no earlier than 15 real s of par's reference
-playback after its allowed second (the RESTORE pace's 300 grid-s and then the profile). From stage
-C (Q-88) par and every proxy ask rule 9 first while a task feeder's RESTORE window is open.
+end-of-day `hashState` values and MATCH or DIFFER (exit 1); every feeder card is gone on from (Esc),
+so the log stays par's. `tools/par.js --proxy slow` is §32.10's 'slow' proxy: competent, but each
+feeder card holds the clock 15 real s (Q-91: the player reads it that long, at zero grid time, then
+restores). From stage C (Q-88) par and every proxy ask rule 9 first while a task feeder's RESTORE
+window is open (its allowed second to `RESTORE_PACE_MAX_S` later).
 `tools/l2.mjs --scenario desk-weekend` prints desk's numbers exactly, and rightly: the weekend's
 factor scales the forecast and the realised demand alike, and the errors and the band are in MW.
 

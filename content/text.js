@@ -111,8 +111,8 @@ const ABSTRACTIONS = [
       SEGMENTS.map(x => x.name + ' ' + num(x.rate) + '×').join(', ') + ', easing over ' + num(V.CLOCK_EASE_REAL_S) + ' real s between ' +
       'them: ' + num(dayReal(false)) + ' real s from ' + hhmm(V.PLAYER_START_H) + ' to ' + hhmm(V.DAY_START_H) + ' (' + num(dayReal(true)) +
       ' in HAND, which multiplies the profile\'s speeds before ' + hhmm(NIGHT_H) + ' by ' + num(V.HAND_RATE_FACTOR) + ', CRUISE and FAST with ' +
-      'them; the watch, RESPOND, RESTORE and SYNC keep their speeds). The first ' + num(V.WATCH_S) +
-      ' grid-seconds after a trip play live at ' + rates.join(' → ') + ' (the watch); its card holds the clock; RESPOND runs ' +
+      'them; the watch, RESPOND and SYNC keep their speeds). The first ' + num(V.WATCH_S) +
+      ' grid-seconds after a trip play live at ' + rates.join(' → ') + ' (the watch); its card holds the clock, as a repaired feeder\'s does; RESPOND runs ' +
       num(RESPOND_RATE) + '× until frequency is back in band, for at most ' + minutes(RESPOND_MAX_S) + ' grid-minutes; FAST runs ' +
       num(FAST_FACTOR) + ' × the profile. The bench cruises at a flat ' + num(FLAT_RATE) + '×. Pause is free.',
     why: 'A day in minutes with honest physics: slowest at the peak, where the decisions are, fastest in the night, where none are asked.',
@@ -702,7 +702,7 @@ const ABSTRACTIONS = [
     ours: 'Chosen at the briefing (the card\'s HAND, or the desk\'s AGC key), HAND locks at ' + hhmm(V.PLAYER_START_H) + ': until ' +
       hhmm(NIGHT_H) + ' AGC trims no unit, so frequency rests on the governors, the battery and the levers you move, and the profile\'s ' +
       'speeds (CRUISE, and FAST with it) are multiplied by ' + num(V.HAND_RATE_FACTOR) + ' (' + num(dayReal(true)) + ' real s for the day ' +
-      'instead of ' + num(dayReal(false)) + '); the watch, RESPOND, RESTORE and SYNC keep their speeds. At ' + hhmm(NIGHT_H) +
+      'instead of ' + num(dayReal(false)) + '); the watch, RESPOND and SYNC keep their speeds. At ' + hhmm(NIGHT_H) +
       ' the night shift takes the desk on AGC; the end card tags the day HAND-FLOWN.',
     why: 'A harder way to fly the same day, labelled as a game mode; the handover keeps the night the same for everyone.',
     params: ['HAND_RATE_FACTOR', 'PLAYER_START_H', 'REF_PROFILE'],
@@ -758,17 +758,21 @@ const ABSTRACTIONS = [
     params: ['SECURE_AGAIN_S', 'R5_WINDOW_MIN'],
   },
   {
-    id: 'restore-pace', row: 'RESTORE slows the clock at each hand-back.', specPending: true, anchorId: 'restore-pace', ui: 'drawer',
+    id: 'feeder-hold', row: 'The clock holds at each hand-back.', specPending: true, anchorId: 'feeder-hold', ui: 'drawer',
     game: 'rate-badge',
-    real: 'A network hands a repaired feeder back and the control room closes it within minutes; nobody slows time to do it.',
+    real: 'A network hands a repaired feeder back and the control room closes it within minutes; nobody stops time to do it.',
     ours: 'When a feeder under repair may be closed (at its hand-back, and no sooner than ' + minutes(V.RESTORE_INTERVAL_S) +
-      ' grid-minutes after the last restore) the clock slows to ' + num(V.RESTORE_PACE_RATE) + '× until it is closed, for at most ' +
-      minutes(V.RESTORE_PACE_MAX_S) + ' grid-minutes (' + num(V.RESTORE_PACE_MAX_S / V.RESTORE_PACE_RATE) + ' real s): the badge reads ' +
-      'RESTORE. Until this browser has closed one, it plays at ' + num(V.RESTORE_FIRST_RATE) + '× (' +
-      num(V.RESTORE_PACE_MAX_S / V.RESTORE_FIRST_RATE) + ' real s at most). FAST waits for it, and par\'s own playback slows the same way.',
-    why: 'At the profile\'s speeds one real second is minutes of a dark district: the pace makes the hand-back a moment to act ' +
-      'on, not a reflex test.',
-    params: ['RESTORE_INTERVAL_S', 'RESTORE_PACE_RATE', 'RESTORE_PACE_MAX_S', 'RESTORE_FIRST_RATE'],
+      ' grid-minutes after the last restore) the clock holds on a card that names it and its pickup with its cold load; the badge ' +
+      'reads HELD. R, Enter or the card\'s RESTORE restores it (refused, the card says why and stays; it warns you before you ' +
+      'press, too); Esc or GO ON goes on, and the feeder stays dark and is yours from its hand-back: the RESTORE bay and the line ' +
+      'still ask, and no card holds for it again. Any other press on the desk puts the card off and is applied: a later restore ' +
+      'that moves the feeder\'s allowed time brings it back. One card per feeder per allowed time, after a watch and its card, ' +
+      'none from ' + hhmm(NIGHT_H) + '. Closed within ' +
+      minutes(V.RESTORE_PACE_MAX_S) + ' grid-minutes of when it may be, the day can still be PERFECT. Par\'s reference playback counts ' +
+      'each card as ' + num(V.REF_RESPOND_CARD_S) + ' real s, as the respond card.',
+    why: 'At the profile\'s speeds one real second is minutes of a dark district: the held clock makes the hand-back a decision ' +
+      '(close it now, or go on), not a reflex test.',
+    params: ['RESTORE_INTERVAL_S', 'RESTORE_PACE_MAX_S', 'REF_RESPOND_CARD_S'],
   },
   {
     id: 'offer-pace', row: 'An offered SYNC runs at 30×.', specPending: true, anchorId: 'offer-pace', ui: 'drawer', game: 'bay-sync',

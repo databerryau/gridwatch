@@ -242,7 +242,7 @@ export function createBay(ctx, parent) {
   feeders.id = 'restore-list';
   feeders.setAttribute('aria-label', 'Dark districts: ←/→ choose, Enter closes the breaker');
   vRest.append(rhead, feeders);
-  let rows = new Map(), rowKey = '', sel = '', pvCache = new Map(), back = [];
+  let rows = new Map(), rowKey = '', sel = '', pvCache = new Map(), back = [], cardId = '';
   const held = d => d.shedBy === 'task' && d.clearS > vm.obs.s;
   const dark = () => vm.obs.districts.filter(d => d.dark).sort((a, b) => held(a) - held(b) || (held(a) ? a.clearS - b.clearS : 0));
   function previewOf(d) {
@@ -341,6 +341,7 @@ export function createBay(ctx, parent) {
     const b = o.districts.filter(d => d.dark && d.shedBy === 'task' && !held(d)).map(d => d.id);
     if (b.some(id => !back.includes(id))) { const s = o.districts.find(d => d.id === sel); if (!s || !s.dark || held(s)) sel = pick(); }
     back = b;
+    const fc = vm.feeder ? vm.feeder.id : ''; if (fc && fc !== cardId) sel = fc; cardId = fc; // (Q-91: the choice follows a feeder card as it shows)
     // Which view: the scope when open, else the player's choice, else RESTORE when districts are dark (not held, Q-69).
     if (scopeUnit()) view = 'sync';
     else if (!userView) view = mine > 0 && !o.units.some(u => u.mode === 'ready') ? 'restore' : 'sync';
@@ -359,7 +360,7 @@ export function createBay(ctx, parent) {
     setText(permit, lamp ? 'P ✓' : 'P ✕');
     setCls(permit, 'lit', lamp);
     setCls(tSync, 'glow', !!(vm.glow && vm.glow.has('bay-sync')));
-    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')) || !!(vm.mode && vm.mode.mode === 'RESTORE'));   // (Q-70)
+    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')) || !!vm.feeder);   // (Q-91: while a feeder card holds the clock)
     if (view === 'sync') renderSync(); else renderRestore();
   }
 

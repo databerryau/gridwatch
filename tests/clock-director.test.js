@@ -1,5 +1,5 @@
-// Slice 2c's clock on the page's side (desk/README.md §32.7.2; Q-62-Q-64, Q-70, Q-73, Q-78): the
-// rate director plays the D-2 profile (sim/clock.js), RESTORE at each hand-back, OFFER while a
+// Slice 2c's clock on the page's side (desk/README.md §32.7.2; Q-62-Q-64, Q-73, Q-78, Q-91): the
+// rate director plays the D-2 profile (sim/clock.js), a feeder card at each hand-back, OFFER while a
 // scope offer waits, NIGHT from the night shift, FAST refused and released, the badge, the line's
 // cadence and reading lead, the briefing's AGC/HAND as the sim's mode, the two locks (one blue
 // answer), and D-6's and D-4's accepts on a 2-h slice of a desk day with the system, the planview
@@ -19,7 +19,7 @@ import * as planview from '../app/planview.js';
 import {createPacer, runFrame} from '../app/loop.js';
 import {badgeText, badgeTitle, BADGE_HELP} from '../render/format.js';
 import {injectTrip} from './lib/sim-helpers.js';
-import {openGame, restoreSpans} from './lib/play.js';
+import {openGame, feederDue} from './lib/play.js';
 
 const TPS = V.TICKS_PER_S, START = V.PLAYER_START_S, H = 3600, NIGHT_T = NIGHT_S * TPS;
 const CLEARS = [9900, 11700]; // 06:45 and 07:15: two hand-backs on the morning ramp (270x)
@@ -33,12 +33,12 @@ const trip = (st, n = 0) => { st.conts.push({n, startTick: st.tick, watchEndTick
 const mode = (d, st) => D.modeOf(d, st).mode;
 const lines = (look, re) => look.split('\n').filter(l => re.test(l));
 
-// 04:30 to 04:00 through the page's loop at `hz` frames a real second: the real seconds it took (the
-// last frame may run past 04:00: within one frame).
-function day(st, d, hz) {
+// From st's tick to `end` (default 04:00) through the page's loop at `hz` frames a real second: the real
+// seconds it took (the last frame may run past the end: within one frame). `each()` before every frame (a card's answer).
+function day(st, d, hz, each, end = V.DAY_TICKS) {
   const p = createPacer(), h = {rate: () => D.rateOf(d, st), tick: () => { st.tick++; }};
   let frames = 0;
-  while (st.tick < V.DAY_TICKS) { runFrame(p, 1 / hz, h); frames++; }
+  while (st.tick < end) { if (each) each(); runFrame(p, 1 / hz, h); frames++; }
   return frames / hz;
 }
 
@@ -51,56 +51,78 @@ test('Q-62, Q-63: CRUISE plays the D-2 profile: 04:30 to 04:00 takes 245 real s 
   assert.ok(Math.abs(hand - 478) <= 3 && Math.abs(hand - realBetween(START, V.DAY_S, true)) < 0.05, 'HAND: ' + hand.toFixed(3) + ' real s');
 });
 
-test('Q-70: RESTORE at each hand-back, 30x (10x until this browser has closed a task feeder) until it is closed or 300 grid-s: two never closed add 17.78 real s', () => {
-  const ramp = 2 * (V.RESTORE_PACE_MAX_S / V.RESTORE_PACE_RATE - V.RESTORE_PACE_MAX_S / 270); // 2 x (10 - 1.11)
-  const seen = day(fake({clears: CLEARS}), director({restore: true}), 60);
-  assert.ok(Math.abs(seen - (245 + 17.78)) <= 3 && Math.abs(seen - 245 - ramp) < 0.05, 'returning: ' + seen.toFixed(3) + ' real s');
-  // the window, second by second (the first time: 10x over the same 300 grid-s, 30 real s)
-  const st = fake({clears: CLEARS, s: CLEARS[0] - 1}), d = director(), at = s => { st.tick = s * TPS; return D.modeOf(d, st); };
+test('Q-91: a hand-back holds the clock (FEEDER-CARD, rate 0, no FAST) until its feeder is restored, Esc or another input; after a watch and its card; none from 21:00; each card held 3 real s adds just that to the profile', () => {
+  // 06:40 to 07:20 through the page's loop: each card held 180 frames (3 real s at 60 Hz), then answered as another input does
+  let held = 0;
+  const a = CLEARS[0] - 300, b = CLEARS[1] + 300, st0 = fake({clears: CLEARS, s: a}), d0 = director();
+  const r = day(st0, d0, 60, () => { const id = D.feederCard(d0, st0); if (id && ++held % 180 === 0) D.answerFeeder(d0, st0, id, false); }, b * TPS);
+  assert.ok(held === 360 && Math.abs(r - realBetween(a, b) - 6) < 0.05, held + ' held frames: ' + r.toFixed(3) + ' real s');
+  // the card, second by second: from the tick after the allowed second's own (whose step hands the feeder back first)
+  const st = fake({clears: CLEARS, s: CLEARS[0] - 1}), d = director(), at = s => { st.tick = s * TPS + 1; return D.modeOf(d, st); };
   assert.equal(at(CLEARS[0] - 1).mode, 'CRUISE');
-  assert.deepEqual([at(CLEARS[0]).mode, D.rateOf(d, st), badgeText(D.modeOf(d, st))], ['RESTORE', 10, 'RESTORE 10×']);
-  assert.equal(D.setFast(d, st, true), false, 'no FAST in RESTORE');
-  assert.equal(at(CLEARS[0] + V.RESTORE_PACE_MAX_S - 1).mode, 'RESTORE');
-  assert.equal(at(CLEARS[0] + V.RESTORE_PACE_MAX_S).mode, 'CRUISE', 'a pace, not a hold: 300 grid-s at most');
-  // the first closed at 07:14: RESTORE ends, and the second's allowed second is that + RESTORE_INTERVAL_S (07:19)
-  Object.assign(st.city.districts[0], {dark: false, restoredAtS: CLEARS[1] - 60});
-  at(CLEARS[1] - 60);
-  assert.equal(D.focusRestore(d, st, 'T0'), true, 'the first accepted restore of a task feeder sets seen.restore');
-  assert.deepEqual([d.seen.restore, d.seenDirty, D.focusRestore(d, st, 'T0')], [true, true, false]);
-  assert.equal(at(CLEARS[1]).mode, 'CRUISE');
-  assert.deepEqual([at(CLEARS[1] - 60 + V.RESTORE_INTERVAL_S).mode, D.rateOf(d, st)], ['RESTORE', 30]);
-  assert.equal(at(CLEARS[1] - 60 + V.RESTORE_INTERVAL_S + 1).mode, 'RESTORE');
+  st.tick = CLEARS[0] * TPS;
+  assert.equal(mode(d, st), 'CRUISE', 'the allowed second\'s own tick runs (the sim hands the feeder back in it)');
+  assert.deepEqual([at(CLEARS[0]).mode, D.rateOf(d, st), badgeText(D.modeOf(d, st)), D.feederCard(d, st)], ['FEEDER-CARD', 0, 'HELD 0× · R restore · Esc on', 'T0']);
+  assert.equal(D.setFast(d, st, true), false, 'no FAST at the card');
   st.scope.unit = 'gta1';
-  assert.equal(mode(d, st), 'FOCUS', 'FOCUS (a scope, a breaker) is above RESTORE');
-  const plain = fake({s: CLEARS[0]});
-  plain.city.districts.push({id: 'X', clearS: -1, dark: true, shedBy: 'ufls', restoredAtS: -1});
-  assert.equal(D.focusRestore(director(), plain, 'X'), false, 'a UFLS district is not the task');
+  assert.equal(mode(d, st), 'FEEDER-CARD', 'it holds over FOCUS, as the respond card');
+  st.scope.unit = '';
+  assert.equal(at(CLEARS[0] + 600).mode, 'FEEDER-CARD', 'a hold, not a pace: still there 10 grid-min on (no frame runs it)');
+  // restored: gone, FOCUS for the breaker
+  Object.assign(st.city.districts[0], {dark: false, restoredAtS: CLEARS[0] + 1});
+  D.focusRestore(d, st);
+  assert.deepEqual([mode(d, st), D.feederCard(d, st), D.answerFeeder(d, st, 'T0', true)], ['FOCUS', '', false]);
+  // T1 back 07:15: Esc leaves it for good, even when a restore moves its allowed second (07:16:00 + 5 min)
+  assert.deepEqual([at(CLEARS[1]).mode, D.feederCard(d, st)], ['FEEDER-CARD', 'T1']);
+  assert.equal(D.answerFeeder(d, st, 'T1', true), true);
+  assert.equal(mode(d, st), 'CRUISE');
+  st.city.districts.push({id: 'X', clearS: -1, dark: false, shedBy: '', restoredAtS: CLEARS[1] + 60});
+  assert.equal(at(CLEARS[1] + 360).mode, 'CRUISE', 'left by Esc: not held again');
+  // answered by another input, it holds again at a later allowed second (a restore moved it)
+  const e = director(), s2 = fake({clears: [CLEARS[0]], s: CLEARS[0]});
+  s2.tick++;
+  assert.equal(D.answerFeeder(e, s2, 'T0', false), true);
+  assert.equal(mode(e, s2), 'CRUISE');
+  s2.city.districts.push({id: 'X', clearS: -1, dark: false, shedBy: '', restoredAtS: CLEARS[0] + 60});
+  s2.tick = (CLEARS[0] + 360) * TPS;
+  assert.equal(mode(e, s2), 'CRUISE');
+  s2.tick++;
+  assert.deepEqual([mode(e, s2), D.feederCard(e, s2)], ['FEEDER-CARD', 'T0'], 'its new allowed second (X closed + 5 min)');
+  // queued: a trip whose watch covers the allowed second; then the respond card; then the feeder card
+  const q = fake({clears: [CLEARS[0]], s: CLEARS[0] - 10}), f = director({watch: true});
+  trip(q);
+  q.tick = (CLEARS[0] + 5) * TPS;
+  assert.deepEqual([mode(f, q), D.feederCard(f, q)], ['WATCH', '']);
+  q.tick = q.conts[0].watchEndTick;
+  assert.deepEqual([mode(f, q), D.feederCard(f, q), D.answerFeeder(f, q, 'T0', false)], ['RESPOND-CARD', '', false]);
+  D.dismissCard(f, q);
+  assert.deepEqual([mode(f, q), D.feederCard(f, q)], ['FEEDER-CARD', 'T0'], 'after the respond card');
+  // none from 21:00
+  const n = fake({clears: [NIGHT_S + 60], s: NIGHT_S + 60});
+  n.control.nightShift = true;
+  assert.deepEqual([mode(director(), n), D.feederCard(director(), n)], ['NIGHT', '']);
 });
 
-test('Q-70: tests/lib/play.js restoreSpans is the director\'s RESTORE, re-armed by a later restore of any district (the second feeder closed first)', () => {
-  // T0 back 06:45 and never closed; T1 back 07:15 and closed at 07:16:00.4; a UFLS district X closed at 07:40:00.2
-  const st = fake({clears: CLEARS, s: START}), d = director({restore: true}), ds = st.city.districts;
+test('Q-91: one card per feeder per allowed second, re-armed by a later restore of any district (the second feeder closed first); tests/lib/play.js feederDue holds whenever one shows', () => {
+  // T0 back 06:45 and never closed; T1 back 07:15 and closed at 07:16:00.4; a UFLS district X closed at 07:40:00.2;
+  // each card answered by another input the moment it shows
+  const st = fake({clears: CLEARS, s: START}), d = director(), ds = st.city.districts;
   ds.push({id: 'X', clearS: -1, dark: true, shedBy: 'ufls', restoredAtS: -1});
-  const rs = [{t: CLEARS[1] + 60.4, id: 'T1'}, {t: 3 * H + 40 * 60 + 0.2, id: 'X'}];
-  const spans = restoreSpans(ds, rs);
-  const played = [];
+  const rs = [{t: CLEARS[1] + 60.4, id: 'T1'}, {t: 3 * H + 40 * 60 + 0.2, id: 'X'}], shown = [];
+  let due = 0;
   for (let k = 0, t = START * TPS; t < 5 * H * TPS; t += 10) {                          // every 0.2 grid-s
     for (; k < rs.length && rs[k].t * TPS <= t; k++) Object.assign(ds.find(x => x.id === rs[k].id), {dark: false, restoredAtS: Math.floor(rs[k].t)});
     st.tick = t;
-    if (mode(d, st) === 'RESTORE') played.push(t / TPS);
+    const id = D.feederCard(d, st);
+    if (feederDue(st)) due++;
+    if (id) { assert.ok(feederDue(st), id + ' at ' + t / TPS + ' is due by the sim\'s records'); shown.push([id, t]); D.answerFeeder(d, st, id, false); }
   }
-  const inSpans = s => spans.some(x => s >= x.a && s < x.b);
-  assert.deepEqual(played.filter(s => !inSpans(s)), [], 'every RESTORE second is in a span');
-  const total = spans.reduce((a, x) => a + x.b - x.a, 0);
-  assert.ok(Math.abs(played.length * 0.2 - total) < 0.5, played.length * 0.2 + ' grid-s played against ' + total);
-  assert.deepEqual(spans.map(x => [x.id, x.a, x.b]), [
-    ['T0', CLEARS[0], CLEARS[0] + 300],                                 // 06:45, lapsed
-    ['T0', CLEARS[1] + 60 + 300, CLEARS[1] + 60 + 600],                 // re-armed by T1's restore: 07:21
-    ['T0', 3 * H + 45 * 60, 3 * H + 50 * 60],                           // and by X's: 07:45
-    ['T1', CLEARS[1], CLEARS[1] + 60.4]]);                              // T1's own, to its restore
+  // (each at the first sampled tick after its allowed second's own)
+  assert.deepEqual(shown, [['T0', CLEARS[0]], ['T1', CLEARS[1]], ['T0', CLEARS[1] + 60 + 300], ['T0', 3 * H + 45 * 60]].map(([id, a]) => [id, a * TPS + 10]));
+  assert.ok(due > shown.length, 'due longer than shown: the director keeps what was answered');
 });
 
-test('Q-63: FAST is 3 x the profile, refused in WATCH, the card, RESPOND, FOCUS, ALARMS, RESTORE, OFFER and NIGHT; a ringing tray card ends it (MSL2 does, MSL1 does not)', () => {
+test('Q-63: FAST is 3 x the profile, refused in WATCH, the cards, RESPOND, FOCUS, ALARMS, OFFER and NIGHT; a ringing tray card ends it (MSL2 does, MSL1 does not)', () => {
   const s = 7 * H, st = fake({s}), d = director({watch: true});           // 11:00, MIDDAY SOLAR
   assert.equal(D.setFast(d, st, true), true);
   assert.deepEqual([mode(d, st), D.modeOf(d, st).rate, D.rateOf(d, st)], ['FAST', 900, 3 * rateAt(s)]);
@@ -115,13 +137,13 @@ test('Q-63: FAST is 3 x the profile, refused in WATCH, the card, RESPOND, FOCUS,
   refused('WATCH', x => trip(x));
   refused('RESPOND-CARD', x => { trip(x); x.tick = x.conts[0].watchEndTick; });
   refused('RESPOND', (x, e) => { trip(x); x.tick = x.conts[0].watchEndTick; D.dismissCard(e, x); });
-  refused('RESTORE', x => { x.city.districts.push({id: 'T', clearS: s, dark: true, shedBy: 'task', restoredAtS: -1}); });
+  refused('FEEDER-CARD', x => { x.city.districts.push({id: 'T', clearS: s - 1, dark: true, shedBy: 'task', restoredAtS: -1}); });
   refused('OFFER', (x, e) => { x.units.push({id: 'gta1', mode: 'ready'}); D.offerPace(e, x, 'gta1'); });
   refused('NIGHT', x => { x.tick = (NIGHT_S + H) * TPS; x.control.nightShift = true; });
-  // FAST held when RESTORE comes: it ends there
+  // FAST held when a feeder card comes: it ends there
   const r = fake({s: CLEARS[0] - 1, clears: CLEARS}), e = director();
   D.setFast(e, r, true);
-  r.tick += TPS;
+  r.tick += TPS + 1;
   D.directorFrame(e, r);
   assert.equal(e.fast, false);
   // the game: a card that rings ends FAST (G.handleRecords, the records a step returns); an information card does not
@@ -210,6 +232,8 @@ test('Q-73 on the page: the sim\'s night flip is the one test (badge, mode, lock
   const p = openGame({seed: 20261002});
   const st = p.game.state;
   st.evNext = st.ext.events.length; st.tick = NIGHT_T - TPS;             // the day between jumped (the flip reads only the tick)
+  for (let i = 0; i < 4 && G.ui(p.game, {do: 'goOn'}) === ''; i++);       // (its feeders' cards, Q-91: gone on from, as the day would have)
+  assert.equal(D.feederCard(p.game.director, st), '', 'every feeder card gone on from');
   p.to('21:00', {stop: []});
   assert.equal(st.tick, NIGHT_T, 'to(\'21:00\') stops before the sim steps 21:00:00');
   assert.deepEqual([p.mode(), st.control.nightShift, lines(p.look(), /^CLOCK/)[0].split(' | ')[1]], ['CRUISE', false, 'PEAK EASING 300×']);
@@ -245,12 +269,12 @@ test('Q-63, Q-78: the badge names the segment and its target, never an ease\'s f
   assert.deepEqual([badgeText(D.modeOf(d, peak)), D.modeOf(d, peak).act], ['PEAK 75×', 3]);
   assert.equal(badgeTitle(D.modeOf(d, fake({s: 6 * H}))), 'Act II, the belly: rooftop solar floods in. ' + BADGE_HELP);
   assert.equal(badgeTitle(D.modeOf(d, fake({s: 0}))), BADGE_HELP, 'the briefing: no act');
-  // objectiveDue: max(30 grid-s, 0.4 real s of the profile); 'news' when the watch, the card, RESPOND, RESTORE, NIGHT or OVER comes or goes
+  // objectiveDue: max(30 grid-s, 0.4 real s of the profile); 'news' when the watch, a card, RESPOND, NIGHT or OVER comes or goes
   const g = (s, hand = false) => ({objectiveS: s, objectiveMode: 'CRUISE', state: fake({s, hand})});
   assert.deepEqual([G.objectiveDue(g(START), START + 215, 'CRUISE'), G.objectiveDue(g(START), START + 216, 'CRUISE')], [false, true], '540x: 216 grid-s');
   assert.deepEqual([G.objectiveDue(g(14 * H), 14 * H + 59, 'CRUISE'), G.objectiveDue(g(14 * H), 14 * H + 60, 'CRUISE')], [false, true], '150x: 60');
   assert.equal(G.objectiveDue(g(14 * H, true), 14 * H + 30, 'CRUISE'), true, 'HAND 75x: the 30-s floor');
-  for (const m of ['RESTORE', 'NIGHT', 'RESPOND', 'WATCH']) assert.equal(G.objectiveDue(g(START), START + 1, m), 'news', m);
+  for (const m of ['FEEDER-CARD', 'NIGHT', 'RESPOND', 'WATCH']) assert.equal(G.objectiveDue(g(START), START + 1, m), 'news', m);
   assert.equal(G.objectiveDue(g(START), START + 1, 'PAUSE'), false, 'Space is not news');
   // the reading lead (ctx.leadS): 13 real s of the profile; on a night scenario never past the handover
   for (const [s, hand] of [[START, false], [START, true], [7 * H, false], [14 * H, true]]) {
@@ -289,10 +313,10 @@ test('Q-64: in the briefing AGC/HAND is the sim\'s mode: the desk\'s key and the
   p.key(' ');
   assert.deepEqual([st.control.mode, st.control.handFlown, p.mode()], ['HAND', true, 'CRUISE']);
   assert.match(p.look({controls: false}), /^CLOCK 04:3\d:\d\d \| PRE-DAWN 270× /m, 'HAND halves the profile');
-  // RESTORE and OFFER answer F with why (a hand-back moved to now; an offer)
+  // a feeder card and OFFER answer F with why (a hand-back moved to now; an offer)
   const x = p.game.state.city.districts.find(q => q.clearS >= 0), clearS = x.clearS;
   x.clearS = Math.floor(p.game.state.tick / TPS);
-  assert.match(p.pressKey('f', {}, {after: 1 / 60}).during, /^TOAST blue FAST waits: a repaired feeder is yours now: close its breaker \(R, then Enter\)$/m);
+  assert.match(p.pressKey('f', {}, {after: 1 / 60}).during, /^TOAST blue FAST waits: a repaired feeder holds the clock: R or Enter restores it, Esc goes on$/m);
   x.clearS = clearS;                                                     // (HAND has no auto-synchroniser: the answer is true in both modes)
   assert.equal(p.send({type: 'start', unit: 'gta1'}), '');
   p.until('mode', {max: '+15m'});
@@ -351,16 +375,19 @@ function slice(seen = {}, from = base) {
   out.game = game;
   return out;
 }
-// Frames until `end`, each followed by the page's view model: `each(game, i)` before each frame; a RESPOND card is dismissed at once.
+// Frames until `end`, each followed by the page's view model: `each(game, i)` before each frame; a RESPOND card is dismissed at once,
+// and a feeder card (Q-91) gone on from with Esc once shown (the log stays the slice's: its restores come from INPUTS).
 function frames(o, dtS, each, end = UNTIL) {
   const game = o.game;
   let nowMs = 1000;
+  o.feeders = [];
   for (let i = 0; game.state.tick <= end; i++) {
     assert.ok(i < 2e4, 'the slice plays out');
     if (each) each(game, i);
     G.frame(game, dtS);
-    G.buildVm(game, {nowMs: nowMs += dtS * 1000, dtS});
+    const vm = G.buildVm(game, {nowMs: nowMs += dtS * 1000, dtS});
     if (D.respondCardOpen(game.director, game.state)) G.ui(game, {do: 'dismissRespond'});
+    if (vm.feeder && G.ui(game, {do: 'goOn'}) === '') o.feeders.push(vm.feeder.id);
   }
   return o;
 }
@@ -386,13 +413,13 @@ test('D-6 (1 of 2): one input log ticked alone and played with F held gives one 
   assert.ok(fastFrames > 100, fastFrames + ' frames at FAST');
   assert.ok(fast.game.objective && fast.game.sys, 'the line and the system ran');
   assert.deepEqual([fast.hash, fast.accepted], [ref.hash, INPUTS.length]);
-  assert.ok(fast.game.director.seen.restore && JSON.parse(fast.game.storage.m.get(G.SEEN_KEY)).restore, 'the restore of a task feeder set seen.restore, saved');
+  assert.deepEqual(fast.feeders, ['HAZ4', 'HAZ5'], 'each hand-back held the clock on its card');
 });
 
 test('D-6 (2 of 2): the same log with 50 seeded random pauses gives the same hashState', () => {
   let seed = 7, left = 50, until = -1;
   const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-  const pauses = frames(slice({...BACK, restore: true}), 1 / 60, (g, i) => {
+  const pauses = frames(slice(BACK), 1 / 60, (g, i) => {
     if (until === i) G.ui(g, {do: 'pause'});
     else if (until < i && left > 0 && rnd() < 0.05 && !g.director.paused) { G.ui(g, {do: 'pause'}); left--; until = i + 1 + Math.floor(rnd() * 30); }
   });
