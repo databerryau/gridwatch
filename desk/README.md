@@ -4330,15 +4330,18 @@ URL query: ?seed=N or ?date=YYYY-MM-DD (default: today's daily, content/dailies.
 app/director.js: chooses the playback rate (spec F-5, K-15, K-16, D-6). The sim never does.
 
 Modes (desk/README.md §2), precedence OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD >
-FOCUS > RESTORE > RESPOND > NIGHT > FAST > CRUISE (§32.4.8):
+FOCUS > RESTORE > RESPOND > OFFER > NIGHT > FAST > CRUISE (§32.4.8; OFFER: wave 2's fix pass):
   CRUISE        the D-2 profile (slice 2c, Q-62/Q-63): sim/clock.js rateAt(s, hand), eased over 2 real
-                s at each interior boundary, halved from 04:30 to 21:00 when state.control.handFlown
-                (HAND, Q-64). Between two eases rateAt is flat, so the director keeps that stretch
+                s at each interior boundary, halved from 04:30 to 21:00 when the day is HAND's
+                (handAt: state.control.handFlown, or the mode HAND from PLAYER_START_TICK, so the
+                held 04:30 desk, before the sim tags handFlown, is HAND's too; Q-64). The line's
+                cadence and reading lead (app/game.js) read handAt too. Between two eases rateAt is
+                flat, so the director keeps that stretch
                 (d.flat: its ends are each boundary +- the ease's half-width, EASE r1 r2 / (r1 + r2),
                 the formula sim/clock.js uses) and asks rateAt only inside an ease: rateOf runs
                 between every two ticks, 1,750 times a frame at 2,100x.
   FAST          3 x CRUISE while F is held. Refused (setFast) and ended (directorFrame) in WATCH,
-                the card, RESPOND, FOCUS, ALARMS, RESTORE and NIGHT (NO_FAST); it also ends on F up,
+                the card, RESPOND, FOCUS, ALARMS, RESTORE, OFFER and NIGHT (NO_FAST); it also ends on F up,
                 a new contingency, a new P1/P2 alarm, a new ask (app/game.js newAsk) and every new
                 tray card that rings (app/game.js handleRecords: a 'ring2' from T.trayRecords; MSL1
                 and the other information cards do not ring), so FAST never runs past a warning
@@ -4359,16 +4362,30 @@ FOCUS > RESTORE > RESPOND > NIGHT > FAST > CRUISE (§32.4.8):
                 task feeder (d.seen.restore, set by focusRestore(d, state, id) on the first
                 accepted restore of a district with clearS >= 0, saved with seen.watch). A pace,
                 not a hold (K-16): with no input a hand-back costs 10 real s against 1.1 s at 270x.
-  NIGHT         Q-73, on a night scenario (scn.night) from NIGHT_S (21:00): the profile (2,100x,
-                eased into from PEAK EASING's 300x), no FAST. A contingency that starts in it is
-                logged only: no watch, card or RESPOND (latest() leaves it out), so the roll is
-                never held. (The view's night is obs.nightShift, never modeOf().night.)
+                Every restore (of any district) moves a dark task feeder's allowed second, so a
+                window that lapsed is played again from the new one (tests/lib/play.js
+                restoreSpans rebuilds them from the log for D-2's E).
+  OFFER         K-12 (wave 2's fix pass, an owner-delegated call for the integrator to number):
+                OFFER_RATE 30x from the frame the game offers a unit (app/game.js updateOffers ->
+                offerPace) while it waits at full speed, for at most AUTO_SYNC_S (240 grid-s, so 8
+                real s; at 540x the offer lived 0.44 real s), no FAST. Badge "SYNC 30×". Taking it
+                opens the scope (FOCUS, above); the breaker closing (by hand or auto-sync) ends it.
+  NIGHT         Q-73, once the night shift has the desk: the sim's state.control.nightShift
+                (obs.nightShift, set on stepping 21:00:00 on a night scenario). The game's lock and
+                the views read the same flag. The profile (2,100x, eased into from PEAK EASING's
+                300x), no FAST. A contingency that starts from NIGHT_S is logged only (latest()
+                leaves it out), and from the flip no card or RESPOND plays for any contingency (one
+                begun just before 21:00 included: its watch ends, nothing asks), so the roll is
+                never held. At tick NIGHT_S x TPS itself, before the sim steps 21:00:00, the face
+                (segment, act, target) still reads PEAK EASING, as the lock is still open:
+                tests/lib/play.js to('21:00') lands there, to('21:00:01') after the flip. (The
+                view's night is obs.nightShift.)
   PAUSE         Space; a hidden tab (HIDDEN); the day's end (OVER)
   ALARMS        rate 0 while the alarm panel holds the clock (d.held, Q-46); d.paused is untouched
   DEBUG         the bench's speed selector (bench.html only): any speed other than CRUISE
 
 modeOf also returns segment (the D-2 segment's name, Q-78), act (sim/clock.js actAt: 0 before
-04:30, 1-3, 4 the night roll) and night; its `rate` is rateOf's except in CRUISE, NIGHT and FAST,
+04:30, 1-3, 4 the night roll) and night (the sim's flag); its `rate` is rateOf's except in CRUISE, NIGHT and FAST,
 where it is the segment's target (x3 in FAST): the badge never shows a number counting through an
 ease (Q-63), and the loop reads rateOf.
 
@@ -4414,27 +4431,34 @@ Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
 - **The briefing's AGC/HAND is the sim's mode** (`state.control.mode`). While `phase ===
   'briefing'` sendInput applies `{type: 'mode'}` inputs (the card's AGC/HAND buttons, the desk's AGC
   key) and answers every other sim input with `BRIEF_LOCK`, "Take the desk first: Enter."; the
-  card's buttons draw from `obs.mode` (app/shell.js). `takeDesk(game)` takes no mode: it runs
+  card's buttons draw from `obs.mode` and the one already on sends nothing (app/shell.js); RE-DISPATCH
+  (a planLoad) answers `BRIEF_LOCK` too. `takeDesk(game)` takes no mode: it runs
   04:00-04:30 headless, makes the briefing's tray cards (`T.trayBriefing`, one ring) and opens the
   desk. The sim tags `control.handFlown` at 04:30, so HAND then AGC is an AGC day.
 - **The night lock:** once the sim has set `control.nightShift` (21:00 on a night scenario),
   sendInput and redispatch answer `NIGHT_LOCK` ("The night shift has the desk: it stands down what
   the night does not need. Your day is scored at 04:00."); presentation (`ui`: views, pause, ACK,
-  volume) stays open. Both locks are help, so the shell's toast shows them blue (`isLock`).
+  volume) stays open. Both locks are help: their words and `isLock` live in render/format.js (G
+  re-exports them), the shell's toast is their one answer, in blue, and the views draw no red
+  refusal for them (desk/desk.js note, render/livestack.js send). Under the night lock the C-10 line
+  ("? IF PRESSED") says the night shift has the desk, never what the press would do.
 - **The line's cadence** is `objectiveDue(game, s, mode)`: 'news' when the watch, the card, RESPOND,
   RESTORE, NIGHT or OVER came or went (not Space), else due once grid time has moved max(30 s, the
   profile's `rateAt` x `OBJ_EVERY_REAL_S` 0.4 real s): 216 grid-s at 540x, 60 at 150x, the 30-s
-  floor at HAND's 75x. tests/lib/play.js asks the same function. Its reading lead is
-  `clock.gridAfter(s, LINE_REACT_S, hand) - s`: 13 real s of the profile (about two grid-hours at
-  540x, so a START due before about 06:30 is asked on the held desk at 04:30: Q-18's held start is
-  its reading time).
+  floor at HAND's 75x (hand: the director's handAt). tests/lib/play.js asks the same function. Its
+  reading lead is `readingLeadS(s, hand, night)` = `clock.gridAfter(s, LINE_REACT_S, hand) - s`: 13
+  real s of the profile (about two grid-hours at 540x, so a START due before about 06:30 is asked
+  on the held desk at 04:30: Q-18's held start is its reading time), on a night scenario never past
+  21:00 (the night shift's needs are not the player's).
 - **FAST** is released by every tray card that rings: `handleRecords` (exported for tests) ends it
   on a 'ring2' from `T.trayRecords`.
 - **The scope offer (K-12, Q-78):** `offerWhy(obs, tally)` returns 'respond' inside D-5's window
   (`obs.inRespond`) once per contingency, else 'tight' (TIGHT or worse) or 'peak' (D-2's Peak,
   `clock.PEAK`, 16:30-20:00) once a day between them, never past `MAX_OFFERS` in all or from 21:00.
   `tally = {n, extra, contN}`: offers made today, 'tight' or 'peak' offers made today, and the n of
-  the contingency the last 'respond' offer was for (-1 none); `game.tally` keeps the page's.
+  the contingency the last 'respond' offer was for (-1 none); `game.tally` keeps the page's, and
+  `tallyOffer(tally, why, obs)` (pure, exported) is the one step after an offer, for par's proxy
+  too. A new offer plays the director's OFFER (`offerPace`).
 
 #### app/loop.js
 
@@ -4834,9 +4858,12 @@ Phase 1a (README §7); the bench shows the sim's own record text.
 
 Slice 2c (Q-78): the rate badge names the D-2 segment in CRUISE and NIGHT ("PEAK 150×", in HAND
 "PEAK 75×", "NIGHT ROLL 2,100×"), from `modeOf().segment` and its target `rate`; a mode object
-without a segment (the bench, fixtures) still reads "CRUISE 120×". `badgeTitle(m)` names the act
-(`ACT_TITLES[m.act]`, D-1's four acts in words; '' before 04:30) for the badge's title: the shell
-sets it (`#rate-badge` title, app/shell.js drawHeader, wave 3).
+without a segment (the bench, fixtures) still reads "CRUISE 120×"; OFFER reads "SYNC 30×".
+`badgeTitle(m)` is the badge's title: the act in words (D-1's acts; the night shift's words only
+with `m.night`, classic's night reads "the clock runs on to 04:00"; none before 04:30), then
+`BADGE_HELP` (next.html's title before the first frame). app/shell.js drawHeader sets it whenever it
+changes. The two locks' words (`BRIEF_LOCK`, `NIGHT_LOCK`) and `isLock` live here, so app/game.js,
+the desk and the stack read one copy (Q-64, Q-73).
 
 #### render/mapdata.js
 
