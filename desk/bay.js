@@ -4,7 +4,7 @@
 
 import {V} from '../sim/params.js';
 import {scopeAngle, scopeZone, turnS, coldLoad} from './calc.js';
-import {el, setText, setAttr, setCls, setHidden, slowAttr, mw, fin, mmss, unitLabel, CLASS_GLYPH, PAN} from './util.js';
+import {el, setText, setAttr, setCls, setHidden, slowAttr, mw, fin, mmss, clockOf, unitLabel, CLASS_GLYPH, PAN} from './util.js';
 import {lockedNote} from './emergency.js';
 
 export const SCOPE_AUTO_REAL_MS = 8000;   // K-12: AUTO after 8 real s on the scope without a close
@@ -242,8 +242,9 @@ export function createBay(ctx, parent) {
   feeders.id = 'restore-list';
   feeders.setAttribute('aria-label', 'Dark districts: ←/→ choose, Enter closes the breaker');
   vRest.append(rhead, feeders);
-  let rows = new Map(), rowKey = '', sel = '', pvCache = new Map();
-  const dark = () => vm.obs.districts.filter(d => d.dark);
+  let rows = new Map(), rowKey = '', sel = '', pvCache = new Map(), back = [];
+  const held = d => d.shedBy === 'task' && d.clearS > vm.obs.s;
+  const dark = () => vm.obs.districts.filter(d => d.dark).sort((a, b) => held(a) - held(b) || (held(a) ? a.clearS - b.clearS : 0));
   function previewOf(d) {
     // The lamp first; the preview runs only while the lamp allows (as the restore input does).
     if (d.restoreBlock) return d.restoreBlock;
@@ -252,6 +253,12 @@ export function createBay(ctx, parent) {
     const r = typeof ctx.actions.restorePreview === 'function' ? ctx.actions.restorePreview(d.id) || '' : 'no restore preview';
     pvCache.set(key, r);
     return r;
+  }
+  // R's and a hand-back's choice (§32.12)
+  function pick() {
+    const m = dark().filter(d => !held(d)), c = m.filter(d => !previewOf(d));
+    const d = c.filter(d => d.shedBy === 'task').sort((a, b) => b.clearS - a.clearS)[0] || c[0] || m[0];
+    return d ? d.id : '';
   }
   function closeFeeder(id) {
     if (!vm) return;
@@ -304,7 +311,8 @@ export function createBay(ctx, parent) {
       const cl = coldLoad(d, o.s);
       const why = previewOf(d);
       const ok = why === '';
-      setText(R.name, (d.id === sel ? '▸ ' : '') + d.id + (d.shedBy ? ' · ' + d.shedBy.toUpperCase() : ''));
+      setText(R.name, (d.id === sel ? '▸ ' : '') + d.id + (d.shedBy === 'task' ? (held(d) ? ' · FAULT · BACK ' + clockOf(d.clearS) : ' · REPAIRED') :
+        d.shedBy ? ' · ' + d.shedBy.toUpperCase() : ''));
       setText(R.load, mw(cl.mw) + ' MW' + (cl.factor > 1 ? ' ×' + cl.factor : cl.coldInS > 0 ? ' ×' + V.COLD_LOAD_FACTOR + ' in ' + mmss(cl.coldInS) : ''));
       const pvCls = ok ? 'good' : d.restoreBlock ? 'warn' : 'crit';
       setText(R.pv, CLASS_GLYPH[pvCls]);
@@ -328,10 +336,14 @@ export function createBay(ctx, parent) {
   function render() {
     if (!vm) return;
     const o = vm.obs;
-    const darkN = o.districts.filter(d => d.dark).length;
-    // Which view: the scope when open, else the player's choice, else RESTORE when districts are dark.
+    const darkN = o.districts.filter(d => d.dark).length, mine = o.districts.filter(d => d.dark && !held(d)).length;
+    // a hand-back
+    const b = o.districts.filter(d => d.dark && d.shedBy === 'task' && !held(d)).map(d => d.id);
+    if (b.some(id => !back.includes(id))) { const s = o.districts.find(d => d.id === sel); if (!s || !s.dark || held(s)) sel = pick(); }
+    back = b;
+    // Which view: the scope when open, else the player's choice, else RESTORE when districts are dark (not held, Q-69).
     if (scopeUnit()) view = 'sync';
-    else if (!userView) view = darkN > 0 && !o.units.some(u => u.mode === 'ready') ? 'restore' : 'sync';
+    else if (!userView) view = mine > 0 && !o.units.some(u => u.mode === 'ready') ? 'restore' : 'sync';
     setHidden(vSync, view !== 'sync');
     setHidden(vRest, view !== 'restore');
     setAttr(tSync, 'aria-selected', view === 'sync' ? 'true' : 'false');
@@ -341,13 +353,13 @@ export function createBay(ctx, parent) {
     setCls(tSync, 'offered', offered);
     setText(tSync, (offered ? '◉ ' : '') + 'SYNC');
     setText(tRest, (darkN ? '✕' + darkN + ' ' : '') + 'RESTORE');
-    setCls(tRest, 'lit', darkN > 0);
+    setCls(tRest, 'lit', mine > 0);
     const lamp = o.districts.some(d => d.dark && d.restoreBlock === '');
     setHidden(permit, darkN === 0);
     setText(permit, lamp ? 'P ✓' : 'P ✕');
     setCls(permit, 'lit', lamp);
     setCls(tSync, 'glow', !!(vm.glow && vm.glow.has('bay-sync')));
-    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')));
+    setCls(tRest, 'glow', !!(vm.glow && vm.glow.has('bay-restore')) || !!(vm.mode && vm.mode.mode === 'RESTORE'));   // (Q-70)
     if (view === 'sync') renderSync(); else renderRestore();
   }
 
@@ -374,7 +386,7 @@ export function createBay(ctx, parent) {
       if (k === ']') { trim(1); return true; }
       if (k === 'c') { close(); return true; }
       if (k === 'u') { auto(); return true; }
-      if (k === 'r') { show('restore', true); tRest.focus && tRest.focus(); feeders.focus && feeders.focus(); if (ctx.locked()) lock(); return true; }
+      if (k === 'r') { sel = pick(); show('restore', true); tRest.focus && tRest.focus(); feeders.focus && feeders.focus(); if (ctx.locked()) lock(); return true; }
       return false;
     },
   };

@@ -377,24 +377,23 @@ export function createTieKnob(ctx, parent) {
   const flow = el(doc, 'i', 'dk-flow');
   let vm = null;
   const t = () => vm.obs.tie;
+  const lim = () => fin(t().importLimitMW, V.TIE_MAX_MW), limText = () => 'imports limited to ' + lim() + ' MW until ' + clockOf(t().limitUntilS);
   const k = makeRotary(ctx, {
     id: 'knob-tie', cls: 'dk-tknob', label: 'Interconnector knob: + import, − export', pan: PAN.tie, shortcut: '8', host: box,
     detents: () => TIE_DETENTS,
     value: () => fin(t().setMW),
-    bounds: () => [-V.TIE_MAX_MW, V.TIE_MAX_MW],
+    bounds: () => [-V.TIE_MAX_MW, lim()],
     angleValue: a => knobValue(a, -V.TIE_MAX_MW, V.TIE_MAX_MW),
-    dragSnap: v => tieSnap(v),
+    dragSnap: v => tieSnap(v, lim()),
     step(ev, v) {
       const key = ev.key, st = keyStep(ev, TIE_STEP_MW);
-      if (key === 'ArrowUp' || key === 'ArrowRight') return v + st;
-      if (key === 'ArrowDown' || key === 'ArrowLeft') return v - st;
-      if (key === 'PageUp') return nextDetent(v, TIE_DETENTS, 1);
-      if (key === 'PageDown') return nextDetent(v, TIE_DETENTS, -1);
-      if (key === 'Home') return -V.TIE_MAX_MW;
-      if (key === 'End') return V.TIE_MAX_MW;
-      return null;
+      const r = key === 'ArrowUp' || key === 'ArrowRight' ? v + st : key === 'ArrowDown' || key === 'ArrowLeft' ? v - st
+        : key === 'PageUp' ? nextDetent(v, TIE_DETENTS, 1) : key === 'PageDown' ? nextDetent(v, TIE_DETENTS, -1)
+          : key === 'Home' ? -V.TIE_MAX_MW : key === 'End' ? V.TIE_MAX_MW : null;
+      if (r > lim() && v >= lim()) help(ctx, box, limText());
+      return r;
     },
-    wheelStep: ev => (ev.shiftKey ? 1 : 10),
+    wheelStep(ev) { if (fin(ev.deltaY) < 0 && k.cur() >= lim()) help(ctx, box, limText()); return ev.shiftKey ? 1 : 10; },
     send(v) {
       const r = ctx.send({type: 'tie', mw: Math.round(v)}, box);
       if (!r) ctx.live('TIE ' + smw(v) + ' MW');
@@ -415,25 +414,27 @@ export function createTieKnob(ctx, parent) {
   function render() {
     if (!vm) return;
     const tt = t(), v = k.cur();
-    const cap = fin(tt.exportLimitMW, V.TIE_MAX_MW);
-    // The export cap (F-13) as a red arc from -800 to -cap.
-    const aCap = knobAngle(-cap, -V.TIE_MAX_MW, V.TIE_MAX_MW) + KNOB_SWEEP / 2;
-    setStyle(rim, 'background', 'conic-gradient(from ' + (-KNOB_SWEEP / 2) + 'deg, var(--dk-red) 0deg ' + aCap.toFixed(1) +
-      'deg, var(--dk-rim) ' + aCap.toFixed(1) + 'deg ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');
+    const cap = fin(tt.exportLimitMW, V.TIE_MAX_MW), im = lim();
+    // The export cap (F-13) and the import limit (Q-68) as red arcs.
+    const arc = x => (knobAngle(x, -V.TIE_MAX_MW, V.TIE_MAX_MW) + KNOB_SWEEP / 2).toFixed(1) + 'deg', aCap = arc(-cap), aLim = arc(im);
+    setStyle(rim, 'background', 'conic-gradient(from ' + (-KNOB_SWEEP / 2) + 'deg, var(--dk-red) 0deg ' + aCap +
+      ', var(--dk-rim) ' + aCap + ' ' + aLim + ', var(--dk-red) ' + aLim + ' ' + KNOB_SWEEP + 'deg, transparent ' + KNOB_SWEEP + 'deg)');
     setStyle(k.pointer, 'transform', 'rotate(' + knobAngle(v, -V.TIE_MAX_MW, V.TIE_MAX_MW).toFixed(1) + 'deg)');
     setStyle(flow, 'transform', 'rotate(' + knobAngle(tt.flowMW, -V.TIE_MAX_MW, V.TIE_MAX_MW).toFixed(1) + 'deg)');
     setText(rSet, 'SET ' + tieWords(v));
     setText(rFlow, 'FLOW ' + tieWords(tt.flowMW));
-    setText(lamp, tt.tripped ? '✕ TRIP ' + mmss(tt.lockoutS) : '● LINK OK');
+    setText(lamp, tt.tripped ? '✕ TRIP ' + mmss(tt.lockoutS) : im < V.TIE_MAX_MW ? '● IMP ≤' + im : '● LINK OK');
+    setAttr(lamp, 'title', im < V.TIE_MAX_MW ? limText() : '');
     setCls(lamp, 'crit', !!tt.tripped);
-    setCls(lamp, 'lit', !tt.tripped);
-    setCls(box, 'capped', cap < V.TIE_MAX_MW);
+    setCls(lamp, 'lit', !tt.tripped && im >= V.TIE_MAX_MW);
+    setCls(lamp, 'warn', !tt.tripped && im < V.TIE_MAX_MW);
+    setCls(box, 'capped', cap < V.TIE_MAX_MW || im < V.TIE_MAX_MW);
     setCls(box, 'glow', !!(vm.glow && vm.glow.has('knob-tie')));
     setAttr(k.knob, 'aria-valuemin', -V.TIE_MAX_MW);
-    setAttr(k.knob, 'aria-valuemax', V.TIE_MAX_MW);
+    setAttr(k.knob, 'aria-valuemax', im);
     setAttr(k.knob, 'aria-valuenow', Math.round(v));
     setAttr(k.knob, 'aria-valuetext', 'tie set ' + smw(v) + ' MW (+ import), flow ' + smw(tt.flowMW) + ' MW, export cap ' + mw(cap) +
-      ' MW' + (tt.tripped ? ', link tripped' : ''));
+      ' MW' + (im < V.TIE_MAX_MW ? ', ' + limText() : '') + (tt.tripped ? ', link tripped' : ''));
     setAttr(k.knob, 'aria-disabled', ctx.locked() ? 'true' : 'false');
   }
   return {el: box, knob: k.knob, update(v) { vm = v; k.tick(v); render(); }};

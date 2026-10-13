@@ -125,6 +125,11 @@
 .dk-ptext { font: calc(9 * var(--u)) var(--dk-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dk-caught { font: calc(8 * var(--u)) var(--dk-mono); color: var(--dk-violet); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dk-caught[hidden] { display: none; }
+/* Q-74 */
+.dk-gbar.dk-cover { grid-template-columns: auto 1fr 0; font-family: var(--dk-mono); }
+.dk-cover[hidden] { display: none; }
+.dk-cover .dk-gbar-label { color: inherit; }
+.dk-cover .dk-gbar-fill { background: currentColor; }
 
 /* ---- column 2 top: the lever bank (5 slots of 80 px at the floor) */
 .dk-levers { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; flex: 1 1 0; min-height: 0; }
@@ -220,6 +225,7 @@
 .dk-lamps { display: flex; gap: 2px; }
 .dk-lamp { font: calc(8 * var(--u)) var(--dk-mono); padding: 0 2px; border-radius: 2px; color: var(--dk-faint); border: 1px solid var(--dk-line); white-space: nowrap; }
 .dk-lamp.lit { color: var(--dk-bright); border-color: var(--dk-green); }
+.dk-lamp.warn { color: var(--dk-bright); border-color: var(--dk-amber); }
 .dk-lamp.crit, .dk-lamp.fired { color: var(--dk-bright); border-color: var(--dk-red); background: #da363344; }
 .dk-lamp[hidden] { display: none; }
 .dk-ffr.lit { border-color: var(--dk-violet); }

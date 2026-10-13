@@ -5,6 +5,7 @@ import {V} from '../sim/params.js';
 import * as A from '../app/alarms.js';
 import {unitLabel, clockOf, mmss} from '../desk/util.js';
 import {mw, hz as hz3, priceText} from '../render/format.js';
+import {PEAK, hhmm} from '../sim/clock.js';
 
 const hz = x => x.toFixed(2), min = s => s / V.S_PER_MIN, pct = f => Math.round(f * V.PCT);
 const watch = 'lit through the ' + V.WATCH_S + '-s watch, then it flashes slowly until ACK.';
@@ -15,6 +16,7 @@ const esc = (w, x) => '; ' + w + ' ' + hz(x) + ' Hz it escalates to P1, the horn
 const fNow = o => hz3(o.f.hz) + ' Hz' + (o.fos.outsideS > 0 ? ' · ' + mmss(o.fos.outsideS) + ' outside ' + BAND : '');
 const spare = o => 'spare ' + mw(o.sec.r5MW) + ' vs ' + mw(o.sec.lMW) + ' MW · biggest risk ' + unitLabel(o.sec.lId) + ' · ' + o.sec.level;
 const INSECURE = A.N1_SET_S + ' grid-s not SECURE; clears ';
+const [PK0, PK1] = PEAK.map(hhmm);
 
 export const ALARM_HELP = {
   underFreq: {
@@ -140,11 +142,10 @@ export const ALARM_HELP = {
     why: 'Heat raises demand; a storm can cut out wind and trip the tie; cloud dims solar; a still spell takes the wind.',
     todo: {text: 'Read its card in the MESSAGES tray (M), then plan on the LIVE STACK (L).', target: 'tray'},
     real: {own: 'GRIDWATCH\'s own rule: no real-world source is quoted for it.'},
-    reading: o => 'warnings today: ' + o.news.length + o.news.slice(-1).map(n => ' · ' + clockOf(n.atS) + ' ' + n.text).join(''),
+    reading: o => { const w = o.news.filter(n => A.isWeather(n.kind)); return 'warnings today: ' + w.length + w.slice(-1).map(n => ' · ' + clockOf(n.atS) + ' ' + n.text).join(''); },
   },
   peak: {
-    trigger: 'Sets from ' + A.PEAK_H[0] + ':00 to ' + A.PEAK_H[1] + ':00 after ' + INSECURE + 'at ' + A.PEAK_H[1] + ':00 or after ' +
-      min(A.N1_CLEAR_S) + ' grid-min SECURE.',
+    trigger: 'Sets from ' + PK0 + ' to ' + PK1 + ' after ' + INSECURE + 'at ' + PK1 + ' or after ' + min(A.N1_CLEAR_S) + ' grid-min SECURE.',
     means: 'It is the evening peak and the grid could not hold its biggest trip.',
     why: 'Demand peaks as rooftop solar fades: a trip finds the least spare. P1 (the horn) is GRIDWATCH\'s choice.',
     todo: {text: 'Every spare unit on, the GUARD up and the import below your biggest unit; T previews the trip.', target: 'stack'},
