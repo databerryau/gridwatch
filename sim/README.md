@@ -1974,7 +1974,7 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
   (bench) and RE-DISPATCH (game, A-1) are `replan()`: par's amend over the player's commitment,
   keeping the booked STOPs.
 * **Discrete actions** (`decide`, origin `'rule1'..'rule9'`): S-4 rules 1-8 in order, plus
-  rule 9 (restore, §12), at most one per `PAR_ACTION_GAP_REAL_S` of `refRealSeconds` (D-2
+  rule 9 (restore, §12; asked first while a task feeder's RESTORE window is open, 2c Q-88), at most one per `PAR_ACTION_GAP_REAL_S` of `refRealSeconds` (D-2
   profile, unwrapped hours, plus each contingency's watch, respond card and RESPOND segment),
   never in a watch, never before 04:30. Tuning pass: rule 8 is an adequacy walk (firm units
   and tie at their real limits plus an energy-limited pool of water, DR hours and battery
@@ -2111,6 +2111,14 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
     the executor is holding for the return instead of dropping it.
   * *Rule 9 at the gate* needs no code: a held feeder's `restoreBlock` is the permissive's "feeder
     under repair until HH:MM", so par closes it at the first decision the permissive allows.
+  * *Restore first* (Q-88, stage C): while a task feeder's RESTORE window is open (`restoreWindow`:
+    dark, `shedBy 'task'`, from its allowed second until it is closed or `RESTORE_PACE_MAX_S`
+    later, none from `NIGHT_S`: `app/director.js restoring()`'s rule, read from obs) every proxy
+    that runs rule 9 asks it first (`RESTORE_ORDER`), as a player following the glowing bay
+    would; outside it rule 9 keeps its place. Rule 9 still picks by its own order (a UFLS stage
+    first) and the permissive still holds it back; a rule 9 that wants nothing passes to rule 1.
+    Classic has no task feeders, so its order never changes. Measured before: par closed DESK seed
+    4's HAR3 24 grid-min late and competent HAR4 42 (`tests/restore-first.test.js`).
   * *RESTORE segments* (Q-70): par's pace (`decide`) passes `restoreSegs(obs)` to `refRealSeconds`:
     for each task feeder, from its allowed second (`allowedS`: `market.restoreAllowedS`'s rule,
     copied because S-4 forbids importing market) until it is closed, at most `RESTORE_PACE_MAX_S`,
@@ -2134,7 +2142,7 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
     `PAR_NIGHT_STOP_GUARD_MW` of GUARD still to raise, sustained. Without it the night stopped GTs
     into a 48.9-Hz preview on an empty battery and rule 2 started them again, and stopped the last
     CCGT and started a GT for the nadir (P3/S1, wave 2). `runPar` swaps a player proxy's memory for it **in place**
-    at the first decision with `control.nightShift` (par, competent, lean, commitAll, planOnly;
+    at the first decision with `control.nightShift` (par, competent, slow, lean, commitAll, planOnly;
     doNothing and fuzz keep F-3's meaning), once (`memo.night`; `app/par.js`'s chunked resume holds the
     same object, so it swaps once), and from then decides and plans on it; `app/system.js` does the
     same, so the same 21:00 state gives the same night (`tests/night.test.js`). At night rule 2 starts
@@ -2144,7 +2152,12 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
     integrator's).
 * **Proxies** (`opts.proxy`): `par`; `planOnly` (the plan, nothing else: the L-0 accept);
   `doNothing` (no input at all: F-3); `lean` (plan + rules 1, 2, 7, 8, 9); `competent` (plan +
-  rules 1-9 at `PROXY_COMPETENT_GAP_REAL_S`: H-1(b), F-3, K-8); `commitAll` (S-11: START every
+  rules 1-9 at `PROXY_COMPETENT_GAP_REAL_S`: H-1(b), F-3, K-8); `slow` (2c, desk/README.md §32.10,
+  F-8: competent, but it sees each task feeder `PROXY_SLOW_RESTORE_REAL_S` 15 real s of
+  `refRealSeconds` after its allowed second, the RESTORE pace and any watch counted: rule 9 skips
+  the feeder until then, and is asked first from then until it is closed; at the morning ramp's
+  270× that is the pace's 300 grid-s plus 1,350, so `RESTORE_PACE_MAX_S` 600 would bring it to
+  450); `commitAll` (S-11: START every
   offline machine at tick 0 in one batch, bypassing pace and the 04:30 start, then par without
   rule 4); `fuzz` (private hash of the seed, never the sim's streams); `night` (2c: `nightMemo`'s, all
   rules at `NIGHT_ACTION_S`, STOPs kept; the player proxies become it at 21:00 on a `night` scenario).
