@@ -2617,11 +2617,37 @@ discharge as an evening gap grows: each order is sized for the gap 20 min ahead.
     what a guarded press would do, said before it is made (C-10): target is
     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
 
-  steady(held, next, s) -> {line, seenS, sinceS}
+  steady(held, next, s, hand?) -> {line, seenS, sinceS}
     the line as the desk shows it: a line whose deadline or figure moves with each forecast while
     what it asks for and its other words stay the same is kept as it was said, and a quiet line
     for STEADY_QUIET_S against another quiet line (the game holds `held`; the objective itself
-    stays pure, and the action a line carries is never held back or changed).
+    stays pure, and the action a line carries is never held back or changed). hand: the clock
+    is HAND's (app/director.js handAt), for spanAt.
+
+The day (slice 2c, desk/README.md §32.8.1):
+  - A heatwave is news from 04:00 (Q-80): the look-ahead derates its window from the news;
+    Q-38's HOT-morning worst case is retired (a HOT day with no heat news has none coming).
+  - The night roll (Q-73): from obs.nightShift the line is quiet; the night strip replaces it.
+  - The spans (Q-63): NOW_S, ACT_WITHIN_S and the STEADY spans were tuned at TUNED_RATE (the
+    flat 120x); each means its real seconds there, as the D-2 profile plays them from where it
+    starts (spanAt: never less than the span, never past a night scenario's 21:00). Three stay
+    grid time: the reserve diesel's arm (its stand-down looks 45 grid-min ahead), the demand
+    response call (its hour is grid time: the call waits for the gap to open within ACT_WITHIN_S
+    + NOW_S, the line says "be ready" until then) and the battery's late charging band.
+  - Act I's constraints (Q-68): the tie's import limit per column until its limitUntilS; a booked
+    start due at a unit's return; a unit out for maintenance planned from its return (startable
+    with later: "Start CCGT 2 at 07:45, when it is back", never an ask or a lit START before it;
+    its START press says "out for maintenance until 07:45"). A capacity ask names what binds
+    (why): "(CCGT 2 out until 07:45; the tie limited to 450 MW until 11:00)", when it fits.
+  - The restore task (Q-68, Q-69): from PICKUP_AHEAD_S before a hand-back, "SAL4's feeder is back
+    at 06:45: hold 250 MW of spare for its pickup" (its cold load now, with the forecast's
+    underlying demand then, rounded up); the feeders under repair named beside the count; R's
+    feeder first (one handed back, the latest first, as desk/bay.js picks); spare()'s pickup
+    counts a held feeder once its return is within the act window ("…and picks up 250 MW, more
+    than the spare you have. Start …").
+  - On a night scenario a STOP saves until the night shift would stop the unit (stopHorizonS:
+    21:00, or PAR_DECOMMIT_MIN_ON_MIN on), and a restart from 21:00 is the night shift's (no
+    start priced, no "Start it again by").
 ```
 
 #### desk/desk.js
