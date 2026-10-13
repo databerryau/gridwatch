@@ -173,7 +173,7 @@ test('B-7: the SETTINGS popover opens from its header button and `,`, never paus
   const tick = h.game.state.tick;
   frames(30);
   assert.ok(h.game.state.tick > tick, 'the clock keeps running behind the popover');
-  assert.match($('rate-text').textContent, /^CRUISE/);
+  assert.equal(h.vm().mode.mode, 'CRUISE'); // (2c: the badge names the D-2 segment, not CRUISE)
   // Sliders.
   const slide = (id, v) => { $(id).value = String(v); $(id).dispatch('input'); frames(1); };
   slide('set-volume', 35); slide('set-hum', 0); slide('set-fx', 60); slide('set-alarms', 100);
@@ -186,7 +186,7 @@ test('B-7: the SETTINGS popover opens from its header button and `,`, never paus
   key('ArrowUp'); key('1'); key(' '); key('a');
   frames(1);
   assert.equal(h.game.state.log.length, logN, 'no lever moved');
-  assert.match($('rate-text').textContent, /^CRUISE/, 'Space did not pause');
+  assert.equal(h.vm().mode.mode, 'CRUISE', 'Space did not pause'); // (2c: the badge names the segment)
   assert.equal(doc.activeElement, $('set-hum'));
   // Switches -> body classes (§13.1).
   const flip = (id, on) => { $(id).checked = on; $(id).dispatch('change'); frames(1); };

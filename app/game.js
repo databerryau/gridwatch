@@ -7,7 +7,9 @@ import * as physics from '../sim/physics.js';
 import * as grid from '../sim/grid.js';
 import * as fleet from '../sim/fleet.js';
 import * as weather from '../sim/weather.js';
+import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
+import {BRIEF_LOCK, NIGHT_LOCK} from '../render/format.js';
 import {scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
 import {objective, consequence, steady, masked} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
@@ -30,12 +32,15 @@ export const MAX_CUES = 64;
 export const HIST_FREQ_S = 180;
 /** vm.hist station / demand columns: 5-min columns over the last 30 grid-min (L-1's past). */
 export const HIST_COL_S = V.FC_STEP_S, HIST_COLS = 6;
-/** The standing objective is recomputed this often (grid seconds). */
+/** The standing objective is recomputed at most this often (grid seconds; Q-63: objectiveDue). */
 export const OBJECTIVE_EVERY_S = 30;
 /** A line shown stays up at least this long (real ms), so it can be read. */
 export const LINE_DWELL_MS = 4000;
-/** A START is "now" this many real s sooner at CRUISE (ctx.leadS): to read, press twice. */
+/** A START is "now" this many real s of the profile sooner (ctx.leadS): to read, press twice. */
 export const LINE_REACT_S = 13;
+/** Q-63: ctx.leadS at grid second s: LINE_REACT_S real s of the profile, never past a night scenario's handover (the night shift's). */
+export const readingLeadS = (s, hand, night) => Math.min(gridAfter(s, LINE_REACT_S, hand) - s, night ? Math.max(0, NIGHT_S - s) : Infinity);
+export {BRIEF_LOCK, NIGHT_LOCK, isLock} from '../render/format.js'; // (Q-64, Q-73: the views read them there too)
 /**
  * Inputs after which the dispatch is re-run in the same call (Phase 2a, desk/README.md §21.4): the
  * commitment and the battery are the player's, and a plan that has not seen the input yet would
@@ -163,14 +168,14 @@ export function createGame(o) {
     state: null, director: null, pacer: createPacer({cap: o.cap, budgetMs: o.budgetMs}),
     sys: null, sysError: '',
     rec: null, alarms: null, tray: null, watchMem: null,
-    phase: 'briefing', agc: true,
+    phase: 'briefing',
     ui: {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null, trayOpen: false,
       drawer: false, settingsOpen: false, consider: null, armed: null,
       alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
-    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof},
-    cues: [], refusal: null, respond: null, respondGlow: [], offers: [], offered: {}, offersToday: 0,
+    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, restore: !!seen.restore},
+    cues: [], refusal: null, respond: null, respondGlow: [], offers: [], offered: {}, tally: null,
     previewCache: new Map(), previewS: -1, restoreCache: new Map(), restoreS: -1,
     hist: null, histView: null, histViewS: -1,
     hashes: [], lastFrameMs: -1, end: null,
@@ -213,11 +218,10 @@ export function resetDay(game, seed) {
   game.tray = T.createTray();
   game.watchMem = W.createWatch();
   game.phase = 'briefing';
-  game.agc = true;
   Object.assign(game.ui, {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null,
     trayOpen: false, consider: null, armed: null, alarmsOpen: false, alarmsSel: null, alarmsPick: null, suburb: null, suburbLast: null});
   game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = [];
-  game.offers = []; game.offered = {}; game.offersToday = 0;
+  game.offers = []; game.offered = {}; game.tally = {n: 0, extra: 0, contN: -1};
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
   game.hist = createHist();
   game.histView = null; game.histViewS = -1;
@@ -317,7 +321,8 @@ function recordCues(game, r) {
   return c ? [c] : EMPTY;
 }
 
-function handleRecords(game, recs, by) {
+/** A step's (or an input's) records: traces, sounds, refusals, the tray; a card that rings ends FAST (Q-63). */
+export function handleRecords(game, recs, by) {
   for (const r of recs) {
     if (r.kind === 'contingency') startTrace(game.rec, game.state);
     let cues = EMPTY;
@@ -328,7 +333,7 @@ function handleRecords(game, recs, by) {
       else game.refusal = {type: r.type, reason: r.reason, tick: r.tick};
     }
   }
-  for (const c of T.trayRecords(game.tray, recs)) pushCue(game, c);
+  for (const c of T.trayRecords(game.tray, recs)) { if (c === 'ring2') D.endFast(game.director); pushCue(game, c); }
 }
 
 /** Run exactly one tick (the loop's tick callback). */
@@ -384,17 +389,11 @@ export function runTo(game, tick) {
 
 // ------------------------------------------------------------------ the briefing (D-7)
 
-/**
- * TAKE THE DESK: AGC or HAND (D-7, chosen now or never), then the 04:00-04:30 settling runs
- * headless and the clock starts at CRUISE.
- * @param {{agc?:boolean}} [o]
- */
-export function takeDesk(game, o) {
+/** TAKE THE DESK: 04:00-04:30 runs headless, the briefing's items become tray cards (Q-81), the clock starts. AGC/HAND is the sim's mode (Q-64). */
+export function takeDesk(game) {
   if (game.phase !== 'briefing') return false;
-  const agc = !o || o.agc === undefined ? true : !!o.agc;
-  game.agc = agc;
-  if (!agc) sendInput(game, {type: 'mode', agc: false});
   runTo(game, V.PLAYER_START_TICK);
+  if (T.trayBriefing) for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c); // TODO(2c-w2-merge): the guard goes once desk's is in
   game.phase = 'play';
   game.director.paused = game.startPaused;
   game.director.held = game.ui.alarmsOpen; // Q-46: an alarm panel opened in the briefing holds the clock now
@@ -406,9 +405,12 @@ export function takeDesk(game, o) {
 /**
  * A sim input from the desk, the stack, the map or the keys, applied now (between ticks).
  * Any desk input dismisses the respond card first (K-16). Returns '' or the refusal reason.
+ * The briefing takes only AGC/HAND (Q-64) and the night roll none (Q-73): BRIEF_LOCK, NIGHT_LOCK.
  */
 export function sendInput(game, x) {
   const state = game.state;
+  const lock = game.phase === 'briefing' ? (x && x.type === 'mode' ? '' : BRIEF_LOCK) : state.control.nightShift ? NIGHT_LOCK : '';
+  if (lock) return lock;
   D.dismissCard(game.director, state);
   const out = [];
   const r = applyInput(state, x, out);
@@ -417,7 +419,7 @@ export function sendInput(game, x) {
     game.objectiveS = -1e9; game.lineFresh = true;
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
-    if (x.type === 'restore') D.focusRestore(game.director, state);
+    if (x.type === 'restore' && D.focusRestore(game.director, state, x.district)) saveSeen(game);
     if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
   }
   return r.ok ? '' : r.reason;
@@ -448,6 +450,8 @@ function redispatchAfter(game) {
 
 /** A-1 RE-DISPATCH through app/system.js. Returns '' or the reason it was refused. */
 export function redispatch(game) {
+  if (game.phase === 'briefing') return BRIEF_LOCK;
+  if (game.state.control.nightShift) return NIGHT_LOCK;
   if (!game.sysMod || !game.sys) return 'RE-DISPATCH needs the system operator' + (game.sysError ? ' (' + game.sysError + ')' : '');
   D.dismissCard(game.director, game.state);
   let r;
@@ -617,27 +621,32 @@ export function restorePreview(game, districtId) {
 
 // ------------------------------------------------------------------ the view model (desk/README.md §5)
 
-const PEAK = A.PEAK_H;
-
-// K-12 (§32.4.8). mode: the page's, until Q-78; omitted: D-5's window, obs.inRespond.
-export function offerWhy(obs, tally, mode) {
-  if (tally.n >= MAX_OFFERS) return '';
-  return (mode === undefined ? obs.inRespond : mode === 'RESPOND' || mode === 'RESPOND-CARD') ? 'respond' : obs.sec.level !== 'SECURE' ? 'tight'
-    : obs.clock.h >= PEAK[0] && obs.clock.h < PEAK[1] ? 'peak' : '';
+/** K-12, Q-78 (§32.4.8; the tally: §32.12 app/game.js): why the bay offers a unit reaching full speed now, or ''. */
+export function offerWhy(obs, tally) {
+  if (tally.n >= MAX_OFFERS || obs.s >= NIGHT_S) return '';
+  if (obs.inRespond && obs.contingency.n !== tally.contN) return 'respond';
+  return tally.extra ? '' : obs.sec.level !== 'SECURE' ? 'tight' : obs.s >= PEAK[0] && obs.s < PEAK[1] ? 'peak' : '';
+}
+/** Q-78: the tally once an offer for `why` (offerWhy's answer at obs) is made; pure, so par's proxy (Q-77) keeps it the same way. */
+export function tallyOffer(tally, why, obs) {
+  tally.n++;
+  if (why === 'respond') tally.contN = obs.contingency.n; else tally.extra++;
+  return tally;
 }
 
-// K-12 / A-4: which ready units the bay offers now.
-function updateOffers(game, obs, mode) {
-  const out = [];
+// K-12 / A-4: which ready units the bay offers now; a new offer plays OFFER (app/director.js offerPace).
+function updateOffers(game, obs) {
+  const out = [], t = game.tally;
   for (const u of obs.units) {
     // One offer per ready period: the record lives while the unit waits at full speed.
     if (u.mode !== 'ready') { delete game.offered[u.id]; continue; }
     const rec = game.offered[u.id];
     if (rec) { out.push({unit: u.id, why: rec.why}); continue; }
-    const why = offerWhy(obs, {n: game.offersToday, extra: 0, contN: -1}, mode);
+    const why = offerWhy(obs, t);
     if (!why) continue;
-    game.offersToday++;
-    game.offered[u.id] = {why, taken: false};
+    tallyOffer(t, why, obs);
+    game.offered[u.id] = {why, taken: false, tick: obs.tick};
+    D.offerPace(game.director, game.state, u.id);
     out.push({unit: u.id, why});
   }
   game.offers = out;
@@ -655,6 +664,12 @@ export function holdLine(shown, next, nowMs, shownMs, fresh) {
 }
 // A new ask to act: at FAST it ends FAST, as an alarm does, and shows at once.
 export const newAsk = (shown, next) => !!next && !!next.action && LEVELS.indexOf(next.level) > 1 && JSON.stringify(next.action) !== JSON.stringify(shown && shown.action);
+
+/** Q-63: the objective line is due at grid second s in director mode `mode` ('news', true or false; buildVm and tests/lib/play.js). */
+export function objectiveDue(game, s, mode) {
+  if (game.objectiveMode !== mode && /WATCH|RESPOND|RESTORE|NIGHT|OVER/.test(mode + game.objectiveMode)) return 'news';
+  return s - game.objectiveS >= Math.max(OBJECTIVE_EVERY_S, rateAt(s, D.handAt(game.state)) * V.OBJ_EVERY_REAL_S) || s < game.objectiveS;
+}
 
 /** The annunciator's context (§30.3.5; buildVm and tests/lib/play.js): no real time while the clock is held. */
 export function alarmCtx(game, nowMs, realDtS) {
@@ -704,18 +719,17 @@ export function buildVm(game, f) {
   if (mode.mode !== 'RESPOND-CARD') game.respond = null;
   if (mode.mode !== 'RESPOND-CARD' && mode.mode !== 'RESPOND') game.respondGlow = [];
 
-  const offers = game.phase === 'play' ? updateOffers(game, obs, mode.mode) : [];
+  const offers = game.phase === 'play' ? updateOffers(game, obs) : [];
   const glow = new Set(game.respondGlow);
   for (const g of game.ui.hoverGlow) glow.add(g);
-  // The standing objective (app/objective.js; Q-18): once per OBJECTIVE_EVERY_S grid seconds, and
-  // at once when an input lands (objectiveS is reset there) or the watch, the card or RESPOND comes
-  // or goes (not Space). An exception in objective(), steady() or consequence() blanks only its
-  // line; it is kept in objectiveError (vm.objectiveError; the ?debug handle shows it) as the
-  // system operator's is in sysError.
+  // The standing objective (app/objective.js; Q-18): on objectiveDue's cadence, and at once when an
+  // input lands (objectiveS is reset there). An exception in objective(), steady() or consequence()
+  // blanks only its line; it is kept in objectiveError (vm.objectiveError; the ?debug handle shows
+  // it) as the system operator's is in sysError.
   if (game.phase === 'play' && game.commit === 'player' && game.planview) {
-    const news = game.objectiveMode !== mode.mode && /WATCH|RESPOND|OVER/.test(mode.mode + game.objectiveMode);
-    if (obs.s - game.objectiveS >= OBJECTIVE_EVERY_S || obs.s < game.objectiveS || news) {
-      let fresh = game.lineFresh || news;
+    const due = objectiveDue(game, obs.s, mode.mode);
+    if (due) {
+      let fresh = game.lineFresh || due === 'news';
       game.objectiveS = obs.s; game.objectiveMode = mode.mode; game.lineFresh = false;
       game.objectiveError = '';
       let stage = 'objective';
@@ -725,7 +739,7 @@ export function buildVm(game, f) {
         // projection once per line (F-11: the objective and its STOP saving read the same one).
         game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
         const proj = game.planview.project(obs);
-        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: d.speed * LINE_REACT_S, held: game.objective});
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s);
@@ -745,7 +759,9 @@ export function buildVm(game, f) {
       game.considerDirty = false;
       const t = game.ui.consider, was = game.consider;
       game.consider = null;
-      if (t && !mode.locked) {
+      // (the night lock refuses the press: the line says so, never what it would do; Q-73)
+      if (t && !mode.locked && obs.nightShift) game.consider = {target: t, text: NIGHT_LOCK, level: 'plan'};
+      else if (t && !mode.locked) {
         try {
           if (!game.dayAhead) game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
           const c = game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview});
@@ -803,8 +819,8 @@ export function buildVm(game, f) {
     // C-10 (§19.5): {target, text, level} for the guard being hovered, focused or lifted, or null;
     // the shell shows it in #objective with the word '? IF PRESSED', in place of the objective.
     consider: game.consider,
-    // the guard with its cover up, or null; levers held by hand
-    armed: game.ui.armed, held: game.commit === 'player' && heldByHand(game),
+    // the guard with its cover up, or null (none under the night lock: no press to confirm, Q-73); levers held by hand
+    armed: obs.nightShift ? null : game.ui.armed, held: game.commit === 'player' && heldByHand(game),
     alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
     suburb: game.ui.suburb, dayAhead: game.dayAhead,
   };
