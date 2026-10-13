@@ -509,6 +509,7 @@ export const P = {
   NIGHT_ACTION_S: simp(300, 's', 'Q-73: the night shift acts once per 5 grid-min (the dispatch step)'),
   CLOCK_SEARCH_S: simp(1e-6, 's', 'clock.js: the step inverses search from this close (numerical)'),
   FRONT_READ_SD: simp(3, 'sd', 'Q-79: the forecast reads a place as clearing this far above frontMu'),
+  PAR_NIGHT_STOP_GUARD_MW: simp(200, 'MW', 'Q-73: at night rule 4 stops a unit with the trip preview at or below PAR_NADIR_RELAX_HZ only while the GUARD can still rise this much, sustained (a gas unit\'s stop cost the preview about 0.3 Hz)'),
   // ---- phase 2c "the day" block: end
 };
 

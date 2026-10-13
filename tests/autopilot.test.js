@@ -4,7 +4,7 @@
 // sim-lint.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {runPar, createAutopilot, decide, refRealSeconds, preDispatch, replan, planUpdates} from '../sim/autopilot.js';
+import {runPar, createAutopilot, decide, refRealSeconds, preDispatch, replan, planUpdates, nightMemo, PROXY_NAMES} from '../sim/autopilot.js';
 import {createState, step, observe, hashState, applyInput} from '../sim/step.js';
 import * as fleet from '../sim/fleet.js';
 import {V} from '../sim/params.js';
@@ -348,8 +348,9 @@ test('S-14 rule 2 (C-12): par charges whenever the price is at or below $0 or po
   r = early(obs => { Object.assign(obs.battery, {mode: 'charge', orderMW: 100}); obs.solar.autoMW = 30; obs.price.mwh = 26; });
   assert.deepEqual(r.d, [{type: 'battery', mode: 'idle', mw: 0}]);
   // In the evening window a price at or below $0 turns a discharge into a charge (never sell at a negative price).
+  // (2c: rule 5's release already under way, or it starts the hydro machine par's own 12:30 left off.)
   r = at(obs => { obs.s = ticksAt(17, 0) / TPS; obs.tick = ticksAt(17, 0) + 1; obs.dayAhead = null; Object.assign(obs.battery, {mode: 'discharge', orderMW: 140});
-    obs.solar.autoMW = 90; obs.price.mwh = V.RENEWABLE_OFFER; });
+    obs.solar.autoMW = 90; obs.price.mwh = V.RENEWABLE_OFFER; }, Object.assign(createAutopilot(), {water: 'release'}));
   assert.deepEqual(r.d, [{type: 'battery', mode: 'charge', mw: 90}]);
 });
 
@@ -907,4 +908,96 @@ test('a unit still loading in the belly (final review of Phase 2a): the dispatch
     const kOn = Math.ceil((onS - P.t0) / P.stepS) + 1;
     assert.ok(P.lever[0][kOn] >= 4 * m4.minMW - 1 && P.tie[kOn] <= 0, proxy + ': after it is on, coal ' + P.lever[0][kOn].toFixed(0) + ' MW, tie ' + P.tie[kOn].toFixed(0));
   }
+});
+
+// ---------------------------------------------------------------- 2c (wave 2, par): the day's constraints and the night (desk/README.md §32.7.1)
+
+const S_OF = (h, m = 0) => ticksAt(h, m) / TPS;
+
+test('2c par: the announced feeders wait at the gate by themselves (rule 9 reads the permissive\'s reason) and close at their allowed second; par\'s pace counts Q-70\'s RESTORE segments', () => {
+  // DESK seed 1 (par's shared day to 08:00): RED6 is handed back at 06:50 and RED7 at 07:15 (Q-68).
+  const s0 = createState(1, DESK), clear = Object.fromEntries(s0.city.districts.filter(d => d.clearS >= 0).map(d => [d.id, d.clearS]));
+  assert.deepEqual(clear, {RED6: S_OF(6, 50), RED7: S_OF(7, 15)});
+  assert.match(observe(s0).districts.find(d => d.id === 'RED6').restoreBlock, /^feeder under repair until 06:50/);
+  const s8 = parDayAt(1, DESK, 8, 0), restores = s8.log.filter(x => x.type === 'restore');
+  assert.deepEqual(restores.map(x => x.args.district), ['RED6', 'RED7'], 'par\'s only restores, each once');
+  for (const x of restores) {
+    const s = (x.tick - 1) / TPS, c = clear[x.args.district];
+    assert.ok(s >= c && s < c + V.RESTORE_PACE_MAX_S, x.args.district + ' closed at +' + (s - c) + ' s: inside the pace');
+  }
+  assert.equal(s8.score.taskLateMWh, 0, 'PERFECT\'s pace (S-6)');
+  // The pace: a RESTORE segment runs at RESTORE_PACE_RATE (where no watch covers it); classic passes none.
+  const a = S_OF(6, 50), seg = [{fromS: a, toS: a + V.RESTORE_PACE_MAX_S}];
+  assert.ok(Math.abs(refRealSeconds(a - 600, a + 900, [], seg) - (refRealSeconds(a - 600, a, []) + V.RESTORE_PACE_MAX_S / V.RESTORE_PACE_RATE + refRealSeconds(a + 300, a + 900, []))) < 1e-9);
+  assert.equal(refRealSeconds(a - 600, a + 900, []), refRealSeconds(a - 600, a + 900, [], []));
+  const watch = [{startS: a + 100, watchEndS: a + 130, backInBandS: a + 120}];
+  assert.ok(Math.abs(refRealSeconds(a + 100, a + 130, watch, seg) - V.REF_WATCH_REAL_S) < 1e-9, 'a watch wins over the segment');
+  // ... and decide() reads them from obs: 100 grid-s after an action at 06:50:00 RED6 may close (3.3 real s at 30x); with no
+  // hand-back (clearS -1) the profile's 0.4 s holds par back. (The 08:00 observation, its clock and RED6 put back.)
+  const poke = clearS => {
+    const obs = observe(s8);
+    Object.assign(obs, {s: a + 100, tick: (a + 100) * TPS + 1});
+    for (const d of obs.districts) d.restoredAtS = -1;
+    Object.assign(obs.districts.find(d => d.id === 'RED6'), {dark: true, shedBy: 'task', clearS, restoreBlock: ''});
+    return decide(obs, Object.assign(createAutopilot(), {lastActTick: a * TPS + 1}));
+  };
+  assert.equal(poke(a).length, 1);
+  assert.deepEqual(poke(-1), []);
+});
+
+test('2c par: the tie\'s import limit per column (a derate until limitUntilS), an outage\'s return for the starts, and a held booking carried at its due second (startDueS)', () => {
+  // DESK 20261012: the tie is derated to 500 MW until 10:05 (Q-68's Act I constraint).
+  const s = createState(20261012, DESK);
+  assert.deepEqual([s.tie.limitMW, s.tie.limitUntilS], [500, S_OF(10, 5)]);
+  while (s.tick < V.PLAYER_START_TICK) step(s);
+  const L = preDispatch(observe(s, {dayAhead: true})).load;
+  for (const [t, mw] of L.tie) if (t < S_OF(10, 5)) assert.ok(mw <= 500, 'the 04:30 plan imports ' + mw + ' MW at ' + t);
+  // rule 1's answer to a trip is the secure import within the limit
+  const obs = observe(s);
+  Object.assign(obs.tie, {setMW: 0, tripped: false});
+  obs.contingencies = [{n: 1, startS: obs.s - 5, watchEndS: obs.s - 1, backInBandS: -1, lostMW: 600, cause: 'unit', id: 'coal1'}];
+  for (const u of obs.units) u.startBlock = 'probe'; // no peaker to start: rule 1 goes to the tie
+  const d = decide(obs, createAutopilot());
+  assert.equal(d[0].type, 'tie');
+  assert.ok(d[0].mw <= 500, 'rule 1 sets ' + d[0].mw + ' MW');
+  // DESK 20261007: CCGT 2 is on outage until 07:45. The L-0 plan never books it earlier, and a booking held
+  // for its return (a planLoad accepted it at 05:00) is carried at 07:45 by the re-dispatch, not dropped.
+  const t = createState(20261007, DESK), back = S_OF(7, 45);
+  assert.equal(t.units.find(u => u.id === 'ccgt2').outUntilS, back);
+  while (t.tick < V.PLAYER_START_TICK) step(t);
+  const m = createAutopilot({proxy: 'planOnly'});
+  for (const [u, at] of planUpdates(observe(t, {dayAhead: true}), m)[0].starts) if (u === 'ccgt2') assert.ok(at >= back, 'the L-0 plan books ccgt2 at ' + at);
+  assert.equal(applyInput(t, {type: 'planLoad', fromS: Math.floor(t.tick / TPS), stations: Object.fromEntries(V.STATION_IDS.map(id => [id, []])), tie: [],
+    starts: [['ccgt2', S_OF(5)]], stops: []}).ok, true);
+  while (t.tick < ticksAt(5, 10)) step(t);
+  const o = observe(t);
+  assert.deepEqual(o.plan.starts, [{unit: 'ccgt2', atS: S_OF(5)}], 'the executor holds it for the return');
+  assert.deepEqual(replan(o, m).starts.filter(e => e[0] === 'ccgt2'), [['ccgt2', back]]);
+});
+
+test('2c par: nightMemo (Q-73) from obs alone: the night proxy at NIGHT_ACTION_S, the stops kept, an armed RERT\'s clock seeded; at night rule 2 starts no peaker while another is on its way', () => {
+  const obs = observe(parDayAt(2, DESK, 16, 0), {dayAhead: true});
+  assert.ok(PROXY_NAMES.includes('night'));
+  let m = nightMemo(obs);
+  assert.deepEqual([m.proxy, m.night, m.rertSinceS, m.plan.madeAtS, 'load' in m.plan, m.outbox], ['night', true, -1, obs.s, false, []]);
+  assert.deepEqual(JSON.parse(JSON.stringify(m)), m, 'plain JSON');
+  obs.rert.armed = true;
+  m = nightMemo(obs);
+  assert.equal(m.rertSinceS, obs.s - V.PAR_RERT_STANDDOWN_MIN * 60, 'rule 4 may stand it down at once');
+  obs.rert.armed = false;
+  // the night's pace is grid time: one action per NIGHT_ACTION_S
+  const lowNadir = (o, mm) => {
+    const x = quiet(clone(o));
+    Object.assign(x.sec, {previewNadirHz: V.PAR_NADIR_MIN_HZ - 0.3, lKind: 'unit'});
+    x.battery.socMWh = 0; // the GUARD cannot be sustained: rule 2 goes to a peaker
+    return decide(x, mm);
+  };
+  const after = gap => Object.assign(nightMemo(obs), {lastActTick: obs.tick - gap * TPS});
+  assert.deepEqual(lowNadir(obs, after(V.NIGHT_ACTION_S - 1)), [], 'NIGHT_ACTION_S - 1 grid-s after an action');
+  const start = lowNadir(obs, after(V.NIGHT_ACTION_S));
+  assert.equal(start.length === 1 && start[0].type, 'start');
+  const busy = clone(obs), gt = busy.units.find(u => u.id !== start[0].unit && /^gt/.test(u.id));
+  Object.assign(gt, {mode: 'starting', timerS: 200});
+  assert.ok(!lowNadir(busy, nightMemo(busy)).some(x => x.type === 'start'), 'a peaker on its way: no second start at night');
+  assert.equal(lowNadir(busy, createAutopilot())[0].type, 'start', 'by day rule 2 still starts the next one');
 });

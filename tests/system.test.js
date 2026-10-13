@@ -185,6 +185,9 @@ test('§21.3 commitSig: the dispatch is made over the battery\'s mode, order and
 
 test('§21.3 player mode: a battery order re-flows the plan at the system\'s next look, not at the next 5-minute dispatch; the plan carries it', () => {
   const {s, sys} = playerDay(2, DESK, ticksAt(10));
+  // (Q-69: HAR3 and HAR4 were handed back at 06:35 and 07:55 and nobody closed them. A handed-back feeder
+  // counts dark, so AGC did not carry its load into the battery: 648 MWh measured, full when it counted lit.)
+  assert.ok(['HAR3', 'HAR4'].every(id => s.city.districts.find(d => d.id === id).dark) && s.battery.socMWh < 0.75 * V.BATT_MWH, s.battery.socMWh.toFixed(0) + ' MWh');
   let n = planLoads(s);
   while (planLoads(s) === n) step(s, systemInputs(sys, s)); // just after a 5-minute dispatch
   const before = planCover(sys, s, 2), t0 = s.tick;

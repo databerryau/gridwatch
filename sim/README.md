@@ -1945,7 +1945,8 @@ resource cost of serving"):
 `preDispatch(obs) -> plan` (with `plan.load`, its planLoad input), `planUpdates(obs, memo, tags?,
 opts?) -> Input[]`, `createAutopilot(opts) -> memo`, `decide(obs, memo) -> Input[]` (<= 1),
 `replan(obs, memo) -> planLoad|null` (the player's RE-PLAN / RE-DISPATCH), `refRealSeconds(fromS,
-toS, conts, clears = [])` (`clears` unused until wave 2: Q-70's RESTORE segments), `runPar(seed,
+toS, conts, clears = [])` (`clears`: Q-70's RESTORE segments, 2c), `nightMemo(obs) -> memo` (2c,
+Q-73: the night shift's memory), `runPar(seed,
 scenario, opts) -> {score, summary, log, origins, hashes, black, plan, state, memo}`, and (2b)
 `aimFlex(fc, lv, id, lever) -> atS | -1`, the pure aim of desk/README.md
 §31.3.10 that par, the card and the objective share, with `aimLineMW(fc, lv, id, lever, k)`, the line
@@ -2089,11 +2090,64 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
     notice, no suburb.
   * `tools/par.js` rows: `soakDays`, `airconDays` (1 when any block of that lever was booked),
     `soakMWh`, `reliefMWh` (the booked cores' energy) and `flexDollars` (`score.cost.flex`).
+* **The day's constraints and the night** (2c, wave 2 `par`; desk/README.md §32.7.1, Q-68-Q-70,
+  Q-73). Neutral on CLASSIC: no district has a `clearS`, the tie has no limit, no unit an outage,
+  and `night` is false, so classic par is bit-identical (`tests/baseline-v4.test.js`).
+  * *The announced return* (Q-69, `sim/dark.js`): a task feeder still held (`shedBy` `'task'`,
+    `clearS` ahead of `obs.s`) counts lit in every column at or after its `clearS` (`litColumns`
+    and `litDayAhead` take each column's `darkShareAt(obs, t)`: the dispatch, the lit-load re-flow,
+    the adequacy walk and `eveningHolds`). The present is still `obs.demand.litMW`. Once handed
+    back it is the operator's dark district, dark in every column until it is restored, as is a
+    former task feeder dark again by UFLS or direction. (Counting a handed-back, unclosed feeder lit
+    left AGC carrying its load: on a no-input `desk` seed 2 morning −157 / −351 / −422 MW at 07:00 /
+    08:00 / 09:00 and the battery full by 10:00; counted dark, 8 / −17 / −59 MW and 648 MWh, as
+    the same morning without the task.)
+  * *The tie limit* (Q-68): every import bound par uses is `obs.tie.importLimitMW` until
+    `limitUntilS`, per column (`tieLimAt`): the plan's `tieCap`, the walk, `eveningHolds`, and the
+    secure import rules 1 and 2 set.
+  * *Outages* (Q-68): an outaged unit's earliest start is its return (`commitPlan`, the walk's
+    `onAt`; `nextStart` and rule 3 already skip it by its `startBlock`), and `context()` carries a
+    booked START at `max(atS, outUntilS)` (`grid.js startDueS`), so a re-dispatch keeps a booking
+    the executor is holding for the return instead of dropping it.
+  * *Rule 9 at the gate* needs no code: a held feeder's `restoreBlock` is the permissive's "feeder
+    under repair until HH:MM", so par closes it at the first decision the permissive allows.
+  * *RESTORE segments* (Q-70): par's pace (`decide`) passes `restoreSegs(obs)` to `refRealSeconds`:
+    for each task feeder, from its allowed second (`allowedS`: `market.restoreAllowedS`'s rule,
+    copied because S-4 forbids importing market) until it is closed, at most `RESTORE_PACE_MAX_S`,
+    at `RESTORE_PACE_RATE`; a watch wins over it. A feeder dark again later by UFLS has no segment.
+  * *The night shift* (Q-73): `nightMemo(obs)` builds, from one observation with `dayAhead`, a
+    memory for the `night` proxy (all rules, one action per `NIGHT_ACTION_S` grid-s instead of the
+    S-4 real-time pace, the booked STOPs kept by every re-dispatch), a `preDispatch` plan whose own
+    load is dropped (its columns are the day-ahead to 04:00), `rertSinceS` seeded from an armed RERT
+    (`obs.s − RERT_STANDDOWN_S`, so rule 4 may stand it down at its first look), `night: true`,
+    `seenConts` at `obs.contingencies.length` (the day's trips were the day's to answer: a trip par
+    answered at 20:45 is not answered again at 21:00), `amendDue: true` (the night plan, booked STOPs
+    in it, is sent at the first night decision), and `createAutopilot`'s defaults otherwise. On this
+    proxy the need tests count a booked STOP: in `situation()` a committed unit with a STOP booked is
+    off from its stop time (its capacity added to `net` from that column, so rules 3 and 4 see it),
+    and rule 4 leaves a unit whose STOP falls in its window to that STOP and tests N-1 without it
+    (`n1Without`'s `gone`); so the night does not stand down a peaker the STOP will need and start
+    it again after. A STOP counts only if it will run (`stopRuns`, `fleet.stopBlock`'s test at its
+    time: the executor drops one inside the minimum up time). Rule 4 at night also checks N-1 in
+    seconds (`nightStopHolds`): it stops a unit only while the trip preview leaves rule 2 an answer
+    that is not a start, above `PAR_NADIR_RELAX_HZ`, or at least `PAR_NADIR_MIN_HZ` with
+    `PAR_NIGHT_STOP_GUARD_MW` of GUARD still to raise, sustained. Without it the night stopped GTs
+    into a 48.9-Hz preview on an empty battery and rule 2 started them again, and stopped the last
+    CCGT and started a GT for the nadir (P3/S1, wave 2). `runPar` swaps a player proxy's memory for it **in place**
+    at the first decision with `control.nightShift` (par, competent, lean, commitAll, planOnly;
+    doNothing and fuzz keep F-3's meaning), once (`memo.night`; `app/par.js`'s chunked resume holds the
+    same object, so it swaps once), and from then decides and plans on it; `app/system.js` does the
+    same, so the same 21:00 state gives the same night (`tests/night.test.js`). At night rule 2 starts
+    no peaker while another is starting, ready or loading (the spike: at five minutes a second GT was
+    started while the first was still on its way). `memo.actions` restarts at the swap; tools count
+    the log's origins. The spike's numbers go to desk/README.md §32.11's wave-2 record (the
+    integrator's).
 * **Proxies** (`opts.proxy`): `par`; `planOnly` (the plan, nothing else: the L-0 accept);
   `doNothing` (no input at all: F-3); `lean` (plan + rules 1, 2, 7, 8, 9); `competent` (plan +
   rules 1-9 at `PROXY_COMPETENT_GAP_REAL_S`: H-1(b), F-3, K-8); `commitAll` (S-11: START every
   offline machine at tick 0 in one batch, bypassing pace and the 04:30 start, then par without
-  rule 4); `fuzz` (private hash of the seed, never the sim's streams).
+  rule 4); `fuzz` (private hash of the seed, never the sim's streams); `night` (2c: `nightMemo`'s, all
+  rules at `NIGHT_ACTION_S`, STOPs kept; the player proxies become it at 21:00 on a `night` scenario).
 * **Harness.** `runPar` decides at 04:30, every `PAR_DECIDE_EVERY_S` and at the first second
   after each watch; `opts.state` continues any state (tests); `opts.memo` continues an earlier
   run's memory (a JSON copy of `state` and `memo` resumes the same day: the decision cadence,
@@ -2101,7 +2155,10 @@ it aims on (the card's verdict reads it), and `knotMW(knots, t)`. JSDoc has the 
   `opts.onStep(state)` is called after every step (tests sample through it; it must not modify
   state); `origins[i]` names the source of `log[i]`. At a decision: the day's plan once (from
   the day-ahead observation), `decide()`'s action, then `planUpdates()` (the 04:30 plan, the
-  re-plans, the re-flow): the same order in `app/assist.js` and `app/system.js`.
+  re-plans, the re-flow): the same order in `app/assist.js` and `app/system.js`. 2c: at the first
+  decision with `control.nightShift` the observation is made with `dayAhead` and a player proxy's
+  memory becomes `nightMemo(obs)` in place (its cadence carried on) before `decide()`; the bench's
+  assist is classic-only and does not swap.
 * `tools/par.js` (Exit Phase 0) prints par for any seed. `tools/` is CommonJS
   (`tools/package.json`), so it loads the ES modules with `await import('../sim/step.js')`
   (Node >= 20), never `require`. It exports `grade()` (S-5) for `tools/baseline-v4.js`, and
@@ -2208,6 +2265,9 @@ How par edits its plan (SPEC S-4 and §8.2):
     (reflowLit), as NEM dispatch targets metered demand (L-0: never black with no input).
 The S-4 pace applies to every discrete action; at the reference playback's night roll
 (2,100x) that is one action per ~105 grid-minutes, so restores after a late shed are slow.
+(2c: on a `night` scenario the night memo takes over at 21:00 at one action per NIGHT_ACTION_S
+grid-s, and par's pace counts the RESTORE segments of Q-70; see "The day's constraints and the
+night" above.)
 
 Phase 2a, the belly (SPEC S-14 rules 2-4, P-12; desk/README.md C-12, §21.3, §25):
   * LIT OPERATIONAL DEMAND. With rooftop PV a dark district takes its roofs off with its
@@ -2374,9 +2434,14 @@ only (no imports). `shed` is the dark districts' share of the customers and `roo
 the rooftop PV (a district holds an equal part of its suburb's nameplate; 0 with no rooftop): the
 roofs go off with their feeder (P-12). `litMW` is a forecast column's lit operational demand,
 `(p50 + roofMW) x (1 - shed) - roofMW x (1 - roof)`, the sim's `fleet.litDemandMW` on the
-forecast; with rooftop zero it is `p50 x (1 - shed)` exactly. At stage A `s` is unused (the
-present dark share, today's behaviour); from wave 2 (par) a district with `clearS >= 0` counts as
-lit at every `s >= clearS` (the announced return).
+forecast; with rooftop zero it is `p50 x (1 - shed)` exactly. `s` is the column's grid second: a
+dark district counts at every `s`, except that one still held at `obs.s` (`shedBy` `'task'` and
+`obs.s < clearS`: Q-68's task feeder, `fleet.refreshHeld`'s test) counts as lit at every
+`s >= clearS` (wave 2, `par`: the announced return, Q-69). Handed back and still dark, it is the
+operator's and counts dark at every `s` until restored. With no held feeder (classic, every
+district not in the task, and every task feeder from its `clearS`) the result does not depend on `s`. Autopilot calls it per plan and forecast column
+(sim/README §11 autopilot.js, "The day's constraints and the night"); `app/planview.js` per stack
+column.
 
 ### dayplan.js (2c; desk/README.md §32.6.1, Q-65)
 

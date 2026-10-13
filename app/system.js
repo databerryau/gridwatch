@@ -21,7 +21,7 @@ export const DISPATCH_S = 300;
  */
 export function createSystem(opts) {
   return {memo: AP.createAutopilot({proxy: 'planOnly'}), loadTick: -1, logIdx: 0, edited: false, loads: 0,
-    commit: opts && opts.commit === 'player' ? 'player' : 'system', sig: '', dispatchS: -1};
+    commit: opts && opts.commit === 'player' ? 'player' : 'system', sig: '', dispatchS: -1, night: null, origin: 'system'};
 }
 
 // 'player' mode: what the dispatch is made over. It changes when a unit starts, synchronises,
@@ -87,6 +87,7 @@ function scanEdits(sys, state) {
  * @returns {boolean} sys.edited, fresh
  */
 export function heldByHand(sys, state) {
+  if (state.control.nightShift) return false; // Q-73 (§32.12)
   scanEdits(sys, state);
   return sys.edited;
 }
@@ -111,12 +112,19 @@ function loaded(sys, state, n) {
 export function systemInputs(sys, state) {
   const t = state.tick;
   if (state.over || t % TPS !== 1 || t <= START_TICK) return EMPTY;
-  const memo = sys.memo;
+  const memo = sys.night || sys.memo;
   if (inWatch(state)) { memo.afterWatch = true; return EMPTY; }
   const s = (t - 1) / TPS;
   if (!memo.afterWatch && s < memo.nextS) return EMPTY;
   memo.afterWatch = false;
   memo.nextS = s + EVERY_S;
+  if (state.control.nightShift) { // Q-73: the night shift, runPar's own step on AP.nightMemo (§32.12)
+    const obs = observe(state, sys.night ? undefined : DAY_AHEAD);
+    if (!sys.night) sys.night = Object.assign(AP.nightMemo(obs), {nextS: s + EVERY_S});
+    const out = AP.decide(obs, sys.night).concat(AP.planUpdates(obs, sys.night));
+    sys.origin = 'night';
+    return out.length ? out : EMPTY;
+  }
   scanEdits(sys, state);
   if (sys.commit === 'player') return playerInputs(sys, state, s);
   const obs = observe(state, memo.plan === null ? DAY_AHEAD : undefined);
@@ -136,6 +144,7 @@ export function systemInputs(sys, state) {
 export function redispatch(sys, state) {
   if (state.over) return {input: null, reason: 'the day is over'};
   if (inWatch(state)) return {input: null, reason: 'not during the watch'};
+  if (state.control.nightShift) return {input: null, reason: 'the night shift has the desk'};
   if (sys.memo.plan === null || state.tick < START_TICK) return {input: null, reason: 'no plan before 04:30'};
   const input = AP.replan(observe(state), sys.memo);
   if (!input) return {input: null, reason: 'no plan before 04:30'};

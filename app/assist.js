@@ -21,6 +21,10 @@
 //
 // DOM-free. If the autopilot throws (it is being tuned), the assist switches itself OFF
 // and reports the error instead of stopping the bench.
+//
+// CLASSIC only (2c, Q-73): the bench plays the classic day (app/bench-boot.js), which has no night
+// shift. runPar swaps a desk day's memory for AP.nightMemo at 21:00 and app/system.js does too; the
+// assist does not, so on a desk day its night would not be par's.
 
 import {V} from '../sim/params.js';
 import {observe, inWatch, applyInput} from '../sim/step.js';
