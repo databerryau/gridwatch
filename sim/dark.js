@@ -5,7 +5,7 @@ export function darkShareAt(obs, s) {
   const D = {shed: 0, roof: 0};
   const roofs = obs.rooftop;
   for (const d of obs.districts) {
-    if (!d.dark || (d.clearS >= 0 && s >= d.clearS)) continue; // Q-69: the announced return
+    if (!d.dark || (d.shedBy === 'task' && d.clearS > obs.s && s >= d.clearS)) continue; // Q-69: the announced return, while ahead
     D.shed += d.share;
     if (!roofs || !(roofs.capMW > 0)) continue;
     let inSuburb = 0, capMW = 0;
