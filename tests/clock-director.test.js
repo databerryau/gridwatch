@@ -33,12 +33,12 @@ const trip = (st, n = 0) => { st.conts.push({n, startTick: st.tick, watchEndTick
 const mode = (d, st) => D.modeOf(d, st).mode;
 const lines = (look, re) => look.split('\n').filter(l => re.test(l));
 
-// 04:30 to 04:00 through the page's loop at `hz` frames a real second: the real seconds it took (the
-// last frame may run past 04:00: within one frame). `each(frame)` before every frame (a card's answer).
-function day(st, d, hz, each) {
+// From st's tick to `end` (default 04:00) through the page's loop at `hz` frames a real second: the real
+// seconds it took (the last frame may run past the end: within one frame). `each()` before every frame (a card's answer).
+function day(st, d, hz, each, end = V.DAY_TICKS) {
   const p = createPacer(), h = {rate: () => D.rateOf(d, st), tick: () => { st.tick++; }};
   let frames = 0;
-  while (st.tick < V.DAY_TICKS) { if (each) each(frames); runFrame(p, 1 / hz, h); frames++; }
+  while (st.tick < end) { if (each) each(); runFrame(p, 1 / hz, h); frames++; }
   return frames / hz;
 }
 
@@ -51,12 +51,12 @@ test('Q-62, Q-63: CRUISE plays the D-2 profile: 04:30 to 04:00 takes 245 real s 
   assert.ok(Math.abs(hand - 478) <= 3 && Math.abs(hand - realBetween(START, V.DAY_S, true)) < 0.05, 'HAND: ' + hand.toFixed(3) + ' real s');
 });
 
-test('Q-91: a hand-back holds the clock (FEEDER-CARD, rate 0, no FAST) until its feeder is restored, Esc or another input; after a watch and its card; none from 21:00; each card held 3 real s adds just that to 245', () => {
-  // the day: each card held 180 frames (3 real s at 60 Hz), then answered as another input does
+test('Q-91: a hand-back holds the clock (FEEDER-CARD, rate 0, no FAST) until its feeder is restored, Esc or another input; after a watch and its card; none from 21:00; each card held 3 real s adds just that to the profile', () => {
+  // 06:40 to 07:20 through the page's loop: each card held 180 frames (3 real s at 60 Hz), then answered as another input does
   let held = 0;
-  const st0 = fake({clears: CLEARS}), d0 = director();
-  const r = day(st0, d0, 60, () => { const id = D.feederCard(d0, st0); if (id && ++held % 180 === 0) D.answerFeeder(d0, st0, id, false); });
-  assert.ok(held === 360 && Math.abs(r - realBetween(START, V.DAY_S) - 6) < 0.1, held + ' held frames: ' + r.toFixed(3) + ' real s');
+  const a = CLEARS[0] - 300, b = CLEARS[1] + 300, st0 = fake({clears: CLEARS, s: a}), d0 = director();
+  const r = day(st0, d0, 60, () => { const id = D.feederCard(d0, st0); if (id && ++held % 180 === 0) D.answerFeeder(d0, st0, id, false); }, b * TPS);
+  assert.ok(held === 360 && Math.abs(r - realBetween(a, b) - 6) < 0.05, held + ' held frames: ' + r.toFixed(3) + ' real s');
   // the card, second by second
   const st = fake({clears: CLEARS, s: CLEARS[0] - 1}), d = director(), at = s => { st.tick = s * TPS; return D.modeOf(d, st); };
   assert.equal(at(CLEARS[0] - 1).mode, 'CRUISE');
