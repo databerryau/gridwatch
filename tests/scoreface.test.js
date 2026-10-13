@@ -70,7 +70,8 @@ test('Q-48: the chip: hidden at the briefing; from TAKE THE DESK, SCORE against 
   const tip = b.$('chip-allin').title;
   assert.equal(b.$('chip-allin').getAttribute('aria-label'), tip);
   assert.equal(tip, 'ALL-IN so far: ' + you.cents.toFixed(1) + ' c/kWh (par ' + par.cents.toFixed(1) + '), SAIDI 0.0 min. The day\'s cost ' +
-    'to the community per kWh the city asked for: supply + MWh dark × ' + VCR + ' (VCR) + CO₂ × ' + VER + ' (VER). Not a price or a bill.');
+    'to the community per kWh the city asked for: supply + your MWh dark × ' + VCR + ' (VCR; a feeder under repair is yours from its hand-back) + ' +
+    'CO₂ × ' + VER + ' (VER). Not a price or a bill.'); // (2c, Q-69: only the MWh dark that are yours)
   assert.doesNotMatch(tip, FORBIDDEN);
   // its inline "?" opens the ALL-IN entry: what customers are charged, and what is left out
   const q = b.doc.querySelector('button.q[data-anchor="chip-allin"]');
@@ -127,8 +128,9 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.deepEqual([q.className, q.getAttribute('aria-controls')], ['q inline', 'popover']);
   q.click();
   assert.equal(b.$('popover').hidden, false);
-  assert.ok(b.$('popover').textContent.startsWith(endCard.RELIABILITY_ROW + 'Real world: '), b.$('popover').textContent.slice(0, 120));
-  assert.ok(TEXT.abstractions.some(x => x.row === endCard.RELIABILITY_ROW && x.game === 'drawer'));
+  // (2c, Q-69: the entry is renamed, "count the outages you cause"; until stage C it `replaces` the title the "?" names)
+  const rel = TEXT.abstractions.find(x => (x.row === endCard.RELIABILITY_ROW || x.replaces === endCard.RELIABILITY_ROW) && x.game === 'drawer');
+  assert.ok(rel && b.$('popover').textContent.startsWith(rel.row + 'Real world: '), b.$('popover').textContent.slice(0, 120));
   assert.deepEqual(b.h.mods.errors, []);
 });
 

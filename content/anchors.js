@@ -3,9 +3,9 @@
 // Contract: desk/README.md §32.12 content/anchors.js.
 
 export const ANCHORS = Object.freeze([
-  {game: 'rate-badge', rows: ['Compressed playback.']},
-  {game: 'tray', rows: ['Event-dense day.', 'MSL3 = 1,000 MW, with MSL2 and MSL1 300 and 600 MW above it']},
-  {game: 'bay-sync', rows: ['Compressed synchroscope.', 'Auto-sync takes 4 grid-minutes']},
+  {game: 'rate-badge', rows: ['Compressed playback.', 'RESTORE slows the clock at each hand-back.']},
+  {game: 'tray', rows: ['Event-dense day.', 'MSL3 = 1,000 MW, with MSL2 and MSL1 300 and 600 MW above it', 'Warning leads are game-sized.']},
+  {game: 'bay-sync', rows: ['Compressed synchroscope.', 'Auto-sync takes 4 grid-minutes', 'An offered SYNC runs at 30×.']},
   {game: 'stack', rows: ['Pre-dispatch is computed once, at 04:30', 'Cost-based offers; scarcity adder.',
     'A mild day is the hot day with its cooling load removed.', 'The dispatch spills wind and solar automatically, pro rata.']},
   {game: 'btn-redispatch', rows: ['Par re-plans after every action.', 'RE-DISPATCH re-runs the pre-dispatch on demand.']},
@@ -20,11 +20,14 @@ export const ANCHORS = Object.freeze([
   {game: 'map', rows: ['One-node network.', 'Rooftop solar: one curve, six skies.', 'Region scale.']},
   {game: 'chip-cost', rows: ['CUSTOMER COST is the resource cost of serving']},
   {game: 'chip-co2', rows: ['CARBON counts the region\'s own generation.']},
-  {game: 'gauge-n1', rows: ['LOR states via 1.25 × L.']},
+  {game: 'gauge-n1', rows: ['LOR states via 1.25 × L.', 'COVER after a trip is R5 ≥ L, not the NEM\'s secure state.']},
   {game: 'key-shed', rows: ['Automatic directed shedding when the FOS timers run out.']},
   {game: 'btn-dr', rows: ['City levers\' MW, costs and patience.']},
   {game: 'btn-mute', rows: ['Hum reference tone']},
   {game: 'wheel-hydro', rows: ['Daily hydro allocation', 'Hydro spins free.']},
   {game: 'clock', rows: ['Every daily is a late-summer day, until Y-9 ships']},
   {game: 'chip-allin', rows: ['The score divides par\'s ALL-IN by yours']}, // Q-48
+  {game: 'night-strip', rows: ['The night shift runs 21:00–04:00.']}, // 2c (desk/README.md §32.2)
+  {game: 'chip-hand', rows: ['HAND turns AGC off until 21:00.']},
+  {game: 'briefing-watch', rows: ['Act I\'s constraints are announced at 04:00.', 'Every gate-checked daily is solvable.']},
 ].map(a => Object.freeze({game: a.game, rows: Object.freeze(a.rows)})));

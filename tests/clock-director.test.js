@@ -221,12 +221,13 @@ test('Q-73 on the page: the sim\'s night flip is the one test (badge, mode, lock
   // the lock answers in blue with its own words (the shell's toast here; desk's own night note, the same words, once it merges), never in red
   const lock = new RegExp('^(TOAST blue|NOTE blue [^\\n]*?:) ' + G.NIGHT_LOCK.replace(/[.:]/g, '\\$&') + '$', 'm');
   const blue = (look, what) => { assert.match(look, lock, what); assert.doesNotMatch(look, /^NOTE RED/m, what + ': one answer, no red note beside the control'); };
-  const line = /^LINE \? IF PRESSED The night shift has the desk: /m;
+  // (2c shell fix pass: under the hand the night strip stays, saying the lock's words; no line, so none promises what the lock refuses)
+  const line = /^LINE /m, strip = 'NIGHT ☾ NIGHT SHIFT ' + G.NIGHT_LOCK + ' ';
   p.click('guard-start-gta1');
-  assert.deepEqual([line.test(p.look()), /^LINE ● ARMED/m.test(p.look())], [true, false], 'no cover to confirm under the lock');
+  assert.deepEqual([line.test(p.look()), lines(p.look(), /^NIGHT /)[0].startsWith(strip), p.h.vm().armed], [false, true, null], 'no cover to confirm under the lock');
   const s = p.press('guard-start-gta1', {after: 1 / 60});
   blue(s.during, 'START');
-  assert.match(s.during, line, 'the line never promises what the lock refuses');
+  assert.doesNotMatch(s.during, line, 'no line promises what the lock refuses');
   blue(p.press('btn-redispatch', {after: 1 / 60}).during, 'RE-DISPATCH');
   assert.deepEqual([G.sendInput(p.game, {type: 'tie', mw: 100}), G.redispatch(p.game)], [G.NIGHT_LOCK, G.NIGHT_LOCK]);
   // the night shift's own inputs are logged (Q-73: replay holds); none of the player's refused presses is

@@ -4830,6 +4830,9 @@ classes rm / fxlow / crt that follow vm.settings; the one key listener and its o
 the desk's key(ev), then the stack's and the map's, then app/keys.js); the #aria-live region
 (createLive / liveFrame below); the ?perf budget marks; ?debug -> globalThis.gridwatch.
 desk/README.md §30: texts and the alarm panel on demand (Q-44, Q-46), "?" and Esc (Q-47), par (Q-48).
+desk/README.md §32.8.2 (2c): the briefing's Watch for (Q-81), the header's HAND chip (D-7), the night
+strip in the objective's place from 21:00 and the end card fetched then (Q-73). Enter at the RESPOND card
+closes it on the capture phase, before any control's own Enter (K-16: a RESTORE row's would close a breaker).
 ```
 
 #### app/system.js

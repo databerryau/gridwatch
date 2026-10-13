@@ -137,10 +137,11 @@ test('H-14, Phase 2a (desk/README.md §19.5): the belly\'s rows, with their exac
   assert.ok(/None of them raises output/.test(pfr.ours), 'over-frequency only');
   const roof = byId.get('rooftop-model');
   assert.ok(roof.ours.startsWith(DESK.rooftop.capacityMW.toLocaleString('en-US') + ' MW') && roof.ours.includes(DESK.rooftop.clearFactor * 100 + '% of capacity'), roof.ours);
-  assert.ok(roof.ours.includes(DESK.rooftop.share.length + ' suburbs') && /No cloud front/.test(roof.ours), roof.ours);
+  // (2c, Q-79 and Q-80: a warned front crosses the suburbs; the heatwave is news at the briefing)
+  assert.ok(roof.ours.includes(DESK.rooftop.share.length + ' suburbs') && /A warned cloud front crosses the suburbs west to east/.test(roof.ours), roof.ours);
   const mild = byId.get('mild-days');
   assert.ok(mild.ours.includes('by ' + V.WEEKEND_DEMAND_FACTOR + ' all day') && mild.ours.includes(V.COOLING_MAX_MW.toLocaleString('en-US') + ' MW at'), mild.ours);
-  assert.ok(mild.ours.includes('announced at 10:30'), mild.ours);
+  assert.ok(mild.ours.includes('announced at the 04:00 briefing'), mild.ours);
   assert.ok(byId.get('auto-curtailment').ours.includes('from ' + V.SURPLUS_MIN_MW + ' MW') && /backstop is not on this desk yet/.test(byId.get('auto-curtailment').ours));
   // 54 and 39 min: the run-up plus the auto-sync delay, from the fleet (never copied)
   const down = byId.get('min-down-time'), sync = id => V.STATIONS[id].t1Min + V.AUTO_SYNC_S / V.S_PER_MIN;

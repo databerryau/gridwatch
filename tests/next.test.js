@@ -1006,7 +1006,8 @@ test('C-2 at boot: a seed that reads as a Saturday or Sunday plays desk-weekend;
   const d = boot('?seed=7', {scenario: G.scenarioForSeed});
   d.frames(2);
   assert.equal(d.h.game.scenario.id, 'desk');
-  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday. A heatwave warning, if one comes, comes mid-morning.');
+  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday. No heatwave is forecast.'); // (2c, Q-80: a planned day's heat is news at 04:00, and seed 7 has none)
+  assert.equal(dayText({temp: 'HOT', weekend: false}, {heat: true}), 'Today: a hot weekday, with a heatwave this afternoon (Watch for, below).');
   // PLAY AGAIN asks the function again (the same seed: the same scenario)
   G.resetDay(w.h.game);
   assert.equal(w.h.game.scenario.id, 'desk-weekend');
@@ -1207,10 +1208,12 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   frames(1, g2);
   const cruise = badgeText(h.vm().mode); // (the rate read: slice 2c's profile)
   assert.equal(h.vm().mode.mode, 'CRUISE');
-  assert.equal($('aria-live').textContent, cruise, 'the mode change after the briefing');
+  // (2c, Q-78 / K-23: the act changes at TAKE THE DESK too, so its words come first)
+  const said = 'Act I, the morning ramp: the city wakes and demand climbs. ' + cruise;
+  assert.equal($('aria-live').textContent, said, 'the mode change after the briefing');
   key(' ');
   frames(1);
-  assert.equal($('aria-live').textContent, cruise, 'inside 2 real s: not yet');
+  assert.equal($('aria-live').textContent, said, 'inside 2 real s: not yet');
   advance(2500);
   frames(1);
   assert.equal($('aria-live').textContent, 'PAUSE 0×');
