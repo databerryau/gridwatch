@@ -414,7 +414,7 @@ export function objective(obs, ctx) {
   // 3-9. The first branch with something to do now; else the first critical one (the reserve diesel
   // on its way: said, but never in place of what the battery can do meanwhile); else the first with
   // something to say. A city line not yet due comes after both. At a hand-back with its lamp lit the
-  // feeder comes first (Q-70's RESTORE pace is for it) unless the desk is really short within instS.
+  // feeder comes first (Q-91's card holds the clock for it) unless the desk is really short within instS.
   const back = obs.districts.some(d => d.dark && d.shedBy === 'task' && !(d.clearS > s) && d.restoreBlock === '') && !(realShort(X).soonMW >= BATT_MIN_MW);
   let passive = null, crit = null, ask = null;
   for (const branch of [...(back ? [restore] : []), commitNow, shortAhead, aircon, restore, spare, pickupAhead, stop, battery, soak, commitLater]) {

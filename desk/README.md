@@ -2665,11 +2665,11 @@ The day (slice 2c, desk/README.md §32.8.1):
     From PICKUP_AHEAD_S before a hand-back, with no feeder yet the desk's, "SAL4's feeder is back
     at 06:45: hold 250 MW of spare for its pickup" (its cold load now, with the forecast's
     underlying demand then, to the 10 MW: a few MW of drift moves it 10 MW, never a 50-MW step;
-    the spare gauge lit, never the bay, whose tab is Q-70's cue at the hand-back; a passive line
+    the spare gauge lit, never the bay, whose tab glows with Q-91's feeder card at the hand-back; a passive line
     after spare()'s own, before "Next"). The feeders under repair are named beside the count; R's feeder first (one handed
     back, the latest first, as desk/bay.js picks); at a hand-back with its lamp lit the restore
-    ask comes before every other branch unless the real check is short within instS (Q-70's
-    pace is for the feeder). spare()'s pickup counts a held feeder only once its return is within
+    ask comes before every other branch unless the real check is short within instS (the hand-back
+    is the feeder's moment: Q-91's card holds the clock for it). spare()'s pickup counts a held feeder only once its return is within
     the act window (at real sizes a pickup, 200-300 MW, is under the trip's share, 1.05 L).
   - On a night scenario a STOP saves until the night shift would stop the unit (stopHorizonS:
     21:00, or PAR_DECOMMIT_MIN_ON_MIN on), and a restart from 21:00 is the night shift's (no
@@ -4582,7 +4582,8 @@ URL query: ?seed=N or ?date=YYYY-MM-DD (default: today's daily, content/dailies.
 app/director.js: chooses the playback rate (spec F-5, K-15, K-16, D-6). The sim never does.
 
 Modes (desk/README.md §2), precedence OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD >
-FOCUS > RESTORE > RESPOND > OFFER > NIGHT > FAST > CRUISE (§32.4.8; OFFER: wave 2's fix pass):
+FEEDER-CARD > FOCUS > RESPOND > OFFER > NIGHT > FAST > CRUISE (§32.4.8; OFFER: wave 2's fix pass;
+FEEDER-CARD: Q-91, in RESTORE's place):
   CRUISE        the D-2 profile (slice 2c, Q-62/Q-63): sim/clock.js rateAt(s, hand), eased over 2 real
                 s at each interior boundary, halved from 04:30 to 21:00 when the day is HAND's
                 (handAt: state.control.handFlown, or the mode HAND from PLAYER_START_TICK, so the
@@ -4593,7 +4594,7 @@ FOCUS > RESTORE > RESPOND > OFFER > NIGHT > FAST > CRUISE (§32.4.8; OFFER: wave
                 the formula sim/clock.js uses) and asks rateAt only inside an ease: rateOf runs
                 between every two ticks, 1,750 times a frame at 2,100x.
   FAST          3 x CRUISE while F is held. Refused (setFast) and ended (directorFrame) in WATCH,
-                the card, RESPOND, FOCUS, ALARMS, RESTORE, OFFER and NIGHT (NO_FAST); it also ends on F up,
+                the cards, RESPOND, FOCUS, ALARMS, OFFER and NIGHT (NO_FAST); it also ends on F up,
                 a new contingency, a new P1/P2 alarm, a new ask (app/game.js newAsk) and every new
                 tray card that rings (app/game.js handleRecords: a 'ring2' from T.trayRecords; MSL1
                 and the other information cards do not ring), so FAST never runs past a warning
@@ -4601,26 +4602,28 @@ FOCUS > RESTORE > RESPOND > OFFER > NIGHT > FAST > CRUISE (§32.4.8; OFFER: wave
                 10x over 0-3 / 3-10 / 10-30 s, compact 0.5x / 2x / 20x. The desk is locked (the
                 sim refuses inputs). SKIP plays the rest of that watch at CRUISE.
   RESPOND-CARD  rate 0 from the watch's end until the card is dismissed (Enter or any desk
-                input): the only hold on the clock besides PAUSE (K-16)
+                input): a hold on the clock (K-16), as PAUSE and the feeder card
+  FEEDER-CARD   Q-91 (the owner's call, in place of Q-70's RESTORE pace): rate 0 at each task
+                feeder's allowed second (sim/market.js restoreAllowedS, the one rule: the later of
+                its clearS and the last restore + RESTORE_INTERVAL_S), while it is dark with shedBy
+                'task' and before 21:00, after any watch and the respond card (it waits for both:
+                feederOn), the earliest allowed first. It holds until the feeder is restored (it is
+                no longer dark), or the card is answered (answerFeeder): Esc goes on (app/game.js
+                ui 'goOn': d.fc[id] = Infinity, never held again), any other desk input dismisses
+                it for that allowed second (d.fc[id] = it; app/game.js sendInput and redispatch,
+                with the card shown at the press), so a later restore that moves its allowed second
+                holds it again. The restore of its own feeder keeps it when refused (the reason
+                stays on the card: app/game.js feederWhy). feederCard(d, state) names the feeder
+                shown ('' under PAUSE, ALARMS or a hidden tab: they hide it, as the respond card).
+                The dark task feeders' [i, clearS, allowed second] are kept on the director (d.rw,
+                windows) per input-log length (only a logged restore relights a district) and
+                checked against each feeder's dark, shedBy and clearS; a state with no log is read
+                afresh (stage C: rateOf asks it between every two ticks). tests/lib/play.js
+                dueSpans rebuilds the seconds a card may hold from the log for D-2's E.
   RESPOND       30x from the card's dismissal until frequency is back in 49.85-50.15 Hz
                 (contingency.backInBandTick >= 0) or 5 grid-min after the card, then the profile
   FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
-                a restore input (the breaker being closed, K-13)
-  RESTORE       Q-70: in each task feeder's window, from its allowed second (sim/market.js
-                restoreAllowedS, the one rule: the later of its clearS and the last restore +
-                RESTORE_INTERVAL_S) until it is closed (no longer dark) or RESTORE_PACE_MAX_S
-                (300 grid-s), while it is dark with shedBy 'task' and before 21:00: 30x
-                (RESTORE_PACE_RATE), or 10x (RESTORE_FIRST_RATE) until this browser has closed a
-                task feeder (d.seen.restore, set by focusRestore(d, state, id) on the first
-                accepted restore of a district with clearS >= 0, saved with seen.watch). A pace,
-                not a hold (K-16): with no input a hand-back costs 10 real s against 1.1 s at 270x.
-                Every restore (of any district) moves a dark task feeder's allowed second, so a
-                window that lapsed is played again from the new one (tests/lib/play.js
-                restoreSpans rebuilds them from the log for D-2's E). rateOf asks it between every
-                two ticks, so the windows are kept on the director (d.rw) per input-log length (only a
-                logged restore relights a district) and checked against each feeder's dark, shedBy
-                and clearS; a state with no log is read afresh (stage C: it was 24% of a task date's
-                04:30-21:00 jump, now about 7%).
+                a restore input (the breaker being closed, K-13; focusRestore)
   OFFER         K-12 (wave 2's fix pass, an owner-delegated call for the integrator to number):
                 OFFER_RATE 30x from the frame the game offers a unit (app/game.js updateOffers ->
                 offerPace) while it waits at full speed, for at most AUTO_SYNC_S (240 grid-s, so 8
@@ -4705,8 +4708,8 @@ Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
   refusal for them (desk/desk.js note, render/livestack.js send). Under the night lock the C-10 line
   ("? IF PRESSED") says the night shift has the desk, never what the press would do, and vm.armed
   is null (no "ARMED", no "Press again to confirm": there is no press to confirm).
-- **The line's cadence** is `objectiveDue(game, s, mode)`: 'news' when the watch, the card, RESPOND,
-  RESTORE, NIGHT or OVER came or went (not Space), else due once grid time has moved max(30 s, the
+- **The line's cadence** is `objectiveDue(game, s, mode)`: 'news' when the watch, a card (the respond
+  card, a feeder card), RESPOND, NIGHT or OVER came or went (not Space), else due once grid time has moved max(30 s, the
   profile's `rateAt` x `OBJ_EVERY_REAL_S` 0.4 real s): 216 grid-s at 540x, 60 at 150x, the 30-s
   floor at HAND's 75x (hand: the director's handAt). tests/lib/play.js asks the same function. Its
   reading lead is `readingLeadS(s, hand, night)` = `clock.gridAfter(s, LINE_REACT_S, hand) - s`: 13
@@ -4724,6 +4727,15 @@ Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
   too. A new offer plays the director's OFFER (`offerPace`), each offered unit with its own window.
   From the night flip `vm.offers` lists none, so an offer made before 21:00 leaves the bay's SYNC
   glow with the director's OFFER (stage C).
+- **The feeder card (Q-91):** `sendInput(game, x, shown)` answers the card shown at the press
+  (`D.feederCard`, or `shown`: `redispatch` passes the one shown at RE-DISPATCH, so its inputs never
+  answer the next card) with `D.answerFeeder(d, state, id, false)` for any input but the restore of
+  that card's own feeder; that restore relights it (the card goes), and refused it keeps the card with
+  the reason (`game.feederWhy`, on the card until that feeder's card goes). A feeder card queued behind
+  the respond card is never answered by the input that dismisses the respond card. `ui({do: 'goOn'})`
+  is Esc at the card (`answerFeeder(..., true)`: never held again; 'no card' without one). The restore
+  input's FOCUS is `D.focusRestore(d, state)`. `vm.feeder` is the card's model while the director plays
+  FEEDER-CARD: `W.feederCard(obs, id, scenario.city.suburbs, why)` (app/watch.js).
 
 #### app/loop.js
 
@@ -4851,6 +4863,13 @@ desk/README.md §30: texts and the alarm panel on demand (Q-44, Q-46), "?" and E
 desk/README.md §32.8.2 (2c): the briefing's Watch for (Q-81), the header's HAND chip (D-7), the night
 strip in the objective's place from 21:00 and the end card fetched then (Q-73). Enter at the RESPOND card
 closes it on the capture phase, before any control's own Enter (K-16: a RESTORE row's would close a breaker).
+Q-91: the feeder card (#feeder-card, drawFeeder from vm.feeder: what, the keys in blue, what going on means,
+and a refused restore's reason in red, the grid's refusal). On the capture phase (feederFirst, after Esc's
+closeTop: an Esc that closed something stops there), while the director plays FEEDER-CARD, Enter or R sends
+the restore of the feeder it names (actions.input: a refusal toasts in red and the card stays) and Esc goes
+on (ui 'goOn'), but in SETTINGS, the drawer and "?"; a click on the card focuses the RESTORE bay and the card
+stays. It sits over the map (never the desk's Live Stack or bay); with the stack out (L) the body class
+stack-out (placeStack) moves it over the lever bank.
 ```
 
 #### app/system.js
@@ -4984,6 +5003,10 @@ shortfall when R5 < L); "N-1 SHORT: n MW short: cover it within m:ss."; "N-1 TIG
 covers the next trip, without SECURE's margin." (TIGHT already covers: no countdown); SECURE as
 before.
 fallbackGlow's tie test reads obs.tie.importLimitMW (a derate's limit, Q-68).
+Q-91: feederCard(obs, id, suburbs, why) is the feeder card's model (the clock held at a hand-back): the
+feeder, its suburb's name and its pickup with its cold load to the 10 MW ("SAL4's feeder in Saltbush Bay
+is repaired: about 230 MW with its cold load."), the keys (FEEDER_KEYS "R or Enter: restore it now · Esc:
+go on"), what going on means (FEEDER_ON) and a refused restore's reason.
 ```
 
 #### audio/audio.js
@@ -5088,11 +5111,12 @@ district that is not held; the tab's ✕n still counts every dark district, as t
 line do, but the tab is lit amber only when one is the player's), and a press on its CLOSE is
 the red refusal with the sim's reason ("feeder under repair until HH:MM"), as every permissive
 refusal. From its hand-back the row reads "<id> · REPAIRED" (the FEEDER_CLEAR card's word). The
-RESTORE tab glows while the clock plays RESTORE (vm.mode.mode, Q-70: from each allowed second
-until that feeder is closed or 300 grid-s), not all day. R, and each hand-back while the list's
-choice is held or none, choose the feeder handed back last that can close, else the first that
-can, else the first that is the player's (the card's "R, then Enter"); Enter on the RESTORE tab
-does what R does.
+RESTORE tab glows while a feeder card holds the clock (vm.feeder, Q-91: from each allowed second
+until that feeder is restored or its card answered), not all day; at the card its R and Enter are
+the shell's (they restore the feeder the card names), and a CLOSE press is the bay's as ever. R
+(once the card is gone), and each hand-back while the list's choice is held or none, choose the
+feeder handed back last that can close, else the first that can, else the first that is the
+player's (the tray card's "R, then Enter"); Enter on the RESTORE tab does what R does.
 Keys (K-23): O opens the first READY unit's scope (an offered one first; again: closes it),
 B is the bypass key (HAND). The scope canvas is role="img" with a text alternative that changes
 at most once per real second. Foley (K-20): buttons and tabs cue `button`, the bypass key `key`;
@@ -5238,7 +5262,8 @@ Phase 1a (README §7); the bench shows the sim's own record text.
 
 Slice 2c (Q-78): the rate badge names the D-2 segment in CRUISE and NIGHT ("PEAK 150×", in HAND
 "PEAK 75×", "NIGHT ROLL 2,100×"), from `modeOf().segment` and its target `rate`; a mode object
-without a segment (the bench, fixtures) still reads "CRUISE 120×"; OFFER reads "SYNC 30×".
+without a segment (the bench, fixtures) still reads "CRUISE 120×"; OFFER reads "SYNC 30×"; a feeder
+card (FEEDER-CARD, Q-91) "HELD 0× · R restore · Esc on".
 `badgeTitle(m)` is the badge's title: the act in words (D-1's acts; the night shift's words only
 with `m.night`, classic's night reads "the clock runs on to 04:00"; none before 04:30), then
 `BADGE_HELP` (next.html's title before the first frame). app/shell.js drawHeader sets it whenever it
