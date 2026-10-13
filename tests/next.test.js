@@ -1024,9 +1024,10 @@ test('the game shows the line through steady(): a line the player has not acted 
     const o = h.vm().objective;
     if (o && (!seen.length || seen.at(-1).text !== o.text)) seen.push({s: game.state.env.s, text: o.text, action: o.action, level: o.level});
   }
-  // (2c wave 3: unless the held line's next ask is waiting out the shown one's dwell, LINE_DWELL_MS)
-  const dwell = game.lastFrameMs - game.lineMs < G.LINE_DWELL_MS;
-  assert.ok(game.objectiveHeld && (game.objectiveHeld.line === game.objective || dwell), 'vm.objective is the held line');
+  // (2c wave 3: a shown line may wait out its LINE_DWELL_MS: play on past it to the next recompute, then it is the held line)
+  for (let i = 0; i < 300 && game.lastFrameMs - game.lineMs < G.LINE_DWELL_MS; i++) frames(1, 1 / 30);
+  for (let i = 0, s0 = game.objectiveS; i < 60 && game.objectiveS === s0; i++) frames(1, 1 / 30);
+  assert.ok(game.objectiveHeld && game.objectiveHeld.line === game.objective, 'vm.objective is the held line');
   const mins = Math.round((game.state.env.s - V.PLAYER_START_S) / 60);
   assert.ok(mins >= 20, mins + ' grid-min played');
   assert.ok(seen.length >= 1 && seen.length <= 2 + Math.ceil(mins / 15) * 2, 'a calm line: ' + seen.length + ' texts in ' + mins + ' grid-min:\n' + seen.map(x => x.text).join('\n'));
@@ -1034,7 +1035,7 @@ test('the game shows the line through steady(): a line the player has not acted 
   // the first ask stood as it was said while its figures moved under it (2c: at 540x the 13-real-s reading
   // lead, gridAfter, is two grid-hours, so GT·A's START outranks the GUARD line at 04:30; wave 3: with Q-68's reason, CCGT 2's outage)
   assert.match(seen[0].text, /^You will be \d+ MW short from \d\d:\d\d \(CCGT 2 out until \d\d:\d\d\)\. Start GT·A now/);
-  if (!dwell) assert.deepEqual(h.vm().objective.action, game.objectiveHeld.line.action);
+  assert.deepEqual(h.vm().objective.action, game.objectiveHeld.line.action);
 });
 
 test('render/format: the header\'s chips and the rate badge (mode and rate always shown, F-5)', async () => {

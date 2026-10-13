@@ -1,12 +1,14 @@
 // The objective line on the game's day (slice 2c wave 3, desk/README.md §32.8.1 line): Q-80 (a
-// heatwave is news from 04:00; the HOT-morning worst case retired), the line quiet in the night
-// roll (Q-73), its reading spans as real seconds of the D-2 profile (Q-63, spanAt), Act I's
-// constraints in the capacity asks (Q-68: the tie's limit until HH:MM, a unit out for maintenance
-// planned from its return and never asked for before it), the restore task from the network's ETR
-// (Q-68, Q-69: the pickup ahead, the feeders under repair named beside the count, spare()'s pickup
-// at the return; folds in 2c wave 1's tests/objective-task.test.js), stopSaving's night horizon,
-// and the 2b S1 aims re-checked at the profile's speeds. Observations at moments, a followed task
-// morning (DESK seed 8 to its first hand-back) and one sampled stretch of the page (CLAUDE.md).
+// heatwave is news from 04:00; the HOT-morning worst case retired), no line in the night roll and
+// no start planned for the night shift's hours (Q-73), its reading spans as real seconds of the D-2
+// profile (Q-63, spanAt, actWithin) and the instant resources' window, Act I's constraints in the
+// capacity asks (Q-68: the tie's limit until HH:MM, a unit out for maintenance planned from its
+// return and never asked for before it), the restore task from the network's ETR (Q-68, Q-69:
+// the held load off the look-ahead until its return, the pickup ahead, the feeders under repair
+// named beside the count, spare()'s pickup at the return, the RESTORE ask first at a hand-back;
+// folds in 2c wave 1's tests/objective-task.test.js), stopSaving's night horizon, and the 2b S1
+// aims re-checked at 540x. Observations at moments, a followed task morning (DESK seed 8 to its
+// first hand-back) and two looks at the page (CLAUDE.md).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createState, step, observe, applyInput} from '../sim/step.js';
@@ -60,24 +62,28 @@ test('Q-80: a heatwave is news from 04:00, so its derate is in the look-ahead fr
 
 // ------------------------------------------------------------------ Q-73: the night roll
 
-test('Q-73: from the night shift the line is quiet (no ask, no urge: the night strip replaces it), in the pure line and on the page', () => {
+test('Q-73: from the night shift there is no line (the night strip replaces it): the pure line, steady over a quiet line held into 21:00, and the page, whose box hides', () => {
   const st = createState(20261008, DESK);
   st.control.nightShift = true; // (the sim's flag from 21:00, sim/step.js; poked: the line reads obs.nightShift only)
-  const x = lineOf(observe(st, {dayAhead: true}));
-  assert.deepEqual([x.kind, x.level, x.text, x.action, x.targets], ['quiet', 'ok', '', null, []]);
-  const game = G.createGame({seed: 20261008, scenario: DESK, system: SYS, planview: PV, commit: 'player', storage: null});
-  G.takeDesk(game);
-  const day = G.buildVm(game, {nowMs: 1});
-  assert.ok(day.objective && day.objective.text, 'a line by day: ' + (day.objective && day.objective.text));
-  game.state.control.nightShift = true; game.objectiveS = -1e9; game.lineMs = -1e9;
-  const vm = G.buildVm(game, {nowMs: 2});
-  assert.deepEqual([vm.objective.text, vm.objective.action], ['', null]);
-  for (const g of day.objective.targets) assert.ok(!vm.glow.has(g), g + ' no longer lit');
+  const night = lineOf(observe(st, {dayAhead: true}));
+  assert.equal(night, null);
+  // a quiet day line shown since 20:59:50 is not kept over the night (STEADY_QUIET_S at the 2,100x ease would be an hour)
+  const quiet = {level: 'ok', kind: 'quiet', text: 'Enough plant is committed for the rest of the day.', targets: [], action: null, startBy: -1, short: null, long: null};
+  assert.equal(O.steady(O.steady(null, quiet, NIGHT_S - 10), night, NIGHT_S + 1).line, null);
+  // on the page: a line by day; then none, nothing it targeted still lit, and the box hidden
+  const p = openGame({seed: 20261008});
+  const day = p.vm().objective;
+  assert.ok(day && day.text && !p.$('objective').hidden, 'a line by day: ' + (day && day.text));
+  p.game.state.control.nightShift = true; p.game.objectiveS = -1e9;
+  p.frame();
+  assert.equal(p.vm().objective, null);
+  assert.equal(p.$('objective').hidden, true);
+  for (const g of day.targets) assert.ok(!p.vm().glow.has(g), g + ' no longer lit');
 });
 
 // ------------------------------------------------------------------ Q-63: the spans
 
-test('Q-63: NOW_S, ACT_WITHIN_S and the STEADY spans mean their real seconds at TUNED_RATE in every segment (spanAt), never less than the span, never past a night scenario\'s 21:00', () => {
+test('Q-63: NOW_S, ACT_WITHIN_S and the STEADY spans mean their real seconds at TUNED_RATE in every segment (spanAt), never less than the span, cut at a night scenario\'s 21:00 unless the span itself runs past it; the act window is one stretch of real seconds', () => {
   const real = g => g / O.TUNED_RATE;
   for (const g of [O.NOW_S, O.ACT_WITHIN_S, O.STEADY_S, O.STEADY_HOLD_S, O.STEADY_QUIET_S]) {
     for (const [h, m] of [[4, 40], [5, 30], [7, 0], [10, 0], [12, 0], [15, 0], [17, 30], [20, 10]]) {
@@ -99,12 +105,18 @@ test('Q-63: NOW_S, ACT_WITHIN_S and the STEADY spans mean their real seconds at 
   const ten = secOf(20, 50);
   assert.ok(spanAt(ten, O.NOW_S, false) > NIGHT_S - ten);
   assert.equal(spanAt(ten, O.NOW_S, false, NIGHT_S), NIGHT_S - ten);
+  // the reading lead and ACT_WITHIN_S are one window: 18 real s from now, also where the rate steps inside it
+  for (const s of [secOf(4, 30), secOf(5, 30), secOf(8, 45)]) {
+    const act = O.actWithin(s, G.readingLeadS(s, false, true), false, NIGHT_S);
+    assert.ok(Math.abs(realBetween(s, s + act, false) - G.LINE_REACT_S - real(O.ACT_WITHIN_S)) < 1e-6, at(s) + ': ' + realBetween(s, s + act, false).toFixed(2) + ' real s');
+  }
 });
 
 // ------------------------------------------------------------------ Q-68: Act I's constraints
 
-test('Q-68, the tie derate: the look-ahead holds the limit until its end, then the full tie; a capacity ask says "the tie limited to N MW until HH:MM"', () => {
+test('Q-68, the tie derate: the look-ahead holds the limit until its end, then the full tie; the capacity asks say "the tie limited to N MW until HH:MM" (the commit line, "short now", and "Next")', () => {
   const {obs} = dayTo(20261002, secOf(4, 30));
+  obs.sec.previewNadirHz = 49.95; // (the GUARD ask aside: the morning's commit line is the subject)
   const tie = obs.tie;
   assert.ok(tie.importLimitMW < V.TIE_MAX_MW && tie.limitUntilS > obs.s, 'a derate in force: ' + tie.importLimitMW + ' MW until ' + at(tie.limitUntilS));
   const free = Object.assign(copy(obs), {tie: Object.assign({}, tie, {importLimitMW: V.TIE_MAX_MW, limitUntilS: -1})});
@@ -113,10 +125,26 @@ test('Q-68, the tie derate: the look-ahead holds the limit until its end, then t
     const t = lim.fromS + (k + 1) * lim.stepS;
     assert.ok(Math.abs(lim.gap[k] - full.gap[k] - (t < tie.limitUntilS ? firm - tie.importLimitMW : 0)) < 1e-6, at(t));
   }
+  const why = ' (the tie limited to ' + tie.importLimitMW + ' MW until ' + at(tie.limitUntilS) + ')';
   const x = lineOf(obs);
   assert.equal(x.kind, 'commit');
-  assert.ok(x.text.includes(' (the tie limited to ' + tie.importLimitMW + ' MW until ' + at(tie.limitUntilS) + ')'), x.text);
-  assert.ok(x.text.length <= O.LINE_MAX_CHARS);
+  assert.ok(x.text.includes(why), x.text);
+  // short now (the first columns 300 MW past every unit's limit)
+  const now = copy(obs);
+  now.sec.level = 'SHORT';
+  for (const fc of [now.forecast, now.dayAhead]) { const R = capacityGap(now, fc, {real: true}); for (let k = 0; k < 4; k++) fc.demandP50[k] += 300 - R.gap[k]; }
+  const n = lineOf(now);
+  assert.deepEqual([n.kind, n.level], ['short', 'crit']);
+  assert.ok(n.text.startsWith('The plan is ') && n.text.includes(' below demand now' + why + ': '), n.text);
+  // "Next" for a shortfall before the limit's end, with the morning's unit booked
+  const next = copy(obs);
+  next.plan.starts.push({unit: 'ccgt2', atS: obs.s});
+  const G0 = O.tripGap(next, next.dayAhead, O.COMMIT_MARGIN_MW - O.MARGIN_MW);
+  for (let k = 0; k < next.dayAhead.n; k++) { const t = next.dayAhead.fromS + (k + 1) * next.dayAhead.stepS; next.dayAhead.demandP50[k] += (t >= secOf(10) && t < secOf(10, 30) ? 300 : -800) - G0.gap[k]; }
+  const l = lineOf(next);
+  assert.deepEqual([l.kind, l.level, l.action], ['commit', 'plan', null]);
+  assert.match(l.text, new RegExp('^Next: start .* for the morning' + why.replace(/[()]/g, '\\$&') + '\\. It takes '));
+  for (const y of [x, n, l]) assert.ok(y.text.length <= O.LINE_MAX_CHARS, y.text);
 });
 
 test('Q-68, the late return: a unit out for maintenance is planned from its return and never asked for before it; a booked start waits for it; the asks name the outage', () => {
@@ -148,6 +176,21 @@ test('Q-68, the late return: a unit out for maintenance is planned from its retu
   assert.match(y.text, new RegExp('Start CCGT 2 at ' + at(back) + ', when it is back: it takes 49 min to reach the grid( and [^.]*)?\\.$'));
   // with a reading lead that reaches the deadline the line still asks nothing before the return
   assert.equal(lineOf(short, {leadS: 6 * H}).action, null);
+  // a shortfall nearer than CCGT 2's own 49 min: its outage is not why, so it is not named
+  const soon = copy(obs);
+  for (const fc of [soon.dayAhead]) for (let j = 0; j < fc.n; j++) { const t = fc.fromS + (j + 1) * fc.stepS; fc.demandP50[j] += (t >= obs.s + 1800 && t < obs.s + 3600 ? 400 : -1500) - G0.gap[j]; }
+  const z = lineOf(soon);
+  assert.equal(z.kind, 'commit', z.text);
+  assert.doesNotMatch(z.text, /out until/);
+  // every other unit blocked and a shortfall beyond the battery and demand response from 08:45: CCGT 2,
+  // back in time for it, is the plan; the reserve diesel's line is not said in its place
+  const deep = copy(obs);
+  for (const u of deep.units) if (u.mode === 'off' && u.id !== 'ccgt2') u.startBlock = 'minimum down time: 100 min left';
+  const R0 = capacityGap(deep, deep.dayAhead, {real: true}), P0 = O.tripGap(deep, deep.dayAhead, O.COMMIT_MARGIN_MW - O.MARGIN_MW);
+  for (let j = 0; j < deep.dayAhead.n; j++) { const t = deep.dayAhead.fromS + (j + 1) * deep.dayAhead.stepS; deep.dayAhead.demandP50[j] += t >= secOf(8, 45) && t < secOf(10, 45) ? 900 - R0.gap[j] : -200 - P0.gap[j]; }
+  const d = lineOf(deep);
+  assert.deepEqual([d.kind, d.level, d.action], ['commit', 'plan', null], d.text);
+  assert.match(d.text, /Start CCGT 2 (at \d\d:\d\d, when it is back|by \d\d:\d\d): it takes 49 min/);
 });
 
 // ------------------------------------------------------------------ Q-68, Q-69: the restore task from the ETR
@@ -165,10 +208,11 @@ test('Q-69: before a hand-back the line plans the pickup, from its return; at it
   const f = lineOf(seen.far);
   assert.notEqual(f.kind, 'restore', f.text);
   assert.doesNotMatch(f.text, /district|feeder/);
-  // half an hour before: what to hold for the first one's pickup, never an ask (no lamp lights before its clearS)
+  // half an hour before: what to hold for the first one's pickup, never an ask (no lamp lights before its
+  // clearS), and the spare gauge lit, never the bay (its tab glows at the hand-back, Q-70)
   for (const d of seen.near.districts.filter(x => x.dark)) assert.match(d.restoreBlock, HELD);
   const n = lineOf(seen.near);
-  assert.deepEqual([n.kind, n.level, n.action, n.targets, n.startBy], ['restore', 'plan', null, ['bay-restore', 'gauge-n1'], first.clearS], n.text);
+  assert.deepEqual([n.kind, n.level, n.action, n.targets, n.startBy], ['restore', 'plan', null, ['gauge-n1'], first.clearS], n.text);
   const fig = /^(\w+)'s feeder is back at (\d\d:\d\d): hold ([\d,]+) MW of spare for its pickup\.$/.exec(n.text);
   assert.ok(fig && fig[1] === first.id && fig[2] === at(first.clearS), n.text);
   const cold = seen.near.districts.find(d => d.id === first.id).coldLoadMW;
@@ -179,14 +223,19 @@ test('Q-69: before a hand-back the line plans the pickup, from its return; at it
   assert.deepEqual([u.kind, u.level, u.action], ['restore', 'act', {type: 'restore', district: poked.id}]);
   assert.equal(u.text, '3 districts are dark (' + first.id + ', ' + second.id + ' under repair until ' + at(first.clearS) + ', ' + at(second.clearS) +
     ') and the permissive lamp is lit. Close a feeder: R, then Enter.');
+  // a spare problem now outranks it: the pickup line is passive, after spare()'s own (§31.8)
+  const short = copy(seen.near);
+  Object.assign(short.sec, {level: 'TIGHT', r5MW: 300, lMW: 500, previewNadirHz: 49.95, lKind: 'unit'});
+  for (const u of short.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
+  assert.match(lineOf(short).text, /^Demand is covered, but losing your biggest unit would not be caught/);
   // spare(): the pickup of a feeder under repair counts once its return is within the act window, not before
-  // (with the game's reading lead, LINE_REACT_S of the profile: the line asks for a fast machine in time for the hand-back)
+  // (with the game's reading lead, LINE_REACT_S of the profile). An unreal L of 50 MW makes the pickup the
+  // binding term (at real sizes L is 500-650 MW and a pickup 200-300 MW, so the trip's share binds)
   const thin = o => Object.assign(o.sec, {level: 'TIGHT', r5MW: 100, lMW: 50, previewNadirHz: 49.95, lKind: 'unit'}), lead = {leadS: G.readingLeadS(seen.near.s, false, true)};
   const soon = copy(seen.near);
   thin(soon);
   const p = lineOf(soon, lead);
-  assert.deepEqual([p.kind, p.level, p.action && p.action.type], ['spare', 'act', 'start'], p.text);
-  assert.match(p.text, new RegExp('^' + first.id + '\'s feeder is back at ' + at(first.clearS) + ' and picks up [\\d,]+ MW, more than the spare you have\\. Start '));
+  assert.equal(p.kind, 'spare', p.text);
   const later = copy(soon);
   for (const d of later.districts) if (d.clearS > later.s) { d.clearS += 6 * H; d.restoreBlock = 'feeder under repair until ' + at(d.clearS); }
   assert.notEqual(lineOf(later, lead).kind, 'spare', 'six hours before its return: nothing to hold yet');
@@ -205,6 +254,76 @@ test('Q-69: before a hand-back the line plans the pickup, from its return; at it
   const w = lineOf(wait);
   assert.deepEqual([w.kind, w.level, w.action], ['restore', 'plan', null]);
   assert.match(w.text, new RegExp('^2 districts are dark \\(' + second.id + ' under repair until \\d\\d:\\d\\d\\)\\. A feeder closes once '));
+});
+
+test('Q-69, the announced return: the look-ahead takes a feeder under repair off the demand until its clearS, column by column as the stack does', () => {
+  // DESK seed 8 at 04:30, no input: TAL3 and TAL4 under repair. The same look with them lit is the full demand
+  const {obs} = dayTo(8, secOf(4, 30));
+  const held = obs.districts.filter(d => d.dark && d.shedBy === 'task'), lastS = Math.max(...held.map(d => d.clearS));
+  assert.equal(held.length, 2);
+  const lit = copy(obs);
+  for (const d of lit.districts) if (d.shedBy === 'task') d.dark = false;
+  const fc = obs.forecast, A = capacityGap(obs, fc), B = capacityGap(lit, fc), P = PV.project(obs);
+  let off = 0, same = 0;
+  for (let k = 0; k < fc.n; k++) {
+    const t = fc.fromS + (k + 1) * fc.stepS, q = P.times.findIndex(x => Math.abs(x - t) < 1), d = B.gap[k] - A.gap[k];
+    if (q >= 0) { assert.ok(Math.abs(fc.demandP50[k] - d - P.p50[q]) < 1e-6, 'the stack\'s demand at ' + at(t)); same++; }
+    if (t < lastS) { assert.ok(d > 50, at(t) + ': ' + d.toFixed(0)); off++; } else assert.ok(Math.abs(d) < 1e-9, at(t));
+  }
+  assert.ok(off >= 20 && same >= 20, off + ' columns held, ' + same + ' beside the stack\'s');
+  // the morning's ask reads the lit demand: a smaller shortfall, later, than the held feeders' load made it
+  obs.sec.previewNadirHz = lit.sec.previewNadirHz = 49.95; // (the GUARD ask aside)
+  const from = x => { const m = /short from (\d\d):(\d\d)/.exec(x.text); return m ? secOf(Number(m[1]), Number(m[2])) : -1; };
+  const x = lineOf(obs), y = lineOf(lit);
+  assert.ok(from(x) > from(y) && from(y) > 0, x.text + ' / with the held load: ' + y.text);
+});
+
+test('Q-70: at a hand-back with its lamp lit the RESTORE ask comes before a margin start (the pace is for the feeder); with the lamp out, the start', () => {
+  // DESK 20261007, no input: RED7 handed back at 06:45 while the morning's margin start is pending
+  const d = createState(20261007, DESK).city.districts.filter(x => x.shedBy === 'task').sort((a, b) => a.clearS - b.clearS)[0];
+  const {obs} = dayTo(20261007, d.clearS);
+  const x = lineOf(obs);
+  assert.deepEqual([x.kind, x.level, x.action], ['restore', 'act', {type: 'restore', district: d.id}], x.text);
+  const out = copy(obs);
+  out.districts.find(q => q.id === d.id).restoreBlock = 'frequency below 49.9 Hz';
+  const y = lineOf(out);
+  assert.deepEqual([y.kind, y.level, y.action && y.action.type], ['commit', 'act', 'start'], y.text);
+  assert.match(y.text, /short of a safe margin/);
+});
+
+// ------------------------------------------------------------------ the battery and the night: what the line does not ask for yet
+
+test('the battery\'s order waits for an instant resource\'s window, ACT_WITHIN_S + NOW_S of grid time (never under NOW_S of the profile): at 540x a gap 40 min ahead is "be ready", 10 min ahead the order', () => {
+  const {obs} = dayTo(20261008, secOf(4, 30));
+  for (const u of obs.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
+  Object.assign(obs.battery, {mode: 'idle', orderMW: 0, socMWh: 0.9 * obs.battery.capMWh, guardMW: 0});
+  const proj = PV.project(obs); // (the plan as it was: the shortAhead branch, not the plan's red)
+  const gapAt = min => {
+    const o = copy(obs);
+    for (const fc of [o.forecast, o.dayAhead]) {
+      const R = capacityGap(o, fc, {real: true});
+      for (let k = 0; k < fc.n; k++) { const t = fc.fromS + (k + 1) * fc.stepS; fc.demandP50[k] += (t >= o.s + min * 60 && t < o.s + (min + 45) * 60 ? 250 : -400) - R.gap[k]; }
+    }
+    return lineOf(o, {proj});
+  };
+  const ahead = gapAt(40), now = gapAt(10);
+  assert.deepEqual([ahead.level, ahead.action], ['plan', null], ahead.text);
+  assert.match(ahead.text, /^From about \d\d:\d\d demand is more than every committed unit can give\. The battery carries it: be ready to discharge it then\.$/);
+  assert.deepEqual([now.kind, now.level, now.action && now.action.type], ['short', 'act', 'battery'], now.text);
+  assert.match(now.text, /^Demand is \d+ MW more than every committed unit can give\. Discharge the battery at \d+ MW\.$/);
+});
+
+test('Q-73: on a night scenario a shortfall from 21:00 is the night shift\'s: the line plans no start for it (a legacy desk day still does)', () => {
+  // DESK 20261008 at 04:30: the commit check short only from 23:00
+  const {obs} = dayTo(20261008, secOf(4, 30));
+  obs.sec.previewNadirHz = 49.95;
+  const G0 = O.tripGap(obs, obs.dayAhead, O.COMMIT_MARGIN_MW - O.MARGIN_MW);
+  for (let k = 0; k < obs.dayAhead.n; k++) { const t = obs.dayAhead.fromS + (k + 1) * obs.dayAhead.stepS; obs.dayAhead.demandP50[k] += (t >= secOf(23) && t < secOf(24) ? 300 : -600) - G0.gap[k]; }
+  const x = lineOf(obs), legacy = lineOf(Object.assign(copy(obs), {scenarioId: 'desk-legacy'}));
+  assert.deepEqual([x.kind, x.action], ['quiet', null], x.text);
+  assert.match(x.text, /^Enough plant is committed for the rest of the day\./);
+  assert.deepEqual([legacy.kind, legacy.level], ['commit', 'plan'], legacy.text);
+  assert.match(legacy.text, /^Next: start .* for tonight\./);
 });
 
 // ------------------------------------------------------------------ Q-73: what a STOP saves on a night scenario
@@ -259,29 +378,4 @@ test('2b S1 at 540x: at the line\'s look cadence there (0.4 real s, 216 grid s) 
   const flips = a => a.filter((x, i) => i && x !== a[i - 1]).length;
   assert.ok(flips(raw) >= 4, 'the raw aim flips ' + flips(raw) + ' times in ' + raw.length + ' looks: ' + raw.map(at).join(' '));
   assert.equal(flips(shown), 0, shown.map(at).join(' '));
-});
-
-test('2b S1 at speed: on the page at FAST over the morning ramp (3 x 270x, faster than 540x), each city aim the line shows stands its dwell and none flickers back', () => {
-  // DESK_WEEKEND 20261004: a soak for noon's spill is the line from about 06:30 once the GUARD and a fast machine are in
-  const p = openGame({seed: 20261004});
-  p.to('06:00', {stop: ['card'], line: 'near'});
-  assert.equal(p.send({type: 'guard', mw: V.PAR_GUARD_MAX_MW}), '');
-  assert.equal(p.send({type: 'start', unit: 'hydro3'}), '');
-  p.to('06:25', {stop: ['card']});
-  const g = p.game, shown = [];
-  const aim = () => { const o = g.objective; return o && o.kind === 'city' ? o.action.suburb + '@' + o.action.atS : o ? o.kind : '-'; };
-  for (let i = 0; i < 20; i++) {
-    p.h.actions.ui({do: 'fast', on: true}); // (F held: pressed again whenever an ask ended it)
-    shown.push({a: aim(), ms: p.now});
-    const r = p.until(({game}) => aim() !== shown.at(-1).a || game.state.tick < 0, {max: '08:30', vm: true});
-    if (r.why === 'target' || r.why === 'over' || r.why.startsWith('held')) break;
-  }
-  shown.push({a: aim(), ms: p.now});
-  const city = shown.filter(x => x.a.includes('@'));
-  assert.ok(city.length >= 1, 'a city line shows: ' + shown.map(x => x.a).join(' '));
-  for (let i = 0; i + 1 < shown.length; i++) {
-    if (!shown[i].a.includes('@')) continue;
-    assert.ok(shown[i + 1].ms - shown[i].ms >= G.LINE_DWELL_MS - 1, shown[i].a + ' stood ' + (shown[i + 1].ms - shown[i].ms) + ' ms');
-    assert.ok(!shown.slice(i + 2).some(x => x.a === shown[i].a && shown[i + 1].a.includes('@')), shown[i].a + ' came back');
-  }
 });

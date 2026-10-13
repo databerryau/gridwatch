@@ -659,19 +659,25 @@ test('the reserve diesel is stood down only when HALF of the battery\'s and dema
   assert.deepEqual(lineOf(shallow).action, {type: 'standDownRERT'});
 });
 
-test('the reserve diesel is armed within its 20 min and ACT_WITHIN_S of the shortfall, whatever the game\'s reading time (ctx.leadS): never into the stand-down\'s 45 min, so an arm is never followed by "Stand it down"', () => {
+test('the reserve diesel is armed within its 20 min and ACT_WITHIN_S of the profile before the shortfall, whatever the game\'s reading time (ctx.leadS): never into the stand-down\'s 45 min, so an arm is never followed by "Stand it down"; armed by the time it names, it is there by the shortfall it names', () => {
   const o = plain();
   for (const u of o.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
   Object.assign(o.battery, {mode: 'idle', orderMW: 0});
+  // (2c wave 3: the act window in real seconds of the profile, capped at the stand-down's look-ahead)
+  const cap = Math.min(V.RERT_LEAD_S + actAt(o.s), V.PAR_RERT_STANDDOWN_MIN * S_PER_MIN);
   const proj = PV.project(o), arms = [];
   // with every unit committed, 1,200 MW short for 3 h from `min` ahead (far beyond the battery and DR), with room before
+  // (the column before it just under: the shortfall begins most of a column before the first short one)
   for (const min of [25, 30, 35, 40, 45, 50, 55]) {
     const x0 = copy(o), from = o.s + min * S_PER_MIN;
-    for (const fc of [x0.forecast, x0.dayAhead]) { const R = O.capacityGap(x0, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, R, k => (tk(k) >= from && tk(k) < from + 3 * S_PER_H ? 1200 : -700)); }
+    for (const fc of [x0.forecast, x0.dayAhead]) { const R = O.capacityGap(x0, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, R, k => (tk(k) >= from && tk(k) < from + 3 * S_PER_H ? 1200 : tk(k) >= from - fc.stepS && tk(k) < from ? -50 : -700)); }
     const ctx = {edited: false, planview: PV, dayAhead: x0.dayAhead, proj, leadS: FLAT_RATE * LINE_REACT_S}; // CRUISE's
     const x = objective(x0, ctx);
     assert.match(x.text, /more than the battery and demand response can carry\. The reserve diesel \(hold E\) takes 20 min and costs dearly(\.|: arm it by \d\d:\d\d\.)$/, min + ' min: ' + x.text);
-    if (!x.action) continue;
+    const by = /short from (\d\d):(\d\d).*arm it by (\d\d):(\d\d)\.$/.exec(x.text);
+    if (by) assert.ok(60 * by[3] + Number(by[4]) + V.RERT_LEAD_S / S_PER_MIN <= 60 * by[1] + Number(by[2]), 'armed by then, there by the shortfall: ' + x.text);
+    if (!x.action) { assert.ok(min * S_PER_MIN >= cap - 300, min + ' min: not yet armed'); continue; }
+    assert.ok(min * S_PER_MIN < cap, min + ' min ahead: armed inside ' + cap / S_PER_MIN + ' min');
     assert.deepEqual(x.action, {type: 'armRERT'});
     arms.push(min);
     const a = copy(x0);
@@ -679,18 +685,16 @@ test('the reserve diesel is armed within its 20 min and ACT_WITHIN_S of the shor
     const y = objective(a, ctx);
     assert.notDeepEqual(y.action, {type: 'standDownRERT'}, 'armed for ' + min + ' min ahead, then: ' + y.text);
   }
-  assert.ok(arms.includes(25) && !arms.includes(35), 'armed for ' + arms.join(', ') + ' min ahead');
+  assert.ok(arms.includes(25) && cap > 30 * S_PER_MIN && !arms.includes(45), 'armed for ' + arms.join(', ') + ' min ahead (the window ' + cap / S_PER_MIN + ' min)');
 });
 
 test('a gap no start can reach, while the battery is discharging into it: one line that says so, never "be ready to discharge"', () => {
   const o = plain();
   for (const u of o.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
-  // (2c, Q-63: the battery's "soon" is real seconds of the profile, at 480x the whole hour; HAND's 240x leaves room ahead of it)
-  o.handFlown = true;
-  const soonS = O.spanAt(o.s, O.ACT_WITHIN_S, true) + O.spanAt(o.s, O.NOW_S, true), from = o.s + soonS + 300;
-  assert.ok(from + 600 <= o.s + S_PER_H, 'a gap inside the hour, past soon');
-  // the plant at its limits 120 MW short from past "soon" for the rest of the hour and more, with room before and after
-  for (const fc of [o.forecast, o.dayAhead]) { const Rf = O.capacityGap(o, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, Rf, k => (tk(k) >= from && tk(k) < from + 1800 ? 120 : -400)); }
+  // the plant at its limits 120 MW short from half an hour ahead for half an hour, with room before and after
+  // (2c wave 3: past an instant resource's window, ACT_WITHIN_S + NOW_S of grid time or NOW_S of the profile)
+  assert.ok(1800 > Math.max(O.ACT_WITHIN_S + O.NOW_S, nowAt(o.s)), 'half an hour is past the order\'s window');
+  for (const fc of [o.forecast, o.dayAhead]) { const Rf = O.capacityGap(o, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, Rf, k => (tk(k) >= o.s + 1800 && tk(k) < o.s + 3600 ? 120 : -400)); }
   const idle = copy(o);
   Object.assign(idle.battery, {mode: 'idle', orderMW: 0, socMWh: 800, guardMW: 0});
   const plan0 = PV.project(plain()), on = obs => objective(obs, {edited: false, planview: PV, dayAhead: obs.dayAhead, proj: plan0}); // (the plan as it was: this is the shortAhead branch, not the plan's red)
