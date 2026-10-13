@@ -32,7 +32,13 @@
 // line.action.saving when the objective gives one, else the first "$N" after "save" in the text;
 // n/a when there is none. Until the objective has STOP lines (Phase 2a wave 3) the STOP table is
 // empty. The day type is the seed's hidden regime (a measurement tool reads state.ext for
-// reporting only; the objective never sees it).
+// reporting only; the objective never sees it). The game's day (slice 2c, desk/README.md §32): the
+// weather is the regime's class (heat, storm, drought, calm), Act I its briefing items (the tie's
+// derate, a unit's late return, the feeders under repair: actOneOf), the restore task's MWh (task:
+// the operator's from each hand-back; held: the network's; late: past RESTORE_PACE_MAX_S) and
+// S-6's PERFECT, and the night: the inputs logged from 21:00 (the night shift's on a night
+// scenario) and the asks the player followed then (Q-73: the line is quiet, so none). A table
+// by weather follows the one by day type.
 
 import {fork} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -43,7 +49,8 @@ import {runPar} from '../sim/autopilot.js';
 import {getScenario} from '../content/scenarios.js';
 import {V, SIM_VERSION} from '../sim/params.js';
 import {allIn, grade} from '../app/score.js';
-import {isClean} from '../sim/market.js'; // Q-69's clean day: not black, no UFLS or directed shedding
+import {isClean, isPerfect} from '../sim/market.js'; // Q-69's clean day: not black, no UFLS or directed shedding; S-6's PERFECT
+import {NIGHT_S} from '../sim/clock.js';
 
 const FILE = fileURLToPath(import.meta.url);
 const COST_KEYS = ['fuel', 'noLoad', 'starts', 'tie', 'battWear', 'dr', 'rert', 'flex'];
@@ -88,6 +95,23 @@ const hhmm = s => {
 function dayType(st) {
   const temp = st.ext.regime.temp || (st.ext.regime.cls === 'heat' ? 'HEATWAVE' : st.day ? st.day.temp : 'HOT');
   return temp + (st.day && st.day.weekend ? ' weekend' : '');
+}
+
+/**
+ * Act I's briefing items (2c, Q-68), from the day's 04:00 records: 'tie 450 to 10:45', 'ccgt2 out
+ * to 07:45', '2 feeders to 07:15' (the last hand-back), joined by ', '; '' on a day with none.
+ * @param {object} st a state (its ext.events)
+ * @returns {string}
+ */
+export function actOneOf(st) {
+  const out = [];
+  for (const e of st.ext.events) {
+    if (e.atS !== 0) continue;
+    if (e.type === 'tieDerate') out.push('tie ' + e.args.limitMW + ' to ' + hhmm(e.args.untilS));
+    else if (e.type === 'unitOutage') out.push(e.args.unit + ' out to ' + hhmm(e.args.untilS));
+    else if (e.type === 'feederOut') out.push(e.args.districts.length + ' feeders to ' + hhmm(Math.max(...e.args.clearS)));
+  }
+  return out.join(', ');
 }
 
 /**
@@ -172,7 +196,11 @@ export function followSeed(scenario, seed, o) {
   let batt = null; // the battery at 16:30 (§21.4 accept: on hot days at or above par's level)
   const day = followDay(seed, scenario, {follow: o.follow, untilH: o.untilH, objective: o.objective,
     onMinute: (st, obs) => { if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh; }});
-  const row = Object.assign({seed, day: dayType(day.st)}, summaryOf(day));
+  const row = Object.assign({seed, day: dayType(day.st), weather: day.st.ext.regime.cls || '', actOne: actOneOf(day.st)}, summaryOf(day));
+  // the restore task (Q-69) and the night (Q-73)
+  const sc = day.score, nightTick = NIGHT_S * V.TICKS_PER_S;
+  Object.assign(row, {taskMWh: sc.taskMWh || 0, heldMWh: sc.heldMWh || 0, lateMWh: sc.taskLateMWh || 0, perfect: isPerfect(sc, day.st.black),
+    nightInputs: day.st.log.filter(x => x.tick > nightTick).length, nightAsks: day.said.filter(x => x.s >= NIGHT_S).length});
   const kinds = {};
   for (const x of day.said) {
     if (!x.accepted) continue;
@@ -237,6 +265,7 @@ const usd = x => (x === null || x === undefined || !Number.isFinite(x) ? 'n/a' :
 const k$ = x => (Number.isFinite(x) ? (x / 1000).toFixed(0) : '-');
 const f1 = x => (Number.isFinite(x) ? x.toFixed(1) : '-');
 const pct = (k, n) => (n ? (100 * k / n).toFixed(1) + '%' : '-');
+const mean = xs => (xs.length ? xs.reduce((a, x) => a + x, 0) / xs.length : NaN);
 const median = xs => { const s = xs.slice().sort((a, b) => a - b); return s.length ? s[Math.floor((s.length - 1) / 2)] : NaN; };
 
 function table(rows, cols) {
@@ -249,7 +278,9 @@ function table(rows, cols) {
 
 function report(o, scenario, rows, wallS) {
   console.log('\n' + (o.follow ? 'the hint-following player' : 'a day with no input') + ' on ' + scenario.id + ' (SIM ' + SIM_VERSION + '), ' + rows.length + ' seeds, wall ' + wallS.toFixed(0) + ' s; costs in $1,000');
-  const cols = [['seed', r => r.seed], ['day', r => r.day], ['black', r => (r.black ? 'BLACK ' + r.endsAt : '')], ['unserved MWh', r => f1(r.unservedMWh)],
+  const cols = [['seed', r => r.seed], ['day', r => r.day], ['weather', r => r.weather], ['Act I', r => r.actOne], ['black', r => (r.black ? 'BLACK ' + r.endsAt : '')], ['unserved MWh', r => f1(r.unservedMWh)],
+    ['task / held / late MWh', r => f1(r.taskMWh) + ' / ' + f1(r.heldMWh) + ' / ' + f1(r.lateMWh)], ['PERFECT', r => (r.perfect ? 'yes' : '')],
+    ['from 21:00 inputs / asks', r => r.nightInputs + ' / ' + r.nightAsks],
     ...COST_KEYS.map(k => [k, r => k$(r.cost[k])]), ['plan cost', r => k$(r.planCost)], ['total', r => k$(r.totalCost)], ['soak / air-con', r => r.soaks + ' / ' + r.aircons],
     ['ALL-IN', r => k$(r.allIn)]];
   if (o.par) cols.push(['par plan cost', r => k$(r.par.planCost)], ['par total', r => k$(r.par.totalCost)], ['par ALL-IN', r => k$(r.par.allIn)], ['points', r => r.points ?? 'n/a'],
@@ -267,20 +298,28 @@ function report(o, scenario, rows, wallS) {
     ['skipped: unserved', s => f1(s.unservedSkipped) + (s.blackSkipped ? ' BLACK' : '')]]);
   if (stops.length) console.log('quoted within +-30% or $10,000 of realised: ' + stops.filter(within).length + ' of ' + stops.filter(s => s.quoted !== null).length + ' quoted (' + stops.filter(s => s.quoted === null).length + ' n/a)');
 
-  const types = [...new Set(rows.map(r => r.day))].sort();
-  console.log('\nby day type');
-  table(types.concat(types.length > 1 ? ['all'] : []).map(d => {
-    const g = d === 'all' ? rows : rows.filter(r => r.day === d);
-    const clean = g.filter(r => isClean(r, r.black)).length, black = g.filter(r => r.black);
-    const dp = o.par ? dearerThanPar(g) : null, pts = g.filter(r => r.points !== null && r.points !== undefined).map(r => r.points);
-    return {d, n: g.length, clean: clean + ' (' + pct(clean, g.length) + ')', black: black.length + (black.length ? ': ' + black.map(r => r.seed).join(', ') : ''),
-      un: f1(median(g.map(r => r.unservedMWh))) + ' / ' + f1(Math.max(...g.map(r => r.unservedMWh))), plan: k$(median(g.map(r => r.planCost))), total: k$(median(g.map(r => r.totalCost))),
-      par: o.par ? k$(median(g.map(r => r.par.planCost))) + ' / ' + k$(median(g.map(r => r.par.totalCost))) : '-', dearer: dp ? dp.dearer + ' of ' + dp.of + (dp.na ? ' (' + dp.na + ' black: n/a)' : '') : '-',
-      stops: g.reduce((a, r) => a + r.stops.length, 0), city: g.filter(r => r.soaks).length + ' / ' + g.filter(r => r.aircons).length,
-      pts: pts.length ? median(pts) + ' (' + Math.min(...pts) + '-' + Math.max(...pts) + ')' : '-'};
-  }), [['day type', r => r.d], ['n', r => r.n], ['zero unserved', r => r.clean], ['black', r => r.black], ['unserved MWh (median / max)', r => r.un],
-    ['plan cost (median)', r => r.plan], ['total (median)', r => r.total], ['par plan / total (median)', r => r.par], ['player dearer than par (plan cost)', r => r.dearer], ['STOPs', r => r.stops],
-    ['days soaked / cycled', r => r.city], ['ALL-IN points (median, range)', r => r.pts]]);
+  // by day type, then (2c) by weather: the regime's class
+  const by = (title, key) => {
+    const types = [...new Set(rows.map(key))].sort();
+    console.log('\nby ' + title);
+    table(types.concat(types.length > 1 ? ['all'] : []).map(d => {
+      const g = d === 'all' ? rows : rows.filter(r => key(r) === d);
+      const clean = g.filter(r => isClean(r, r.black)).length, black = g.filter(r => r.black);
+      const dp = o.par ? dearerThanPar(g) : null, pts = g.filter(r => r.points !== null && r.points !== undefined).map(r => r.points);
+      return {d, n: g.length, clean: clean + ' (' + pct(clean, g.length) + ')', black: black.length + (black.length ? ': ' + black.map(r => r.seed).join(', ') : ''),
+        un: f1(median(g.map(r => r.unservedMWh))) + ' / ' + f1(Math.max(...g.map(r => r.unservedMWh))), plan: k$(median(g.map(r => r.planCost))), total: k$(median(g.map(r => r.totalCost))),
+        par: o.par ? k$(median(g.map(r => r.par.planCost))) + ' / ' + k$(median(g.map(r => r.par.totalCost))) : '-', dearer: dp ? dp.dearer + ' of ' + dp.of + (dp.na ? ' (' + dp.na + ' black: n/a)' : '') : '-',
+        stops: g.reduce((a, r) => a + r.stops.length, 0), city: g.filter(r => r.soaks).length + ' / ' + g.filter(r => r.aircons).length,
+        pts: pts.length ? median(pts) + ' (' + Math.min(...pts) + '-' + Math.max(...pts) + ')' : '-',
+        perfect: g.filter(r => r.perfect).length + ' (' + pct(g.filter(r => r.perfect).length, g.length) + ')', task: f1(mean(g.map(r => r.taskMWh))) + ' / ' + f1(mean(g.map(r => r.lateMWh))),
+        night: g.reduce((x, r) => x + r.nightAsks, 0)};
+    }), [[title, r => r.d], ['n', r => r.n], ['zero unserved', r => r.clean], ['black', r => r.black], ['unserved MWh (median / max)', r => r.un],
+      ['plan cost (median)', r => r.plan], ['total (median)', r => r.total], ['par plan / total (median)', r => r.par], ['player dearer than par (plan cost)', r => r.dearer], ['STOPs', r => r.stops],
+      ['days soaked / cycled', r => r.city], ['ALL-IN points (median, range)', r => r.pts], ['PERFECT', r => r.perfect], ['task / late MWh (mean)', r => r.task],
+      ['asks followed from 21:00', r => r.night]]);
+  };
+  by('day type', r => r.day);
+  if (rows.some(r => r.weather)) by('weather', r => r.weather);
 }
 
 async function main() {
