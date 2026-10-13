@@ -822,7 +822,8 @@ export function createAutopilot(opts) {
 export function nightMemo(obs) {
   const memo = createAutopilot({proxy: 'night'}), P = preDispatch(obs);
   delete P.load;
-  return Object.assign(memo, {plan: P, rertSinceS: obs.rert.armed ? obs.s - RERT_STANDDOWN_S : -1, night: true});
+  return Object.assign(memo, {plan: P, rertSinceS: obs.rert.armed ? obs.s - RERT_STANDDOWN_S : -1, night: true,
+    seenConts: obs.contingencies.length, amendDue: true}); // the day's trips were the day's to answer; the night plan is sent at once
 }
 
 /** Make the day's plan from a day-ahead observation; its planLoad (origin 'plan') waits in the outbox. */
@@ -904,17 +905,30 @@ function situation(obs, memo) {
     if (PAR_LOADING * u.availMW > big) big = PAR_LOADING * u.availMW;
   }
   // Hydro counts for the water it may use this hour (rule 5's keep line).
-  capCommitted += Math.min(hydroCap, Math.max(0, obs.hydro.storageMWh - keepMWh(now)));
+  const water = Math.max(0, obs.hydro.storageMWh - keepMWh(now)), hydroIn = Math.min(hydroCap, water);
+  capCommitted += hydroIn;
   memo.secureTieMW = big;
   const b = obs.battery;
   const battMW = Math.max(0, Math.min(b.ratedMW, b.socMWh / SUSTAIN_H));
+  // Q-73: on a proxy that keeps the booked stops (the night's), a committed unit counts as off
+  // from its booked STOP's time: what it adds to capCommitted is added to net from that column on.
+  const offS = new Array(NU).fill(NEVER);
+  if (PROXIES[memo.proxy].stops) {
+    for (const e of obs.plan.stops) {
+      const i = V.MACHINE_IDS.indexOf(e.unit);
+      if (committedMode(obs.units[i].mode)) offS[i] = Math.min(offS[i], e.atS);
+    }
+  }
   // Net demand the fleet must cover in forecast column k: P50 - wind - solar - the tie's planned import.
   const net = new Array(fc.n);
   for (let k = 0; k < fc.n; k++) {
     const t = fc.fromS + (k + 1) * fc.stepS;
-    net[k] = fc.demandP50[k] - fc.windMW[k] - fc.solarMW[k] - tieImportAt(obs, memo, t);
+    let off = 0, hydroOff = 0;
+    for (let i = 0; i < NU; i++) if (offS[i] <= t) { if (M[i].station === 'hydro') hydroOff += obs.units[i].availMW; else off += obs.units[i].availMW; }
+    if (hydroOff > 0) off += hydroIn - Math.min(hydroCap - hydroOff, water);
+    net[k] = fc.demandP50[k] - fc.windMW[k] - fc.solarMW[k] - tieImportAt(obs, memo, t) + off;
   }
-  return {now, fc, capCommitted, battMW, net};
+  return {now, fc, capCommitted, battMW, net, offS};
 }
 
 /** The tie's planned import at grid second t, counted at most up to its secure cap (0 while tripped). */
@@ -1039,22 +1053,26 @@ function rule3(obs, memo, C) {
 // cycled (coal's 8-h minimum times; hydro costs nothing to keep spinning).
 function rule4(obs, memo, C) {
   if (rertStandDown(obs, memo)) return {type: 'standDownRERT'}; // the dearest resource first (rule 8's test)
-  const mx = peakNet(C, DECOMMIT_CLEAR_S);
+  const mx = peakNet(C, DECOMMIT_CLEAR_S), gone = [];
+  // Q-73: a unit whose booked STOP falls in the window is left to it, and N-1 is tested without it too
+  for (let i = 0; i < NU; i++) if (C.offS[i] <= obs.s + DECOMMIT_CLEAR_S) gone.push(M[i].id);
   for (const i of MERIT_DESC) {
     const u = obs.units[i], m = M[i];
-    if (u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S) continue;
+    if (u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S || gone.includes(u.id)) continue;
     if (m.cls === 'coal' || m.cls === 'hydro') continue;
     if (mx + COMMIT_MARGIN + DECOMMIT_EXTRA + u.availMW >= C.capCommitted + C.battMW / 2) continue;
-    if (!n1Without(obs, u)) continue;
+    if (!n1Without(obs, u, gone)) continue;
     return {type: 'stop', unit: u.id};
   }
-  return coalStop(obs, memo);
+  return coalStop(obs, memo, gone);
 }
 
-/** N-1 in minutes still holds with unit u (an observe row) stopped: R5 without its headroom against L without it. */
-function n1Without(obs, u) {
-  const r5Without = obs.sec.r5MW - Math.max(0, Math.min(u.availMW - u.outMW, u.rampMWMin * R5_MIN));
-  const lWithout = obs.sec.lId === u.id ? secondLargest(obs, u.id) : obs.sec.lMW;
+/** N-1 in minutes still holds with unit u (an observe row) stopped, and the units `gone` (ids) too: R5 without their headroom against L without them. */
+function n1Without(obs, u, gone) {
+  const room = v => Math.max(0, Math.min(v.availMW - v.outMW, v.rampMWMin * R5_MIN)), out = gone.concat(u.id);
+  let r5Without = obs.sec.r5MW - room(u);
+  for (const v of obs.units) if (v !== u && v.sync && gone.includes(v.id)) r5Without -= room(v);
+  const lWithout = out.includes(obs.sec.lId) ? secondLargest(obs, out) : obs.sec.lMW;
   return r5Without >= TIGHT * lWithout;
 }
 
@@ -1065,15 +1083,15 @@ function n1Without(obs, u) {
 // for the evening by the code's timing: unload to MIN, T4, the minimum down time (from breaker
 // open to the next START order), then its start: a 10:00 stop is back at MIN at 21:14.
 // Expected never to fire on the game's days (MSL2 for three hours does not occur there).
-function coalStop(obs, memo) {
+function coalStop(obs, memo, gone) {
   const stopped = memo.coalStops || 0; // (a memo saved before Phase 2a has no count)
   if (!memo.plan || stopped >= COAL_STOPS_DAY) return null;
   for (let i = 0; i < NU; i++) if (M[i].thermal && M[i].cls !== 'coal' && committedMode(obs.units[i].mode)) return null;
   if (msl2S(obs) < COAL_MSL2_S) return null;
   for (const i of MERIT_DESC) {
     const u = obs.units[i], m = M[i];
-    if (m.cls !== 'coal' || u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S) continue;
-    if (!n1Without(obs, u)) continue;
+    if (m.cls !== 'coal' || u.mode !== 'on' || u.stopBlock !== '' || u.upForS < DECOMMIT_ON_S || gone.includes(u.id)) continue;
+    if (!n1Without(obs, u, gone)) continue;
     const backS = obs.s + Math.max(0, u.outMW - m.minMW) / m.rampMWs + m.t4S + m.minDownS + u.startToMinS;
     if (!eveningHolds(obs, memo, i, backS)) continue;
     memo.coalStops = stopped + 1;
@@ -1130,9 +1148,9 @@ function eveningHolds(obs, memo, without, backS) {
   return true;
 }
 
-function secondLargest(obs, id) {
+function secondLargest(obs, ids) {
   let big = obs.tie.tripped ? 0 : Math.max(0, obs.tie.flowMW);
-  for (const u of obs.units) if (u.sync && u.id !== id && u.outMW > big) big = u.outMW;
+  for (const u of obs.units) if (u.sync && !ids.includes(u.id) && u.outMW > big) big = u.outMW;
   return big;
 }
 
