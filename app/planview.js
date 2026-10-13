@@ -65,7 +65,8 @@ function earliestOnAt(obs, u, m) {
       const b = u.startBlock || '';
       let wait = 0;
       if (/water/.test(b)) return Infinity;
-      if (/down/.test(b)) wait = Math.max(0, m.minDownS - (u.downForS || 0));
+      // (an outage hides a minimum down time: §31.8)
+      if (/down/.test(b) || (u.outUntilS > s && u.downForS >= 0)) wait = Math.max(0, m.minDownS - (u.downForS || 0));
       return Math.max(s + wait, u.outUntilS ?? -1) + startToMin(m);
     }
     default: return Infinity; // unloading / shutdown: must finish stopping, then min down

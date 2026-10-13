@@ -143,11 +143,13 @@ test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once (on
   game.objectiveS = -1e9;
   assert.equal(G.buildVm(game, {nowMs: nowMs + 32}).objective.action.type, 'start');
   assert.equal(G.buildVm(game, {nowMs: nowMs + 48}).mode.mode, 'FAST');
-  // at CRUISE another ask waits out the dwell, as any line does
+  // at CRUISE another ask waits out the dwell, as any line does: its words and glow, never its action, which the
+  // fresh line no longer carries (stage C: a held START of another unit was a press that started the slower one)
   G.ui(game, {do: 'fast', on: false});
   const other = Object.assign({}, ask, {text: 'Another ask.', action: {type: 'tie', mw: 0}});
   game.objective = other; game.lineMs = nowMs + 48; game.objectiveS = -1e9;
-  assert.equal(G.buildVm(game, {nowMs: nowMs + 64}).objective, other);
+  const held = G.buildVm(game, {nowMs: nowMs + 64}).objective;
+  assert.deepEqual([held.text, held.targets, held.action], [other.text, other.targets, null]);
   assert.equal(game.objectiveHeld.line.action.type, 'start');
 });
 

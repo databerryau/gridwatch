@@ -14,8 +14,8 @@
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
 
-/** The reliability readouts' §8.2 row (content/text.js, a drawer entry): the card's "?" opens it. */
-export const RELIABILITY_ROW = 'SAIDI, SAIFI and MAIFI count the shedding you cause, per household, in grid-minutes';
+/** The reliability readouts' §8.2 row (content/text.js, a drawer entry, renamed in 2c: Q-69): the card's "?" opens it. */
+export const RELIABILITY_ROW = 'SAIDI, SAIFI and MAIFI count the outages you cause, per household, in grid-minutes';
 
 // An ALL-IN's parts as the card names them, and why a gap to par opens on each (d: the gap in $; city: either day paid cost.flex, §31.9.11).
 const PARTS = [

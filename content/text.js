@@ -658,7 +658,7 @@ const ABSTRACTIONS = [
     params: ['VER'],
   },
   {
-    // (2c, Q-69: a repaired feeder left open counts too; the row is renamed at stage C, with app/endcard.js RELIABILITY_ROW)
+    // (2c, Q-69: a repaired feeder left open counts too; app/endcard.js RELIABILITY_ROW names the new row; `replaces` goes when SPEC §8.2 is renamed)
     id: 'reliability-indices', row: 'SAIDI, SAIFI and MAIFI count the outages you cause, per household, in grid-minutes', specPending: true,
     replaces: 'SAIDI, SAIFI and MAIFI count the shedding you cause, per household, in grid-minutes',
     anchorId: 'reliability-indices', ui: 'drawer', game: 'drawer',

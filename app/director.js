@@ -70,6 +70,7 @@ export function createDirector(opts) {
     cardAtTick: -1,            // tick the latest card was dismissed (RESPOND runs from it)
     focusUntilTick: -1,        // FOCUS after a restore input until this tick
     offers: {},                // OFFER: {an offered unit's index: the tick its window ends}
+    rw: null,                  // RESTORE's windows (restoring)
     seenDirty: false,          // seen changed: the game saves it
   };
 }
@@ -121,15 +122,23 @@ function focusing(d, state) {
   const sc = state.scope;
   return (sc !== undefined && sc !== null && sc.unit !== '' && sc.unit !== undefined) || state.tick < d.focusUntilTick;
 }
+// Q-70: the dark task feeders' [i, clearS, allowed second], flat, kept per log length (§32.12 RESTORE)
+function windows(d, state) {
+  const ds = state.city.districts, n = state.log ? state.log.length : -1, w = d.rw;
+  let ok = !!w && n >= 0 && w.ds === ds && w.len === ds.length && w.n === n;
+  for (let j = 0; ok && j < w.at.length; j += 3) { const x = ds[w.at[j]]; ok = x.dark && x.shedBy === 'task' && x.clearS === w.at[j + 1]; }
+  if (ok) return w.at;
+  const at = [];
+  for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task') at.push(i, ds[i].clearS, restoreAllowedS(ds, i));
+  d.rw = {ds, len: ds.length, n, at};
+  return at;
+}
 // Q-70: RESTORE's rate in a task feeder's window, else 0
 function restoring(d, state) {
-  const ds = state.city.districts, s = state.tick / TPS;
+  const s = state.tick / TPS;
   if (!d.game || s >= NIGHT_S) return 0;
-  for (let i = 0; i < ds.length; i++) {
-    if (ds[i].clearS < 0 || !ds[i].dark || ds[i].shedBy !== 'task') continue;
-    const a = restoreAllowedS(ds, i);
-    if (s >= a && s < a + V.RESTORE_PACE_MAX_S) return d.seen.restore ? V.RESTORE_PACE_RATE : V.RESTORE_FIRST_RATE;
-  }
+  const at = windows(d, state);
+  for (let j = 2; j < at.length; j += 3) if (s >= at[j] && s < at[j] + V.RESTORE_PACE_MAX_S) return d.seen.restore ? V.RESTORE_PACE_RATE : V.RESTORE_FIRST_RATE;
   return 0;
 }
 // K-12: any offered unit still at full speed, each for at most AUTO_SYNC_S from its own offer (a window

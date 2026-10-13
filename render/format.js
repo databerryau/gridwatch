@@ -95,7 +95,7 @@ export const allInCents = a => (a && a.askedMWh > 0 && Number.isFinite(a.cents) 
  * no refusal for it (isLock).
  */
 export const BRIEF_LOCK = 'Take the desk first: Enter.',
-  NIGHT_LOCK = 'The night shift has the desk: it stands down what the night does not need. Your day is scored at 04:00.';
+  NIGHT_LOCK = 'The night shift has the desk to 04:00: it starts and stands down units and calls demand response as par would.';
 export const isLock = r => r === BRIEF_LOCK || r === NIGHT_LOCK;
 
 const MODE_LABEL = {OVER: 'DAY OVER', HIDDEN: 'PAUSE', ALARMS: 'HELD', 'RESPOND-CARD': 'HELD', OFFER: 'SYNC'};

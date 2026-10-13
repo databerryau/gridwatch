@@ -16,8 +16,9 @@
 //   until=EV[,EV][@MAX]     jump until an event: trip, card, mode, notice (a tray card or news),
 //                           line (the objective's text changed), ask (a new ask to act), event
 //                           (all but line); MAX ('HH:MM', '+2h') guards it (default: day's end)
-//   look                    the full snapshot (CLOCK, LINE, WATCH, CARD, BALANCE, DIAL, N-1,
-//                           TRAY, NOTE, TOAST... and CTRL: every visible control, id "label")
+//   look                    the full snapshot (CLOCK with the header's chips: ALL-IN or SCORE, and on a
+//                           HAND day HAND, then HAND-FLOWN · NIGHT SHIFT ON AGC; LINE, NIGHT, WATCH, CARD,
+//                           BALANCE, DIAL, N-1, TRAY, NOTE, TOAST... and CTRL: every visible control, id "label")
 //   brief                   the snapshot without the CTRL lines
 //   diff                    the snapshot lines that changed since the previous look/brief/diff
 //   buttons                 every visible, enabled control: id "label" [state]
