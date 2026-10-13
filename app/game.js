@@ -407,13 +407,14 @@ export function takeDesk(game) {
  * Any desk input dismisses the respond card first (K-16), and the feeder card (Q-91) but for the
  * restore of its own feeder: refused, that card stays with the reason (game.feederWhy). Returns ''
  * or the refusal reason. The briefing takes only AGC/HAND (Q-64) and the night roll none (Q-73):
- * BRIEF_LOCK, NIGHT_LOCK. `shown`: the feeder card the press was made at (redispatch's), else now's.
+ * BRIEF_LOCK, NIGHT_LOCK. `shown`: the feeder card the press was made at (redispatch's), else now's;
+ * a card PAUSE, ALARMS or a hidden tab hides is not shown, so an input made under them leaves it.
  */
 export function sendInput(game, x, shown) {
   const state = game.state, d = game.director;
   const lock = game.phase === 'briefing' ? (x && x.type === 'mode' ? '' : BRIEF_LOCK) : state.control.nightShift ? NIGHT_LOCK : '';
   if (lock) return lock;
-  const fc = shown === undefined ? D.feederCard(d, state) : shown, own = !!fc && !!x && x.type === 'restore' && x.district === fc;
+  const fc = shown === undefined ? shownFeeder(game) : shown, own = !!fc && !!x && x.type === 'restore' && x.district === fc;
   // (fc: a card already showing, never one queued behind the respond card this input dismisses)
   if (!own) { D.dismissCard(d, state); if (fc) D.answerFeeder(d, state, fc, false); }
   const out = [];
@@ -428,6 +429,9 @@ export function sendInput(game, x, shown) {
   } else if (own) game.feederWhy = {id: fc, why: r.reason};
   return r.ok ? '' : r.reason;
 }
+
+/** Q-91: the district id of the feeder card on the page now ('' unless the director's mode is FEEDER-CARD). */
+export const shownFeeder = game => (D.modeOf(game.director, game.state).mode === 'FEEDER-CARD' ? D.feederCard(game.director, game.state) : '');
 
 // Are the levers held by hand? app/system.js heldByHand scans the log at once (a lever moved a
 // moment ago counts now, not at the system's next 60-s look); a stand-in without it: sys.edited.
@@ -457,7 +461,7 @@ export function redispatch(game) {
   if (game.phase === 'briefing') return BRIEF_LOCK;
   if (game.state.control.nightShift) return NIGHT_LOCK;
   if (!game.sysMod || !game.sys) return 'RE-DISPATCH needs the system operator' + (game.sysError ? ' (' + game.sysError + ')' : '');
-  const fc = D.feederCard(game.director, game.state); // (Q-91: its inputs answer the card shown, never the next one)
+  const fc = shownFeeder(game); // (Q-91: its inputs answer the card shown, never the next one)
   D.dismissCard(game.director, game.state);
   let r;
   try {
@@ -733,7 +737,8 @@ export function buildVm(game, f) {
   // Q-91: the feeder card while it holds the clock; a refused restore's reason stays on it while that feeder's card is due
   const due = D.feederCard(d, state), why = game.feederWhy && game.feederWhy.id === due ? game.feederWhy.why : '';
   if (!why) game.feederWhy = null;
-  game.feeder = mode.mode === 'FEEDER-CARD' && due ? W.feederCard(obs, due, game.scenario.city.suburbs, why) : null;
+  // (before any press, the card says when its restore would be refused now: the bay's RESTORE PREVIEW, once a grid second)
+  game.feeder = mode.mode === 'FEEDER-CARD' && due ? W.feederCard(obs, due, game.scenario.city.suburbs, why, why ? '' : restorePreview(game, due)) : null;
 
   const offers = game.phase === 'play' ? updateOffers(game, obs) : [];
   const glow = new Set(game.respondGlow);

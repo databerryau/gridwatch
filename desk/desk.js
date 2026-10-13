@@ -237,7 +237,7 @@ export function createDesk(doc, root, actions, opts = {}) {
   function focus(id) {
     const e = doc.getElementById(id);
     if (!mine(e) || e.hidden) return false;
-    if (id === 'bay-restore') bay.show('restore', true);
+    if (id === 'bay-restore' || /^restore-/.test(id)) bay.show('restore', true);   // (a row's CLOSE, Q-91's card: its view first)
     if (id === 'bay-sync') bay.show('sync', true);
     if (id === 'tray' && tray.focusFirst()) return true;   // M: straight to the first card's button
     if (typeof e.focus === 'function') e.focus();

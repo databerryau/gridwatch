@@ -54,10 +54,11 @@ test('Q-91 (stage C): the feeders\' allowed seconds are kept on the director per
   }
   assert.ok(cards === 4 && dk.rw.ds === kept.city.districts && df.rw.n === -1, 'kept for the logged state, read afresh for the other: ' + cards + ' cards');
   assert.deepEqual([...logs], [0, 1, 2], 'one set of windows per log length');
-  // a hand-back moved to now on the kept state (a test's poke, no input): the card at once
+  // a hand-back moved to now on the kept state (a test's poke, no input): the card from the next tick
   const st = fake([], secOf(5)), d = D.createDirector({game: true, paused: false});
   assert.equal(D.modeOf(d, st).mode, 'CRUISE');
   st.city.districts[0].clearS = secOf(5);
+  st.tick++;                                                   // (from the tick after its second's own: the sim's step hands it back there)
   assert.deepEqual([D.modeOf(d, st).mode, D.rateOf(d, st), D.feederCard(d, st)], ['FEEDER-CARD', 0, 'T0']);
 });
 

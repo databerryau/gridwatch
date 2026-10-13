@@ -57,9 +57,11 @@ test('Q-91: a hand-back holds the clock (FEEDER-CARD, rate 0, no FAST) until its
   const a = CLEARS[0] - 300, b = CLEARS[1] + 300, st0 = fake({clears: CLEARS, s: a}), d0 = director();
   const r = day(st0, d0, 60, () => { const id = D.feederCard(d0, st0); if (id && ++held % 180 === 0) D.answerFeeder(d0, st0, id, false); }, b * TPS);
   assert.ok(held === 360 && Math.abs(r - realBetween(a, b) - 6) < 0.05, held + ' held frames: ' + r.toFixed(3) + ' real s');
-  // the card, second by second
-  const st = fake({clears: CLEARS, s: CLEARS[0] - 1}), d = director(), at = s => { st.tick = s * TPS; return D.modeOf(d, st); };
+  // the card, second by second: from the tick after the allowed second's own (whose step hands the feeder back first)
+  const st = fake({clears: CLEARS, s: CLEARS[0] - 1}), d = director(), at = s => { st.tick = s * TPS + 1; return D.modeOf(d, st); };
   assert.equal(at(CLEARS[0] - 1).mode, 'CRUISE');
+  st.tick = CLEARS[0] * TPS;
+  assert.equal(mode(d, st), 'CRUISE', 'the allowed second\'s own tick runs (the sim hands the feeder back in it)');
   assert.deepEqual([at(CLEARS[0]).mode, D.rateOf(d, st), badgeText(D.modeOf(d, st)), D.feederCard(d, st)], ['FEEDER-CARD', 0, 'HELD 0× · R restore · Esc on', 'T0']);
   assert.equal(D.setFast(d, st, true), false, 'no FAST at the card');
   st.scope.unit = 'gta1';
@@ -78,12 +80,13 @@ test('Q-91: a hand-back holds the clock (FEEDER-CARD, rate 0, no FAST) until its
   assert.equal(at(CLEARS[1] + 360).mode, 'CRUISE', 'left by Esc: not held again');
   // answered by another input, it holds again at a later allowed second (a restore moved it)
   const e = director(), s2 = fake({clears: [CLEARS[0]], s: CLEARS[0]});
+  s2.tick++;
   assert.equal(D.answerFeeder(e, s2, 'T0', false), true);
   assert.equal(mode(e, s2), 'CRUISE');
   s2.city.districts.push({id: 'X', clearS: -1, dark: false, shedBy: '', restoredAtS: CLEARS[0] + 60});
-  s2.tick = (CLEARS[0] + 359) * TPS;
+  s2.tick = (CLEARS[0] + 360) * TPS;
   assert.equal(mode(e, s2), 'CRUISE');
-  s2.tick += TPS;
+  s2.tick++;
   assert.deepEqual([mode(e, s2), D.feederCard(e, s2)], ['FEEDER-CARD', 'T0'], 'its new allowed second (X closed + 5 min)');
   // queued: a trip whose watch covers the allowed second; then the respond card; then the feeder card
   const q = fake({clears: [CLEARS[0]], s: CLEARS[0] - 10}), f = director({watch: true});
@@ -112,9 +115,10 @@ test('Q-91: one card per feeder per allowed second, re-armed by a later restore 
     st.tick = t;
     const id = D.feederCard(d, st);
     if (feederDue(st)) due++;
-    if (id) { assert.ok(feederDue(st), id + ' at ' + t / TPS + ' is due by the sim\'s records'); shown.push([id, t / TPS]); D.answerFeeder(d, st, id, false); }
+    if (id) { assert.ok(feederDue(st), id + ' at ' + t / TPS + ' is due by the sim\'s records'); shown.push([id, t]); D.answerFeeder(d, st, id, false); }
   }
-  assert.deepEqual(shown, [['T0', CLEARS[0]], ['T1', CLEARS[1]], ['T0', CLEARS[1] + 60 + 300], ['T0', 3 * H + 45 * 60]]);
+  // (each at the first sampled tick after its allowed second's own)
+  assert.deepEqual(shown, [['T0', CLEARS[0]], ['T1', CLEARS[1]], ['T0', CLEARS[1] + 60 + 300], ['T0', 3 * H + 45 * 60]].map(([id, a]) => [id, a * TPS + 10]));
   assert.ok(due > shown.length, 'due longer than shown: the director keeps what was answered');
 });
 
@@ -133,13 +137,13 @@ test('Q-63: FAST is 3 x the profile, refused in WATCH, the cards, RESPOND, FOCUS
   refused('WATCH', x => trip(x));
   refused('RESPOND-CARD', x => { trip(x); x.tick = x.conts[0].watchEndTick; });
   refused('RESPOND', (x, e) => { trip(x); x.tick = x.conts[0].watchEndTick; D.dismissCard(e, x); });
-  refused('FEEDER-CARD', x => { x.city.districts.push({id: 'T', clearS: s, dark: true, shedBy: 'task', restoredAtS: -1}); });
+  refused('FEEDER-CARD', x => { x.city.districts.push({id: 'T', clearS: s - 1, dark: true, shedBy: 'task', restoredAtS: -1}); });
   refused('OFFER', (x, e) => { x.units.push({id: 'gta1', mode: 'ready'}); D.offerPace(e, x, 'gta1'); });
   refused('NIGHT', x => { x.tick = (NIGHT_S + H) * TPS; x.control.nightShift = true; });
   // FAST held when a feeder card comes: it ends there
   const r = fake({s: CLEARS[0] - 1, clears: CLEARS}), e = director();
   D.setFast(e, r, true);
-  r.tick += TPS;
+  r.tick += TPS + 1;
   D.directorFrame(e, r);
   assert.equal(e.fast, false);
   // the game: a card that rings ends FAST (G.handleRecords, the records a step returns); an information card does not
@@ -228,7 +232,8 @@ test('Q-73 on the page: the sim\'s night flip is the one test (badge, mode, lock
   const p = openGame({seed: 20261002});
   const st = p.game.state;
   st.evNext = st.ext.events.length; st.tick = NIGHT_T - TPS;             // the day between jumped (the flip reads only the tick)
-  while (G.ui(p.game, {do: 'goOn'}) === '');                             // (its feeders' cards, Q-91: gone on from, as the day would have)
+  for (let i = 0; i < 4 && G.ui(p.game, {do: 'goOn'}) === ''; i++);       // (its feeders' cards, Q-91: gone on from, as the day would have)
+  assert.equal(D.feederCard(p.game.director, st), '', 'every feeder card gone on from');
   p.to('21:00', {stop: []});
   assert.equal(st.tick, NIGHT_T, 'to(\'21:00\') stops before the sim steps 21:00:00');
   assert.deepEqual([p.mode(), st.control.nightShift, lines(p.look(), /^CLOCK/)[0].split(' | ')[1]], ['CRUISE', false, 'PEAK EASING 300×']);

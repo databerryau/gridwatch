@@ -29,6 +29,8 @@ const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CA
   OFFER: 'a unit is at full speed: O opens its synchroscope (30× for at most 8 s)', NIGHT: 'the night shift runs the roll to 04:00'};
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
+/** Q-91: a feeder card that shows on the Enter that closed the RESPOND card takes Enter or R this many real ms later. */
+export const FEEDER_ARM_MS = 250;
 // Q-46 (§30.3.6): the alarm panel's own keys inside it; the keys that never close it (F: refused, FAST_WAIT).
 const SUB = /^suburb-/, CARD_OWN = /^(Arrow\w+|Page\w+|Home|End|Enter|Tab|[sxp=-])$/i, PANEL_OWN = /^(Arrow\w+|Home|End|Enter|Tab)$/, PANEL_KEEPS = /^([ wWaAfFhH?,]|Escape|Spacebar|Shift|Control|Alt\w*|Meta|OS|CapsLock|Fn|Dead|Unidentified)$/;
 /** The CRT switch's title and answer while REDUCED EFFECTS is on (it is greyed). */
@@ -341,7 +343,8 @@ export function bootGame(doc, deps) {
   // K-16: a click on the card or the desk takes the desk, as Enter does
   const dismissCard = () => { if (game.respond) actions.ui({do: 'dismissRespond'}); };
   on('respond-card', 'click', dismissCard);
-  on('feeder-card', 'click', () => actions.ui({do: 'focus', target: 'bay-restore'})); // Q-91: to the RESTORE bay; the card stays
+  // Q-91: the card's body goes to its feeder's CLOSE in the RESTORE bay (the card stays); its buttons restore or go on
+  on('feeder-card', 'click', () => { const f = game.feeder; actions.ui({do: 'focus', target: f ? 'restore-' + f.id : 'bay-restore'}); });
   on('desk', 'pointerdown', dismissCard);
   on('annun-slot', 'pointerdown', ev => { if (!within('btn-explain', ev.target)) dismissCard(); }); // (§30.4; EXPLAIN: back on its close)
   on('btn-mute', 'click', () => { actions.ui({do: 'mute'}); });
@@ -571,8 +574,8 @@ export function bootGame(doc, deps) {
     const o = v.objective, c = v.consider || null;
     const paused = v.mode.mode === 'PAUSE' && v.phase === 'play' && !v.obs.over;
     // (Q-73: in the night roll the night strip stands in its place; a press there answers with the lock's note;
-    // Q-91: a feeder card, as the respond card, is the one instruction while it holds the clock)
-    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond || !!v.feeder || v.obs.nightShift;
+    // Q-91: a feeder card, as the respond card, is the one instruction while it holds the clock, but for an urgent line)
+    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond || (!!v.feeder && !(o && o.level === 'crit')) || v.obs.nightShift;
     if (box.hidden) return;
     const armed = !!c && v.armed === c.target;
     const cls = c ? (armed && c.level !== 'crit' ? 'act' : c.level) + ' consider' : o.level;
@@ -688,20 +691,35 @@ export function bootGame(doc, deps) {
     });
   }
 
-  // Q-91: the feeder card while a hand-back holds the clock: what, the keys (blue), a refused restore's reason (red: the grid's)
+  // Q-91: the feeder card while a hand-back holds the clock: what, the keys (blue), the mouse's RESTORE and GO ON
+  // (blue), and why a restore is refused: amber before a press (the bay's preview), red once refused (the grid's)
   function drawFeeder(v) {
     const card = $('feeder-card'), f = v.feeder;
     if (!card) return;
     card.hidden = !f;
     if (!f) return;
-    if (!card.children.length) for (const c of ['what', 'hint', 'on', 'why']) { const p = doc.createElement('p'); p.className = c; card.appendChild(p); }
-    const [what, hint, gone, why] = card.children;
+    if (!card.children.length) {
+      for (const c of ['what', 'hint', 'on', 'why']) { const p = doc.createElement('p'); p.className = c; card.appendChild(p); }
+      const row = doc.createElement('div'), go = (b, f2) => b.addEventListener('click', ev => { ev.stopPropagation(); f2(); });
+      row.className = 'row';
+      const rb = doc.createElement('button'), ob = doc.createElement('button');
+      rb.id = 'feeder-restore'; rb.type = 'button'; rb.className = 'take'; rb.title = 'R or Enter: close its breaker now';
+      ob.id = 'feeder-go-on'; ob.type = 'button'; ob.textContent = 'GO ON'; ob.title = 'Esc: go on; it stays dark and is yours, in the RESTORE bay';
+      go(rb, () => { if (game.feeder) actions.input({type: 'restore', district: game.feeder.id}); });
+      go(ob, () => actions.ui({do: 'goOn'}));
+      row.append(rb, ob);
+      card.appendChild(row);
+    }
+    const [what, hint, gone, why, row] = card.children, rb = row.children[0];
     if (what.textContent !== f.text) what.textContent = f.text;
     if (hint.textContent !== f.keys) hint.textContent = f.keys;
     if (gone.textContent !== f.on) gone.textContent = f.on;
-    const w = f.why ? '✕ Refused: ' + f.why + '. Esc goes on.' : '';
+    if (rb.textContent !== 'RESTORE ' + f.id) rb.textContent = 'RESTORE ' + f.id;
+    const w = f.why ? '✕ Refused: ' + f.why + '. Esc goes on.' : f.lamp ? 'Not yet: ' + f.lamp + '. Esc goes on; the RESTORE bay closes it once its lamp lights.' : '';
     if (why.textContent !== w) why.textContent = w;
     if (why.hidden !== !w) why.hidden = !w;
+    const cls = f.why ? 'why' : 'why lamp';
+    if (why.className !== cls) why.className = cls;
   }
 
   // Q-48 (§30.9): the end card, on demand (app/endcard.js), mounted into #end-card when the day ends (hidden while it loads);
@@ -866,17 +884,25 @@ export function bootGame(doc, deps) {
     const t = ev.target;
     if (ev.key !== 'Enter' || !game.respond || mod(ev) || game.ui.alarmsOpen || ['settings', 'drawer', 'popover'].some(id => within(id, t))) return;
     ev.preventDefault(); ev.stopPropagation();
+    if (!ev.repeat) cardKeyMs = now();
     actions.ui({do: 'dismissRespond'});
   }
   // Q-91: at the feeder card Enter or R restores its feeder and Esc goes on (an Esc that closed something stops there),
-  // before any control hears them (the bay's R, a RESTORE row's Enter), but in SETTINGS, the drawer and "?".
+  // before any control hears them (the bay's R), but in SETTINGS, the drawer and "?". Enter on a RESTORE row, a suburb
+  // card's button or the card's own buttons is that control's (a CLOSE is the bay's: another feeder's answers the
+  // card, its own restores it). A key's auto-repeat is swallowed, and so is an Enter or R within FEEDER_ARM_MS of the
+  // Enter that closed the RESPOND card (a queued feeder card shows at once): a pickup is never a held or doubled key (K-3).
+  let cardKeyMs = -1e9;
   function feederFirst(ev) {
     const t = ev.target, k = ev.key;
     if (ev.defaultPrevented || mod(ev) || !/^(Enter|r|R|Escape)$/.test(k) || ['settings', 'drawer', 'popover'].some(id => within(id, t))) return;
     const id = modeOf(game.director, game.state).mode === 'FEEDER-CARD' ? feederCard(game.director, game.state) : '';
-    if (!id) return;
+    if (!id || k === 'Enter' && !ev.repeat && ['restore-list', 'suburb-card', 'feeder-card'].some(x => within(x, t))) return;
     ev.preventDefault(); ev.stopPropagation();
-    if (k === 'Escape') actions.ui({do: 'goOn'}); else actions.input({type: 'restore', district: id});
+    if (ev.repeat) return;
+    if (k === 'Escape') actions.ui({do: 'goOn'});
+    else if (now() - cardKeyMs < FEEDER_ARM_MS) showToast('A repaired feeder holds the clock: read its card, then R or Enter restores it', 'info');
+    else actions.input({type: 'restore', district: id});
   }
   doc.addEventListener('keydown', escFirst, true);
   doc.addEventListener('keydown', panelFirst, true);

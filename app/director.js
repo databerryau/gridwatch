@@ -134,16 +134,17 @@ function windows(d, state) {
   d.rw = {ds, len: ds.length, n, at};
   return at;
 }
-// Q-91: the district index whose feeder card is due (from its allowed second, until it is restored or
-// answered at that second; never once left by Esc, nor from 21:00), the earliest allowed first; else -1
+// Q-91: the district index whose feeder card is due (from the tick after its allowed second's, so that
+// second's step has handed the feeder back first, until it is restored or answered at that second;
+// never once left by Esc, nor from 21:00), the earliest allowed first; else -1
 function feederDue(d, state) {
-  const s = state.tick / TPS;
-  if (!d.game || s >= NIGHT_S || night(state)) return -1;
+  const t = state.tick;
+  if (!d.game || t >= NIGHT_S * TPS || night(state)) return -1;
   const at = windows(d, state), ds = state.city.districts;
   let best = -1, bestA = Infinity;
   for (let j = 0; j < at.length; j += 3) {
     const a = at[j + 2], done = d.fc[ds[at[j]].id];
-    if (s >= a && a < bestA && done !== a && done !== Infinity) { best = at[j]; bestA = a; }
+    if (t > a * TPS && a < bestA && done !== a && done !== Infinity) { best = at[j]; bestA = a; }
   }
   return best;
 }
@@ -326,7 +327,11 @@ export function focusRestore(d, state) {
   d.focusUntilTick = state.tick + RESTORE_FOCUS_S * TPS;
 }
 
-/** Q-91: the district id on the feeder card ('' when none is due past the watch and the respond card; PAUSE, ALARMS and a hidden tab hide it). */
+/**
+ * Q-91: the district id of the feeder card due ('' when none is due past the watch and the respond
+ * card). It ignores PAUSE, ALARMS and a hidden tab: the page shows the card only in FEEDER-CARD
+ * (buildVm's vm.feeder), and app/game.js answers only the card shown (shownFeeder).
+ */
 export function feederCard(d, state) {
   const i = state.over ? -1 : feederOn(d, state);
   return i < 0 ? '' : state.city.districts[i].id;

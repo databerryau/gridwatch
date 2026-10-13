@@ -59,7 +59,7 @@
 
 import {readFileSync} from 'node:fs';
 import {makeDocument, installGlobals} from './dom.js';
-import {bootGame, PAR_STEP_TICKS} from '../../app/shell.js';
+import {bootGame, PAR_STEP_TICKS, FEEDER_ARM_MS} from '../../app/shell.js';
 import {createDesk} from '../../desk/desk.js';
 import {createMap} from '../../render/map.js';
 import {createLiveStack} from '../../render/livestack.js';
@@ -199,13 +199,27 @@ const fmtControl = c => (c.id || '?') + ' "' + c.label + '"' + (c.value !== unde
  * Q-91: may a feeder card hold the clock in this state (app/director.js FEEDER-CARD), read from the
  * sim alone: a task feeder (clearS >= 0) dark with shedBy 'task' whose allowed second
  * (market.restoreAllowedS: the later of its clearS and the last restore of any district +
- * RESTORE_INTERVAL_S) has come, before a night scenario's 21:00. The director adds only which card
- * was answered (Esc, another input), and queues one behind a watch and the respond card.
+ * RESTORE_INTERVAL_S) has come (from the tick after that second's own, whose step hands it back),
+ * before 21:00. The director adds only which card was answered (Esc, another input), and queues one
+ * behind a watch and the respond card.
  */
 export function feederDue(state) {
-  const ds = state.city.districts, s = state.tick / TPS;
-  if (state.scn.night && s >= NIGHT_S) return false;
-  for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task' && restoreAllowedS(ds, i) <= s) return true;
+  const ds = state.city.districts, t = state.tick;
+  if (t >= NIGHT_S * TPS) return false;
+  for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task' && t > restoreAllowedS(ds, i) * TPS) return true;
+  return false;
+}
+
+/**
+ * Q-91, D-2's RESTORE term: does a feeder card hold the clock at this very tick, read from the sim
+ * alone: the tick after a dark task feeder's allowed second's own, before 21:00. A card holds there
+ * and nowhere else (no tick runs while it shows; one queued behind the respond card holds at the
+ * watch's end, the card's frames), so a pause or a FOCUS frame after an Esc is never counted.
+ */
+export function feederHeldAt(state) {
+  const ds = state.city.districts, t = state.tick;
+  if (t >= NIGHT_S * TPS) return false;
+  for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task' && restoreAllowedS(ds, i) * TPS + 1 === t) return true;
   return false;
 }
 
@@ -240,7 +254,7 @@ export function openGame(o = {}) {
   // D-2's clock (clockReport): the page time and tick of the Space that ran the clock, and from then every
   // frame's [grid s before, grid s after, real s, the sim's synchroscope open, a scope offer open (any offered
   // unit at full speed within AUTO_SYNC_S of its own offer, before the night shift has the desk) and a feeder
-  // card due (feederDue), at its start]
+  // card's hold tick (feederHeldAt), at its start]
   let spaceMs = -1, spaceTick = -1;
   const played = [];
   const gridS = () => game.state.tick / TPS;
@@ -248,7 +262,7 @@ export function openGame(o = {}) {
     if (spaceMs < 0) return null;
     const st = game.state, o = game.offered;
     return [st.scope.unit !== '', !st.control.nightShift && st.units.some(u => u.mode === 'ready' && o[u.id] && st.tick < o[u.id].tick + V.AUTO_SYNC_S * TPS),
-      feederDue(st)];
+      feederHeldAt(st)];
   };
   const acct = (s0, dt, f0) => { if (spaceMs >= 0) played.push([s0, gridS(), dt, f0 || [false, false, false]]); };
 
@@ -506,7 +520,7 @@ export function openGame(o = {}) {
     if (!hid('night-strip')) L.push('NIGHT ' + tx('night-strip')); // (Q-73: the night strip, in the objective's place from 21:00)
     if (!hid('watch-vignette')) L.push('WATCH ' + tx('stopwatch') + ' | ' + tx('beat-caption') + ' | ' + tx('beat-steps'));
     if (!hid('respond-card')) L.push('CARD ' + tx('respond-card'));
-    if (!hid('feeder-card')) L.push('FEEDER ' + tx('feeder-card')); // (Q-91: a hand-back's card; its refusal, the grid's, on it)
+    if (!hid('feeder-card')) L.push('FEEDER ' + textOf($('feeder-card'), e => e.tagName === 'BUTTON')); // (Q-91: a hand-back's card, its refusal (the grid's) or lamp on it; RESTORE and GO ON are CTRL lines)
     if (!hid('end-card')) L.push('END ' + textOf($('end-card'), e => e.tagName === 'BUTTON'));
     // Q-56: the suburb card's text (its presses are CTRL lines: city-<ID>-soak, -aircon, -earlier, -later, -cancel-HHMM, -restore)
     if (!hid('suburb-card')) L.push('SUBURB ' + textOf($('suburb-card'), e => e.tagName === 'BUTTON'));
@@ -564,10 +578,12 @@ export function openGame(o = {}) {
     };
     const held = why => why === 'card' || why === 'held:RESPOND-CARD' || why === 'held:FEEDER-CARD';
     const answer = ms => {
-      const id = D.feederCard(game.director, game.state);
-      rec(modeNow() === 'FEEDER-CARD' ? 'feeder' : 'card', ms);
+      const feeder = modeNow() === 'FEEDER-CARD', id = D.feederCard(game.director, game.state);
+      rec(feeder ? 'feeder' : 'card', ms);
       key('Enter');
-      if (id && modeNow() === 'FEEDER-CARD' && D.feederCard(game.director, game.state) === id) key('Escape');
+      // (a feeder card queued behind the respond card shows on that Enter: the page takes its Enter FEEDER_ARM_MS later)
+      if (!feeder && modeNow() === 'FEEDER-CARD') real(FEEDER_ARM_MS / 1000);
+      if (feeder && modeNow() === 'FEEDER-CARD' && D.feederCard(game.director, game.state) === id) key('Escape');
     };
     if (o.from !== undefined) { const r = to(o.from, {line: o.line}); rec(r.why === 'target' ? 'from' : r.why, r.ms); } else rec('from', 0);
     const end = o.to === undefined ? DAY_S : parseTime(o.to, game.state.tick / TPS);
@@ -600,9 +616,9 @@ export function openGame(o = {}) {
    * spans come from the sim's records and the game's offers, not the director: each watch
    * (startTick to watchEndTick), each card (the frames held at its watchEndTick), FOCUS (the
    * synchroscope open, and RESTORE_FOCUS_S after each accepted restore input), RESTORE (Q-91: the
-   * feeder cards' held real s, the frames that run no tick from a start where a feeder card was
-   * due, feederDue: a task feeder dark from its allowed second, re-armed by every later restore of
-   * any district, before 21:00), RESPOND's 30x part (the card to backInBandTick or + RESPOND_MAX_S;
+   * feeder cards' held real s, the frames that run no tick from a feeder card's hold tick,
+   * feederHeldAt: the tick after a dark task feeder's allowed second's own, re-armed by every later
+   * restore of any district, before 21:00), RESPOND's 30x part (the card to backInBandTick or + RESPOND_MAX_S;
    * no card or RESPOND from a night scenario's 21:00) and OFFER (any offered unit while it waits at
    * full speed, at most AUTO_SYNC_S from its own offer, before the night shift has the desk). A frame
    * counts in the first of these holding its middle, in the director's precedence (a frame that
@@ -632,11 +648,11 @@ export function openGame(o = {}) {
     parts.card.n = cards.filter(w => w < toS).length;
     const inside = (k, m) => spans[k].some(x => m >= x.a && m < x.b);
     let sinceS = 0, scope0 = false, offer0 = false, hold0 = false;
-    for (const [s0, s1, dt, [scope, offer, due]] of played) {
+    for (const [s0, s1, dt, [scope, offer, hold]] of played) {
       sinceS += dt;
       // (a frame of the watch's slow part may run no tick: it is the watch's all the same)
       const m = (s0 + s1) / 2, card = s1 === s0 && cards.some(w => Math.abs(w - s0) < 1 / TPS);
-      const k = card ? 'card' : inside('WATCH', m) ? 'WATCH' : s1 === s0 && due ? 'RESTORE' : scope || inside('FOCUS', m) ? 'FOCUS'
+      const k = card ? 'card' : inside('WATCH', m) ? 'WATCH' : s1 === s0 && hold ? 'RESTORE' : scope || inside('FOCUS', m) ? 'FOCUS'
         : inside('RESPOND', m) ? 'RESPOND' : offer ? 'OFFER' : '';
       if (scope && !scope0) parts.FOCUS.n++;
       if (offer && !offer0) parts.OFFER.n++;

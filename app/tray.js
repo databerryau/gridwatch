@@ -109,8 +109,10 @@ export function cardOf(r, night = false) {
         // (a front's onset: the dayplan's only, Q-83)
         case 'HEAT_ONSET': case 'STORM_ARRIVE': case 'WIND_CUTOUT': case 'CLOUD_ONSET': case 'WIND_DROUGHT': return r.code === 'CLOUD_ONSET' && !/suburb/.test(r.msg) ? null
           : {key: 'wx:' + r.code, from: SENDERS.weather, sev: r.sev === 'crit' ? 'warn' : 'info', text: r.msg, button: {label: 'SEE THE STACK', target: 'stack'}};
-        case 'FEEDER_CLEAR': return {key: 'clear:' + r.district, from: SENDERS.network, sev: 'warn',
-          text: r.district + ' feeder repaired and handed back: close its breaker (R, then Enter).', button: {label: 'TO THE RESTORE BAY', target: 'bay-restore'}};
+        // (Q-91: done: its restore moves the card to the LOG, so a closed feeder is never left as an instruction)
+        case 'FEEDER_CLEAR': return {key: 'clear:' + r.district, from: SENDERS.network, sev: 'warn', done: r.district,
+          text: r.district + ' feeder repaired and handed back: close its breaker (R or Enter at its card, or from the RESTORE bay).',
+          button: {label: 'TO THE RESTORE BAY', target: 'bay-restore'}};
         case 'UNIT_AVAILABLE': return {key: null, from: SENDERS.station, sev: 'info', text: r.msg, button: {label: 'TO THE LEVER', target: leverIn(r.msg)}};
         case 'TIE_LIMIT_END': return {key: null, from: SENDERS.market, sev: 'info', text: r.msg, button: {label: 'TO THE TIE', target: 'knob-tie'}};
         case 'RERT_ARMED': case 'RERT_ONLINE': return {key: 'rert:' + r.code + ':' + r.tick, from: SENDERS.market, sev: 'info', text: r.msg,
@@ -146,6 +148,7 @@ function add(tr, c, atS) {
   if (c.key) { if (tr.seen[c.key]) return null; tr.seen[c.key] = true; }
   const card = {id: 'card' + tr.nextId++, from: c.from, atS, text: words(c.text), button: c.button, sev: c.sev,
     untilS: Math.max(stepAfter(Math.max(atS, V.PLAYER_START_S), V.TRAY_LIFE_REAL_S), c.holdS || 0)};
+  if (c.done) card.done = c.done;
   tr.cards.push(card);
   return card;
 }
@@ -159,6 +162,7 @@ export function trayRecords(tr, recs) {
   let made = 0;
   for (const r of recs) {
     if (r.code === 'NIGHT_SHIFT') tr.night = true;
+    if (r.kind === 'restore') { const i = tr.cards.findIndex(x => x.done === r.district); if (i >= 0) toLog(tr, tr.cards.splice(i, 1)[0]); continue; }
     const c = cardOf(r, tr.night);
     // an announce's log twin: no second card
     if (!c || r.kind === 'log' && recs.some(x => x.kind === 'announce' && x.news.text === r.msg)) continue;

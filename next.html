@@ -118,6 +118,9 @@
   #feeder-card p.hint { font: 700 13px var(--mono); color: var(--blue); }
   #feeder-card p.on { color: var(--dim); font-size: 11px; }
   #feeder-card p.why { color: var(--red); font-weight: 600; }
+  #feeder-card p.why.lamp { color: var(--amber); font-weight: 400; }
+  #feeder-card .row { display: flex; gap: 8px; margin-top: 8px; }
+  #feeder-card button { font-weight: 700; padding: 4px 14px; border-color: var(--blue); color: var(--blue); }
   #briefing-card { top: calc(var(--hdr) + 40px); width: 520px; }
   #briefing-card .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   #briefing-card .take { font-weight: 700; padding: 6px 16px; border-color: var(--blue); }
@@ -195,7 +198,7 @@
 <div id="stack-overlay" hidden></div>
 <div id="watch-vignette" hidden><div id="stopwatch" aria-hidden="true">T+0.00 s ×0.15</div><div id="beat-caption" aria-live="polite"></div><div id="beat-steps" aria-hidden="true"></div></div>
 <div id="respond-card" class="card" role="dialog" aria-label="What happened" hidden></div>
-<div id="feeder-card" class="card" role="dialog" aria-live="polite" aria-label="A repaired feeder: R or Enter restores it, Esc goes on. A click goes to the RESTORE bay" title="A click goes to the RESTORE bay" hidden></div>
+<div id="feeder-card" class="card" role="dialog" aria-live="polite" aria-label="A repaired feeder: R or Enter restores it, Esc goes on. A click on the card goes to its CLOSE in the RESTORE bay" title="A click on the card goes to its CLOSE in the RESTORE bay" hidden></div>
 <div id="briefing-card" class="card" role="dialog" aria-label="Briefing" hidden>
   <h2>Tonight's desk</h2>
   <p id="briefing-text">You decide which power stations run, and when. The dispatch system sets how hard each running unit works; you start more before the city needs them, and stop them when it does not. A coal unit takes two hours to reach the grid, a gas turbine ten minutes.</p>

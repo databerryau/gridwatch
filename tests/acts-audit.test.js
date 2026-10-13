@@ -61,8 +61,9 @@ test('D-1, the source: only the desk, the stack, the suburb card and the shell c
   }
   assert.deepEqual(Object.keys(by).sort(), ['app/shell.js', 'app/suburbcard.js', 'desk/desk.js', 'desk/emergency.js', 'render/livestack.js']);
   // the shell's own: the briefing card's AGC/HAND (a mode input), the keys' runner (desk/README §13.3: a key acts on a desk control)
-  // and a feeder card's R or Enter (Q-91: the restore of the feeder it names)
-  assert.deepEqual(by['app/shell.js'].map(x => x.what + ': ' + x.arg), ['input: { type : \'mode\'', 'input: a . input )', 'redispatch: )', 'input: { type : \'restore\'']);
+  // and a feeder card's RESTORE button and its R or Enter (Q-91: the restore of the feeder it names)
+  assert.deepEqual(by['app/shell.js'].map(x => x.what + ': ' + x.arg), ['input: { type : \'mode\'', 'input: { type : \'restore\'', 'input: a . input )', 'redispatch: )',
+    'input: { type : \'restore\'']);
   // and where the others are mounted: the desk at #desk, the stack in the desk's slot (#stack-overlay while expanded), the map at #map, the card at #suburb-card
   const shell = readFileSync(ROOT + 'app/shell.js', 'utf8');
   for (const m of [/mount\('map', o\.createMap, \$\('map'\)\)/, /mount\('desk', o\.createDesk, \$\('desk'\)/, /mount\('stack', o\.createLiveStack, slot\)/,
