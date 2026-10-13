@@ -4609,7 +4609,11 @@ FOCUS > RESTORE > RESPOND > OFFER > NIGHT > FAST > CRUISE (§32.4.8; OFFER: wave
                 not a hold (K-16): with no input a hand-back costs 10 real s against 1.1 s at 270x.
                 Every restore (of any district) moves a dark task feeder's allowed second, so a
                 window that lapsed is played again from the new one (tests/lib/play.js
-                restoreSpans rebuilds them from the log for D-2's E).
+                restoreSpans rebuilds them from the log for D-2's E). rateOf asks it between every
+                two ticks, so the windows are kept on the director (d.rw) per input-log length (only a
+                logged restore relights a district) and checked against each feeder's dark, shedBy
+                and clearS; a state with no log is read afresh (stage C: it was 24% of a task date's
+                04:30-21:00 jump, now about 7%).
   OFFER         K-12 (wave 2's fix pass, an owner-delegated call for the integrator to number):
                 OFFER_RATE 30x from the frame the game offers a unit (app/game.js updateOffers ->
                 offerPace) while it waits at full speed, for at most AUTO_SYNC_S (240 grid-s, so 8
@@ -4686,8 +4690,9 @@ Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
   04:00-04:30 headless, makes the briefing's tray cards (`T.trayBriefing`, one ring) and opens the
   desk. The sim tags `control.handFlown` at 04:30, so HAND then AGC is an AGC day.
 - **The night lock:** once the sim has set `control.nightShift` (21:00 on a night scenario),
-  sendInput and redispatch answer `NIGHT_LOCK` ("The night shift has the desk: it stands down what
-  the night does not need. Your day is scored at 04:00."); presentation (`ui`: views, pause, ACK,
+  sendInput and redispatch answer `NIGHT_LOCK` ("The night shift has the desk to 04:00: it starts
+  and stands down units and calls demand response as par would."; stage C made it true: the night
+  shift's own START cards show under it, and the strip shows the score); presentation (`ui`: views, pause, ACK,
   volume) stays open. Both locks are help: their words and `isLock` live in render/format.js (G
   re-exports them), the shell's toast is their one answer, in blue, and the views draw no red
   refusal for them (desk/desk.js note, render/livestack.js send). Under the night lock the C-10 line

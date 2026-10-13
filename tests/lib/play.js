@@ -420,7 +420,7 @@ export function openGame(o = {}) {
         }
       }
       if (!why && fns.length && !o.vm) for (const f of fns) if (f({state, game, tick: state.tick})) { why = 'pred'; break; }
-      if (!why && state.tick >= toTick) why = 'target';
+      if (!why && state.tick >= toTick) why = state.over ? 'over' : 'target'; // (the day's end is 'over', target or not)
     };
     // done() is asked before every tick: it stops the frame at the event, keeping what the pacer owes.
     const hooks = {rate: () => D.rateOf(d, state), rateLast: () => D.rateOfLastTick(d, state), tick,
@@ -487,7 +487,8 @@ export function openGame(o = {}) {
 
   // ---------------------------------------------------------------- reading
   /**
-   * What the player sees, one line per thing: CLOCK (and mode, chips), BRIEFING, ALARMS (the panel: its tile and what it means), LINE (the objective),
+   * What the player sees, one line per thing: CLOCK (and mode, the chips: LIGHTS ON, COST, CO₂, ALL-IN or SCORE, and the HAND chip on a
+   * HAND day: 'HAND', then 'HAND-FLOWN · NIGHT SHIFT ON AGC'), BRIEFING, ALARMS (the panel: its tile and what it means), LINE (the objective),
    * WATCH, CARD, END, SUBURB (the suburb card), TOAST (blue or RED), BALANCE, DIAL, N-1, NOTE (desk notes, blue or RED), TRAY (the cards), then CTRL lines:
    * every visible control as id "label"=value [disabled,pressed,on,selected,ARMED,open,focus].
    * opts.controls: false leaves the CTRL lines out; opts.aria: true adds the screen-reader live region.
@@ -497,9 +498,9 @@ export function openGame(o = {}) {
     const hid = id => { const e = $(id); return !e || isHidden(e); };
     const tx = (id, skip) => textOf($(id), skip);
     const obs = vm ? vm.obs : null;
-    const ck = tx('clock-text'), allIn = tx('chip-allin'); // (the ALL-IN chip, Q-48: empty while hidden)
+    const ck = tx('clock-text'), allIn = tx('chip-allin'), hand = tx('chip-hand'); // (the ALL-IN chip, Q-48, and HAND, D-7: empty while hidden)
     L.push('CLOCK ' + ck + (obs && /^\d\d:\d\d$/.test(ck) ? ':' + pad(Math.floor(obs.s) % 60) : '') + ' | ' + tx('rate-text') +
-      ' | ' + ['chip-lights', 'chip-cost', 'chip-co2'].map(id => tx(id)).join(' | ') + (allIn ? ' | ' + allIn : ''));
+      ' | ' + ['chip-lights', 'chip-cost', 'chip-co2'].map(id => tx(id)).join(' | ') + (allIn ? ' | ' + allIn : '') + (hand ? ' | ' + hand : ''));
     if (!hid('briefing-card')) L.push('BRIEFING ' + tx('briefing-day') + ' ' + tx('briefing-watch'));
     // Q-46: the alarm panel, its selection and the first sentence of its explainer (#ap-means, as shown)
     if (!hid('alarm-panel')) {

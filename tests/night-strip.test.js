@@ -7,8 +7,8 @@
 // dark; the night ends at 04:00 by itself (never a card or a hold) within 15 real s of 21:00, and the END
 // line is there at once. Par is a finished stand-in, so the strip shows SCORE. (The end card's fetch at
 // 21:00 and the strip's redraw cadence are tests/briefing.test.js's, on the shell alone.) The file takes
-// 4.9-5.4 s alone, nearly all of it the sim's day and night (a date with no task feeders: app/director.js
-// restoring() is a quarter of a task date's jump, §32.11).
+// 4.6-5.4 s alone, nearly all of it the sim's day and night (a date with no task feeders; app/director.js
+// restoring() keeps its windows per input-log length since stage C, so a task date's jump costs about the same).
 import {test, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {openGame} from './lib/play.js';
@@ -78,8 +78,8 @@ test('D-11 (Q-73): at 01:00 every figure has counted up and the windows are dark
   assert.ok(f.SCORE > 0, JSON.stringify(f));
   const w = windows(p);
   assert.ok(w < S.w21 / 3, 'the windows go dark: ' + S.w21 + ' at 21:00, ' + w + ' at 01:00');
-  const end = p.until('card');   // (its guard is the day's end: 'target' on the tick the day is over)
-  assert.ok(p.game.state.over && /^(over|target)$/.test(end.why), 'the roll asks for nothing, no card and no hold: ' + end.why + ' at ' + end.at);
+  const end = p.until('card');   // (its guard is the day's end: the jump says 'over' on the tick the day is over)
+  assert.ok(p.game.state.over && end.why === 'over', 'the roll asks for nothing, no card and no hold: ' + end.why + ' at ' + end.at);
   assert.ok(p.now - S.t21 <= 15000, (p.now - S.t21) + ' real ms from 21:00');
   const look = p.look({controls: false});
   assert.match(look, /^END Day over: 04:00\. /m, 'the end card at once');
