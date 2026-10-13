@@ -136,7 +136,7 @@ function parseArgs(argv) {
     else if (a === '-h' || a === '--help') { const src = fs.readFileSync(__filename, 'utf8').split('\n'); console.log(src.slice(0, src.findIndex(l => !l.startsWith('//'))).join('\n')); process.exit(0); }
     else throw new Error('unknown flag ' + a + ' (see --help)');
   }
-  if (!o.check && !o.from) throw new Error('--from YYYY-MM-DD is needed (or --check)');
+  if (!o.check && !o.from && !o.worker) throw new Error('--from YYYY-MM-DD is needed (or --check)'); // a worker gets its dates from the parent
   return o;
 }
 
