@@ -519,7 +519,7 @@ export function ui(game, cmd) {
     case 'alarmsPick': if (!isTile(cmd.id)) return 'no such tile'; u.alarmsPick = {id: cmd.id, untilMs: game.lastFrameMs + ALARMS_PICK_MS}; return '';
     case 'alarmsGoto':
       close();
-      if (play && !D.respondCardOpen(d, state)) d.paused = true; // (a waiting RESPOND card holds the clock itself)
+      if (play && !D.respondCardOpen(d, state) && !D.feederCard(d, state)) d.paused = true; // (a waiting card holds the clock itself)
       if (cmd.target && !SUB.test(cmd.target)) u.focus = cmd.target;
       return cardFor(game, cmd.target);
     case 'hover': u.hover = cmd.target || null; u.hoverGlow = Array.isArray(cmd.glow) ? cmd.glow.slice() : []; return '';
