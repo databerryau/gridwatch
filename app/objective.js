@@ -8,6 +8,7 @@ import {clockText, priceText} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
 import {aimFlex} from '../sim/autopilot.js';
 import {gridAfter, NIGHT_S} from '../sim/clock.js';
+import {darkShareAt, litMW} from '../sim/dark.js';
 
 /** The objective line and the consequence line are one line each: at most this many characters (§21.4). */
 export const LINE_MAX_CHARS = 170;
@@ -95,10 +96,12 @@ const partOfDay = s => { const h = (V.DAY_START_H + s / S_PER_H) % V.DAY_H; retu
 const handOf = obs => !!obs.handFlown || (obs.mode === 'HAND' && obs.s >= V.PLAYER_START_S);
 const nightOf = obs => { const scn = SCENARIOS[obs.scenarioId]; return !!(scn && scn.night); };
 
-/** A span tuned at TUNED_RATE (grid s): the grid time the profile plays in its real seconds from s, at least the span, never past endS (§31.8). */
+/** A span tuned at TUNED_RATE (grid s): the grid time the profile plays in its real seconds from s, cut at endS, but never under the span itself (§31.8). */
 export function spanAt(s, gridS, hand, endS = Infinity) {
   return Math.max(gridS, Math.min(gridAfter(s, gridS / TUNED_RATE, hand), endS) - s);
 }
+/** The act window at s (grid s): the reading lead, then ACT_WITHIN_S from where it ends: one stretch of real seconds (Q-63). */
+export const actWithin = (s, leadS, hand, endS) => leadS + spanAt(s + leadS, ACT_WITHIN_S, hand, endS);
 
 // ------------------------------------------------------------------ the capacity look-ahead
 
@@ -109,6 +112,17 @@ const tieLimitAt = (tie, t) => (tie.limitUntilS >= 0 && t >= tie.limitUntilS ? V
 const dueS = (u, atS) => Math.max(atS, u.outUntilS);
 // A START refused for an outage (sim/fleet.js startBlock: 'on outage until HH:MM').
 const OUT_RE = /^on outage until /;
+// A feeder under repair (Q-69: the network's until its clearS; sim/fleet.js refreshHeld).
+const heldAt = (d, s) => d.dark && d.shedBy === 'task' && d.clearS > s;
+// t => the dark shares (sim/dark.js) of the feeders under repair at obs.s that are still held at t, or
+// null: off the load until their announced return, as app/planview.js and the dispatch count it (Q-69)
+function heldShare(obs) {
+  const held = obs.districts.filter(d => heldAt(d, obs.s)), memo = [];
+  return t => {
+    const n = held.filter(d => t < d.clearS).length; // (the sets are nested: their size names them)
+    return n ? memo[n] || (memo[n] = darkShareAt({...obs, districts: obs.districts.map(d => ({...d, dark: heldAt(d, obs.s) && t < d.clearS}))}, t)) : null;
+  };
+}
 
 // Seconds from now until unit u (an observe row) is at minimum load, by its mode; -1: not coming.
 function onInS(u, m) {
@@ -147,7 +161,8 @@ function leavingMW(u, m, d) {
  *   HOLD_UNTIL too, the tie at its import limit (the dispatch goes there when it is short) and
  *   every unit only as far as its ramp takes it from where it is now. water: true counts hydro
  *   before HOLD_UNTIL too (tripGap). The heat derate is the announced heatwave's (news from 04:00,
- *   Q-80); the tie's limit holds until its limitUntilS; a booked start waits for a unit's outage.
+ *   Q-80); the tie's limit holds until its limitUntilS; a booked start waits for a unit's outage;
+ *   a feeder under repair is off the demand until its clearS (Q-69).
  * @returns {{gap:Float64Array, n:number, fromS:number, stepS:number}}
  */
 export function capacityGap(obs, fc, o = {}) {
@@ -161,7 +176,7 @@ export function capacityGap(obs, fc, o = {}) {
   // PAR_WATER_EMPTY_BY_H); the reserve sits above HYDRO_STOP_MWH, where the station unloads, as par
   // and the plan view count it
   const water = Math.max(0, obs.hydro.storageMWh - V.HYDRO_STOP_MWH - V.PAR_WATER_RESERVE_MWH) / clamp((EMPTY_BY_S - Math.max(s, HOLD_UNTIL_S)) / S_PER_H, HYDRO_SUSTAIN_MIN_H, HYDRO_SUSTAIN_H);
-  const news = heatNews(obs);
+  const news = heatNews(obs), heldOf = heldShare(obs);
   // when each unit is at minimum load, the MW it climbs from there, and when it leaves
   const onS = new Float64Array(obs.units.length), offS = new Float64Array(obs.units.length), fromMW = new Float64Array(obs.units.length);
   // units on their way off (unloading, in shutdown, or the one a STOP press would send): their own path down
@@ -198,7 +213,8 @@ export function capacityGap(obs, fc, o = {}) {
     // its keep line, which a morning uses up), so hydro is firm capacity from then on only.
     const cap = thermal + (t >= HOLD_UNTIL_S || real || o.water ? Math.min(hydro, water) : 0) + tie + fc.windMW[k] + fc.solarMW[k] +
       (useRert ? (t >= s + rert.leadS ? V.RERT_MW : rert.outMW) : 0);
-    gap[k] = fc.demandP50[k] + margin - cap;
+    const D = heldOf(t);
+    gap[k] = (D ? litMW(fc.demandP50[k], fc.rooftopMW ? fc.rooftopMW[k] : 0, D) : fc.demandP50[k]) + margin - cap;
   }
   return {gap, n, fromS: fc.fromS, stepS: fc.stepS};
 }
@@ -241,7 +257,7 @@ function firstRun(G, fromS = -Infinity, untilS = Infinity) {
  * demand plus MARGIN_MW, or null. Pure; reads obs only.
  * @param {object} obs observe(state)
  * @param {object} [fc] any forecast-shaped object (obs.forecast by default; obs.dayAhead for the whole day)
- * @param {object} [o] capacityGap's options (marginMW, without, rert, heat, plus)
+ * @param {object} [o] capacityGap's options (marginMW, without, leaving, rert, plus, real, water)
  * @returns {{atS:number, endS:number, mw:number}|null} atS: the first short column's time; mw:
  *   the largest shortfall in the run (margin included)
  */
@@ -359,20 +375,23 @@ function tripped(c) {
  *   project(obs) if the caller already has it; dayAhead: observe(state, {dayAhead: true}).dayAhead,
  *   the forecast to 04:00 (without it the line looks 4.5 h ahead only); leadS: grid seconds more
  *   to a START's ACT_WITHIN_S (the game's reading time; default 0); held: the shown line (S1)
+ * @returns {object|null} the line; null in the night roll (Q-73: the night shift has the desk, and the night strip replaces the line)
  */
 export function objective(obs, ctx) {
   const PV = ctx.planview;
-  // (the night roll, Q-73: the night shift has the desk and the night strip replaces the line)
-  if (obs.over || obs.nightShift) return Object.assign({}, NONE);
+  if (obs.nightShift) return null;
+  if (obs.over) return Object.assign({}, NONE);
   if (obs.inWatch) return Object.assign({}, NONE, {level: 'act', kind: 'watch', text: tripped(obs.contingency) + ' The desk is locked while the grid catches itself: watch.'});
   const s = obs.s;
   const proj = ctx.proj || PV.project(obs);
   const day = ctx.dayAhead || obs.forecast;
   const reds = PV.redRuns(proj);
   const long = (PV.blueRuns ? PV.blueRuns(proj)[0] : null) || null;
-  // (NOW_S and ACT_WITHIN_S as the profile plays them here, Q-63; never past a night scenario's 21:00)
+  // (NOW_S and ACT_WITHIN_S as the profile plays them here, Q-63, cut at a night scenario's 21:00;
+  // instS: an instant resource's window, ACT_WITHIN_S + NOW_S of grid time but never under nowS, §31.8)
   const hand = handOf(obs), endS = nightOf(obs) ? NIGHT_S : Infinity, nowS = spanAt(s, NOW_S, hand, endS), actS = spanAt(s, ACT_WITHIN_S, hand, endS);
-  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV, nowS, actS, act: actS + (ctx.leadS || 0), endS, held: ctx.held || null};
+  const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV, nowS, actS, instS: Math.max(ACT_WITHIN_S + NOW_S, nowS),
+    act: actWithin(s, ctx.leadS || 0, hand, endS), endS, held: ctx.held || null};
   // the plan's largest deficit in the columns within nowS (never a later column of the same red run)
   X.redNowMW = 0;
   for (let k = 0; k < proj.n && proj.times[k] - s <= nowS; k++) if (proj.gap[k] === 'red' && proj.deficit[k] > X.redNowMW) X.redNowMW = proj.deficit[k];
@@ -393,9 +412,11 @@ export function objective(obs, ctx) {
 
   // 3-9. The first branch with something to do now; else the first critical one (the reserve diesel
   // on its way: said, but never in place of what the battery can do meanwhile); else the first with
-  // something to say. A city line not yet due comes after both.
+  // something to say. A city line not yet due comes after both. At a hand-back with its lamp lit the
+  // feeder comes first (Q-70's RESTORE pace is for it) unless the desk is really short within instS.
+  const back = obs.districts.some(d => d.dark && d.shedBy === 'task' && !(d.clearS > s) && d.restoreBlock === '') && !(realShort(X).soonMW >= BATT_MIN_MW);
   let passive = null, crit = null, ask = null;
-  for (const branch of [commitNow, shortAhead, aircon, restore, spare, stop, battery, soak, commitLater]) {
+  for (const branch of [...(back ? [restore] : []), commitNow, shortAhead, aircon, restore, spare, pickupAhead, stop, battery, soak, commitLater]) {
     const x = branch(X, line);
     if (!x) continue;
     if (x.action && (x.kind !== 'city' || x.level === 'act')) return x;
@@ -424,10 +445,10 @@ function quiet(X, line, dayAhead) {
   const peak = rising ? 'Demand is still climbing.' : higher ? 'Highest demand ahead: about ' + commas(Math.round(p50[peakK] / 100) * 100) + ' MW at ' + peakAt + '.'
     : 'No higher demand is ahead today.';
   // the commit check's thin band: a trip's worth of spare missing by THIN_MW or more somewhere ahead,
-  // but by less than SHORT_MIN_MW (a unit is asked for from there)
+  // but by less than SHORT_MIN_MW (a unit is asked for from there); from 21:00 on a night scenario the night shift's
   const G = tripGap(obs, day, COMMIT_TRIP_MW);
   let thinS = -1;
-  for (let k = 0; k < G.n && thinS < 0; k++) if (G.gap[k] >= THIN_MW) thinS = G.fromS + (k + 1) * G.stepS;
+  for (let k = 0; k < G.n && thinS < 0; k++) { const t = G.fromS + (k + 1) * G.stepS; if (t < X.endS && G.gap[k] >= THIN_MW) thinS = t; }
   if (thinS < 0) return line({text: 'Enough plant is committed for ' + (dayAhead ? 'the rest of the day. ' : 'the next 4½ hours. ') + peak});
   const fits = t => (t.length + 1 + peak.length <= LINE_MAX_CHARS ? t + ' ' + peak : t);
   if (startable(obs, true).length) {
@@ -437,7 +458,7 @@ function quiet(X, line, dayAhead) {
   // battery's and demand response's to carry (the reserve diesel's only beyond both).
   const all = obs.units.every(u => u.mode !== 'off' && u.mode !== 'tripped') ? 'Every unit is committed. ' : 'Every unit that can run is committed. ';
   const R = capacityGap(obs, day, {real: true});
-  const run = firstRun(R);
+  const run = firstRun(R, -Infinity, X.endS);
   if (run) {
     const mw = figure(hourOf(R, run)), fromS = Math.max(X.s, run.crossS);
     return line({text: fitWhy(why(X, fromS, null), r => all + 'From about ' + atMark(fromS) + ' demand is about ' + mw + ' more than they can give' + r + ': ' +
@@ -451,18 +472,19 @@ export const THIN_MW = 50;
 
 // The commitment look-ahead, once per line: the gap at the commit margin over the day, and the
 // unit to start for its first shortfall that a start can still reach (§21.4, the start cascade:
-// never a second start for a shortfall the first cannot reach either).
+// never a second start for a shortfall the first cannot reach either). A shortfall from 21:00 on a
+// night scenario is the night shift's (Q-73): the desk is locked by then.
 function lookAhead(X) {
   if (X.ahead !== undefined) return X.ahead;
   const obs = X.obs, s = X.s;
   const G = tripGap(obs, X.day, COMMIT_TRIP_MW);
-  const first = firstRun(G);
+  const first = firstRun(G, -Infinity, X.endS);
   X.ahead = null;
   if (!first) return null;
   const all = startable(obs, true);
   const fastest = all.reduce((a, c) => (!a || arrival(c) < arrival(a) ? c : a), null);
   // the first shortfall a start made now (or at a return) could still be on for
-  const reach = fastest ? firstRun(G, arrival(fastest)) : null;
+  const reach = fastest ? firstRun(G, arrival(fastest), X.endS) : null;
   let c = null;
   if (reach) {
     const inTime = all.filter(x => arrival(x) <= reach.atS);
@@ -474,9 +496,10 @@ function lookAhead(X) {
 }
 
 // Q-68's constraints on a shortfall from fromS: ' (CCGT 2 out until 07:45; the tie limited to 450 MW until 11:00)' or '' (§31.8).
+// A unit is named only when its outage is what keeps it from the shortfall (started now, it would be in time).
 function why(X, fromS, c) {
   const obs = X.obs, tie = obs.tie, out = [];
-  const o = startable(obs, true).find(x => x.fromS > X.s && arrival(x) > fromS && (!c || x.offer < c.offer));
+  const o = startable(obs, true).find(x => x.fromS > X.s && X.s + x.lead <= fromS && arrival(x) > fromS && (!c || x.offer < c.offer));
   if (o) out.push(unitName(o.unit) + ' out until ' + at(o.fromS));
   if (!tie.tripped && tie.limitUntilS > fromS && tie.importLimitMW < V.TIE_MAX_MW) out.push('the tie limited to ' + tie.importLimitMW + ' MW until ' + at(tie.limitUntilS));
   return out.length ? ' (' + out.join('; ') + ')' : '';
@@ -564,9 +587,9 @@ function arriving(obs) {
 }
 
 // What the desk cannot give even at its limits (capacityGap real), once per line, net of the
-// demand response already called (while its hour lasts); <= 0 is spare (actS, nowS: spanAt's
-// ACT_WITHIN_S and NOW_S, within the hour):
-//   soonMW   the largest such shortfall in the next actS + nowS: what the battery must carry now
+// demand response already called (while its hour lasts); <= 0 is spare (instS, nowS: X's, within the hour):
+//   soonMW   the largest such shortfall in the next instS: what the battery must carry now (its energy
+//            is grid time: an order made earlier is charge the peak will not have)
 //   aheadMW  the largest in the nowS after that: an order is sized for it, so the gap does not outgrow it
 //            within minutes of the order (an evening ramp adds 100 MW of gap in five)
 //   halfMW   the largest in the next half hour (an order is eased only against that)
@@ -588,8 +611,8 @@ function realShort(X) {
       if (g > hourMW) hourMW = g;
       // (where the gap crosses zero, between this column and the one before)
       if (hourAtS < 0 && g > 0) hourAtS = X.s + lead - (k > 0 && last <= 0 ? R.stepS * g / (g - last) : 0);
-      if (lead <= X.actS + X.nowS && g > soonMW) soonMW = g;
-      if (lead <= X.actS + 2 * X.nowS && g > aheadMW) aheadMW = g;
+      if (lead <= X.instS && g > soonMW) soonMW = g;
+      if (lead <= X.instS + X.nowS && g > aheadMW) aheadMW = g;
       if (lead <= S_PER_H / 2 && g > halfMW) halfMW = g;
       if (lead <= X.nowS && g - have > nowMW) nowMW = g - have;
     }
@@ -651,14 +674,10 @@ function shortNow(X, line) {
   // Demand response when neither can answer: a call is dear and there are few.
   if (!fast.length && obs.dr.callsLeft > 0 && !(obs.dr.activeS > 0)) fast.push({id: 'btn-dr', say: 'call demand response (hold D): industry cuts ' + mwText(V.DR_MW) + ' for ' + spanText(V.DR_DURATION_S), action: {type: 'callDR'}});
   // (not "short": the BALANCE bar's word)
-  let text = 'The plan is ' + figure(mw) + ' below demand now';
-  if (fast.length) {
-    text += ': ' + fast.map(f => f.say).join(', or ') + '.';
-    if (fast[0].id === 'dial-battery' && text.length <= 145) text += ' It answers in seconds.';
-  } else {
-    const a = arriving(obs);
-    text += '. ' + (a ? a.name + ' arrives at ' + at(a.atS) + '; until then ' + carries(obs) + '.' : 'Everything that can help is already on its way.');
-  }
+  const a = fast.length ? null : arriving(obs);
+  let text = fitWhy(why(X, s, null), r => 'The plan is ' + figure(mw) + ' below demand now' + r + (fast.length ? ': ' + fast.map(f => f.say).join(', or ') + '.'
+    : '. ' + (a ? a.name + ' arrives at ' + at(a.atS) + '; until then ' + carries(obs) + '.' : 'Everything that can help is already on its way.')));
+  if (fast.length && fast[0].id === 'dial-battery' && text.length <= 145) text += ' It answers in seconds.';
   return line({level: 'crit', kind: 'short', text, targets: fast.map(f => f.id), action: fast.length ? fast[0].action : null, startBy: s});
 }
 
@@ -666,8 +685,9 @@ function shortNow(X, line) {
 function commitNow(X, line) {
   const A = lookAhead(X), obs = X.obs, s = X.s;
   if (!A) return null;
-  // (every unit that can start now committed: the reserve diesel's line before one back from maintenance later)
-  const diesel = A.none && A.first.atS - s <= V.FC_HORIZON_S ? reserveDiesel(X, line) : null;
+  // (every unit that can start now committed: the reserve diesel's line first, unless one back from
+  // maintenance arrives for its shortfall; once that is booked the diesel's line follows if still needed)
+  const diesel = A.none && A.first.atS - s <= V.FC_HORIZON_S ? reserveDiesel(X, line, A.unit) : null;
   if (diesel || !A.unit) return diesel;
   if (A.reach.atS - s > V.FC_HORIZON_S) return null; // commit-later's
   const c = A.unit, back = c.fromS > s, act = A.startBy - s <= X.act && !back, name = unitName(c.unit);
@@ -690,14 +710,16 @@ function commitNow(X, line) {
 // Every unit is committed. What the desk then cannot give even at its limits is the battery's
 // and demand response's to carry (shortAhead says so); the reserve diesel only for what is
 // beyond them, and only for a shortfall its 20 minutes can still reach.
-function reserveDiesel(X, line) {
+function reserveDiesel(X, line, back) {
   const obs = X.obs, s = X.s, R = capacityGap(obs, X.day, {real: true});
   const late = firstRun(R, s + V.RERT_LEAD_S, s + V.FC_HORIZON_S);
-  if (!late || !beyondReserves(obs, R, late)) return null;
+  if (!late || !beyondReserves(obs, R, late) || (back && arrival(back) <= late.atS)) return null;
   const head = 'You will be ' + figure(hourOf(R, late)) + ' short from ' + atMark(late.crossS) + ', more than the battery and demand response can carry. ';
   if (obs.rert.armed) return line({level: 'crit', kind: 'commit', text: head + (obs.rert.standingDown ? 'The reserve diesel is standing down: it can be armed again once it is off.' : 'The reserve diesel is on its way.'), startBy: s, short: pub(late)});
-  const arm = late.atS - s <= V.RERT_LEAD_S + ACT_WITHIN_S; // (grid time, not X.act: spare()'s stand-down looks 45 grid-min ahead)
-  return line({level: 'crit', kind: 'commit', text: head + 'The reserve diesel (hold E) takes 20 min and costs dearly' + (arm ? '.' : ': arm it by ' + atMark(late.atS - V.RERT_LEAD_S) + '.'),
+  // (ACT_WITHIN_S of the profile before its 20 min, no reading lead: it costs by the minute; never past
+  // spare()'s stand-down look-ahead, so the two never chase each other)
+  const arm = late.atS - s < Math.min(V.RERT_LEAD_S + X.actS, V.PAR_RERT_STANDDOWN_MIN * S_PER_MIN);
+  return line({level: 'crit', kind: 'commit', text: head + 'The reserve diesel (hold E) takes 20 min and costs dearly' + (arm ? '.' : ': arm it by ' + atMark(late.crossS - V.RERT_LEAD_S) + '.'),
     targets: ['key-rert'], action: arm ? {type: 'armRERT'} : null, startBy: s, short: pub(late)});
 }
 
@@ -726,18 +748,17 @@ function shortAhead(X, line) {
   // ahead: what is coming and what will carry it (no MW: the figure moves with every forecast)
   const ready = more => line({level: 'plan', kind: 'commit', text: fitWhy(reason, r => 'From about ' + fromAt + ' demand is more than every committed unit can give' + r + '. ' +
     (more ? 'The battery and demand response carry it: be ready to call demand response (hold D) then.' : 'The battery carries it: be ready to discharge it then.')),
-  targets: more ? ['btn-dr', 'dial-battery'] : ['dial-battery'], startBy: R.hourAtS - X.actS});
+  targets: more ? ['btn-dr', 'dial-battery'] : ['dial-battery'], startBy: R.hourAtS - X.instS});
   if (!soon) return have > 0 ? carrying() : ready(drFree && (R.mwh > above || R.hourMW > b.ratedMW));
   const head = r => 'Demand is ' + figure(R.soonMW) + ' more than every committed unit can give' + r;
   // More than the battery holds, in MW or in MWh: demand response shares it, called as the gap opens
   // (before the battery's order, not minutes after it; a call is an hour of DR_MW: not spent on a gap
   // that stays under half of that while the battery can still carry it). Judged on the next quarter of
   // an hour; when a battery order is due now, on the NOW_S after that too (aheadMW, as the order is
-  // sized), so the call is not made minutes after the order. The call waits for the gap in grid time (§31.8).
+  // sized), so the call is not made minutes after the order. The call, as the order, waits for instS (§31.8).
   const gapMW = carryMW(b, R.soonMW) > have ? R.aheadMW : R.soonMW;
   const longer = R.mwh > above && gapMW >= V.DR_MW / 2, wider = gapMW > b.ratedMW, empty = !(above > gapMW * BATT_MIN_H);
   if (drFree && (longer || wider || empty)) {
-    if (R.hourAtS - s > ACT_WITHIN_S + NOW_S) return have > 0 ? carrying() : ready(true);
     return line({level: 'act', kind: 'short', text: fitWhy(reason, r => head(r) + ', ' + (wider ? 'more than the battery can give' : empty ? 'and the battery is nearly empty' : 'for longer than the battery lasts') +
       '. Call demand response (hold D): industry cuts ' + mwText(V.DR_MW) + ' for ' + spanText(V.DR_DURATION_S) + '.'), targets: ['btn-dr'], action: {type: 'callDR'}, startBy: s});
   }
@@ -826,27 +847,16 @@ function beyondReserves(obs, R, run, frac = 1) {
   return false;
 }
 
-// A feeder under repair (Q-69: the network's until its clearS; sim/fleet.js refreshHeld).
-const heldAt = (d, s) => d.dark && d.shedBy === 'task' && d.clearS > s;
 // What a feeder under repair picks up at its return (MW): its cold load now, with the forecast's underlying demand then.
 function pickupMW(X, d) {
   const fc = X.day, now = X.obs.demand.underlyingMW, k = clamp(Math.ceil((d.clearS - fc.fromS) / fc.stepS) - 1, 0, fc.n - 1);
   return d.coldLoadMW * (fc.n && fc.underlyingP50 && now > 0 ? fc.underlyingP50[k] / now : 1);
 }
-// 'SAL4's feeder is back at 06:45', and its pickup as the line says it (rounded up: what to hold).
-const backText = d => d.id + '\'s feeder is back at ' + at(d.clearS);
-const pickupText = (X, d) => mwText(Math.ceil(pickupMW(X, d) / FIGURE_MW) * FIGURE_MW);
-
 // 4. Dark districts, once supply is in hand: the line speaks when one is the desk's (a task feeder
-// before its clearS is the network's, Q-69) and counts every dark one, as the bay and the map do;
-// before a hand-back, the pickup (§31.8).
+// before its clearS is the network's, Q-69) and counts every dark one, as the bay and the map do.
 function restore(X, line) {
   const obs = X.obs, all = obs.districts.filter(d => d.dark), held = all.filter(d => heldAt(d, X.s)), dark = all.filter(d => !heldAt(d, X.s));
-  if (!dark.length) {
-    const d = held.reduce((a, x) => (!a || x.clearS < a.clearS ? x : a), null);
-    if (!d || d.clearS - X.s > PICKUP_AHEAD_S) return null;
-    return line({level: 'plan', kind: 'restore', text: backText(d) + ': hold ' + pickupText(X, d) + ' of spare for its pickup.', targets: ['bay-restore', 'gauge-n1'], startBy: d.clearS});
-  }
+  if (!dark.length) return null;
   const n = all.length + (all.length === 1 ? ' district is' : ' districts are') + ' dark' +
     (held.length ? ' (' + held.map(d => d.id).join(', ') + ' under repair until ' + held.map(d => at(d.clearS)).join(', ') + ')' : '');
   // (desk/bay.js R: a feeder handed back first, the latest first: Q-70's RESTORE)
@@ -901,15 +911,11 @@ function spare(X, line) {
         targets: ['ring-guard'], action: {type: 'guard', mw}, startBy: s});
     }
   }
-  // With districts dark, also what the smallest picks up: a feeder under repair at its return, within the act window.
-  let pickup = Infinity, back = null;
-  for (const d of obs.districts) {
-    if (!d.dark) continue;
-    const held = heldAt(d, s), mw = held ? pickupMW(X, d) : d.coldLoadMW;
-    if ((!held || d.clearS - s <= X.act) && mw < pickup) { pickup = mw; back = held ? d : null; }
-  }
+  if (sec.level === 'SECURE') return null;
+  // With districts dark, also what the smallest picks up: a feeder under repair at its return, once that is within the act window.
+  let pickup = Infinity;
+  for (const d of obs.districts) if (d.dark && !(heldAt(d, s) && d.clearS - s > X.act)) pickup = Math.min(pickup, heldAt(d, s) ? pickupMW(X, d) : d.coldLoadMW);
   if (!(pickup < Infinity)) pickup = 0;
-  if (sec.level === 'SECURE' && !(back && pickup > sec.r5MW)) return null;
   const what = sec.lKind === 'link' ? 'the tie line' : 'your biggest unit';
   // Seconds: the trip preview dips under the secure line. The GUARD is the answer, as far as the
   // battery can sustain it: one line, for the most it can hold (each step is worth less than the one
@@ -926,8 +932,6 @@ function spare(X, line) {
   // cheapest gas turbine that restores it); or under the pickup (above).
   const needMW = Math.max(V.PAR_TIGHT_RATIO * sec.lMW, pickup) - sec.r5MW;
   if (!(needMW > 0) && !(sec.lKind !== 'none' && sec.previewNadirHz < V.PAR_NADIR_MIN_HZ)) return null;
-  // (a feeder's pickup is the reason when it is more than the trip's share: the line says which)
-  const forBack = back && pickup > V.PAR_TIGHT_RATIO * sec.lMW && needMW > 0 ? backText(back) + ' and picks up ' + pickupText(X, back) + ', more than the spare you have. ' : '';
   // (one at a time: not while a machine is within a quarter of an hour of the grid)
   const coming = obs.units.some((u, i) => { const d = u.mode === 'loading' ? u.timerS : onInS(u, M[i]); return d > 0 && d <= QUARTER_S; });
   if (!coming) {
@@ -941,20 +945,30 @@ function spare(X, line) {
       // the unit the commit line was about to ask for anyway: both reasons in one line, so "now" and
       // "by 17:45" for the same machine do not take turns
       if (A && A.unit && A.unit.unit === c.unit && A.reach.atS - s <= V.FC_HORIZON_S) {
-        return line({level: 'act', kind: 'spare', text: 'Start ' + unitName(c.unit) + ' now (' + minText(c.lead) + '): spare is short already, and ' +
-          (A.thin.real ? 'you will be ' + mwText(A.thin.mw) + ' short from ' + needAt(A.thin, A.reach.crossS) + '.' : 'from about ' + needAt(A.thin, A.reach.crossS) + ' one trip would leave you short.'),
+        return line({level: 'act', kind: 'spare', text: fitWhy(why(X, A.reach.crossS, c), r => 'Start ' + unitName(c.unit) + ' now (' + minText(c.lead) + '): spare is short already, and ' +
+          (A.thin.real ? 'you will be ' + mwText(A.thin.mw) + ' short from ' + needAt(A.thin, A.reach.crossS) : 'from about ' + needAt(A.thin, A.reach.crossS) + ' one trip would leave you short') + r + '.'),
         targets: ['gauge-n1', c.id], action: {type: 'start', unit: c.unit}, startBy: s});
       }
-      return line({level: 'act', kind: 'spare', text: (forBack || 'Demand is covered, but if ' + what + ' tripped the rest could not make it up in time. ') + 'Start ' + unitName(c.unit) + ' (' + minText(c.lead) + ')' +
+      return line({level: 'act', kind: 'spare', text: 'Demand is covered, but if ' + what + ' tripped the rest could not make it up in time. Start ' + unitName(c.unit) + ' (' + minText(c.lead) + ')' +
         (free ? ': it spins for free and adds spare.' : ' for the spare.'), targets: ['gauge-n1', c.id], action: {type: 'start', unit: c.unit}, startBy: s});
     }
   }
   const a = coming ? arriving(obs) : null;
-  if (forBack) return line({level: 'plan', kind: 'spare', text: forBack + (a ? a.name + ' arrives at ' + at(a.atS) + ' to add it.' : 'Nothing more can add spare now.'), targets: ['gauge-n1', 'bay-restore']});
   // (with the battery discharging into a gap, demand is covered because it is)
   const covered = b.mode === 'discharge' && b.orderMW > 0 ? 'With the battery discharging, demand is covered' : 'Demand is covered';
   return line({level: 'plan', kind: 'spare', text: covered + ', but losing ' + what + ' would not be caught' + (a ? ' until ' + a.name + ' arrives at ' + at(a.atS) + '.' : '. Nothing more can add spare now.'),
     targets: ['gauge-n1', 'ring-guard']});
+}
+
+// 5b. Within PICKUP_AHEAD_S of a hand-back, no feeder yet the desk's: the spare to hold for its cold
+// load (the bay's figure, to the 10 MW). Said after spare()'s own line, before commitLater's "Next";
+// the spare gauge glows, never the bay, whose tab is Q-70's cue at the hand-back (§31.8).
+function pickupAhead(X, line) {
+  const all = X.obs.districts.filter(d => d.dark);
+  if (all.some(d => !heldAt(d, X.s))) return null;
+  const d = all.reduce((a, x) => (!a || x.clearS < a.clearS ? x : a), null);
+  if (!d || d.clearS - X.s > PICKUP_AHEAD_S) return null;
+  return line({level: 'plan', kind: 'restore', text: d.id + '\'s feeder is back at ' + at(d.clearS) + ': hold ' + mwText(pickupMW(X, d)) + ' of spare for its pickup.', targets: ['gauge-n1'], startBy: d.clearS});
 }
 
 /** The dearest committed gas unit (§21.4): CCGT or GT, on, coming or booked; ties: the highest index. Never coal, never hydro. */
@@ -1178,7 +1192,7 @@ function commitLater(X, line) {
   const tail = A.first.atS - X.s > V.FC_HORIZON_S && leadText(c).length < 30 ? '; until then the plant you have covers the forecast' : '';
   // (a unit out for maintenance: from its return, Q-68)
   const by = A.reach.crossS - c.plan, when = c.fromS > X.s && mark(by) <= c.fromS ? ' at ' + at(c.fromS) + ', when it is back,' : ' by ' + atMark(by);
-  return line({level: 'plan', kind: 'commit', text: 'Next: start ' + unitName(c.unit) + when + ' for ' + partOfDay(A.reach.atS) + '. It takes ' + leadText(c) + tail + '.',
+  return line({level: 'plan', kind: 'commit', text: fitWhy(why(X, A.reach.crossS, c), r => 'Next: start ' + unitName(c.unit) + when + ' for ' + partOfDay(A.reach.atS) + r + '. It takes ' + leadText(c) + tail + '.'),
     targets: c.fromS > X.s ? [] : [c.id], startBy: A.startBy, short: pub(A.reach)});
 }
 
