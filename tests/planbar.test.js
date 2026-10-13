@@ -218,7 +218,7 @@ test('Q-45 / Q-46 on the page: the slot holds the annunciator; EXPLAIN holds the
   const p = openGame({seed: 20261007});
   const {$} = p;
   assert.ok($('annun-slot').contains($('annunciator')) && !$('desk').contains($('annunciator')));
-  assert.deepEqual($('planbar').children.map(c => c.id), ['objective', 'annun-slot']);
+  assert.deepEqual($('planbar').children.map(c => c.id), ['objective', 'night-strip', 'annun-slot']); // (2c, Q-73: the night strip in the objective's place from 21:00)
   assert.ok(['ok', 'plan', 'act', 'crit'].includes($('objective').className), 'the objective\'s class is its level: ' + $('objective').className);
   assert.equal($('annun-slot').style['--dk-k'], $('desk').firstElementChild.style['--dk-k'], 'the desk\'s scale on the slot');
   // EXPLAIN: open (the clock held), pressed; again: closed, CRUISE, the focus back on EXPLAIN

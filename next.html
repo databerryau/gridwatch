@@ -8,8 +8,8 @@
   next.html: the Phase 1 game (SPEC Phase 1 "next.html plays a full day at a flat 120x with the
   desk, the Live Stack, the watch and the map"; desk/README.md §8, and §11-§15 for the 1b
   polish). The Phase 0.2 bench moved to bench.html. Static: no build, no requests to other
-  origins. Serve the repo root and open next.html. Query: ?seed=N (default: today, YYYYMMDD)
-  &perf (the F-11 overlay and its budget marks) &debug (the boot handle as globalThis.gridwatch).
+  origins. Serve the repo root and open next.html. Query: ?date=YYYY-MM-DD or ?seed=N (default: today's
+  daily, desk/README.md Q-75) &perf (the F-11 overlay and its budget marks) &debug (the boot handle as globalThis.gridwatch).
   Body classes the shell sets from the settings (K-22, desk/README.md §13.1): rm (reduced
   motion), fxlow (reduced effects), crt (the B-4 scanlines), so CSS follows without the vm.
   Layout (SPEC §4.2, K-17): a 32-px header (40 px from 1600 px wide), the map on top, the desk
@@ -46,11 +46,15 @@
   #rate-badge { font: 700 12px var(--mono); padding: 2px 8px; border-radius: 4px; background: #1f6feb22; border: 1px solid var(--blue);
     color: var(--bright); min-width: 170px; text-align: center; cursor: pointer; }
   #rate-badge.WATCH, #rate-badge.RESPOND-CARD { background: #d2992233; border-color: var(--amber); }
-  #rate-badge.RESPOND, #rate-badge.FOCUS { background: #a371f722; border-color: var(--violet); }
+  #rate-badge.RESPOND, #rate-badge.FOCUS, #rate-badge.RESTORE, #rate-badge.OFFER { background: #a371f722; border-color: var(--violet); }
   #rate-badge.FAST { background: #3fb95022; border-color: var(--green); }
+  #rate-badge.NIGHT { background: #0b1020; border-color: var(--dim); color: var(--dim); }
   #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER, #rate-badge.ALARMS { background: #6e768133; border-color: var(--faint); }
   .chip { font: 11px var(--mono); color: var(--dim); padding: 2px 8px; border: 1px solid var(--line); border-radius: 10px; }
   .chip b { color: var(--bright); font-weight: 700; }
+  /* D-7: HAND in amber, with the word; after 21:00 two short lines (the header is full at 1280 px) */
+  #chip-hand { color: var(--amber); border-color: var(--amber); font-weight: 700; }
+  #chip-hand.night { font-size: 9px; line-height: 10px; padding: 1px 6px; max-width: 112px; text-align: center; border-radius: 6px; }
   .grow { flex: 1; }
 
   #map { position: relative; min-height: 0; overflow: hidden; background: #0a0e14; }
@@ -70,6 +74,12 @@
   #objective.crit { background: #4a1210f0; } #objective.crit b { border-color: var(--red); color: var(--bright); background: #da3633; }
   /* C-10: what a guarded press would do, in place of the objective while a guard is under the hand. */
   #objective.consider { border-top-style: dashed; border-top-color: var(--dim); }
+  /* Q-73: the night strip in the objective's place from 21:00: the lock's words over the day's totals; nothing to press. */
+  #night-strip { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 3px 10px; color: var(--bright);
+    background: #0b1020f0; border-top: 1px solid var(--line); pointer-events: none; }
+  #night-strip b { font: 700 11px var(--mono); padding: 1px 6px; border-radius: 3px; border: 1px solid var(--dim); color: var(--dim); flex: none; }
+  #night-note { display: block; font-size: 11px; color: var(--dim); }
+  #night-figs { display: block; font: 600 12px var(--mono); }
   /* B-4: the CRT overlay. Fixed 2-px scanlines over the map only (1 px dark, 1 px clear), very
      faint, never animated, never in the way of the pointer. Off with REDUCED EFFECTS. */
   body.crt #map::before { content: ''; position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0.06;
@@ -159,6 +169,7 @@
   <div id="chip-cost" class="chip" title="CUSTOMER COST so far">COST <b id="chip-cost-v">-</b> c/kWh</div>
   <div id="chip-co2" class="chip" title="CO₂ per MWh generated in the region so far">CO₂ <b id="chip-co2-v">-</b> t/MWh</div>
   <span id="chip-allin" class="chip" hidden><span id="chip-allin-k">SCORE</span> <b id="chip-allin-v">…</b></span>
+  <span id="chip-hand" class="chip" hidden>HAND</span>
   <span class="grow"></span>
   <button id="btn-pause" title="Space" aria-keyshortcuts="Space">PAUSE</button>
   <button id="btn-mute" title="Sound on or off (Shift+M)" aria-keyshortcuts="Shift+M" aria-pressed="false">SOUND ON</button>
@@ -166,7 +177,7 @@
   <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)" aria-label="What GRIDWATCH simplifies, and why" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="drawer" aria-expanded="false">?</button>
 </header>
 <div id="map" aria-label="The city and its power stations"></div>
-<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="annun-slot" class="dk-vars"></div></div>
+<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="night-strip" aria-label="The night shift: your day's totals so far" hidden><b>☾ NIGHT SHIFT</b><span><span id="night-note"></span><span id="night-figs"></span></span></div><div id="annun-slot" class="dk-vars"></div></div>
 <div id="desk" aria-label="The control desk"></div>
 <noscript>GRIDWATCH needs JavaScript (ES modules).</noscript>
 
@@ -182,7 +193,7 @@
   <p id="briefing-watch" class="dim"></p>
   <div class="row" id="briefing-mode" role="radiogroup" aria-label="Regulation">
     <button id="btn-agc" class="on" role="radio" aria-checked="true" title="AGC trims every unit inside its band (the default)">AGC</button>
-    <button id="btn-hand" role="radio" aria-checked="false" title="Fly by hand: no automatic trim all day (harder)">HAND</button>
+    <button id="btn-hand" role="radio" aria-checked="false" title="Fly by hand: no automatic trim from 04:30 to 21:00 (harder)">HAND</button>
     <span class="grow"></span>
     <button id="btn-take" class="take" title="Enter">TAKE THE DESK</button>
   </div>

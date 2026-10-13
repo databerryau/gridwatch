@@ -507,6 +507,7 @@ export function openGame(o = {}) {
       L.push('ALARMS open: ' + (sel ? sel.label : vm && vm.alarmsSel ? vm.alarmsSel : '(none)') + (first ? ' · ' + first[0] : ''));
     }
     if (!hid('objective')) L.push('LINE ' + tx('objective-level') + ' ' + tx('objective-text'));
+    if (!hid('night-strip')) L.push('NIGHT ' + tx('night-strip')); // (Q-73: the night strip, in the objective's place from 21:00)
     if (!hid('watch-vignette')) L.push('WATCH ' + tx('stopwatch') + ' | ' + tx('beat-caption') + ' | ' + tx('beat-steps'));
     if (!hid('respond-card')) L.push('CARD ' + tx('respond-card'));
     if (!hid('end-card')) L.push('END ' + textOf($('end-card'), e => e.tagName === 'BUTTON'));

@@ -8,9 +8,11 @@ import {startRaf} from './loop.js';
 import {createKeys, bindKeys, poll as pollKeys, typing} from './keys.js';
 import {createAudio} from '../audio/audio.js';
 import {ANCHORS} from '../content/anchors.js';
-import {badgeText, badgeTitle, lightsText, centsText, co2Text, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
+import {badgeText, badgeTitle, BADGE_HELP, NIGHT_LOCK, lightsText, centsText, co2Text, clockText, allInCents, mw, VCR_TEXT, VER_TEXT} from '../render/format.js';
 import {BEATS} from './watch.js';
 import {modeOf} from './director.js';
+import {observe} from '../sim/step.js';
+import {unitLabel} from '../desk/util.js';
 
 /** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
 export function layoutSizes(width, height) {
@@ -68,20 +70,55 @@ export function objectiveWord(o) {
 
 /**
  * The briefing's line about the day (P-3; desk/README.md §21.4): its type and whether it is a
- * weekday, from the public obs.day only (a heatwave day reads HOT until it is announced, C-2).
+ * weekday, from the public obs.day only (a heatwave day reads HOT, C-2). plan: on a day the event
+ * director planned, {heat: a heatwave announced at 04:00} (Q-80: a HOT day without one has none
+ * coming); null on the classic day, whose heatwave is announced mid-morning.
  */
-export function dayText(day) {
+export function dayText(day, plan) {
   if (!day) return '';
   const when = day.weekend ? 'weekend' : 'weekday';
   const lean = day.weekend ? ' Demand is lower at the weekend, and one coal unit has been off since Friday night.' : '';
   if (day.temp === 'MILD') return 'Today: a mild ' + when + '. Rooftop solar will cut the demand your plant must meet around midday; the evening still climbs.' + lean;
-  return 'Today: a hot ' + when + '. A heatwave warning, if one comes, comes mid-morning.' + lean;
+  return 'Today: a hot ' + when + (!plan ? '. A heatwave warning, if one comes, comes mid-morning.'
+    : plan.heat ? ', with a heatwave this afternoon (Watch for, below).' : '. No heatwave is forecast.') + lean;
 }
 
-/** The briefing's goals (Q-48, §30.7): the ALL-IN score's three parts, their prices from the params, and par. */
-export const GOALS_TEXT = 'Keep the lights on, cheaply and cleanly. Your day is scored as one total: the cost of supply, plus ' + VCR_TEXT +
-  ' for each MWh the city goes without (the AER\'s value of customer reliability), plus ' + VER_TEXT + ' a tonne of CO₂ (the interim ' +
-  'value of emissions reduction). Par, GRIDWATCH\'s own autopilot on this day, scores 1000; a smaller total scores more.';
+// Q-81 (§32.8.2): one brief per 04:00 news item, from its kind and the public obs (each <= 8 words)
+const hm = s => clockText(s, false);
+const BRIEF = {
+  heat: n => 'heatwave ' + hm(n.fromS) + '–' + hm(n.toS),
+  tie: (n, o) => 'tie import ≤ ' + mw(o.tie.importLimitMW) + ' MW until ' + hm(n.toS),
+  outage: (n, o) => unitLabel((o.units.find(u => u.outUntilS === n.toS) || {}).id) + ' out until ' + hm(n.toS),
+  network: (n, o) => {
+    const ds = o.districts.filter(d => d.clearS >= 0).sort((a, b) => a.clearS - b.clearS);
+    return ds.map(d => d.id).join(', ') + (ds.length > 1 ? ' feeders' : ' feeder') + ' back ' + [...new Set(ds.map(d => hm(d.clearS)))].join(', ');
+  },
+};
+/** The briefing's "Watch for" (Q-81): one brief per news item announced at 04:00, in their order. */
+export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]).map(n => BRIEF[n.kind](n, obs));
+/** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
+export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
+/** "Watch for: …. " (<= 30 words, D-3) and, when `gated` is false, NOT_GATED. */
+export function watchForText(obs, gated) {
+  const b = watchFor(obs);
+  return (b.length ? 'Watch for: ' + b.join('; ') + '. ' : '') + (gated === false ? NOT_GATED + ' ' : '');
+}
+
+/** The briefing's goals (Q-48, §30.7; Q-69): the ALL-IN score's three parts, their prices from the params, and par (<= 60 words). */
+export const GOALS_TEXT = 'Keep the lights on, cheaply and cleanly. Your score is one total: supply\'s cost, plus ' + VCR_TEXT +
+  ' for each MWh dark that is yours (a feeder under repair becomes yours at its hand-back), plus ' + VER_TEXT + ' a tonne of CO₂: ' +
+  'regulators\' values of reliability and emissions. Par, GRIDWATCH\'s autopilot on this day, scores 1000; a smaller total scores more.';
+
+/** D-7, Q-64: the header's HAND chip (amber, with the word) before the night shift, and after it on a HAND-flown day. */
+export const HAND_CHIP = Object.freeze({
+  day: ['HAND', 'Flown by hand: no AGC trim from 04:30 until 21:00, when the night shift takes the desk on AGC'],
+  night: ['HAND-FLOWN · NIGHT SHIFT ON AGC', 'You flew the day by hand; the night shift has the desk on AGC until 04:00'],
+});
+/** Q-73: the night strip redraws its figures at most this often (real ms), so each can be read. */
+export const NIGHT_REDRAW_MS = 500;
+/** A toast lives max(TOAST_MS, TOAST_WORD_MS a word) (real ms), so it can be read (§32.11). */
+export const TOAST_MS = 3000, TOAST_WORD_MS = 300;
+const millions = x => '$' + (x / 1e6).toFixed(1) + 'M';
 
 // ------------------------------------------------------------------ the live region (K-23, §13.3)
 
@@ -101,14 +138,21 @@ export function bandOf(hz) {
 
 /** A new live-region model (pure; liveFrame feeds it a vm per frame). */
 export function createLive() {
-  return {primed: false, lastMs: -Infinity, tick: -1, mode: '', band: '', bandSaid: '', level: '', levelSaid: '', tiles: {}, cards: new Set(),
+  return {primed: false, lastMs: -Infinity, tick: -1, mode: '', seg: '', act: 0, band: '', bandSaid: '', level: '', levelSaid: '', tiles: {}, cards: new Set(),
     q: {}};
 }
 
+// What the mode slot says: the badge; on a new D-2 segment its name first if the badge has it not
+// ('PEAK, FAST 450×'), and on a new act the act's words before it (render/format.js badgeTitle; Q-78).
+function modeWords(m, seg, act) {
+  const b = badgeText(m), name = seg && !b.startsWith(m.segment) ? m.segment + ', ' : '';
+  return (seg && act ? badgeTitle(m).slice(0, -BADGE_HELP.length).trim() + ' ' : '') + name + b;
+}
+
 /**
- * One frame of the live region: note what changed in `vm` (the mode, the frequency band, the
- * N-1 word, a tile going into alarm or escalating, a new tray warning) and return the one
- * message to say now, or null. At most one per LIVE_GAP_MS; the rest wait, one per kind.
+ * One frame of the live region: note what changed in `vm` (the mode or the D-2 segment, the
+ * frequency band, the N-1 word, a tile going into alarm or escalating, a new tray warning) and
+ * return the one message to say now, or null. At most one per LIVE_GAP_MS; the rest wait, one per kind.
  */
 export function liveFrame(L, vm, nowMs) {
   const obs = vm.obs;
@@ -116,8 +160,13 @@ export function liveFrame(L, vm, nowMs) {
   L.tick = obs.tick;
   const first = !L.primed;
   L.primed = true;
-  const mode = vm.mode.mode;
-  if (mode !== L.mode) { L.mode = mode; if (!first) L.q.mode = mode === 'WATCH' ? 'WATCH' : badgeText(vm.mode); }
+  const m = vm.mode, mode = m.mode, seg = (m.segment || '') !== L.seg, act = (m.act || 0) !== L.act;
+  if (mode !== L.mode || seg) {
+    const was = L.mode;
+    L.mode = mode; L.seg = m.segment || ''; L.act = m.act || 0;
+    if (!first && mode !== 'WATCH') L.q.mode = modeWords(m, seg, act);
+    else if (!first && was !== 'WATCH') L.q.mode = 'WATCH';
+  }
   const band = bandOf(obs.f.hz);
   if (band !== L.band) { L.band = band; if (first) L.bandSaid = band; else L.q.band = BAND_TEXT[band] + ', ' + obs.f.hz.toFixed(2) + ' Hz'; }
   const level = obs.sec.level;
@@ -309,15 +358,10 @@ export function bootGame(doc, deps) {
     const b = $('briefing-card');
     if (!b) return;
     b.hidden = game.phase !== 'briefing';
-    const day = $('briefing-day'), goals = $('briefing-goals');
-    if (day) day.textContent = dayText(game.state.day);
+    const st = game.state, obs = observe(st), day = $('briefing-day'), goals = $('briefing-goals'), w = $('briefing-watch');
+    if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
     if (goals) goals.textContent = GOALS_TEXT;
-    const w = $('briefing-watch');
-    if (w) {
-      const news = game.state.news.map(n => n.text);
-      w.textContent = 'Seed ' + game.seed + ' · AGC is on by default; HAND flies the day without it, locked at 04:30.' +
-        (news.length ? ' Watch for: ' + news[0] : '');
-    }
+    if (w) w.textContent = watchForText(obs, game.daily ? game.daily.gated : null) + 'Seed ' + game.seed + ' · AGC is on by default; HAND turns it off from 04:30 to 21:00.';
   }
 
   // ---------------------------------------------------------------- on demand (Q-44): a module passed in (tests), a loader, or import()
@@ -504,7 +548,7 @@ export function bootGame(doc, deps) {
     t.className = kind === 'info' ? 'info' : '';
     t.textContent = text;
     t.hidden = false;
-    toastUntil = now() + 3000;
+    toastUntil = now() + Math.max(TOAST_MS, TOAST_WORD_MS * text.split(/\s+/).length);
   }
   const setText = (id, s) => { const el = $(id); if (el && el.textContent !== s) el.textContent = s; };
 
@@ -516,7 +560,8 @@ export function bootGame(doc, deps) {
     if (!box) return;
     const o = v.objective, c = v.consider || null;
     const paused = v.mode.mode === 'PAUSE' && v.phase === 'play' && !v.obs.over;
-    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond;
+    // (Q-73: in the night roll the night strip stands in its place, but for what a press would do)
+    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond || (v.obs.nightShift && !c);
     if (box.hidden) return;
     const armed = !!c && v.armed === c.target;
     const cls = c ? (armed && c.level !== 'crit' ? 'act' : c.level) + ' consider' : o.level;
@@ -540,25 +585,55 @@ export function bootGame(doc, deps) {
     const bp = $('btn-pause');
     if (bp) bp.disabled = v.phase !== 'play' || v.obs.over;
     drawAllIn(v);
+    drawHand(v.obs);
   }
 
-  // Q-48 (§30.7): SCORE against par at the same grid time (once graded, the end card's), 'SCORE …' until par
-  // gets there; with no par to compare (off, black, no score), ALL-IN in cents per kWh asked for.
+  // D-7, Q-64: HAND (obs.mode) until the night shift takes the desk, then HAND-FLOWN (obs.handFlown); none on an AGC day.
+  function drawHand(o) {
+    const chip = $('chip-hand');
+    if (!chip) return;
+    const k = o.nightShift ? (o.handFlown ? 'night' : '') : o.mode === 'HAND' ? 'day' : '';
+    if (chip.hidden !== !k) chip.hidden = !k;
+    if (!k) return;
+    setText('chip-hand', HAND_CHIP[k][0]);
+    if (chip.className !== 'chip ' + k) { chip.className = 'chip ' + k; chip.title = HAND_CHIP[k][1]; }
+  }
+
+  // Q-48 (§30.7): you and par at the same grid time (once graded, the end card's grade); `off`: no par to compare (off, black, no score).
+  function scoreOf(v) {
+    const par = game.par, hh = game.households, you = allIn(v.obs.score, hh), g0 = v.end && v.end.grade;
+    const off = !par || (par.done && (par.black || !par.score)), at = off ? null : par.at(v.obs.s), p = at && allIn(at, hh);
+    return {you, p, off, g0, g: g0 || grade(you, p, false)};
+  }
+
+  // Q-48: the chip: SCORE against par ('SCORE …' until par gets there); with no par to compare, ALL-IN in cents per kWh asked for.
   let allInTip = '';
   function drawAllIn(v) {
     const chip = $('chip-allin');
     if (!chip) return;
     chip.hidden = v.phase !== 'play';
     if (chip.hidden) return;
-    const par = game.par, hh = game.households, you = allIn(v.obs.score, hh), g0 = v.end && v.end.grade;
-    const off = !par || (par.done && (par.black || !par.score)), at = off ? null : par.at(v.obs.s), p = at && allIn(at, hh);
-    const g = g0 || grade(you, p, false), c = allInCents(you);
+    const {you, p, off, g0, g} = scoreOf(v), c = allInCents(you);
     setText('chip-allin-k', off && !g0 ? 'ALL-IN' : 'SCORE');
     setText('chip-allin-v', off && !g0 ? c + 'c' : g ? String(g.points) : '…');
     const tip = 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +
-      ' min. The day\'s cost to the community per kWh the city asked for: supply + MWh dark × ' + VCR_TEXT + ' (VCR) + CO₂ × ' + VER_TEXT +
-      ' (VER). Not a price or a bill.';
+      ' min. The day\'s cost to the community per kWh the city asked for: supply + your MWh dark × ' + VCR_TEXT + ' (VCR; a feeder under ' +
+      'repair is yours from its hand-back) + CO₂ × ' + VER_TEXT + ' (VER). Not a price or a bill.';
     if (tip !== allInTip) { allInTip = tip; chip.title = tip; chip.setAttribute('aria-label', tip); }
+  }
+
+  // Q-73 (§32.8.2): the night strip in the plan bar while the night shift has the desk: the lock's words and
+  // the day's totals counting up to 04:00 (SCORE against par as the chip), redrawn every NIGHT_REDRAW_MS; nothing to press.
+  let nightMs = -Infinity;
+  function drawNight(v) {
+    const box = $('night-strip'), on = v.phase === 'play' && v.obs.nightShift && !v.obs.over && !v.consider;
+    if (!box) return;
+    if (box.hidden === on) { box.hidden = !on; nightMs = -Infinity; setText('night-note', NIGHT_LOCK); }
+    if (!on || v.frame.nowMs - nightMs < NIGHT_REDRAW_MS) return;
+    nightMs = v.frame.nowMs;
+    const {you, off, g0, g} = scoreOf(v);
+    setText('night-figs', 'SUPPLY ' + millions(you.supply) + ' · OUTAGES ' + millions(you.outage) + ' · CARBON ' + millions(you.carbon) +
+      ' · ALL-IN ' + millions(you.total) + (off && !g0 ? '' : ' · SCORE ' + (g ? g.points : '…') + ' (par 1000)'));
   }
 
   function drawWatch(v) {
@@ -597,14 +672,15 @@ export function bootGame(doc, deps) {
     });
   }
 
-  // Q-48 (§30.9): the end card, on demand (app/endcard.js), mounted into #end-card when the day ends (hidden while it loads).
+  // Q-48 (§30.9): the end card, on demand (app/endcard.js), mounted into #end-card when the day ends (hidden while it loads);
+  // fetched from 21:00 when a night shift has the desk (Q-73), so 04:00 shows it at once.
   let endCard = null, endState = '';
   const endDeps = {par: () => game.par, households: () => game.households, log: () => G.gameLog(game), toggleHelp, toast: showToast,
     again: () => { G.resetDay(game); const c = $('end-card'); if (c) c.hidden = true; briefingText(); }};
   function drawEnd(v) {
     const card = $('end-card');
     if (!card) return;
-    if (v.end && !endState) {
+    if ((v.end || v.obs.nightShift) && !endState) {
       endState = 'loading';
       lazy(o.endCard, () => import('./endcard.js'), m => { card.replaceChildren(); endCard = m.createEndCard(doc, card, actions, endDeps); },
         e => { endState = 'failed'; card.textContent = 'The end card could not be loaded: reload the page to play this day again.'; err('end card', e); });
@@ -699,7 +775,7 @@ export function bootGame(doc, deps) {
     if (mods.desk) timed('desk', () => mods.desk.update(vm));
     if (mods.stack) timed('stack', () => mods.stack.update(vm));
     timed('shell', () => {
-      drawHeader(vm); drawObjective(vm); drawSettings(vm.settings, vm.settingsOpen); drawWatch(vm); drawRespond(vm); drawEnd(vm); placeStack(vm);
+      drawHeader(vm); drawObjective(vm); drawNight(vm); drawSettings(vm.settings, vm.settingsOpen); drawWatch(vm); drawRespond(vm); drawEnd(vm); placeStack(vm);
       drawAlarmPanel(vm); drawSuburbCard(vm);
       announce(vm, t1);
       const b = $('briefing-card');
