@@ -14,8 +14,8 @@
 //                                           # Q-48: the ALL-IN letters' calibration against par
 //
 // Flags: --seed N | --seeds A-B (default 1-20) | --heat N (first N heat seeds, or with --seeds A-B
-// the heat seeds number A..B) | --proxy P (par, planOnly, doNothing, lean, competent,
-// commitAll, fuzz) | --grade (grade the proxy against par on each seed, S-5) | --vs P (also run
+// the heat seeds number A..B) | --proxy P (par, planOnly, doNothing, lean, competent, slow,
+// commitAll, fuzz; slow is competent closing each task feeder 15 real s late, §32.10) | --grade (grade the proxy against par on each seed, S-5) | --vs P (also run
 // proxy P and count the seeds where it costs more than the main proxy, S-11) | -j/--workers N
 // | --json | --quiet (summary only) | --scenario ID (classic, desk, desk-weekend) | --probe (H-8:
 // trip both credible contingencies in a copy of each SECURE state, as tools/baseline-v4.js does)

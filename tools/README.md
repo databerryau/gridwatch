@@ -41,7 +41,21 @@ npm run golden:v4                       # re-record tools/baseline-v4.golden.md
 node tools/daily-gen.js --from 2026-10-12 --days 365 -j 8   # D-9: gate the dailies, write content/dailies.js
 node tools/daily-gen.js --check -j 8    # re-gate the shipped list under this build (no write)
 node tools/day-measure.mjs --from 2026-10-12 --days 100 -j 8  # D-10 per act, the Q-77 returning player
+node tools/par.js --scenario desk --seeds 1-100 -j 8 --proxy competent,slow --allin   # §32.10: the slow proxy beside competent
+node tools/d6.mjs 20261012              # D-6: one input log at 1x, with F held and with 50 pauses: one hash (~30 s)
+node tools/l2.mjs --scenario desk --seeds 1-100                 # L-2: the forecast's P10-P90 coverage at 1 h and 4 h
 ```
+
+`tools/d6.mjs` (2c, desk/README.md §32.10) is D-6's whole-day replay: one date through the real
+page (`tests/lib/play.js openGame`), par's discrete actions to 21:00 sent through the page's actions
+at par's ticks, played at the profile (1x), with F held throughout (pressed again whenever the
+director could play FAST and does not) and with 50 seeded random pauses; it prints the three
+end-of-day `hashState` values and MATCH or DIFFER (exit 1). `tools/par.js --proxy slow` is §32.10's
+'slow' proxy: competent, but each task feeder closed no earlier than 15 real s of par's reference
+playback after its allowed second (the RESTORE pace's 300 grid-s and then the profile). From stage
+C (Q-88) par and every proxy ask rule 9 first while a task feeder's RESTORE window is open.
+`tools/l2.mjs --scenario desk-weekend` prints desk's numbers exactly, and rightly: the weekend's
+factor scales the forecast and the realised demand alike, and the errors and the band are in MW.
 
 `tools/daily-gen.js` (2c, desk/README.md Q-75) plays par on each date's candidates (attempt k is
 `YYYYMMDD + k x 10^8`, the date's scenario, the same class as attempt 0) and keeps the first that
@@ -127,6 +141,7 @@ paths it names, and runs the tests that depend on something changed. The whole s
 | File | What it is |
 |---|---|
 | `play.mjs` | Plays next.html headless and fast; prints what the player sees (`tests/lib/play.js`). An ES module. |
+| `d6.mjs` | D-6's whole-day replay through the real page: one input log at 1x, F held and 50 pauses, one hash (2c). An ES module. |
 | `changed-tests.mjs` | Runs only the test files a change can affect (`npm run test:changed`). An ES module. |
 | `par.js` | v4 par and the proxies over seeds (S-4, S-5, S-11, S-12, S-14) on any scenario; `-j N` forks workers. Exports `grade()`. |
 | `follow.mjs` | The hint-following player over seeds, against par (SPEC §9.1 Q-18; desk/README.md §21.4). An ES module. |

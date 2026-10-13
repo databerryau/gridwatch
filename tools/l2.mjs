@@ -19,6 +19,11 @@
 // cloud news on a dayplan day, from its onset to the last suburb's latest clear: Q-79's band, which
 // stage C's tuning round may move on an L-2 miss). Each with its count and the misses above P90 and
 // below P10.
+// desk-weekend prints desk's numbers exactly, and that is right (stage C, checked): the weekend
+// multiplies the underlying shape by WEEKEND_DEMAND_FACTOR in the realised demand and in the forecast
+// alike (both read the public state.day), while the noise, the rooftop and the band are in MW, so
+// realised - P50 and the band are the same to 1e-12 MW (the demand itself differs by up to ~600 MW),
+// and the weekend draws the same days (desk's shares; only Act I's late unit differs).
 
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';

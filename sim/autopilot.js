@@ -4,7 +4,7 @@
 
 import {V} from './params.js';
 import {createState, step, observe, hashState, applyInput, inWatch} from './step.js';
-import {stepReal} from './clock.js';
+import {stepReal, NIGHT_S} from './clock.js';
 import {darkShareAt, litMW} from './dark.js';
 
 // ------------------------------------------------------------------ constants (hoisted)
@@ -79,12 +79,14 @@ const PROXIES = {
   doNothing: {rules: [], gapS: GAP_REAL_S, plan: false, stops: false},
   lean: {rules: ['rule1', 'rule2', 'rule7', 'rule8', 'rule9'], gapS: GAP_REAL_S, plan: true, stops: true},
   competent: {rules: ALL_RULES, gapS: COMPETENT_GAP_REAL_S, plan: true, stops: false},
+  // §32.10 (F-8): competent, but each task feeder is seen restoreLateS real s after it may close
+  slow: {rules: ALL_RULES, gapS: COMPETENT_GAP_REAL_S, plan: true, stops: false, restoreLateS: V.PROXY_SLOW_RESTORE_REAL_S},
   commitAll: {rules: ALL_RULES.filter(r => r !== 'rule4'), gapS: GAP_REAL_S, plan: true, stops: false},
   fuzz: {rules: [], gapS: GAP_REAL_S, plan: false, stops: false},
   night: {rules: ALL_RULES, gapS: GAP_REAL_S, plan: true, stops: true, gridS: V.NIGHT_ACTION_S}, // Q-73
 };
 export const PROXY_NAMES = Object.freeze(Object.keys(PROXIES));
-const NIGHT_OF = new Set(['par', 'competent', 'lean', 'commitAll', 'planOnly']);
+const NIGHT_OF = new Set(['par', 'competent', 'slow', 'lean', 'commitAll', 'planOnly']);
 
 // ------------------------------------------------------------------ small helpers
 
@@ -236,6 +238,24 @@ function restoreSegs(obs) {
     out.push({fromS: a, toS: Math.min(a + PACE_MAX, d.dark ? Infinity : d.restoredAtS)});
   }
   return out;
+}
+/** A held-back proxy (slow, §32.10) sees a task feeder allowed at `a` once lateS real s of the reference playback have passed. */
+const seenLate = (obs, a, lateS) => obs.s >= a && refRealSeconds(a, obs.s, paceConts(obs), restoreSegs(obs)) >= lateS;
+/**
+ * Q-88: is a task feeder's RESTORE window open (rule 9 asked first)? From its allowed second until
+ * it is closed or RESTORE_PACE_MAX_S later, none from NIGHT_S (app/director.js restoring()'s rule,
+ * from obs); for a proxy with lateS > 0, from the second it sees the feeder until it is closed.
+ */
+function restoreWindow(obs, lateS) {
+  const ds = obs.districts, s = obs.s;
+  if (s >= NIGHT_S) return false;
+  for (let i = 0; i < ds.length; i++) {
+    const d = ds[i];
+    if (d.clearS < 0 || !d.dark || d.shedBy !== 'task') continue;
+    const a = allowedS(ds, i);
+    if (lateS > 0 ? seenLate(obs, a, lateS) : s >= a && s < a + PACE_MAX) return true;
+  }
+  return false;
 }
 
 // Contingencies as par may count them at decision time: a RESPOND segment still open
@@ -808,7 +828,7 @@ export function replan(obs, memo) {
  * action's tick, and the harness's decision cadence (nextS, the next decision's grid second;
  * afterWatch, decide at the first second after a watch), which runPar, the bench's assist and
  * app/system.js keep here rather than in their own locals.
- * @param {{proxy?:'par'|'planOnly'|'doNothing'|'lean'|'competent'|'commitAll'|'fuzz'}} [opts]
+ * @param {{proxy?:'par'|'planOnly'|'doNothing'|'lean'|'competent'|'slow'|'commitAll'|'fuzz'}} [opts]
  * @returns {object} memo
  */
 export function createAutopilot(opts) {
@@ -1515,15 +1535,19 @@ function rertStandDown(obs, memo, A0) {
 // its dip; par restores only when that estimate holds the K-13 restore preview's line
 // (SECURE_NADIR_HZ + PREVIEW_MARGIN_HZ; the restore input runs the real restore preview and
 // refuses below it, so a looser estimate only spends par's pace on refused inputs: 32 refused
-// of 77 tried over 200 raw seeds at 49.2 Hz, 2 of 37 at this line).
-function rule9(obs) {
+// of 77 tried over 200 raw seeds at 49.2 Hz, 2 of 37 at this line). The slow proxy (§32.10) leaves
+// a task feeder until it sees it (seenLate).
+function rule9(obs, memo) {
   const sec = obs.sec;
   if (obs.f.hz < RESTORE_MIN_HZ || sec.lMW <= 0) return null;
   const F0 = V.F0_HZ, drop = Math.max(0, F0 - sec.previewNadirHz);
   const spillMW = obs.wind.autoMW + obs.solar.autoMW;
+  const ds = obs.districts, lateS = PROXIES[memo.proxy].restoreLateS || 0;
   let best = null;
-  for (const d of obs.districts) {
+  for (let i = 0; i < ds.length; i++) {
+    const d = ds[i];
     if (!d.dark || d.restoreBlock !== '') continue;
+    if (lateS > 0 && d.clearS >= 0 && d.shedBy === 'task' && !seenLate(obs, allowedS(ds, i), lateS)) continue;
     // No larger than L, except in the belly (Phase 2a): there L is a machine at its floor (240 MW)
     // and a dark district's pickup is its underlying load with its roofs off (250-290 MW), so the
     // cap refused every district for hours while the dispatch spilled four times the pickup. When
@@ -1543,6 +1567,9 @@ const NEEDS_SITUATION = new Set(['rule3', 'rule4']);
 // for the proxies that run rule 6 (its origin is 'rule6').
 const RULE_ORDER = Object.fromEntries(Object.entries(PROXIES).map(([k, p]) => [k,
   p.rules.includes('rule6') ? p.rules.flatMap(r => (r === 'rule1' ? ['rule1', 'rule6end'] : [r])) : p.rules]));
+// Q-88: the order while a task feeder's RESTORE window is open (restoreWindow): rule 9 first.
+const RESTORE_ORDER = Object.fromEntries(Object.entries(RULE_ORDER).map(([k, rs]) => [k,
+  rs.includes('rule9') ? ['rule9'].concat(rs.filter(r => r !== 'rule9')) : rs]));
 const originOf = r => (r === 'rule6end' ? 'rule6' : r);
 
 /**
@@ -1602,7 +1629,9 @@ function amendNow(obs, memo, want) { // eslint-disable-line no-unused-vars
  *     restore one dark district whose obs.districts[].restoreBlock is '': the lowest UFLS
  *     stage first, then rotation order (rot). The K-13 permissive holds all the thresholds.
  * Rule 6's window end (a discharge order past 22:00 or at the reserve) is asked right after
- * rule 1 (rule6End, sim/README §11).
+ * rule 1 (rule6End, sim/README §11). Q-88: while a task feeder's RESTORE window is open (from
+ * its allowed second until it is closed or RESTORE_PACE_MAX_S later; restoreWindow) rule 9 is
+ * asked first.
  * Every action amends memo.plan (a re-dispatch from now, sim/README §11). AGC stays
  * on; par never takes the synchroscope (its starts auto-sync, K-12). Proxies change this
  * function as listed in runPar.
@@ -1629,7 +1658,7 @@ export function decide(obs, memo) {
   if (memo.lastActTick >= 0 && (proxy.gridS ? obs.tick - memo.lastActTick < proxy.gridS * TPS
     : refRealSeconds(memo.lastActTick / TPS, obs.tick / TPS, paceConts(obs), restoreSegs(obs)) < proxy.gapS)) return [];
   let C = null;
-  for (const r of RULE_ORDER[memo.proxy]) {
+  for (const r of (restoreWindow(obs, proxy.restoreLateS || 0) ? RESTORE_ORDER : RULE_ORDER)[memo.proxy]) {
     if (NEEDS_SITUATION.has(r) && C === null) C = situation(obs, memo);
     const want = RULE_FNS[r](obs, memo, C);
     if (!want) continue;
@@ -1714,6 +1743,8 @@ const DAY_AHEAD = Object.freeze({dayAhead: true});
  *   'doNothing' no input at all, not even the plan (F-3)
  *   'lean'      plan + reaction only: rules 1, 2, 7, 8, 9 (no forward planning; S-5, S-12)
  *   'competent' plan + rules 1-9 at PROXY_COMPETENT_GAP_REAL_S (a good human; H-1, F-3, K-8)
+ *   'slow'      competent, but each task feeder is closed no earlier than PROXY_SLOW_RESTORE_REAL_S
+ *               of refRealSeconds after its allowed second, rule 9 first from then (§32.10, F-8)
  *   'commitAll' S-11: at 04:00 (tick 0, bypassing the pace and the 04:30 start) START every
  *               machine that is off, then par with rule 4 disabled (never decommits)
  *   'fuzz'      random valid inputs from a PRIVATE hash of the seed (never the sim's streams)
