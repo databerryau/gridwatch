@@ -39,6 +39,8 @@ const span = s => { const m = Math.max(1, Math.round(s / S_PER_MIN)); return m <
 
 /** The line on an observation, as the follower asks for it. */
 const lineOf = obs => objective(obs, {edited: false, planview: PV, dayAhead: obs.dayAhead});
+/** ACT_WITHIN_S and NOW_S as the line reads them at grid second s (2c, Q-63: their real seconds at TUNED_RATE on the AGC profile). */
+const actAt = s => O.spanAt(s, O.ACT_WITHIN_S, false), nowAt = s => O.spanAt(s, O.NOW_S, false);
 const copy = obs => structuredClone(obs);
 const unit = (obs, id) => obs.units.find(u => u.id === id);
 
@@ -156,11 +158,11 @@ test('the objective sees the morning shortfall ahead and names the CCGT, with it
   assert.deepEqual(o.targets, ['guard-start-ccgt2']);
   assert.equal(o.level, 'plan');
   assert.equal(o.action, null, 'nothing to do yet: the line says by when');
-  assert.ok(o.startBy > obs.s + O.ACT_WITHIN_S && o.startBy < short.atS, 'a decision with a lead time');
+  assert.ok(o.startBy > obs.s + actAt(obs.s) && o.startBy < short.atS, 'a decision with a lead time');
   assert.equal(Math.round(startToMinS('ccgt2') / S_PER_MIN), 49, 'the 49 minutes are the machine\'s own times');
   assert.deepEqual(o.short && Object.keys(o.short), ['atS', 'endS', 'mw']);
   // the game's reading time (ctx.leadS, grid seconds: its rate x LINE_REACT_S): "now" that much earlier
-  const lead = o.startBy - obs.s - O.ACT_WITHIN_S, ctx = {edited: false, planview: PV, dayAhead: obs.dayAhead};
+  const lead = o.startBy - obs.s - actAt(obs.s), ctx = {edited: false, planview: PV, dayAhead: obs.dayAhead};
   const early = objective(obs, Object.assign({leadS: lead}, ctx));
   assert.deepEqual([early.level, early.action], ['act', {type: 'start', unit: 'ccgt2'}]);
   assert.match(early.text, /Start CCGT 2 now: it takes 49 min/);
@@ -258,29 +260,10 @@ test('STOP condition 1: no line when the desk would be short, one trip in, befor
   assert.match(after.text, /is not needed until \d\d:\d\d\. .*Start it again by \d\d:\d\d\.$/);
   const until = /not needed until (\d\d):(\d\d)/.exec(after.text);
   assert.ok(secOfH(Number(until[1]) + Number(until[2]) / 60) <= base.s + 6 * S_PER_H + 300, 'needed by the bump at ' + at(base.s + 6 * S_PER_H) + ': ' + until[0]);
-  // the heat worst case is a second look at the same window, and can only be harder
-  const hot = copy(base);
-  hot.day.temp = 'HOT';
-  const worst = O.heatWorstCase(hot), heat = DESK.events.heat;
-  assert.deepEqual(worst, {fromS: secOfH(heat.onsetH), toS: secOfH(heat.endH), roofLoss: 1 - DESK.rooftop.heatFactor});
-  assert.equal(O.heatWorstCase(base), null, 'a MILD day has no heatwave ahead');
-  const noon = copy(hot);
-  noon.s = secOfH(heat.announceH);
-  assert.equal(O.heatWorstCase(noon), null, 'past the announcement hour none is coming');
-  const told = copy(hot);
-  told.news.push({atS: told.s - 60, kind: 'heat', fromS: secOfH(heat.onsetH), toS: secOfH(heat.endH), text: 'x'});
-  assert.equal(O.heatWorstCase(told), null, 'an announced heatwave is in the forecast already');
-  const plain = O.capacityGap(hot, hot.dayAhead, {without: 'ccgt2'}), harder = O.capacityGap(hot, hot.dayAhead, {without: 'ccgt2', heat: worst});
-  let more = 0;
-  for (let k = 0; k < plain.n; k++) {
-    const t = plain.fromS + (k + 1) * plain.stepS;
-    assert.ok(harder.gap[k] >= plain.gap[k] - 1e-9);
-    if (t >= worst.fromS && t < worst.toS) { assert.ok(harder.gap[k] > plain.gap[k] + V.HEAT_DEMAND_UPLIFT * hot.dayAhead.underlyingP50[k] - 1e-6, 'the uplift and the derate at ' + at(t)); more++; }
-  }
-  assert.ok(more > 50, 'the whole heat window');
+  // (2c, Q-80: the HOT-morning heat worst case is retired: a heatwave is news from 04:00; tests/objective-day.test.js)
 });
 
-test('STOP condition 1 as written: the largest remaining loss with the water held until 15:30, and on a HOT morning the unannounced heatwave too', () => {
+test('STOP condition 1 as written: the largest remaining loss with the water held until 15:30', () => {
   const base = morning().keep.stop, m = machine('ccgt2'), u = unit(base, 'ccgt2');
   const W = Math.max(0, u.outMW - u.minMW) / m.rampMWs + m.t4S + m.minDownS + startToMinS('ccgt2') + O.STOP_CLEAR_S;
   const n1 = {marginMW: O.MARGIN_MW + O.largestLoss(base, 'ccgt2'), without: 'ccgt2'};
@@ -297,24 +280,11 @@ test('STOP condition 1 as written: the largest remaining loss with the water hel
   assert.ok(asWritten && asWritten.atS < base.s + W, 'short as written, inside W');
   assert.ok(!withWater || withWater.atS >= base.s + W, 'not short inside W if the water were counted for the trip');
   assert.notEqual(lineOf(wet).kind, 'stop', 'no STOP on water the dispatch is keeping for the evening');
-  // (b) the heatwave that may still be announced: only on a HOT morning before the announcement, inside its window
-  const heat = DESK.events.heat;
+  // (b) 2c, Q-80: a heatwave is news from 04:00, so a HOT morning without it has none coming: the STOP stands as on a MILD one
   const warm = copy(base);
   warm.day.temp = 'HOT';
-  const worst = O.heatWorstCase(warm);
-  assert.ok(worst && warm.s < secOfH(heat.announceH));
-  const hk = cols(warm.dayAhead, Math.max(worst.fromS, base.s), base.s + W);
-  assert.ok(hk.length > 6, 'the heat window falls inside W');
-  const p0 = O.capacityGap(warm, warm.dayAhead, n1), h0 = O.capacityGap(warm, warm.dayAhead, Object.assign({heat: worst}, n1));
-  const top = Math.max(...hk.map(k => p0.gap[k]));
-  for (const k of hk) warm.dayAhead.demandP50[k] += -top; // exactly covered in the plain check
-  const hotLine = lineOf(warm), mildLine = lineOf(Object.assign(copy(warm), {day: {temp: 'MILD', weekend: false}}));
-  assert.ok(Math.max(...hk.map(k => h0.gap[k] - p0.gap[k])) >= O.SHORT_MIN_MW, 'the uplift and the derate are worth a run');
-  assert.notEqual(hotLine.kind, 'stop', 'HOT, unannounced: the heatwave may come, and the unit could not be back for it: ' + hotLine.text);
-  assert.equal(mildLine.kind, 'stop', 'the same morning on a MILD day: no heatwave is coming');
-  const told = copy(warm);
-  told.s = secOfH(heat.announceH); // past the announcement hour with none announced: none is coming
-  assert.equal(O.heatWorstCase(told), null);
+  assert.equal(lineOf(warm).kind, 'stop', 'HOT, no heat news: ' + lineOf(warm).text);
+  assert.equal(O.heatWorstCase, undefined, 'Q-38\'s worst case is retired');
 });
 
 test('STOP conditions 2 and 3: only while SECURE with the unit\'s own headroom to spare, and only from its floor', () => {
@@ -488,7 +458,7 @@ test('short now outranks everything else: the battery first, sized to what is sh
   for (const fc of [later.forecast, later.dayAhead]) { const R = O.capacityGap(later, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, R, k => (tk(k) >= later.s + S_PER_H && tk(k) < later.s + 2 * S_PER_H ? 1200 : -2000)); }
   const by = lineOf(later);
   assert.deepEqual([by.kind, by.level, by.action], ['commit', 'plan', null], by.text);
-  const lead = by.startBy - later.s - O.ACT_WITHIN_S, ctx = {edited: false, planview: PV, dayAhead: later.dayAhead};
+  const lead = by.startBy - later.s - actAt(later.s), ctx = {edited: false, planview: PV, dayAhead: later.dayAhead};
   for (const fc of [later.forecast, later.dayAhead]) fc.demandP50[0] += 4000;
   later.sec.level = 'SHORT';
   const fast = leadS => objective(later, Object.assign({leadS}, ctx)).targets;
@@ -667,25 +637,6 @@ test('the water as par and the plan view count it: the reserve sits above HYDRO_
   assert.equal(x.saving, lineOf(base).saving);
 });
 
-test('the HOT-morning STOP guard reads the heatwave the sim has pre-rolled: its window, and none from the announcement on (desk heat seeds)', () => {
-  // (hardening for D-8, slice 2c: the guard reads the scenario's event menu; if the director moves the
-  // announcement or the window, this fails instead of the guard holding STOPs for a heatwave that cannot come)
-  let n = 0;
-  for (let seed = 1; seed <= 120; seed++) {
-    const st = createState(seed, LEGACY), ev = st.ext.events.filter(e => e.type === 'heatAnnounce');
-    if (!ev.length) continue;
-    n++;
-    const obs = Object.assign(observe(st), {scenarioId: DESK.id}); // (the guard finds the menu by id: legacy desk's is DESK's own)
-    const w = O.heatWorstCase(obs);
-    assert.equal(obs.day.temp, 'HOT', 'seed ' + seed + ': a heatwave day reads HOT until it is announced');
-    assert.ok(w && w.fromS === ev[0].args.onsetS && w.toS === ev[0].args.endS, 'seed ' + seed + ': ' + JSON.stringify(w) + ' vs ' + JSON.stringify(ev[0].args));
-    obs.s = ev[0].atS - 1;
-    assert.ok(O.heatWorstCase(obs), 'seed ' + seed + ': still possible a second before');
-    for (const s of [ev[0].atS, ev[0].atS + 1, ev[0].args.onsetS]) { obs.s = s; assert.equal(O.heatWorstCase(obs), null, 'seed ' + seed + ' at ' + at(s)); }
-  }
-  assert.ok(n >= 10, n + ' heat seeds');
-});
-
 test('the reserve diesel is stood down only when HALF of the battery\'s and demand response\'s energy would carry what is left (a band, so the two never chase each other)', () => {
   const o = plain();
   for (const u of o.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
@@ -695,14 +646,16 @@ test('the reserve diesel is stood down only when HALF of the battery\'s and dema
   const above = 1000 - V.PAR_BATT_RESERVE_FRAC * V.BATT_MWH, drE = V.DR_MW * V.DR_CALLS * V.DR_DURATION_S / S_PER_H;
   // without the diesel, 4 h of a gap the battery and demand response could carry in full, but not on half their energy
   const gapMW = Math.min(V.RERT_MW, Math.round(0.75 * (above + drE) / 4)) - V.PAR_RERT_MARGIN_MW;
+  // (from just past "now", 2c: nowAt's real seconds, so the plan is not red now)
+  const from = o.s + nowAt(o.s) + 600, to = from + 4 * S_PER_H;
   const deep = copy(o);
-  setGap(deep.dayAhead, R0, gapMW, o.s + 600, o.s + 4 * S_PER_H + 600); setGap(deep.forecast, F0, gapMW, o.s + 600, o.s + 4 * S_PER_H + 600);
+  setGap(deep.dayAhead, R0, gapMW, from, to); setGap(deep.forecast, F0, gapMW, from, to);
   assert.ok((gapMW + V.PAR_RERT_MARGIN_MW) * 4 > (above + drE) / 2 && (gapMW + V.PAR_RERT_MARGIN_MW) * 4 < above + drE);
   const x = lineOf(deep);
   assert.ok(!(x.action && x.action.type === 'standDownRERT'), 'half would not carry it: the diesel stays: ' + x.text);
   // a gap a quarter of their energy carries: stand it down
   const shallow = copy(o);
-  setGap(shallow.dayAhead, R0, gapMW / 3, o.s + 600, o.s + 4 * S_PER_H + 600); setGap(shallow.forecast, F0, gapMW / 3, o.s + 600, o.s + 4 * S_PER_H + 600);
+  setGap(shallow.dayAhead, R0, gapMW / 3, from, to); setGap(shallow.forecast, F0, gapMW / 3, from, to);
   assert.deepEqual(lineOf(shallow).action, {type: 'standDownRERT'});
 });
 
@@ -732,9 +685,12 @@ test('the reserve diesel is armed within its 20 min and ACT_WITHIN_S of the shor
 test('a gap no start can reach, while the battery is discharging into it: one line that says so, never "be ready to discharge"', () => {
   const o = plain();
   for (const u of o.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
-  const R = O.capacityGap(o, o.forecast, {real: true});
-  // the plant at its limits 120 MW short from half an hour ahead for half an hour, with room before and after
-  for (const fc of [o.forecast, o.dayAhead]) { const Rf = O.capacityGap(o, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, Rf, k => (tk(k) >= o.s + 1800 && tk(k) < o.s + 3600 ? 120 : -400)); }
+  // (2c, Q-63: the battery's "soon" is real seconds of the profile, at 480x the whole hour; HAND's 240x leaves room ahead of it)
+  o.handFlown = true;
+  const soonS = O.spanAt(o.s, O.ACT_WITHIN_S, true) + O.spanAt(o.s, O.NOW_S, true), from = o.s + soonS + 300;
+  assert.ok(from + 600 <= o.s + S_PER_H, 'a gap inside the hour, past soon');
+  // the plant at its limits 120 MW short from past "soon" for the rest of the hour and more, with room before and after
+  for (const fc of [o.forecast, o.dayAhead]) { const Rf = O.capacityGap(o, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, Rf, k => (tk(k) >= from && tk(k) < from + 1800 ? 120 : -400)); }
   const idle = copy(o);
   Object.assign(idle.battery, {mode: 'idle', orderMW: 0, socMWh: 800, guardMW: 0});
   const plan0 = PV.project(plain()), on = obs => objective(obs, {edited: false, planview: PV, dayAhead: obs.dayAhead, proj: plan0}); // (the plan as it was: this is the shortAhead branch, not the plan's red)
@@ -1014,67 +970,69 @@ test('no start cascade: once a start is on its way the line never proposes a sec
 // ------------------------------------------------------------------ steady: the line as it is shown
 
 test('steady: a line whose deadline or figure moves while it asks for the same thing is kept as it was said; an action is never held back or changed', () => {
+  // (2c, Q-63: steady's spans are real seconds of the profile; HAND's 14:30-16:30 plays exactly TUNED_RATE, so the grid figures below hold there)
+  const T = secOfH(15) - 1000, st = (held, line, s) => steady(held, line, s, true);
   const plan = (text, startBy) => ({level: 'plan', kind: 'commit', text, targets: ['guard-start-ccgt2'], action: null, startBy, short: null, long: null});
-  const a = plan('Start CCGT 2 by 05:15.', 4500), b = plan('Start CCGT 2 by 05:20.', 4800);
-  let h = steady(null, a, 1000);
+  const a = plan('Start CCGT 2 by 05:15.', T + 4500), b = plan('Start CCGT 2 by 05:20.', T + 4800);
+  let h = st(null, a, T + 1000);
   assert.equal(h.line, a);
-  h = steady(h, b, 1060);
+  h = st(h, b, T + 1060);
   assert.equal(h.line.text, a.text, 'a later deadline within the hold: the line stands');
   assert.equal(h.line.startBy, a.startBy);
-  assert.equal(h.seenS, 1000);
-  h = steady(h, a, 1120);
-  assert.equal(h.seenS, 1120, 'seen fresh again');
+  assert.equal(h.seenS, T + 1000);
+  h = st(h, a, T + 1120);
+  assert.equal(h.seenS, T + 1120, 'seen fresh again');
   // not the fresh reading for STEADY_HOLD_S: the new one shows
-  let k = steady({line: a, seenS: 1000}, b, 1000 + O.STEADY_HOLD_S);
+  let k = st({line: a, seenS: T + 1000}, b, T + 1000 + O.STEADY_HOLD_S);
   assert.equal(k.line, b);
   // a deadline earlier by more than a mark is news at once
-  k = steady({line: b, seenS: 1000}, plan('Start CCGT 2 by 05:05.', 3900), 1030);
-  assert.equal(k.line.startBy, 3900);
+  k = st({line: b, seenS: T + 1000}, plan('Start CCGT 2 by 05:05.', T + 3900), T + 1030);
+  assert.equal(k.line.startBy, T + 3900);
   // within ACT_WITHIN_S of the deadline shown the fresh line always shows
-  k = steady({line: a, seenS: 3990}, b, 4000);
+  k = st({line: a, seenS: T + 3990}, b, T + 4000);
   assert.equal(k.line, b);
   // an action, a critical line, another kind, other controls: at once
-  const act = Object.assign(plan('Start CCGT 2 now.', 1100), {level: 'act', action: {type: 'start', unit: 'ccgt2'}});
-  assert.equal(steady({line: a, seenS: 1000}, act, 1060).line, act);
-  assert.equal(steady({line: act, seenS: 1000}, b, 1060).line, b, 'the line after an action is the fresh one');
+  const act = Object.assign(plan('Start CCGT 2 now.', T + 1100), {level: 'act', action: {type: 'start', unit: 'ccgt2'}});
+  assert.equal(st({line: a, seenS: T + 1000}, act, T + 1060).line, act);
+  assert.equal(st({line: act, seenS: T + 1000}, b, T + 1060).line, b, 'the line after an action is the fresh one');
   // a line the player has not acted on: the same action keeps its words while a figure in them moves...
-  const g1 = {level: 'act', kind: 'spare', text: 'Frequency would fall to 49.38 Hz. Raise the battery GUARD to 400 MW.', targets: ['gauge-n1', 'ring-guard'], action: {type: 'guard', mw: 400}, startBy: 1000, short: null, long: null};
-  const g2 = Object.assign({}, g1, {text: 'Frequency would fall to 49.33 Hz. Raise the battery GUARD to 400 MW.', startBy: 1030});
-  const kept = steady({line: g1, seenS: 1000}, g2, 1030);
+  const g1 = {level: 'act', kind: 'spare', text: 'Frequency would fall to 49.38 Hz. Raise the battery GUARD to 400 MW.', targets: ['gauge-n1', 'ring-guard'], action: {type: 'guard', mw: 400}, startBy: T + 1000, short: null, long: null};
+  const g2 = Object.assign({}, g1, {text: 'Frequency would fall to 49.33 Hz. Raise the battery GUARD to 400 MW.', startBy: T + 1030});
+  const kept = st({line: g1, seenS: T + 1000}, g2, T + 1030);
   assert.equal(kept.line.text, g1.text);
   assert.deepEqual(kept.line.action, g2.action);
-  assert.equal(kept.line.startBy, 1030, 'now is now');
+  assert.equal(kept.line.startBy, T + 1030, 'now is now');
   // ...a different action is a different line, and a critical line is never held
   const g3 = Object.assign({}, g2, {text: 'Frequency would fall to 49.10 Hz. Raise the battery GUARD to 300 MW.', action: {type: 'guard', mw: 300}});
-  assert.equal(steady({line: g1, seenS: 1000}, g3, 1030).line, g3);
+  assert.equal(st({line: g1, seenS: T + 1000}, g3, T + 1030).line, g3);
   const c1 = Object.assign({}, g1, {level: 'crit', kind: 'short', text: 'Short 300 MW now.'}), c2 = Object.assign({}, c1, {text: 'Short 350 MW now.'});
-  assert.equal(steady({line: c1, seenS: 1000}, c2, 1030).line, c2);
-  const other = Object.assign(plan('Start GT·A by 05:20.', 4800), {targets: ['guard-start-gta1']});
-  assert.equal(steady({line: a, seenS: 1000}, other, 1060).line, other);
+  assert.equal(st({line: c1, seenS: T + 1000}, c2, T + 1030).line, c2);
+  const other = Object.assign(plan('Start GT·A by 05:20.', T + 4800), {targets: ['guard-start-gta1']});
+  assert.equal(st({line: a, seenS: T + 1000}, other, T + 1060).line, other);
   const quiet = {level: 'ok', kind: 'quiet', text: 'Enough plant is committed.', targets: [], action: null, startBy: -1, short: null, long: null};
-  assert.equal(steady({line: a, seenS: 1000}, quiet, 1060).line, quiet);
+  assert.equal(st({line: a, seenS: T + 1000}, quiet, T + 1060).line, quiet);
   // other words are other news, shown at once even with the same kind, controls and deadline: a real
   // shortfall where there was only a deadline, another risk
-  const next = plan('Next: start GT·A by 15:05 for the afternoon.', 4500), real = plan('You will be 400 MW short from 15:15. Start GT·A by 15:05.', 4500);
-  assert.equal(steady({line: next, seenS: 1000}, real, 1060).line, real);
+  const next = plan('Next: start GT·A by 15:05 for the afternoon.', T + 4500), real = plan('You will be 400 MW short from 15:15. Start GT·A by 15:05.', T + 4500);
+  assert.equal(st({line: next, seenS: T + 1000}, real, T + 1060).line, real);
   const tie = {level: 'plan', kind: 'spare', text: 'Demand is covered, but losing the tie line would not be caught.', targets: ['gauge-n1', 'ring-guard'], action: null, startBy: -1, short: null, long: null};
   const big = Object.assign({}, tie, {text: 'Demand is covered, but losing your biggest unit would not be caught.'});
-  assert.equal(steady({line: tie, seenS: 1000}, big, 1060).line, big);
+  assert.equal(st({line: tie, seenS: T + 1000}, big, T + 1060).line, big);
   // a quiet line (nothing to do, no deadline) is shown for STEADY_QUIET_S against another quiet line:
   // the forecast's noise crosses its band edges a minute at a time
   const q2 = Object.assign({}, quiet, {text: 'Committed plant covers the forecast, but with little spare for a trip.'});
-  let qh = steady(null, quiet, 2000);
-  qh = steady(qh, q2, 2060);
+  let qh = st(null, quiet, T + 2000);
+  qh = st(qh, q2, T + 2060);
   assert.equal(qh.line.text, quiet.text, 'a minute later: still the first');
-  qh = steady(qh, quiet, 2120);
-  qh = steady(qh, q2, 2000 + O.STEADY_QUIET_S - 1);
+  qh = st(qh, quiet, T + 2120);
+  qh = st(qh, q2, T + 2000 + O.STEADY_QUIET_S - 1);
   assert.equal(qh.line.text, quiet.text);
-  qh = steady(qh, q2, 2000 + O.STEADY_QUIET_S);
+  qh = st(qh, q2, T + 2000 + O.STEADY_QUIET_S);
   assert.equal(qh.line.text, q2.text, 'after STEADY_QUIET_S the fresh one');
-  assert.equal(qh.sinceS, 2000 + O.STEADY_QUIET_S);
+  assert.equal(qh.sinceS, T + 2000 + O.STEADY_QUIET_S);
   // ...and never over a line that asks for something
   const ask = Object.assign({}, quiet, {kind: 'commit', level: 'act', text: 'One trip now would leave you short. Start GT·C 1 now.', action: {type: 'start', unit: 'gtc1'}});
-  assert.equal(steady(steady(null, quiet, 3000), ask, 3060).line, ask);
+  assert.equal(st(st(null, quiet, T + 3000), ask, T + 3060).line, ask);
   // on the followed morning it changes no action and shows fewer distinct lines
   const {lines} = morning();
   let held = null, shown = 0, raw = 0, lastShown = '', lastRaw = '';
