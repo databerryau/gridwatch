@@ -627,9 +627,9 @@ const ABSTRACTIONS = [
     params: ['VCR', 'VER'],
   },
   {
-    // (2c, Q-69: a feeder under repair is the network's until its hand-back; the row is renamed at stage C)
-    id: 'allin-vcr', row: 'Every MWh dark that is yours is valued at the NEM VCR, $30,000/MWh (2024 dollars)', specPending: true,
-    replaces: 'Every MWh dark is valued at the NEM VCR, $30,000/MWh (2024 dollars)', anchorId: 'allin-vcr', ui: 'drawer', game: 'drawer',
+    // (2c, Q-69: a feeder under repair is the network's until its hand-back)
+    id: 'allin-vcr', row: 'Every MWh dark that is yours is valued at the NEM VCR, $30,000/MWh (2024 dollars)',
+    anchorId: 'allin-vcr', ui: 'drawer', game: 'drawer',
     real: 'The AER\'s 2024 values of customer reliability, in 2024 dollars: NEM $30,000/MWh, VIC $35,780, SA $33,320, ' +
       'households across the NEM $41,480. They cover outages up to 12 hours; the AER computes none for widespread or longer ' +
       'outages. The Reliability Panel and AEMO\'s system plan still value unserved energy from a supply shortfall at VCR, ' +
@@ -658,9 +658,8 @@ const ABSTRACTIONS = [
     params: ['VER'],
   },
   {
-    // (2c, Q-69: a repaired feeder left open counts too; app/endcard.js RELIABILITY_ROW names the new row; `replaces` goes when SPEC §8.2 is renamed)
-    id: 'reliability-indices', row: 'SAIDI, SAIFI and MAIFI count the outages you cause, per household, in grid-minutes', specPending: true,
-    replaces: 'SAIDI, SAIFI and MAIFI count the shedding you cause, per household, in grid-minutes',
+    // (2c, Q-69: a repaired feeder left open counts too; app/endcard.js RELIABILITY_ROW names the row)
+    id: 'reliability-indices', row: 'SAIDI, SAIFI and MAIFI count the outages you cause, per household, in grid-minutes',
     anchorId: 'reliability-indices', ui: 'drawer', game: 'drawer',
     real: 'The AER\'s Distribution Reliability Measures Guideline: an interruption longer than 3 minutes is sustained, 3 ' +
       'minutes or less momentary. SAIDI is the minutes of sustained interruption per customer, SAIFI their number per ' +
@@ -679,9 +678,9 @@ const ABSTRACTIONS = [
       'repair, whose hours GRIDWATCH leaves to the network.',
     params: ['SUSTAINED_INTERRUPTION_S'],
   },
-  // 2c (desk/README.md §32.2): the day's rows, added at stage C.
+  // 2c (desk/README.md §32.2): the day's rows (SPEC §8.2 since 2026-10-15).
   {
-    id: 'night-shift', row: 'The night shift runs 21:00–04:00.', specPending: true, anchorId: 'night-shift', ui: 'drawer', game: 'night-strip',
+    id: 'night-shift', row: 'The night shift runs 21:00–04:00.', anchorId: 'night-shift', ui: 'drawer', game: 'night-strip',
     real: 'Control rooms hand over between shifts, and overnight the generators stand their own units down through the market; ' +
       'the operator watches, and directs only when it must.',
     ours: 'From ' + hhmm(NIGHT_H) + ' on the game\'s day the night shift has the desk, on AGC whichever mode you flew. From the ' +
@@ -697,7 +696,7 @@ const ABSTRACTIONS = [
     params: ['NIGHT_ACTION_S', 'REF_PROFILE'],
   },
   {
-    id: 'hand-mode', row: 'HAND turns AGC off until 21:00.', specPending: true, anchorId: 'hand-mode', ui: 'drawer', game: 'chip-hand',
+    id: 'hand-mode', row: 'HAND turns AGC off until 21:00.', anchorId: 'hand-mode', ui: 'drawer', game: 'chip-hand',
     real: 'No NEM region flies without AGC: automatic generation control trims the units every few seconds, day and night.',
     ours: 'Chosen at the briefing (the card\'s HAND, or the desk\'s AGC key), HAND locks at ' + hhmm(V.PLAYER_START_H) + ': until ' +
       hhmm(NIGHT_H) + ' AGC trims no unit, so frequency rests on the governors, the battery and the levers you move, and the profile\'s ' +
@@ -708,7 +707,7 @@ const ABSTRACTIONS = [
     params: ['HAND_RATE_FACTOR', 'PLAYER_START_H', 'REF_PROFILE'],
   },
   {
-    id: 'act-i-constraints', row: 'Act I\'s constraints are announced at 04:00.', specPending: true, anchorId: 'act-i-constraints',
+    id: 'act-i-constraints', row: 'Act I\'s constraints are announced at 04:00.', anchorId: 'act-i-constraints',
     ui: 'drawer', game: 'briefing-watch',
     real: 'Network outages that limit an interconnector are notified days to hours ahead, and a generator declares a late return ' +
       'from maintenance as soon as it knows.',
@@ -721,7 +720,7 @@ const ABSTRACTIONS = [
     params: [],
   },
   {
-    id: 'gated-dailies', row: 'Every gate-checked daily is solvable.', specPending: true, anchorId: 'gated-dailies', ui: 'drawer', game: 'briefing-watch',
+    id: 'gated-dailies', row: 'Every gate-checked daily is solvable.', anchorId: 'gated-dailies', ui: 'drawer', game: 'briefing-watch',
     real: 'Real grids promise nothing of the kind: on some days the plant and the network cannot meet demand, and load is shed ' +
       'whatever the operator does.',
     ours: 'Before a date ships, par plays it: the date passes only if the most the fleet, the tie and the air-con cycles could ' +
@@ -732,7 +731,7 @@ const ABSTRACTIONS = [
     params: [],
   },
   {
-    id: 'warning-leads', row: 'Warning leads are game-sized.', specPending: true, anchorId: 'warning-leads', ui: 'drawer', game: 'tray',
+    id: 'warning-leads', row: 'Warning leads are game-sized.', anchorId: 'warning-leads', ui: 'drawer', game: 'tray',
     real: 'The Bureau warns of heatwaves days ahead and of severe storms hours ahead; a cloud band over a city is forecast hours ' +
       'ahead at best.',
     ours: 'A weather warning in play comes at the latest whole minute that leaves at least ' + num(V.LEAD_REAL_S) + ' real seconds ' +
@@ -744,7 +743,7 @@ const ABSTRACTIONS = [
     params: ['LEAD_REAL_S'],
   },
   {
-    id: 'cover', row: 'COVER after a trip is R5 ≥ L, not the NEM\'s secure state.', specPending: true, anchorId: 'cover', ui: 'drawer',
+    id: 'cover', row: 'COVER after a trip is R5 ≥ L, not the NEM\'s secure state.', anchorId: 'cover', ui: 'drawer',
     game: 'gauge-n1',
     real: 'After a contingency the NEM must be back in a secure operating state within 30 minutes (NER cl. 4.2.6): the next ' +
       'credible contingency contained above 49.5 Hz.',
@@ -758,7 +757,7 @@ const ABSTRACTIONS = [
     params: ['SECURE_AGAIN_S', 'R5_WINDOW_MIN'],
   },
   {
-    id: 'feeder-hold', row: 'The clock holds at each hand-back.', specPending: true, anchorId: 'feeder-hold', ui: 'drawer',
+    id: 'feeder-hold', row: 'The clock holds at each hand-back.', anchorId: 'feeder-hold', ui: 'drawer',
     game: 'rate-badge',
     real: 'A network hands a repaired feeder back and the control room closes it within minutes; nobody stops time to do it.',
     ours: 'When a feeder under repair may be closed (at its hand-back, and no sooner than ' + minutes(V.RESTORE_INTERVAL_S) +
@@ -775,7 +774,7 @@ const ABSTRACTIONS = [
     params: ['RESTORE_INTERVAL_S', 'RESTORE_PACE_MAX_S', 'REF_RESPOND_CARD_S'],
   },
   {
-    id: 'offer-pace', row: 'An offered SYNC runs at 30×.', specPending: true, anchorId: 'offer-pace', ui: 'drawer', game: 'bay-sync',
+    id: 'offer-pace', row: 'An offered SYNC runs at 30×.', anchorId: 'offer-pace', ui: 'drawer', game: 'bay-sync',
     real: 'Synchronising is mostly automatic, at the power station: nobody slows the grid to watch a breaker close.',
     ours: 'When the desk offers you a unit\'s synchroscope (after a trip, while spare is tight or in the evening peak; a few a day, ' +
       'none from ' + hhmm(NIGHT_H) + ') the clock plays at ' + num(OFFER_RATE) + '× while the unit waits at full speed, for at most ' +
