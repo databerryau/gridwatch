@@ -797,7 +797,8 @@ export function buildVm(game, f) {
   // input lands (objectiveS is reset there). An exception in objective(), steady() or consequence()
   // blanks only its line; it is kept in objectiveError (vm.objectiveError; the ?debug handle shows
   // it) as the system operator's is in sysError.
-  if (game.phase === 'play' && game.commit === 'player' && game.planview) {
+  // (X-46: the night roll has no line, so no forecast or projection is made for one)
+  if (game.phase === 'play' && game.commit === 'player' && game.planview && !obs.nightShift) {
     const due = objectiveDue(game, obs.s, mode.mode);
     if (due) {
       let fresh = game.lineFresh || due === 'news';

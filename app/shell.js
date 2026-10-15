@@ -32,6 +32,8 @@ const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CA
   OFFER: 'a unit is at full speed: O opens its synchroscope (30× for at most 8 s)', NIGHT: 'the night shift runs the roll to 04:00'};
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
+/** X-46: par's in-page slice stops past this many real ms a frame (the day over: no limit). */
+export const PAR_BUDGET_MS = 1.5;
 /** Q-91: a feeder card that shows on the Enter that closed the RESPOND card takes Enter or R this many real ms later. */
 export const FEEDER_ARM_MS = 250;
 // Q-46 (§30.3.6): the alarm panel's own keys inside it; the keys that never close it (F: refused, FAST_WAIT).
@@ -842,7 +844,7 @@ export function bootGame(doc, deps) {
     const ticks = G.frame(game, dtS, now);
     const t1 = now();
     // Q-48: par, a slice a frame from TAKE THE DESK, in every mode (?perf: its own 'par' line)
-    if (game.par && game.phase === 'play') timed('par', () => { if (!game.par.done) game.par.step(game.state.over ? PAR_STEP_OVER_TICKS : PAR_STEP_TICKS); });
+    if (game.par && game.phase === 'play') timed('par', () => { if (!game.par.done) game.par.step(game.state.over ? PAR_STEP_OVER_TICKS : PAR_STEP_TICKS, game.state.over ? Infinity : PAR_BUDGET_MS); });
     vm = G.buildVm(game, {nowMs: t1, dtS});
     if (mods.map) timed('map', () => mods.map.update(vm));
     if (mods.desk) timed('desk', () => mods.desk.update(vm));

@@ -210,3 +210,15 @@ test('Q-48: the page\'s par (createGame par: true) reads the kept day, keeps its
   G.buildVm(g, {nowMs: 0});
   assert.deepEqual(g.end.grade, grade(g.end.allIn, allIn(ROWS.par, g.households), false));
 });
+
+test('X-46: par\'s in-page step is time-budgeted: past its budget it stops after the chunk it is in (a zero budget plays one chunk)', () => {
+  const r = createParRunner(20261008, DESK, {});
+  r.step(0);                                    // the first step builds par's state and plays its first chunk
+  const s = () => r.progress * V.DAY_TICKS;
+  const t0 = s();
+  r.step(3000, 0);
+  assert.equal(Math.round(s() - t0), PAR_CHUNK_TICKS, 'one chunk at a zero budget');
+  const t1 = s();
+  r.step(3000);
+  assert.equal(Math.round(s() - t1), 3000, 'no budget: all 3000 ticks');
+});
