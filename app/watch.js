@@ -2,6 +2,7 @@
 // Contract: desk/README.md §32.12 app/watch.js.
 
 import {V} from '../sim/params.js';
+import {clockText} from '../render/format.js';
 
 const TPS = V.TICKS_PER_S;
 export const BEATS = Object.freeze(['inertia', 'battery', 'governors', 'ufls', 'settle']);
@@ -224,20 +225,26 @@ export function respondCard(obs, c, o) {
   };
 }
 
-/** Q-91: the feeder card's keys, and what going on means. */
-export const FEEDER_KEYS = 'R or Enter: restore it now · Esc: go on', FEEDER_ON = 'Gone on, it stays dark and is yours: the RESTORE bay still has it.';
+/** Q-91, D-27: the feeder card's keys (Esc restores too), and what leaving it dark means. */
+export const FEEDER_KEYS = 'R, Enter or Esc: restore', FEEDER_ON = 'Left dark, it is yours: the RESTORE bay still has it.';
 
 /**
- * Q-91: the feeder card at a hand-back (the clock holds): the feeder, its suburb (from `suburbs`, the
+ * Q-91, D-27: the feeder card at a hand-back (the clock holds): the feeder, its suburb (from `suburbs`, the
  * scenario's) and its pickup with its cold load, to the 10 MW; `why`: a refused restore's reason;
  * `lamp`: before any press, why a restore would be refused now (the bay's RESTORE PREVIEW), or ''.
- * @returns {{id:string, mw:number, text:string, keys:string, on:string, why:string, lamp:string}}
+ * `next`: the morning's other feeders a RESTORE here queues, [{id, atS}] (each closes itself at atS);
+ * `leave`: the LEAVE button's words, with what an hour dark costs at VCR (its customers' own load, S-1).
+ * @returns {{id:string, mw:number, text:string, plan:string, keys:string, leave:string, on:string, why:string, lamp:string}}
  */
-export function feederCard(obs, id, suburbs, why, lamp) {
+export function feederCard(obs, id, suburbs, why, lamp, next) {
   const x = obs.districts.find(d => d.id === id), sub = x && (suburbs || []).find(s => s.id === x.suburb);
-  const pick = x ? Math.round(x.coldLoadMW / 10) * 10 : 0;
+  const pick = x ? Math.round(x.coldLoadMW / 10) * 10 : 0, q = next || [];
+  const hourM = x ? x.coldLoadMW / V.COLD_LOAD_FACTOR * V.VCR / 1e6 : 0;
   return {id, mw: pick, text: id + '\'s feeder' + (sub ? ' in ' + sub.name : '') + ' is repaired: about ' + pick + ' MW with its cold load.',
-    keys: FEEDER_KEYS, on: FEEDER_ON, why: why || '', lamp: why ? '' : lamp || ''};
+    plan: 'RESTORE ' + id + ' now' + q.map(n => '; ' + n.id + ' at ' + clockText(n.atS, false)).join('') +
+      (q.length ? ' (' + (q.length > 1 ? 'they close themselves' : 'it closes itself') + ').' : '.'),
+    keys: FEEDER_KEYS, leave: 'LEAVE ' + id + ' DARK (about $' + Math.max(1, Math.round(hourM)) + 'M an hour at VCR)',
+    on: FEEDER_ON, why: why || '', lamp: why ? '' : lamp || ''};
 }
 
 /**

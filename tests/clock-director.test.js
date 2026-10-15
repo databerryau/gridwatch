@@ -62,7 +62,7 @@ test('Q-91: a hand-back holds the clock (FEEDER-CARD, rate 0, no FAST) until its
   assert.equal(at(CLEARS[0] - 1).mode, 'CRUISE');
   st.tick = CLEARS[0] * TPS;
   assert.equal(mode(d, st), 'CRUISE', 'the allowed second\'s own tick runs (the sim hands the feeder back in it)');
-  assert.deepEqual([at(CLEARS[0]).mode, D.rateOf(d, st), badgeText(D.modeOf(d, st)), D.feederCard(d, st)], ['FEEDER-CARD', 0, 'HELD 0× · R restore · Esc on', 'T0']);
+  assert.deepEqual([at(CLEARS[0]).mode, D.rateOf(d, st), badgeText(D.modeOf(d, st)), D.feederCard(d, st)], ['FEEDER-CARD', 0, 'HELD 0× · R restore', 'T0']);
   assert.equal(D.setFast(d, st, true), false, 'no FAST at the card');
   st.scope.unit = 'gta1';
   assert.equal(mode(d, st), 'FEEDER-CARD', 'it holds over FOCUS, as the respond card');
@@ -316,7 +316,7 @@ test('Q-64: in the briefing AGC/HAND is the sim\'s mode: the desk\'s key and the
   // a feeder card and OFFER answer F with why (a hand-back moved to now; an offer)
   const x = p.game.state.city.districts.find(q => q.clearS >= 0), clearS = x.clearS;
   x.clearS = Math.floor(p.game.state.tick / TPS);
-  assert.match(p.pressKey('f', {}, {after: 1 / 60}).during, /^TOAST blue FAST waits: a repaired feeder holds the clock: R or Enter restores it, Esc goes on$/m);
+  assert.match(p.pressKey('f', {}, {after: 1 / 60}).during, /^TOAST blue FAST waits: a repaired feeder holds the clock: R, Enter or Esc restores it$/m);
   x.clearS = clearS;                                                     // (HAND has no auto-synchroniser: the answer is true in both modes)
   assert.equal(p.send({type: 'start', unit: 'gta1'}), '');
   p.until('mode', {max: '+15m'});
@@ -358,11 +358,14 @@ const BACK = {watch: true, rocof: true, ufls: true};                    // a ret
 const mem = () => { const m = new Map(); return {getItem: k => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), m}; };
 
 // A game on the slice from a copy of `from` ({state, sys}): the inputs, and the hashes at NEAR and UNTIL, by beforeTick.
-function slice(seen = {}, from = base) {
+// `leave`: each feeder card is left at once, as frames() leaves it (the reference has no frames to show one, and a
+// restore at a card would queue the other feeder, D-27).
+function slice(seen = {}, from = base, leave = false) {
   const out = {hash: '', near: '', accepted: 0};
   let act = null;
   const game = G.createGame({seed: SEED, scenario: SCENARIOS.desk, storage: mem(), system, planview, commit: 'player', beforeTick: g => {
     const t = g.state.tick;
+    if (leave && D.feederCard(g.director, g.state)) G.ui(g, {do: 'goOn'});
     for (const [at, x] of INPUTS) if (t === at && act.input(x) === '') out.accepted++;
     if (t === MID && !mid) mid = {state: structuredClone(g.state), sys: structuredClone(g.sys)};
     if (t === NEAR) out.near = hashState(g.state);
@@ -399,7 +402,7 @@ before(() => {
   injectTrip(g.state, TRIP);
   G.runTo(g, FROM * TPS);
   base = {state: structuredClone(g.state), sys: structuredClone(g.sys)};
-  ref = slice();
+  ref = slice({}, base, true);
   G.runTo(ref.game, UNTIL + 1);
 });
 

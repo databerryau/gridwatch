@@ -116,7 +116,7 @@ const MODE_LABEL = {OVER: 'DAY OVER', HIDDEN: 'PAUSE', ALARMS: 'HELD', 'RESPOND-
  * The rate badge (F-5: the mode and the rate are always visible): the D-2 segment and its target
  * rate in CRUISE and NIGHT ('PEAK 150×', HAND 'PEAK 75×', 'NIGHT ROLL 2,100×'; Q-78), 'FAST 1,620×',
  * 'SYNC 30×' (a scope offer), 'WATCH T+1.23 s ×0.15', 'HELD 0× · Enter' (the RESPOND card),
- * 'HELD 0× · R restore · Esc on' (a feeder card, Q-91), 'HELD 0× · Esc' (the alarm panel, Q-46),
+ * 'HELD 0× · R restore' (a feeder card, Q-91; D-27: Esc restores too), 'HELD 0× · Esc' (the alarm panel, Q-46),
  * 'PAUSE 0×', 'DAY OVER'. The bench's modes have no segment: 'CRUISE 120×'.
  * @param {{mode:string, rate:number, watchS:number, segment?:string}} m director.modeOf()
  */
@@ -125,7 +125,7 @@ export function badgeText(m) {
   if (m.mode === 'OVER') return label;
   if (m.mode === 'WATCH') return 'WATCH T+' + Math.max(0, m.watchS).toFixed(2) + ' s ×' + rateText(m.rate).replace('×', '');
   if (m.mode === 'RESPOND-CARD') return 'HELD 0× · Enter';
-  if (m.mode === 'FEEDER-CARD') return 'HELD 0× · R restore · Esc on';
+  if (m.mode === 'FEEDER-CARD') return 'HELD 0× · R restore';
   if (m.mode === 'ALARMS') return 'HELD 0× · Esc';
   return label + ' ' + rateText(m.rate);
 }

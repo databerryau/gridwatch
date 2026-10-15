@@ -9,7 +9,7 @@ import {createKeys, bindKeys, poll as pollKeys, typing} from './keys.js';
 import {createAudio} from '../audio/audio.js';
 import {ANCHORS} from '../content/anchors.js';
 import {badgeText, badgeTitle, BADGE_HELP, NIGHT_LOCK, lightsChip, centsText, co2Text, clockText, allInCents, mw, VCR_TEXT, VER_TEXT} from '../render/format.js';
-import {BEATS} from './watch.js';
+import {BEATS, FEEDER_ON} from './watch.js';
 import {modeOf, feederCard} from './director.js';
 import {observe} from '../sim/step.js';
 import {unitLabel} from '../desk/util.js';
@@ -25,7 +25,7 @@ const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNO
 // Why F did nothing, by mode (the director's setFast refuses these).
 const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
   RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE',
-  ALARMS: 'the alarm panel holds the clock: Esc closes it', 'FEEDER-CARD': 'a repaired feeder holds the clock: R or Enter restores it, Esc goes on',
+  ALARMS: 'the alarm panel holds the clock: Esc closes it', 'FEEDER-CARD': 'a repaired feeder holds the clock: R, Enter or Esc restores it',
   OFFER: 'a unit is at full speed: O opens its synchroscope (30× for at most 8 s)', NIGHT: 'the night shift runs the roll to 04:00'};
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
@@ -706,31 +706,33 @@ export function bootGame(doc, deps) {
     });
   }
 
-  // Q-91: the feeder card while a hand-back holds the clock: what, the keys (blue), the mouse's RESTORE and GO ON
-  // (blue), and why a restore is refused: amber before a press (the bay's preview), red once refused (the grid's)
+  // Q-91, D-27: the feeder card while a hand-back holds the clock: what, the morning's plan (this one now, the
+  // others queued), the keys (blue), the mouse's RESTORE and the priced LEAVE, and why a restore is refused: amber
+  // before a press (the bay's preview), red once refused (the grid's)
   function drawFeeder(v) {
     const card = $('feeder-card'), f = v.feeder;
     if (!card) return;
     card.hidden = !f;
     if (!f) return;
     if (!card.children.length) {
-      for (const c of ['what', 'hint', 'on', 'why']) { const p = doc.createElement('p'); p.className = c; card.appendChild(p); }
+      for (const c of ['what', 'plan', 'hint', 'why']) { const p = doc.createElement('p'); p.className = c; card.appendChild(p); }
       const row = doc.createElement('div'), go = (b, f2) => b.addEventListener('click', ev => { ev.stopPropagation(); f2(); });
       row.className = 'row';
       const rb = doc.createElement('button'), ob = doc.createElement('button');
-      rb.id = 'feeder-restore'; rb.type = 'button'; rb.className = 'take'; rb.title = 'R or Enter: close its breaker now';
-      ob.id = 'feeder-go-on'; ob.type = 'button'; ob.textContent = 'GO ON'; ob.title = 'Esc: go on; it stays dark and is yours, in the RESTORE bay';
+      rb.id = 'feeder-restore'; rb.type = 'button'; rb.className = 'take'; rb.title = 'R, Enter or Esc: close its breaker now';
+      ob.id = 'feeder-leave'; ob.type = 'button'; ob.title = FEEDER_ON;
       go(rb, () => { if (game.feeder) actions.input({type: 'restore', district: game.feeder.id}); });
       go(ob, () => actions.ui({do: 'goOn'}));
       row.append(rb, ob);
       card.appendChild(row);
     }
-    const [what, hint, gone, why, row] = card.children, rb = row.children[0];
+    const [what, plan, hint, why, row] = card.children, [rb, ob] = row.children;
     if (what.textContent !== f.text) what.textContent = f.text;
+    if (plan.textContent !== f.plan) plan.textContent = f.plan;
     if (hint.textContent !== f.keys) hint.textContent = f.keys;
-    if (gone.textContent !== f.on) gone.textContent = f.on;
     if (rb.textContent !== 'RESTORE ' + f.id) rb.textContent = 'RESTORE ' + f.id;
-    const w = f.why ? '✕ Refused: ' + f.why + '. Esc goes on.' : f.lamp ? 'Not yet: ' + f.lamp + '. Esc goes on; the RESTORE bay closes it once its lamp lights.' : '';
+    if (ob.textContent !== f.leave) ob.textContent = f.leave;
+    const w = f.why ? '✕ Refused: ' + f.why + '.' : f.lamp ? 'Not yet: ' + f.lamp + '. The RESTORE bay closes it once its lamp lights.' : '';
     if (why.textContent !== w) why.textContent = w;
     if (why.hidden !== !w) why.hidden = !w;
     const cls = f.why ? 'why' : 'why lamp';
@@ -902,7 +904,7 @@ export function bootGame(doc, deps) {
     if (!ev.repeat) cardKeyMs = now();
     actions.ui({do: 'dismissRespond'});
   }
-  // Q-91: at the feeder card Enter or R restores its feeder and Esc goes on (an Esc that closed something stops there),
+  // Q-91, D-27: at the feeder card Enter, R or Esc restores its feeder (an Esc that closed something stops there),
   // before any control hears them (the bay's R), but in SETTINGS, the drawer and "?". Enter on a RESTORE row, a suburb
   // card's button or the card's own buttons is that control's (a CLOSE is the bay's: another feeder's answers the
   // card, its own restores it). A key's auto-repeat is swallowed, and so is an Enter or R within FEEDER_ARM_MS of the
@@ -915,8 +917,7 @@ export function bootGame(doc, deps) {
     if (!id || k === 'Enter' && !ev.repeat && ['restore-list', 'suburb-card', 'feeder-card'].some(x => within(x, t))) return;
     ev.preventDefault(); ev.stopPropagation();
     if (ev.repeat) return;
-    if (k === 'Escape') actions.ui({do: 'goOn'});
-    else if (now() - cardKeyMs < FEEDER_ARM_MS) showToast('A repaired feeder holds the clock: read its card, then R or Enter restores it', 'info');
+    if (now() - cardKeyMs < FEEDER_ARM_MS) showToast('A repaired feeder holds the clock: read its card, then R or Enter restores it', 'info');
     else actions.input({type: 'restore', district: id});
   }
   doc.addEventListener('keydown', escFirst, true);

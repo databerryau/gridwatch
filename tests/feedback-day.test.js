@@ -78,20 +78,20 @@ describe('the first RESPOND card', () => {
     const p = S.p;
     p.key(' ');   // the clock runs (the desk opens held at 04:30)
     S.held = p.to('06:45:01', {stop: [], line: 'near'}).why;   // RED7's hand-back holds the clock on its card (Q-91)
-    p.key('r');   // R, as its card says: RED7 restored
+    p.click('feeder-leave');   // D-27: LEAVE RED7 DARK (so RED5 is not queued behind it)
+    S.red5 = p.until('card', {max: '21:00', line: 'near'}).at;   // RED5's own card
+    p.key('r');   // R, as its card says: RED5 restored
     S.restored = restores();
-    S.red5 = p.until('card', {max: '21:00', line: 'near'}).at;   // RED5's card: Esc goes on (it stays dark)
-    p.key('Escape');
-    p.key('r');   // the bay's R: the keys on the RESTORE rows, RED5 waiting there
-    S.card = p.until('card', {max: '21:00', line: 'near'});   // the day's first trip (18:00:30), RED5 still open
+    p.key('r');   // the bay's R: the keys on the RESTORE rows, RED7 waiting there
+    S.card = p.until('card', {max: '21:00', line: 'near'});   // the day's first trip (18:00:30), RED7 still open
   });
 
   test('K-16: Enter at a RESPOND card closes it, though the keys are still on the RESTORE rows (it never closes a breaker as well)', () => {
     const p = S.p;
-    assert.deepEqual([S.held, S.restored, S.red5, S.card.why, p.mode()], ['held:FEEDER-CARD', ['RED7'], '07:15:00', 'card', 'RESPOND-CARD']);
-    assert.equal(p.doc.activeElement && p.doc.activeElement.id, 'restore-list', 'the keys are on the RESTORE rows, RED5 waiting there');
+    assert.deepEqual([S.held, S.restored, S.red5, S.card.why, p.mode()], ['held:FEEDER-CARD', ['RED5'], '07:15:00', 'card', 'RESPOND-CARD']);
+    assert.equal(p.doc.activeElement && p.doc.activeElement.id, 'restore-list', 'the keys are on the RESTORE rows, RED7 waiting there');
     answers(p, 'Enter', x => /^CARD /m.test(x.before) && !/^CARD /m.test(x.after), 'Enter at the card', true);
-    assert.deepEqual(restores(), ['RED7'], 'Enter closed the card and nothing else');
+    assert.deepEqual(restores(), ['RED5'], 'Enter closed the card and nothing else');
     assert.deepEqual(p.h.mods.errors, []);
   });
 });

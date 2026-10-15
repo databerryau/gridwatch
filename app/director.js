@@ -71,7 +71,10 @@ export function createDirector(opts) {
     focusUntilTick: -1,        // FOCUS after a restore input until this tick
     offers: {},                // OFFER: {an offered unit's index: the tick its window ends}
     rw: null,                  // the dark task feeders' allowed seconds (windows)
-    fc: {},                    // FEEDER-CARD: {district id: the allowed second its card was answered at; Infinity once left by Esc}
+    fc: {},                    // FEEDER-CARD: {district id: the allowed second its card was answered at; Infinity once left dark}
+    fq: {},                    // D-27: {district id: true} queued by a RESTORE at the card: it closes itself at its allowed second
+    pv: null,                  // D-27: the last restore check {s, i, n, ok}, one a grid second
+    accepts: o.accepts || null, // D-27: (state, i) => would a restore of district i be accepted now (app/game.js passes the sim's)
     seenDirty: false,          // seen changed: the game saves it
   };
 }
@@ -143,10 +146,20 @@ function feederDue(d, state) {
   const at = windows(d, state), ds = state.city.districts;
   let best = -1, bestA = Infinity;
   for (let j = 0; j < at.length; j += 3) {
-    const a = at[j + 2], done = d.fc[ds[at[j]].id];
-    if (t > a * TPS && a < bestA && done !== a && done !== Infinity) { best = at[j]; bestA = a; }
+    const a = at[j + 2], id = ds[at[j]].id, done = d.fc[id];
+    if (t > a * TPS && a < bestA && done !== a && done !== Infinity && !d.fq[id]) { best = at[j]; bestA = a; }
   }
-  return best;
+  // D-27: the card holds only at a second its restore would be accepted (the permissive and its preview, as R's)
+  return best >= 0 && accepts(d, state, best) ? best : -1;
+}
+// D-27: would a restore of district i be accepted now? Kept for the grid second (and the log's length)
+function accepts(d, state, i) {
+  if (!d.accepts) return true;
+  const s = Math.floor(state.tick / TPS), n = state.log ? state.log.length : -1, m = d.pv;
+  if (m && m.s === s && m.i === i && m.n === n) return m.ok;
+  const ok = !!d.accepts(state, i);
+  d.pv = {s, i, n, ok};
+  return ok;
 }
 // the card shows: due, past any watch and the respond card (it waits for them)
 const feederOn = (d, state) => (watching(state) || cardOpen(d, state) ? -1 : feederDue(d, state));
@@ -343,6 +356,18 @@ export function feederCard(d, state) {
  * one, after another restore, holds again). The restore of its own feeder ends it by relighting it.
  * Returns true if that card was shown.
  */
+/**
+ * D-27: a RESTORE at the card queues every other repaired or repairing task feeder still dark (and not
+ * left): each closes itself at its allowed second (app/game.js closeQueued) instead of holding again.
+ */
+export function queueFeeders(d, state, id) {
+  for (const x of state.city.districts) if (x.id !== id && x.dark && x.shedBy === 'task' && x.clearS >= 0 && d.fc[x.id] !== Infinity) d.fq[x.id] = true;
+}
+
+/** D-27: the queued feeders, by district id (app/game.js closes them; a refused close leaves the queue for a card). */
+export const queuedFeeders = d => Object.keys(d.fq);
+export function unqueueFeeder(d, id) { delete d.fq[id]; }
+
 export function answerFeeder(d, state, id, leave) {
   if (!id || feederCard(d, state) !== id) return false;
   const at = d.rw.at, ds = state.city.districts;

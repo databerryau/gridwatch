@@ -8,6 +8,7 @@ import * as grid from '../sim/grid.js';
 import * as fleet from '../sim/fleet.js';
 import * as weather from '../sim/weather.js';
 import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
+import {restoreAllowedS} from '../sim/market.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK} from '../render/format.js';
 import {scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
@@ -208,7 +209,7 @@ export function resetDay(game, seed) {
   game.objectiveError = ''; game.dayAhead = null; game.considerDirty = false; game.lineMs = 0; game.lineFresh = false;
   game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
-  game.director = D.createDirector({game: true, paused: true, seen});
+  game.director = D.createDirector({game: true, paused: true, seen, accepts: restoreAccepted});
   game.pacer = createPacer({cap: game.pacer.cap, budgetMs: game.pacer.budgetMs});
   game.sys = null;
   game.sysError = '';
@@ -338,11 +339,45 @@ export function handleRecords(game, recs, by) {
   for (const c of T.trayRecords(game.tray, recs)) { if (c === 'ring2') D.endFast(game.director); pushCue(game, c); }
 }
 
+// D-27: would a restore of district i be accepted now (the permissive and its preview, as R's)
+const restoreAccepted = (state, i) => grid.restorePermissive(state, i, {preview: true}) === '';
+
+// D-27: each feeder a RESTORE at the card queued closes itself on the first tick past its allowed second
+// (as the card would have held there), before the night shift has the desk; a close the permissive or its
+// preview refuses leaves the queue, and that feeder's card holds once its lamp lights.
+function closeQueued(game) {
+  const d = game.director, state = game.state, q = D.queuedFeeders(d);
+  if (!q.length) return;
+  const ds = state.city.districts;
+  for (const id of q) {
+    const i = ds.findIndex(x => x.id === id), x = ds[i];
+    if (!x || !x.dark || state.tick >= NIGHT_S * V.TICKS_PER_S) { D.unqueueFeeder(d, id); continue; }
+    if (!(state.tick > restoreAllowedS(ds, i) * V.TICKS_PER_S)) continue;
+    D.unqueueFeeder(d, id);
+    const out = [];
+    if (restoreAccepted(state, i) && applyInput(state, {type: 'restore', district: id}, out).ok) game.objectiveS = -1e9;
+    if (out.length) handleRecords(game, out, '');
+  }
+}
+
+// D-27: the feeders a RESTORE of `id` at the card would queue, each at the second it may close: the
+// later of its hand-back and RESTORE_INTERVAL_S after the one before (the card's own now)
+function queuePlan(game, obs, id) {
+  const left = game.director.fc, out = [];
+  let prev = obs.s;
+  for (const x of obs.districts.filter(d => d.id !== id && d.dark && d.shedBy === 'task' && d.clearS >= 0 && left[d.id] !== Infinity).sort((a, b) => a.clearS - b.clearS)) {
+    prev = Math.max(x.clearS, prev + V.RESTORE_INTERVAL_S);
+    out.push({id: x.id, atS: prev});
+  }
+  return out;
+}
+
 /** Run exactly one tick (the loop's tick callback). */
 export function tickOnce(game) {
   const state = game.state;
   if (state.over) return;
   if (game.beforeTick) game.beforeTick(game);
+  closeQueued(game);
   let ins = EMPTY;
   if (game.sys) {
     try {
@@ -427,6 +462,7 @@ export function sendInput(game, x, shown) {
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
     if (x.type === 'restore') D.focusRestore(d, state);
+    if (own) D.queueFeeders(d, state, x.district); // D-27: the card's RESTORE queues the morning's other feeders
     if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
   } else if (own) game.feederWhy = {id: fc, why: r.reason};
   return r.ok ? '' : r.reason;
@@ -743,7 +779,7 @@ export function buildVm(game, f) {
   const due = D.feederCard(d, state), why = game.feederWhy && game.feederWhy.id === due ? game.feederWhy.why : '';
   if (!why) game.feederWhy = null;
   // (before any press, the card says when its restore would be refused now: the bay's RESTORE PREVIEW, once a grid second)
-  game.feeder = mode.mode === 'FEEDER-CARD' && due ? W.feederCard(obs, due, game.scenario.city.suburbs, why, why ? '' : restorePreview(game, due)) : null;
+  game.feeder = mode.mode === 'FEEDER-CARD' && due ? W.feederCard(obs, due, game.scenario.city.suburbs, why, why ? '' : restorePreview(game, due), queuePlan(game, obs, due)) : null;
 
   const offers = game.phase === 'play' ? updateOffers(game, obs) : [];
   const glow = new Set(game.respondGlow);

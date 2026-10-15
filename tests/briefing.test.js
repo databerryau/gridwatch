@@ -121,7 +121,7 @@ test('D-7 / Q-64: the header\'s HAND chip: HAND (amber, with the word) from obs.
 test('§32.11: the badge has a look for a feeder card (Q-91), OFFER and NIGHT, each with its word (K-22: never colour alone)', () => {
   for (const m of ['FEEDER-CARD', 'OFFER', 'NIGHT']) assert.match(NEXT, new RegExp('#rate-badge\\.' + m + '[ ,][^{]*\\{'), m + ' has a look');
   assert.deepEqual([badgeText({mode: 'FEEDER-CARD', rate: 0}), badgeText({mode: 'OFFER', rate: 30}), badgeText({mode: 'NIGHT', rate: 2100, segment: 'NIGHT ROLL'})],
-    ['HELD 0× · R restore · Esc on', 'SYNC 30×', 'NIGHT ROLL 2,100×'], 'and its word');
+    ['HELD 0× · R restore', 'SYNC 30×', 'NIGHT ROLL 2,100×'], 'and its word');
   assert.match(readFileSync(new URL('../app/shell.js', import.meta.url), 'utf8'), /badge\.className = m\.mode;/, 'the class is the mode');
 });
 
