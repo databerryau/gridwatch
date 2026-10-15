@@ -299,7 +299,7 @@ test('Q-48 skeleton: par is stepped once a frame from TAKE THE DESK in every mod
   assert.equal(e.allIn.outage, V.VCR * sc.lightsMWh);
   assert.ok(Math.abs(e.allIn.carbon - V.VER * sc.co2tPerMWh * (sc.servedMWh + sc.lightsMWh)) < 1e-6);
   assert.equal(e.allIn.perHousehold, e.allIn.total / 1.9e6);
-  assert.deepEqual(S.grade(e.allIn, e.allIn, false), {points: 1000, letter: 'A', star: true}, 'par\'s own day scores 1000');
+  assert.deepEqual(S.grade(e.allIn, e.allIn, false), {points: 1000, letter: 'A', star: true, gapMWh: 0}, 'par\'s own day scores 1000');
   assert.equal(S.grade(e.allIn, null, false), null);
   const PAR = {costDollars: 4.331e6, servedMWh: 1.1e5, lightsMWh: 0, co2tPerMWh: 0.55};
   runner.score = PAR;

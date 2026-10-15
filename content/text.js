@@ -627,8 +627,9 @@ const ABSTRACTIONS = [
       'feeder under repair becomes yours at its hand-back); plus CARBON, ' +
       usd(V.VER) + ' (VER) a tonne on your CO₂ intensity × every MWh the city asked for. SCORE = 1000 × par\'s ALL-IN ÷ ' +
       'yours, par being GRIDWATCH\'s own autopilot on the same day: 1000 is par, more beats it, and a black day scores 0 (F). ' +
-      'Letters: ' + LETTERS.slice(0, -1).map(l => l[0] + ' from ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
-      ' below. Through the day the chip compares you with par at the same grid time. ALL-IN is the day\'s cost to the ' +
+      'The letter comes from how far your ALL-IN is behind par\'s, in MWh dark at VCR: ' +
+      LETTERS.slice(0, -1).map(l => l[0] + ' within ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
+      ' beyond, so the same mistake earns the same letter on any day. Through the day the chip compares you with par at the same grid time. ALL-IN is the day\'s cost to the ' +
       'community, not a price or a bill.',
     why: 'One currency is how regulators trade the three goals off, so the score teaches the real trade: an MWh dark weighs ' +
       'as much as ' + num(V.VCR / V.VER) + ' priced tonnes of CO₂. Dividing par\'s total by yours is GRIDWATCH\'s own rule; it ' +
