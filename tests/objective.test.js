@@ -775,6 +775,7 @@ test('spare after a trip: a fired GUARD still giving while frequency is high is 
   const hi = copy(keep.stop);
   Object.assign(hi.battery, {guardMW: 400, ffrMW: 400, guardFired: true});
   hi.f.hz = 50.2;
+  hi.contingencies = [...hi.contingencies, {startS: hi.s - 60, cause: 'unit'}];   // (X-43: "after the trip" needs one)
   const x = lineOf(hi);
   assert.deepEqual(x.action, {type: 'guard', mw: 0});
   assert.equal(x.kind, 'spare');

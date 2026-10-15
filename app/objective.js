@@ -124,13 +124,17 @@ function heldShare(obs) {
   };
 }
 
+// The auto-synchroniser's wait: none in HAND, where the player SYNCs at full speed (X-43).
+const syncOf = obs => obs.mode === 'HAND' ? 0 : AUTO;
+
 // Seconds from now until unit u (an observe row) is at minimum load, by its mode; -1: not coming.
-function onInS(u, m) {
+// In HAND a unit at full speed is SYNCed now (the line asks for it), as the plan executor counts it.
+function onInS(u, m, obs) {
   switch (u.mode) {
     case 'on': return 0;
     case 'loading': return u.timerS;
-    case 'ready': return u.timerS + m.t2S;
-    case 'starting': return u.timerS + AUTO + m.t2S;
+    case 'ready': return (syncOf(obs) ? u.timerS : 0) + m.t2S;
+    case 'starting': return u.timerS + syncOf(obs) + m.t2S;
     default: return -1;
   }
 }
@@ -182,7 +186,7 @@ export function capacityGap(obs, fc, o = {}) {
   // units on their way off (unloading, in shutdown, or the one a STOP press would send): their own path down
   const going = obs.units.map(u => u.mode === 'unloading' || u.mode === 'shutdown' || (o.leaving === u.id && (u.mode === 'on' || u.mode === 'loading')));
   obs.units.forEach((u, i) => {
-    const d = onInS(u, M[i]);
+    const d = onInS(u, M[i], obs);
     onS[i] = d >= 0 ? s + d : u.mode === 'off' && starts.has(u.id) ? dueS(u, starts.get(u.id)) + u.startToMinS : Infinity;
     if (o.plus && o.plus.unit === u.id && !Number.isFinite(onS[i])) onS[i] = o.plus.atS + u.startToMinS;
     offS[i] = stops.has(u.id) ? stops.get(u.id) : Infinity;
@@ -290,7 +294,7 @@ const leadText = c => minText(c.lead) + ' to reach the grid' + (c.plan > c.lead 
 /** The largest single loss of supply once `without` is gone (MW): the firm tie import, or the largest committed machine at the plan's loading. */
 export function largestLoss(obs, without) {
   let big = obs.tie.tripped ? 0 : TIE_FIRM_MW;
-  obs.units.forEach((u, i) => { if (u.id !== without && onInS(u, M[i]) >= 0 && u.availMW * LOADING > big) big = u.availMW * LOADING; });
+  obs.units.forEach((u, i) => { if (u.id !== without && onInS(u, M[i], obs) >= 0 && u.availMW * LOADING > big) big = u.availMW * LOADING; });
   return big;
 }
 
@@ -323,7 +327,7 @@ export function stopSaving(obs, u, backS, fc, proj, planview) {
   const s = obs.s, m = M.find(x => x.id === u.id), h = fc.stepS / S_PER_H, endS = stopHorizonS(obs, u), again = backS < endS;
   const unloadS = Math.max(0, u.outMW - u.minMW) / m.rampMWs;
   // off line from half-way down the T4 slope until half-way up the T2 slope of its return
-  const offS = s + unloadS + m.t4S / 2, onS = again ? Math.min(endS, backS + m.t1S + AUTO + m.t2S / 2) : endS;
+  const offS = s + unloadS + m.t4S / 2, onS = again ? Math.min(endS, backS + m.t1S + syncOf(obs) + m.t2S / 2) : endS;
   const wv = planview.waterValue(obs.hydro.frac);
   let saving = 0;
   for (let k = 0; k < fc.n; k++) {
@@ -332,7 +336,7 @@ export function stopSaving(obs, u, backS, fc, proj, planview) {
     let floor = 0, big = 0;
     const blocks = [];
     obs.units.forEach((x, i) => {
-      if (x.id === u.id || onInS(x, M[i]) < 0 || t < s + onInS(x, M[i])) return;
+      if (x.id === u.id || onInS(x, M[i], obs) < 0 || t < s + onInS(x, M[i], obs)) return;
       const top = x.ratingMW * LOADING;
       if (x.station === 'hydro') { blocks.push({mw: x.ratingMW, offer: wv}); return; }
       floor += x.minMW;
@@ -410,6 +414,10 @@ export function objective(obs, ctx) {
   // 2. Short right now: the fast answers.
   const now = shortNow(X, line);
   if (now) return now;
+
+  // 2b. X-43: in HAND nothing closes a breaker for the player: a machine at full speed waits for its SYNC.
+  const sync = syncNow(X, line);
+  if (sync) return sync;
 
   // 3-9. The first branch with something to do now; else the first critical one (the reserve diesel
   // on its way: said, but never in place of what the battery can do meanwhile); else the first with
@@ -580,7 +588,7 @@ function arriving(obs) {
   let best = null;
   const booked = new Map(obs.plan.starts.map(e => [e.unit, e.atS]));
   obs.units.forEach((u, i) => {
-    const d = onInS(u, M[i]);
+    const d = onInS(u, M[i], obs);
     const t = u.mode === 'starting' || u.mode === 'ready' ? obs.s + d : u.mode === 'off' && booked.has(u.id) ? dueS(u, booked.get(u.id)) + u.startToMinS : -1;
     if (t >= 0 && (!best || t < best.atS)) best = {name: unitName(u.id), atS: t};
   });
@@ -866,6 +874,24 @@ function restore(X, line) {
   return line({level: 'plan', kind: 'restore', text: n + '. A feeder closes once frequency is steady and there is spare reserve to carry it.', targets: ['bay-restore', 'gauge-n1']});
 }
 
+// 2b. HAND (X-43): a machine at full speed with no synchroscope open asks for its SYNC, at once (the
+// plan and every "on by" time count it as made now).
+function syncNow(X, line) {
+  const obs = X.obs;
+  if (obs.mode !== 'HAND' || obs.scope && obs.scope.open) return null;
+  const u = obs.units.find(x => x.mode === 'ready');
+  if (!u) return null;
+  return line({level: 'act', kind: 'sync', text: unitName(u.id) + ' is at full speed. HAND has no auto-sync: press its START to open the synchroscope, then SYNC.',
+    targets: ['guard-start-' + u.id, 'bay-sync'], action: {type: 'scope', unit: u.id}, startBy: X.s});
+}
+
+// A contingency began within the last `spanS` grid seconds (X-43: "after the trip" needs one).
+const tripWithin = (obs, spanS) => obs.contingencies.some(c => obs.s - c.startS < spanS);
+
+/** The fired GUARD's line while frequency is high ("after the trip" only when there was one, X-43). */
+export const guardStillText = obs => 'Frequency is high: the battery GUARD is still giving its ' + mwText(obs.battery.ffrMW) +
+  (tripWithin(obs, S_PER_H) ? ' after the trip' : ' since frequency fell') + '. Turn it down to 0 MW; it can go back up once the GUARD has re-armed.';
+
 // 5. Enough power, not enough spare: the GUARD for the first second, a fast machine for the minutes
 // (par's rule 2, sim/autopilot.js). And the reserve diesel stood down once the desk holds without it.
 function spare(X, line) {
@@ -876,8 +902,7 @@ function spare(X, line) {
   // it up the same way), and is not raised again while the fired GUARD is still sustaining (a ring
   // raised then delivers again at once).
   if (b.guardFired && b.guardMW > 0 && b.ffrMW > 0 && obs.f.hz > V.NORMAL_HI_HZ) {
-    return line({level: 'act', kind: 'spare', text: 'Frequency is high: the battery GUARD is still giving its ' + mwText(b.ffrMW) + ' after the trip. Turn it down to 0 MW; ' +
-      'it can go back up once the GUARD has re-armed.', targets: ['ring-guard'], action: {type: 'guard', mw: 0}, startBy: s});
+    return line({level: 'act', kind: 'spare', text: guardStillText(obs), targets: ['ring-guard'], action: {type: 'guard', mw: 0}, startBy: s});
   }
   if (r.armed && !r.standingDown) {
     // Clean without it for PAR_RERT_STANDDOWN_MIN ahead (nothing in that time that the battery and
@@ -934,9 +959,9 @@ function spare(X, line) {
   const needMW = Math.max(V.PAR_TIGHT_RATIO * sec.lMW, pickup) - sec.r5MW;
   if (!(needMW > 0) && !(sec.lKind !== 'none' && sec.previewNadirHz < V.PAR_NADIR_MIN_HZ)) return null;
   // (one at a time: not while a machine is within a quarter of an hour of the grid)
-  const coming = obs.units.some((u, i) => { const d = u.mode === 'loading' ? u.timerS : onInS(u, M[i]); return d > 0 && d <= QUARTER_S; });
+  const coming = obs.units.some((u, i) => { const d = u.mode === 'loading' ? u.timerS : onInS(u, M[i], obs); return d > 0 && d <= QUARTER_S; });
   if (!coming) {
-    const fastOnes = startable(obs).filter(c => c.lead <= V.STACK_START_WITHIN_S + AUTO).map(c => {
+    const fastOnes = startable(obs).filter(c => c.lead <= V.STACK_START_WITHIN_S + syncOf(obs)).map(c => {
       const u = obs.units.find(x => x.id === c.unit);
       return Object.assign(c, {offer: u.offer, headMW: Math.min(u.availMW - u.minMW, u.rampMWMin * V.R5_WINDOW_MIN)});
     }).sort((a, c) => a.offer - c.offer || a.lead - c.lead);
@@ -978,7 +1003,7 @@ export function stopCandidate(obs) {
   let best = null;
   obs.units.forEach((u, i) => {
     if (!GAS.has(u.cls)) return;
-    if (onInS(u, M[i]) < 0 && !(u.mode === 'off' && booked.has(u.id))) return;
+    if (onInS(u, M[i], obs) < 0 && !(u.mode === 'off' && booked.has(u.id))) return;
     if (!best || u.offer >= best.offer) best = u;
   });
   return best;
@@ -1222,7 +1247,7 @@ export function consequence(obs, target, ctx = {}) {
   const m = M.find(x => x.id === u.id), s = obs.s, name = unitName(u.id), day = ctx.dayAhead || obs.forecast;
   const out = (text, level = 'plan') => ({target, text, level}), nowS = spanAt(s, NOW_S, handOf(obs), nightOf(obs) ? NIGHT_S : Infinity);
   const reason = why => why.replace(/^unit is /, 'the unit is ').replace(OUT_RE, 'out for maintenance until ').replace(/: (\d+) min left$/, (x, n) => ', ' + spanText(n * S_PER_MIN) + ' left');
-  const syncS = obs.mode === 'AGC' ? AUTO : 0, onGrid = u.minMW > 0 ? 'at minimum load' : 'on the grid';
+  const syncS = syncOf(obs), onGrid = u.minMW > 0 ? 'at minimum load' : 'on the grid';
   if (hit[1] === 'start') {
     if (u.mode === 'starting') return out(name + ' is starting: full speed at ' + atDay(s + u.timerS) + (syncS ? ', ' + onGrid + ' by ' + atDay(s + u.timerS + syncS + m.t2S) : '; then SYNC it by hand') + '.', 'ok');
     if (u.mode === 'ready') return out(name + ' is at full speed: a press opens the synchroscope (the clock runs at 1×)' + (syncS ? '; auto-sync closes its breaker at ' + atDay(s + u.timerS) : '') + '.');
