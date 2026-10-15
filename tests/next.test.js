@@ -430,7 +430,7 @@ test('K-16 via the shell: the respond card goes with a click on it, as with Ente
 });
 
 test('C-4 / F-5: the briefing says where START is and that Space pauses; a click on the rate badge pauses and runs, as Space does', () => {
-  const how = /<p id="briefing-how"[^>]*>([^<]*)<\/p>/.exec(NEXT)[1];
+  const how = /<p id="how-keys"[^>]*>([^<]*)<\/p>/.exec(NEXT)[1];   // (D-3: behind the header "?", HOW TO PLAY)
   assert.match(how, /click its ○ button on the lever bank \(hydro units: beside the HYDRO wheel\); it turns into START\?, so click it again to confirm\./);
   assert.match(how, /Keys: 1–5 pick a lever \(6 the HYDRO wheel\), then S S\./);
   assert.match(how, /The battery's outer ring is its GUARD/);
@@ -990,10 +990,10 @@ test('C-2 at boot: a seed that reads as a Saturday or Sunday plays desk-weekend;
   assert.equal(G.scenarioForSeed(20261332).id, 'desk', 'not a valid date');
   assert.match(readFileSync(join(ROOT, 'app/boot.js'), 'utf8'), /scenario: scenarioForSeed/, 'the real page passes the function');
   // dayText: plain words from the public obs.day only
-  assert.equal(dayText({temp: 'HOT', weekend: false}), 'Today: a hot weekday. A heatwave warning, if one comes, comes mid-morning.');
-  assert.equal(dayText({temp: 'MILD', weekend: false}), 'Today: a mild weekday. Rooftop solar will cut the demand your plant must meet around midday; the evening still climbs.');
-  assert.match(dayText({temp: 'MILD', weekend: true}), /^Today: a mild weekend\. .* one coal unit has been off since Friday night\.$/);
-  assert.match(dayText({temp: 'HOT', weekend: true}), /^Today: a hot weekend\. A heatwave warning, if one comes, comes mid-morning\. /);
+  assert.equal(dayText({temp: 'HOT', weekend: false}), 'Today: a hot weekday; any heatwave warning comes mid-morning.');
+  assert.equal(dayText({temp: 'MILD', weekend: false}), 'Today: a mild weekday: rooftop solar cuts midday demand.');
+  assert.equal(dayText({temp: 'MILD', weekend: true}), 'Today: a mild weekend, one coal unit off.');
+  assert.equal(dayText({temp: 'HOT', weekend: true}), 'Today: a hot weekend, one coal unit off; any heatwave warning comes mid-morning.');
   assert.equal(dayText(undefined), '');
   // a Sunday seed through the shell
   const w = boot('?seed=20261004', {scenario: G.scenarioForSeed});
@@ -1006,8 +1006,8 @@ test('C-2 at boot: a seed that reads as a Saturday or Sunday plays desk-weekend;
   const d = boot('?seed=7', {scenario: G.scenarioForSeed});
   d.frames(2);
   assert.equal(d.h.game.scenario.id, 'desk');
-  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday. No heatwave is forecast.'); // (2c, Q-80: a planned day's heat is news at 04:00, and seed 7 has none)
-  assert.equal(dayText({temp: 'HOT', weekend: false}, {heat: true}), 'Today: a hot weekday, with a heatwave this afternoon (Watch for, below).');
+  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday, no heatwave forecast.'); // (2c, Q-80: a planned day's heat is news at 04:00, and seed 7 has none)
+  assert.equal(dayText({temp: 'HOT', weekend: false}, {heat: true}), 'Today: a hot weekday, heatwave this afternoon.');
   // PLAY AGAIN asks the function again (the same seed: the same scenario)
   G.resetDay(w.h.game);
   assert.equal(w.h.game.scenario.id, 'desk-weekend');

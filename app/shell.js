@@ -79,10 +79,20 @@ export function objectiveWord(o) {
 export function dayText(day, plan) {
   if (!day) return '';
   const when = day.weekend ? 'weekend' : 'weekday';
-  const lean = day.weekend ? ' Demand is lower at the weekend, and one coal unit has been off since Friday night.' : '';
-  if (day.temp === 'MILD') return 'Today: a mild ' + when + '. Rooftop solar will cut the demand your plant must meet around midday; the evening still climbs.' + lean;
-  return 'Today: a hot ' + when + (!plan ? '. A heatwave warning, if one comes, comes mid-morning.'
-    : plan.heat ? ', with a heatwave this afternoon (Watch for, below).' : '. No heatwave is forecast.') + lean;
+  // (D-3: short, so the day and Watch for fit 30 words)
+  const lean = day.weekend ? ', one coal unit off' : '';
+  if (day.temp === 'MILD') return 'Today: a mild ' + when + lean + (day.weekend ? '.' : ': rooftop solar cuts midday demand.');
+  return 'Today: a hot ' + when + lean + (!plan ? '; any heatwave warning comes mid-morning.' : plan.heat ? ', heatwave this afternoon.' : ', no heatwave forecast.');
+}
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+/** D-3: the briefing's date line from a YYYYMMDD seed ('Friday 16 October 2026'), else 'Seed N'. */
+export function dateText(seed) {
+  const y = Math.floor(seed / 1e4), m = Math.floor(seed / 100) % 100, d = seed % 100;
+  const t = new Date(Date.UTC(y, m - 1, d));
+  if (!(y >= 2000 && y < 2100) || t.getUTCMonth() !== m - 1 || t.getUTCDate() !== d) return 'Seed ' + seed;
+  return DAYS[t.getUTCDay()] + ' ' + d + ' ' + MONTHS[m - 1] + ' ' + y;
 }
 
 // Q-81 (§32.8.2): one brief per 04:00 news item, from its kind and the public obs (each <= 8 words)
@@ -370,12 +380,13 @@ export function bootGame(doc, deps) {
     b.hidden = game.phase !== 'briefing';
     const hand = $('btn-hand');
     if (hand) hand.hidden = !G.handOffered(game);   // D-7: from the second shift
-    const st = game.state, obs = observe(st), day = $('briefing-day'), goals = $('briefing-goals'), w = $('briefing-watch');
+    const st = game.state, obs = observe(st), day = $('briefing-day'), w = $('briefing-watch');
     if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
-    if (goals) goals.textContent = GOALS_TEXT;
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
-    const seed = $('briefing-seed');
-    if (seed) seed.textContent = 'Seed ' + game.seed + ' · AGC is on by default; HAND turns it off from 04:30 to 21:00.';
+    const date = $('briefing-date');
+    if (date) date.textContent = dateText(game.seed % 1e8);   // (a daily's exception seed is its date + k·1e8, Q-75)
+    const score = $('how-score');   // D-3: the score's rule is behind the header "?" (HOW TO PLAY)
+    if (score) score.textContent = GOALS_TEXT;
   }
 
   // ---------------------------------------------------------------- on demand (Q-44): a module passed in (tests), a loader, or import()
