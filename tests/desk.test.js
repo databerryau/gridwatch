@@ -1841,7 +1841,7 @@ test('P-12 on the dial (2a): the SHED mark shows the dark customers\' load (unse
   assert.ok(Math.abs(back.demand.unservedMW - fleet.baseLoadMW(task) * held[0].share) < 1e-6 && back.demand.unservedMW > 50,
     'handed back, still dark: that feeder\'s customers alone: ' + back.demand.unservedMW.toFixed(1) + ' MW');
   assert.equal(shedMarkMW(back), back.demand.unservedMW);
-  assert.equal(mount(at(baseVm(back), 1000)).$('bar-imbalance').querySelector('.dk-imb-shed').textContent, '✕ SHED ' + Math.round(back.demand.unservedMW) + ' MW');
+  assert.equal(mount(at(baseVm(back), 1000)).$('bar-imbalance').querySelector('.dk-imb-shed').textContent, '✕ DARK ' + Math.round(back.demand.unservedMW) + ' MW', 'X-45: DARK, not SHED, at a hand-back');
 });
 
 test('K-7 / M-2: DIRECT SHED names the district the sim will shed and its load; "about 0 MW" when it has none to give', () => {

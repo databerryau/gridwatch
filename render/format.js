@@ -79,6 +79,18 @@ export function lightsText(score) {
   return (Math.floor(pct * 10) / 10).toFixed(1) + '%';
 }
 
+/**
+ * X-45: the LIGHTS ON chip now: '2 DARK · 480 MW' while districts that are the player's are dark (their
+ * pickup with cold load, to the 10 MW), '100%' while none is. A feeder still under repair is the
+ * network's outage (Q-69), not counted. The day's dark energy is on the ALL-IN chip and the end card.
+ */
+export function lightsChip(obs) {
+  const mine = (obs.districts || []).filter(d => d.dark && !(d.shedBy === 'task' && d.clearS > obs.s));
+  if (!mine.length) return '100%';
+  const mwOf = mine.reduce((a, d) => a + (d.coldLoadMW || 0), 0);
+  return mine.length + ' DARK · ' + (Math.round(mwOf / 10) * 10).toLocaleString('en-AU') + ' MW';
+}
+
 /** CUSTOMER COST in cents per kWh served ('8.4'), '-' before anything is served. */
 export const centsText = score => (score.servedMWh > 0 && Number.isFinite(score.centsPerKWh) ? score.centsPerKWh.toFixed(1) : '-');
 

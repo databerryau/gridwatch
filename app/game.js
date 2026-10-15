@@ -219,13 +219,13 @@ export function resetDay(game, seed) {
   game.watchMem = W.createWatch();
   game.phase = 'briefing';
   Object.assign(game.ui, {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null,
-    trayOpen: false, consider: null, armed: null, alarmsOpen: false, alarmsSel: null, alarmsPick: null, suburb: null, suburbLast: null});
+    trayOpen: false, consider: null, considerMs: null, armed: null, alarmsOpen: false, alarmsSel: null, alarmsPick: null, suburb: null, suburbLast: null});
   game.cues = []; game.refusal = null; game.respond = null; game.respondGlow = []; game.feeder = null; game.feederWhy = null;
   game.offers = []; game.offered = {}; game.tally = {n: 0, extra: 0, contN: -1};
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
   game.hist = createHist();
   game.histView = null; game.histViewS = -1;
-  game.hashes = []; game.end = null; game.lastFrameMs = -1;
+  game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
   parFor(game);
   return game;
@@ -809,7 +809,7 @@ export function buildVm(game, f) {
   if (state.over && !game.end) {
     // Q-48: black is an F at once; par's ALL-IN and the grade are filled in place below, on the frame par has its score
     const allIn = S.allIn(obs.score, game.households);
-    game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: state.log.length, seed: game.seed, v: SIM_VERSION,
+    game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: game.playerInputs, seed: game.seed, v: SIM_VERSION,
       allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null,
       handFlown: !!state.control.handFlown, gated: game.daily ? game.daily.gated : null}; // Q-64, Q-75 (null: not a daily)
   }
@@ -869,8 +869,9 @@ export function replayGame(file, scenario, untilTick) {
 /** The actions object every UI module receives (desk/README.md §4), bound to this game. */
 export function makeActions(game) {
   return {
-    input: x => sendInput(game, x),
-    redispatch: () => redispatch(game),
+    // (X-45: the end card counts the player's accepted inputs, a RE-DISPATCH as one; never the system's or the night shift's)
+    input: x => { const r = sendInput(game, x); if (!r) game.playerInputs++; return r; },
+    redispatch: () => { const r = redispatch(game); if (!r) game.playerInputs++; return r; },
     ui: cmd => ui(game, cmd),
     previewTrip: opts => previewTrip(game, opts),
     restorePreview: id => restorePreview(game, id),

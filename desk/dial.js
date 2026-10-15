@@ -203,6 +203,12 @@ export function shedMarkMW(obs) {
   return Math.max(0, typeof u === 'number' && Number.isFinite(u) ? u : fin(obs.balance && obs.balance.shedMW));
 }
 
+/** X-45: the mark's word: SHED when relays or the city desk shed load, DARK when only feeders under repair are (a hand-back: nothing was shed). */
+export function shedWord(obs) {
+  const dark = (obs.districts || []).filter(d => d.dark);
+  return dark.length && dark.every(d => d.shedBy === 'task') ? 'DARK' : 'SHED';
+}
+
 /** Scale (MW for half the bar) that fits the segments and `floorMW`: 100, 200, 500, 1000, 2000, 5000... */
 export function barScale(seg, floorMW = 0) {
   let pos = 0, neg = 0;
@@ -345,7 +351,7 @@ export function createImbalanceBar(ctx, parent) {
         setAttr(txt, 'class', 'dk-imb-text' + (w.word === 'SHORT' ? ' crit' : w.word === 'SURPLUS' ? ' warn' : ''));
         setText(who, w.who);
         setHidden(shed, !(shedMW > 0.5));
-        setText(shed, '✕ SHED ' + mw(shedMW) + ' MW');
+        setText(shed, '✕ ' + shedWord(o) + ' ' + mw(shedMW) + ' MW');
         setHidden(agcEl, w.word === 'BALANCED' || !lim);   // at the word's thresholds
         lim = false;
       }

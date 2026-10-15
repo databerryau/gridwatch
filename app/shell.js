@@ -8,7 +8,7 @@ import {startRaf} from './loop.js';
 import {createKeys, bindKeys, poll as pollKeys, typing} from './keys.js';
 import {createAudio} from '../audio/audio.js';
 import {ANCHORS} from '../content/anchors.js';
-import {badgeText, badgeTitle, BADGE_HELP, NIGHT_LOCK, lightsText, centsText, co2Text, clockText, allInCents, mw, VCR_TEXT, VER_TEXT} from '../render/format.js';
+import {badgeText, badgeTitle, BADGE_HELP, NIGHT_LOCK, lightsChip, centsText, co2Text, clockText, allInCents, mw, VCR_TEXT, VER_TEXT} from '../render/format.js';
 import {BEATS} from './watch.js';
 import {modeOf, feederCard} from './director.js';
 import {observe} from '../sim/step.js';
@@ -592,7 +592,9 @@ export function bootGame(doc, deps) {
     const badge = $('rate-badge');
     if (badge) { badge.className = m.mode; const t = badgeTitle(m); if (badge.title !== t) badge.title = t; } // (Q-78: the act)
     const sc = v.obs.score;
-    setText('chip-lights-v', lightsText(sc));
+    const lights = lightsChip(v.obs), lc = $('chip-lights');
+    setText('chip-lights-v', lights);
+    if (lc && lc.classList.contains('dark') !== (lights !== '100%')) lc.classList.toggle('dark', lights !== '100%');
     setText('chip-cost-v', centsText(sc));
     setText('chip-co2-v', co2Text(sc));
     setText('btn-pause', m.mode === 'PAUSE' || m.mode === 'HIDDEN' || m.mode === 'ALARMS' ? 'PLAY' : 'PAUSE');
