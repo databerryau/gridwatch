@@ -11,7 +11,7 @@ import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK} from '../render/format.js';
 import {scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
-import {objective, consequence, steady, masked} from './objective.js';
+import {objective, consequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
 import {createRecorder, onTick, startTrace, traceOf, needleF, secondsWindow} from './record.js';
@@ -170,7 +170,7 @@ export function createGame(o) {
     rec: null, alarms: null, tray: null, watchMem: null,
     phase: 'briefing',
     ui: {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null, trayOpen: false,
-      drawer: false, settingsOpen: false, consider: null, armed: null,
+      drawer: false, settingsOpen: false, consider: null, considerMs: null, armed: null,
       alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
@@ -550,11 +550,11 @@ export function ui(game, cmd) {
     // C-10 (desk/README.md §19.5): the guard the player is hovering, focusing or has lifted.
     case 'consider': {
       const t = typeof cmd.target === 'string' && /^guard-(start|stop)-/.test(cmd.target) ? cmd.target : null;
-      if (t !== u.consider) { u.consider = t; game.considerDirty = true; }
+      if (t !== u.consider) { u.consider = t; u.considerMs = null; game.considerDirty = true; }
       return '';
     }
     // vm.armed: a guard's cover up or down
-    case 'armed': if (cmd.on) u.armed = cmd.target || null; else if (u.armed === cmd.target) u.armed = null; game.considerDirty = true; return '';
+    case 'armed': if (cmd.on) u.armed = cmd.target || null; else if (u.armed === cmd.target) u.armed = null; u.considerMs = null; game.considerDirty = true; return '';
     // Settings (K-22, §13.1, B-7): the popover never pauses the game.
     case 'mute': return setSetting(game, 'muted', !game.settings.muted);
     case 'volume': return setSetting(game, 'volume', cmd.volume); // the 1a form of {do: 'set', key: 'volume'}
@@ -698,6 +698,9 @@ export function alarmCtx(game, nowMs, realDtS) {
  * @param {object} game
  * @param {{nowMs:number, dtS:number}} f
  */
+/** X-42: a pointer resting on a guard (its cover down) shows "? IF PRESSED" this long, then the plan's line again. */
+export const CONSIDER_REST_MS = 4000;
+
 export function buildVm(game, f) {
   const state = game.state, d = game.director;
   const obs = observe(state);
@@ -775,22 +778,25 @@ export function buildVm(game, f) {
     }
     // C-10 (§19.5): what the guard under the player's hand would do, on the same cadence and at once
     // when the target changes ('consider' marks it; only consequence() is recomputed then, on the
-    // line's own day-ahead forecast) or an input lands; with its cover up, held until its level or words change.
+    // line's own day-ahead forecast) or an input lands. X-42: its figures are recomputed on that cadence
+    // with its cover up too (a promise of "12 min from now" stays true while the clock runs on), and a
+    // pointer resting on a guard gives the line back to the plan after CONSIDER_REST_MS.
+    if (game.ui.consider && game.ui.considerMs === null) game.ui.considerMs = nowMs;
     if (game.considerDirty) {
       game.considerDirty = false;
-      const t = game.ui.consider, was = game.consider;
+      const t = game.ui.consider;
       game.consider = null;
       // (the night lock refuses the press: the line says so, never what it would do; Q-73)
       if (t && !mode.locked && obs.nightShift) game.consider = {target: t, text: NIGHT_LOCK, level: 'plan'};
       else if (t && !mode.locked) {
         try {
           if (!game.dayAhead) game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
-          const c = game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview});
-          if (t === game.ui.armed && c && was && was.target === t && was.level === c.level && masked(was.text) === masked(c.text)) game.consider = was;
+          game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview});
         } catch (e) { game.consider = null; game.objectiveError = 'consequence: ' + errText(e); }
       }
     }
-    if (!game.ui.consider || mode.locked) game.consider = null;
+    const rested = game.ui.armed !== game.ui.consider && nowMs - game.ui.considerMs > CONSIDER_REST_MS;
+    if (!game.ui.consider || mode.locked || rested) game.consider = null;
     if (game.objective && mode.mode !== 'WATCH') for (const g of game.objective.targets) glow.add(g);
   } else { game.objective = null; game.objectiveHeld = null; game.consider = null; }
   if (offers.length) glow.add('bay-sync');
