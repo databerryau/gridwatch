@@ -25,11 +25,6 @@ export function hourOfDay(scn, s) {
   return (scn.clock.startH + s / S_PER_H) % DAY_H;
 }
 
-/** Grid second of an hour of day h (h >= 24 is the next morning). Not rounded. */
-export function secondOfHour(scn, h) {
-  return (h - scn.clock.startH) * S_PER_H;
-}
-
 // The table row i (0 <= i <= length - 2) that starts the segment holding x: the largest i
 // with t[i][0] <= x (the callers have already clamped x inside the table). Binary search
 // (integration: the linear scan was ~0.1 s of a day in sampleSecond and forecast); the

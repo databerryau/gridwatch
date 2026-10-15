@@ -36,7 +36,6 @@ export const UI = Object.freeze({
   red: '#f85149', amber: '#d29922', blue: '#58a6ff', green: '#3fb950', skyline: '#e6edf3',
   band: 'rgba(230,237,243,0.10)', ghost: 'rgba(230,237,243,0.55)',
 });
-export const GROUND = '#3f6b3a';
 export const SKY = '#6a9fd0';
 
 /** The six suburbs (U-1, SPEC §4.5): code as in obs.districts[].suburb, name, box in base px. */
@@ -51,7 +50,6 @@ export const SUBURBS = Object.freeze([
 
 /** The two city substations: the west trunk (tie, coal, gas) and the east trunk (hydro, wind, solar) end here. */
 export const SUBSTATIONS = Object.freeze([[210, 118], [468, 110]]);
-export const SUBSTATION = SUBSTATIONS[0];
 /** Trunk lines [x, y] pylon by pylon (medium pylons), each ending at a substation. */
 export const TRUNKS = Object.freeze([
   [[84, 128], [116, 126], [148, 123], [180, 120], [210, 118]],

@@ -593,8 +593,3 @@ v.MACHINE_IDS = v.MACHINES.map(m => m.id);
 
 /** Plain, frozen values of every param plus derived tables. Hot code hoists what it needs. */
 export const V = deepFreeze(v);
-
-/** Machine row by id ('coal1', 'gtb2', ...), or undefined. */
-export function machineById(id) {
-  return V.MACHINES.find(m => m.id === id);
-}

@@ -315,16 +315,6 @@ export function cueOfModeChange(from, to) {
   return to === 'starting' && from !== 'starting' && from !== undefined ? 'spoolUp' : '';
 }
 
-/**
- * Phase 1a's single cue per record, kept until stage C moves the game to cuesOfRecord: the
- * breaker clack for a machine's breaker closing and a feeder closed by RESTORE.
- */
-export function cueOfRecord(r) {
-  if (r.kind === 'breaker' && r.closed) return 'breaker';
-  if (r.kind === 'restore') return 'breaker';
-  return '';
-}
-
 // ------------------------------------------------------------------ rendering a voice
 
 // White noise through an RBJ bandpass (constant 0 dB peak), in place.

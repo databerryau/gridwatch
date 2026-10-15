@@ -202,7 +202,7 @@ export const MARGIN_MW = 150;
  * A unit is asked for when capacity is under the forecast plus this (MW): enough to lose the
  * largest unit (about 620 MW at the plan's loading) and still be within what the battery and one
  * gas turbine can make up. Par's rule 3 keeps 700 MW over full ratings and half the battery,
- * which is about 600 MW in this check's terms; measured in tests/objective.test.js (slow).
+ * which is about 600 MW in this check's terms; set by measuring followed days against par (tools/follow.mjs).
  */
 export const COMMIT_MARGIN_MW = 650;
 /** A shortfall ahead smaller than this is not worth a unit (MW). */

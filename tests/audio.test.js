@@ -33,11 +33,8 @@ test('K-20: the breaker clack decays to -60 dB over 120 ms with partials near 0.
   assert.equal(M.clackEnvelope(-1), 0);
   assert.deepEqual([...M.CLACK.partialsHz], [900, 1400, 2200]);
   assert.equal(M.CLACK.decayS, 0.12);
-  // The 1a single-cue mapping stays until stage C moves the game to cuesOfRecord.
-  assert.equal(M.cueOfRecord({kind: 'breaker', unit: 'gta1', closed: true, why: 'sync'}), 'breaker');
-  assert.equal(M.cueOfRecord({kind: 'breaker', unit: 'gta1', closed: false, why: 'trip'}), '');
-  assert.equal(M.cueOfRecord({kind: 'restore', district: 'RED1', mw: 200}), 'breaker', 'a feeder closing');
-  assert.equal(M.cueOfRecord({kind: 'ufls'}), '', 'UFLS clacks come from cuesOfRecord');
+  // (which records ask for it: cuesOfRecord, below; X-48 removed the 1a single-cue mapping)
+  assert.equal(M.cueOfRecord, undefined);
 });
 
 // ------------------------------------------------------------------ the cue table (pure)

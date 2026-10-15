@@ -34,8 +34,6 @@ import {createRecorder, onTick, startTrace, traceOf, needleF, secondsWindow} fro
 import * as A from './alarms.js';
 import * as T from './tray.js';
 import * as W from './watch.js';
-// A namespace import: cuesOfRecord (Phase 1b, desk/README.md §13.2) is used when the audio
-// model has it; until then the 1a cueOfRecord.
 import * as AM from '../audio/model.js';
 import * as S from './score.js';
 import {createParRunner, seriesAt} from './par.js';
@@ -332,12 +330,8 @@ function suburbOf(game, districtId) {
   return game.suburbs.get(districtId) || '';
 }
 
-// The cues a sim record asks for: the audio model's cuesOfRecord, else the 1a cueOfRecord.
-function recordCues(game, r) {
-  if (typeof AM.cuesOfRecord === 'function') return AM.cuesOfRecord(r, game.cueCtx) || EMPTY;
-  const c = typeof AM.cueOfRecord === 'function' ? AM.cueOfRecord(r) : '';
-  return c ? [c] : EMPTY;
-}
+// The cues a sim record asks for (Phase 1b, desk/README.md §13.2).
+const recordCues = (game, r) => AM.cuesOfRecord(r, game.cueCtx) || EMPTY;
 
 // K-15 (Q-97): the first directed shed's caption: how short the grid was before it (the BALANCE bar's gap now,
 // plus the load the shed took off; to the 50 MW) and what the city desk shed.
