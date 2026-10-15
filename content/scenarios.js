@@ -185,6 +185,7 @@ export const CLASSIC = {
   levers: null, // U-2: no city levers on the classic day
   dayplan: null, // Q-65: the legacy menu above
   night: false, // Q-73
+  hotTrips: true, // H-18 (Q-102): the legacy random hot-unit trip (H-2) is classic's alone
 };
 
 // Deep-frozen: a test or tool that edits a scenario in place would leak into every later

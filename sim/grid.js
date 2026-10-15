@@ -222,11 +222,12 @@ function stepUnit(state, i, out) {
     default: // 'on', 'off'
       break;
   }
-  // H-2: a hot unit trips itself. The draw is on the play stream at this grid second's tick
-  // for this unit, once per grid second, only after HOT_ARM_S hot.
+  // H-2: a hot unit trips itself, on the classic day only (H-18, Q-102: on the desk days the 96% gate
+  // is what it is in the physics, a unit with no raise headroom above it). The draw is on the play
+  // stream at this grid second's tick for this unit, once per grid second, only after HOT_ARM_S hot.
   if (u.sync) {
     u.hotS = u.outMW > HOT_FRAC * u.availMW ? u.hotS + 1 : 0;
-    if (u.hotS > HOT_ARM_S && uniform(state.seed, STREAM.PLAY, state.tick, i) < HOT_P_PER_S) {
+    if (state.scn.hotTrips && u.hotS > HOT_ARM_S && uniform(state.seed, STREAM.PLAY, state.tick, i) < HOT_P_PER_S) {
       fleet.tripUnit(state, i, HOT_CAUSE, HOT_LOCKOUT_S, out);
     }
   } else {

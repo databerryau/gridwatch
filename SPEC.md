@@ -551,7 +551,6 @@ Text copies of downloaded sources were kept in the review session's local workin
 
 Every row is labelled in-game behind a "?" (H-14). Its text (the real value, ours and why) is the row's entry in `content/text.js`, built from `sim/params.js`. The titles are tested: `tests/text.test.js` fails when a title here has no entry or an entry has no title, so a row is added here in the same commit as its entry.
 
-*Decided, builds in W1 (H-18):* a row for the GUARD ring (contingency FCAS set by hand); the directed-shedding row tagged as GRIDWATCH's own rule; the hot-unit trip removed.
 
 | Abstraction (the row title the game shows) | Where the player meets it | Entry in `content/text.js` |
 |---|---|---|
@@ -581,7 +580,8 @@ Every row is labelled in-game behind a "?" (H-14). Its text (the real value, our
 | **A mild day is the hot day with its cooling load removed.** | `#stack` | `mild-days` |
 | **The dispatch spills wind and solar automatically, pro rata.** | `#stack` | `auto-curtailment` |
 | **Minimum down time runs from breaker open to the next START.** | `#lever-coal` | `min-down-time` |
-| **Automatic directed shedding when the FOS timers run out.** | `#key-shed` | `directed-shedding` |
+| **Automatic directed shedding when the FOS timers run out.** (GRIDWATCH's own rule, H-18) | `#key-shed` | `directed-shedding` |
+| **The GUARD is contingency FCAS, set by hand.** | `#ring-guard` | `guard-ring` |
 | **Restore permissive** | `#bay-restore` | `restore-permissive` |
 | **Cold-load pickup ×1.5.** | `#bay-restore` | `cold-load` |
 | **City levers' MW, costs and patience.** | `#btn-dr` | `city-levers` |

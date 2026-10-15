@@ -131,12 +131,12 @@ const ABSTRACTIONS = [
       'calm evening; most evenings without a storm also bring an unwarned trip of the largest unit, and a storm may trip the tie. ' +
       'At most two unwarned trips a day, none before ' + hhmm(a2.windowH[0]) +
       ' or from ' + hhmm(NIGHT_H) + ', at least ' + num(V.SPACING_REAL_S) + ' real s and ' + minutes(V.SPACING_GRID_S) + ' grid-minutes ' +
-      'apart. A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min (' +
-      minutes(V.HOT_TRIP_LOCKOUT_S) + ' min after an overheat trip), then may hot-start at once: minimum down time (' + num(coal.minDownH) +
-      ' h for coal) applies only after a planned stop. The bench\'s classic day keeps the older menu: a large unit trip every day, plus extras.',
+      'apart. A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min, then may hot-start at once: minimum down time (' + num(coal.minDownH) +
+      ' h for coal) applies only after a planned stop. No machine trips for running near its limit: above 96% it simply has no raise ' +
+      'headroom (H-18). The bench\'s classic day keeps the older menu: a large unit trip every day, plus extras, and its overheat trips.',
     why: 'Drama in a short day: every act asks a real question of the fleet, and a trip is a problem to solve within the day, not a ' +
       'lost unit.',
-    params: ['SPACING_REAL_S', 'SPACING_GRID_S', 'HOT_TRIP_LOCKOUT_S', 'FLEET.coal.minDownH'],
+    params: ['SPACING_REAL_S', 'SPACING_GRID_S', 'FLEET.coal.minDownH'],
   },
   {
     id: 'compressed-synchroscope', row: 'Compressed synchroscope.', anchorId: 'sync-scope', game: 'bay-sync',
@@ -454,9 +454,18 @@ const ABSTRACTIONS = [
     ours: 'If frequency is still below ' + hz(V.NORMAL_LO_HZ) + ' Hz when the ' + minutes(V.FOS_RECOVER_S) + '-minute ' +
       'countdown ends, or below ' + hz(V.CONTAIN_LO_HZ) + ' Hz for more than ' + num(V.DIRECTED_BELOW_CONTAIN_S) + ' s, ' +
       'one rotation district goes dark every ' + num(V.DIRECTED_INTERVAL_S) + ' s until frequency recovers. It counts ' +
-      'against LIGHTS ON.',
+      'against LIGHTS ON. These timers are GRIDWATCH\'s own rule, not the frequency standard\'s: a stand-in for AEMO directing the networks (H-18).',
     why: 'No reflex test: the rule is visible and automatic.',
     params: ['NORMAL_LO_HZ', 'FOS_RECOVER_S', 'CONTAIN_LO_HZ', 'DIRECTED_BELOW_CONTAIN_S', 'DIRECTED_INTERVAL_S'],
+  },
+  {
+    id: 'guard-ring', row: 'The GUARD is contingency FCAS, set by hand.', anchorId: 'guard-ring', ui: 'drawer', game: 'ring-guard',
+    real: 'AEMO enables contingency FCAS (fast and very fast raise) in every 5-minute dispatch, co-optimised with energy: a battery is ' +
+      'paid to hold MW back and inject them within a second when frequency falls past its trigger.',
+    ours: 'You set the battery\'s GUARD ring by hand: MW held back from its energy order. Below ' + hz(V.GUARD_TRIGGER_HZ) + ' Hz it ' +
+      'delivers them within a second and holds them for ' + minutes(V.GUARD_SUSTAIN_S) + ' min, then re-arms. No market enables or pays it.',
+    why: 'The market makes this choice in reality; here it is the desk\'s own decision: energy now, or a catch for the next trip (H-18).',
+    params: ['GUARD_TRIGGER_HZ', 'GUARD_SUSTAIN_S'],
   },
   {
     id: 'restore-permissive', row: 'Restore permissive', anchorId: 'restore-permissive', game: 'bay-restore',

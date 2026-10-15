@@ -24,7 +24,8 @@ export const ALARM_HELP = {
     means: 'The city uses more power than the machines make, so they all slow a little.',
     why: 'Frequency is the machines\' speed. A shortfall drains their spin until the battery, governors and load relief catch it, ' +
       'and AGC restores ' + V.F0_HZ + ' Hz. Out of the band ' + min(V.FOS_RECOVER_S) + ' min (under ' + hz(V.CONTAIN_LO_HZ) + ' Hz: ' +
-      min(V.DIRECTED_BELOW_CONTAIN_S) + ' min), districts are shed; at ' + hz(V.UFLS_FIRST_HZ) + ' Hz relays shed at once.',
+      min(V.DIRECTED_BELOW_CONTAIN_S) + ' min), districts are shed (GRIDWATCH\'s own rule: a stand-in for AEMO directing the networks); at ' +
+      hz(V.UFLS_FIRST_HZ) + ' Hz relays shed at once.',
     todo: {text: 'More supply: discharge the battery, start a unit (S S), import on the TIE, hold D for demand response, or RE-DISPATCH (N).',
       target: 'dial-battery'},
     real: {text: FOS + '(2023): ' + BAND + ', at most ' + min(V.FOS_RECOVER_S) + ' min outside; a credible trip within ' + V.CONTAIN_LO_HZ +
