@@ -133,6 +133,7 @@ test('Q-68, the tie derate: the look-ahead holds the limit until its end, then t
   const now = copy(obs);
   now.sec.level = 'SHORT';
   for (const fc of [now.forecast, now.dayAhead]) { const R = capacityGap(now, fc, {real: true}); for (let k = 0; k < 4; k++) fc.demandP50[k] += 300 - R.gap[k]; }
+  now.balance.servedMW = now.balance.schedSupplyMW + 400;   // (X-44: the grid itself short, nothing carrying it)
   const n = lineOf(now);
   assert.deepEqual([n.kind, n.level], ['short', 'crit']);
   assert.ok(n.text.startsWith('The plan is ') && n.text.includes(' below demand now' + why + ': '), n.text);

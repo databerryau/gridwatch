@@ -6,6 +6,7 @@ import {V} from '../sim/params.js';
 import {SCENARIOS} from '../content/scenarios.js';
 import {clockText, priceText} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
+import {imbalanceSegments} from '../desk/calc.js';
 import {aimFlex} from '../sim/autopilot.js';
 import {gridAfter, NIGHT_S} from '../sim/clock.js';
 import {darkShareAt, litMW} from '../sim/dark.js';
@@ -657,13 +658,19 @@ function shortNow(X, line) {
   const R = realShort(X);
   const planShort = X.redNowMW >= CRIT_MW && R.nowMW > -SHORT_MIN_MW;
   const capShort = shedding && R.nowMW >= SHORT_MIN_MW;
+  // X-44: no emergency while the BALANCE bar reads BALANCED (what the battery already gives through
+  // AGC carries the plan's red): frequency is held, and a reserve short or a dark district has its own
+  // line. The bar shows a 1-s average and AGC hunts under it, so the line reads the gap now against
+  // the least shortfall it would name (SHORT_MIN_MW), not the bar's word thresholds.
+  if (imbalanceSegments(obs.balance, b).schedMW > -SHORT_MIN_MW && obs.f.hz >= V.NORMAL_LO_HZ) return null;
   if (!planShort && !sagging && !capShort) return null;
   const mw = Math.max(planShort ? X.redNowMW : 0, sagging ? obs.agc.unmetMW : 0, R.nowMW, SHORT_MIN_MW);
   const fast = [];
   // The battery first: it is there in seconds and costs only its wear. Sized to the deficit, from
   // the charge above its reserve; MW held back as GUARD are worth more as power while the desk is
   // short (par's rule 2), so the ring comes down first when the order needs the room.
-  const have = b.mode === 'discharge' ? b.orderMW : 0;
+  // (X-44: never less than it is already giving, its GUARD and droop included)
+  const have = Math.max(b.mode === 'discharge' ? b.orderMW : 0, b.outMW > 0 ? b.outMW : 0);
   const want = Math.min(b.ratedMW, Math.ceil((have + mw) / V.GUARD_STEP_MW) * V.GUARD_STEP_MW);
   if (b.socMWh - RESERVE_MWH > want * BATT_MIN_H && want >= have + BATT_MIN_MW) {
     // what the GUARD leaves first (one move, and it is there at once); the ring only when that is used up
