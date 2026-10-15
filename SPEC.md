@@ -447,8 +447,8 @@ Live targets only. Figures are on the game's day (`desk`, `desk-weekend`) unless
 | Par sheds nothing, raw seeds | `desk` 93.5%, `desk-weekend` 99% (2c stage C) | ≥85% | `tools/par.js` (S-12) |
 | Par sheds nothing, forced heatwave | 74 of 100 | ≥70% (Q-87) | `tools/par.js` |
 | Par arms the reserve diesel | `desk` 6.5–7.5% (2a) | ≤25% | `tools/par.js` (Q-2) |
-| Competent proxy earns A | 75% of 100 `desk` days (after Q-88) | ≥70%; re-measured under Q-98's letters (W1) | `tools/par.js --allin` (S-5) |
-| Lean proxy earns A | 48% of 200 (2b, before Q-98) | ≤40% (S-5) | `tools/par.js --allin` |
+| Competent proxy earns A | 83.5% (167 of 200 `desk`+`desk-weekend` days, Q-98's letters, `v4-core-2c.2`) | ≥70% ✓ | `tools/par.js --allin` (S-5) |
+| Lean proxy earns A | 70% (140 of 200, Q-98's letters, W1; commit-all 2.5%, B on 94%) | ≤40% (S-5) ✗: a lean day is within 10 MWh-equivalents of par; open for the owner | `tools/par.js --allin` |
 | A no-input day | fails on 22 of 22 seeds (2a); 11–54 points, a D, on 2026-10-14 (review) | fails, never black | `tools/par.js` (Q-18) |
 | SECURE states that hold ≥49.5 Hz when a credible contingency trips | `desk` 6,495 of 6,495; `desk-weekend` 6,684 of 6,685 (2a) | 1,000 of 1,000 | H-8 |
 | Heatwave share | 15.4% of 2,000 raw seeds; 17.0% of the shipped year | 15 ± 2% | `tests/dayplan.test.js`, `tools/daily-gen.js` |
