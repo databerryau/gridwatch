@@ -62,17 +62,33 @@ const inverterAt = (tr, i) => (tr.caught.inverterMW ? tr.caught.inverterMW[i] ||
 // The beat the trace shows at tick offset k (before the monotonic rule). `sg` is +1 for a loss of
 // supply and -1 for a loss of load, so each source's catch is read as a magnitude in the
 // direction that helps; the inverters' catch counts with the governors (both are droop).
-function rawBeat(tr, k, uflsK, sg = 1) {
+// X-39: a source lights its beat once it carries BEAT_SHARE of the hole (the spin's catch at the
+// first tick) and is the larger of the two droop catchers, so a few MW of inverter release in the
+// first tick light nothing, and the battery, which answers within a second, lights before the
+// governors whenever it caught more. Past the extreme (`extK`, -1 while unknown) the governors,
+// still opening, are what turns frequency round: they light then on the same share.
+function rawBeat(tr, k, uflsK, sg = 1, extK = -1) {
   if (k >= SETTLE_S * TPS) return 4;
   if (uflsK >= 0 && k >= uflsK && k < uflsK + UFLS_BEAT_S * TPS) return 3;
   const i = Math.max(0, Math.min(k, tr.len - 2));
-  const c = tr.caught;
-  const inertia = sg * c.inertiaMW[i], batt = sg * (c.batteryMW[i] + c.guardMW[i]);
+  const c = tr.caught, least = BEAT_SHARE * Math.abs(c.inertiaMW[0]);
+  const batt = sg * (c.batteryMW[i] + c.guardMW[i]);
   const gov = sg * c.governorsMW[i] + Math.max(0, sg * inverterAt(tr, i));
-  if (!(inertia >= 0) && !(batt >= 0)) return 0;
-  if (gov > batt && gov > 0 && k > 0) return 2;
-  if (batt > inertia && batt > 0) return 1;
+  if (gov >= least && (gov > batt || extK >= 0 && k > extK)) return 2;
+  if (batt >= least && batt >= gov) return 1;
   return 0;
+}
+
+/** A droop source's beat lights from this share of the lost MW (X-39). */
+export const BEAT_SHARE = 0.05;
+
+// The tick offset of the extreme: the record's when it has one, else the trace's own (up to `upTo`).
+function extremeK(tr, c, upTo, sg) {
+  if (c && c.extremeTick >= c.startTick) return c.extremeTick - c.startTick;
+  if (!tr.f) return -1;
+  let best = 0;
+  for (let i = 1; i < Math.min(upTo, tr.len); i++) if (sg * tr.f[i] < sg * tr.f[best]) best = i;
+  return best;
 }
 
 // First tick offset at which UFLS had shed load (caught.uflsMW > 0), or -1.
@@ -91,10 +107,10 @@ function firstUfls(tr, upTo) {
  */
 export function beatTimeline(tr, upTo = V.WATCH_S * TPS, c) {
   const out = [];
-  const uflsK = firstUfls(tr, upTo), sg = isRise(tr, c) ? -1 : 1;
+  const uflsK = firstUfls(tr, upTo), sg = isRise(tr, c) ? -1 : 1, extK = extremeK(tr, c, upTo, sg);
   let cur = -1;
   for (let k = 0; k < Math.min(upTo, V.WATCH_S * TPS); k++) {
-    const b = Math.max(cur, rawBeat(tr, k, uflsK, sg));
+    const b = Math.max(cur, rawBeat(tr, k, uflsK, sg, extK));
     if (b !== cur) { out.push({k, beat: BEATS[b]}); cur = b; }
   }
   return out;
@@ -116,7 +132,9 @@ export function watchView(w, tr, c, tick, m) {
   if (w.n !== c.n) { w.n = c.n; w.beat = 0; w.uflsK = -1; }
   const k = tick - c.startTick, rise = isRise(tr, c);
   if (w.uflsK < 0) w.uflsK = firstUfls(tr, k);
-  const b = Math.max(w.beat, rawBeat(tr, k, w.uflsK, rise ? -1 : 1));
+  // the extreme counts once it is known (as the nadir figure below), so a beat never runs ahead of the trace
+  const extK = c.extremeTick >= c.startTick && tick - c.extremeTick > TPS / 2 ? c.extremeTick - c.startTick : -1;
+  const b = Math.max(w.beat, rawBeat(tr, k, w.uflsK, rise ? -1 : 1, extK));
   w.beat = b;
   // The nadir (the peak of a rise) is known once frequency has turned back.
   let nadir = 0;
