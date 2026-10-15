@@ -315,3 +315,10 @@ test('Q-73: in the night a key on a lever that has lost the focus answers on it 
   b.click();
   assert.deepEqual(m.a.uis.filter(u => u.do === 'focus'), [{do: 'focus', target: 'stack'}]);
 });
+
+test('X-41: a tie trip names the direction the power was flowing: import lost, or export lost (never a negative import)', () => {
+  const imp = T.cardOf({kind: 'contingency', cause: 'link', id: 'tie', tick: 1, lostMW: 300});
+  const exp = T.cardOf({kind: 'contingency', cause: 'link', id: 'tie', tick: 2, lostMW: -300});
+  assert.equal(imp.text, 'Interconnector tripped: 300 MW of import lost.');
+  assert.equal(exp.text, 'Interconnector tripped: 300 MW of export lost.');
+});

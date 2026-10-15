@@ -83,7 +83,8 @@ export function cardOf(r, night = false) {
         text: unitName(r.id) + ' tripped: ' + Math.round(r.lostMW) + ' MW lost. Protection lockout; the plan has a hole.',
         button: {label: 'TO THE LEVER', target: leverOf(r.id)}};
       if (r.cause === 'link') return {key: 'trip:tie:' + r.tick, from: SENDERS.station, sev: 'warn',
-        text: 'Interconnector tripped: ' + Math.round(r.lostMW) + ' MW of import lost.', button: {label: 'TO THE TIE', target: 'knob-tie'}};
+        text: 'Interconnector tripped: ' + Math.round(Math.abs(r.lostMW)) + ' MW of ' + (r.lostMW < 0 ? 'export' : 'import') + ' lost.', // (X-41: exporting, lostMW < 0)
+        button: {label: 'TO THE TIE', target: 'knob-tie'}};
       return {key: 'trip:load:' + r.tick, from: SENDERS.station, sev: 'warn',
         text: 'Smelter potline tripped: ' + Math.round(Math.abs(r.lostMW)) + ' MW of load gone. Frequency rises.',
         button: {label: 'TO THE DIAL', target: 'dial-freq'}};
