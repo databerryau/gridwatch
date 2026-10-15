@@ -1,6 +1,16 @@
 // desk/emergency.js: K-7 emergency controls, the A-1 RE-DISPATCH key and the K-2 AGC/HAND key
 // (desk/README.md §6, §0 A-1, A-3).
-// Contract: desk/README.md §32.12 desk/emergency.js.
+//
+// Reserve diesel (RERT): a key under a red cover. The first press lifts the cover and shows the
+// cost and lead; then hold 0.6 s (or hold E) to arm. Armed, the same hold stands it down.
+// Industrial DR: a big button, hold 0.6 s (or hold D); lamps for the calls left.
+// DIRECT SHED: a guarded key (lift, then hold 0.6 s), shown only while the gauge reads SHORT or
+// SHEDDING (A-3). Its face names the district the sim will shed and that district's load
+// (calc.nextShed, obs.districts[].coldLoadMW: "about 0 MW" for one that is feeding back at noon,
+// Phase 2a). Nothing here commits on a single tap: clicks are ignored, only holds commit
+// (DIRECT SHED also takes the keyboard's guarded double: Enter lifts, Enter again within 2 s, §13.3).
+// Keys (K-23): E / D held; K focuses DIRECT SHED, V the AGC/HAND key, N presses RE-DISPATCH.
+// Foley (K-20): covers cue `cover` (lift and drop), key switches `key`, push buttons `button`.
 
 import {V} from '../sim/params.js';
 import {nextShed} from './calc.js';

@@ -1,5 +1,19 @@
 // sim/step.js: the sim's public API (spec F-2, F-3, F-4, F-6, C-6, C-7).
-// Contract: sim/README.md §11 step.js.
+//
+//   createState(seed, scenario) -> state      plain JSON, ext timeline pre-rolled
+//   step(state, inputs)         -> events[]   one 20-ms physics tick; every 50th tick
+//                                             also runs the 1-s grid update first
+//   applyInput(state, input, out)             validate + apply + log one input
+//   observe(state, opts)        -> obs        the player's view (desk, map, autopilot)
+//   hashState(state)            -> u32        fingerprint of all state except scn and ext
+//   replay(seed, scenario, log) -> state      F-6 headless replay (throws on divergence)
+//   deriveExt(state), openDay(state)          2c: createState's ext derivation and its 04:00 opening (tests/lib/inject.js re-runs them)
+//   scenarioHash(scn)           -> u32        2c: the scnHash createState computes (the dailies' build stamp, Q-75)
+//
+// Stage A wrote this file and it works as far as its callees do; stage B owner
+// "integration" keeps it. The order of calls in step() is part of the contract
+// (sim/README.md §3): change it only through the README. The observe() shape is frozen
+// (README §8, tests/state.test.js); hashState needs no edits when state grows.
 
 import {V, SIM_VERSION} from './params.js';
 import * as weather from './weather.js';

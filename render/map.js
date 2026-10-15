@@ -1,5 +1,105 @@
 // render/map.js: the living isometric city map (desk/README.md §7, §14.3; SPEC G-1..G-5).
-// Contract: desk/README.md §31.8 render/map.js.
+// One screen canvas; the scene is drawn on a fixed BASE_W x BASE_H offscreen canvas and
+// blitted at an integer scale (render/mapdata.js scaleFor), letterboxed with the ground and
+// sky colours, never sky under the ground. Reads the view model only (vm.obs, vm.mode,
+// vm.hover, vm.glow, vm.alarms, vm.settings.reducedMotion). Math.random is cosmetic only (F-3).
+//
+//   const map = createMap(document, root, actions);   // root: the #map box
+//   map.update(vm);                                   // every frame
+//   map.key(ev);                                      // the shell forwards keys (§13.3); true when it acted
+//
+// What it shows
+//   G-2  one silhouette per technology (shapes are data in mapdata.js PLANT_PARTS): coal =
+//        hyperbolic cooling towers, banded stacks, a coal pile; CCGT = two boxy HRSGs with
+//        stubby stacks; GTs = a shed and one stack each; hydro = a dam wall, a spillway and
+//        penstocks; battery = rows of white containers; tie = tall lattice pylons marching off
+//        the west edge; wind turbines on the ridge; solar rows on the plain. Labels on hover,
+//        focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
+//        target}); vm.hover rings the plant back. A click: see the click listener (Q-41).
+//   G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
+//        west; long warm light and long shadows at sunset; lit windows at night: the homes
+//        awake (occupancy(h), 2c Q-73: 0.9 until 21:00, falling linearly to 0.15 by 01:00,
+//        flat to 05:30, waking linearly to 0.9 by 07:30) times what the city is using (0.3 +
+//        0.8 x underlying demand / 8 GW, so a 6-GW evening is 0.9), rounded to 30 steps: in the
+//        night roll the city goes dark window by window (each window has a fixed switch-off
+//        order, hash01 <= lit) in about 23 cached redraws, and Act I opens on a sleeping city
+//        that wakes. Rooftop PV
+//        (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
+//        layer, cached) and a glint on them each frame: per suburb, as bright as its output
+//        over its capacity (cloud dims it) and as the light; never on a dark district, on a
+//        relit one only as its inverters ramp back; a static pattern under reduced motion.
+//   G-4  weatherOf(obs): heat = haze on the horizon + a bleached warm palette + shimmer;
+//        storm = two layers of dark cloud, slanted rain and rain sheets, a darker ground,
+//        turbines feathered at cut-out; cloud front = grey cloud and soft shadows drifting
+//        over the suburbs. All three are drawn static under reduced motion.
+//   G-5  a shed district goes dark block by block (90 ms each) and gets a hatched outline; a
+//        tripped machine smokes, strobes red and carries a ✕ for its whole lockout; rotors slow
+//        in the watch; the watch spotlight (B-5) dims everything but the cause.
+//
+// Keys (map focused; tabindex 0): ←/→ cycle the plants then the suburbs (sets the hover and
+// shows the label), Home the first, Enter presses the hovered one as a click does (a plant's
+// control, wind's or solar's label, a suburb's card; not while the RESPOND card is up or in the
+// briefing: Enter is theirs, dismiss and TAKE THE DESK), Esc leaves. key() returns true exactly
+// when it acted; the map's own keydown listener calls it and stops the event, so a key forwarded
+// by the shell never acts twice.
+//
+// Cost: the sky, the terrain (with the plants), the city (with its rooftop panels) and the
+// cloud strips are cached on their own canvases and redrawn only when the light bucket, the
+// weather bucket or a district's dark blocks change; a frame is a few blits plus the moving
+// parts. The glint is one path and one fill per suburb from typed arrays laid out once.
+//
+// Phase 2b, the city levers (desk/README.md §31; Q-56, Q-57, §31.9.10). Also reads vm.suburb
+// and obs.levers.
+//   Click   a suburb sends actions.ui({do: 'suburb', id}); one with a dark district sends
+//           {do: 'focus', target: 'bay-restore'} first (Q-42), and the shell then opens the card
+//           without taking the focus off RESTORE. Enter on a hovered suburb does the same (Keys
+//           above). A suburb click no longer pins the blue label: the card carries its draw and
+//           roofs (app/suburbcard.js computes them; mapPinText's suburb branch is kept for tests
+//           only, since no suburb is pinned now). Wind, solar and the ground still
+//           pin; the ground's says "Click a plant for its control, a suburb for its card".
+//   Hover   a suburb sends {do: 'hover', target: 'suburb-<ID>'} (H reads it; the stack's
+//           bands do not light for it).
+//   Overlay per frame, never in the cached layers (a booking redraws nothing cached):
+//           - a blue rectangle round vm.suburb (none in the watch: the card is hidden);
+//           - the glow ring for a glowing 'suburb-<ID>' (the objective names it), as a plant's;
+//           - the white hover ring for the pointer's suburb or vm.hover 'suburb-<ID>' (a band
+//             hovered on the stack);
+//           - suburbTag(obs.levers, id, s), top left in the suburb on a dark plate (none in the
+//             watch: the spotlight dims all but the cause): 'SOAK HH:MM' or 'AIR HH:MM', the
+//             lever and start of its first block not yet over; then, after its first air-con
+//             booking today or while locked, its patience (the suburb's, whichever lever the
+//             mark names): '☺ 80' at or above PATIENCE_FULL (full response), '☹ 40' below it
+//             (the response falls), '☹ 15 LOCKED' under PATIENCE_LOCK. A glyph and a number,
+//             never colour alone (K-22). A booking that was cancelled refunds its patience and
+//             shows none. ☺ and ☹ (U+263A, U+2639) carry the Unicode Emoji property but present
+//             as text by default: the stage-C browser pass checks them on Windows Chrome; if a
+//             colour emoji is drawn, use 'P80', 'P40 ▼', 'P15 LOCKED'.
+//   Text    mapSummary (K-23) names the hovered suburb's tag: "On <name> <tag>: Enter opens
+//           its card."
+//
+// Slice 2c (desk/README.md §32.7.4; Q-69, Q-73). A task feeder before its clearS is the network's
+// outage, not the desk's. darkOf(obs, id) (exported; the suburb card says the same words) gives a
+// suburb's dark districts {n, h, back, text}: n dark, h of them held (clearS > obs.s), back their
+// hand-back times in order, each time once (2e's forced first shift gives both feeders one
+// clearance: "BACK 06:45"), and text: "2 DARK · BACK 06:45, 07:05" while all are held, "2 DARK
+// (1 BACK 07:05)" while some are the desk's (a feeder handed back and not yet closed, or a shed one
+// beside the held: "3 DARK (2 BACK 06:45, 07:05)"), "2 DARK" with none held.
+//   Label   while every dark district of a suburb is held, its label is blue ('info', framed):
+//           "SALTBUSH BAY: 2 DARK · BACK 06:45, 07:05", then "SALTBUSH BAY: 1 DARK · BACK 07:05"
+//           once the first is closed; while one is the desk's it is today's red alarm,
+//           "SALTBUSH BAY: 2 DARK (1 BACK 07:05)" (the count is every dark district, as the bay
+//           and the objective line count them; the bracket says which are not yet yours). The
+//           suburb's name, as every map alarm, not its code. A held label replaces the plain
+//           hover name (pointing at it, or arrowing to it, keeps the times), and the held labels
+//           come after every red alarm, so a blue label never takes one of the 3 rest places
+//           from a red one.
+//   Click   a suburb whose every dark district is held opens its card without the RESTORE focus
+//           (nothing to restore yet; the card says when); one with a feeder that is the desk's
+//           sends {do: 'focus', target: 'bay-restore'} first, as before.
+//   Text    "Districts dark: Saltbush Bay 2 (under repair until 06:45, 07:05)." (the permissive's
+//           own words for a held feeder); "Saltbush Bay 2 (1 under repair until 07:05)" when not
+//           all are held.
+//   Windows the occupancy curve, G-3 above.
 
 import {V} from '../sim/params.js';
 import {BASE_W, BASE_H, HORIZON_Y, COLOURS, UI, SUBURBS, SUBSTATIONS, TRUNKS, PLANTS, PLANT_PARTS, WIND_TURBINES, TURBINE_H,

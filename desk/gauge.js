@@ -1,5 +1,30 @@
 // desk/gauge.js: the K-10 N-1 gauge and TRIP PREVIEW (desk/README.md §6, A-2).
-// Contract: desk/README.md §32.12 desk/gauge.js.
+// "SPARE IN 5 MIN" (R5) against "BIGGEST RISK: <name>" (L), the H-4 word, and the TRIP PREVIEW
+// for both credible contingencies (the largest unit and the tie import). Plain words on the face;
+// R5, L and the LOR names sit behind "?". Colours by nadir: >= 49.55 green, 49.0-49.55 amber,
+// < 49.0 red, always with a glyph. The bars are told apart without colour too (K-22): SPARE is a
+// solid fill and carries the level's glyph on its number (✓ covers 1.25 × the risk, ! covers the
+// risk, ✕ short: cross-hatched), RISK is a hatched fill.
+//
+// 2c, the COVER row (Q-74), in the caught line's place (while it shows, the live preview's caught
+// words move into the preview's title). It shows while frequency is outside 49.85-50.15 Hz
+// (fos.outsideS > 0), for BAND_OK_MS (3 real s) after it returns, while obs.inRespond, and while
+// the latest contingency is past its watch and still uncovered (securedTick < 0); never in the night
+// roll (obs.nightShift, Q-73: a contingency there is logged only). In that order:
+//   BAND LOW / BAND HIGH n   fos.countdownS, the bar draining over FOS_RECOVER_S (amber)
+//   BAND LOW ✕ n OVER        fos.countdownS at 0: n = outsideS - FOS_RECOVER_S (amber; directed shedding runs)
+//   BAND ✓                   the 3 real s after a return seen fresh (green; the gauge's previous update
+//                            under 1 real s before and the same day, so never across a jump or after
+//                            PLAY THIS DAY AGAIN), never beside a SHORT or SHEDDING head
+//   COVER n                  to secureByTick, the bar draining over SECURE_AGAIN_S (plain)
+//   COVER ✓ T+n              covered (securedTick) inside the window (green)
+//   COVER LOST               covered, and the level is SHORT or SHEDDING inside the window (amber)
+//   COVER ✕ n OVER           past secureByTick uncovered (amber), titled COVER_OVER_TITLE
+// The figure n is m:ss at 10× or slower (the watch's slow part, the card, FOCUS, PAUSE) and whole
+// minutes rounded up above it ("n MIN"), as the dial's readouts; a new figure for the same word is
+// drawn at most every FIGURE_MS (500 real ms), a new word at once; the gauge's aria label (the
+// group that takes the focus) ends with the row in m:ss, and the overdue title. The "?" adds COVER's
+// and BAND's sentence. Real ms are the frame's (vm.frame.nowMs).
 
 import {V} from '../sim/params.js';
 import {el, setText, setAttr, setCls, setStyle, setHidden, mw, hz2, fin, clamp, mmss, unitLabel, nadirClass, CLASS_GLYPH, PAN} from './util.js';

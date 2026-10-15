@@ -1,5 +1,15 @@
 // sim/weather.js: the external world's weather and demand (spec F-3, P-6, S-4).
-// Contract: sim/README.md §11 weather.js.
+//
+// Stage A (implemented, frozen API): the weather regime and the pre-rolled ext series,
+// table readers, and sampleSecond(), which sets state.env for each grid second.
+// Stage B owner "market + events": forecast() (S-4 drift toward announced regime, L-2 band).
+// Phase 2a owner "world" (desk/README.md §21.1): rooftop PV behind the meter (P-1, P-2), the
+// day types (P-3: MILD days and weekends, from the public state.day), the per-suburb rooftop
+// skies (prerollRooftop, C-5) and the forecast's rooftop and underlying columns. On a scenario
+// with no rooftop and no MILD days (the classic day, C-1) every value is bit-identical to before.
+//
+// Pure functions only. No transcendental Math functions (risk 5): tables are
+// interpolated with arithmetic, and noise comes from rng.normal (exact arithmetic).
 
 import {V} from './params.js';
 import {STREAM, uniform, normal, quantise} from './rng.js';
@@ -125,7 +135,7 @@ export function rooftopClearSkyMW(scn, h) {
   return r.capacityMW * r.clearFactor * tableLinear(r.shapePm, h) / PM;
 }
 
-/** Q-65's one climatology: the dayplan block, else derived from scn.events (sim/README.md §11 weather.js, 2c). */
+/** Q-65's one climatology: the dayplan block, else derived from scn.events (sim/README.md, section "weather.js", 2c). */
 export function climate(scn) {
   const e = scn.events || {}, d = scn.dayplan, heat = e.heat && {clearMu: e.heat.clearMu};
   if (d) {
@@ -197,7 +207,7 @@ export function prerollSeries(seed, scn, regime, events) {
 // The step-and-length-generic mean-reverting series (Phase 2a): `len` samples at `stepS` spacing
 // from `start`, reverting to `mu` (moved by `changes`) by `revert` of the gap per step, with
 // `sigma` of noise per step from normal(seed, stream, sample, b), kept inside [lo, hi]. Raw values,
-// not quantised. `fronts` (frontsOf) `lag` s behind: Q-79's fold (sim/README.md §11 weather.js).
+// not quantised. `fronts` (frontsOf) `lag` s behind: Q-79's fold (sim/README.md, section "weather.js").
 function revertSeries(seed, stream, b, len, stepS, start, mu, revert, sigma, lo, hi, changes, fronts = NO_CHANGES, lag = 0) {
   const out = new Array(len);
   let x = start, m = mu, next = 0, x0 = 0;
@@ -495,8 +505,47 @@ function smelterLoadAt(sm, pending, t) {
 }
 
 /**
- * Forecast for the player and par (S-4, L-1, L-2), from public information only: never state.ext.
- * Its doc (the shape, the method, the band): sim/README.md §11 weather.js, "forecast()".
+ * Forecast for the player and par (S-4, L-1, L-2). Uses ONLY public information: the
+ * scenario's climatology (demand shape and noise process, clear-sky sun, mean wind and
+ * clearness, the rooftop curve and its cloud process, the public timings of climate(scn)), the
+ * public kind of day (state.day: MILD or HOT, weekend), the present state (state.env, and
+ * the smelter's present load and announced return) and announcements already made
+ * (state.news). Never reads state.ext.
+ *
+ * Returns {fromS, stepS, n, demandP50[], demandP10[], demandP90[], windMW[], solarMW[],
+ * neighbourPrice[], exportLimitMW[], underlyingP50[], rooftopMW[], flexMW[]}, column k (0-based) at
+ * grid second fromS + (k + 1) * stepS. neighbourPrice and exportLimitMW are the public daily shapes
+ * (P-6, F-13), exact, for the tie's merit order in the L-0 plan. Phase 2a (desk/README.md §19.3):
+ * demandP50 / P10 / P90 are OPERATIONAL demand (P-1, with flex); underlyingP50 = demandP50 -
+ * flexMW + rooftopMW + the smelter's expected missing load (2b: README §8); rooftopMW is as if
+ * every inverter were connected, after the heat derate (0 in every column on a scenario with
+ * no rooftop). horizonS may run to the end of the sim day (observe's dayAhead).
+ *
+ * Integrated minute by minute (so the result does not depend on stepS):
+ *   underlying P50 = underlyingBaseMW(day, h) x announced heat multiplier + the present
+ *     deviation decaying at the scenario's noise revert rate;
+ *   rooftop = the P-2 curve at the suburbs' capacity-weighted clearness (the rooftop factor is
+ *     affine in k, so one weighted value is exact), drifting from its present value toward the
+ *     scenario's mean (an announced heatwave's clear skies from its onset) at the regional
+ *     sky's revert rate, x the heat derate inside the ANNOUNCED heat window;
+ *   demand P50 = underlying P50 + flex (the booked blocks, flexAt) - rooftop - the smelter's
+ *     expected missing load;
+ *   P10 / P90 = P50 -+ Z_P90 x sd(lead), where sd is the forecast error of the scenario's
+ *     own demand-noise process (an OU series: var grows as sigma^2 (1 - a^2L) / (1 - a^2)
+ *     with a = 1 - revertPerMin) plus the per-second wobble (FINE_NOISE_MW, at the target
+ *     and carried from the origin) plus the rooftop's (below). sd is 0 at lead 0 (L-2; README §11);
+ *   wind and clearness drift from the present toward the climatological mean, or toward
+ *     the announced regime (storm surge then cut-out risk; drought; cloud front inside its
+ *     warned window; heat's clear skies), with time constant FC_DRIFT_TAU_S.
+ * The rooftop part of the band is the forecast error of the C-5 cloud process itself, in MW at
+ * that hour's sun: the regional sky's variance grown over the lead, plus the suburbs' local
+ * terms (independent, so weighted by the sum of squared shares): their own growth, and the
+ * part of the present deviation that was local and fades faster than the forecast assumes
+ * ((regional decay - local decay)^2 x their stationary variance).
+ * 2c: a warned front over the suburbs and the precinct, read against the skies now, and its
+ * clearing's variance (Q-79; above).
+ * Unannounced events (a heatwave before its 10:30 warning, trips, the smelter's trip) are
+ * not in it: that is the forecast's honest error.
  */
 export function forecast(state, horizonS, stepS) {
   const scn = state.scn, env = state.env, s0 = env.s, day = state.day;
@@ -516,7 +565,7 @@ export function forecast(state, horizonS, stepS) {
   const roof = scn.rooftop, hasRoof = roof.capacityMW > 0;
   const sky = {k: 1, vR: 0, vL: 0, dR: 1, dL: 1}, part = {k: 1, vR: 0, vL: 0, dR: 1, dL: 1};
   let cloud = null, rPlan = null, shareSum = 0, share2 = 0, locStat2 = 0, tc = s0, k0 = 0, front = null, fsd = 0;
-  // Q-79: place a's expected sky at s under the front, r its sky without it; its sd in fsd (sim/README.md §11 weather.js)
+  // Q-79: place a's expected sky at s under the front, r its sky without it; its sd in fsd (sim/README.md, section "weather.js")
   const fk = (a, r, s) => {
     const f = front, y = s - a, a0 = Math.max(a, s0), w = Math.max(1, f.c1 - f.c0), c1 = f.c0 + w;
     const g = Math.min(1, Math.max(0, (s - a0) / Math.max(1, a + f.inS - a0)));

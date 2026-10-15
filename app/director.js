@@ -1,5 +1,96 @@
 // app/director.js: chooses the playback rate (spec F-5, K-15, K-16, D-6). The sim never does.
-// Contract: desk/README.md §32.12 app/director.js.
+//
+// Modes (desk/README.md §2), precedence OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD >
+// FEEDER-CARD > FOCUS > RESPOND > OFFER > NIGHT > FAST > CRUISE (§32.4.8; OFFER: wave 2's fix pass;
+// FEEDER-CARD: Q-91, in RESTORE's place):
+//   CRUISE        the D-2 profile (slice 2c, Q-62/Q-63): sim/clock.js rateAt(s, hand), eased over 2 real
+//                 s at each interior boundary, halved from 04:30 to 21:00 when the day is HAND's
+//                 (handAt: state.control.handFlown, or the mode HAND from PLAYER_START_TICK, so the
+//                 held 04:30 desk, before the sim tags handFlown, is HAND's too; Q-64). The line's
+//                 cadence and reading lead (app/game.js) read handAt too. Between two eases rateAt is
+//                 flat, so the director keeps that stretch
+//                 (d.flat: its ends are each boundary +- the ease's half-width, EASE r1 r2 / (r1 + r2),
+//                 the formula sim/clock.js uses) and asks rateAt only inside an ease: rateOf runs
+//                 between every two ticks, 1,750 times a frame at 2,100x.
+//   FAST          3 x CRUISE while F is held. Refused (setFast) and ended (directorFrame) in WATCH,
+//                 the cards, RESPOND, FOCUS, ALARMS, OFFER and NIGHT (NO_FAST); it also ends on F up,
+//                 a new contingency, a new P1/P2 alarm, a new ask (app/game.js newAsk) and every new
+//                 tray card that rings (app/game.js handleRecords: a 'ring2' from T.trayRecords; MSL1
+//                 and the other information cards do not ring), so FAST never runs past a warning
+//   WATCH         K-15 over the first WATCH_S grid-seconds after a contingency: full 0.15x / 1x /
+//                 10x over 0-3 / 3-10 / 10-30 s, compact 0.5x / 2x / 20x. The desk is locked (the
+//                 sim refuses inputs). SKIP plays the rest of that watch at CRUISE.
+//   RESPOND-CARD  rate 0 from the watch's end until the card is dismissed (Enter or any desk
+//                 input): a hold on the clock (K-16), as PAUSE and the feeder card
+//   FEEDER-CARD   Q-91 (the owner's call, in place of Q-70's RESTORE pace): rate 0 at each task
+//                 feeder's allowed second (sim/market.js restoreAllowedS, the one rule: the later of
+//                 its clearS and the last restore + RESTORE_INTERVAL_S), from the tick after that
+//                 second's own (whose step hands the feeder back: feederClear, the tray's NETWORK
+//                 card, so the card never shows before it), while it is dark with shedBy
+//                 'task' and before 21:00, after any watch and the respond card (it waits for both:
+//                 feederOn), the earliest allowed first. It holds until the feeder is restored (it is
+//                 no longer dark), or the card is answered (answerFeeder): Esc goes on (app/game.js
+//                 ui 'goOn': d.fc[id] = Infinity, never held again), any other desk input dismisses
+//                 it for that allowed second (d.fc[id] = it; app/game.js sendInput and redispatch,
+//                 with the card shown at the press), so a later restore that moves its allowed second
+//                 holds it again. The restore of its own feeder keeps it when refused (the reason
+//                 stays on the card: app/game.js feederWhy). feederCard(d, state) names the feeder
+//                 whose card is due; it ignores PAUSE, ALARMS and a hidden tab (the page shows the
+//                 card only in FEEDER-CARD, and app/game.js shownFeeder answers only a card shown).
+//                 The dark task feeders' [i, clearS, allowed second] are kept on the director (d.rw,
+//                 windows) per input-log length (only a logged restore relights a district) and
+//                 checked against each feeder's dark, shedBy and clearS; a state with no log is read
+//                 afresh (stage C: rateOf asks it between every two ticks). tests/lib/play.js
+//                 feederDue reads from the sim's state alone whether a card may hold, and
+//                 feederHeldAt whether one holds at this tick, for D-2's E.
+//   RESPOND       30x from the card's dismissal until frequency is back in 49.85-50.15 Hz
+//                 (contingency.backInBandTick >= 0) or 5 grid-min after the card, then the profile
+//   FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
+//                 a restore input (the breaker being closed, K-13; focusRestore)
+//   OFFER         K-12 (wave 2's fix pass, an owner-delegated call for the integrator to number):
+//                 OFFER_RATE 30x from the frame the game offers a unit (app/game.js updateOffers ->
+//                 offerPace) while it waits at full speed, for at most AUTO_SYNC_S (240 grid-s, so 8
+//                 real s; at 540x the offer lived 0.44 real s), no FAST. Badge "SYNC 30×". Taking it
+//                 opens the scope (FOCUS, above); the breaker closing (by hand or auto-sync) ends it.
+//                 Each offered unit keeps its own window (d.offers: unit index -> the tick it ends;
+//                 a window ends when its unit leaves full speed), so two offers at once (a 'respond'
+//                 and a 'tight') play OFFER until the last of them ends. None once the night shift
+//                 has the desk (an offer made before 21:00 included): NIGHT plays, as the lock
+//                 refuses the SYNC. tests/lib/play.js clockReport counts OFFER the same way.
+//   NIGHT         Q-73, once the night shift has the desk: the sim's state.control.nightShift
+//                 (obs.nightShift, set on stepping 21:00:00 on a night scenario). The game's lock and
+//                 the views read the same flag. The profile (2,100x, eased into from PEAK EASING's
+//                 300x), no FAST. A contingency that starts from NIGHT_S is logged only (latest()
+//                 leaves it out), and from the flip no card or RESPOND plays for any contingency (one
+//                 begun just before 21:00 included: its watch ends, nothing asks), so the roll is
+//                 never held. At tick NIGHT_S x TPS itself, before the sim steps 21:00:00, the face
+//                 (segment, act, target) still reads PEAK EASING, as the lock is still open:
+//                 tests/lib/play.js to('21:00') lands there, to('21:00:01') after the flip. (The
+//                 view's night is obs.nightShift.)
+//   PAUSE         Space; a hidden tab (HIDDEN); the day's end (OVER)
+//   ALARMS        rate 0 while the alarm panel holds the clock (d.held, Q-46); d.paused is untouched
+//   DEBUG         the bench's speed selector (bench.html only): any speed other than CRUISE
+//
+// modeOf also returns segment (the D-2 segment's name, Q-78), act (sim/clock.js actAt: 0 before
+// 04:30, 1-3, 4 the night roll) and night (the sim's flag); its `rate` is rateOf's except in CRUISE, NIGHT and FAST,
+// where it is the segment's target (x3 in FAST): the badge never shows a number counting through an
+// ease (Q-63), and the loop reads rateOf.
+//
+// A director made with {game: true} runs every mode above; without it (the bench) it is the
+// Phase 0.2 director: a flat CRUISE (FLAT_RATE 120x) or DEBUG, the full watch, PAUSE, and nothing that
+// holds the clock; its segment is '' and its act 0.
+//
+// Watch version (K-15): full the first time ever and on anything new (the first UFLS operation
+// seen, the first HIGH RoCoF); otherwise compact. The version is chosen on the watch's first
+// tick (a first HIGH RoCoF is known then: the record's rocofHzS) and upgraded to full for the
+// rest of the watch when a first-ever UFLS operation happens during it: the relays deserve the
+// slow motion (decision: most fun within realism, OD-17). `d.seen` ({watch, ufls, rocof}) is
+// the memory the game loads from and saves to localStorage (gridwatch:v4:seen, C-8: optional).
+// Esc skips only once a full watch has been seen (game mode; the bench always may).
+//
+// Viewing never changes the outcome (C-7): the director only picks the rate. Pure and DOM-free
+// (Node tests use it). rate() is asked between every two ticks, so it reads a few fields
+// straight from state without allocating.
 
 import {V} from '../sim/params.js';
 import {SEGMENTS, NIGHT_S, segmentAt, actAt, targetRate, rateAt} from '../sim/clock.js';

@@ -2491,667 +2491,31 @@ keeps its first line and a pointer to its subsection.
 
 #### app/objective.js
 
-```text
-app/objective.js: the desk's standing objective (SPEC §9.1 Q-18; Phase 2a: desk/README.md
-C-10, §21.4). Pure and DOM-free.
-
-In the game the commitment is the player's: which units run, and when. The dispatch of the
-units they have committed is automatic (app/system.js). This module reads what the player
-can (observe() and the plan view) and says, in one line, what the desk needs next: nothing;
-a unit to start, by when, and how long it takes; a unit to stop, what that saves and when to
-bring it back; the battery to charge or discharge; the levers handed back; a feeder to close.
-It never acts. Every decision it names has a lead time, and it says by when.
-
-The look-ahead is a CAPACITY check, not the plan's own red columns: for each forecast column,
-what the committed fleet could give (machines on, starting or booked by then, at the plan's
-loading; hydro for the water it has; the tie; the wind and sun forecast) against the forecast
-demand plus a margin. The plan's red columns move with every 5-minute dispatch; whether
-enough plant is committed does not. Three margins (MW above the P50 forecast):
-  MARGIN_MW         the forecast's own error: under it the desk is short of a safe margin
-  COMMIT_MARGIN_MW  what the evening needs to ride through one trip: under it a unit is asked for
-                    (the trip's part counts the water at any hour: a trip is what the gorge is kept for)
-  MARGIN_MW + the largest single loss   what must remain before a unit may be stopped, with the
-                    water held until 15:30 as for any plan (§21.4 STOP condition 1)
-so a unit the line asked for is never one it then asks to stop. What the desk can really give
-(every unit at its limits from where it is, the water, the tie at its limit; capacityGap real)
-says whether it is short NOW.
-
-  objective(obs, {edited, planview, proj?, dayAhead?, leadS?, held?}) -> {level, kind, text, targets, action, startBy, short, long} | null
-    (null from obs.nightShift: the night roll has no line, Q-73)
-    level   'ok' | 'plan' (act later, or worth doing) | 'act' (act now) | 'crit' (short already)
-    kind    which line it is (desk/README.md §19.5): 'watch' | 'held' | 'short' | 'commit' | 'restore' |
-            'spare' | 'stop' | 'battery' | 'city' | 'quiet'
-    targets control ids to light (desk/README.md §5)
-    action  the sim input (or {redispatch: true}) that answers it now, or null. The game never
-            sends it: the hint-following player (tests/lib/follow.js) does, to prove that a
-            player who does only what this line says gets through the day and does it well.
-    short   the capacity shortfall the line is about {atS, endS, mw}, or the first one in the
-            4.5-h window, or null
-    long    the spill ahead {atS, endS, mw} or null (planview's first blue run)
-    saving  (STOP lines) the dollars the line quotes
-
-Branch order (§21.4; 2b §31.9.8; 2c): watch, held, short-now, commit-now, shortAhead, air-con,
-restore, spare, pickup (2c), stop, battery, soak, commit-later, quiet; at a hand-back with its
-lamp lit, restore first (2c, below). A line that asks for nothing yet (a
-start more than ACT_WITHIN_S away, a feeder that cannot close yet, spare that nothing can add,
-the reserve diesel on its way) gives way to a lower branch that has something to do now; among
-lines that ask for something, the order above decides; then a critical line; then a city line not
-yet due (level 'plan': it carries its action, so a player may book ahead, but a booking hours away
-never hides a feeder to close, a GUARD to raise or a battery order; once due, 'act', it keeps its
-place in the order); then the first that has something to say. Between commit-now and restore
-sits the shortfall no start can reach (shortAhead): what every committed MW cannot give within
-the hour is the battery's to carry, and demand response's when it is more than the battery
-holds; the reserve diesel only beyond both.
-
-The city levers (2b, Q-59, §31.9.8): kind 'city', targets ['suburb-<ID>'], the action the full
-flex input {type: 'flex', suburb, lever, atS} with atS from aimFlex (sim/autopilot.js) over the
-day-ahead (or the 4.5-h forecast; -1 is "not now": no line), kept at the shown line's atS while
-aimFlex is within one 5-minute step of it (`stick`, `cityAim`; ctx.held, the game passes
-game.objective; the forecast starts at obs.s, off the lattice, so its extreme column slides and
-aimFlex alone flips between two marks every few grid minutes: 2b final review S1; tests/lib/follow.js
-and the tools pass none), startBy the booking's deadline
-(the soak's atS, the air-con's pre-cool start), level 'act' once that is within ACT_WITHIN_S
-(+ leadS), else 'plan'. Eligibility only through observe().levers' block (a suburb is free when
-its lever's block is ''). One suburb per line; the next is named once the forecast carries the
-booking.
-  soak (after battery: a battery order due now shows first; before commit-later), aimed once:
-  every free suburb has no soak of its own, so aimFlex gives them all the same atS. When either
-    (a) an MSL notice stands with its low ahead (obs.msl.level >= 1, atS > now), and some
-        column of the 4.5-h forecast in 10:00-15:00 is still at or under MSL1_MW + MSL_CLEAR_MW,
-        raised by MSL_TIE_OUT_MW in a column before the tie's return as sim/events.js raises it
-        (the notice is re-checked only every MSL_CHECK_S, so a soak booked since would not clear
-        it until then: without this, a player who books at once would be asked for a suburb a
-        minute until the next check). It names the free suburb with the most soak MW (par's
-        rule 1); the low it quotes is that column, the one nearest its threshold;
-    (b) else, spill the battery will not take: the projection's spill plus the present charge
-        order per column, the battery modelled as battery() charges it (up to min(ratedMW -
-        guardMW, PAR_BATT_CHARGE_MAX_MW) a column, from the earliest blue column, its present
-        order in every column, until (capMWh - socMWh) / BATT_CHARGE_EFF is used); the largest
-        excess inside the aimed block's span (atS, atS + SOAK_S) above SURPLUS_MIN_MW names the
-        free suburb with the most soak MW at or under it, else the smallest. Spill outside the
-        span is not the soak's to take (on a MILD 06:30 aimed at 11:00, spill at 10:00-10:55
-        gives no line; the line comes once the projection reaches the span).
-    Text: "MSL1: demand falls to about 1,550 MW at 12:40. Book a HOT WATER SOAK in Old Hazelton,
-    10:35–14:35 (140 MW): it lifts the low; tonight's heating falls by as much." or "The
-    battery cannot take all of noon's spill. Book … : tanks take the rest; tonight's heating
-    falls by as much." (Q-52: the night's heating falls by the booked energy.)
-  air-con (right after shortAhead) only when lookAhead names no unit (a start beats air-con),
-    shortAhead's soon does not hold, and for a run of the real gap (capacityGap real, over the
-    day-ahead) at or after the suburb's fromS (each run in turn: a smaller, earlier one does not
-    hide the evening's): no gap column in the aimed pre-cool [atS - PRECOOL_S, atS], the run's
-    largest column inside the core [atS, atS + AIRCON_S], and the run more than the battery holds
-    (its largest column above ratedMW, or its MWh above the charge over the reserve, where before
-    15:30 (PAR_BATT_CHARGE_H) the charge counts at least PAR_BATT_CHARGE_TO: battery() fills it by
-    then on any day with an evening gap): where demand response would be called (Q-59 "before DR";
-    air-con is $400/MWh against DR's $1,400). The free suburb with the most relief MW that passes.
-    Text: "From about 18:30 committed units fall short. Book an AIR-CON CYCLE in Redgum Flats,
-    18:30–20:00 (45 MW): pre-cool from 17:30; 40% of the relief comes back after." ("committed":
-    a unit that is off but cannot reach the gap may exist; the 40% is of the relieved energy.)
-Every city line fits LINE_MAX_CHARS with Tallowood Heights and the widest figures
-(tests/objective-levers.test.js).
-
-(The GUARD line asks once for the most the battery can hold for a trip, PAR_GUARD_MAX_MW: a step
-is worth less the higher the ring already is. Measured at 04:31 on the 11 seeds of both day
-scenarios: the first 100 MW 0.025 to 0.104 Hz on the trip preview, then 0.021 to 0.062, 0.014 to
-0.041, 0.011 to 0.030. A line sized on a step's worth asked twice: 300 MW, then 400.)
-(After a trip the fired GUARD gives its whole ring for GUARD_SUSTAIN_S; a belly trip is smaller
-than the ring, so while it is still giving and frequency is above the normal band the line turns it
-down to 0 (par's rule 2 does the same), raises no ring while it is fired, holds the battery
-branch's charge orders out of the MW it gave up, and raises it back once it has re-armed, within
-the hour of the trip. Measured on desk-weekend seed 20261017, coal 1 at minimum, 240 MW, tripping
-at 14:08:40 under a 400-MW GUARD: 478 s above 50.15 Hz in the next 900 s before, 49 s after.)
-(Both moved here from the file in 2b, Q-49.)
-
-The line says what is true (the wave-3 review): a shortfall is in the present tense only when the
-desk at its limits (the real check) is short in the next minutes, otherwise it is what the hour
-lacks against a safe margin; "Enough plant is committed" only with no column short of a trip's
-worth of spare by THIN_MW; a STOP's saving says it rests on nothing tripping before the unit is
-back; a unit on its way off counts down its ramp and the T4 slope until its breaker opens.
-
-The line is pure, so "never thrash" is kept by state, not by a clock: a STOP is not proposed
-while another unit is on its way down or has been down under STOP_GAP_S; a battery order is
-proposed only from idle (or to raise a charge by what is still being spilled, or to end one at
-the reserve or at the window's end), with bands between the levels that start and end it, and
-none in the quarter hour before the evening's own order. (The shortfall branches raise a
-discharge as an evening gap grows: each order is sized for the gap 20 min ahead.)
-
-  consequence(obs, target, {planview, dayAhead}) -> {target, text, level} | null
-    what a guarded press would do, said before it is made (C-10): target is
-    'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
-
-  steady(held, next, s, hand?) -> {line, seenS, sinceS}
-    the line as the desk shows it: a line whose deadline or figure moves with each forecast while
-    what it asks for and its other words stay the same is kept as it was said, and a quiet line
-    for STEADY_QUIET_S against another quiet line (the game holds `held`; the objective itself
-    stays pure, and the action a line carries is never held back or changed). hand: the clock
-    is HAND's (app/director.js handAt), for spanAt. Its figures (masked) are the numbers, times
-    and dollars, and since stage C the part of the day a time falls in ("for the afternoon" and
-    "for the evening" near 17:00 are the shortfall's time moving, and alternated look to look).
-    The game's 4-s dwell (app/game.js holdLine) holds a line's words and glow but never an action
-    the fresh line no longer carries (heldLine: another unit or control, or none, drops it).
-
-The day (slice 2c, desk/README.md §32.8.1):
-  - A heatwave is news from 04:00 (Q-80): the look-ahead derates its window from the news;
-    Q-38's HOT-morning worst case is retired (a HOT day with no heat news has none coming).
-  - The night roll (Q-73): from obs.nightShift there is no line (objective() returns null; the
-    shell hides the box and the night strip replaces it, and steady() keeps no day text over
-    it). A shortfall from 21:00 on a night scenario is the night shift's: the commit look-ahead,
-    "Next" and the quiet line's thin and real checks look only at runs that begin before 21:00.
-  - The spans (Q-63): NOW_S, ACT_WITHIN_S and the STEADY spans were tuned at TUNED_RATE (the
-    flat 120x); each means its real seconds there, as the D-2 profile plays them from where it
-    starts (spanAt: cut at a night scenario's 21:00, but never under the span itself, so near
-    21:00 the floor can run a few grid-minutes past it). The act window is one stretch of real
-    seconds (actWithin: the game's reading lead, then ACT_WITHIN_S from where it ends; 18 real
-    s). An instant resource, the battery's order and the demand response call, is asked when the
-    gap opens within instS = max(ACT_WITHIN_S + NOW_S of grid time, NOW_S of the profile): its
-    energy is grid time (an order made earlier is charge the peak will not have), but never
-    less than NOW_S's real seconds to press it; "be ready" until then. The reserve diesel is armed
-    within ACT_WITHIN_S of the profile before its 20 min (no reading lead: it costs by the
-    minute), never past PAR_RERT_STANDDOWN_MIN ahead (spare()'s stand-down look-ahead, so the two
-    never chase each other); "arm it by" is 20 min before the shortfall the line names. The
-    battery's late charging band stays grid time (a band, not a reaction).
-  - Act I's constraints (Q-68): the tie's import limit per column until its limitUntilS; a booked
-    start due at a unit's return; a unit out for maintenance planned from its return, or from the
-    end of a minimum down time that outlasts it (stage C: sim/fleet.js startBlock names only the
-    outage while it lasts, so startable reads downForS; app/planview.js's earliest line does too) (startable
-    with later: "Start CCGT 2 at 07:45, when it is back", never an ask or a lit START before it;
-    its START press says "out for maintenance until 07:45"); the reserve diesel's line comes
-    before it only when it is back too late for the diesel's shortfall. A capacity ask (commit,
-    short now, the spare+commit start, "Next", the battery's, the quiet line's) names what binds
-    (why): "(CCGT 2 out until 07:45; the tie limited to 450 MW until 11:00)", when it fits; a unit
-    is named only when started now it would be in time (its outage is the reason).
-  - The restore task (Q-68, Q-69): the look-ahead takes a feeder under repair off the demand
-    until its clearS (sim/dark.js, as app/planview.js and the dispatch do: the announced return).
-    From PICKUP_AHEAD_S before a hand-back, with no feeder yet the desk's, "SAL4's feeder is back
-    at 06:45: hold 250 MW of spare for its pickup" (its cold load now, with the forecast's
-    underlying demand then, to the 10 MW: a few MW of drift moves it 10 MW, never a 50-MW step;
-    the spare gauge lit, never the bay, whose tab glows with Q-91's feeder card at the hand-back; a passive line
-    after spare()'s own, before "Next"). The feeders under repair are named beside the count; R's feeder first (one handed
-    back, the latest first, as desk/bay.js picks); at a hand-back with its lamp lit the restore
-    ask comes before every other branch unless the real check is short within instS (the hand-back
-    is the feeder's moment: Q-91's card holds the clock for it). spare()'s pickup counts a held feeder only once its return is within
-    the act window (at real sizes a pickup, 200-300 MW, is under the trip's share, 1.05 L).
-  - On a night scenario a STOP saves until the night shift would stop the unit (stopHorizonS:
-    21:00, or PAR_DECOMMIT_MIN_ON_MIN on), and a restart from 21:00 is the night shift's (no
-    start priced, no "Start it again by").
-```
+Back in the file's header (W1, X-49).
 
 #### desk/desk.js
 
-```text
-desk/desk.js: the desk (desk/README.md §6, §13-§14.2; SPEC §4.2-§4.3, K-17 panel sizes).
-
-  const desk = createDesk(doc, root, actions, opts?);   // root: the #desk element the shell sizes; opts.annunSlot (Q-45)
-  desk.update(vm);          // every frame, after the ticks (reads the view model only, §5)
-  desk.key(ev);             // the shell forwards every keydown/keyup here first (§13.3); true = the desk acted
-  desk.focus(id);           // focus a desk control by its §5 id (also done when vm.focus changes)
-  desk.slots.stack          // the #stack-slot element the Live Stack (#stack) mounts into (render/livestack.js)
-  desk.el                   // the desk's own container
-
-Four columns at the 1280×300 floor (232 / 424 / 336 / 256 px + 8-px gutters): the frequency
-dial over the imbalance bar and N-1 gauge; the lever bank over the hydro wheel, battery dial,
-tie knob and the AGC / RE-DISPATCH keys; the Live Stack slot over the procedure bay; the
-message tray over the emergency row; the annunciator in the plan bar (§30.4). Every input goes through
-actions.input (never assumed accepted: refusals show on the control for a moment); the desk
-is locked while vm.mode.locked (the watch) except ACK and SILENCE, and from the night shift
-(obs.nightShift, Q-73, 2c) for sim inputs: a press answers with NIGHT_NOTE in blue, at 0.3 s a
-word ("The night shift has the desk: ..."), one at a time (a new one closes the last); a lever's
-or a knob's key with the focus gone from it (Space blurs, vm.focus still names it) answers on it
-as in the watch, never reaching the shell's fallback; views stay open (ctx.viewLocked: tabs, a
-tray card's button, notes, "?", ACK). Enter on the RESTORE tab is R (into the list, the feeder
-to close chosen), so a card's TO THE RESTORE BAY, then Enter, then Enter closes it. Time for guards, holds and
-the synchroscope's 8-s AUTO comes from vm.frame.nowMs (or opts.now), never from timers.
-
-Keys (K-23, §13.3). desk.key returns true exactly when it acted; the shell then stops. (D and E
-always return true: both holds are the desk's, so the shell never starts its own.)
-  desk.key (from anywhere):
-    1-8        focus COAL / CCGT / GT·A / GT·B / GT·C / hydro wheel / battery dial / tie knob
-    G          focus the GUARD ring            V   focus the AGC/HAND key
-    K          focus DIRECT SHED (while shown) N   RE-DISPATCH (as a press of its key)
-    O          open the first READY unit's synchroscope (an offered one first); again: close the scope
-    [ ] C U    slip lower / raise, close the breaker, auto-sync      B   the bypass key (HAND only)
-    R          the restore bay (focus its list, the feeder to close chosen: desk/bay.js)
-    A, Shift+A ACK, SILENCE                    D, E (hold 0.6 s)   industrial DR, reserve diesel
-    S S / X X  start / stop a machine of the focused station (guarded), P / Shift+P rejoin the plan (HAND)
-    Enter      presses the focused desk button (tiles, cards, guards, tabs, ...); not while the RESPOND card is up
-  The focused control, natively (it calls preventDefault, so the shell does nothing more):
-    lever        ↑↓ ±10 MW, Shift ±1 (Shift+↑ crosses the 96% gate), PgUp/PgDn detent, Home/End
-    hydro wheel  ←→ (or ↑↓) 1%, Shift 10%, PgUp/PgDn 10%, Home/End
-    battery dial ←→ mode CHARGE / IDLE / DISCHARGE, ↑↓ magnitude 50 MW, Shift 10, Ctrl 1, Home/End
-    GUARD ring   ←→ / ↑↓ one 50-MW detent, Home/End
-    tie knob     ←→ / ↑↓ 50 MW, Shift 10, Ctrl 1, PgUp/PgDn detent, Home/End
-    RERT, DR     Enter or Space held 0.6 s (RERT: the first press lifts the cover)
-    DIRECT SHED  Enter lifts the cover, Enter again within 2 s commits (or hold 0.6 s)
-    restore list ←→ / ↑↓ choose a district, Enter closes its breaker
-    tray         ←→ / ↑↓ move between the cards' buttons and LOG
-  T, M, L, Tab, Space, Esc, F and ? stay the shell's (app/keys.js).
-Foley (K-20): gestures emit actions.ui({do:'cue', name, pan}) on real changes only (ctx.cue).
-
-C-10 (Phase 2a, desk/README.md §19.5): the desk tells the shell which START / STOP guard the
-player is considering, actions.ui({do: 'consider', target: 'guard-start-<unit>' |
-'guard-stop-<unit>' | null}), and only when the answer changes. A lifted guard wins, then the
-focused one, then the hovered one; null when none. A commit counts as a drop. A lift made by
-key (S / X on a lever: nothing is hovered and the lever, not the guard, has the focus) is held
-CONSIDER_HOLD_MS after its cover drops, so a keyboard player has time to read what the press
-would do (the cover itself still drops after 2 s). "Focused" is the keyboard's focus: the
-focus a mouse click leaves on a guard is not counted (makeConsider says how), so after a
-pointer lift or commit the target clears when the pointer leaves. The shell shows vm.consider
-in the objective line; the desk only names the guard. After a new day (obs.tick going back)
-the target is sent again, because the shell clears its copy. K-3: a cover going up or down
-sends {do: 'armed', target, on}.
-```
+Back in the file's header (W1, X-49).
 
 #### render/map.js
 
-```text
-render/map.js: the living isometric city map (desk/README.md §7, §14.3; SPEC G-1..G-5).
-One screen canvas; the scene is drawn on a fixed BASE_W x BASE_H offscreen canvas and
-blitted at an integer scale (render/mapdata.js scaleFor), letterboxed with the ground and
-sky colours, never sky under the ground. Reads the view model only (vm.obs, vm.mode,
-vm.hover, vm.glow, vm.alarms, vm.settings.reducedMotion). Math.random is cosmetic only (F-3).
-
-  const map = createMap(document, root, actions);   // root: the #map box
-  map.update(vm);                                   // every frame
-  map.key(ev);                                      // the shell forwards keys (§13.3); true when it acted
-
-What it shows
-  G-2  one silhouette per technology (shapes are data in mapdata.js PLANT_PARTS): coal =
-       hyperbolic cooling towers, banded stacks, a coal pile; CCGT = two boxy HRSGs with
-       stubby stacks; GTs = a shed and one stack each; hydro = a dam wall, a spillway and
-       penstocks; battery = rows of white containers; tie = tall lattice pylons marching off
-       the west edge; wind turbines on the ridge; solar rows on the plain. Labels on hover,
-       focus or alarm only (<= 3 at rest). Hovering a plant sends actions.ui({do: 'hover',
-       target}); vm.hover rings the plant back. A click: see the click listener (Q-41).
-  G-3  skyState(h): night, dawn, day, sunset (18:48), dusk; a sun disc crossing east to
-       west; long warm light and long shadows at sunset; lit windows at night: the homes
-       awake (occupancy(h), 2c Q-73: 0.9 until 21:00, falling linearly to 0.15 by 01:00,
-       flat to 05:30, waking linearly to 0.9 by 07:30) times what the city is using (0.3 +
-       0.8 x underlying demand / 8 GW, so a 6-GW evening is 0.9), rounded to 30 steps: in the
-       night roll the city goes dark window by window (each window has a fixed switch-off
-       order, hash01 <= lit) in about 23 cached redraws, and Act I opens on a sleeping city
-       that wakes. Rooftop PV
-       (Phase 2a): panels on every suburb's roofs in proportion to its rooftop MW (the city
-       layer, cached) and a glint on them each frame: per suburb, as bright as its output
-       over its capacity (cloud dims it) and as the light; never on a dark district, on a
-       relit one only as its inverters ramp back; a static pattern under reduced motion.
-  G-4  weatherOf(obs): heat = haze on the horizon + a bleached warm palette + shimmer;
-       storm = two layers of dark cloud, slanted rain and rain sheets, a darker ground,
-       turbines feathered at cut-out; cloud front = grey cloud and soft shadows drifting
-       over the suburbs. All three are drawn static under reduced motion.
-  G-5  a shed district goes dark block by block (90 ms each) and gets a hatched outline; a
-       tripped machine smokes, strobes red and carries a ✕ for its whole lockout; rotors slow
-       in the watch; the watch spotlight (B-5) dims everything but the cause.
-
-Keys (map focused; tabindex 0): ←/→ cycle the plants then the suburbs (sets the hover and
-shows the label), Home the first, Enter presses the hovered one as a click does (a plant's
-control, wind's or solar's label, a suburb's card; not while the RESPOND card is up or in the
-briefing: Enter is theirs, dismiss and TAKE THE DESK), Esc leaves. key() returns true exactly
-when it acted; the map's own keydown listener calls it and stops the event, so a key forwarded
-by the shell never acts twice.
-
-Cost: the sky, the terrain (with the plants), the city (with its rooftop panels) and the
-cloud strips are cached on their own canvases and redrawn only when the light bucket, the
-weather bucket or a district's dark blocks change; a frame is a few blits plus the moving
-parts. The glint is one path and one fill per suburb from typed arrays laid out once.
-
-Phase 2b, the city levers (desk/README.md §31; Q-56, Q-57, §31.9.10). Also reads vm.suburb
-and obs.levers.
-  Click   a suburb sends actions.ui({do: 'suburb', id}); one with a dark district sends
-          {do: 'focus', target: 'bay-restore'} first (Q-42), and the shell then opens the card
-          without taking the focus off RESTORE. Enter on a hovered suburb does the same (Keys
-          above). A suburb click no longer pins the blue label: the card carries its draw and
-          roofs (app/suburbcard.js computes them; mapPinText's suburb branch is kept for tests
-          only, since no suburb is pinned now). Wind, solar and the ground still
-          pin; the ground's says "Click a plant for its control, a suburb for its card".
-  Hover   a suburb sends {do: 'hover', target: 'suburb-<ID>'} (H reads it; the stack's
-          bands do not light for it).
-  Overlay per frame, never in the cached layers (a booking redraws nothing cached):
-          - a blue rectangle round vm.suburb (none in the watch: the card is hidden);
-          - the glow ring for a glowing 'suburb-<ID>' (the objective names it), as a plant's;
-          - the white hover ring for the pointer's suburb or vm.hover 'suburb-<ID>' (a band
-            hovered on the stack);
-          - suburbTag(obs.levers, id, s), top left in the suburb on a dark plate (none in the
-            watch: the spotlight dims all but the cause): 'SOAK HH:MM' or 'AIR HH:MM', the
-            lever and start of its first block not yet over; then, after its first air-con
-            booking today or while locked, its patience (the suburb's, whichever lever the
-            mark names): '☺ 80' at or above PATIENCE_FULL (full response), '☹ 40' below it
-            (the response falls), '☹ 15 LOCKED' under PATIENCE_LOCK. A glyph and a number,
-            never colour alone (K-22). A booking that was cancelled refunds its patience and
-            shows none. ☺ and ☹ (U+263A, U+2639) carry the Unicode Emoji property but present
-            as text by default: the stage-C browser pass checks them on Windows Chrome; if a
-            colour emoji is drawn, use 'P80', 'P40 ▼', 'P15 LOCKED'.
-  Text    mapSummary (K-23) names the hovered suburb's tag: "On <name> <tag>: Enter opens
-          its card."
-
-Slice 2c (desk/README.md §32.7.4; Q-69, Q-73). A task feeder before its clearS is the network's
-outage, not the desk's. darkOf(obs, id) (exported; the suburb card says the same words) gives a
-suburb's dark districts {n, h, back, text}: n dark, h of them held (clearS > obs.s), back their
-hand-back times in order, each time once (2e's forced first shift gives both feeders one
-clearance: "BACK 06:45"), and text: "2 DARK · BACK 06:45, 07:05" while all are held, "2 DARK
-(1 BACK 07:05)" while some are the desk's (a feeder handed back and not yet closed, or a shed one
-beside the held: "3 DARK (2 BACK 06:45, 07:05)"), "2 DARK" with none held.
-  Label   while every dark district of a suburb is held, its label is blue ('info', framed):
-          "SALTBUSH BAY: 2 DARK · BACK 06:45, 07:05", then "SALTBUSH BAY: 1 DARK · BACK 07:05"
-          once the first is closed; while one is the desk's it is today's red alarm,
-          "SALTBUSH BAY: 2 DARK (1 BACK 07:05)" (the count is every dark district, as the bay
-          and the objective line count them; the bracket says which are not yet yours). The
-          suburb's name, as every map alarm, not its code. A held label replaces the plain
-          hover name (pointing at it, or arrowing to it, keeps the times), and the held labels
-          come after every red alarm, so a blue label never takes one of the 3 rest places
-          from a red one.
-  Click   a suburb whose every dark district is held opens its card without the RESTORE focus
-          (nothing to restore yet; the card says when); one with a feeder that is the desk's
-          sends {do: 'focus', target: 'bay-restore'} first, as before.
-  Text    "Districts dark: Saltbush Bay 2 (under repair until 06:45, 07:05)." (the permissive's
-          own words for a held feeder); "Saltbush Bay 2 (1 under repair until 07:05)" when not
-          all are held.
-  Windows the occupancy curve, G-3 above.
-```
+Back in the file's header (W1, X-49).
 
 #### render/livestack.js
 
-```text
-render/livestack.js: the Live Stack (desk/README.md §7; SPEC §4.4, L-1..L-9, K-18).
-A desk screen: the next 4.5 h as a skyline of forecast demand (P50 + LIKELY RANGE band) on
-a fixed 0-9,000 MW axis, each source a coloured layer in P-6 cost order, red/amber gaps,
-ghosts for off units from their earliest-start line, and drag handles that write the plan
-(planKey / planStart / planDel / planUnbook through actions.input). Reads the view model
-only; the plan maths is app/planview.js.
-
-  const stack = createLiveStack(document, root, actions);   // once
-  stack.update(vm);                                         // every frame, after the ticks
-
-View-model inputs: vm.obs (with obs.plan), vm.mode.locked (read-only during the watch, L-7),
-vm.stackExpanded (L-4 overlay over the map), vm.hover / vm.glow (cross-highlight, L-9),
-vm.hist (past columns: {demand: [{s, mw}], rooftop: [{s, mw}], stations: {<layer id>: [{s, mw}]}},
-layer ids = station ids + wind, solar, tie (signed), battery (signed), rert, dr; absent: no past
-drawn; app/game.js sends column means with colFromS / colS instead: planview.pastFromHist reads both).
-
-Phase 2a, the belly (desk/README.md §21.5; shown always until the first-shift face of L-2, 2e):
-  L-2  the silhouette: a faint line at operational + rooftop above the operational skyline,
-       past columns included, and the rooftop bite between the two hatched sun-yellow (sparse
-       "\\\", no fill), with the word ROOFTOP in the big layout. Nothing is drawn while the
-       rooftop is under 1 MW (night; the CLASSIC scenario).
-  C-11 blue SURPLUS columns where proj.surplusMW > SURPLUS_MIN_MW (planview.blueRuns): what
-       will be spilled, standing on the demand line (over exports and charging) with a minimum
-       height, GAP_MARK.blue's pattern, glyph and word, and a hover line that says what to do.
-       Blue is never a kind in proj.gap.
-  P-9  the price through format.priceText; a negative price in its own colour, with the word SPILL
-       while power is being spilled now (wind.autoMW + solar.autoMW > SURPLUS_MIN_MW).
-
-Pointer: drag a key handle or a layer's top edge (a new key there) to (time, MW); drag an off
-unit's ghost sideways to book its START; drag a booked start below the axis to unbook it.
-Drops snap to 15 min / 50 MW; an infeasible drop shows the earliest-arrival ghost instead
-(click it or press Enter to take it); a click with no drag says what to drag. Keyboard (stack focused): 1-6 select COAL, CCGT, GT·A,
-GT·B, GT·C, HYDRO (again: that station's off-unit ghost), arrows move one snap step, Enter
-drops, Delete removes the selected key, Esc clears, L expands. The element listens for its
-own keys and stops them, so the handle needs no key() for the shell to forward (§13.3).
-
-K-22 (status is never colour only): a red gap (short of P50) is hatched "\\\" and carries a
-"!" over each run; an amber gap (inside the likely range) is hatched "///" and carries a "~";
-a blue surplus is barred "|||" and carries a "+" and, where the run is wide enough, the word
-SURPLUS (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture
-says (stackSummary: the gaps, then the surplus runs and the rooftop), refreshed at most once
-per real second.
-
-Phase 2b, the city levers (desk/README.md §31; U-3, Q-50, Q-57). The skyline already carries
-every booked MW (flex is in the forecast's P50), so the stack draws where each block is, not
-what it does:
-  band    each block's core (obs.levers.blocks[].parts, the sim's knots) over the future
-          columns inside it: a band at least SURPLUS_MIN_PX (4 px) tall along the skyline,
-          load added (the soak) under the skyline, relief (air-con) over it; several stack
-          outward in block order. One pattern for every suburb, a K-22 pattern no other mark
-          uses: a pale fill with dark rows ("≡"); no suburb colours. The suburb's code (K-22:
-          one pattern, so the code tells the bands apart), in both layouts, on a plate just
-          beyond the band (clear of the skyline) at its first column, shifted right by its
-          stacking level.
-  ghosts  pre-cool, snapback and the night fall, the same minimum height on the same side
-          rule, as a dashed line along their outer edge (the off units' dash).
-          Heights are the part's plateau MW (ramps not drawn): at the floor (63 MW a pixel)
-          nearly every block is the 4-px minimum anyway.
-  hover   a band or a ghost names its block (blockText: lever, suburb, MW, core times), a
-          ghost also its part on a second line (PRE-COOL: load added before it; SNAPBACK: load
-          returning after it; NIGHT HEATING: lower by what it soaked: U-2's rebound, which
-          the dashed line alone cannot say), and sends {do: 'hover', target: 'suburb-<ID>'},
-          so the map rings the suburb. Hover only: a press there takes what is under it, and
-          nothing drags a block in 2b (the card's steps do).
-  text    stackSummary adds "Booked: <block>." for each block with a part drawn (a column inside
-          its knots, as drawCity tests it), "Booked: <block> (its snapback)." (or pre-cool, night
-          heating) when only its ghosts are (K-23: what the picture shows; later ones are on the
-          map's tags; 2b final review P5).
-  hitTest what is under (x, y): a handle, a ghost, a layer edge, a layer body or a gap; for a
-          hover (forHover) also a blue surplus column, a block or the rooftop bite, which a
-          press never grabs. A hover's order: the pending ghost; a blue column (C-11), whatever
-          lies under it (the column stands on the top of the stack, where the top layer's key
-          handles and its edge are; a press there still takes the handle or the edge: blue is
-          never dragged); a handle; a gap (its L-9 hover, 2 px of slack over the skyline); a
-          block's band or ghost; then the off-unit ghosts, the edges, the layers, the rooftop.
-          So along the skyline a handle or a red gap (what a press takes there) wins over a
-          band: the hover never names a block where the press does something else, but over
-          a SHORT run a relief band hovers only in its top pixels.
-  redraw  signature() includes obs.levers.rev: a booking or a cancel while paused redraws.
-
-Slice 2c, the day (desk/README.md §32.7.4; Q-63, Q-68, Q-69, Q-73, Q-78). Imports sim/clock.js too.
-  load    the skyline, the band, the gaps and the projected spill leave out the task feeders
-          held at each column's time, past columns too (app/planview.js project and
-          pastFromHist with obs): a held feeder is off the load until its announced return,
-          then on it (a step up at each clearS), so no red gap the size of the held load
-          stands before its hand-back and the past skyline meets the first future column
-          (HOT 20261007 at 05:00: 3,779 against 3,778 MW, where the whole city's history stood
-          256 MW above). UFLS and directed darkness stay on the load: the player's to relight,
-          a red gap as in 2b (the respond card's glow and the line read it).
-  marks   stackMarks(obs, toS) (pure): the act ticks ahead from clock.ACT_S, 'II' 09:00, 'III'
-          14:30, 'NIGHT' 21:00 (Act I's 04:30 is the day's start, not a tick), and a marker at
-          each warned weather onset ahead, from obs.news fromS: HEAT, STORM (its arrival),
-          CLOUD (the front over its first suburb), LOW WIND (a wind drought); a tie derate, an
-          outage or the feeders' ETR is no onset (their cards and the bay carry them). Each is
-          a dotted line from the top of the plot to the axis under its word on a dark plate (an
-          act in the axis grey, an onset in amber; the word tells them apart, K-22). Laid out
-          left to right: a plate that would touch the one before drops to a second row 10 px
-          lower (a heat onset at 14:20 beside III at 14:30 is 10 px off at 336 px). Drawn after
-          the rooftop and before the gaps, so a gap's '!' or '~' glyph is never under a plate.
-          stackSummary says them after the supply sentence: "Marked: Act III 14:30, STORM
-          16:40." (stats.marks: the words drawn, for tests.)
-  redraw  every idle redraw (the projection's signature, now without its RECOMPUTE_S step,
-          which ensureProj adds; the now line's NOW_STEP_S step; the hover, the glow, the
-          price) waits until 1 / STACK_MAX_HZ (0.1) real s after the last draw, and the key is
-          kept, so the newest picture lands on the first frame after it (Q-63: at 1,620x the
-          executor bumps the plan on most frames and the step comes every frame at 2,100x; a
-          full redraw is 3-5 ms). Only a new size, expansion or pixel ratio, or the night's
-          flip, draws at once; a drag, a selection, a ghost, a note, a hover and the watch draw
-          every frame as before. From obs.nightShift the stack is frozen: one draw as the night
-          shift takes the desk (its text alternative written then, saying "The night shift has
-          the desk: the stack is frozen until 04:00."), then only a new size, expansion or pixel
-          ratio redraws (no now line, no plan change, no tip, no drag). A press or an edit key
-          there says the same words in blue (Q-73's lead; readOnly() covers the night; the
-          label's "Read-only during the watch." reads the watch alone), and a note expires in
-          update(), not in draw, so it goes after MSG_MS (4 s) while frozen.
-  starts  a booked START's handle sits where the unit comes on: max(atS, its outUntilS) +
-          startToMin (Q-68, the sim's startDueS). An outage says why a ghost is late: its tip
-          reads "CCGT 2 is on outage until 07:30: earliest on 08:19" and a drag before it
-          "Too soon: CCGT 2 is on outage until 07:30, so earliest 08:30. ...".
-```
+Back in the file's header (W1, X-49).
 
 #### app/keys.js
 
-```text
-app/keys.js: the K-23 key map for the game (next.html). app/input.js stays the bench's.
-
-createKeys() is a small state machine (S S / X X within 2 s, D / E / F holds); keyDown,
-keyUp and poll return ACTIONS, never touching the DOM or the sim:
-  {ui: {...}}           a presentation command (actions.ui)
-  {input: {...}}        a sim input (actions.input)
-  {redispatch: true}    RE-DISPATCH (actions.redispatch)
-bindKeys(doc, keys, getVm, run, now, route) attaches it to a document: the page's ONE key
-listener. Its order (desk/README.md §13.3), so that the same key never acts twice:
-  1. a key typed into a text field, or already consumed by a focused control (it called
-     preventDefault: the desk's controls handle their own arrows, S S and so on), or one the
-     shell says is not the game's (route.own: the settings popover's sliders), is left alone;
-     so is anything with Ctrl / Meta / Alt (browser shortcuts are never game keys);
-  2. route.first(ev) (the shell: Enter on the briefing card);
-  3. each module of route.chain() that has key(ev), in order: the desk, the Live Stack, the
-     map. The first that returns true used the key: preventDefault, stop;
-  4. this file's map, the fallback that makes every K-23 key work from anywhere.
-D and E holds are the desk's while a desk with key() is mounted (keys.holds = false): the
-fallback then neither times nor fires them.
-
-| 1-8                     focus COAL / CCGT / GT·A / GT·B / GT·C / hydro / battery / tie
-| ↑ ↓ (Shift fine), PgUp/PgDn   move the focused lever (±10 / ±1 MW, next detent) or wheel
-| S S / X X               START / STOP the focused station's next machine (guarded: twice in 2 s)
-| P                       rejoin the plan (HAND)
-| [ ] C U                 slip lower / raise, close the breaker, auto-sync (the open scope)
-| R                       restore bay (←/→ and Enter are the bay's own)
-| A, Shift+A              ACK, SILENCE
-| D, E (hold 0.6 s)       industrial DR, reserve diesel key
-| T, M, L, Tab            trip preview, tray (again: its LOG), Live Stack (again: expand), map
-| Space, Esc, F (hold)    pause, skip the watch (after a full one), fast (doing nothing: a blue toast says why)
-| Enter                   dismiss the respond card
-| ?                       the abstractions drawer; Shift+M mute
-| ,                       the SETTINGS popover (B-7)
-| W                       EXPLAIN: the alarm panel opens (the clock holds) or closes (Q-46)
-| H                       the suburb card opens or closes (Q-56; a held H does not repeat)
-```
+Back in the file's header (W1, X-49).
 
 #### app/alarms.js
 
-```text
-app/alarms.js: the K-8 annunciator model and the K-21 priority of each tile (Phase 1b:
-desk/README.md §11 B-1, B-2, B-3). Pure and DOM-free; desk/annunciator.js draws
-`alarmsView()` (vm.alarms).
-
-Twelve tiles (4 x 3). Phase 2a (desk/README.md C-9): MIN GEN is real (the dispatch is spilling
-wind and sun now); the MSL levels are tray cards (app/tray.js), not a thirteenth tile. Each has one BASE priority and a
-target control id (a click or Enter focuses it). Analogue tiles have separate set and clear
-thresholds (K-8), event tiles are set by what happened (a contingency, a UFLS stage, news).
-
-Escalation (B-1): UNDER FREQ and OVER FREQ are P2 tiles (`escalates: true`). While the
-frequency is outside the containment band (49.5-50.5 Hz) the tile is escalated: the view
-gives it `prio: 'P1'` and `escalated: true`, and it sounds the horn. An acknowledged tile
-that escalates flashes again (it is worse news than the one acknowledged).
-
-States (ISA-18.1 sequence R, ring-back, visual only; B-2): normal -> alarm (new: flashes
-fast, sounds by priority) -> ACK -> ackd (steady) -> condition clears -> normal (dark). An
-alarm that clears before ACK is 'cleared' (flashes slowly, the ring-back) until ACK returns
-it to normal. SILENCE stops the sound only. The flash rates are the desk's (2.5 / 0.8 Hz).
-
-Sound (K-21, B-3). A SOUNDING is one alarm sound started: the horn (the highest effective
-priority among the tiles that start it is P1) or one chime (P2); P3 tiles are silent here
-(their tray card makes the soft tick). One sounding per update at most. `a.audible` counts
-soundings (K-8's accept: "the competent proxy triggers <= 8 audible alarms per daily").
-RE-SOUNDS are the same alarm heard again and count in `a.repeats`, never in `a.audible`:
-  * the horn every HORN_REPEAT_S real s while a P1 alarm is unacknowledged and not silenced;
-  * one chime P2_REPEAT_S real s after a P2 tile sounded, if it is still unacknowledged
-    (and not silenced, and no horn is going);
-  * the horn starting on a tile that escalates inside its own hold-off (below).
-No tile starts a NEW sounding within RESOUND_HOLDOFF_S real s of its last one (K-8 accept):
-an alarm that sets again inside that window flashes at once and is held; if it is still
-unacknowledged when the window ends it sounds then. During the watch every sound is held
-the same way; tiles still unacknowledged sound once when the watch ends. So with the alarm
-panel open (ctx.hold, Q-46).
-
-Inputs: updateAlarms(a, x, ctx) reads a small snapshot `x` built by alarmInput(obs) in the
-game, or alarmInputFromState(state) in headless runs (tests; they must agree). Frequency
-extremes between two updates come from sampleTick() (called after every tick): a frame at
-120x spans ~100 ticks, and a dip below 49.85 Hz inside it must still set UNDER FREQ.
-
-2c (desk/README.md §32.7.3): `x.news` is every news item ({atS, fromS, toS, kind}), so a batch
-(the briefing's three at 04:00) is read whole, and WEATHER sets only for `isWeather(kind)` (heat,
-storm, cloud, drought: Q-82's one predicate), until the latest end among them. `x.night`
-(obs.nightShift) makes the night roll quiet as the watch is (Q-73): tiles still flash, nothing
-sounds. PEAK_H is D-2's Peak segment in hours, from `clock.PEAK` ([16.5, 20], Q-78). K-8's
-accept counts real time on `clock.stepReal` (the profile par paces on), 1x in the watch, over a
-desk date (DESK 20261008: 5 audible, the PEAK horn at 16:30, none from 21:00).
-```
+Back in the file's header (W1, X-49).
 
 #### app/suburbcard.js
 
-(2b, the card agent; written here, not in the file, Q-49.)
-
-```text
-app/suburbcard.js: a suburb's card (SPEC §9.1 Q-56; §31.6 card, §31.9.3-§31.9.7). On demand (Q-44,
-cap 6.5 KB in tests/budget.test.js since 2c); its CSS is injected once (#sc-css). Presentation and two sim
-inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch and the focus.
-
-  const card = createSuburbCard(doc, root, actions, {toast, loadText, toggleHelp, now});
-  card.update(vm, day)  every frame while vm.suburb is set, also while the watch hides it (its pre-checks
-                    read the latest vm); day is the attempt (the shell passes game.state): a new one
-                    (PLAY THIS DAY AGAIN) forgets the player's aims and the rests; builds its rows when
-                    the suburb, the offer, a dark district or the blocks change, keeps a focused row's
-                    focus across a rebuild and closes a popover its old "?" held (Q-47; the shell
-                    closes it when the card hides); a block's booked / under way / done each frame;
-                    the aim, its words and the verdict only when the line (fromS, n), lv.rev, the LV,
-                    the player's aim, patience, the last block's del or the shown city line's atS
-                    change; names the dialog
-                    (aria-label) by its suburb
-  card.focus()      the first row's press (RESTORE, else the first CANCEL or BOOK), else ✕
-  verdict(fc, lv, id, atS, effMW) -> '✓ …' | '✕ …' | ''   §31.9.4, pure (tests)
-  WIT, LEVERS, PEAK_BAND_MW   the U-1 lines, each lever's name and "?" row, the band (100 MW)
-
-What it shows, top down (1280×600 gives it 194 px; a HOT day with both levers fits, and one
-booked block with them; two booked cycles and a soak scroll, the last resort, and the verdict
-sits under its aim so the words scroll first. 2b final review P6, computed from the CSS, not yet
-seen in a browser: lines 14.85 px, buttons 24 px; a HOT card ~180 px before the trims, ~210 px
-with a booked cycle's two-line row; padding 4 px, p margins 0 and .sc-r 2 px take 20 px off):
-  NAME · 420k homes · ✕ (btn-suburb-close)
-  n DARK: [RESTORE] (city-<ID>-restore: focus bay-restore; the card stays)   only with dark districts
-    (2c, Q-69: a task feeder before its clearS is the network's: "2 DARK · BACK 06:45, 07:05" in
-    blue with no RESTORE while every dark district is held, so card.focus() goes to the first
-    CANCEL or BOOK and nothing steals the focus before the hand-back; "2 DARK (1 BACK 07:05):
-    [RESTORE]" once one is the desk's; the words are render/map.js darkOf's, the map's; the
-    shape key tells held ('h') from restorable ('d'))
-  “U-1's dry wit”
-  patience 40: 90% respond (all respond from 50; air-con locked under 25; only on a day air-con
-    is offered, else "patience 40": it scales air-con alone, P2) · draws <lit MW> · roofs <MW>
-  per offered lever (obs.levers.offered; on a MILD day "AIR-CON CYCLE: hot days only (…)"):
-    each booked block: SOAK 10:30–14:30 booked|under way|done: tonight's heating −525 MWh   [CANCEL]
-                       AIR-CON 18:45–20:15 booked: pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience −10 [CANCEL]
-      (CANCEL city-<ID>-<lever>-cancel-HHMM; dimmed, aria-disabled, once its del is not '': under
-      way from the soak's first MW or the cycle's pre-cool, so the row names the pre-cool; done
-      after the soak's end or the cycle's snapback)
-    the aim: HOT WATER SOAK +140 MW [◀] 10:30–14:30 [▶] [BOOK] [?]   (BOOK = city-<ID>-<lever>,
-      ◀ ▶ = -earlier / -later, ? = q-<lever>: deps.toggleHelp(q, [LEVERS[lever].row]))
-    air-con: the verdict of the aim, or of the suburb's last booked cycle when it cannot book and
-      that cycle can still be cancelled (none once it starts: the day-ahead then has only the
-      columns after now, and its "peak" would creep past the real one)
-    what it does: takes 525 MWh at noon; tonight's heating −525 MWh · no payment
-                  pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience 60 → 50
-      or, when LV.block is not '', that reason in blue (◀ ▶ hidden, BOOK dimmed)
-
-The aim: the player's (◀ ▶, - =: 15-min steps) kept inside [fromS, toS], else the shown city
-line's atS for this lever (vm.objective; a soak line's for any suburb, an air-con line's for its
-own: after "◇ SUBURB (H)" or "▶ SUBURB (H)" BOOK sends what the line says), else aimFlex over
-vm.dayAhead || obs.forecast (fromS while it says -1), kept within one 5-minute step of the card's
-last default (objective.js stick; 2b final review S1). BOOK forgets it; CANCEL leaves the
-cancelled block's time as the aim to re-aim from. A booked block is never moved in place.
-Energies and times come from sim/weather.js flexParts (the sim's own shapes); the payment is
-the core's MWh × AIRCON_PRICE (lit districts; dark ones are not paid).
-
-A press (BOOK, CANCEL, ◀ ▶): the row's rest first (COMMIT_LOCK_MS after an accepted BOOK or
-CANCEL: "booked: OLD HAZELTON soak 10:30–14:30"); then ◀ ▶ step (blue "earliest 10:00" /
-"latest 11:00" at the ends; on a booked soak or a focused block "booked for HH:MM: CANCEL, then
-BOOK the new time", or that block's del once it is under way); BOOK and CANCEL answer in blue
-and send nothing in the briefing ("Take the desk first: Enter."), after the day ("Day over:
-…"), in the watch ("desk locked while the grid catches itself"), on LV.block ("<Suburb>:
-air-con locked: patience below 25", "… too late today: soaks start by 11:00", "… one soak a
-day: already booked") and on a block under way (its del). LV.block is said as a standing status
-(the aim row, BOOK, ◀ ▶): its window reasons (sim/grid.js LEVER_WHY) in the card's words, "too
-late today: soaks start by 11:00", "too late today: cycles start by 19:30 (pre-cool from 18:30)"
-and "no room today for another cycle around the booked one", the rest as the sim says them
-(2b final review P4: the sim's strings refuse a proposed time, and nothing was proposed). A refusal from the sim stays the
-shell's red toast. "Outside the window" is LV.block's: the card never holds an aim outside
-[fromS, toS]. A suburb with dark districts shows its "n DARK: RESTORE" line first (2c: while
-every one is a held task feeder, "n DARK · BACK HH:MM" with no RESTORE, Q-69) and still
-books (Q-50: a dark district's flex just stops; eligibility only through LV.block, §31.3.7),
-so §31.6's "a dark suburb's RESTORE first" is that line, not a blue refusal.
-
-Keys (the card's root; CARD_OWN in app/shell.js keeps them from the desk, the stack, the map
-and the fallback): ←/→ the previous / next suburb in city order (wrapping; the new card takes
-the focus), ↑/↓ the row presses (RESTORE, CANCEL, BOOK), - and = the time of the focused row's
-lever, Enter presses the focused button (preventDefault; never on ev.repeat), except in the
-briefing, where it goes on to the shell and takes the desk (app/shell.js own lets it through),
-as BOOK's blue answer says. Esc and H stay the shell's (closeTop's order; H toggles); Tab is
-the browser's.
-```
+Back in the file's header (W1, X-49).
 
 ### 31.9 After the contract review (workflow `wf_3f02ecb7-0c6`; these override §31.1–§31.7 where they differ)
 
@@ -4620,133 +3984,15 @@ before the move and **385,154 B** after (−11,969 B; raw 1,145,177 → 1,115,23
 
 #### app/boot.js
 
-```text
-app/boot.js: starts the greybox game (next.html, Phase 1a). The page's one module script.
-It imports the stage B modules by their contract paths (desk/README.md §1) and hands them to
-app/shell.js, which mounts them, draws the overlays and runs the frame loop. The Phase 0.2
-bench's boot is app/bench-boot.js (bench.html).
-
-URL query: ?seed=N or ?date=YYYY-MM-DD (default: today's daily, content/dailies.js, Q-75) &perf (the F-11 overlay) &debug.
-```
+Back in the file's header (W1, X-49).
 
 #### app/director.js
 
-```text
-app/director.js: chooses the playback rate (spec F-5, K-15, K-16, D-6). The sim never does.
-
-Modes (desk/README.md §2), precedence OVER > HIDDEN > ALARMS > PAUSE > WATCH > RESPOND-CARD >
-FEEDER-CARD > FOCUS > RESPOND > OFFER > NIGHT > FAST > CRUISE (§32.4.8; OFFER: wave 2's fix pass;
-FEEDER-CARD: Q-91, in RESTORE's place):
-  CRUISE        the D-2 profile (slice 2c, Q-62/Q-63): sim/clock.js rateAt(s, hand), eased over 2 real
-                s at each interior boundary, halved from 04:30 to 21:00 when the day is HAND's
-                (handAt: state.control.handFlown, or the mode HAND from PLAYER_START_TICK, so the
-                held 04:30 desk, before the sim tags handFlown, is HAND's too; Q-64). The line's
-                cadence and reading lead (app/game.js) read handAt too. Between two eases rateAt is
-                flat, so the director keeps that stretch
-                (d.flat: its ends are each boundary +- the ease's half-width, EASE r1 r2 / (r1 + r2),
-                the formula sim/clock.js uses) and asks rateAt only inside an ease: rateOf runs
-                between every two ticks, 1,750 times a frame at 2,100x.
-  FAST          3 x CRUISE while F is held. Refused (setFast) and ended (directorFrame) in WATCH,
-                the cards, RESPOND, FOCUS, ALARMS, OFFER and NIGHT (NO_FAST); it also ends on F up,
-                a new contingency, a new P1/P2 alarm, a new ask (app/game.js newAsk) and every new
-                tray card that rings (app/game.js handleRecords: a 'ring2' from T.trayRecords; MSL1
-                and the other information cards do not ring), so FAST never runs past a warning
-  WATCH         K-15 over the first WATCH_S grid-seconds after a contingency: full 0.15x / 1x /
-                10x over 0-3 / 3-10 / 10-30 s, compact 0.5x / 2x / 20x. The desk is locked (the
-                sim refuses inputs). SKIP plays the rest of that watch at CRUISE.
-  RESPOND-CARD  rate 0 from the watch's end until the card is dismissed (Enter or any desk
-                input): a hold on the clock (K-16), as PAUSE and the feeder card
-  FEEDER-CARD   Q-91 (the owner's call, in place of Q-70's RESTORE pace): rate 0 at each task
-                feeder's allowed second (sim/market.js restoreAllowedS, the one rule: the later of
-                its clearS and the last restore + RESTORE_INTERVAL_S), from the tick after that
-                second's own (whose step hands the feeder back: feederClear, the tray's NETWORK
-                card, so the card never shows before it), while it is dark with shedBy
-                'task' and before 21:00, after any watch and the respond card (it waits for both:
-                feederOn), the earliest allowed first. It holds until the feeder is restored (it is
-                no longer dark), or the card is answered (answerFeeder): Esc goes on (app/game.js
-                ui 'goOn': d.fc[id] = Infinity, never held again), any other desk input dismisses
-                it for that allowed second (d.fc[id] = it; app/game.js sendInput and redispatch,
-                with the card shown at the press), so a later restore that moves its allowed second
-                holds it again. The restore of its own feeder keeps it when refused (the reason
-                stays on the card: app/game.js feederWhy). feederCard(d, state) names the feeder
-                whose card is due; it ignores PAUSE, ALARMS and a hidden tab (the page shows the
-                card only in FEEDER-CARD, and app/game.js shownFeeder answers only a card shown).
-                The dark task feeders' [i, clearS, allowed second] are kept on the director (d.rw,
-                windows) per input-log length (only a logged restore relights a district) and
-                checked against each feeder's dark, shedBy and clearS; a state with no log is read
-                afresh (stage C: rateOf asks it between every two ticks). tests/lib/play.js
-                feederDue reads from the sim's state alone whether a card may hold, and
-                feederHeldAt whether one holds at this tick, for D-2's E.
-  RESPOND       30x from the card's dismissal until frequency is back in 49.85-50.15 Hz
-                (contingency.backInBandTick >= 0) or 5 grid-min after the card, then the profile
-  FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
-                a restore input (the breaker being closed, K-13; focusRestore)
-  OFFER         K-12 (wave 2's fix pass, an owner-delegated call for the integrator to number):
-                OFFER_RATE 30x from the frame the game offers a unit (app/game.js updateOffers ->
-                offerPace) while it waits at full speed, for at most AUTO_SYNC_S (240 grid-s, so 8
-                real s; at 540x the offer lived 0.44 real s), no FAST. Badge "SYNC 30×". Taking it
-                opens the scope (FOCUS, above); the breaker closing (by hand or auto-sync) ends it.
-                Each offered unit keeps its own window (d.offers: unit index -> the tick it ends;
-                a window ends when its unit leaves full speed), so two offers at once (a 'respond'
-                and a 'tight') play OFFER until the last of them ends. None once the night shift
-                has the desk (an offer made before 21:00 included): NIGHT plays, as the lock
-                refuses the SYNC. tests/lib/play.js clockReport counts OFFER the same way.
-  NIGHT         Q-73, once the night shift has the desk: the sim's state.control.nightShift
-                (obs.nightShift, set on stepping 21:00:00 on a night scenario). The game's lock and
-                the views read the same flag. The profile (2,100x, eased into from PEAK EASING's
-                300x), no FAST. A contingency that starts from NIGHT_S is logged only (latest()
-                leaves it out), and from the flip no card or RESPOND plays for any contingency (one
-                begun just before 21:00 included: its watch ends, nothing asks), so the roll is
-                never held. At tick NIGHT_S x TPS itself, before the sim steps 21:00:00, the face
-                (segment, act, target) still reads PEAK EASING, as the lock is still open:
-                tests/lib/play.js to('21:00') lands there, to('21:00:01') after the flip. (The
-                view's night is obs.nightShift.)
-  PAUSE         Space; a hidden tab (HIDDEN); the day's end (OVER)
-  ALARMS        rate 0 while the alarm panel holds the clock (d.held, Q-46); d.paused is untouched
-  DEBUG         the bench's speed selector (bench.html only): any speed other than CRUISE
-
-modeOf also returns segment (the D-2 segment's name, Q-78), act (sim/clock.js actAt: 0 before
-04:30, 1-3, 4 the night roll) and night (the sim's flag); its `rate` is rateOf's except in CRUISE, NIGHT and FAST,
-where it is the segment's target (x3 in FAST): the badge never shows a number counting through an
-ease (Q-63), and the loop reads rateOf.
-
-A director made with {game: true} runs every mode above; without it (the bench) it is the
-Phase 0.2 director: a flat CRUISE (FLAT_RATE 120x) or DEBUG, the full watch, PAUSE, and nothing that
-holds the clock; its segment is '' and its act 0.
-
-Watch version (K-15): full the first time ever and on anything new (the first UFLS operation
-seen, the first HIGH RoCoF); otherwise compact. The version is chosen on the watch's first
-tick (a first HIGH RoCoF is known then: the record's rocofHzS) and upgraded to full for the
-rest of the watch when a first-ever UFLS operation happens during it: the relays deserve the
-slow motion (decision: most fun within realism, OD-17). `d.seen` ({watch, ufls, rocof}) is
-the memory the game loads from and saves to localStorage (gridwatch:v4:seen, C-8: optional).
-Esc skips only once a full watch has been seen (game mode; the bench always may).
-
-Viewing never changes the outcome (C-7): the director only picks the rate. Pure and DOM-free
-(Node tests use it). rate() is asked between every two ticks, so it reads a few fields
-straight from state without allocating.
-```
+Back in the file's header (W1, X-49).
 
 #### app/game.js
 
-```text
-app/game.js: one game session (next.html), DOM-free. It mirrors app/session.js (which the
-bench keeps) for the game: the sim state, the director (game modes), the loop's pacer, the
-system operator (app/system.js: the 04:30 pre-dispatch, the dark-city reflow, RE-DISPATCH),
-the annunciator, the tray, the recorder (watch traces), history rings for the Live Stack's
-past, the TRIP / RESTORE PREVIEW caches, the view model (desk/README.md §5), the input log
-and its replay file (F-6). boot.js / shell.js wire it to the page; tests drive it headless.
-
-Everything that changes the grid is a sim input: sendInput (the desk, the stack, the map,
-keys) and the system's inputs, applied between ticks or through step(), so replay() of the
-log reproduces the day (F-6). Presentation (focus, ACK, pause, FAST, skip...) goes through
-ui() and never touches the sim. Nothing here draws.
-
-Modules the game uses but other stage B agents own are passed in, so this file imports only
-what exists on its own branch: `system` (app/system.js: createSystem, systemInputs,
-redispatch) and `planview` (app/planview.js: glowSet). Without them the game still plays: no
-automatic plan (a no-input day then needs the player), and a simple fallback glow set.
-```
+Back in the file's header (W1, X-49).
 
 Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
 - **The briefing's AGC/HAND is the sim's mode** (`state.control.mode`). While `phase ===
@@ -4799,535 +4045,91 @@ Slice 2c (wave 2, clock; Q-63, Q-64, Q-73, Q-78):
 
 #### app/loop.js
 
-```text
-app/loop.js: the frame loop (spec F-5, X-26).
-
-Each animation frame adds min(frameDt, MAX_FRAME_DT_S) x rate grid-seconds to an
-accumulator (kept in ticks) and runs whole 20-ms ticks, up to a per-frame cap and a time
-budget. The rules this file guarantees (tests/loop.test.js):
-  * every tick is run exactly once, in order: nothing here skips or repeats a tick, and
-    the sim never sees the frame rate (the same input log at any rate or display refresh
-    gives the same state at the same tick; F-4, D-6);
-  * a lagging frame (cap or budget hit) slows play: the time it could not run is dropped,
-    never the ticks, so play resumes at its rate from the next frame instead of spiralling;
-  * when the rate changes between two ticks (a contingency opens the watch, a watch
-    segment ends; from 2c every tick of a D-2 ease, so a frame's real time is the
-    profile's integral over its ticks), the time still owed is converted to the new rate at once, so the
-    watch's 0.15x segment starts at once, not a frame later. A contingency is known only
-    after the tick that opened it (a pre-rolled trip happens inside step()), so that tick
-    was charged at the old rate; rateLast() lets the loop re-charge it at the watch rate
-    (the accumulator may then owe time, i.e. go below 0, and the next tick waits for it),
-    so the watch lasts its full real time from its first tick;
-  * draw never runs inside step(): runFrame only steps; the caller draws after it returns.
-
-Pure: runFrame takes callbacks and a pacer object, so Node tests drive it with fake
-frame times. Only startRaf() touches the browser, and only when called.
-```
+Back in the file's header (W1, X-49).
 
 #### app/planview.js
 
-```text
-app/planview.js: the Live Stack's plan view (desk/README.md §7; SPEC L-1..L-9). Pure: it
-reads an observe() snapshot (and, for the past columns, the shell's history) and imports
-only sim/params.js and (2c) sim/dark.js. Nothing here changes the grid; the stack sends what
-snapDrop returns.
-
-project(obs, opts)            the next 4.5 h per 5-min column: each layer's MW as the sim's
-                              plan executor will move it (desk/README §3.1), supply and gaps,
-                              the rooftop bite and the projected spill (Phase 2a, C-11)
-blueRuns(proj)                the runs of projected spill ahead (C-11), in the shape of redRuns
-earliestArrival(obs, st, mw)  the earliest second a station can be at mw (L-4 ghost, L-6, L-9)
-glowSet(obs, gap)             control ids that can arrive by the gap's start (L-9, K-16)
-snapDrop(obs, st, atS, mw)    the inputs a drop sends, on the 15-min / 50-MW grid, or the
-                              earliest-arrival ghost when the drop is infeasible (L-4)
-snapStart(obs, unit, onAtS)   the same for dragging an off unit's ghost (a booked START)
-firstGap(proj)                the first red run ahead (the gap a trip opened, K-16)
-
-The projection is a 5-s step simulation of the executor rule, so ramps, T1/auto-sync/T2
-starts, the unload + T4 stop profile, min up/down, clamps and the arrive-by lead all match
-the sim to within one step; AGC trims, governors and heat derate changes are left out (the
-stack draws the plan, not the seconds). Where the executor's contract is loose the choice is
-named in a comment; stage C checks the projection against a stepped sim.
-
-Slice 2c (§32.7.4; Q-68, Q-69):
-  load     each column's demand leaves out the task feeders held at its time (sim/dark.js,
-           par's functions): p50, p10 and p90 are litMW(forecast x, rooftop column, D) with
-           D = darkShareAt(obs', t), where obs' has exactly the districts with 0 <= t < clearS
-           dark (heldAt: a task feeder is dark from 04:00 and cannot be closed before its
-           clearS, so this is the held set at any t, past or future, on this branch and with
-           par's announced return alike). Load, deficit, the gaps and the projected spill read
-           them. So before its hand-back a held feeder leaves no red gap the size of its load
-           (+251 MW at 04:35 on DESK seed 2 before 2c), and at clearS the skyline steps up: from
-           then it is the desk's to close. UFLS and directed darkness (clearS -1) stay on the
-           load, as in 2b: the shed load is a red gap the player relights into, and the respond
-           card's K-16 glow (app/game.js firstGap), the objective's planShort and Q-77's proxy
-           read that gap; par plans on lit demand, the stack shows what the city wants. With
-           nothing held the forecast is used as it is (classic exactly as before).
-           pastFromHist(hist, pastTimes, obs): the history's demand (the whole city's, app/game.js
-           histSecond) less the feeders held at each past column's end, the same way, so the
-           past skyline meets the first future column.
-  tie      the import limit holds until tie.limitUntilS, then TIE_MAX_MW, column by column;
-           an arrive-by tie key leads from the imports the limit lets run on both ends, as
-           grid.js tiePlanSecond. glowCandidates: a tie set within SNAP_MW of its limit (and
-           under TIE_MAX_MW - SNAP_MW) is a candidate from the limit's end (L-9: it can add
-           50 MW then, so a gap after the derate glows the knob); set past the limit, it rises
-           by itself at the end and is none.
-  outage   earliestOnAt for an off unit is max(s + wait, outUntilS) + startToMin, so the
-           earliest line, the ghost, glowCandidates, snapStart and earliestArrival put a unit
-           on outage no earlier than its return + startToMin; simInit copies outUntilS and a
-           booked START is due at max(atS, outUntilS) (grid.js startDueS): the mirror leaves it
-           pending until the return, without blocking later bookings, and starts it then.
-```
+Back in the file's header (W1, X-49).
 
 #### app/record.js
 
-```text
-app/record.js: what the bench's strip charts plot. DOM-free.
-
-The sim keeps no history, so the bench records it as it plays:
-  * every tick: frequency (for the live chart at slow speeds and the per-second envelope);
-  * every grid second: min / max / mean frequency (the last 10 minutes);
-  * every grid minute: an observe() snapshot's numbers (the 24-h charts);
-  * during each contingency's watch: per-tick frequency and who caught the loss.
-Per tick it reads only values observe() also exposes (f.hz = phys.fHz; the balance
-readouts; sec's preview), straight from state because observe() allocates (README §10).
-It never writes state. Typed arrays: this is presentation, not sim state.
-```
+Back in the file's header (W1, X-49).
 
 #### app/shell.js
 
-```text
-app/shell.js: the game page (next.html) around app/game.js. It mounts the map, the desk and
-the Live Stack (whichever modules boot.js passes in), draws the header and the overlays
-(briefing, watch, respond card, end card, drawer, "?" labels, toast, ?perf), runs the frame
-loop (ticks, then the view model, then every module draws: never inside step(), X-26),
-binds the K-23 keys and starts the audio on the first gesture.
-
-app/boot.js is the page's one module script: it imports the real modules and calls
-bootGame(document, {...}). Tests call bootGame with the stand-in DOM (tests/lib/dom.js) and
-stand-in modules, so the shell is tested before the other stage B files exist.
-
-Element ids other modules rely on:
-  #map, #desk      the roots createMap / createDesk receive
-  #stack-slot      created BY THE DESK in its third column: createLiveStack's root. If the
-                   desk has none, the shell makes one at the end of #desk.
-  #stack-overlay   L-4: while vm.stackExpanded the shell moves the Live Stack's `el` here
-                   (over the map, ~1248 x 420) and back into #stack-slot after; the stack
-                   sizes its canvas from its parent on update.
-
-Phase 1b (desk/README.md §13): the SETTINGS popover (#btn-settings, `,`; B-7) and the body
-classes rm / fxlow / crt that follow vm.settings; the one key listener and its order (§13.3:
-the desk's key(ev), then the stack's and the map's, then app/keys.js); the #aria-live region
-(createLive / liveFrame below); the ?perf budget marks; ?debug -> globalThis.gridwatch.
-desk/README.md §30: texts and the alarm panel on demand (Q-44, Q-46), "?" and Esc (Q-47), par (Q-48).
-desk/README.md §32.8.2 (2c): the briefing's Watch for (Q-81), the header's HAND chip (D-7), the night
-strip in the objective's place from 21:00 and the end card fetched then (Q-73). Enter at the RESPOND card
-closes it on the capture phase, before any control's own Enter (K-16: a RESTORE row's would close a breaker).
-Q-91: the feeder card (#feeder-card, drawFeeder from vm.feeder: what, the keys in blue, what going on means,
-before a press why a restore would be refused now in amber (vm.feeder.lamp), a refused restore's reason in
-red (the grid's refusal), and two blue buttons: #feeder-restore "RESTORE <id>" (the restore of its feeder)
-and #feeder-go-on "GO ON" (ui 'goOn')). On the capture phase (feederFirst, after Esc's closeTop: an Esc that
-closed something stops there), while the director plays FEEDER-CARD, Enter or R sends the restore of the
-feeder it names (actions.input: a refusal toasts in red and the card stays) and Esc goes on, but in
-SETTINGS, the drawer and "?", and but Enter on a RESTORE row (the bay's CLOSE), the suburb card or the
-card's own buttons, which is theirs. A key's auto-repeat is swallowed, and so is an Enter or R within
-FEEDER_ARM_MS (250 real ms) of the Enter that closed the RESPOND card (cardFirst; a queued card shows on
-that press), with a blue answer. A click on the card's body focuses its feeder's CLOSE (restore-<id>) and
-the card stays. It sits over the map (never the desk's Live Stack or bay); with the stack out (L) the body
-class stack-out (placeStack) moves it over the lever bank. The objective line waits while it shows, as at
-the respond card (the card is the one instruction while the clock holds), but a ‼ URGENT line stays up.
-```
+Back in the file's header (W1, X-49).
 
 #### app/system.js
 
-```text
-app/system.js: the game's system operator (desk/README.md §3.4; SPEC L-0, A-1). DOM-free.
-
-The player is the control-room operator; this is the market and dispatch system around them,
-which in the NEM runs whether anyone touches the desk or not:
-  * 04:30 PRE-DISPATCH (L-0): the merit-order plan for the P50 forecast (autopilot.preDispatch,
-    made once from the day-ahead forecast), loaded into the sim's plan as a planLoad input, stops
-    included. The stack never starts empty; the levers follow it (K-2, L-6).
-  * RE-FLOW FOR THE LIT LOAD (L-0): while districts are dark, dispatch targets metered demand:
-    the plan is re-dispatched for the lit load whenever the dark share moves, and every
-    PLAN_REFLOW_S while any district stays dark (AEMO's pre-dispatch cadence), so a day with no
-    input is never black. The periodic re-flow waits while the player owns the plan: once they
-    have edited it (a lever or tie move, a plan edit) since the system's last planLoad, their
-    edits win until they press RE-DISPATCH (which hands it back) or the dark share moves again.
-  * RE-DISPATCH (A-1): redispatch() re-runs the pre-dispatch from now to 04:00 over the
-    commitment the player has now (par's amend: units on and coming, the booked starts and
-    stops kept), and every lever glides to the new plan.
-
-Two modes (createSystem({commit})):
-  'system'  the Phase 1a behaviour above: the 04:30 plan commits units too (its booked STARTs
-            and STOPs). The bench and the planOnly proxy use it.
-  'player'  the game (SPEC §9.1 Q-18): COMMITMENT IS THE PLAYER'S. The system never books a
-            start or a stop. At 04:30 it dispatches only what is running; from then it
-            re-dispatches the committed units (the same planLoad RE-DISPATCH sends) whenever the
-            commitment changes (a start, a stop, a booking, a unit synchronised or tripped; from
-            Phase 2a also the battery's order or GUARD, from 2b a city lever booked or
-            cancelled (obs.levers.rev): commitSig) and
-            every DISPATCH_S (5 grid-minutes, as NEMDE does) for the newer forecast. Which units run, and when, is the
-            player's plan; a day with no input runs short. A lever, tie or plan-key edit by hand
-            still takes the levers over until RE-DISPATCH.
-            The belly (Phase 2a, desk/README.md §21.3): the dispatch is for the lit operational
-            demand against the wind and solar AVAILABLE; in a surplus it takes every unit to its
-            floor and the tie to the export limit, and the sim's own cut spills the rest (C-6). A
-            battery order counts for the energy behind it (autopilot batteryOrder).
-Everything it does is a sim input (planLoad), logged, so replay() reproduces a game day (F-6).
-It runs on the autopilot's 'planOnly' memory and runPar's cadence: a game day with no player
-input is the planOnly proxy's day, hash for hash (tests/system.test.js).
-
-The night shift (2c, Q-73; both modes, on a `night` scenario): from the first look with
-state.control.nightShift (21:00) the system holds AP.nightMemo(observe(state, {dayAhead: true}))
-in sys.night (plain JSON) and runs only runPar's own step on it, decide() then planUpdates(),
-at runPar's cadence: no player-mode dispatch, no DISPATCH_S interval, no commitSig, no
-scanEdits. Its inputs are logged like any others (replay holds); sys.origin is 'night' for them
-('system' by day). RE-DISPATCH is refused ("the night shift has the desk") and heldByHand is
-false (the night memo's own tie inputs are not a hand on the levers). runPar swaps every
-player proxy (planOnly among them) to the same memo at the same look, so a no-input night is
-the planOnly proxy's night, and par's state taken before its first night decision plays the same
-night in runPar and in a fresh player-mode system (tests/night.test.js).
-```
+Back in the file's header (W1, X-49).
 
 #### app/tray.js
 
-```text
-app/tray.js: the K-9 message tray model. Pure and DOM-free; desk/tray.js draws trayView()
-(vm.tray).
-
-Cards come from the sim's records: news (`announce`, by kind, Q-82: weather from the WEATHER BUREAU, the tie from MARKET NOTICE, an outage from STATION, feeders from NETWORK), station notices
-(trips, each START / STOP / CANCEL / ABORT, a unit at full speed, lockout releases, water), market notices (the security level
-going SHORT or SHEDDING, reserve diesel, DR, and from Phase 2a the minimum-system-load levels,
-P-4 / desk/README.md C-9) and the city desk (UFLS, directed shedding, restores, a suburb's air-con locking; its bookings and patience: LOG only). Each card: a sender, a grid time, <= 25 words and ONE button that only focuses a
-control (and lights it, L-9); it never dispatches (K-9). At most 3 cards are visible; older
-ones (information first) and cards whose life is over go to the LOG drawer. Warning cards ring twice (the
-audio cue 'ring2') and never repeat: a warning's key (what it is about) is shown once a day.
-Cards never pause play (§7).
-
-2c (desk/README.md §32.7.3):
-- Senders by kind (Q-82): `A.isWeather(kind)` (heat, storm, cloud, drought) is the WEATHER BUREAU
-  with its button to the stack; `tie` MARKET NOTICE (the tie), `outage` STATION (the lever of the
-  unit its text names), `network` NETWORK (the restore bay); any other kind as before (the map).
-- A card's life (Q-63) is stored when it is made, as `untilS`: TRAY_LIFE_REAL_S (20) real s of
-  the step profile (`clock.stepAfter`) from its atS, 04:30 at the earliest; a warning issued in
-  play (news atS > 0) whose onset (`fromS`) is later stays until its onset (`holdS`). Briefing
-  cards get the plain 20 s. `trayFrame` retires every card whose life is over, not only the
-  oldest, so a warning held to its onset stays while a newer information card expires behind it.
-- `trayBriefing(tr, news)` (Q-81): at TAKE THE DESK one card per news item with atS 0, through
-  the same 'announce' path (sender, button, seen key), atS 0 ("04:00"); one 'ring2' if it made
-  any, else [] (classic announces nothing at 04:00); over three, the oldest cards go first.
-- Log cards: `FEEDER_CLEAR` rings (NETWORK): "<id> feeder repaired and handed back: close its
-  breaker (R or Enter at its card, or from the RESTORE bay)." with its button to the restore bay
-  (Q-70, Q-91); that district's `restore` record moves it to the LOG (`done`); `UNIT_AVAILABLE` (STATION,
-  to the unit's lever) and `TIE_LIMIT_END` (MARKET NOTICE, to the tie) are information; the
-  weather onsets keep one rule: a `crit` log (heat onset, storm arrival, wind cut-out) rings, and
-  on a dayplan day the front's `CLOUD_ONSET` over the suburbs and a warned drought's
-  `WIND_DROUGHT` are information (their warning rang; plan's moments, tests/dayplan.test.js).
-  Classic is as before (Q-83): its precinct front's `CLOUD_ONSET` makes no card, and a legacy
-  drought, announced at its onset, makes one card: the log line that twins an `announce` of the
-  same batch (same text) makes none.
-- The night (Q-73): from the sim's `NIGHT_SHIFT` record the tray's cards are quiet (made and
-  logged, no cue), and a unit the night shift brings to full speed is its own to close: its
-  `UNIT_READY` card drops "(or SYNC now)" and goes TO THE LEVER (`cardOf(r, night)`, stage C).
-```
+Back in the file's header (W1, X-49).
 
 #### app/watch.js
 
-```text
-app/watch.js: the K-15 watch's beat model and the K-16 respond card model. Pure, DOM-free.
-
-The watch plays five beats in the physical order (J-25): inertia -> battery -> governors ->
-UFLS -> settle. Which beat is live is read from the contingency's TRACE (app/record.js: the
-frequency and what each source had caught at every tick), never from a script, so the
-caption always says what the physics is doing:
-  inertia    stored spin carries the hole (its catch exceeds the battery's and the governors')
-  battery    the battery (its droop plus the GUARD's fast frequency response) catches more
-             than inertia; "YOUR GUARD: N MW" when the ring holds some back
-  governors  governor response overtakes the battery, until the fall stops and 10 s pass
-  ufls       from the first relay operation (only below 49.0 Hz) for 2 grid-s
-  settle     from 10 grid-s: droop parks frequency below 50 Hz
-The beat index never goes back (a subsequence of the order above, K-15).
-
-Phase 2a (desk/README.md §19.2, §21.4; C-7): a contingency can be a loss of LOAD (the smelter's
-potline), and wind, utility solar and rooftop solar answer over-frequency. So the beats read
-the trace by the event's sign (a rise is caught by the same sources working the other way),
-the inverters' catch (caught.inverterMW) counts with the governors' beat, and the captions
-and the card say it in words for both signs: negative = "solar and wind backed off N MW" (a
-rise caught), positive = "gave back N MW" (they were backed off before a loss of supply).
-A trace or record from before Phase 2a has no inverterMW: it reads as 0.
-
-The respond card (K-16) is <= 4 lines, with no buttons: the nadir against the standard, the
-MW each source caught (the record's caught at the extreme, which is the trace value at the
-nadir), the problem in plain words (the H-4 level, R5 - L if short, the 30:00 countdown from
-secureByTick, dark districts except a held task feeder, the network's outage: Q-69), and "Enter
-(or a click) to take the desk".
-
-2c (Q-74): the problem line speaks COVER's words. COVER is R5 >= L with no district dark for UFLS
-or direction, within 30 min of the trip, so (SHEDDING first: its head wins over R5 < L):
-"SHEDDING: n district(s) dark (n MW): relight it/them[ and cover n MW] within m:ss." (the
-shortfall when R5 < L); "N-1 SHORT: n MW short: cover it within m:ss."; "N-1 TIGHT: spare
-covers the next trip, without SECURE's margin." (TIGHT already covers: no countdown); SECURE as
-before.
-fallbackGlow's tie test reads obs.tie.importLimitMW (a derate's limit, Q-68).
-Q-91: feederCard(obs, id, suburbs, why, lamp) is the feeder card's model (the clock held at a hand-back):
-the feeder, its suburb's name and its pickup with its cold load to the 10 MW ("SAL4's feeder in Saltbush
-Bay is repaired: about 230 MW with its cold load."), the keys (FEEDER_KEYS "R or Enter: restore it now ·
-Esc: go on"), what going on means (FEEDER_ON), a refused restore's reason (why), and before one why a
-restore would be refused now (lamp: the RESTORE PREVIEW's reason, '' once why is set).
-```
+Back in the file's header (W1, X-49).
 
 #### audio/audio.js
 
-```text
-audio/audio.js: WebAudio for the game (K-19 hum, K-20 foley, K-21 tones, K-22 buses).
-
-Created on the first user gesture (browsers refuse to start audio before one) and silent
-when WebAudio is missing or refuses (C-8: the game plays fully without sound). Everything is
-synthesised; no samples: a foley voice is mixed from its recipe (audio/model.js VOICES) into
-a buffer the first time it is asked for. Math.random is allowed here (fx only, F-3): the
-noise layers.
-
-  master <- hum bus (the hum's two gains) | fx bus | alarms bus      gains: vm.settings
-
-At most MAX_NODES nodes live at once, the hum, the buses and the master included; a cue that
-would pass the budget is dropped and counted (au.dropped). A delayed cue (delayS) holds no
-nodes until it is due: it waits in au.pending and update() starts it, on time, a frame ahead.
-
-  const au = createAudio(globalThis);   // nothing happens yet
-  au.start();                           // on the first pointerdown / keydown
-  au.update(vm);                        // every frame: hum follows vm.needleHz; vm.settings; vm.cues play
-  au.cue('breaker'); au.cue({name: 'clack', pan: -0.2, delayS: 0.09});
-```
+Back in the file's header (W1, X-49).
 
 #### audio/model.js
 
-```text
-audio/model.js: the pure parts of the game's sound (K-19 hum, K-20 foley, K-21 alarm tones,
-K-22 buses), so Node tests can check them without WebAudio.
-
-K-19 mains hum: transformers hum at twice grid frequency, so the hum has partials at k x 2f
-(k = 1..4). A quiet reference tone sits at k x 100 Hz (twice the 50-Hz nominal); each partial
-beats against its reference at 2k x |f - 50| (at 49.75 Hz the 400 Hz partial wobbles twice a
-second). Default level -30 dBFS. There is no such tone in a real control room: it is
-sonification, labelled in the abstractions drawer (H-14).
-K-20 breaker close: a bandpassed noise transient plus inharmonic partials near 0.9, 1.4 and
-2.2 kHz, decaying over 120 ms, plus a thud.
-
-Phase 1b (desk/README §13.2): every cue is data. A cue is either a TONE (oscillators, the
-K-21 alarm sounds) or a VOICE: a list of layers (bandpassed noise, sines, saws, squares, each
-with its own envelope) that renderVoice() mixes into one buffer. A rendered voice plays
-through a source and a gain (and a panner when panned): 2-3 live nodes, whatever its recipe,
-which is what lets 16 UFLS clacks, a horn and a breaker share the 32-node budget.
-```
+Back in the file's header (W1, X-49).
 
 #### content/anchors.js
 
-```text
-content/anchors.js: the "?" badges' index, eager (Q-44): {game: the element id, rows: its
-entries' row titles}, in content/text.js order, which loads on demand. tests/anchors.test.js
-keeps the two equal: an anchored entry added to content/text.js is appended here too.
-```
+Back in the file's header (W1, X-49).
 
 #### content/scenarios.js
 
-```text
-content/scenarios.js: scenarios as data (spec F-13, D-8, P-6).
-
-A scenario is plain JSON-able data. createState() copies it into state.scn with the
-source keys (src, note, simplified, unverified) stripped, so the sim never reads this
-module at run time: state is self-contained.
-
-Source rule: every object whose own values include numbers carries a `src` (legacy
-line refs are to index.html v2.0 + Phase 0.1) or `simplified: true` with a `note`
-(tests/params.test.js). Times of day are hours; hours >= 24 are the next morning.
-Model constants shared by every scenario live in sim/params.js.
-```
+Back in the file's header (W1, X-49).
 
 #### desk/annunciator.js
 
-```text
-desk/annunciator.js: the K-8 annunciator view (desk/README.md §6, §30.4). 6×2 tiles from
-vm.alarms.tiles (app/alarms.js owns the model: states, flash, priorities); ACK, HORN OFF, EXPLAIN;
-in the plan bar (Q-45). A tile press (Q-46): closed, it focuses its control, says what it means and
-is W's pick; again while that note shows, the alarm panel opens there; open, it selects. Never a
-sim input; it all works during the watch (K-15).
-
-ISA-18.1 sequence R, visual only (§11 B-2): alarm = fast flash (2.5 Hz), ACK = steady, cleared
-before ACK = slow flash (0.8 Hz) until ACK, cleared after ACK = dark. Reduced motion: 1 Hz and
-steady (desk.css). Each state has its own glyph (◆ ■ ◇), so the flash and the colour are never
-the only sign (K-22); an escalated tile (B-1: a P2 tile showing as P1) adds ‼ and a double border.
-```
+Back in the file's header (W1, X-49).
 
 #### desk/bay.js
 
-```text
-desk/bay.js: the procedure bay (desk/README.md §6): SYNC (K-12 synchroscope) and RESTORE
-(K-13 feeder breakers).
-
-SYNC: the READY units (lit when offered, A-4); open one's scope (`scope`), watch the needle at
-phaseDeg turning at slipHz, trim with [ ] (`syncTrim` ±0.05 Hz), close with C or the breaker
-handle (`syncClose`; HAND may use the bypass key), U for AUTO (`syncAuto`). With the scope open
-and no close for 8 real seconds the desk sends `syncAuto` itself (K-12).
-RESTORE: each dark district is a feeder breaker with its cold-load MW; the RESTORE PERMISSIVE
-lamp (restoreBlock === ''); a breaker closes (`restore`) only when the lamp and the district's
-RESTORE PREVIEW (actions.restorePreview) both allow it. R, ←/→, Enter.
-2c, the restore task (Q-69, Q-70): a task feeder before its clearS is held (the network's): its
-row reads "<id> · FAULT · BACK HH:MM" and is listed after the feeders that are the player's, by
-when it comes back; it never chooses the bay's view (RESTORE opens by itself only for a dark
-district that is not held; the tab's ✕n still counts every dark district, as the map and the
-line do, but the tab is lit amber only when one is the player's), and a press on its CLOSE is
-the red refusal with the sim's reason ("feeder under repair until HH:MM"), as every permissive
-refusal. From its hand-back the row reads "<id> · REPAIRED" (the FEEDER_CLEAR card's word). The
-RESTORE tab glows while a feeder card holds the clock (vm.feeder, Q-91: from each allowed second
-until that feeder is restored or its card answered), not all day; at the card its R is the
-shell's (it restores the feeder the card names), and so is Enter but on a row (a CLOSE press, or
-Enter on a row, is the bay's as ever); the list's choice moves to the card's feeder as each card
-shows (vm.feeder). R (once the card is gone), and each hand-back while the list's choice is held or
-none, choose the feeder handed back last that can close, else the first that can, else the first
-that is the player's (the bay's "R, then Enter"); Enter on the RESTORE tab does what R does.
-Keys (K-23): O opens the first READY unit's scope (an offered one first; again: closes it),
-B is the bypass key (HAND). The scope canvas is role="img" with a text alternative that changes
-at most once per real second. Foley (K-20): buttons and tabs cue `button`, the bypass key `key`;
-the breaker's own sounds come from the sim's records.
-```
+Back in the file's header (W1, X-49).
 
 #### desk/calc.js
 
-```text
-desk/calc.js: the numbers the desk derives from the view model (desk/README.md §6). Pure
-functions of observe() values and sim/params.js constants: no DOM, no state, no engine. Each is
-unit-tested in tests/desk.test.js or tests/balance.test.js.
-```
+Back in the file's header (W1, X-49).
 
 #### desk/dial.js
 
-```text
-desk/dial.js: K-11 frequency dial (canvas) and BALANCE bar (DOM) (desk/README.md §6, §29).
-
-Dial: 49-51 Hz; normal band green, out to 49.5/50.5 amber, beyond red; UFLS marked at 49.0; the
-needle (above 10× the last real second's mean, F-4), the TRIP PREVIEW ghost needle, the nadir
-pin during a watch, a 3-decimal readout, CHANGE (RoCoF over 500 ms) and SPIN (stored energy,
-GW·s); "HAND" on the face in HAND mode. BALANCE bar: the trend, or in an event the scheduled gap
-and the borrowed stack that covers it (inertia, battery, governors, load relief and, Phase 2a, the
-inverters backing off: wind, utility solar and rooftop solar above 50 Hz, C-7); the segments sum to the
-swing-equation imbalance and balance about zero (calc.imbalanceSegments). SHED is the dark
-customers' load (obs.demand.unservedMW): the relay MW is net load and is zero or less when a
-district that was feeding back at noon is dark (P-12). The canvas is role="img"; its text
-alternative (K-23) changes at most once per real second.
-```
+Back in the file's header (W1, X-49).
 
 #### desk/emergency.js
 
-```text
-desk/emergency.js: K-7 emergency controls, the A-1 RE-DISPATCH key and the K-2 AGC/HAND key
-(desk/README.md §6, §0 A-1, A-3).
-
-Reserve diesel (RERT): a key under a red cover. The first press lifts the cover and shows the
-cost and lead; then hold 0.6 s (or hold E) to arm. Armed, the same hold stands it down.
-Industrial DR: a big button, hold 0.6 s (or hold D); lamps for the calls left.
-DIRECT SHED: a guarded key (lift, then hold 0.6 s), shown only while the gauge reads SHORT or
-SHEDDING (A-3). Its face names the district the sim will shed and that district's load
-(calc.nextShed, obs.districts[].coldLoadMW: "about 0 MW" for one that is feeding back at noon,
-Phase 2a). Nothing here commits on a single tap: clicks are ignored, only holds commit
-(DIRECT SHED also takes the keyboard's guarded double: Enter lifts, Enter again within 2 s, §13.3).
-Keys (K-23): E / D held; K focuses DIRECT SHED, V the AGC/HAND key, N presses RE-DISPATCH.
-Foley (K-20): covers cue `cover` (lift and drop), key switches `key`, push buttons `button`.
-```
+Back in the file's header (W1, X-49).
 
 #### desk/gauge.js
 
-```text
-desk/gauge.js: the K-10 N-1 gauge and TRIP PREVIEW (desk/README.md §6, A-2).
-"SPARE IN 5 MIN" (R5) against "BIGGEST RISK: <name>" (L), the H-4 word, and the TRIP PREVIEW
-for both credible contingencies (the largest unit and the tie import). Plain words on the face;
-R5, L and the LOR names sit behind "?". Colours by nadir: >= 49.55 green, 49.0-49.55 amber,
-< 49.0 red, always with a glyph. The bars are told apart without colour too (K-22): SPARE is a
-solid fill and carries the level's glyph on its number (✓ covers 1.25 × the risk, ! covers the
-risk, ✕ short: cross-hatched), RISK is a hatched fill.
-
-2c, the COVER row (Q-74), in the caught line's place (while it shows, the live preview's caught
-words move into the preview's title). It shows while frequency is outside 49.85-50.15 Hz
-(fos.outsideS > 0), for BAND_OK_MS (3 real s) after it returns, while obs.inRespond, and while
-the latest contingency is past its watch and still uncovered (securedTick < 0); never in the night
-roll (obs.nightShift, Q-73: a contingency there is logged only). In that order:
-  BAND LOW / BAND HIGH n   fos.countdownS, the bar draining over FOS_RECOVER_S (amber)
-  BAND LOW ✕ n OVER        fos.countdownS at 0: n = outsideS - FOS_RECOVER_S (amber; directed shedding runs)
-  BAND ✓                   the 3 real s after a return seen fresh (green; the gauge's previous update
-                           under 1 real s before and the same day, so never across a jump or after
-                           PLAY THIS DAY AGAIN), never beside a SHORT or SHEDDING head
-  COVER n                  to secureByTick, the bar draining over SECURE_AGAIN_S (plain)
-  COVER ✓ T+n              covered (securedTick) inside the window (green)
-  COVER LOST               covered, and the level is SHORT or SHEDDING inside the window (amber)
-  COVER ✕ n OVER           past secureByTick uncovered (amber), titled COVER_OVER_TITLE
-The figure n is m:ss at 10× or slower (the watch's slow part, the card, FOCUS, PAUSE) and whole
-minutes rounded up above it ("n MIN"), as the dial's readouts; a new figure for the same word is
-drawn at most every FIGURE_MS (500 real ms), a new word at once; the gauge's aria label (the
-group that takes the focus) ends with the row in m:ss, and the overdue title. The "?" adds COVER's
-and BAND's sentence. Real ms are the frame's (vm.frame.nowMs).
-```
+Back in the file's header (W1, X-49).
 
 #### desk/levers.js
 
-```text
-desk/levers.js: K-1 motorised unit levers and the K-3 machine guards (desk/README.md §6).
-
-One lever per station (COAL, CCGT, GT·A, GT·B, GT·C). The handle is the station's base point
-(the plan's now-edge, obs.stations[].basePointMW); behind it the output needle (outMW), the AGC
-band bracket (base ± band, K-2), the 10-grid-minute ramp cone, detent ticks at MIN/25/50/75%,
-the 96% spring gate with its red zone (H-2 trip risk) and a tick for the next plan keyframe.
-A drag sends `basePoint` on release (and at most every 250 ms while dragging); ↑/↓ ±10 MW,
-Shift ±1, PgUp/PgDn next detent; crossing the gate needs 12 px of extra drag or Shift+↑.
-An idle station's lever books its start through the plan (`planKey`, AGC mode, L-6).
-One lamp per machine with its own START and STOP guards (lift, then press; S S / X X).
-Phase 2a (C-10, desk/README.md §19.5): a guard lights when its id is in vm.glow (the
-objective's STOP or START), and tells the desk when it is hovered, pressed by a pointer,
-focused, lifted or committed (ctx.consider), so the shell can say what the press will do
-before it is made.
-Foley (K-20): a hand move cues `detent` / `gate` / `ratchet`, a plan move cues `servo`; guards
-cue `cover` (lift, drop) and `button` (the press that commits). A rough close shakes the lever.
-```
+Back in the file's header (W1, X-49).
 
 #### desk/rotary.js
 
-```text
-desk/rotary.js: K-4 hydro gate wheel, K-5 battery dial + GUARD ring, K-6 tie knob
-(desk/README.md §6). DOM controls with role="slider" (K-23): drag in a circle, keys, scroll.
-Each sends its sim input on release / key-up and shows the vm's applied value otherwise.
-Foley (K-20): a turn cues `detent` across a detent (every GUARD step, the tie's detents, the
-battery's IDLE) or else `ratchet`; the hydro gate cues `gate` when a new setting is taken.
-2c (Q-68): a network outage's import limit (obs.tie.importLimitMW, until limitUntilS) bounds the
-tie knob (aria-valuemax; a drag snaps through calc.tieSnap(v, limit), never to a detent past it),
-draws a red arc from it to +800 beside the export cap's, and its lamp reads "● IMP ≤n" in amber
-(a constraint, never LINK OK's green); a key or wheel turn past it, made at it, says in blue
-"imports limited to n MW until HH:MM".
-```
+Back in the file's header (W1, X-49).
 
 #### desk/tray.js
 
-```text
-desk/tray.js: the K-9 message tray view (desk/README.md §6). At most 3 cards from
-vm.tray.cards (app/tray.js owns the model), each with one button that only focuses a control
-(actions.ui({do:'focus'})): a tray button never dispatches (K-9), so it stays open in the night
-roll (ctx.viewLocked; Q-73). LOG shows the rest.
-Keys (K-23): M (the shell) focuses the tray, which lands on the first card's button; ←→ / ↑↓
-move between the cards' buttons and LOG; Enter presses.
-```
+Back in the file's header (W1, X-49).
 
 #### desk/util.js
 
-```text
-desk/util.js: small DOM and text helpers shared by the desk modules (desk/README.md §6).
-No sim imports except sim/params.js; no state; DOM work only on elements passed in.
-```
+Back in the file's header (W1, X-49).
 
 #### render/format.js
 
-```text
-render/format.js: plain-text formatting for the bench (numbers, clock, event records).
-Pure and DOM-free (tests import it). Wording for the desk moves to content/text.js in
-Phase 1a (README §7); the bench shows the sim's own record text.
-```
+Back in the file's header (W1, X-49).
 
 Slice 2c (Q-78): the rate badge names the D-2 segment in CRUISE and NIGHT ("PEAK 150×", in HAND
 "PEAK 75×", "NIGHT ROLL 2,100×"), from `modeOf().segment` and its target `rate`; a mode object
@@ -5341,27 +4143,7 @@ the desk and the stack read one copy (Q-64, Q-73).
 
 #### render/mapdata.js
 
-```text
-render/mapdata.js: the map's fixed geometry and the colours the stack, the map (and the
-levers, desk/README §7 L-3) share. Pure data plus pure helpers; no DOM. Tested by
-tests/map.test.js (G-1: integer scale, terrain to the frame edges, no building off the
-terrain; G-2: the silhouette parts of each technology; X-37, X-38; G-3: the rooftop panels
-of each suburb in proportion to its rooftop MW, ROOF_PV and roofPanels).
-
-The map is drawn on a fixed offscreen BASE_W x BASE_H canvas and blitted at an INTEGER
-scale (G-1). scaleFor() picks the scale from the map area: the largest integer with the
-whole width shown and the floor-safe rows (SAFE) fitting the height. Rows the frame cannot
-show are cropped from the top (sky first); room left over is letterboxed with the ground
-colour below the horizon and the sky colour above it, never sky under the ground.
-  1280x268 (the 1280x600 floor) -> x2, 640x134 base px, the SAFE rows exactly
-  1280x344 (1280x720)            -> x2, 640x172
-  1920x520 (1920x1080)           -> x3, 640x173.3
-The horizon sits 14 rows inside SAFE, so even the floor shows a strip of sky (G-3: the sun,
-the sunset, the storm cloud) with the stacks, the towers and the CBD breaking it.
-
-Everything a shape needs is data here (base px), so the art can be nudged without touching
-the drawing code in render/map.js.
-```
+Back in the file's header (W1, X-49).
 
 ### 32.13 The contract review (workflow `wf_dee4b30b-f91`, 2026-10-12)
 

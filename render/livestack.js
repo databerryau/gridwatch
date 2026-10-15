@@ -1,5 +1,122 @@
 // render/livestack.js: the Live Stack (desk/README.md §7; SPEC §4.4, L-1..L-9, K-18).
-// Contract: desk/README.md §31.8 render/livestack.js.
+// A desk screen: the next 4.5 h as a skyline of forecast demand (P50 + LIKELY RANGE band) on
+// a fixed 0-9,000 MW axis, each source a coloured layer in P-6 cost order, red/amber gaps,
+// ghosts for off units from their earliest-start line, and drag handles that write the plan
+// (planKey / planStart / planDel / planUnbook through actions.input). Reads the view model
+// only; the plan maths is app/planview.js.
+//
+//   const stack = createLiveStack(document, root, actions);   // once
+//   stack.update(vm);                                         // every frame, after the ticks
+//
+// View-model inputs: vm.obs (with obs.plan), vm.mode.locked (read-only during the watch, L-7),
+// vm.stackExpanded (L-4 overlay over the map), vm.hover / vm.glow (cross-highlight, L-9),
+// vm.hist (past columns: {demand: [{s, mw}], rooftop: [{s, mw}], stations: {<layer id>: [{s, mw}]}},
+// layer ids = station ids + wind, solar, tie (signed), battery (signed), rert, dr; absent: no past
+// drawn; app/game.js sends column means with colFromS / colS instead: planview.pastFromHist reads both).
+//
+// Phase 2a, the belly (desk/README.md §21.5; shown always until the first-shift face of L-2, 2e):
+//   L-2  the silhouette: a faint line at operational + rooftop above the operational skyline,
+//        past columns included, and the rooftop bite between the two hatched sun-yellow (sparse
+//        "\\\", no fill), with the word ROOFTOP in the big layout. Nothing is drawn while the
+//        rooftop is under 1 MW (night; the CLASSIC scenario).
+//   C-11 blue SURPLUS columns where proj.surplusMW > SURPLUS_MIN_MW (planview.blueRuns): what
+//        will be spilled, standing on the demand line (over exports and charging) with a minimum
+//        height, GAP_MARK.blue's pattern, glyph and word, and a hover line that says what to do.
+//        Blue is never a kind in proj.gap.
+//   P-9  the price through format.priceText; a negative price in its own colour, with the word SPILL
+//        while power is being spilled now (wind.autoMW + solar.autoMW > SURPLUS_MIN_MW).
+//
+// Pointer: drag a key handle or a layer's top edge (a new key there) to (time, MW); drag an off
+// unit's ghost sideways to book its START; drag a booked start below the axis to unbook it.
+// Drops snap to 15 min / 50 MW; an infeasible drop shows the earliest-arrival ghost instead
+// (click it or press Enter to take it); a click with no drag says what to drag. Keyboard (stack focused): 1-6 select COAL, CCGT, GT·A,
+// GT·B, GT·C, HYDRO (again: that station's off-unit ghost), arrows move one snap step, Enter
+// drops, Delete removes the selected key, Esc clears, L expands. The element listens for its
+// own keys and stops them, so the handle needs no key() for the shell to forward (§13.3).
+//
+// K-22 (status is never colour only): a red gap (short of P50) is hatched "\\\" and carries a
+// "!" over each run; an amber gap (inside the likely range) is hatched "///" and carries a "~";
+// a blue surplus is barred "|||" and carries a "+" and, where the run is wide enough, the word
+// SURPLUS (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture
+// says (stackSummary: the gaps, then the surplus runs and the rooftop), refreshed at most once
+// per real second.
+//
+// Phase 2b, the city levers (desk/README.md §31; U-3, Q-50, Q-57). The skyline already carries
+// every booked MW (flex is in the forecast's P50), so the stack draws where each block is, not
+// what it does:
+//   band    each block's core (obs.levers.blocks[].parts, the sim's knots) over the future
+//           columns inside it: a band at least SURPLUS_MIN_PX (4 px) tall along the skyline,
+//           load added (the soak) under the skyline, relief (air-con) over it; several stack
+//           outward in block order. One pattern for every suburb, a K-22 pattern no other mark
+//           uses: a pale fill with dark rows ("≡"); no suburb colours. The suburb's code (K-22:
+//           one pattern, so the code tells the bands apart), in both layouts, on a plate just
+//           beyond the band (clear of the skyline) at its first column, shifted right by its
+//           stacking level.
+//   ghosts  pre-cool, snapback and the night fall, the same minimum height on the same side
+//           rule, as a dashed line along their outer edge (the off units' dash).
+//           Heights are the part's plateau MW (ramps not drawn): at the floor (63 MW a pixel)
+//           nearly every block is the 4-px minimum anyway.
+//   hover   a band or a ghost names its block (blockText: lever, suburb, MW, core times), a
+//           ghost also its part on a second line (PRE-COOL: load added before it; SNAPBACK: load
+//           returning after it; NIGHT HEATING: lower by what it soaked: U-2's rebound, which
+//           the dashed line alone cannot say), and sends {do: 'hover', target: 'suburb-<ID>'},
+//           so the map rings the suburb. Hover only: a press there takes what is under it, and
+//           nothing drags a block in 2b (the card's steps do).
+//   text    stackSummary adds "Booked: <block>." for each block with a part drawn (a column inside
+//           its knots, as drawCity tests it), "Booked: <block> (its snapback)." (or pre-cool, night
+//           heating) when only its ghosts are (K-23: what the picture shows; later ones are on the
+//           map's tags; 2b final review P5).
+//   hitTest what is under (x, y): a handle, a ghost, a layer edge, a layer body or a gap; for a
+//           hover (forHover) also a blue surplus column, a block or the rooftop bite, which a
+//           press never grabs. A hover's order: the pending ghost; a blue column (C-11), whatever
+//           lies under it (the column stands on the top of the stack, where the top layer's key
+//           handles and its edge are; a press there still takes the handle or the edge: blue is
+//           never dragged); a handle; a gap (its L-9 hover, 2 px of slack over the skyline); a
+//           block's band or ghost; then the off-unit ghosts, the edges, the layers, the rooftop.
+//           So along the skyline a handle or a red gap (what a press takes there) wins over a
+//           band: the hover never names a block where the press does something else, but over
+//           a SHORT run a relief band hovers only in its top pixels.
+//   redraw  signature() includes obs.levers.rev: a booking or a cancel while paused redraws.
+//
+// Slice 2c, the day (desk/README.md §32.7.4; Q-63, Q-68, Q-69, Q-73, Q-78). Imports sim/clock.js too.
+//   load    the skyline, the band, the gaps and the projected spill leave out the task feeders
+//           held at each column's time, past columns too (app/planview.js project and
+//           pastFromHist with obs): a held feeder is off the load until its announced return,
+//           then on it (a step up at each clearS), so no red gap the size of the held load
+//           stands before its hand-back and the past skyline meets the first future column
+//           (HOT 20261007 at 05:00: 3,779 against 3,778 MW, where the whole city's history stood
+//           256 MW above). UFLS and directed darkness stay on the load: the player's to relight,
+//           a red gap as in 2b (the respond card's glow and the line read it).
+//   marks   stackMarks(obs, toS) (pure): the act ticks ahead from clock.ACT_S, 'II' 09:00, 'III'
+//           14:30, 'NIGHT' 21:00 (Act I's 04:30 is the day's start, not a tick), and a marker at
+//           each warned weather onset ahead, from obs.news fromS: HEAT, STORM (its arrival),
+//           CLOUD (the front over its first suburb), LOW WIND (a wind drought); a tie derate, an
+//           outage or the feeders' ETR is no onset (their cards and the bay carry them). Each is
+//           a dotted line from the top of the plot to the axis under its word on a dark plate (an
+//           act in the axis grey, an onset in amber; the word tells them apart, K-22). Laid out
+//           left to right: a plate that would touch the one before drops to a second row 10 px
+//           lower (a heat onset at 14:20 beside III at 14:30 is 10 px off at 336 px). Drawn after
+//           the rooftop and before the gaps, so a gap's '!' or '~' glyph is never under a plate.
+//           stackSummary says them after the supply sentence: "Marked: Act III 14:30, STORM
+//           16:40." (stats.marks: the words drawn, for tests.)
+//   redraw  every idle redraw (the projection's signature, now without its RECOMPUTE_S step,
+//           which ensureProj adds; the now line's NOW_STEP_S step; the hover, the glow, the
+//           price) waits until 1 / STACK_MAX_HZ (0.1) real s after the last draw, and the key is
+//           kept, so the newest picture lands on the first frame after it (Q-63: at 1,620x the
+//           executor bumps the plan on most frames and the step comes every frame at 2,100x; a
+//           full redraw is 3-5 ms). Only a new size, expansion or pixel ratio, or the night's
+//           flip, draws at once; a drag, a selection, a ghost, a note, a hover and the watch draw
+//           every frame as before. From obs.nightShift the stack is frozen: one draw as the night
+//           shift takes the desk (its text alternative written then, saying "The night shift has
+//           the desk: the stack is frozen until 04:00."), then only a new size, expansion or pixel
+//           ratio redraws (no now line, no plan change, no tip, no drag). A press or an edit key
+//           there says the same words in blue (Q-73's lead; readOnly() covers the night; the
+//           label's "Read-only during the watch." reads the watch alone), and a note expires in
+//           update(), not in draw, so it goes after MSG_MS (4 s) while frozen.
+//   starts  a booked START's handle sits where the unit comes on: max(atS, its outUntilS) +
+//           startToMin (Q-68, the sim's startDueS). An outage says why a ghost is late: its tip
+//           reads "CCGT 2 is on outage until 07:30: earliest on 08:19" and a drag before it
+//           "Too soon: CCGT 2 is on outage until 07:30, so earliest 08:30. ...".
 
 import {V} from '../sim/params.js';
 import {ACT_S} from '../sim/clock.js';

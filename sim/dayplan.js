@@ -1,5 +1,118 @@
 // sim/dayplan.js: the event director, the day's designed plan (desk/README.md §32, Q-65).
-// Contract: sim/README.md §11 dayplan.js.
+//
+// The event director: the day's designed plan ("director" stays the app's rate director). Imports
+// `params.js`, `rng.js`, `clock.js` and `events.js` only, never `weather.js` (linted).
+// `prerollRegime(seed, scn)` and `preroll(seed, scn, regime)` are called by `weather.prerollRegime`
+// and `createState` when the scenario has a `dayplan` block (`desk`, `desk-weekend`); classic keeps
+// the legacy `prerollRegime` and `prerollEvents` untouched. At stage A it was neutral (today's
+// formula, the legacy menu). **Wave 1 (`plan`) made it the designed day**: every share, window and
+// size from the scenario's dayplan block, the one climatology on a dayplan day (the one value read
+// from elsewhere is the heat's clear sky, `scn.events.heat.clearMu`, desk/README.md §32.4.3).
+//
+// **`prerollRegime(seed, scn)`** (Q-66). `EXT_REGIME` a = 0 is the heat draw (u < `heatShare`) and
+// a = 1 MILD or HOT as before, so every pinned seed keeps its day type; a = 2 picks the overlay among
+// the non-heat days: storm if u2 < `stormShare` / (1 − `heatShare`), drought if u2 < (`stormShare` +
+// `droughtShare`) / (1 − `heatShare`), else calm. So the shares are shares of all days: desk 15 / 25
+// / 20 / 40. `cls` is `heat` | `storm` | `drought` | `calm`; `temp` as before.
+//
+// **`preroll(seed, scn, regime)`** returns §5's records sorted by (atS, `TYPE_ORDER`, the order made),
+// ids `e1`... Each carries `act` (1, 2 or 3 as designed; 0 the notices) and `crisis`: the act's
+// designed crisis (Act I's constraint, Act II's belly crisis, every record of Act III's, on a drought
+// day its trip too); the restore task is Act I's but not its crisis. `contingency` from
+// `CONTINGENCY_TYPES`; `warned` on every plan record but the trips and the notices (the smelter's
+// return is announced at its trip).
+//
+// *Draws.* Four `EXT_EVENTS` slots from `DAYPLAN_SLOT_BASE`, in this order, each with its own counter:
+// the constraint, the restore task, Act III, Act II. The task has its own slot, so its `p` (0 staged
+// until grid's semantics merge, then 0.85) moves no other draw, and a gate always draws first, so the
+// task's dates are exactly those with that draw under `p`. One helper picks uniformly over the whole
+// steps of [a, b] (both ends in) that no open ban (lo, hi) holds. Briefing times (the derate's end,
+// the late return, the clearances) and heat onsets sit on `DAYPLAN_MARK_S` 5-min marks (an ETR and a
+// notice give round times); hazards in play and trips on whole minutes; the derate's limit on
+// `DAYPLAN_MW_STEP` 50-MW steps; lockouts and the clear-after on whole minutes.
+//
+// *Act I* (Q-68). On `derateP` a `tieDerate {limitMW, untilS}` at 04:00 and its `tieDerateEnd`, else
+// the late return, `unitOutage {unit, untilS}` and its `unitReturn`: its uniform is drawn here, but
+// its time is picked last of all, one action from every other moment (*Moments*, below), so nothing
+// else depends on which unit is late and the weekend keeps the weekday's weather, trips and task
+// (`desk-weekend` differs only in Act I's late return, §32.4.3). The late unit must be off in the
+// scenario's 04:00 commitment: `fleet.setOutage` throws in `createState` if it is not, so a data error
+// is loud. On `task.p`: a suburb uniformly among those with two or more rotation districts (a
+// district's suburb is its id less its digits), two distinct districts of it, and two clearances: the
+// first uniform over the marks of `clearH`, the second over the marks at least `gapMin` from it, both
+// one action from the derate's end (*Moments*), sorted (the first district drawn gets the earlier). `feederOut` at 04:00 and a `feederClear` at each.
+//
+// *Act III before Act II* (Q-66), so the belly's trip is drawn over what the evening leaves (Q-72).
+// Heat: the onset on a mark in `onsetH`, the end min(onset + `lastsH`, `endByH`), `heatAnnounce` at
+// 04:00 (uplift and derate per-mille from params, as the legacy menu), `heatOnset` and `heatEnd`.
+// Storm: the arrival in `arriveH`, the cut-out start arrival + `cutoutAfterMin`, the pass min(arrival
+// + `passAfterMin`, `passByH`); `stormWarn` carries the climatological cut-out window (arrival +
+// `cutoutAfterMin`'s ends: what the forecast assumes, never the drawn start) and `passS`; the link
+// trip on `linkTripP`, over the whole minutes from 31 real s after the cut-out start to before the
+// pass that the rules leave, or none. Drought: the onset in `onsetH`, `droughtWarn {onsetS, muPm}`,
+// `windDrought {windMu}` at the onset. Calm and drought: the evening trip of the largest machine over
+// `act3.trip.windowH`.
+//
+// *Act II* (Q-67). The kind by `mix` (`heatMix` on a heat day); a trip (a unit, the smelter with its
+// return `smelterOffMin` later, or the tie) over `act2.windowH`; with no feasible minute the front on a
+// non-heat day, none on a heat day. Act II's windows are half-open at their end, `ACT_S[2]` (14:30,
+// where the clock's Act III starts), so every Act II trip and front onset is in the clock's Act II (the
+// badge, the stack's ticks and 2d's debrief agree with the record's `act`). The front: its onset over
+// [max(`onsetH[0]`, the derate's end + `afterDerateMin`), `onsetH[1]`), not within 31 real s of a
+// trip; `cloudWarn {onsetS, frontPm, roofDropMW}`, `cloudOnset {clearMu: frontMu, suburbs: true,
+// clearS}`, `cloudClear {clearMu}` after `clearAfterMin`. The front's onset is its first suburb's (the
+// lags are from it). Its set is never empty with today's windows (the test asserts one belly crisis on
+// every non-heat day, so a tuning that empties it fails). `roofDropMW` (Q-79) is each suburb's rooftop
+// fall at its own bottom, from scenario data and the warned onset only: Σ capacity × share ×
+// clearFactor × cloudBite × (`cloud.mu` − `frontMu`) × the shape table at onset + lag + `frontRampMin`
+// (linear between its points, as `weather.rooftopClearSkyMW`), rounded to `DAYPLAN_MW_STEP`. It is the
+// most the front takes, so the text says "up to about": the clearing is hidden, and a front that
+// clears inside the 55 min SAL takes to bottom out (clear-after 40-54 min, about a fifth of fronts)
+// takes 0.78-0.99 of it; the sky the front finds is the climatology's `cloud.mu` (0.95; the clamped
+// sky averages 0.937).
+//
+// *Then the notices*, `dayplan.notices` at their hours (desk: MORNING_RAMP 05:50, DUCK 15:00; no
+// TROUGH, nothing from 21:00).
+//
+// *Q-71.* A warning is at the latest whole minute with `stepReal(warn, onset)` ≥ `LEAD_REAL_S`:
+// `floor(gridBefore(onset, LEAD_REAL_S) / 60) × 60`, exact (sim/clock.js). The floor of a GT's start +
+// 2 grid-min never binds (the shortest lead is 65 grid-min), so it is a test, not code.
+//
+// *Q-72, by construction.* A trip is drawn over the minutes no ban holds: each warned onset so far
+// (heat onset, storm arrival, cut-out start, drought onset) bans (`gridBefore`(x, 31), `stepAfter`(x,
+// 31)) on the step profile, and each trip so far bans (min(`gridBefore`(x, 91), x − 3,600),
+// max(`stepAfter`(x, 91), x + 3,600)); the front's onset keeps 31 real s from each trip. The extra
+// second is Q-71's margin: the eased clock the player plays differs from the step profile by at most
+// 0.6 s over a span (sim/clock.js), so the rules hold on both (without it, 3 of 4,000 days missed
+// D-8(c) on the eased clock, by 0.12 s at most). Acts II and III hold one trip each at most, so two a
+// day; the windows of the data keep them from 09:00 and before 21:00 (the guard test checks all five
+// rules on 4,000 days, on `stepReal` and on `realBetween`).
+//
+// *Moments, one action apart.* A moment is a record that makes a card or asks a decision after
+// 04:00: the derate's end, the late return, each clearance, each warning, each warned onset and each
+// trip. Every time the plan picks after the derate keeps `PAR_ACTION_GAP_REAL_S` (3 real s, S-4's pace:
+// one action at a time) from every moment picked before it, on the step profile, and a warned hazard
+// keeps its warning so too (the onsets whose warning would fall inside a moment's ban (lo, hi) are
+// inside (`stepAfter`(lo, 26), `stepAfter`(hi + 60, 26)), a slight superset). The late return is
+// picked last, so it keeps one action from all of them. So CCGT 2's return never lands on a feeder's
+// hand-back (it did within 2 real s on 9.4% of dates), the belly's trip never comes a second after
+// the tie limit lifts, and a front's warning never rings with a hand-back. The guard checks every two
+// moments of 4,000 days (without the rule: 1,176 pairs).
+//
+// *Measured* (`tests/dayplan.test.js`, 2,000 dates from 2026-01-01 with each date's scenario and desk
+// seeds 1-2,000, the task live): classes 14.9 / 24.8 / 20.5 / 39.7% (dates) and 15.4 / 25.7 / 18.8 /
+// 40.2% (seeds); leads storm 65-115, cloud 130-175, drought 65-123 grid-min; the task on 84.7%, the
+// derate on 49.5%; Act II on non-heat days front 41.4, unit 24.6, smelter 19.0, tie 14.9% (no trip ever
+// lacked a feasible minute), on heat days unit 40.5, smelter 31.6, tie 27.8%; non-heat belly trips by
+// hour 09-14: 542 / 443 / 354 / 332 / 227 / 90 (median 11:01, 15.2 real s into the act; 10.2% before
+// 09:24), heat days' 401 / 152 / 54 / 0 / 0 / 0 (median 09:35, 4.4 real s into the act; 36.9% before
+// 09:24, 66.1% before 10:00: the 31 real s before a heat onset at 12:30-14:30 reach back to
+// 09:16-11:55); evening trips 17-19: 719 / 963 / 702 (median 18:32); the storm's link trip on 25.1% of
+// 1,009 storm days. For stage C (reported, not tuned here): no unwarned contingency all day on 31.3%
+// of storm days (a front in Act II and no link trip); the longest stretch with no ringing card,
+// 04:30-21:00, p10/p50/p90 real s: storm 57/77/100, drought 66/79/97, calm 94/113/143, heat
+// 128/138/148, and nothing rings from 14:30 on 95.2% of heat days (the heat onset falls in the clock's
+// Act II).
 
 import {V} from './params.js';
 import {STREAM, uniform, pickWith} from './rng.js';

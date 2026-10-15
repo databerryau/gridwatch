@@ -1,5 +1,42 @@
-// app/shell.js: the game page (next.html) around app/game.js.
-// Contract: desk/README.md §32.12 app/shell.js.
+// app/shell.js: the game page (next.html) around app/game.js. It mounts the map, the desk and
+// the Live Stack (whichever modules boot.js passes in), draws the header and the overlays
+// (briefing, watch, respond card, end card, drawer, "?" labels, toast, ?perf), runs the frame
+// loop (ticks, then the view model, then every module draws: never inside step(), X-26),
+// binds the K-23 keys and starts the audio on the first gesture.
+//
+// app/boot.js is the page's one module script: it imports the real modules and calls
+// bootGame(document, {...}). Tests call bootGame with the stand-in DOM (tests/lib/dom.js) and
+// stand-in modules, so the shell is tested before the other stage B files exist.
+//
+// Element ids other modules rely on:
+//   #map, #desk      the roots createMap / createDesk receive
+//   #stack-slot      created BY THE DESK in its third column: createLiveStack's root. If the
+//                    desk has none, the shell makes one at the end of #desk.
+//   #stack-overlay   L-4: while vm.stackExpanded the shell moves the Live Stack's `el` here
+//                    (over the map, ~1248 x 420) and back into #stack-slot after; the stack
+//                    sizes its canvas from its parent on update.
+//
+// Phase 1b (desk/README.md §13): the SETTINGS popover (#btn-settings, `,`; B-7) and the body
+// classes rm / fxlow / crt that follow vm.settings; the one key listener and its order (§13.3:
+// the desk's key(ev), then the stack's and the map's, then app/keys.js); the #aria-live region
+// (createLive / liveFrame below); the ?perf budget marks; ?debug -> globalThis.gridwatch.
+// desk/README.md §30: texts and the alarm panel on demand (Q-44, Q-46), "?" and Esc (Q-47), par (Q-48).
+// desk/README.md §32.8.2 (2c): the briefing's Watch for (Q-81), the header's HAND chip (D-7), the night
+// strip in the objective's place from 21:00 and the end card fetched then (Q-73). Enter at the RESPOND card
+// closes it on the capture phase, before any control's own Enter (K-16: a RESTORE row's would close a breaker).
+// Q-91: the feeder card (#feeder-card, drawFeeder from vm.feeder: what, the keys in blue, what going on means,
+// before a press why a restore would be refused now in amber (vm.feeder.lamp), a refused restore's reason in
+// red (the grid's refusal), and two blue buttons: #feeder-restore "RESTORE <id>" (the restore of its feeder)
+// and #feeder-go-on "GO ON" (ui 'goOn')). On the capture phase (feederFirst, after Esc's closeTop: an Esc that
+// closed something stops there), while the director plays FEEDER-CARD, Enter or R sends the restore of the
+// feeder it names (actions.input: a refusal toasts in red and the card stays) and Esc goes on, but in
+// SETTINGS, the drawer and "?", and but Enter on a RESTORE row (the bay's CLOSE), the suburb card or the
+// card's own buttons, which is theirs. A key's auto-repeat is swallowed, and so is an Enter or R within
+// FEEDER_ARM_MS (250 real ms) of the Enter that closed the RESPOND card (cardFirst; a queued card shows on
+// that press), with a blue answer. A click on the card's body focuses its feeder's CLOSE (restore-<id>) and
+// the card stays. It sits over the map (never the desk's Live Stack or bay); with the stack out (L) the body
+// class stack-out (placeStack) moves it over the lever bank. The objective line waits while it shows, as at
+// the respond card (the card is the one instruction while the clock holds), but a ‼ URGENT line stays up.
 
 import {V} from '../sim/params.js';
 import * as G from './game.js';

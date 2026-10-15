@@ -1,5 +1,13 @@
 // app/record.js: what the bench's strip charts plot. DOM-free.
-// Contract: desk/README.md §32.12 app/record.js.
+//
+// The sim keeps no history, so the bench records it as it plays:
+//   * every tick: frequency (for the live chart at slow speeds and the per-second envelope);
+//   * every grid second: min / max / mean frequency (the last 10 minutes);
+//   * every grid minute: an observe() snapshot's numbers (the 24-h charts);
+//   * during each contingency's watch: per-tick frequency and who caught the loss.
+// Per tick it reads only values observe() also exposes (f.hz = phys.fHz; the balance
+// readouts; sec's preview), straight from state because observe() allocates (README §10).
+// It never writes state. Typed arrays: this is presentation, not sim state.
 
 import {V} from '../sim/params.js';
 

@@ -1,6 +1,19 @@
 // sim/market.js: merit-order price and the operator scorecard
 // (spec P-5, P-6, P-7, P-8, P-11, H-5, H-12, S-1, S-2, S-3).
-// Contract: sim/README.md §11 market.js.
+//
+// STAGE B owner: "market + events". Contract: sim/README.md, section "market.js".
+// scoreSummary() is implemented in stage A because observe() needs it; keep its output shape.
+//
+// Abstractions (SPEC §8.2 "Cost-based offers; scarcity adder" and "CUSTOMER COST is the
+// resource cost of serving"):
+//   - offers are cost-based (P-6), never strategic bids; the scarcity adder (P-7) stands in
+//     for generators re-bidding when supply is tight, and is labelled as an abstraction;
+//   - the price is a single-node, per-second merit-order price with no network, no
+//     co-optimised FCAS and no 5-minute averaging (the real NEM settles every 5 minutes);
+//   - RERT is priced "as if absent" (P-8; intervention pricing is unverified, §8.3);
+//   - CUSTOMER COST is what a central planner pays for the resources (fuel, no-load,
+//     starts, net imports, wear, DR, RERT), never the market bill and never anything
+//     multiplied by unserved energy (H-12).
 
 import {V} from './params.js';
 import {startBlock, resetAcc, litDemandMW, baseLoadMW} from './fleet.js';
@@ -367,7 +380,7 @@ export function settleSecond(state, out) { // eslint-disable-line no-unused-vars
 
 // Split second t's unserved energy by why the dark districts are dark (end-of-second shares;
 // UFLS acts mid-second, so the split is exact only in total); with nothing dark then, by the
-// districts relit in t. The restore task (Q-69): sim/README.md §11 market.js.
+// districts relit in t. The restore task (Q-69): sim/README.md, section "market.js".
 function splitShed(state, sc, shedMWh, t) {
   let total = 0, ufls = 0, directed = 0, task = 0, late = 0, relit = 0, rTask = 0, rLate = 0;
   const ds = state.city.districts;
@@ -402,7 +415,7 @@ function splitShed(state, sc, shedMWh, t) {
   }
 }
 
-/** Q-69, Q-91: the second district d may be closed (state's or observe()'s districts; sim/README.md §11 market.js). */
+/** Q-69, Q-91: the second district d may be closed (state's or observe()'s districts; sim/README.md, section "market.js"). */
 export function restoreAllowedS(ds, d) {
   const x = ds[d], end = x.dark ? Infinity : x.restoredAtS;
   let p = -1;

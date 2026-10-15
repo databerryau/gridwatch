@@ -1,5 +1,6 @@
-// desk/calc.js: the numbers the desk derives from the view model (desk/README.md §6).
-// Contract: desk/README.md §32.12 desk/calc.js.
+// desk/calc.js: the numbers the desk derives from the view model (desk/README.md §6). Pure
+// functions of observe() values and sim/params.js constants: no DOM, no state, no engine. Each is
+// unit-tested in tests/desk.test.js or tests/balance.test.js.
 
 import {V} from '../sim/params.js';
 

@@ -1,5 +1,5 @@
 // desk/util.js: small DOM and text helpers shared by the desk modules (desk/README.md §6).
-// Contract: desk/README.md §32.12 desk/util.js.
+// No sim imports except sim/params.js; no state; DOM work only on elements passed in.
 
 import {V} from '../sim/params.js';
 

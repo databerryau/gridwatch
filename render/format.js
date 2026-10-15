@@ -1,5 +1,6 @@
 // render/format.js: plain-text formatting for the bench (numbers, clock, event records).
-// Contract: desk/README.md §32.12 render/format.js.
+// Pure and DOM-free (tests import it). Wording for the desk moves to content/text.js in
+// Phase 1a (README §7); the bench shows the sim's own record text.
 
 import {V} from '../sim/params.js';
 
