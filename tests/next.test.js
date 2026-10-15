@@ -725,10 +725,10 @@ test('K-15 / K-16, a loss of load: the beats read the rise, the caption and the 
   const fall = Object.assign({}, obs.contingency, {lostMW: 600, extremeHz: 49.41,
     caught: {inertiaMW: 0, batteryMW: 100, guardMW: 20, governorsMW: 300, loadReliefMW: 30, uflsMW: 0, inverterMW: 40}});
   // (inertia by the BALANCE bar's word for it: spin)
-  assert.equal(W.respondCard(obs, fall).lines[1], 'Caught by: spin → battery 120 MW → governors 300 MW → solar and wind gave back 40 MW → load relief 30 MW.');
+  assert.equal(W.respondCard(obs, fall).lines[1], 'Caught by: spin → battery 120 MW → governors 300 MW → solar and wind gave back 40 MW → load relief (motors slow) 30 MW.');
   // a record from before Phase 2a (no inverterMW) still makes a card
   const old = Object.assign({}, fall, {caught: {inertiaMW: 0, batteryMW: 100, guardMW: 20, governorsMW: 300, loadReliefMW: 30, uflsMW: 0}});
-  assert.equal(W.respondCard(obs, old).lines[1], 'Caught by: spin → battery 120 MW → governors 300 MW → load relief 30 MW.');
+  assert.equal(W.respondCard(obs, old).lines[1], 'Caught by: spin → battery 120 MW → governors 300 MW → load relief (motors slow) 30 MW.');
   // app/record.js: the minutes carry the load before rooftop and the rooftop bite
   assert.deepEqual(MINUTE_FIELDS.slice(-2), ['underlying', 'rooftop']);
   const rec = createRecorder(), noon = structuredClone(obs);

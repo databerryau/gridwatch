@@ -1,24 +1,14 @@
 // tests/watch.test.js: the K-15 watch's beats in physical order (X-39), on the review's real evening trips.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {V} from '../sim/params.js';
-import {openGame, parseTime} from './lib/play.js';
 import * as W from '../app/watch.js';
 import {traceOf} from '../app/record.js';
+import {openGame} from './lib/play.js';
 
-const TPS = V.TICKS_PER_S;
-
-// The real page, played as tools/play.mjs plays it (Enter at each card; the line drawn only near the target), to the first trip at or
-// after `hhmm`, and past its watch.
-function tripAfter(seed, hhmm) {
-  const p = openGame({seed}), s = p.game.state, atS = parseTime(hhmm);
-  for (let n = 0; n < 100; n++) {
-    const c = s.conts.at(-1);
-    if (c && c.startTick >= atS * TPS) { p.until('card', {max: '+5m'}); return {c, tr: traceOf(p.game.rec, c.n)}; }
-    const why = (s.tick >= atS * TPS ? p.until('trip', {line: 'near'}) : p.to(hhmm, {stop: ['trip'], line: 'near'})).why;
-    if (why.startsWith('held')) p.key('Enter');
-  }
-  throw new Error('no trip after ' + hhmm);
+// The real page, played as tools/play.mjs plays it (Enter at each card), to the first trip from `hhmm`, and its trace.
+function tripFrom(seed, hhmm) {
+  const p = openGame({seed}), c = p.tripFrom(hhmm);
+  return {c, tr: traceOf(p.game.rec, c.n)};
 }
 
 // The battery's and the governors' (with the inverters' give-back) catch at the extreme, as magnitudes.
@@ -41,13 +31,13 @@ function assertOrder(tr, c) {
 }
 
 test('X-39: 2026-10-16 18:49, the battery lights before the governors (no inverter MW lights GOVERNORS at T+0.02 s)', () => {
-  const {c, tr} = tripAfter(20261016, '18:40');
+  const {c, tr} = tripFrom(20261016, '18:40');
   const names = assertOrder(tr, c);
   assert.equal(names[1], 'battery', names.join(' '));
 });
 
 test('X-39: 2026-10-17 17:49, the battery\'s 386 MW gets its beat', () => {
-  const {c, tr} = tripAfter(20261017, '17:40');
+  const {c, tr} = tripFrom(20261017, '17:40');
   assert.ok(atExtreme(tr, c).batt > 300);
   const names = assertOrder(tr, c);
   assert.equal(names[1], 'battery', names.join(' '));

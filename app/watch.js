@@ -181,21 +181,26 @@ export function respondCard(obs, c, o) {
   // df/dt = 0) its catch is about zero, so it is named without a number (§4.1's card), as the
   // BALANCE bar names it: spin.
   const falls = c.lostMW >= 0, inverter = caught.inverterMW || 0;
+  // X-40: a catch of zero or less is never printed as a number: the battery and the governors are
+  // named for why they gave nothing (the third item of a part is its word then), other sources are
+  // left out; a GUARD the player set is named beside the battery's MW.
+  const guard = obs.battery && obs.battery.guardMW > 0 ? ' (your GUARD ' + mw(obs.battery.guardMW) + ')' : '';
   const parts = (falls
-    ? [['battery', battery], ['governors', caught.governorsMW], ['load relief', caught.loadReliefMW], ['UFLS', caught.uflsMW]]
-    : [['battery took', 0 - battery], ['governors backed off', 0 - caught.governorsMW], ['load picked up', 0 - caught.loadReliefMW],
-      ['UFLS', caught.uflsMW]]).filter(p => Math.abs(p[1]) >= 1);
+    ? [['battery', battery, 'battery empty', guard], ['governors', caught.governorsMW, 'governors spent'],
+      ['load relief (motors slow)', caught.loadReliefMW], ['UFLS', caught.uflsMW]]
+    : [['battery took', 0 - battery, 'battery full', guard], ['governors backed off', 0 - caught.governorsMW, 'governors at minimum'],
+      ['load picked up', 0 - caught.loadReliefMW], ['UFLS', caught.uflsMW]]).filter(p => p[1] >= 1 || p[2] && p[1] <= -1);
   if (Math.abs(inverter) >= 1) {
     const part = [inverter < 0 ? 'solar and wind backed off' : 'solar and wind gave back', Math.abs(inverter)];
     // in physical order: the inverters' droop acts with the governors', ahead of them when it caught more
     const g = parts.findIndex(p => p[0].startsWith('governors'));
     if (g < 0) parts.push(part);
-    else parts.splice(Math.abs(inverter) > Math.abs(parts[g][1]) ? g : g + 1, 0, part);
+    else parts.splice(Math.abs(inverter) > Math.max(0, parts[g][1]) ? g : g + 1, 0, part);
   }
   const line1 = (falls ? 'NADIR ' : 'PEAK ') + f3(nadir) + ' Hz: ' + (contained ? 'contained within ' : 'OUTSIDE ') +
-    lo.toFixed(1) + '–' + hi.toFixed(1) + ' Hz ' + (contained ? '✓' : '✗') + '. Back to ' + V.NORMAL_LO_HZ.toFixed(2) + '–' +
+    lo.toFixed(1) + '–' + hi.toFixed(1) + ' Hz ' + (contained ? '✓' : '✗') + '. FOS asks: back in ' + V.NORMAL_LO_HZ.toFixed(2) + '–' +
     V.NORMAL_HI_HZ.toFixed(2) + ' Hz within ' + mmss(V.FOS_RECOVER_S) + '.';
-  const line2 = 'Caught by: ' + ['spin', ...parts.map(p => p[0] + ' ' + mw(p[1]) + ' MW')].join(' → ') + '.';
+  const line2 = 'Caught by: ' + ['spin', ...parts.map(p => p[1] < 1 ? p[2] : p[0] + ' ' + mw(p[1]) + ' MW' + (p[3] || ''))].join(' → ') + '.';
   const sec = obs.sec, short = Math.max(0, sec.lMW - sec.r5MW);
   const secureInS = Math.max(0, (c.secureByTick - obs.tick) / TPS);
   const dark = obs.districts.filter(d => d.dark && !(d.shedBy === 'task' && d.clearS > obs.s)); // (Q-69: not held)

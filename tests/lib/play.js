@@ -71,6 +71,7 @@ import {runFrame} from '../../app/loop.js';
 import * as A from '../../app/alarms.js';
 import * as T from '../../app/tray.js';
 import {V} from '../../sim/params.js';
+import {observe} from '../../sim/step.js';
 import {realBetween, NIGHT_S} from '../../sim/clock.js';
 import {restoreAllowedS} from '../../sim/market.js';
 import {SCENARIOS} from '../../content/scenarios.js';
@@ -664,12 +665,28 @@ export function openGame(o = {}) {
     return {fromS, toS, sinceS, profileS, E, offS: sinceS - E, parts};
   }
 
+  /**
+   * The first contingency that begins at or after `when` ('HH:MM'): jumps there (the objective line
+   * drawn only near the target, as --line=near), pressing Enter at each card on the way as timeline()
+   * does, then plays on to its RESPOND card. Returns the contingency record (observe()'s), or null.
+   */
+  function tripFrom(when) {
+    const st = game.state, atTick = parseTime(when) * TPS;
+    for (let n = 0; n < 100 && !st.over; n++) {
+      const c = st.conts.at(-1);
+      if (c && c.startTick >= atTick) { until('card', {max: '+5m'}); return observe(st).contingency; }
+      const r = st.tick >= atTick ? until('trip', {line: 'near'}) : to(when, {stop: ['trip'], line: 'near'});
+      if (r.why.startsWith('held')) key('Enter');
+    }
+    return null;
+  }
+
   const api = {
     doc, h, game, $,
     get now() { return t; },
     /** The page time of the Space that ran the clock (-1 before it), for D-2's clock (clockReport). */
     get spaceMs() { return spaceMs; },
-    frame, frames, real, to, until, look, lookDiff, buttons, timeline, clockReport,
+    frame, frames, real, to, until, tripFrom, look, lookDiff, buttons, timeline, clockReport,
     click, hover, key, keyDown, keyUp, hold, pointer, send, suburb, press, pressKey,
     vm: () => h.vm(),
     clock: () => clockOfS(game.state.tick / TPS),
