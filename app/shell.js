@@ -368,6 +368,8 @@ export function bootGame(doc, deps) {
     const b = $('briefing-card');
     if (!b) return;
     b.hidden = game.phase !== 'briefing';
+    const hand = $('btn-hand');
+    if (hand) hand.hidden = !G.handOffered(game);   // D-7: from the second shift
     const st = game.state, obs = observe(st), day = $('briefing-day'), goals = $('briefing-goals'), w = $('briefing-watch');
     if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
     if (goals) goals.textContent = GOALS_TEXT;

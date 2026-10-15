@@ -19,7 +19,7 @@ import {NIGHT_LOCK} from '../render/format.js';
 import {preroll, prerollRegime} from '../sim/dayplan.js';
 
 const SEED = 20261007, A = 1 / 60;
-const mem = new Map([[G.SEEN_KEY, JSON.stringify({watch: true})]]);
+const mem = new Map([[G.SEEN_KEY, JSON.stringify({watch: true, shifts: 1})]]);
 const storage = {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v))};
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 

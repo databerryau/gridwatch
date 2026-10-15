@@ -285,7 +285,7 @@ test('Q-63, Q-78: the badge names the segment and its target, never an ease\'s f
 });
 
 test('Q-64: in the briefing AGC/HAND is the sim\'s mode: the desk\'s key and the card\'s buttons set it, the card draws it, any other sim input (a desk control, RE-DISPATCH, the stack) answers once in blue; the held 04:30 desk is HAND\'s; a new day reads AGC', () => {
-  const p = openGame({take: false});
+  const p = openGame({take: false, shifts: 1});
   p.frame();
   const on = id => new RegExp(id + ' "[^"]*" \\[[^\\]]*on');
   const v = p.press('key-agc', {after: 1 / 60});                        // the desk's AGC/HAND key (V focuses it; Enter here takes the desk)

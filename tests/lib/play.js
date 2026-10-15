@@ -229,14 +229,25 @@ export function feederHeldAt(state) {
 /**
  * Boot next.html headless and return the driver.
  * @param {{seed?:number, scenario?:string|object|function, commit?:'player'|'system', agc?:boolean, take?:boolean,
- *   run?:boolean, storage?:object|null, startPaused?:boolean, par?:boolean|object}} [o]
+ *   run?:boolean, storage?:object|null, shifts?:number, startPaused?:boolean, par?:boolean|object}} [o]
  *   seed (default 20261007); scenario: a name in content/scenarios.js, a scenario, or a function
  *   of the seed (default: the page's scenarioForSeed); commit (default 'player', the page's);
  *   agc: AGC (true, default) or HAND at the briefing; take: press TAKE THE DESK (default true);
  *   run: press Space after taking the desk so the clock runs (default true; the page opens
  *   held); storage: a localStorage stand-in (default null: a first-time player, full watch);
+ *   shifts: the shifts this browser has finished (D-7: HAND is offered from the second), in a storage
+ *   of its own when none is given (agc: false implies 1: a HAND day is a returning player's);
  *   par: the game's par (Q-48; default false: no runner; or a finished runner's {score, series?, black?}).
  */
+// The game's storage for openGame's options: o.storage, else one holding only seen.shifts when the options ask for shifts.
+function storageOf(o) {
+  if (o.storage !== undefined) return o.storage;
+  const shifts = o.shifts !== undefined ? o.shifts : o.agc === false ? 1 : 0;
+  if (!shifts) return null;
+  const mem = new Map([[G.SEEN_KEY, JSON.stringify({shifts})]]);
+  return {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k)};
+}
+
 export function openGame(o = {}) {
   const seed = o.seed === undefined ? 20261007 : Number(o.seed);
   const scenario = typeof o.scenario === 'string' ? SCENARIOS[o.scenario] : o.scenario === undefined ? G.scenarioForSeed : o.scenario;
@@ -247,7 +258,7 @@ export function openGame(o = {}) {
   let h;
   try {
     h = bootGame(doc, {createDesk, createMap, createLiveStack, system, planview, scenario, commit: o.commit || 'player',
-      startPaused: o.startPaused === undefined ? true : o.startPaused, search: '?seed=' + seed, storage: o.storage === undefined ? null : o.storage,
+      startPaused: o.startPaused === undefined ? true : o.startPaused, search: '?seed=' + seed, storage: storageOf(o),
       audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard, perf, suburbCard, par: o.par});
   } finally { restore(); }
   const game = h.game, $ = id => doc.getElementById(id);

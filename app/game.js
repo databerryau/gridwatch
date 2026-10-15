@@ -52,6 +52,8 @@ export const REDISPATCH_AFTER = Object.freeze(['start', 'stop', 'abortStop', 'ba
 export const MAX_OFFERS = 3;
 /** Storage keys (C-8: every access is wrapped; the game plays with storage blocked). */
 export const SEEN_KEY = 'gridwatch:v4:seen', SETTINGS_KEY = 'gridwatch:v4:settings';
+/** D-7: HAND is offered from the second shift: once this browser has finished one. */
+export const handOffered = game => (game.director.seen.shifts || 0) >= 1;
 /** Q-46: a tile pressed is W's pick this long (its note's life, ms). */
 export const ALARMS_PICK_MS = 6000;
 
@@ -174,7 +176,7 @@ export function createGame(o) {
       alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
-    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof},
+    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, shifts: Number.isInteger(seen.shifts) && seen.shifts > 0 ? seen.shifts : 0}, // (D-7: shifts finished)
     cues: [], refusal: null, respond: null, respondGlow: [], feeder: null, feederWhy: null, offers: [], offered: {}, tally: null,
     previewCache: new Map(), previewS: -1, restoreCache: new Map(), restoreS: -1,
     hist: null, histView: null, histViewS: -1,
@@ -812,6 +814,8 @@ export function buildVm(game, f) {
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: game.playerInputs, seed: game.seed, v: SIM_VERSION,
       allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null,
       handFlown: !!state.control.handFlown, gated: game.daily ? game.daily.gated : null}; // Q-64, Q-75 (null: not a daily)
+    // D-7: a finished shift, kept with the other seen flags (HAND is offered from the second)
+    if (game.phase === 'play') { game.director.seen.shifts = (game.director.seen.shifts || 0) + 1; saveSeen(game); }
   }
   const par = game.par, end = game.end; // (a par day that went black gives no grade)
   if (end && !end.parAllIn && par && par.done && par.score && !par.black) {
