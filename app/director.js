@@ -29,8 +29,15 @@ const segs = rates => Object.freeze([
   Object.freeze({fromS: 3, toS: 10, rate: rates[1]}),
   Object.freeze({fromS: 10, toS: V.WATCH_S, rate: rates[2]}),
 ]);
-/** K-15 full version: [fromS, toS) of the watch at `rate`; the grid clock advances exactly WATCH_S. */
+/**
+ * K-15 full version: [fromS, toS) of the watch at `rate`; the grid clock advances exactly WATCH_S. Its 0.15x
+ * part ends SLOW_AFTER_S after the extreme, between SLOW_MIN_S and its toS (K-15 amended, Q-97; watchRate).
+ */
 export const WATCH_SCHEDULE = segs([0.15, 1, 10]);
+/** K-15 (Q-97): the full watch's slow part runs at least this long, and ends this long after the extreme (grid s). */
+export const SLOW_MIN_S = 2, SLOW_AFTER_S = 0.5;
+/** K-15 (Q-97): the full watch plays for the first fall that loses at least this many MW. */
+export const FULL_WATCH_MW = 300;
 /** K-15 compact version (~11 real s): the same segments at 0.5x / 2x / 20x. */
 export const WATCH_SCHEDULE_COMPACT = segs([0.5, 2, 20]);
 /** Schedules by version name. */
@@ -38,14 +45,24 @@ export const WATCH_SCHEDULES = Object.freeze({full: WATCH_SCHEDULE, compact: WAT
 /** A contingency with |RoCoF| above this (Hz/s) is a HIGH RoCoF (K-8 tile, K-15 "anything new"). */
 export const HIGH_ROCOF_HZ_S = 1;
 
-/** Real seconds a watch takes (29 s full, 10.5 s compact). */
-export function watchRealS(schedule = WATCH_SCHEDULE) {
-  return schedule.reduce((a, seg) => a + (seg.toS - seg.fromS) / seg.rate, 0);
+/**
+ * Real seconds a watch takes (compact 10.5 s; full 29 s with the slow part to T+3 s, 22.3 s when it ends at
+ * T+2 s): `slowToS`, where the full watch's slow part ended (default its longest, the segment's toS).
+ */
+export function watchRealS(schedule = WATCH_SCHEDULE, slowToS = schedule[0].toS) {
+  const cut = schedule === WATCH_SCHEDULE ? Math.min(schedule[0].toS, Math.max(SLOW_MIN_S, slowToS)) : schedule[0].toS;
+  return schedule.reduce((a, seg, i) => a + (i === 0 ? cut - seg.fromS : i === 1 ? seg.toS - cut : seg.toS - seg.fromS) / seg.rate, 0);
 }
 
-/** Rate of the watch schedule `elapsedTicks` after the contingency's first tick. */
-export function watchRate(elapsedTicks, schedule = WATCH_SCHEDULE) {
+/**
+ * Rate of the watch schedule `elapsedTicks` after the contingency's first tick. `c` (the record, optional):
+ * the full watch's slow part ends SLOW_AFTER_S after its extreme (once frequency has turned back for that
+ * long), from SLOW_MIN_S. Pacing only: the ticks run are the same.
+ */
+export function watchRate(elapsedTicks, schedule = WATCH_SCHEDULE, c = null) {
   const s = elapsedTicks / TPS;
+  if (c && schedule === WATCH_SCHEDULE && s >= SLOW_MIN_S && s < schedule[0].toS && c.extremeTick >= c.startTick &&
+    c.startTick + elapsedTicks - c.extremeTick > SLOW_AFTER_S * TPS) return schedule[1].rate;
   for (const seg of schedule) if (s < seg.toS) return seg.rate;
   return schedule[schedule.length - 1].rate;
 }
@@ -74,6 +91,7 @@ export function createDirector(opts) {
     fc: {},                    // FEEDER-CARD: {district id: the allowed second its card was answered at; Infinity once left dark}
     fq: {},                    // D-27: {district id: true} queued by a RESTORE at the card: it closes itself at its allowed second
     pv: null,                  // D-27: the last restore check {s, i, n, ok}, one a grid second
+    shedW: null,               // K-15 (Q-97): the first directed shed's compact watch {startTick, text}, or null
     accepts: o.accepts || null, // D-27: (state, i) => would a restore of district i be accepted now (app/game.js passes the sim's)
     seenDirty: false,          // seen changed: the game saves it
   };
@@ -100,8 +118,10 @@ function versionFor(d, c) {
   if (d.versionN !== c.n) {
     d.versionN = c.n;
     d.upgraded = false;
-    const newRocof = !d.seen.rocof && Math.abs(c.rocofHzS) > HIGH_ROCOF_HZ_S;
-    d.version = !d.seen.watch || newRocof ? 'full' : 'compact';
+    // K-15 (Q-97): the first real fall this browser has seen (FULL_WATCH_MW lost or more), or a new RoCoF
+    // record; a rise plays compact (its own strip). A first UFLS upgrades below.
+    const record = Math.abs(c.rocofHzS) > HIGH_ROCOF_HZ_S && Math.abs(c.rocofHzS) > (d.seen.rocofMax || 0);
+    d.version = (!d.seen.watch && c.lostMW >= FULL_WATCH_MW) || record ? 'full' : 'compact';
   }
   if (d.version === 'compact' && !d.seen.ufls && c.uflsStages > 0) { d.version = 'full'; d.upgraded = true; }
   return d.version;
@@ -199,10 +219,11 @@ export function rateOf(d, state) {
   if (state.over || d.paused || d.hidden || d.held) return 0;
   const c = watching(state);
   if (c !== null) {
-    if (c.n !== d.skipN) return watchRate(state.tick - c.startTick, scheduleFor(d, c));
+    if (c.n !== d.skipN) return watchRate(state.tick - c.startTick, scheduleFor(d, c), c);
     return cruise(d, state);
   }
   if (!d.game) return d.speed;
+  if (shedWatching(d, state)) return watchRate(state.tick - d.shedW.startTick, WATCH_SCHEDULE_COMPACT);
   if (cardOpen(d, state) || feederDue(d, state) >= 0) return 0;
   if (focusing(d, state)) return FOCUS_RATE;
   if (responding(d, state)) return RESPOND_RATE;
@@ -220,7 +241,7 @@ export function rateOf(d, state) {
 export function rateOfLastTick(d, state) {
   if (d.paused || d.hidden || d.held) return 0;
   const c = latest(state), t = state.tick - 1;
-  if (c && t >= c.startTick && t < c.watchEndTick && c.n !== d.skipN) return watchRate(t - c.startTick, scheduleFor(d, c));
+  if (c && t >= c.startTick && t < c.watchEndTick && c.n !== d.skipN) return watchRate(t - c.startTick, scheduleFor(d, c), c);
   return d.game ? 0 : d.speed;
 }
 
@@ -251,6 +272,7 @@ export function modeOf(d, state) {
   if (c && c.n !== d.skipN) return r('WATCH');
   if (!g) return r(d.speed === FLAT_RATE ? 'CRUISE' : 'DEBUG');
   if (c) return t('CRUISE'); // a skipped watch plays at CRUISE
+  if (shedWatching(d, state)) return Object.assign(r('SHED-WATCH'), {watchS: (state.tick - d.shedW.startTick) / TPS, watchVersion: 'compact'});
   if (cardOpen(d, state)) return r('RESPOND-CARD');
   if (feederDue(d, state) >= 0) return r('FEEDER-CARD');
   if (focusing(d, state)) return r('FOCUS');
@@ -261,7 +283,7 @@ export function modeOf(d, state) {
 }
 
 // FAST is refused in these, and ends when one comes (Q-63)
-const NO_FAST = /^(WATCH|RESPOND-CARD|FEEDER-CARD|RESPOND|FOCUS|ALARMS|OFFER|NIGHT)$/;
+const NO_FAST = /^(WATCH|SHED-WATCH|RESPOND-CARD|FEEDER-CARD|RESPOND|FOCUS|ALARMS|OFFER|NIGHT)$/;
 
 /**
  * Once per frame (game): FAST ends in a NO_FAST mode; a watch that has ended marks what it
@@ -274,9 +296,10 @@ export function directorFrame(d, state) {
   if (c) {
     if (state.tick >= c.watchEndTick && d.versionN === c.n) {
       const shown = c.n !== d.skipN || d.version === 'full';
-      if (d.version === 'full' && c.n !== d.skipN && !d.seen.watch) { d.seen.watch = true; changed = true; }
+      if (d.version === 'full' && c.n !== d.skipN && !d.seen.watch && c.lostMW >= FULL_WATCH_MW) { d.seen.watch = true; changed = true; }
       if (shown && c.uflsStages > 0 && !d.seen.ufls) { d.seen.ufls = true; changed = true; }
       if (shown && Math.abs(c.rocofHzS) > HIGH_ROCOF_HZ_S && !d.seen.rocof) { d.seen.rocof = true; changed = true; }
+      if (shown && Math.abs(c.rocofHzS) > (d.seen.rocofMax || 0)) { d.seen.rocofMax = Math.abs(c.rocofHzS); changed = true; } // (K-15: the record)
     }
   }
   if (changed) d.seenDirty = true;
@@ -314,6 +337,23 @@ export function endFast(d) {
  * SKIP (Esc): play the rest of the current watch at CRUISE (viewing never changes the
  * outcome, K-15). In the game, only once a full watch has been seen. Returns true if skipped.
  */
+// K-15 (Q-97): the first directed shed's compact watch is playing (WATCH_S grid s from its shed; not a contingency's)
+const shedWatching = (d, state) => !!d.shedW && state.tick < d.shedW.startTick + V.WATCH_S * TPS && !watching(state);
+
+/**
+ * K-15 (Q-97): the first directed shed outside a contingency this browser has seen plays a compact watch, its
+ * `text` the caption ("You are 800 MW short: the city desk sheds SOL3, 168 MW, to hold frequency."). The desk
+ * stays the player's. Not in a watch, a card or RESPOND, nor once the night shift has the desk. True if it starts.
+ */
+export function startShedWatch(d, state, text) {
+  if (!d.game || d.seen.shed || night(state) || watching(state) || cardOpen(d, state) || responding(d, state)) return false;
+  d.shedW = {startTick: state.tick, text};
+  d.seen.shed = true; d.seenDirty = true;
+  return true;
+}
+/** The shed watch's caption while it plays, else ''. */
+export const shedWatchText = (d, state) => (shedWatching(d, state) ? d.shedW.text : '');
+
 export function skipWatch(d, state) {
   const c = watching(state);
   if (!c) return false;

@@ -22,6 +22,9 @@ export function layoutSizes(width, height) {
 }
 
 const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNORS', ufls: 'UFLS', settle: 'SETTLE'};
+/** K-15 (Q-97): the strips, as [word, the beat indices it lights]: a fall's five beats; a rise's own three. */
+export const FALL_STRIP = Object.freeze(BEATS.map((b, i) => [WATCH_WORDS[b], [i]]));
+export const RISE_STRIP = Object.freeze([['SPIN', [0]], ['INVERTERS', [1, 2]], ['SETTLE', [3, 4]]]);
 // Why F did nothing, by mode (the director's setFast refuses these).
 const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
   RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE',
@@ -677,14 +680,16 @@ export function bootGame(doc, deps) {
     box.hidden = !w;
     if (!w) return;
     setText('stopwatch', w.stopwatch);
-    setText('beat-caption', w.version === 'full' ? w.caption : WATCH_WORDS[w.beat]);
+    // (K-15: a rise has its own strip; a directed shed's watch has none, only its sentence)
+    const strip = w.shed ? [] : w.rise ? RISE_STRIP : FALL_STRIP, now = strip.find(x => x[1].includes(w.beatIndex));
+    setText('beat-caption', w.version === 'full' || w.shed ? w.caption : now ? now[0] : '');
     const steps = $('beat-steps');
     if (steps) {
       steps.replaceChildren();
-      BEATS.forEach((b, i) => {
+      strip.forEach(([word, at], i) => {
         if (i) steps.appendChild(doc.createTextNode(' → '));
-        const el = doc.createElement(i === w.beatIndex ? 'b' : 'span');
-        el.textContent = WATCH_WORDS[b];
+        const el = doc.createElement(at.includes(w.beatIndex) ? 'b' : 'span');
+        el.textContent = word;
         steps.appendChild(el);
       });
     }

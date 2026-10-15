@@ -124,6 +124,7 @@ export function badgeText(m) {
   const label = (/^(CRUISE|NIGHT)$/.test(m.mode) && m.segment) || MODE_LABEL[m.mode] || m.mode;
   if (m.mode === 'OVER') return label;
   if (m.mode === 'WATCH') return 'WATCH T+' + Math.max(0, m.watchS).toFixed(2) + ' s ×' + rateText(m.rate).replace('×', '');
+  if (m.mode === 'SHED-WATCH') return 'SHED T+' + Math.max(0, m.watchS).toFixed(2) + ' s ×' + rateText(m.rate).replace('×', ''); // (K-15: a directed shed's watch)
   if (m.mode === 'RESPOND-CARD') return 'HELD 0× · Enter';
   if (m.mode === 'FEEDER-CARD') return 'HELD 0× · R restore';
   if (m.mode === 'ALARMS') return 'HELD 0× · Esc';

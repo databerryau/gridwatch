@@ -9,6 +9,7 @@ import * as fleet from '../sim/fleet.js';
 import * as weather from '../sim/weather.js';
 import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {restoreAllowedS} from '../sim/market.js';
+import {imbalanceSegments} from '../desk/calc.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK} from '../render/format.js';
 import {scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
@@ -177,7 +178,7 @@ export function createGame(o) {
       alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
-    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, shifts: Number.isInteger(seen.shifts) && seen.shifts > 0 ? seen.shifts : 0}, // (D-7: shifts finished)
+    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, rocofMax: seen.rocofMax > 0 ? +seen.rocofMax : 0, shed: !!seen.shed, shifts: Number.isInteger(seen.shifts) && seen.shifts > 0 ? seen.shifts : 0}, // (D-7: shifts finished)
     cues: [], refusal: null, respond: null, respondGlow: [], feeder: null, feederWhy: null, offers: [], offered: {}, tally: null,
     previewCache: new Map(), previewS: -1, restoreCache: new Map(), restoreS: -1,
     hist: null, histView: null, histViewS: -1,
@@ -324,10 +325,18 @@ function recordCues(game, r) {
   return c ? [c] : EMPTY;
 }
 
+// K-15 (Q-97): the first directed shed's caption: how short the grid was before it (the BALANCE bar's gap now,
+// plus the load the shed took off; to the 50 MW) and what the city desk shed.
+function shedText(state, r) {
+  const o = observe(state), short = Math.max(50, Math.round((Math.max(0, -imbalanceSegments(o.balance, o.battery).schedMW) + r.mw) / 50) * 50);
+  return 'You are ' + short.toLocaleString('en-AU') + ' MW short: the city desk sheds ' + r.district + ', ' + Math.round(r.mw) + ' MW, to hold frequency.';
+}
+
 /** A step's (or an input's) records: traces, sounds, refusals, the tray; a card that rings ends FAST (Q-63). */
 export function handleRecords(game, recs, by) {
   for (const r of recs) {
     if (r.kind === 'contingency') startTrace(game.rec, game.state);
+    if (r.kind === 'shed' && r.why === 'directed' && game.phase === 'play') D.startShedWatch(game.director, game.state, shedText(game.state, r));
     let cues = EMPTY;
     try { cues = recordCues(game, r); } catch { cues = EMPTY; } // sound is optional (C-8): never stop the tick
     for (const c of cues) pushCue(game, c);
@@ -844,6 +853,9 @@ export function buildVm(game, f) {
     const tr = traceOf(game.rec, c.n);
     if (tr) watch = W.watchView(game.watchMem, tr, c, state.tick, {rate: mode.rate, version: mode.watchVersion, guardMW: obs.battery.guardMW});
   }
+  // K-15 (Q-97): the first directed shed's compact watch: its stopwatch and its one sentence, no beats
+  if (mode.mode === 'SHED-WATCH') watch = {n: -1, tS: mode.watchS, beat: '', beatIndex: -1, caption: D.shedWatchText(d, state), shed: true,
+    stopwatch: W.stopwatch(mode.watchS, mode.rate), nadirHz: 0, rate: mode.rate, version: 'compact', rise: false};
   if (state.over && !game.end) {
     // Q-48: black is an F at once; par's ALL-IN and the grade are filled in place below, on the frame par has its score
     const allIn = S.allIn(obs.score, game.households);

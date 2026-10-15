@@ -5,6 +5,7 @@ import * as W from '../app/watch.js';
 import {traceOf} from '../app/record.js';
 import {openGame} from './lib/play.js';
 
+
 // The real page, played as tools/play.mjs plays it (Enter at each card), to the first trip from `hhmm`, and its trace.
 function tripFrom(seed, hhmm) {
   const p = openGame({seed}), c = p.tripFrom(hhmm);
@@ -52,3 +53,4 @@ test('X-39, synthetic: a few MW of inverter release in the first tick light noth
   assert.deepEqual(tl.map(b => b.beat), ['inertia', 'battery', 'governors', 'settle']);
   assert.ok(tl[1].k >= 10 && tl[2].k > 250, tl.map(b => b.beat + '@' + b.k).join(' '));
 });
+
