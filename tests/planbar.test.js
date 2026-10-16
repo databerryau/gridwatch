@@ -41,7 +41,7 @@ test('Q-45: the plan bar\'s CSS: #planbar on the desk\'s top edge, #annun-slot 4
   const obj = ruleOf(NEXT, '#objective');
   for (const d of ['flex: 1 1 auto', 'min-width: 0', 'pointer-events: none']) assert.ok(obj.includes(d), '#objective ' + d);
   assert.doesNotMatch(obj, /position:|bottom:/);
-  assert.match(NEXT, /<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden>.*?<\/div><button id="btn-coach".*?<\/button><button id="btn-done-before".*?<\/button><div id="annun-slot" class="dk-vars"><\/div><\/div>/); // (O-8, O-1: the line's two toggles beside it)
+  assert.match(NEXT, /<div id="planbar"><div id="objective" hidden>.*?<\/div><button id="btn-coach".*?<\/button><button id="btn-done-before".*?<\/button><div id="annun-slot" class="dk-vars"><\/div><\/div>/); // (O-8, O-1: the line's two toggles beside it)
   // At the 1280×600 floor the RESPOND card starts under the header, so it has the room it has just above the
   // breakpoint (1280×660, from hdr + 60): it ends above the plan bar as it did over the map before.
   assert.match(NEXT, /@media \(max-height: 659px\) \{ #respond-card \{ top: calc\(var\(--hdr\) \+ 8px\); \} \}/);

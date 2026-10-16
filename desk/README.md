@@ -584,9 +584,19 @@ Roles: levers, wheel, ring, knob, magnitude = `role="slider"` with `aria-valuemi
 `role="switch"` or buttons with `aria-pressed`; tiles, cards, bay rows = buttons. Canvas only
 for the dial, the synchroscope, the stack and the map, each with a text alternative
 (`aria-label` updated at most once per real second). **Live region**: the shell's `#aria-live`
-(polite) mirrors, at most one message per 2 real s: mode changes, the frequency band changing
-(normal / outside normal / outside containment), the N-1 word changing, a new alarm's label, a
-tray warning's text. The desk's `.dk-live` keeps the per-control notes.
+(polite) says at most one message per 2 real s; what waits is one message per kind, the newest
+of a kind replacing the older, said in this order (K-23, W6): a new RESPOND card (what happened,
+what it leaves you, the key) and the end card's score line (again, once, when the page's own par
+lands after the card shows); a new alarm's label; the objective line, whole, with its word,
+when its level, kind or first control changes (new figures alone never, nor C-10's consider
+text; at the desk's opening, the clock held, the first line said there, else the badge, adds
+"Clock held: press Space to run"); a tray warning's text; the frequency band changing (normal /
+outside normal / outside containment); the N-1 word changing; mode changes (not the badge's
+DAY OVER: the end card's h2 takes the focus and says it). A band, N-1 word or line that flips
+back to what was last said before its turn is not said. `#objective` itself is no live region
+(it rewrites itself several times a minute). The toast box is `aria-hidden`: a blue answer is
+said through `#toast-polite` (`role="status"`) and a red refusal through `#toast-alert`
+(`role="alert"`). The desk's `.dk-live` keeps the per-control notes.
 
 ### 13.4 Status is never colour-only (K-22)
 

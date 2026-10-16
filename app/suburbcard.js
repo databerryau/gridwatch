@@ -227,8 +227,8 @@ export function createSuburbCard(doc, root, actions, deps) {
 
   // the open suburb's rows: its dark line, then per lever its blocks and the aim
   function build(v, id, sub, dark, mine) {
+    for (const q of body.querySelectorAll('[aria-expanded="true"]')) deps.toggleHelp(q, []); // (Q-47; K-23: first, so a "?" opened by a key has the focus back)
     const lv = v.obs.levers, foc = body.contains(doc.activeElement) ? doc.activeElement.id : null;
-    for (const q of body.querySelectorAll('[aria-expanded="true"]')) deps.toggleHelp(q, []); // (Q-47)
     body.replaceChildren();
     E = {lv: {}};
     if (dark) {

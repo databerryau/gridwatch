@@ -37,6 +37,11 @@
 // the card stays. It sits over the map (never the desk's Live Stack or bay); with the stack out (L) the body
 // class stack-out (placeStack) moves it over the lever bank. The objective line waits while it shows, as at
 // the respond card (the card is the one instruction while the clock holds), but a ‼ URGENT line stays up.
+// W6 (K-22, K-23; the 2026-10-17 accessibility audit): the briefing's AGC/HAND is a radio group (one Tab stop, the arrows:
+// radioKey); the end card's h2 and the shelf's first day take the focus on show and give it back on close, and Space on their
+// buttons is the buttons'; #aria-live says the objective line when what it asks changes, the RESPOND card and the end card's
+// score (the line itself is no live region); a toast is said politely when blue and at once when red; a "?" pressed by a key
+// puts the focus in its popover.
 
 import {V} from '../sim/params.js';
 import * as G from './game.js';
@@ -211,6 +216,7 @@ export const HAND_CHIP = Object.freeze({
 export const NIGHT_REDRAW_MS = 500;
 /** A toast lives max(TOAST_MS, TOAST_WORD_MS a word) (real ms), so it can be read (§32.11). */
 export const TOAST_MS = 3000, TOAST_WORD_MS = 300;
+const NBSP = String.fromCharCode(0xa0);   // (K-23: a toast's words again, made new for its live region)
 const millions = x => '$' + (x / 1e6).toFixed(1) + 'M';
 
 // ------------------------------------------------------------------ the live region (K-23, §13.3)
@@ -218,8 +224,8 @@ const millions = x => '$' + (x / 1e6).toFixed(1) + 'M';
 /** #aria-live says at most one message per this many real ms. */
 export const LIVE_GAP_MS = 2000;
 // What waits is one slot per kind (the newest of a kind replaces the older: "newest alarm
-// wins"), said in this order.
-const LIVE_ORDER = ['alarm', 'tray', 'band', 'level', 'mode'];
+// wins"), said in this order: a card that holds the clock first (the RESPOND card, the end card's score).
+const LIVE_ORDER = ['card', 'alarm', 'line', 'tray', 'band', 'level', 'mode'];
 const BAND_TEXT = {normal: 'Frequency back in the normal band', outside: 'Frequency outside the normal band',
   containment: 'Frequency outside the containment band'};
 
@@ -232,8 +238,22 @@ export function bandOf(hz) {
 /** A new live-region model (pure; liveFrame feeds it a vm per frame). */
 export function createLive() {
   return {primed: false, lastMs: -Infinity, tick: -1, mode: '', seg: '', act: 0, band: '', bandSaid: '', level: '', levelSaid: '', tiles: {}, cards: new Set(),
-    q: {}};
+    respond: -1, line: '', lineSaid: '', heldSaid: false, q: {}};
 }
+
+/** The objective line is hidden (Q-73: the night strip has its place; Q-91: a card holds the clock, but for a ‼ URGENT line at a feeder card). */
+const lineHidden = v => v.phase !== 'play' || v.obs.over || !!v.respond || (!!v.feeder && !(v.objective && v.objective.level === 'crit')) || !!v.obs.nightShift;
+const firstSentence = s => (/^.*?[.!?](?=\s|$)/.exec(s) || [s])[0];
+/**
+ * K-23: what the live region says of an objective line: its word without the glyph, and the whole line (LINE_MAX_CHARS: at most
+ * about 30 words), whose problem comes first and its ask after ('ACT NOW: You will be 250 MW short from 06:30. Start GT·A now: ...').
+ */
+export const lineWords = o => objectiveWord(o).replace(/^\S+\s+/, '') + ': ' + o.text;
+/** Q-18: the line's note while the clock is held (the desk opens so); K-23: the live region says it once, at the desk's opening. */
+export const HELD_NOTE = 'Clock held: press Space to run (you can act while paused).';
+const heldAtOpening = v => v.phase === 'play' && v.mode.mode === 'PAUSE' && !v.obs.over && v.obs.tick === V.PLAYER_START_TICK;
+/** K-23: what it says of a RESPOND card: what happened (its first sentence), what it leaves you, and the key (watch.js respondCard's lines). */
+export const respondWords = r => [firstSentence(r.lines[0]), ...r.lines.slice(2)].join(' ');
 
 // What the mode slot says: the badge; on a new D-2 segment its name first if the badge has it not
 // ('PEAK, FAST 450×'), and on a new act the act's words before it (render/format.js badgeTitle; Q-78).
@@ -244,8 +264,9 @@ function modeWords(m, seg, act) {
 
 /**
  * One frame of the live region: note what changed in `vm` (the mode, the D-2 segment or the act,
- * the frequency band, the N-1 word, a tile going into alarm or escalating, a new tray warning) and
- * return the one message to say now, or null. At most one per LIVE_GAP_MS; the rest wait, one per kind.
+ * the frequency band, the N-1 word, a tile going into alarm or escalating, a new tray warning, what
+ * the objective line asks, a new RESPOND card) and return the one message to say now, or null. At
+ * most one per LIVE_GAP_MS; the rest wait, one per kind (L.q: the shell queues the end card's score there).
  */
 export function liveFrame(L, vm, nowMs) {
   const obs = vm.obs;
@@ -258,7 +279,7 @@ export function liveFrame(L, vm, nowMs) {
   if (mode === 'WATCH') { if (L.mode !== mode && !first) L.q.mode = 'WATCH'; L.mode = mode; }
   else if (mode !== L.mode || seg || act) {
     L.mode = mode; L.seg = m.segment || ''; L.act = m.act || 0;
-    if (!first) L.q.mode = modeWords(m, seg, act);
+    if (!first && !(mode === 'OVER' && vm.end)) L.q.mode = modeWords(m, seg, act);   // (the end card's h2 says DAY OVER: it takes the focus)
   }
   const band = bandOf(obs.f.hz);
   if (band !== L.band) { L.band = band; if (first) L.bandSaid = band; else L.q.band = BAND_TEXT[band] + ', ' + obs.f.hz.toFixed(2) + ' Hz'; }
@@ -278,16 +299,29 @@ export function liveFrame(L, vm, nowMs) {
     L.cards.add(c.id);
     if (c.sev === 'warn' && !first) L.q.tray = c.from + ': ' + c.text;
   }
+  // K-23: the RESPOND card (K-16), once a card: Enter closes it from anywhere, so it is said before anything else waiting
+  const r = vm.respond;
+  if (r && r.n !== L.respond && !first) L.q.card = respondWords(r);
+  L.respond = r ? r.n : -1;
+  // K-23: the objective line (Q-18), whole, when what it asks changes (its level, kind and first control): new figures alone never
+  // make it speak, and it never says the C-10 consider text, nor the paused suffix but once at the desk's opening (below)
+  // (#objective is no live region: it rewrites itself several times a minute)
+  const o = vm.objective && vm.objective.text && !lineHidden(vm) ? vm.objective : null, line = o ? o.level + '|' + o.kind + '|' + (o.targets[0] || '') : '';
+  if (line !== L.line) { L.line = line; if (first) L.lineSaid = line; else if (o) L.q.line = lineWords(o); else delete L.q.line; }
   if (nowMs - L.lastMs < LIVE_GAP_MS) return null;
-  // A band or level that flapped back to what was last said has nothing to say.
+  // A band, level or line that flapped back to what was last said has nothing to say.
   if (L.q.band && L.band === L.bandSaid) delete L.q.band;
   if (L.q.level && L.level === L.levelSaid) delete L.q.level;
+  if (L.q.line && L.line === L.lineSaid) delete L.q.line;
   for (const k of LIVE_ORDER) {
-    const text = L.q[k];
+    let text = L.q[k];
     if (!text) continue;
     delete L.q[k];
     if (k === 'band') L.bandSaid = L.band;
     if (k === 'level') L.levelSaid = L.level;
+    if (k === 'line') L.lineSaid = L.line;
+    // (the desk opens with the clock held: the first line or badge said there says so, once; a pause the player made, never)
+    if ((k === 'line' || k === 'mode') && !L.heldSaid && heldAtOpening(vm)) { L.heldSaid = true; text += (/[.!?]$/.test(text) ? ' ' : '. ') + HELD_NOTE; }
     L.lastMs = nowMs;
     return text;
   }
@@ -438,13 +472,39 @@ export function bootGame(doc, deps) {
   on('btn-help', 'click', () => actions.ui({do: 'drawer'}));
   on('btn-drawer-close', 'click', () => actions.ui({do: 'drawer', on: false}));
   on('btn-pop-close', 'click', () => closePopover());
-  // Q-64: the briefing's AGC/HAND is the sim's mode: the buttons send it and draw from obs.mode (the desk's key too)
+  // Q-64: the briefing's AGC/HAND is the sim's mode: the buttons send it and draw from obs.mode (the desk's key too). K-23: a
+  // radio group with one Tab stop, the one picked (a roving tabindex; radioKey below gives it its keys)
+  const RADIOS = [['btn-agc', 'AGC'], ['btn-hand', 'HAND']];
   const briefMode = mode => {
-    for (const [id, m] of [['btn-agc', 'AGC'], ['btn-hand', 'HAND']]) { const b = $(id); if (b) { b.classList.toggle('on', mode === m); b.setAttribute('aria-checked', String(mode === m)); } }
+    for (const [id, m] of RADIOS) {
+      const b = $(id), tab = mode === m ? '0' : '-1';
+      if (b) { b.classList.toggle('on', mode === m); b.setAttribute('aria-checked', String(mode === m)); if (b.getAttribute('tabindex') !== tab) b.setAttribute('tabindex', tab); }
+    }
   };
   // (the one already on logs nothing: a radio)
-  for (const [id, agc] of [['btn-agc', true], ['btn-hand', false]]) on(id, 'click', () => { if (game.state.control.mode !== (agc ? 'AGC' : 'HAND')) actions.input({type: 'mode', agc}); briefMode(game.state.control.mode); });
+  const pickMode = m => { if (game.state.control.mode !== m) actions.input({type: 'mode', agc: m === 'AGC'}); briefMode(game.state.control.mode); };
+  for (const [id, m] of RADIOS) on(id, 'click', () => pickMode(m));
   briefMode(game.state.control.mode);
+  // K-23 (WCAG 2.1.1): the arrows on a focused AGC or HAND move the pick to the other one shown, and the focus with it; Enter or
+  // Space on the one not picked picks it (the desk not taken). On the one picked they are the briefing's, as a native radio's
+  // Enter submits its form: Enter takes the desk (D-3: a mouse player who clicked HAND, which focuses it, then presses Enter),
+  // Space answers as on the rest of the card. True when the key was the radios'.
+  function radioKey(ev) {
+    const at = RADIOS.findIndex(([id]) => ev.target && ev.target.id === id);
+    if (at < 0) return false;
+    const k = ev.key, m = RADIOS[at][1];
+    if (k === 'Enter' || k === ' ' || k === 'Spacebar') {
+      if (game.state.control.mode === m) return false;
+      pickMode(m);
+      return true;
+    }
+    if (!/^Arrow(Left|Right|Up|Down)$/.test(k)) return false;
+    const list = RADIOS.map(([id, mm]) => [$(id), mm]).filter(([b]) => b && !b.hidden), i = list.findIndex(([b]) => b === ev.target);
+    const [b, next] = list[(i + (/Left|Up/.test(k) ? list.length - 1 : 1)) % list.length];
+    pickMode(next);
+    b.focus();
+    return true;
+  }
   // W6: the shelf owns Enter while it is open, and on MORE DAYS (a press there opens it, it never takes the desk)
   const shelfOwns = t => { const sh = $('shelf-card'); return (!!sh && !sh.hidden) || !!(t && (t.id === 'btn-shelf-brief' || (sh && sh.contains(t)))); };
   const take = () => {
@@ -532,7 +592,7 @@ export function bootGame(doc, deps) {
         q.setAttribute('aria-label', 'About: ' + rows.join('; '));
         q.setAttribute('aria-controls', 'popover');
         q.setAttribute('aria-expanded', 'false');
-        q.addEventListener('click', () => toggleHelp(q, rows));
+        q.addEventListener('click', ev => toggleHelp(q, rows, ev));
         qButtons.set(id, q);
         // The header and the cards are the shell's own: their "?" sits inline right after the element. Desk,
         // stack and map elements get a floating badge on their top-right corner (their DOM is
@@ -564,7 +624,8 @@ export function bootGame(doc, deps) {
       parent.appendChild(p);
     }
   }
-  // Q-47 (§30.3.7): every "?" calls toggleHelp; only closePopover() hides #popover.
+  // Q-47 (§30.3.7): every "?" calls toggleHelp; only closePopover() hides #popover. K-23: the popover is named by its first
+  // heading (#pop-title); a "?" pressed by a key puts the focus in its text (#pop-body), and Esc or ✕ gives it back to the "?".
   let popAnchor = null, popRows = null;
   const expanded = (q, on) => { if (q) { q.setAttribute('aria-expanded', on); q.classList.toggle('on', on); } };
   function fillPopover() {
@@ -575,11 +636,13 @@ export function bootGame(doc, deps) {
       const e = T && T.abstractions.find(x => x.row === row || x.replaces === row);
       if (e) entryNodes(body, e, 'h4'); else body.appendChild(doc.createElement('h4')).textContent = row;
     }
+    const title = body.querySelector('h4');
+    if (title) title.id = 'pop-title';
     pop.style.maxHeight = ''; // (its own height)
     const p = popoverPlace(popAnchor.getBoundingClientRect(), pop.offsetWidth, pop.offsetHeight, de.clientWidth, de.clientHeight);
     for (const k in p) pop.style[k] = p[k] === null ? 'auto' : p[k] + 'px';
   }
-  function openPopover(anchorEl, rows) {
+  function openPopover(anchorEl, rows, byKey) {
     const pop = $('popover');
     if (!pop) return;
     expanded(popAnchor, false);
@@ -587,15 +650,23 @@ export function bootGame(doc, deps) {
     popRows = rows;
     pop.hidden = false;
     fillPopover();
+    if (byKey) focusEl('pop-body');
   }
   function closePopover() {
-    const pop = $('popover');
+    const pop = $('popover'), a = popAnchor, had = !!pop && !pop.hidden && pop.contains(doc.activeElement);
     if (pop) pop.hidden = true;
     expanded(popAnchor, false);
     popAnchor = null; popRows = null;
+    if (had) { if (a && shown(a)) a.focus(); else doc.activeElement.blur(); }
   }
-  function toggleHelp(button, rows) {
-    if (button === popAnchor) closePopover(); else openPopover(button, rows);
+  // ev: the "?"'s click (a key's has detail 0: a browser's own); without it (the end card's and the suburb card's "?"), the
+  // input that came last: a key, or the pointer
+  let keyed = false;
+  const modality = ev => { keyed = ev.type === 'keydown'; };
+  doc.addEventListener('keydown', modality, true);
+  doc.addEventListener('pointerdown', modality, true);
+  function toggleHelp(button, rows, ev) {
+    if (button === popAnchor) closePopover(); else openPopover(button, rows, ev ? ev.detail === 0 : keyed);
   }
   doc.addEventListener('click', ev => {
     const pop = $('popover');
@@ -673,7 +744,11 @@ export function bootGame(doc, deps) {
   }
 
   // ---------------------------------------------------------------- overlays
-  /** kind 'info': an answer to a press that did nothing (blue, Q-41); else a refusal (red). */
+  /**
+   * kind 'info': an answer to a press that did nothing (blue, Q-41); else a refusal (red). K-23: the box is shown, not read
+   * (aria-hidden); a screen reader hears a blue answer politely (#toast-polite, role=status: it never cuts in) and a refusal at
+   * once (#toast-alert, role=alert). The same words again are made new (a trailing no-break space), so they are said again.
+   */
   function showToast(text, kind) {
     const t = $('toast');
     if (!t) return;
@@ -681,6 +756,14 @@ export function bootGame(doc, deps) {
     t.textContent = text;
     t.hidden = false;
     toastUntil = now() + Math.max(TOAST_MS, TOAST_WORD_MS * text.split(/\s+/).length);
+    const say = $(kind === 'info' ? 'toast-polite' : 'toast-alert'), other = $(kind === 'info' ? 'toast-alert' : 'toast-polite');
+    if (other) other.textContent = '';
+    if (say) say.textContent = say.textContent === text ? text + NBSP : text;
+  }
+  // (as the box goes: its words leave the two regions, so the next toast is new to them)
+  function hideToast(t) {
+    t.hidden = true;
+    for (const id of ['toast-polite', 'toast-alert']) { const e = $(id); if (e) e.textContent = ''; }
   }
   const setText = (id, s) => { const el = $(id); if (el && el.textContent !== s) el.textContent = s; };
 
@@ -694,14 +777,14 @@ export function bootGame(doc, deps) {
     const paused = v.mode.mode === 'PAUSE' && v.phase === 'play' && !v.obs.over;
     // (Q-73: in the night roll the night strip stands in its place; a press there answers with the lock's note;
     // Q-91: a feeder card, as the respond card, is the one instruction while it holds the clock, but for an urgent line)
-    box.hidden = (!o && !c) || v.phase !== 'play' || v.obs.over || !!v.respond || (!!v.feeder && !(o && o.level === 'crit')) || v.obs.nightShift;
+    box.hidden = (!o && !c) || lineHidden(v);
     if (box.hidden) return;
     const armed = !!c && v.armed === c.target;
     const cls = c ? (armed && c.level !== 'crit' ? 'act' : c.level) + ' consider' : o.level;
     if (box.className !== cls) box.className = cls;
     setText('objective-level', !c ? objectiveWord(o) : armed ? ARMED_WORD : c.level === 'ok' ? UNDER_WAY_WORD : CONSIDER_WORD);
     setText('objective-text', c ? (armed ? 'Press again to confirm. ' : '') + c.text
-      : (o.text || '') + (paused ? '  ·  Clock held: press Space to run (you can act while paused).' : ''));
+      : (o.text || '') + (paused ? '  ·  ' + HELD_NOTE : ''));
   }
 
   function drawHeader(v) {
@@ -853,13 +936,17 @@ export function bootGame(doc, deps) {
   const endDeps = {par: () => game.par, households: () => game.households, log: () => G.gameLog(game), toggleHelp, toast: showToast,
     run: () => G.runView(game),   // (W6: Y-2, Y-3)
     shelf: () => openShelf(),   // (W6, Y-2: MORE DAYS)
-    again: () => { G.resetDay(game); for (const id of ['end-card', 'shelf-card']) { const c = $(id); if (c) c.hidden = true; } briefingText(); }};
+    again: () => { G.resetDay(game); for (const id of ['end-card', 'shelf-card']) { const c = $(id); if (c) c.hidden = true; } briefingText(); focusEl('btn-take'); }};   // (K-23: the button pressed is gone)
 
   // W6 (Y-2): the practice shelf: today's daily (when another day is on the desk), the past dailies with this browser's results,
   // and the Hard days (app/shelf.js). A pick is played in the page (C-3), the address kept in step so a reload keeps the day.
+  // K-23: it opens on its first day's button (TODAY, else the newest past daily) and gives the focus back to its opener on CLOSE or
+  // Esc (closeShelf), as the drawer does; a pick lands on the new briefing's TAKE THE DESK.
+  let shelfFrom = null;
   function openShelf() {
     const c = $('shelf-card');
     if (!c || game.replay) return;
+    if (c.hidden) shelfFrom = doc.activeElement;
     if (game.todayOf) game.today = game.todayOf();   // (a day played past midnight: the shelf is the new date's)
     const el = (tag, text, parent, cls) => { const n = doc.createElement(tag); if (text) n.textContent = text; if (cls) n.className = cls; parent.appendChild(n); return n; };
     const pick = (box, label, p, title) => { const b = el('button', label, box); if (title) b.title = title; b.addEventListener('click', () => playDay(p)); return b; };
@@ -876,8 +963,20 @@ export function bootGame(doc, deps) {
     for (const h of hardDays()) pick(hard, 'Hard day ' + h.n, {seed: h.seed, hard: h.n}, h.weekend ? 'a weekend' : 'a weekday');
     const close = el('button', 'CLOSE', el('p', '', c));
     close.id = 'shelf-close';
-    close.addEventListener('click', () => { c.hidden = true; });
+    close.addEventListener('click', () => closeShelf());
     c.hidden = false;
+    c.querySelector('button').focus();
+  }
+  // (the opener, else the MORE DAYS shown: the end card's or the briefing's)
+  function closeShelf() {
+    const c = $('shelf-card');
+    if (!c || c.hidden) return false;
+    const had = c.contains(doc.activeElement);
+    c.hidden = true;
+    if (!had) return true;
+    const back = [shelfFrom, $('btn-shelf'), $('btn-shelf-brief')].find(n => n && n !== doc.body && shown(n));
+    if (back) back.focus(); else doc.activeElement.blur();
+    return true;
   }
   function playDay(p) {
     const daily = p.ymd ? G.dailyFrom('?date=' + isoOf(p.ymd)) : Object.assign(G.dailyFrom('?seed=' + p.seed), {gated: null});
@@ -891,6 +990,7 @@ export function bootGame(doc, deps) {
     } catch { /* (no address: a test page) */ }
     if (game.resumeLost) showToast(RESUME_LOST, 'info');
     briefingText();
+    focusEl('btn-take');
   }
   on('btn-shelf-brief', 'click', () => openShelf());
   function drawEnd(v) {
@@ -903,6 +1003,23 @@ export function bootGame(doc, deps) {
     }
     if (v.end && endCard) { try { endCard.update(v); } catch (e) { err('end card', e); } }
     card.hidden = !v.end || (!endCard && endState !== 'failed');
+    if (!card.hidden && v.end !== endFocused) { endFocused = v.end; focusEnd(card); }
+    else if (!card.hidden && PAR_COMPUTING.test(endSaid)) { const s = $('end-score'); if (s && !PAR_COMPUTING.test(s.textContent)) live.q.card = endSaid = s.textContent; }
+  }
+  // K-23: on the frame a day's end card first shows, its h2 (which names the dialog: #end-card aria-labelledby) takes the focus,
+  // so the keyboard starts on the card, not ~70 Tab stops before it; and the live region's card slot says its score line. A day
+  // the page's own par grades (no stored par: a practice seed, a Hard day) may show par's progress there first (endcard.js
+  // fill's 'PAR: computing… N%'): its score is said again, once, when it lands.
+  let endFocused = null, endSaid = '';
+  const PAR_COMPUTING = /^PAR: computing/;
+  function focusEnd(card) {
+    const h = card.querySelector('h2'), score = $('end-score');
+    endSaid = '';
+    if (!h) return;
+    h.id = 'end-title';
+    h.setAttribute('tabindex', '-1');
+    h.focus();
+    if (score) live.q.card = endSaid = score.textContent;
   }
 
   function placeStack(v) {
@@ -915,7 +1032,7 @@ export function bootGame(doc, deps) {
   }
 
   // K-23: #aria-live mirrors the mode, the frequency band, the N-1 word, new alarms and tray
-  // warnings, one message per 2 real s (liveFrame above).
+  // warnings, what the objective line asks, the RESPOND card and the end card's score, one message per 2 real s (liveFrame above).
   function announce(v, nowMs) {
     const text = liveFrame(live, v, nowMs);
     if (text) setText('aria-live', text);
@@ -1019,7 +1136,7 @@ export function bootGame(doc, deps) {
       const dr = $('drawer');
       if (dr && dr.hidden === vm.drawer) drawDrawer();
       const t = $('toast');
-      if (t && !t.hidden && now() > toastUntil) t.hidden = true;
+      if (t && !t.hidden && now() > toastUntil) hideToast(t);
       if (t1 >= qNext) { placeQs(); qNext = t1 + 500; }
     });
     timed('audio', () => audio.update(vm));
@@ -1045,7 +1162,7 @@ export function bootGame(doc, deps) {
   function closeTop() {
     const pop = $('popover'), u = game.ui, d = mods.desk, sh = $('shelf-card');
     if (pop && !pop.hidden) closePopover();
-    else if (sh && !sh.hidden) sh.hidden = true;   // (W6: the practice shelf)
+    else if (sh && !sh.hidden) closeShelf();   // (W6: the practice shelf)
     else if (u.settingsOpen || u.drawer || u.alarmsOpen) actions.ui(u.settingsOpen ? {do: 'settings', on: false} : u.drawer ? {do: 'drawer', on: false} : {do: 'alarms', on: false});
     else if (u.suburb && !modeOf(game.director, game.state).locked) actions.ui({do: 'suburb', id: null});
     else return !!(d && d.closeHelp && d.closeHelp());
@@ -1099,11 +1216,18 @@ export function bootGame(doc, deps) {
     if (game.phase === 'briefing' && a.ui && a.ui.do === 'dismissRespond') return;
     run(a);
   }, now, {
-    // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
+    // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there. K-23: so does Space on a
+    // button (or THE NUMBERS) of the end card and the shelf, which have the focus: it presses it, as a browser's Space does.
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
-      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')),
-    // Enter on the briefing card takes the desk (and nothing else: the key stops here).
-    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter' || (ev.target && (ev.target.id === 'btn-restart' || ev.target.tagName === 'A')) || shelfOwns(ev.target)) return false; take(); return true; },   // (F-7: Enter on a focused START OVER is its own; W6: so is the shelf's, and a link's: D-29's source)
+      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')) ||
+      (/^( |Spacebar)$/.test(ev.key) && ['end-card', 'shelf-card'].some(id => within(id, ev.target)) && /^(BUTTON|SUMMARY)$/.test(ev.target.tagName)),
+    // Enter on the briefing card takes the desk (and nothing else: the key stops here); on AGC or HAND the radios' keys (K-23).
+    first: ev => {
+      if (game.phase !== 'briefing') return false;
+      if (radioKey(ev)) return true;
+      if (ev.key !== 'Enter' || (ev.target && (ev.target.id === 'btn-restart' || ev.target.tagName === 'A')) || shelfOwns(ev.target)) return false;   // (F-7: Enter on a focused START OVER is its own; W6: so is the shelf's, and a link's: D-29's source)
+      take(); return true;
+    },
     chain: () => [mods.desk, mods.stack, mods.map],
     // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows, into the plan bar too.
     // (With the alarm panel open, panelFirst has closed it before any desk key gets here, but for Enter on a tile: it selects.)
@@ -1129,7 +1253,10 @@ export function bootGame(doc, deps) {
     get perf() { return perf; },
     frame: onFrame,
     vm: () => vm,
-    unbind() { unbindKeys(); for (const f of [escFirst, panelFirst, cardFirst, feederFirst]) doc.removeEventListener('keydown', f, true); if (stopRaf) stopRaf(); },
+    unbind() {
+      unbindKeys(); for (const f of [escFirst, panelFirst, cardFirst, feederFirst, modality]) doc.removeEventListener('keydown', f, true);
+      doc.removeEventListener('pointerdown', modality, true); if (stopRaf) stopRaf();
+    },
   };
   // F-11: ?debug exposes the boot handle for stage C's shot and perf tools (nothing else may use it).
   if (query.has('debug')) globalThis.gridwatch = handle;

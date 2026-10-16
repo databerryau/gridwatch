@@ -29,8 +29,10 @@
 <style>
   :root {
     --bg: #0d1117; --panel: #151b23; --panel2: #1b222c; --line: #2a323d; --text: #c9d1d9; --dim: #8b949e;
-    --faint: #6e7781; --bright: #f0f6fc; --green: #3fb950; --amber: #d29922; --red: #f85149; --blue: #58a6ff;
+    --faint: #848d97; --bright: #f0f6fc; --green: #3fb950; --amber: #d29922; --red: #f85149; --blue: #58a6ff;
     --violet: #a371f7; --orange: #f0883e;
+    /* K-22: every colour that carries words reads at 4.5:1 or more on --panel2 (WCAG 1.4.3); --faint-line is a border's only */
+    --faint-line: #6e7781;
     --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
     --hdr: 32px;
     --desk-h: max(300px, calc((100vh - var(--hdr)) / 2)); --planbar-h: 58px; /* K-17; Q-45 */
@@ -60,7 +62,7 @@
   #rate-badge.FEEDER-CARD { background: #1f6feb44; border-color: var(--blue); }
   #rate-badge.FAST { background: #3fb95022; border-color: var(--green); }
   #rate-badge.NIGHT { background: #0b1020; border-color: var(--dim); color: var(--dim); }
-  #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER, #rate-badge.ALARMS { background: #6e768133; border-color: var(--faint); }
+  #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER, #rate-badge.ALARMS { background: #6e768133; border-color: var(--faint-line); }
   .chip { font: 11px var(--mono); color: var(--dim); padding: 2px 8px; border: 1px solid var(--line); border-radius: 10px; white-space: nowrap; }
   .chip b { color: var(--bright); font-weight: 700; }
   .chip.dark { border-color: var(--red); } .chip.dark b { color: var(--red); }
@@ -86,7 +88,7 @@
   #objective b { font: 700 11px var(--mono); padding: 1px 6px; border-radius: 3px; border: 1px solid var(--green); color: var(--green); flex: none; }
   #objective.plan b { border-color: var(--blue); color: var(--blue); }
   #objective.act { background: #3a2a00f0; } #objective.act b { border-color: var(--amber); color: var(--amber); }
-  #objective.crit { background: #4a1210f0; } #objective.crit b { border-color: var(--red); color: var(--bright); background: #da3633; }
+  #objective.crit { background: #4a1210f0; } #objective.crit b { border-color: var(--red); color: var(--bright); background: #b62324; }
   /* C-10: what a guarded press would do, in place of the objective while a guard is under the hand. */
   #objective.consider { border-top-style: dashed; border-top-color: var(--dim); }
   /* Q-73: the night strip in the objective's place from 21:00: the lock's words over the day's totals; nothing to press. */
@@ -136,6 +138,7 @@
   #feeder-card button { font-weight: 700; padding: 4px 14px; border-color: var(--blue); color: var(--blue); }
   #briefing-card { top: calc(var(--hdr) + 40px); width: 520px; }
   #briefing-card .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  #briefing-card .radios { display: flex; gap: 8px; }   /* K-23: the radio group holds AGC and HAND only */
   #briefing-card .take { font-weight: 700; padding: 6px 16px; border-color: var(--blue); }
   #briefing-watch .gate { display: block; }
   /* W6 (D-29): an anniversary's account, the briefing's first card */
@@ -159,6 +162,7 @@
   #settings input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
   #settings .hint { color: var(--faint); font-size: 11px; margin: 6px 0 0; }
   #end-card .score { font: 13px var(--mono); }
+  #end-title:focus { outline: none; }   /* K-23: the card's h2 takes the focus on show; a heading, not a control: no ring */
   /* Q-46: over the desk while the clock is held (app/alarmpanel.js styles its insides) */
   #alarm-panel { position: fixed; z-index: 13; left: 8px; right: 8px; bottom: 8px; top: calc(100vh - var(--desk-h) + 4px); overflow: auto;
     background: var(--panel2); border: 1px solid var(--dim); border-radius: 8px; }
@@ -182,6 +186,7 @@
   #popover .x::before { content: '✕'; }
   #popover h4 { margin: 0 0 4px; color: var(--bright); font-size: 12px; }
   #popover p { margin: 3px 0; } #popover p b { color: var(--dim); }
+  #pop-body:focus { outline: none; }   /* K-23: a "?" pressed by key puts the focus in its text: text, not a control */
   #q-layer { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
   body:not(.q-on) #q-layer { display: none; } /* H-14: shown with the drawer */
   button.q { width: 24px; height: 24px; padding: 0; border-radius: 50%; font: 700 11px/22px system-ui, sans-serif; color: var(--dim);
@@ -213,7 +218,7 @@
   <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)" aria-label="What GRIDWATCH simplifies, and why" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="drawer" aria-expanded="false">?</button>
 </header>
 <div id="map" aria-label="The city and its power stations"></div>
-<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="night-strip" role="group" aria-label="The night shift: your day's totals so far" hidden><b>☾ NIGHT SHIFT</b><span><span id="night-note"></span><span id="night-figs"></span></span></div><button id="btn-coach" title="COACH ON: the line names the unit, the MW and the minute. COACH OFF: it states the problem and lights what can answer it (remembered)" class="done-before" aria-pressed="true">COACH ON</button><button id="btn-done-before" title="A first shift coaches you and covers the controls the line has not asked for yet. This turns both off, for good" class="done-before" hidden>I'VE DONE THIS BEFORE</button><div id="annun-slot" class="dk-vars"></div></div>
+<div id="planbar"><div id="objective" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="night-strip" role="group" aria-label="The night shift: your day's totals so far" hidden><b>☾ NIGHT SHIFT</b><span><span id="night-note"></span><span id="night-figs"></span></span></div><button id="btn-coach" title="COACH ON: the line names the unit, the MW and the minute. COACH OFF: it states the problem and lights what can answer it (remembered)" class="done-before" aria-pressed="true">COACH ON</button><button id="btn-done-before" title="A first shift coaches you and covers the controls the line has not asked for yet. This turns both off, for good" class="done-before" hidden>I'VE DONE THIS BEFORE</button><div id="annun-slot" class="dk-vars"></div></div>
 <div id="desk" aria-label="The control desk"></div>
 <noscript>GRIDWATCH needs JavaScript (ES modules).</noscript>
 
@@ -232,16 +237,15 @@
   <p id="briefing-watch"></p>
   <p id="briefing-real" class="dim">Real NEM physics; you make the operator's calls.</p>
   <p id="briefing-date" class="dim"></p>
-  <div class="row" id="briefing-mode" role="radiogroup" aria-label="Regulation">
-    <button id="btn-agc" class="on" role="radio" aria-checked="true" title="AGC trims every unit inside its band (the default)">AGC</button>
-    <button id="btn-hand" role="radio" aria-checked="false" title="HAND: you set the MW yourself (the levers, the wheel, the stack, RE-DISPATCH), with no AGC and no auto-sync from 04:30 to 21:00 (harder)" hidden>HAND</button>
+  <div class="row" id="briefing-mode">
+    <span class="radios" role="radiogroup" aria-label="Regulation"><button id="btn-agc" class="on" role="radio" aria-checked="true" tabindex="0" title="AGC trims every unit inside its band (the default)">AGC</button><button id="btn-hand" role="radio" aria-checked="false" tabindex="-1" title="HAND: you set the MW yourself (the levers, the wheel, the stack, RE-DISPATCH), with no AGC and no auto-sync from 04:30 to 21:00 (harder)" hidden>HAND</button></span>
     <span class="grow"></span>
     <button id="btn-shelf-brief" title="Past dailies and Hard days, as practice" hidden>MORE DAYS</button>
     <button id="btn-restart" title="Drop the saved shift and start this day again (a run that passed 09:00 stays as it was)" hidden>START OVER</button>
     <button id="btn-take" class="take" title="Enter">TAKE THE DESK</button>
   </div>
 </div>
-<div id="end-card" class="card" role="dialog" aria-label="Day over" hidden></div>
+<div id="end-card" class="card" role="dialog" aria-labelledby="end-title" aria-label="Day over" hidden></div>
 <div id="shelf-card" class="card" role="dialog" aria-label="More days: practice" hidden></div>
 <div id="alarm-panel" role="dialog" aria-modal="true" aria-label="Alarms explained" tabindex="-1" hidden></div>
 <div id="suburb-card" role="dialog" aria-label="Suburb card (H)" hidden></div>
@@ -259,8 +263,8 @@
 <div id="drawer" role="dialog" aria-label="How to play, and what GRIDWATCH simplifies" hidden><div class="top"><h2>How to play</h2><button id="btn-drawer-close" title="Close (? or Esc)">✕ CLOSE</button></div>
 <section id="how-to-play"><p id="how-desk">You decide which power stations run, and when. The dispatch system sets how hard each running unit works; you start more before the city needs them, and stop them when it does not. Coal takes two hours to reach the grid; our gas turbines, ten minutes.</p><p id="how-score"></p><p id="how-keys">The line above the desk says what is needed next. To start a unit, click its ○ button on the lever bank (hydro units: beside the HYDRO wheel); it turns into START?, so click it again to confirm. Keys: 1–5 pick a lever (6 the HYDRO wheel), then S S. The battery's outer ring is its GUARD: MW held back to catch a trip. Space pauses at any time, and you can act while paused; the clock is held until you first press it. EXPLAIN (W), beside the alarms, holds the clock and explains each one. ? (top right) shows what GRIDWATCH simplifies.</p></section>
 <h2 id="simplified-head">What GRIDWATCH simplifies, and why</h2><div id="drawer-body"></div></div>
-<div id="popover" role="dialog" hidden><button id="btn-pop-close" class="x" title="Close (Esc)" aria-label="Close"></button><div id="pop-body"></div></div>
-<div id="toast" role="alert" hidden></div>
+<div id="popover" role="dialog" aria-labelledby="pop-title" hidden><button id="btn-pop-close" class="x" title="Close (Esc)" aria-label="Close"></button><div id="pop-body" tabindex="-1"></div></div>
+<div id="toast" aria-hidden="true" hidden></div><div id="toast-polite" class="sr" role="status" aria-live="polite"></div><div id="toast-alert" class="sr" role="alert"></div>
 <div id="q-layer"></div>
 <div id="aria-live" class="sr" role="status" aria-live="polite"></div>
 <pre id="perf" hidden></pre>
