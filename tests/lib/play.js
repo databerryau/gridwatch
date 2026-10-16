@@ -7,7 +7,9 @@
 //   const p = openGame({seed: 20261007});      // briefing taken (AGC), Space pressed: CRUISE at 04:30
 //   p.to('15:40');            // jump the sim to 15:40 without drawing frames, then draw one frame
 //   p.until('trip');          // jump to the tick the next trip begins, then draw one frame
+//   p.skipTo('17:30');        // the sim alone to 17:30 (no virtual frames: stops at a card, as to() would), one frame
 //   p.real(5); p.look();      // five real seconds of frames (the watch), then what the player sees
+//   p.realJump(5);            // five real seconds as a jump (sampled, not streamed), then one frame
 //   p.click('guard-start-gta1'); p.key('Enter');
 //   const s = p.press('guard-start-gta1');   // {before, during, after, diff}: three sampled looks
 //
@@ -437,7 +439,8 @@ export function openGame(o = {}) {
    * The engine behind to() and until(): virtual frames of the page (app/loop.js runFrame on the
    * page's pacer, then the frame's model work) without drawing, stopping at the tick `stopOn`
    * names or at toS; then one drawn frame. Returns {why, at, ticks, ms}: why = 'target' | 'over' |
-   * 'held:<MODE>' | an event name | 'pred'.
+   * 'held:<MODE>' | an event name | 'pred' | 'frames' (o.frames: after that many whole virtual frames;
+   * o.draw false: no drawn frame, the pacer as that frame left it, for realJump's own).
    */
   function jump(toS, stopOn, o = {}) {
     const t0 = performance.now(), state = game.state, tick0 = state.tick, d = game.director, p = game.pacer;
@@ -446,7 +449,8 @@ export function openGame(o = {}) {
     let why = '', saved = null, midFrame = false;
     // line 'near': the objective line only over the last NEAR_S before the target (faster, see LINE)
     const lineFrom = o.line === 'near' ? toTick - NEAR_S * TPS : 0;
-    const stop = w => finish(w, t0, tick0, midFrame, saved);
+    const stop = w => (o.draw === false ? {why: w, at: clockOfS(state.tick / TPS), ticks: state.tick - tick0, ms: Math.round(performance.now() - t0)}
+      : finish(w, t0, tick0, midFrame, saved));
     if (game.phase !== 'play') return stop('held:BRIEFING');
     if (state.over) return stop('over');
     let mode = modeNow(), rate = rateNow();
@@ -477,8 +481,9 @@ export function openGame(o = {}) {
     // done() is asked before every tick: it stops the frame at the event, keeping what the pacer owes.
     const hooks = {rate: () => D.rateOf(d, state), rateLast: () => D.rateOfLastTick(d, state), tick,
       done: () => { if (why || state.over) { saved = p.acc; return true; } return false; }};
-    for (;;) {
+    for (let n = 0; ; n++) {
       if (rateNow() === 0) { why = why || (state.over ? 'over' : 'held:' + modeNow()); break; }
+      if (n === o.frames) { why = 'frames'; break; }
       t += FRAME_MS;
       saved = null;
       const s0 = gridS(), f0 = pre();
@@ -535,6 +540,53 @@ export function openGame(o = {}) {
     const s0 = game.state.tick / TPS;
     const max = opts.max === undefined ? DAY_S : parseTime(opts.max, s0);
     return jump(max, what, opts);
+  }
+  /**
+   * W6 (the test budget, CLAUDE.md): to() without the page's frames. The sim alone to `when`: G.tickOnce, as the page's
+   * loop runs it (the system, the recorder, the alarms' samples, the history, the verdict), with no pacing, no virtual
+   * frame and no view model between; then one drawn frame, as a jump's. It stops where the page holds the clock, as
+   * to(when, {stop: []}) does (why 'held:<MODE>': a RESPOND card, a feeder or shed card, PAUSE), so a test answers each
+   * card as play would (Enter, RESTORE, LEAVE) and skips on: the sim's day is then the page's, hash for hash. (A card
+   * begins at a watch's end or at a grid second's first ticks: the hold is looked for there.) The director keeps its
+   * memory of the watches it would have shown (seen), and the page's clock moves on by the D-2 profile's real seconds
+   * for the span, in one step: what ages in real s (the tray, the toast, the map's districts, line holds, guard covers,
+   * the annunciator's timers) sees one long frame, the line is said afresh at the drawn frame, and the page's par (a
+   * slice a frame, Q-48) waits for the frames. So reach a moment a test looks at with to() / until() / tripFrom() from
+   * a little before it. The frame after it starts its ticks at the stop (a jump's owes the rest of the frame it stopped
+   * in), so a press after a skip may land a frame's ticks away from the same press after a jump. Returns {why, at,
+   * ticks, ms}, as to().
+   */
+  function skipTo(when) {
+    const t0 = performance.now(), state = game.state, tick0 = state.tick, d = game.director;
+    const toTick = Math.min(Math.round(parseTime(when, state.tick / TPS) * TPS), V.DAY_TICKS);
+    if (game.phase !== 'play') return finish('held:BRIEFING', t0, tick0, false, null);
+    let why = '', check = true;   // (check the clock's hold after this tick)
+    for (;;) {
+      if (state.over) { why = 'over'; break; }
+      if (check) {
+        if (D.directorFrame(d, state)) saveSeen();
+        if (rateNow() === 0) { why = 'held:' + modeNow(); break; }
+      }
+      if (state.tick >= toTick) { why = 'target'; break; }
+      G.tickOnce(game);
+      const c = state.contIdx < 0 ? null : state.conts[state.contIdx];
+      check = state.tick % TPS < 2 || (c !== null && state.tick === c.watchEndTick);
+    }
+    t += realBetween(tick0 / TPS, state.tick / TPS, D.handAt(state)) * 1000;   // (the page's clock: the D-2 profile's real s)
+    return finish(why, t0, tick0, false, state.tick === tick0 ? null : 0);   // (a skip leaves the pacer owing nothing)
+  }
+  /**
+   * W6 (the test budget): real()'s sample, not its stream (CLAUDE.md): `seconds` of real frames, all but the last one
+   * virtual (a jump's: the ticks, the line, guard covers and rests, the annunciator's timers and the toast age as in
+   * play) and the last one drawn, so it lands where real(seconds) does. It stops early where the clock holds (PAUSE, a
+   * card: one drawn frame there), as a jump does: real() plays on through a hold. opts.line as to()'s. Returns {why
+   * ('target', 'over' or 'held:<MODE>'), at, ticks, ms}.
+   */
+  function realJump(seconds, opts = {}) {
+    const t0 = performance.now(), tick0 = game.state.tick;
+    const r = jump(DAY_S, [], Object.assign({}, opts, {frames: Math.max(1, Math.round(seconds / FRAME_DT)) - 1, draw: false}));
+    frame();
+    return {why: r.why === 'frames' ? 'target' : r.why, at: clockOfS(game.state.tick / TPS), ticks: game.state.tick - tick0, ms: Math.round(performance.now() - t0)};
   }
 
   // ---------------------------------------------------------------- reading
@@ -714,14 +766,17 @@ export function openGame(o = {}) {
    * drawn only near the target, as --line=near), pressing Enter at each card on the way as timeline()
    * does, but going on from a shed card (D-26: the sim's day, and so its later trips, stay as they were
    * before the shed cards), then plays on to its RESPOND card. Returns the contingency record (observe()'s), or null.
+   * (W6, the test budget: up to NEAR_S before `when` the day is skipped, skipTo, the cards on the way answered alike.)
    */
   function tripFrom(when) {
-    const st = game.state, atTick = parseTime(when) * TPS;
+    const st = game.state, atTick = parseTime(when) * TPS, nearS = atTick / TPS - NEAR_S;
+    const answer = () => { if (shedCard()) { G.ui(game, {do: 'goOn'}); frame(); } else key('Enter'); };
+    for (let n = 0; n < 100 && !st.over && st.tick < nearS * TPS; n++) if (skipTo(nearS).why.startsWith('held')) answer();
     for (let n = 0; n < 100 && !st.over; n++) {
       const c = st.conts.at(-1);
       if (c && c.startTick >= atTick) { until('card', {max: '+5m'}); return observe(st).contingency; }
       const r = st.tick >= atTick ? until('trip', {line: 'near'}) : to(when, {stop: ['trip'], line: 'near'});
-      if (r.why.startsWith('held')) { if (shedCard()) { G.ui(game, {do: 'goOn'}); frame(); } else key('Enter'); }
+      if (r.why.startsWith('held')) answer();
     }
     return null;
   }
@@ -731,7 +786,7 @@ export function openGame(o = {}) {
     get now() { return t; },
     /** The page time of the Space that ran the clock (-1 before it), for D-2's clock (clockReport). */
     get spaceMs() { return spaceMs; },
-    frame, frames, real, to, until, tripFrom, look, lookDiff, buttons, timeline, clockReport,
+    frame, frames, real, to, until, skipTo, realJump, tripFrom, look, lookDiff, buttons, timeline, clockReport,
     click, hover, key, keyDown, keyUp, hold, pointer, send, suburb, press, pressKey,
     vm: () => h.vm(),
     clock: () => clockOfS(game.state.tick / TPS),
