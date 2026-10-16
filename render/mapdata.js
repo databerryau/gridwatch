@@ -83,8 +83,9 @@ export const PLANTS = Object.freeze([
     line: [[568, 112], [560, 124]]},
   {id: 'wind', target: null, label: 'GALE RIDGE WIND', box: [590, 42, 50, 78], machines: [],
     line: [[608, 116], [592, 121]]},
-  {id: 'solar', target: null, label: 'SUNPLAIN SOLAR', box: [496, 126, 98, 48], machines: [],
-    line: [[522, 138], [528, 122]]},
+  // (X-47: on the plain south of Redgum Flats and Saltbush Bay, clear of the alarm tiles at the plan bar's right end at 1280×600)
+  {id: 'solar', target: null, label: 'SUNPLAIN SOLAR', box: [336, 150, 72, 25], machines: [],
+    line: [[404, 160], [480, 150], [498, 116]]},
   {id: 'battery', target: 'dial-battery', label: 'BIG BATTERY', box: [268, 152, 56, 22], machines: [],
     line: [[298, 156], [298, 150]]},
   {id: 'tie', target: 'knob-tie', label: 'TIE LINE', box: [0, 104, 46, 28], machines: [],
@@ -132,8 +133,8 @@ export const PLANT_PARTS = Object.freeze({
 /** Wind turbine towers [x, y] (base of the mast) and solar panel rows [x, y] (front-left end). */
 export const WIND_TURBINES = Object.freeze([[600, 78], [614, 74], [628, 70], [602, 96], [616, 92], [630, 88], [606, 114], [620, 110]]);
 export const TURBINE_H = 18;
-export const SOLAR_ROWS = Object.freeze([[500, 146], [509, 150], [518, 154], [527, 158], [536, 162], [545, 166], [554, 170]]);
-export const SOLAR_ROW_W = 36;
+export const SOLAR_ROWS = Object.freeze([[340, 162], [349, 165], [358, 168], [367, 171], [376, 174]]);
+export const SOLAR_ROW_W = 28;
 /** The ridge (hydro and wind sit on it), the lake behind the dam, the river to the bay, the bay. */
 export const RIDGE = Object.freeze([[484, 122], [494, 84], [508, 64], [544, 58], [640, 56], [640, 124], [604, 128], [566, 126], [520, 118]]);
 export const LAKE = Object.freeze([[506, 88], [512, 74], [532, 65], [562, 63], [582, 68], [586, 78], [574, 86], [560, 89]]);

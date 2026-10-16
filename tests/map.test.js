@@ -965,3 +965,15 @@ test('Q-41 / Q-56: every click on the map answers: a plant its control, a suburb
   assert.deepEqual(ls.map(l => l.kind), ['info', 'hover', 'alarm', 'alarm']);
   assert.deepEqual(ls.filter(l => l.kind === 'alarm').map(l => l.text.replace(/\d+/, 'N')), ['REDGUM FLATS: N DARK', 'SALTBUSH BAY: N DARK (2 BACK 07:20, 07:50)']); // (2c: SAL's held task feeders, Q-69)
 });
+
+test('X-47: at 1280×600 no plant\'s click box reaches under the alarm tiles at the plan bar\'s right end', () => {
+  // (measured in the browser at 1280×600, 2026-10-16: the map at 2×; the 432-px annunciator slot covers base x >= 424
+  // from the plan bar's top, base y 147, to the map's bottom; every plant box was 100% clickable once the farm moved)
+  const TILES = {x: (1280 - 432) / 2, y: 147};
+  for (const p of D.PLANTS) {
+    const [x, y, w, h] = p.box, inTiles = x + w > TILES.x && y + h > TILES.y;
+    assert.ok(!inTiles, p.id + ' ' + p.box.join(','));
+  }
+  const [sx, sy, sw, sh] = D.PLANTS.find(p => p.id === 'solar').box;
+  for (const [x, y] of D.SOLAR_ROWS) assert.ok(x >= sx && x + D.SOLAR_ROW_W <= sx + sw + D.SOLAR_ROW_W && y <= sy + sh + 1, 'the rows sit in the box');
+});
