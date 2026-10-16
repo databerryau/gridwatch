@@ -1,6 +1,6 @@
 // app/shelf.js: W6, Y-2's practice shelf, DOM-free: what can be played besides today's daily, all of it practice.
 //   Past dailies: the SHELF_PAST dates before today, back to puzzle #1, each with this browser's official result.
-//   Hard days (S-7): days no plan keeps every light on. The first is SA 2016 (D-29: content/anniversaries.js SA2016, its
+//   Hard days (S-7): days on which par sheds. The first is SA 2016 (D-29: content/anniversaries.js SA2016, its
 //   own scenario and seed; it took the number 1 on 2026-10-17, and the others moved up one). Then the seeds the daily gate
 //   rejected (content/dailies.js: a date listed with attempt k had its attempts 0..k-1 rejected), one a date, attempt 0,
 //   numbered by date (a new list renumbers them anyway: the address and a saved run keep the seed, not the number). Each

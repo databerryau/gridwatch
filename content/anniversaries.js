@@ -68,29 +68,34 @@ export const ANNIVERSARIES = deepFreeze({
 export const anniversaryOf = ymd => (Object.hasOwn(ANNIVERSARIES, ymd) ? ANNIVERSARIES[ymd] : null);
 
 // W6, D-29 and S-7: SA 2016, the practice shelf's first Hard day (app/shelf.js hardDays), never a daily. Its account shows on the
-// briefing as an anniversary's does (app/game.js anniversaryFor); its scenario, 'desk-' + key, is DESK with these overrides
-// (content/scenarios.js SA2016_SCENARIO), and it is played from its own seed, attempt 1 of its date (seedOf(20160928, 1)), so
-// it is never that date's day (app/game.js scenarioForSeed, dailyYmd). Not gated (D-9): par sheds on it, so it is graded on
-// par's outage-free part (S-7). The source is the 'black' card's (content/cards.js), from the same report. Its card carries
-// HARD DAY, not ANNIVERSARY: it is played on any date.
+// briefing as an anniversary's does (app/game.js anniversaryFor), headed THIS REALLY HAPPENED, not ON THIS DAY: it has no date
+// (app/shell.js ACCOUNT_HEAD). Its scenario, 'desk-' + key, is DESK with these overrides (content/scenarios.js SA2016_SCENARIO),
+// and it is played from its own seed, attempt 1 of its date (seedOf(20160928, 1)), so it is never that date's day (app/game.js
+// scenarioForSeed, dailyYmd). Not gated (D-9): par sheds on it, so it is graded on par's outage-free part (S-7). The source is
+// the 'black' card's (content/cards.js), from the same report. Its card carries HARD DAY, not ANNIVERSARY: it is played on any
+// date.
 //
 // A mild spring weekday with a storm (in SA it was a Wednesday in September). The storm arrives between 17:00 and 18:00
 // (16:18 there, about two hours before sunset; the desk's sun sets at 19:48); 10-20 minutes later its cut-out takes the wind
 // towards 5%, with the fast wind (revertPerMin) most of it in two grid minutes, and 10 grid s after it the tie, carrying the
 // cheap afternoon's import, trips (dayplan.incident.cascade, sim/dayplan.js): a fall no plan built for one trip at a time
 // rides out. There the frequency fell too fast for the relays and the state went black; here it falls slowly enough for
-// UFLS to shed (the 'black' card says what GRIDWATCH simplifies). The day's other crisis is the belly's front.
+// UFLS to shed (the 'black' card says what GRIDWATCH simplifies). The day's other crisis is the belly's front. The echo names
+// both differences: the desk's notice says the turbines cut out in the storm, where the wind farms' protection cut them, and
+// the relays have time to shed.
 // *Measured* once (2026-10-17, v4-core-2d.0, seed 120160928): the storm arrives at 17:11, its cut-out and the tie's trip at
 // 17:30 and 17:30:10, it passes at 19:31, and the tie is back at 20:49. Par (sim/autopilot.js runPar) lost 492 MW of import at
 // the trip, fell to 48.91 Hz and shed 359 MWh (UFLS stage 1, 205 MWh; directed, 154), every district relit by 18:20, never
 // black. The page's no-input day (app/game.js, the system dispatching, nobody starting a unit or relighting a street) lost
 // 363 MW there, fell to 48.94 Hz (UFLS stage 1), was 15,537 MWh dark by 04:00 and never went black. tests/sa2016.test.js
-// runs par to two grid minutes after the trip.
+// runs par to two grid minutes after the trip. It can be beaten: par's own moves with the tie held at 0 MW from 17:00 shed
+// nothing (measured once in review, 2026-10-17), so a Hard day's words say that par sheds, never that no plan keeps every
+// light on (S-7, app/endcard.js).
 export const SA2016 = deepFreeze({seed: 120160928, key: 'sa2016', name: 'SA black system', year: 2016,
   account: 'On the afternoon of 28 September 2016, tornadoes brought down transmission towers in South Australia. As the lines ' +
     'faulted, wind farms\' protection cut their output, and the link to Victoria overloaded and tripped. Frequency fell too fast ' +
     'for load shedding, and the state went black.',
-  echo: 'Today\'s desk echoes it, but your relays have time to shed load.',
+  echo: 'Here a storm\'s cut-out replaces the protection, and your relays have time to shed.',
   source: 'https://www.aemo.com.au/-/media/Files/Electricity/NEM/Market_Notices_and_Events/Power_System_Incident_Reports/2017/Integrated-Final-Report-SA-Black-System-28-September-2016.pdf',
   sourceName: 'AEMO',
   overrides: {

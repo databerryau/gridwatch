@@ -77,12 +77,13 @@ test('S-7: par sheds on SA 2016 and does not go black: the trip takes the tie\'s
   assert.ok(S.parShedMWh(r.score) > S.OUTAGE_MIN_MWH, 'a Hard day: par shed ' + S.parShedMWh(r.score) + ' MWh');
 });
 
-test('D-29, S-7 on the page: Hard day 1 from the shelf opens on ON THIS DAY (sourced, 60 words at most), names the day, and its card is a Hard day\'s', () => {
+test('D-29, S-7 on the page: Hard day 1 from the shelf opens on THIS REALLY HAPPENED (sourced, 60 words at most), names the day, and its card is a Hard day\'s', () => {
   const PAR = {score: {costDollars: 4e6, lightsMWh: 359, servedMWh: 1e5, co2tPerMWh: 0.56, centsPerKWh: 4, uflsMWh: 205, directedMWh: 154}, series: []};
   const p = openGame({seed: 20261016, run: false, par: PAR, storage: store({[G.SEEN_KEY]: {shifts: 3}}), date: new Date(2026, 9, 16)});
   p.game.state.over = true;
   p.frames(2);
   p.click('btn-shelf');
+  assert.doesNotMatch(p.$('shelf-card').textContent, /no plan/i, 'par sheds on a Hard day; a player may not (review)');
   const first = p.$('shelf-card').querySelectorAll('button').find(b => /^Hard day \d+$/.test(b.textContent));
   assert.equal(first.textContent, 'Hard day 1', 'first of the Hard days');
   first.click();
@@ -91,14 +92,18 @@ test('D-29, S-7 on the page: Hard day 1 from the shelf opens on ON THIS DAY (sou
   const a = SA2016, card = p.$('briefing-card'), acc = p.$('briefing-account'), src = p.$('briefing-account-source');
   assert.equal(card.firstElementChild, acc, 'the account is the briefing\'s first box');
   assert.equal(acc.hidden, false);
-  assert.match(acc.textContent, /^ON THIS DAY/);
+  assert.match(acc.textContent, /^THIS REALLY HAPPENED/, 'played on any date, with no date shown: not ON THIS DAY (review)');
   assert.equal(p.$('briefing-account-text').textContent, a.account);
   assert.equal(p.$('briefing-account-echo').textContent, a.echo);
-  const box = words(['ON THIS DAY', a.account, a.echo, src.textContent].join(' '));
+  // (review) the echo says where the desk differs: its notice says the turbines cut out in the storm, where the account's
+  // wind farms' protection cut them
+  assert.ok(/cut-out/.test(a.echo) && /protection/.test(a.echo) && /protection/.test(a.account), a.echo);
+  const box = words([p.$('briefing-account-head').textContent, a.account, a.echo, src.textContent].join(' '));
   assert.ok(words(a.account) <= 60 && box <= 65, 'the account ' + words(a.account) + ' words, the box ' + box);
   assert.equal(src.textContent, 'Source: AEMO');
   assert.match(src.href, /^https:\/\/www\.aemo\.com\.au\/.+SA-Black-System-28-September-2016\.pdf$/);
   assert.equal(p.$('briefing-title').textContent, 'Hard day 1 · SA black system, 2016 · PRACTICE');
+  assert.doesNotMatch(p.$('briefing-title').title, /no plan/i);
   assert.equal(p.$('briefing-date').textContent, '', 'no date: it is no date\'s daily');
   assert.match(p.$('briefing-day').textContent, /Storms likely later\.$/);
   p.key('Enter');
@@ -109,6 +114,11 @@ test('D-29, S-7 on the page: Hard day 1 from the shelf opens on ON THIS DAY (sou
   assert.match(s.lines[0], /^GRIDWATCH · Hard day 1 · \d+ [A-F]( ★)?( · PERFECT)? · PRACTICE · HARD DAY$/, 'HARD DAY, no ANNIVERSARY: played on any date');
   assert.deepEqual(SH.lintCard(s.text), [], 'no event words, no place, no time');
   assert.doesNotMatch(s.text, /SA|2016|black/i);
-  assert.equal(p.$('end-run').textContent, 'PRACTICE: Hard day 1. No plan keeps every light on: you are graded on the rest.');
+  // (review) a Hard day can be beaten (content/anniversaries.js SA2016): beside PERFECT, the card says that par shed, never
+  // that no plan keeps every light on
+  assert.match(p.$('end-score').textContent, / · PERFECT$/, 'the day ended at once: nothing shed');
+  assert.equal(p.$('end-run').textContent, 'PRACTICE: Hard day 1. Par sheds load on this day: you are graded on the rest.');
+  assert.match(p.$('end-hard').textContent, /^HARD DAY: par shed 359\.0 MWh today\. The points leave those MWh out/);
+  assert.doesNotMatch(p.$('end-card').textContent, /no plan/i);
   assert.deepEqual(p.h.mods.errors, []);
 });

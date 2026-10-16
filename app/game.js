@@ -307,7 +307,7 @@ export function resetDay(game, seed) {
   game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
   game.plates = firstShift(game) && game.settings.plates ? new Set(PLATE_GROUPS) : new Set();   // (O-3: a first shift's cover plates)
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
-  // W6 (S-7, Y-2): a Hard day from the shelf is known by its seed: never gate-checked (no plan keeps every light on)
+  // W6 (S-7, Y-2): a Hard day from the shelf is known by its seed: never gate-checked (par sheds on it)
   game.hard = hardDayOf(game.seed);
   if (game.hard && game.daily) game.daily = Object.assign({}, game.daily, {gated: null});
   // W6 (Y-2, Q-99): first, official or practice, fixed for the day from what storage holds now (another tab may have

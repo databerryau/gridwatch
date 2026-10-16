@@ -73,7 +73,7 @@ test('S-7 on the page: a Hard day is named, never "not gate-checked", and its ca
   p.game.state.over = true;
   p.frames(2);
   assert.match(p.game.end.share.lines[0], /^GRIDWATCH · Hard day 2 · /);
-  assert.equal(p.$('end-run').textContent, 'PRACTICE: Hard day 2. No plan keeps every light on: you are graded on the rest.');
+  assert.equal(p.$('end-run').textContent, 'PRACTICE: Hard day 2. Par sheds load on this day: you are graded on the rest.');
   assert.equal(p.$('end-gate'), null, 'no "not gate-checked" on the card either');
 });
 
