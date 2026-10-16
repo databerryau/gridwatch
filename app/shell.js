@@ -52,6 +52,7 @@ import {observe} from '../sim/step.js';
 import {unitLabel} from '../desk/util.js';
 import {puzzleNumber} from './share.js';
 import {localYmd} from './history.js';
+import {pastDailies, hardDays, resultText, isoOf} from './shelf.js';
 
 /** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
 export function layoutSizes(width, height) {
@@ -157,12 +158,17 @@ export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]
 /** F-7: the resume's replay runs this long a frame (real ms: the page shows only the briefing meanwhile); and what a player is told when a saved run cannot replay. */
 export const RESUME_BUDGET_MS = 250;
 export const RESUME_LOST = 'GRIDWATCH was updated, so your shift could not resume. Your history and streak are kept.';
+/** W6 (Y-2): the practice days whose briefing offers the shelf (not a first visit, nor a browser with no history: D-3's one click). */
+export const SHELF_ON = Object.freeze(['done', 'past', 'future', 'seed']);
+/** W6 (Y-2): the practice shelf's notes. */
+export const SHELF_NOTE = 'Practice never changes your streak: only today\'s daily counts.';
+export const HARD_NOTE = 'Days no plan gets through: par sheds load on every one. You are graded on what par could save.';
 /** W6 (Y-2, Q-99): the briefing title's tag for the run's status, and why (its title attribute). */
 export const RUN_TAG = Object.freeze({first: 'FIRST SHIFT', official: 'OFFICIAL', practice: 'PRACTICE'});
 export const RUN_WHY = Object.freeze({first: 'Your first shift: practice, unless you count it at the end.',
   official: 'Today\'s daily: this run counts once the clock passes 09:00 (one official run a day).',
   done: 'Today\'s official run is in: this one is practice.', past: 'A past daily: practice. Only today\'s counts.', seed: 'Not a daily: practice.',
-  future: 'Not today\'s daily: practice. Only today\'s counts.', off: 'History is off in this browser (no storage): practice, nothing counts.'});
+  future: 'Not today\'s daily: practice. Only today\'s counts.', hard: 'A Hard day: no plan keeps every light on, so you are graded on the rest. Practice.', off: 'History is off in this browser (no storage): practice, nothing counts.'});
 /** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
 export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
 /**
@@ -444,6 +450,8 @@ export function bootGame(doc, deps) {
     if (agc) agc.hidden = !!saved;
     if (takeB) takeB.textContent = game.replay ? 'RESUMING…' : saved ? 'RESUME AT ' + clockText(saved.tick / V.TICKS_PER_S, false) : 'TAKE THE DESK';
     if (restart) restart.hidden = !saved || !!game.replay;
+    const shelfB = $('btn-shelf-brief');   // (W6, Y-2: on a practice day's briefing; a first visit keeps its one click)
+    if (shelfB) shelfB.hidden = !SHELF_ON.includes(G.runView(game).why) || !!saved || !!game.replay;
     const st = game.state, obs = observe(st), day = $('briefing-day'), w = $('briefing-watch');
     if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
@@ -452,8 +460,8 @@ export function bootGame(doc, deps) {
     // W6: the daily's number (Y-1) and whether this run counts (Y-2, Q-99), its reason in the title
     const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null, run = G.runView(game);
     if (title) {
-      title.textContent = (n ? 'Daily #' + n : 'Practice desk') + (n ? ' · ' + RUN_TAG[run.status] : '');
-      title.title = RUN_WHY[run.status === 'practice' ? run.why : run.status];
+      title.textContent = n ? 'Daily #' + n + ' · ' + RUN_TAG[run.status] : game.hard ? 'Hard day ' + game.hard + ' · PRACTICE' : 'Practice desk';
+      title.title = game.hard ? RUN_WHY.hard : RUN_WHY[run.status === 'practice' ? run.why : run.status];
     }
     const score = $('how-score');   // D-3: the score's rule is behind the header "?" (HOW TO PLAY)
     if (score) score.textContent = GOALS_TEXT;
@@ -816,7 +824,45 @@ export function bootGame(doc, deps) {
   let endCard = null, endState = '';
   const endDeps = {par: () => game.par, households: () => game.households, log: () => G.gameLog(game), toggleHelp, toast: showToast,
     run: () => G.runView(game),   // (W6: Y-2, Y-3)
-    again: () => { G.resetDay(game); const c = $('end-card'); if (c) c.hidden = true; briefingText(); }};
+    shelf: () => openShelf(),   // (W6, Y-2: MORE DAYS)
+    again: () => { G.resetDay(game); for (const id of ['end-card', 'shelf-card']) { const c = $(id); if (c) c.hidden = true; } briefingText(); }};
+
+  // W6 (Y-2): the practice shelf: today's daily (when another day is on the desk), the past dailies with this browser's results,
+  // and the Hard days (app/shelf.js). A pick is played in the page (C-3), the address kept in step so a reload keeps the day.
+  function openShelf() {
+    const c = $('shelf-card');
+    if (!c || game.replay) return;
+    const el = (tag, text, parent, cls) => { const n = doc.createElement(tag); if (text) n.textContent = text; if (cls) n.className = cls; parent.appendChild(n); return n; };
+    const pick = (box, label, p, title) => { const b = el('button', label, box); if (title) b.title = title; b.addEventListener('click', () => playDay(p)); return b; };
+    c.replaceChildren();
+    el('h2', 'More days: practice', c);
+    el('p', SHELF_NOTE, c, 'dim');
+    if (G.dailyYmd(game) !== game.today) pick(el('div', '', c, 'days'), 'TODAY: DAILY #' + puzzleNumber(game.today), {ymd: game.today}).id = 'shelf-today';
+    el('h3', 'PAST DAILIES', c);
+    const past = el('div', '', c, 'days');
+    for (const d of pastDailies(game.today, game.history)) pick(past, '#' + d.n + ' ' + d.label + ' · ' + (resultText(d.entry) || 'not played'), {ymd: d.ymd});
+    el('h3', 'HARD DAYS', c);
+    el('p', HARD_NOTE, c, 'dim');
+    const hard = el('div', '', c, 'days');
+    for (const h of hardDays()) pick(hard, 'Hard day ' + h.n, {seed: h.seed, hard: h.n}, h.weekend ? 'a weekend' : 'a weekday');
+    const close = el('button', 'CLOSE', el('p', '', c));
+    close.id = 'shelf-close';
+    close.addEventListener('click', () => { c.hidden = true; });
+    c.hidden = false;
+  }
+  function playDay(p) {
+    const daily = p.ymd ? G.dailyFrom('?date=' + isoOf(p.ymd)) : Object.assign(G.dailyFrom('?seed=' + p.seed), {gated: null});
+    if (!G.switchDay(game, daily)) return;
+    for (const id of ['end-card', 'shelf-card']) { const c = $(id); if (c) c.hidden = true; }
+    try {   // (the address: a reload keeps this day, and a resume finds it)
+      const u = new URL(globalThis.location.href);
+      u.searchParams.delete('seed'); u.searchParams.delete('date');
+      u.searchParams.set(p.ymd ? 'date' : 'seed', p.ymd ? isoOf(p.ymd) : String(p.seed));
+      globalThis.history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch { /* (no address: a test page) */ }
+    briefingText();
+  }
+  on('btn-shelf-brief', 'click', () => openShelf());
   function drawEnd(v) {
     const card = $('end-card');
     if (!card) return;

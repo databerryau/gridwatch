@@ -60,6 +60,7 @@ export function runText(r) {
   if (r.status === 'official') return r.started === false && !r.claimed ? 'PRACTICE: it ended before 09:00, so it did not count. The next run past 09:00 does.' : 'OFFICIAL: ' + daily + ', today\'s run that counts.';
   const e = r.entry;
   if (r.why === 'done') return 'PRACTICE: today\'s official run is in' + (e ? e.dnf ? ' (it did not finish).' : e.letter ? ' (' + e.points + ' ' + e.letter + ').' : '.' : '.');
+  if (r.hard) return 'PRACTICE: Hard day ' + r.hard + '. No plan keeps every light on: you are graded on the rest.';
   return {past: 'PRACTICE: a past daily. Only today\'s counts.', future: 'PRACTICE: not today\'s daily. Only today\'s counts.',
     off: 'PRACTICE: history is off in this browser, so nothing counts.'}[r.why] || 'PRACTICE: not a daily.';
 }
@@ -125,6 +126,13 @@ export function createEndCard(doc, root, actions, deps) {
     const again = el('button', 'PLAY THIS DAY AGAIN', '', row);
     again.id = 'btn-again';
     again.addEventListener('click', () => deps.again());
+    if (deps.shelf) {   // (W6, Y-2: the practice shelf)
+      row.appendChild(doc.createTextNode(' '));
+      const more = el('button', 'MORE DAYS', '', row);
+      more.id = 'btn-shelf';
+      more.title = 'Past dailies and Hard days, as practice';
+      more.addEventListener('click', () => deps.shelf());
+    }
   }
 
   // Everything between the h2 and the seed line: it changes when par arrives.

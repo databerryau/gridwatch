@@ -42,6 +42,7 @@ import {plateGroup} from '../desk/desk.js';
 import {createParRunner, seriesAt, parMinute} from './par.js';
 import * as SH from './share.js';
 import * as HI from './history.js';
+import {hardDayOf} from './shelf.js';
 
 const TPS = V.TICKS_PER_S;
 const EMPTY = Object.freeze([]);
@@ -277,6 +278,9 @@ export function resetDay(game, seed) {
   game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
   game.plates = firstShift(game) && game.settings.plates ? new Set(PLATE_GROUPS) : new Set();   // (O-3: a first shift's cover plates)
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
+  // W6 (S-7, Y-2): a Hard day from the shelf is known by its seed: never gate-checked (no plan keeps every light on)
+  game.hard = hardDayOf(game.seed);
+  if (game.hard && game.daily) game.daily = Object.assign({}, game.daily, {gated: null});
   // W6 (Y-2, Q-99): first, official or practice, fixed for the day from what storage holds now (another tab may have
   // played) and today's local date (a tab left open past midnight); an official run is marked at 09:00 (tickOnce)
   if (game.todayOf) game.today = game.todayOf();
@@ -1092,7 +1096,7 @@ export function shareFor(game, end) {
   const tags = [end.firstShift && 'FIRST SHIFT', !official(game) && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
     end.firstShift ? end.noCoach && 'NO COACH' : !end.noCoach && 'COACHED', end.glassBroken && 'GLASS BROKEN', g && g.hardMWh && 'HARD DAY'].filter(Boolean);
   const n = ymd ? SH.puzzleNumber(ymd) : null;
-  const card = SH.shareCard({ymd, n, seed: game.seed, grade: g, perfect: end.perfect, black: end.black, lowHz: end.lowHz, spark: end.spark,
+  const card = SH.shareCard({ymd, n, seed: game.seed, name: game.hard ? 'Hard day ' + game.hard : '', grade: g, perfect: end.perfect, black: end.black, lowHz: end.lowHz, spark: end.spark,
     endS: end.endS, you, par, tags, closing});
   return Object.assign(card, {bucket, closing, n, ymd, tags});
 }
@@ -1188,6 +1192,19 @@ function resumable(game) {
   if (s && r.today === game.today && (!e || e.id === s.id || s.status !== 'official')) Object.assign(game.run, s);
   else if (r.today !== game.today) Object.assign(game.run, {status: 'practice', why: s && s.status === 'practice' ? s.why : 'past', started: false, claimed: false});
   return r;
+}
+
+/**
+ * W6 (Y-2): play another day from the practice shelf, in the page (C-3): `daily` is dailyFrom's for a past date, or a Hard
+ * day's {seed, scenarioId, ymd, gated: null}. A fresh briefing; its saved run, if any, is offered (RESUME AT hh:mm).
+ */
+export function switchDay(game, daily) {
+  if (game.replay || !daily) return false;
+  game.daily = daily;
+  resetDay(game, daily.seed);
+  game.resumeLost = false; game.resumeFailed = '';
+  game.resumeSaved = resumable(game);
+  return true;
 }
 
 /** F-7: RESUME AT hh:mm: replay the saved actions from 04:00 (resumeStep runs them, a slice a frame). */
@@ -1289,7 +1306,7 @@ export function claimRun(game) {
  */
 export function runView(game) {
   const r = game.run, ymd = dailyYmd(game), st = HI.streaks(game.history, game.today);
-  return {status: r.status, why: r.why, started: r.started, claimed: r.claimed, claimable: r.status === 'first' && !r.claimed && !!game.end && game.historyOn,
+  return {status: r.status, why: r.why, hard: game.hard, started: r.started, claimed: r.claimed, claimable: r.status === 'first' && !r.claimed && !!game.end && game.historyOn,
     historyOn: game.historyOn, n: ymd ? SH.puzzleNumber(ymd) : null, entry: r.why === 'done' ? game.history.days[ymd] || null : null,
     streak: st.streak, best: st.best, played: st.played};
 }
