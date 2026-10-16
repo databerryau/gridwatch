@@ -1,0 +1,75 @@
+// app/history.js: W6's official runs, history and streaks (Y-2 as amended by Q-99, Y-3), DOM-free; app/game.js stores it.
+//
+// Under HISTORY_KEY: {v: 1, days: {YYYYMMDD: entry}}, one entry per date, at most HISTORY_MAX (the oldest dates go first).
+// An entry is the date's OFFICIAL run: {n, v (SIM_VERSION), dnf, firstShift, hand, points, letter, star, perfect, lowHz,
+// darkMWh}. A run's status (statusOf), fixed when the day is reset or the desk is taken:
+//   first     the browser's first shift, on today's daily: practice unless the player claims it at the end ("COUNT THIS ONE")
+//   official  today's daily with no entry yet: it becomes the official run at OFFICIAL_S (09:00), when an entry marked
+//             dnf is written, so closing the tab after 09:00 leaves a DNF; the day's end fills the entry in
+//   practice  anything else: a past date, a seed off the calendar, or today's daily once its official run is in
+// STREAK counts consecutive dates with a finished official run, to today (or to yesterday while today is not yet in);
+// BEST counts the consecutive dates at par or better (★) among them, the same way.
+
+import {V} from '../sim/params.js';
+
+export const HISTORY_KEY = 'gridwatch:v4:history';
+/** Y-3: dates kept. */
+export const HISTORY_MAX = 400;
+/** Q-99: a run becomes the date's official run when the grid clock passes 09:00. */
+export const OFFICIAL_S = (9 - V.DAY_START_H) * V.S_PER_H;
+
+/** A stored history, cleaned: entries keyed by a valid YYYYMMDD, each an object. */
+export function readHistory(raw) {
+  const days = {};
+  if (raw && typeof raw === 'object' && raw.v === 1 && raw.days && typeof raw.days === 'object') {
+    for (const [k, e] of Object.entries(raw.days)) if (/^\d{8}$/.test(k) && e && typeof e === 'object') days[k] = e;
+  }
+  return {v: 1, days};
+}
+
+/** The history as stored: at most HISTORY_MAX dates, the newest kept. */
+export function prune(h) {
+  const keys = Object.keys(h.days).sort();
+  for (const k of keys.slice(0, Math.max(0, keys.length - HISTORY_MAX))) delete h.days[k];
+  return h;
+}
+
+/** A Date's local calendar date as YYYYMMDD (Y-1: the daily follows the player's local date). */
+export const localYmd = d => d.getFullYear() * 1e4 + (d.getMonth() + 1) * 100 + d.getDate();
+
+/**
+ * Y-2 (Q-99): a run's status: {status: 'first' | 'official' | 'practice', why}, why one of 'first', 'today', 'done' (today's
+ * official run is in), 'past' (another date's daily), 'seed' (not a daily).
+ * @param {{ymd:number|null, today:number, firstShift:boolean}} o ymd: the date of the daily played (app/game.js dailyYmd)
+ */
+export function statusOf(h, o) {
+  if (!o.ymd) return {status: 'practice', why: 'seed'};
+  if (o.ymd !== o.today) return {status: 'practice', why: 'past'};
+  if (h.days[o.ymd]) return {status: 'practice', why: 'done'};
+  return o.firstShift ? {status: 'first', why: 'first'} : {status: 'official', why: 'today'};
+}
+
+/** Write (or overwrite) a date's official entry. */
+export function record(h, ymd, entry) {
+  h.days[ymd] = Object.assign({}, h.days[ymd] || {}, entry);
+  return prune(h);
+}
+
+// The previous calendar date of a YYYYMMDD (UTC arithmetic: no daylight-saving gaps).
+function prevYmd(ymd) {
+  const t = new Date(Date.UTC(Math.floor(ymd / 1e4), Math.floor(ymd / 100) % 100 - 1, ymd % 100 - 1));
+  return t.getUTCFullYear() * 1e4 + (t.getUTCMonth() + 1) * 100 + t.getUTCDate();
+}
+// Consecutive dates ending at `today` (or the day before, while today has no entry) whose entry passes `ok`.
+function run(h, today, ok) {
+  let d = h.days[today] ? today : prevYmd(today), n = 0;
+  while (ok(h.days[d])) { n++; d = prevYmd(d); }
+  return n;
+}
+const finished = e => !!e && !e.dnf;
+
+/** Y-3: {streak, best, played}: STREAK (finished official runs on consecutive dates), BEST (★ on consecutive dates), played (finished dates). */
+export function streaks(h, today) {
+  return {streak: run(h, today, finished), best: run(h, today, e => finished(e) && !!e.star),
+    played: Object.values(h.days).filter(finished).length};
+}

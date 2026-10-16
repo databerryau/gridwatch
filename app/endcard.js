@@ -9,8 +9,10 @@
 // HAND-FLOWN (game.end.handFlown, Q-64; "until the night shift took the desk at 21:00" only after
 // that flip, obs.nightShift: a black day ends before it) and "Not gate-checked" only when game.end.gated === false
 // (Q-75; null is not a daily); in the reliability block, on a day with feeders under repair
-// (score.heldMWh > 0), that they count from their hand-back (Q-69). W6: after the verdict, YOUR CARD, the share card as
-// it will be pasted (game.end.share, app/share.js), and SHARE to copy it (Y-5).
+// (score.heldMWh > 0), that they count from their hand-back (Q-69). W6: above the score, whether the run counts (Y-2:
+// OFFICIAL, FIRST SHIFT with COUNT THIS ONE, or PRACTICE and why; deps.run, app/game.js runView) and the streaks (Y-3, or
+// "history off"); after the verdict, YOUR CARD, the share card as it will be pasted (game.end.share, app/share.js), and
+// SHARE to copy it (Y-5).
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
@@ -47,6 +49,19 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
   '#end-share pre{font:12px/1.35 var(--mono);color:var(--bright);white-space:pre-wrap;margin:4px 0 6px;user-select:all}#btn-share{font-weight:700;border-color:var(--blue)}' +
   '#end-numbers summary{cursor:pointer;color:var(--bright);margin-top:8px}#end-history a{color:#58a6ff}' +
   '#end-card .q{width:22px;height:22px;min-width:0;min-height:0;padding:0;border-radius:50%;font:700 11px/20px system-ui,sans-serif;color:var(--dim)}';
+
+/** Y-3: the streaks' rule (the end card's STREAK line, as its title); and what a browser without storage is told. */
+export const STREAK_RULE = 'STREAK: days in a row with an official run finished. ★ STREAK: days in a row at par or better.';
+export const HISTORY_OFF = 'History off: this browser keeps no storage, so there is no streak.';
+/** Y-2 (Q-99): the end card's line on the run (app/game.js runView's). */
+export function runText(r) {
+  const daily = r.n ? 'daily #' + r.n : 'this day';
+  if (r.status === 'first') return r.claimed ? 'OFFICIAL: your first shift counts as ' + daily + '.' : 'FIRST SHIFT: practice, unless you count it.';
+  if (r.status === 'official') return r.started === false && !r.claimed ? 'Ended before 09:00, so it did not count: the next run past 09:00 does.' : 'OFFICIAL: ' + daily + ', today\'s run that counts.';
+  const e = r.entry;
+  if (r.why === 'done') return 'PRACTICE: today\'s official run is in' + (e ? e.dnf ? ' (it did not finish).' : e.letter ? ' (' + e.points + ' ' + e.letter + ').' : '.' : '.');
+  return r.why === 'past' ? 'PRACTICE: a past daily. Only today\'s counts.' : 'PRACTICE: not a daily.';
+}
 
 /** A difference to par: '+$1.25M', '−$840' (U+2212), '$0'. */
 const signed = x => (Math.abs(x) < 0.5 ? '$0' : (x > 0 ? '+' : '−') + dollars(Math.abs(x)));
@@ -116,6 +131,7 @@ export function createEndCard(doc, root, actions, deps) {
     const e = v.end, you = e.black ? null : e.allIn, p = par.a || null, g = e.grade;
     const status = {computing: 'PAR: computing… ' + par.pct + '%', black: 'par could not finish this day: no score', off: 'PAR: off'}[par.kind];
     body.replaceChildren();
+    runRows(body, deps.run ? deps.run() : null);
     const score = line(body, g ? 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + (e.perfect ? ' · PERFECT' : '')
       : par.kind === 'off' ? 'ALL-IN ' + allInCents(e.allIn) + ' c/kWh · PAR: off' : status || 'no score', 'big');
     score.id = 'end-score';
@@ -224,6 +240,24 @@ export function createEndCard(doc, root, actions, deps) {
       charts.push([dc, () => drawDemandPair(dc, x.demand.under, x.demand.oper)]);
     }
     el('p', x.trips, '', db);
+  }
+
+  // W6 (Y-2, Y-3): whether this run counts, COUNT THIS ONE on a first shift, and the streaks (or "history off")
+  function runRows(parent, r) {
+    if (!r) return;
+    const p = line(parent, runText(r), 'score');
+    p.id = 'end-run';
+    if (r.claimable) {
+      const b = el('button', 'COUNT THIS ONE', '', null);
+      b.id = 'btn-claim';
+      b.title = 'Make this first shift today\'s official run: it starts your streak';
+      b.addEventListener('click', () => { const why = actions.ui({do: 'claim'}); if (why) deps.toast(why); else deps.toast('Counted: today\'s official run.', 'info'); });
+      p.append(' ', b);
+    }
+    const s = line(parent, !r.historyOn ? HISTORY_OFF : r.played ? 'STREAK ' + r.streak + ' · ★ STREAK ' + r.best + ' · ' + r.played + (r.played === 1 ? ' daily' : ' dailies') + ' played' : '', 'score');
+    s.id = 'end-streak';
+    s.title = STREAK_RULE;
+    s.hidden = !s.textContent;
   }
 
   // W6 (Y-4, Y-5, D-25: SHARE after the verdict): the card exactly as it will be pasted, and SHARE to copy it. A blocked

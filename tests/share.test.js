@@ -147,8 +147,8 @@ test('Y-5: copy goes to the clipboard, else a hidden textarea and execCommand, e
 const PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh: 0.56, centsPerKWh: 4}, series: []};
 
 test('W6 on the page: the briefing names the daily; the day over, YOUR CARD is the card with its tags, Marg quotes its line, SHARE copies it', async () => {
-  const p = openGame({seed: 20261016, run: false, par: PAR});
-  assert.equal(p.$('briefing-title').textContent, 'Daily #5');
+  const p = openGame({seed: 20261016, run: false, par: PAR, date: new Date(2026, 9, 16)});
+  assert.equal(p.$('briefing-title').textContent, 'Daily #5 · FIRST SHIFT');
   p.send({type: 'armRERT'});
   p.game.state.over = true;
   p.frames(2);
@@ -173,12 +173,12 @@ test('W6 on the page: the briefing names the daily; the day over, YOUR CARD is t
 
 test('W6 on the page: a seed off the calendar is named, not numbered; a HAND day is tagged; a blocked clipboard says how to copy', async () => {
   const p = openGame({seed: 7, scenario: 'desk', par: PAR, agc: false});
-  assert.equal(p.$('briefing-title').textContent, 'Tonight\'s desk');
+  assert.equal(p.$('briefing-title').textContent, 'Practice desk');
   p.to('05:00');
   p.game.state.over = true;
   p.frames(2);
   const s = p.game.end.share;
-  assert.match(s.lines[0], /^GRIDWATCH · seed 7 · \d+ [A-D].* · HAND-FLOWN$/, 'a later shift with the coach off (its default) has no coach tag');
+  assert.match(s.lines[0], /^GRIDWATCH · seed 7 · \d+ [A-D].* · PRACTICE · HAND-FLOWN$/, 'a later shift with the coach off (its default) has no coach tag');
   const restore = installGlobals({navigator: {}});
   try {
     p.click('btn-share');

@@ -51,6 +51,7 @@ import {modeOf, feederCard} from './director.js';
 import {observe} from '../sim/step.js';
 import {unitLabel} from '../desk/util.js';
 import {puzzleNumber} from './share.js';
+import {localYmd} from './history.js';
 
 /** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
 export function layoutSizes(width, height) {
@@ -153,6 +154,11 @@ const BRIEF = {
 };
 /** The briefing's "Watch for" (Q-81): one brief per news item announced at 04:00, in their order. */
 export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]).map(n => BRIEF[n.kind](n, obs));
+/** W6 (Y-2, Q-99): the briefing title's tag for the run's status, and why (its title attribute). */
+export const RUN_TAG = Object.freeze({first: 'FIRST SHIFT', official: 'OFFICIAL', practice: 'PRACTICE'});
+export const RUN_WHY = Object.freeze({first: 'Your first shift: practice, unless you count it at the end.',
+  official: 'Today\'s daily: this run counts once the clock passes 09:00 (one official run a day).',
+  done: 'Today\'s official run is in: this one is practice.', past: 'A past daily: practice. Only today\'s counts.', seed: 'Not a daily: practice.'});
 /** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
 export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
 /**
@@ -293,7 +299,7 @@ export function bootGame(doc, deps) {
   let rmQuery = null;
   try { rmQuery = mm ? mm('(prefers-reduced-motion: reduce)') : null; } catch { rmQuery = null; }
   const game = G.createGame({daily: G.dailyFrom(search, o.date), system: o.system, planview: o.planview, scenario: o.scenario, commit: o.commit,
-    startPaused: o.startPaused, par: o.par,
+    startPaused: o.startPaused, par: o.par, today: localYmd(o.date || new Date()),   // (W6, Y-1: the player's local date)
     storage: o.storage === undefined ? safeStorage() : o.storage, reducedMotion: () => !!(rmQuery && rmQuery.matches)});
   const audio = createAudio(o.audioWin === undefined ? globalThis : o.audioWin);
   let perf = null, PF = null;
@@ -432,8 +438,12 @@ export function bootGame(doc, deps) {
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
     const date = $('briefing-date');
     if (date) date.textContent = dateText(game.seed % 1e8);   // (a daily's exception seed is its date + k·1e8, Q-75)
-    const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null;   // (W6, Y-1: the daily's number)
-    if (title) title.textContent = n ? 'Daily #' + n : 'Tonight\'s desk';
+    // W6: the daily's number (Y-1) and whether this run counts (Y-2, Q-99), its reason in the title
+    const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null, run = G.runView(game);
+    if (title) {
+      title.textContent = (n ? 'Daily #' + n : 'Practice desk') + (n ? ' · ' + RUN_TAG[run.status] : '');
+      title.title = RUN_WHY[run.status === 'practice' ? run.why : run.status];
+    }
     const score = $('how-score');   // D-3: the score's rule is behind the header "?" (HOW TO PLAY)
     if (score) score.textContent = GOALS_TEXT;
   }
@@ -794,6 +804,7 @@ export function bootGame(doc, deps) {
   // fetched from 21:00 when a night shift has the desk (Q-73), so 04:00 shows it at once.
   let endCard = null, endState = '';
   const endDeps = {par: () => game.par, households: () => game.households, log: () => G.gameLog(game), toggleHelp, toast: showToast,
+    run: () => G.runView(game),   // (W6: Y-2, Y-3)
     again: () => { G.resetDay(game); const c = $('end-card'); if (c) c.hidden = true; briefingText(); }};
   function drawEnd(v) {
     const card = $('end-card');
