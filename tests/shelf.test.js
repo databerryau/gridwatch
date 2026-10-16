@@ -68,6 +68,7 @@ test('S-7 on the page: a Hard day is named, never "not gate-checked", and its ca
   assert.equal(p.game.seed, 20261023);
   assert.equal(p.$('briefing-title').textContent, 'Hard day 1 · PRACTICE');
   assert.ok(!p.$('briefing-watch').textContent.includes(NOT_GATED));
+  assert.equal(p.$('briefing-date').textContent, '', 'no date: a Hard day is not that date\'s daily (browser pass)');
   p.key('Enter');
   p.game.state.over = true;
   p.frames(2);

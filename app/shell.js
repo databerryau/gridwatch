@@ -460,7 +460,8 @@ export function bootGame(doc, deps) {
     if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
     const date = $('briefing-date');
-    if (date) date.textContent = dateText(game.seed % 1e8);   // (a daily's exception seed is its date + k·1e8, Q-75)
+    // (a daily's exception seed is its date + k·1e8, Q-75; a Hard day has no date: it is not that date's daily)
+    if (date) date.textContent = game.hard ? '' : dateText(game.seed % 1e8);
     // W6: the daily's number (Y-1) and whether this run counts (Y-2, Q-99), its reason in the title
     const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null, run = G.runView(game);
     if (title) {
