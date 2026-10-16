@@ -3099,3 +3099,27 @@ Open questions:
 - Still open from the build: the plan bar's alarm-tile slot is sized by the page, so its tiles stay 8.5 px below 1600 px wide. The page around the desk does not scale, so the desk stops at 1.5×. Players on 1280-wide windows get only the floor's raises; browser zoom drops them below the floor. The ‼ URGENT badge in next.html (4.23:1) belongs to the page-side item.
 - Not seen in a browser. The integrator's one-pane pass should look at the following at 1280×600 and 1920×1080: the scaled desk; the two-row tray cards; the slip line in the label's row with a blocked-close note above it; the new ring-back colours (#66521a fill, amber/line edge); and the strip's hatch and dots.
 - w6-batch has moved on since this branch started at 508d904. Expect small merges in desk/desk.js and desk/desk.css.
+
+### the test budget, Q-40 (wave 3)
+
+- **Q-40, the test budget (REVIEW-2026-10-14 opportunity 16).** `tools/slow-tests.mjs` (`npm run test:slow`; in CI after `node --test`, warnings only) times each test file alone against CLAUDE.md's 6 s a file and 2.5 s a test. The budgets are scaled by the CPU yardstick's fastest reading (before the run, after it and before each re-time), and anything over the budget as written is still named. The play driver gained `skipTo`: the sim without 60-fps virtual frames at about 0.6x a jump's cost, with the annunciator, the tray, the offers, Marg and the page clock as the page keeps them. Over five whole days it matched page jumps: the same holds, hashes and tiles, and the clock within 0.1 s. It also gained `realJump` (real seconds sampled), and `tripFrom` skips. The slowest tests sample instead of stream, and a whole day's play sits in a before() hook. Four files were split with every test kept, and K-16 is again checked where a stray close would land.
+
+Summary: Q-40 (the test budget) is done, and the four review fixes are committed on worktree-wf_89609a2e-334-4. Nothing is pushed or merged. The item now has eight commits.
+
+- **slow-tests.mjs:** `npm run test:slow` and a CI step after `node --test` (warnings only, always exits 0) time each test file alone against CLAUDE.md's 6 s per file and 2.5 s per test. The budgets are scaled by the fastest of several CPU yardstick readings, so one busy moment no longer loosens them. Anything within the scaled budget but over the written one is listed as 'over as written'.
+- **Play driver:** it gained `skipTo` and `realJump`, and `tripFrom` now uses `skipTo`.
+  - `skipTo` runs the sim without the 60-fps virtual frames, at about 0.6x a jump's cost.
+  - It still keeps the page's clock, D-2's clock report, the alarm panel, the tray, the offers and Marg's lines as the page does.
+  - Over five whole days it matched page jumps: the same holds, state hashes, alarm tiles, sounding counts and tray, and the clock within 0.1 s.
+  - `realJump` samples real seconds instead of drawing every frame.
+- **Slow tests:** the slowest page tests now sample instead of stream. Tests that need a whole day (urgent X-44, watch X-39, baseline-v4 S-4/D-9) play it in a before() hook, so the test itself only checks.
+- **Split files:** four files were split (feedback, clock-director, system, integration) and every test was kept. A body-by-body comparison found the clock-director, system and integration splits unchanged. The feedback inventory check became one check per file (each covers its own part). Respond-card's X-40 and the night roll's F and locked presses moved into files that play those moments anyway.
+- **Lost check found and fixed:** K-16's "Enter never closes a breaker as well" could not fail. It runs at the day's own 09:46 card again, with its precondition asserted.
+
+Every fix has a test that I showed failing by breaking the code by hand. Measured 2026-10-17 with the yardstick near the owner's laptop, every file in this item is within budget. The longest are watch at 5.8 s and night-strip at 5.7 s (run 2 at once), and the slowest test here is 1.9 s.
+
+Open questions:
+- CLAUDE.md's 'a test 2.5 s or less' is now met by playing a whole day in a before() hook, with only the checks in the test. The file budget (6 s) still covers the hook. Should CLAUDE.md say this outright (setup in hooks counts toward the file, not the test), or would the owner rather have whole-day tests held to 2.5 s some other way?
+- In Node 24.18, the time of a top-level async before() hook (one that awaits) is counted in the first test's duration_ms. A sync hook, or an async one inside describe(), is not counted. A line in CLAUDE.md's 'The loop' would save the next agent from finding this out again. I did not edit CLAUDE.md.
+- Two items this branch did not touch are at the edge as written: tests/resume.test.js takes 6.1 s alone (yardstick 75, about 5.7 s on the owner's laptop), and alarms.test.js:402 (K-8, the competent proxy's day) takes 2.5 s. Both would take the same hook treatment if the owner wants margin.
+- skipTo's per-part split of the D-2 clock (clockReport) can differ from a jump's by up to 0.2 real s per part, because a record frame that contains a mode change is filed by its midpoint, just as a jump's frames are. sinceS and offS stay within 0.1 s. Splitting those frames at the step tick would make the parts exact, at the cost of more driver code. This is not done.
