@@ -1199,7 +1199,7 @@ function resumable(game) {
  * day's {seed, scenarioId, ymd, gated: null}. A fresh briefing; its saved run, if any, is offered (RESUME AT hh:mm).
  */
 export function switchDay(game, daily) {
-  if (game.replay || !daily) return false;
+  if (game.replay || !daily || (game.phase === 'play' && !game.state.over)) return false;   // (never partway through a day)
   game.daily = daily;
   resetDay(game, daily.seed);
   game.resumeLost = false; game.resumeFailed = '';

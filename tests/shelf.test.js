@@ -75,3 +75,50 @@ test('S-7 on the page: a Hard day is named, never "not gate-checked", and its ca
   assert.equal(p.$('end-run').textContent, 'PRACTICE: Hard day 1. No plan keeps every light on: you are graded on the rest.');
   assert.equal(p.$('end-gate'), null, 'no "not gate-checked" on the card either');
 });
+
+// ------------------------------------------------------------------ the review's findings
+
+import {installGlobals} from './lib/dom.js';
+import {RESUME_LOST} from '../app/shell.js';
+
+test('Y-2 (review): the shelf holds the keyboard (Enter never takes the day underneath, Esc closes it); no switch partway through a day', () => {
+  const s = store({[G.SEEN_KEY]: {shifts: 3}}), p = openGame({seed: 20261014, run: false, take: false, par: PAR, storage: s, date: TODAY});
+  assert.equal(p.$('btn-shelf-brief').hidden, false, 'a past daily\'s briefing offers the shelf');
+  p.click('btn-shelf-brief');
+  p.key('Enter');
+  assert.equal(p.game.phase, 'briefing', 'Enter with the shelf open does not take the desk');
+  p.key('Escape');
+  assert.equal(p.$('shelf-card').hidden, true);
+  p.click('btn-take');
+  assert.equal(p.game.phase, 'play');
+  assert.equal(G.switchDay(p.game, G.dailyFrom('?date=2026-10-15')), false, 'never partway through a day');
+});
+
+test('Y-2 (review): TODAY leaves the bare address; a first visit by a link has no MORE DAYS; the shelf reads today\'s date; a lost save is said', () => {
+  const s = store({[G.SEEN_KEY]: {shifts: 3}, [G.RESUME_KEY + ':practice']: {v: 2, sim: 'v4-core-0.0', seed: dailyFor(20261015).seed, tick: 99, acts: [], run: {}}});
+  const p = openGame({seed: 20261014, run: false, take: false, par: PAR, storage: s, date: TODAY});
+  // the date moves on while the tab is open: the shelf's TODAY is the new date's
+  p.game.todayOf = () => 20261017;
+  p.click('btn-shelf-brief');
+  assert.equal(p.$('shelf-today').textContent, 'TODAY: DAILY #6');
+  p.game.todayOf = () => 20261016;
+  p.click('btn-shelf-brief');
+  let addr = '';
+  const restore = installGlobals({location: {href: 'https://databerryau.github.io/gridwatch/next.html?debug&date=2026-10-14'}, history: {replaceState: (a, b, u) => { addr = u; }}});
+  try {
+    p.click('shelf-today');
+    assert.equal(addr, '/gridwatch/next.html?debug=', 'today\'s daily is the bare address');
+    assert.equal(p.$('btn-shelf-brief').hidden, true, 'today\'s official briefing keeps its one click');
+    p.click('btn-take');
+    p.game.state.over = true;
+    p.frames(2);
+    p.click('btn-shelf');
+    button(p, '#4 Thu 15 Oct').click();
+    assert.equal(addr, '/gridwatch/next.html?debug=&date=2026-10-15');
+  } finally { restore(); }
+  assert.equal(p.$('toast').textContent, RESUME_LOST, 'a save from another build is dropped, said so');
+  // a first visit by a past daily's link: one click (no MORE DAYS)
+  const f = openGame({seed: 20261014, run: false, take: false, par: PAR, storage: store(), date: TODAY});
+  assert.equal(f.$('briefing-title').textContent, 'Daily #3 · PRACTICE');
+  assert.equal(f.$('btn-shelf-brief').hidden, true);
+});

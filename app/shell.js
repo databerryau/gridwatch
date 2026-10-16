@@ -158,7 +158,7 @@ export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]
 /** F-7: the resume's replay runs this long a frame (real ms: the page shows only the briefing meanwhile); and what a player is told when a saved run cannot replay. */
 export const RESUME_BUDGET_MS = 250;
 export const RESUME_LOST = 'GRIDWATCH was updated, so your shift could not resume. Your history and streak are kept.';
-/** W6 (Y-2): the practice days whose briefing offers the shelf (not a first visit, nor a browser with no history: D-3's one click). */
+/** W6 (Y-2): the practice days whose briefing offers the shelf (never a first visit's, nor with no history: D-3's one click). */
 export const SHELF_ON = Object.freeze(['done', 'past', 'future', 'seed']);
 /** W6 (Y-2): the practice shelf's notes. */
 export const SHELF_NOTE = 'Practice never changes your streak: only today\'s daily counts.';
@@ -431,7 +431,11 @@ export function bootGame(doc, deps) {
   // (the one already on logs nothing: a radio)
   for (const [id, agc] of [['btn-agc', true], ['btn-hand', false]]) on(id, 'click', () => { if (game.state.control.mode !== (agc ? 'AGC' : 'HAND')) actions.input({type: 'mode', agc}); briefMode(game.state.control.mode); });
   briefMode(game.state.control.mode);
+  // W6: the shelf owns Enter while it is open, and on MORE DAYS (a press there opens it, it never takes the desk)
+  const shelfOwns = t => { const sh = $('shelf-card'); return (!!sh && !sh.hidden) || !!(t && (t.id === 'btn-shelf-brief' || (sh && sh.contains(t)))); };
   const take = () => {
+    const sh = $('shelf-card');
+    if (sh) sh.hidden = true;
     if (game.resumeSaved) { if (G.resumeBegin(game)) briefingText(); return; }   // (F-7: RESUME AT hh:mm)
     if (G.takeDesk(game)) { const b = $('briefing-card'); if (b) b.hidden = true; }
   };
@@ -451,7 +455,7 @@ export function bootGame(doc, deps) {
     if (takeB) takeB.textContent = game.replay ? 'RESUMING…' : saved ? 'RESUME AT ' + clockText(saved.tick / V.TICKS_PER_S, false) : 'TAKE THE DESK';
     if (restart) restart.hidden = !saved || !!game.replay;
     const shelfB = $('btn-shelf-brief');   // (W6, Y-2: on a practice day's briefing; a first visit keeps its one click)
-    if (shelfB) shelfB.hidden = !SHELF_ON.includes(G.runView(game).why) || !!saved || !!game.replay;
+    if (shelfB) shelfB.hidden = !SHELF_ON.includes(G.runView(game).why) || G.firstShift(game) || !!game.replay;
     const st = game.state, obs = observe(st), day = $('briefing-day'), w = $('briefing-watch');
     if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
@@ -832,6 +836,7 @@ export function bootGame(doc, deps) {
   function openShelf() {
     const c = $('shelf-card');
     if (!c || game.replay) return;
+    if (game.todayOf) game.today = game.todayOf();   // (a day played past midnight: the shelf is the new date's)
     const el = (tag, text, parent, cls) => { const n = doc.createElement(tag); if (text) n.textContent = text; if (cls) n.className = cls; parent.appendChild(n); return n; };
     const pick = (box, label, p, title) => { const b = el('button', label, box); if (title) b.title = title; b.addEventListener('click', () => playDay(p)); return b; };
     c.replaceChildren();
@@ -857,9 +862,10 @@ export function bootGame(doc, deps) {
     try {   // (the address: a reload keeps this day, and a resume finds it)
       const u = new URL(globalThis.location.href);
       u.searchParams.delete('seed'); u.searchParams.delete('date');
-      u.searchParams.set(p.ymd ? 'date' : 'seed', p.ymd ? isoOf(p.ymd) : String(p.seed));
+      if (p.ymd !== game.today) u.searchParams.set(p.ymd ? 'date' : 'seed', p.ymd ? isoOf(p.ymd) : String(p.seed));   // (today's: the bare address)
       globalThis.history.replaceState(null, '', u.pathname + u.search + u.hash);
     } catch { /* (no address: a test page) */ }
+    if (game.resumeLost) showToast(RESUME_LOST, 'info');
     briefingText();
   }
   on('btn-shelf-brief', 'click', () => openShelf());
@@ -1013,8 +1019,9 @@ export function bootGame(doc, deps) {
 
   // Q-47: Esc closes the top-most first: popover, SETTINGS, drawer, alarm panel, suburb card, a desk note (W2).
   function closeTop() {
-    const pop = $('popover'), u = game.ui, d = mods.desk;
+    const pop = $('popover'), u = game.ui, d = mods.desk, sh = $('shelf-card');
     if (pop && !pop.hidden) closePopover();
+    else if (sh && !sh.hidden) sh.hidden = true;   // (W6: the practice shelf)
     else if (u.settingsOpen || u.drawer || u.alarmsOpen) actions.ui(u.settingsOpen ? {do: 'settings', on: false} : u.drawer ? {do: 'drawer', on: false} : {do: 'alarms', on: false});
     else if (u.suburb && !modeOf(game.director, game.state).locked) actions.ui({do: 'suburb', id: null});
     else return !!(d && d.closeHelp && d.closeHelp());
@@ -1072,7 +1079,7 @@ export function bootGame(doc, deps) {
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
       ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
-    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter' || (ev.target && ev.target.id === 'btn-restart')) return false; take(); return true; },   // (F-7: Enter on a focused START OVER is its own)
+    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter' || (ev.target && ev.target.id === 'btn-restart') || shelfOwns(ev.target)) return false; take(); return true; },   // (F-7: Enter on a focused START OVER is its own; W6: so is the shelf's)
     chain: () => [mods.desk, mods.stack, mods.map],
     // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows, into the plan bar too.
     // (With the alarm panel open, panelFirst has closed it before any desk key gets here, but for Enter on a tile: it selects.)
