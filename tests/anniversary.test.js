@@ -128,8 +128,13 @@ test('D-29: the briefing: ON THIS DAY and the sourced account (60 words at most)
     assert.equal(card.firstElementChild, acc, 'the first box');
     assert.equal(acc.hidden, false);
     assert.equal(p.$('briefing-account-text').textContent, a.account);
+    assert.equal(p.$('briefing-account-echo').textContent, a.echo, 'what of it today\'s desk echoes');
+    // Loy Yang's GUARD comes armed from the night shift: Watch for says so (no other day hands one over)
+    assert.equal(p.$('briefing-watch').textContent.includes('; the night shift\'s battery GUARD at 200 MW.'), ymd === 20261214, p.$('briefing-watch').textContent);
     assert.match(acc.textContent, /^ON THIS DAY/);
-    assert.ok(words(acc.textContent) <= 60, ymd + ': ' + words(acc.textContent) + ' words');
+    // (counted from the parts: the stand-in DOM's textContent runs the boxes' words together, "DAYOn")
+    const box = words(['ON THIS DAY', a.account, a.echo, src.textContent].join(' '));
+    assert.ok(words(a.account) <= 60 && box <= 65, ymd + ': the account ' + words(a.account) + ' words, the box ' + box);
     assert.equal(src.textContent, 'Source: ' + a.sourceName);
     assert.match(src.href, a.sourceName === 'AEMO' ? /^https:\/\/(www\.)?aemo\.com\.au\/.+\.pdf$/ : /^https:\/\/wattclarity\.com\.au\//);
     assert.equal(p.$('briefing-title').textContent, 'Daily #' + SH.puzzleNumber(ymd) + ' · ' + a.name + ', ' + a.year + ' · PRACTICE', 'no storage: history off');
@@ -138,6 +143,36 @@ test('D-29: the briefing: ON THIS DAY and the sourced account (60 words at most)
   const p = openGame({seed: 20261215, run: false, take: false, date: local(20261215)});
   assert.equal(p.$('briefing-account').hidden, true, 'a plain daily has none');
   assert.equal(p.$('briefing-title').textContent, 'Daily #65 · PRACTICE');
+  assert.doesNotMatch(p.$('briefing-watch').textContent, /GUARD/);
+});
+
+test('D-29: Loy Yang\'s dawn trip: the battery catches most of it (the echo: "not the catch"); the GUARD is named the night shift\'s until the player sets the ring', () => {
+  assert.match(anniversaryOf(20261214).echo, /not the catch/);
+  const seed = daily(20261214).d.seed, battery = ({vm}) => !!vm.watch && vm.watch.beat === 'battery';
+  // as handed over: the watch, the respond card and the moment name the night shift's GUARD, never YOURS
+  let p = openGame({seed, date: local(20261214)});
+  p.until('trip');
+  p.until(battery, {vm: true, max: '+5m'});
+  assert.equal(p.$('beat-caption').textContent, 'THE NIGHT SHIFT\'S GUARD: 200 MW. The battery answers within a second.');
+  p.until('card');
+  const c = p.game.state.conts[0];
+  assert.ok(c.caught.batteryMW + c.caught.guardMW > c.lostMW / 2, 'the battery catches most of the trip, as 2017\'s could not');
+  assert.match(p.$('respond-card').textContent, /Caught by: spin → battery \d+ MW \(the night shift's GUARD 200\) → governors/);
+  p.game.state.over = true;
+  p.frames(2);
+  assert.match(p.game.end.verdict.moment.text.join(' '), /Caught by .*the night shift's GUARD 200 MW, the battery/);
+  assert.doesNotMatch([p.game.end.verdict.moment.text.join(' '), p.$('respond-card').textContent].join(' '), /your GUARD/i);
+  // set by the player (the ring turned up a step): it is YOUR GUARD from then
+  p = openGame({seed, date: local(20261214)});
+  p.send({type: 'guard', mw: 300});
+  p.until('trip');
+  p.until(battery, {vm: true, max: '+5m'});
+  assert.equal(p.$('beat-caption').textContent, 'YOUR GUARD: 300 MW. The battery answers within a second.');
+  p.until('card');
+  assert.match(p.$('respond-card').textContent, /\(your GUARD 300\)/);
+  p.game.state.over = true;
+  p.frames(2);
+  assert.match(p.game.end.verdict.moment.text.join(' '), /Caught by .*YOUR GUARD 300 MW, the battery/);
 });
 
 test('D-29: the week ahead and the briefing say the variant\'s day (the towers: storm, where the desk scenario draws low wind)', () => {

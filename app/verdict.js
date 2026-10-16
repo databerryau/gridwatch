@@ -31,6 +31,7 @@ import {SEC_WINDOW_S, LEVELS} from './record.js';
 import {clockText, mw} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
 import {CARDS} from '../content/cards.js';
+import {NIGHT_GUARD} from './watch.js';
 
 const TPS = V.TICKS_PER_S, DAY_S = V.DAY_S, MIN = V.S_PER_MIN, DAY_MIN = DAY_S / MIN, HOUR_MIN = V.S_PER_H / MIN;
 /** D-21: the moment's trace spans this many grid seconds either side. */
@@ -168,17 +169,24 @@ const causeName = c => (c.cause === 'link' ? 'The tie line' : c.cause === 'load'
 const CATCH = [['inertiaMW', 'spin'], ['guardMW', 'YOUR GUARD'], ['batteryMW', 'the battery'], ['governorsMW', 'governors'],
   ['loadReliefMW', 'load relief'], ['uflsMW', 'the relays'], ['inverterMW', 'solar and wind backing off']];
 
-/** What caught a trip, in words, YOUR GUARD named: "spin 680 MW, YOUR GUARD 400 MW, governors 210 MW". */
-export function caughtText(c) {
+/**
+ * What caught a trip, in words, YOUR GUARD named: "spin 680 MW, YOUR GUARD 400 MW, governors 210 MW" (D-29: nightGuard, a GUARD
+ * the night shift handed over and the player had not set by the trip, is named as theirs).
+ */
+export function caughtText(c, nightGuard = false) {
   const sign = c.lostMW >= 0 ? 1 : -1, out = [];
-  for (const [k, name] of CATCH) { const v = sign * (c.caught[k] || 0); if (v >= 5) out.push(name + ' ' + mw(v) + ' MW'); }
+  for (const [k, name] of CATCH) {
+    const v = sign * (c.caught[k] || 0);
+    if (v >= 5) out.push((k === 'guardMW' && nightGuard ? NIGHT_GUARD : name) + ' ' + mw(v) + ' MW');
+  }
   return out.join(', ');
 }
 
 /**
  * D-21: the moment: {kind: 'shed'|'trip'|'margin', s, cont (a trip's record), text: [lines], numbers: {...}, trace}.
  * conts: the player's contingencies (state.conts before a night scenario's 21:00). o: {parMinute(s) (app/par.js), twin
- * (createTwin's), guardMW (the GUARD set at the moment's trip), nightS (sheds from it are not candidates)}.
+ * (createTwin's), guardMW (the GUARD set at the moment's trip), nightGuard (it was the night shift's then, D-29), nightS (sheds
+ * from it are not candidates)}.
  */
 export function moment(mem, conts, o = {}) {
   const nightS = o.nightS === undefined ? Infinity : o.nightS; // (Q-73: the night shift's sheds are not the player's)
@@ -213,7 +221,7 @@ export function moment(mem, conts, o = {}) {
   } else if (c) {
     text.push(at(s) + ': ' + causeName(c) + ' tripped (' + mw(Math.abs(c.lostMW)) + ' MW' + (rise ? ' of load' : '') + '). Frequency ' +
       (rise ? 'rose to ' : 'fell to ') + c.extremeHz.toFixed(2) + ' Hz' + (c.uflsStages ? ' and the relays shed ' + c.uflsStages + ' stage' + (c.uflsStages > 1 ? 's' : '') : '') + '.');
-    const caught = caughtText(c);
+    const caught = caughtText(c, o.nightGuard);
     if (caught) text.push('Caught by ' + caught + '.');
     // the nadir with no GUARD: the twin's; with none set at the trip, the day already was the no-GUARD case
     const ng = o.twin && Number.isFinite(o.twin.nadirHz) ? o.twin.nadirHz : NaN;

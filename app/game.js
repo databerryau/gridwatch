@@ -170,6 +170,13 @@ export function anniversaryFor(game) {
   return a && game.state.scenarioId === dailyScenarioIdOf(ymd) ? a : null;
 }
 
+/**
+ * W6 (D-29): the GUARD is still the one the night shift handed over at 04:00: above 0 (Loy Yang's day arms it,
+ * content/anniversaries.js; every other day hands over none), and the player has not set the ring since. The watch, the
+ * respond card and the moment name it as the night shift's then: YOUR GUARD is one the player set (K-16, X-40, D-21).
+ */
+export const nightGuard = state => state.battery.guardMW > 0 && !state.log.some(r => r.type === 'guard');
+
 // The build stamp a daily list is gated under (Q-75).
 export const dailyStamp = () => SIM_VERSION + '|' + scenarioHash(SCENARIOS.desk) + '|' + scenarioHash(SCENARIOS['desk-weekend']);
 
@@ -289,7 +296,7 @@ export function resetDay(game, seed) {
   game.hist = createHist();
   game.histView = null; game.histViewS = -1;
   game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
-  game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
+  game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.guardNight = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
   game.acts = [];   // (F-7: the player's actions, for the save)
   game.noCoach = false;   // (O-8: set when the desk is taken)
   game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
@@ -406,7 +413,10 @@ function shedText(state, r) {
 /** A step's (or an input's) records: traces, sounds, refusals, the tray; a card that rings ends FAST (Q-63). */
 export function handleRecords(game, recs, by) {
   for (const r of recs) {
-    if (r.kind === 'contingency') { startTrace(game.rec, game.state); game.guardAt[game.state.conts.length] = game.state.battery.guardMW; } // (D-21: the GUARD set at the trip)
+    if (r.kind === 'contingency') { // (D-21: the GUARD set at the trip; D-29: whether it was still the night shift's)
+      const n = game.state.conts.length;
+      startTrace(game.rec, game.state); game.guardAt[n] = game.state.battery.guardMW; game.guardNight[n] = nightGuard(game.state);
+    }
     if (r.kind === 'shed' && r.why === 'directed' && game.phase === 'play') D.startShedWatch(game.director, game.state, shedText(game.state, r));
     let cues = EMPTY;
     try { cues = recordCues(game, r); } catch { cues = EMPTY; } // sound is optional (C-8): never stop the tick
@@ -875,7 +885,7 @@ export function buildVm(game, f) {
         glow = null;
       }
     }
-    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c)});
+    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c), nightGuard: nightGuard(game.state)});
     game.respondGlow = game.respond.glow;
   }
   if (mode.mode !== 'RESPOND-CARD') game.respond = null;
@@ -948,7 +958,7 @@ export function buildVm(game, f) {
   let watch = null;
   if (mode.mode === 'WATCH' && c) {
     const tr = traceOf(game.rec, c.n);
-    if (tr) watch = W.watchView(game.watchMem, tr, c, state.tick, {rate: mode.rate, version: mode.watchVersion, guardMW: obs.battery.guardMW});
+    if (tr) watch = W.watchView(game.watchMem, tr, c, state.tick, {rate: mode.rate, version: mode.watchVersion, guardMW: obs.battery.guardMW, nightGuard: nightGuard(state)});
   }
   // K-15 (Q-97): the first directed shed's compact watch: its stopwatch and its one sentence, no beats
   if (mode.mode === 'SHED-WATCH') watch = {n: -1, tS: mode.watchS, beat: '', beatIndex: -1, caption: D.shedWatchText(d, state), shed: true,
@@ -1090,7 +1100,8 @@ function verdictFor(game) {
   game.verdictKey = key;
   const parScore = par && par.done && par.score && !par.black ? par.score : null;
   const pm = parScore && par.minutes && par.minutes.length ? s => parMinute(par, s) : null;
-  const first = VD.moment(mem, conts, {nightS}), m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: first.cont ? game.guardAt[first.cont.n] : undefined});
+  const first = VD.moment(mem, conts, {nightS}), fc = first && first.cont;
+  const m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: fc ? game.guardAt[fc.n] : undefined, nightGuard: !!fc && !!game.guardNight[fc.n]});
   end.verdict = {
     lights: VD.lightsRow(mem, end.score, parScore).text,
     cost: VD.costRow(end.allIn, end.parAllIn), carbon: VD.carbonRow(end.allIn, end.parAllIn),

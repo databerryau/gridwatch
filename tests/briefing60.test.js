@@ -22,7 +22,7 @@ test('D-3 (Q-110): the briefing is 65 words or fewer on every date of two months
   let most = 0, at = 0;
   for (let k = 0; k < 61; k++) {
     const t = new Date(Date.UTC(2026, 9, 16 + k)), seed = t.getUTCFullYear() * 1e4 + (t.getUTCMonth() + 1) * 100 + t.getUTCDate();
-    const st = createState(seed, G.scenarioForSeed(seed)), obs = observe(st), b = watchFor(obs);
+    const st = createState(seed, G.scenarioForSeed(seed)), obs = observe(st), b = watchFor(obs, st.scn.commitment.battery.guardMW);
     const day = dayText(st.day, dayPlan(st, obs)) + (b.length ? ' Watch for: ' + b.join('; ') + '.' : '');
     assert.ok(words(day) <= 30, seed + ': ' + day);
     const n = fixed + words(day) + words(dateText(seed));

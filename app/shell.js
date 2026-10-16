@@ -158,8 +158,12 @@ const BRIEF = {
     return ds.map(d => d.id).join(', ') + (ds.length > 1 ? ' feeders' : ' feeder') + ' back ' + [...new Set(ds.map(d => hm(d.clearS)))].join(', ');
   },
 };
-/** The briefing's "Watch for" (Q-81): one brief per news item announced at 04:00, in their order. */
-export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]).map(n => BRIEF[n.kind](n, obs));
+/**
+ * The briefing's "Watch for" (Q-81): one brief per news item announced at 04:00, in their order; then the GUARD the night shift
+ * hands over (guardMW, the scenario's 04:00 commitment: Loy Yang's day arms it, D-29), so the GUARD the watch names is no surprise.
+ */
+export const watchFor = (obs, guardMW = 0) => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]).map(n => BRIEF[n.kind](n, obs))
+  .concat(guardMW > 0 ? ['the night shift\'s battery GUARD at ' + mw(guardMW) + ' MW'] : []);
 /** F-7: the resume's replay runs this long a frame (real ms: the page shows only the briefing meanwhile); and what a player is told when a saved run cannot replay. */
 export const RESUME_BUDGET_MS = 250;
 export const RESUME_LOST = 'GRIDWATCH was updated, so your shift could not resume. Your history and streak are kept.';
@@ -181,10 +185,10 @@ export const NO_DAILY = 'No daily today · PRACTICE';
 export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
 /**
  * The briefing's "Watch for" into `w` (next.html #briefing-watch, in the card's own colour): a bold head and the
- * day's briefs (<= 30 words, D-3), then NOT_GATED on its own line when `gated` is false; hidden with neither.
+ * day's briefs (<= 30 words, D-3; guardMW: watchFor's), then NOT_GATED on its own line when `gated` is false; hidden with neither.
  */
-export function watchForInto(doc, w, obs, gated) {
-  const b = watchFor(obs), el = (tag, s) => { const e = doc.createElement(tag); e.textContent = s; return e; };
+export function watchForInto(doc, w, obs, gated, guardMW = 0) {
+  const b = watchFor(obs, guardMW), el = (tag, s) => { const e = doc.createElement(tag); e.textContent = s; return e; };
   w.replaceChildren();
   if (b.length) w.append(el('b', 'Watch for:'), ' ' + b.join('; ') + '.');
   if (gated === false) { const g = el('span', NOT_GATED); g.className = 'gate'; w.append(' ', g); }
@@ -466,14 +470,17 @@ export function bootGame(doc, deps) {
     if (shelfB) shelfB.hidden = !SHELF_ON.includes(G.runView(game).why) || G.firstShift(game) || !!game.replay;
     const st = game.state, obs = observe(st), day = $('briefing-day'), w = $('briefing-watch');
     if (day) day.textContent = dayText(st.day, dayPlan(st, obs));
-    if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
+    if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null, st.scn.commitment.battery.guardMW);
     const date = $('briefing-date');
     // (a daily's exception seed is its date + k·1e8, Q-75; a Hard day has no date: it is not that date's daily)
     if (date) date.textContent = game.hard ? '' : dateText(game.seed % 1e8);
-    // W6 (D-29): an anniversary's account, the briefing's first card (no button: TAKE THE DESK stays D-3's one click)
+    // W6 (D-29): an anniversary's account, the briefing's first card (no button: TAKE THE DESK stays D-3's one click), then
+    // what of it today's desk echoes
     const an = G.anniversaryFor(game), acc = $('briefing-account'), accText = $('briefing-account-text'), accSrc = $('briefing-account-source');
+    const accEcho = $('briefing-account-echo');
     if (acc) acc.hidden = !an;
     if (accText) accText.textContent = an ? an.account : '';
+    if (accEcho) accEcho.textContent = an ? an.echo : '';
     if (accSrc) { accSrc.textContent = an ? 'Source: ' + an.sourceName : ''; accSrc.href = an ? an.source : ''; }
     // W6: the daily's number (Y-1), the anniversary it is (D-29), and whether this run counts (Y-2, Q-99), its reason in the title
     const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null, run = G.runView(game), what = an ? ' · ' + an.name + ', ' + an.year : '';

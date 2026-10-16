@@ -6,7 +6,8 @@
 // caption always says what the physics is doing:
 //   inertia    stored spin carries the hole (its catch exceeds the battery's and the governors')
 //   battery    the battery (its droop plus the GUARD's fast frequency response) catches more
-//              than inertia; "YOUR GUARD: N MW" when the ring holds some back
+//              than inertia; "YOUR GUARD: N MW" when the ring holds some back ("THE NIGHT SHIFT'S
+//              GUARD: N MW" while it is the one handed over at 04:00, untouched: D-29, app/game.js nightGuard)
 //   governors  governor response overtakes the battery, until the fall stops and 10 s pass
 //   ufls       from the first relay operation (only below 49.0 Hz) for 2 grid-s
 //   settle     from 10 grid-s: droop parks frequency below 50 Hz
@@ -46,6 +47,8 @@ const TPS = V.TICKS_PER_S;
 export const BEATS = Object.freeze(['inertia', 'battery', 'governors', 'ufls', 'settle']);
 /** The settle beat starts this many grid-s after the trip (K-15: 10-30 s). */
 export const SETTLE_S = 10;
+/** W6 (D-29): a GUARD handed over at 04:00 that the player has not set (app/game.js nightGuard) is named as whose it is. */
+export const NIGHT_GUARD = 'the night shift\'s GUARD';
 /** The UFLS beat lasts this long after a relay operates, unless settle starts first. */
 export const UFLS_BEAT_S = 2;
 
@@ -57,10 +60,10 @@ export const INVERTER_NAME_MW = 5;
 /**
  * Captions, <= 15 words each (K-15, full version).
  * @param {string} beat
- * @param {{guardMW:number, nadirHz?:number, rise?:boolean, inverterMW?:number}} ctx rise: the event
+ * @param {{guardMW:number, nightGuard?:boolean, nadirHz?:number, rise?:boolean, inverterMW?:number}} ctx rise: the event
  *   is a loss of load (frequency rises); inverterMW: the trace's caught.inverterMW now (negative =
  *   backed off, positive = gave back). Both are optional: without them the captions are the
- *   loss-of-supply ones.
+ *   loss-of-supply ones. nightGuard: the GUARD is still the night shift's (D-29), not YOURS.
  */
 export function caption(beat, ctx) {
   const inv = ctx.inverterMW || 0, at = ctx.nadirHz > 0 ? f3(ctx.nadirHz) + ' Hz' : '';
@@ -78,7 +81,7 @@ export function caption(beat, ctx) {
   }
   switch (beat) {
     case 'inertia': return 'Stored spin in every turbine takes the hit. Frequency falls.';
-    case 'battery': return ctx.guardMW > 0 ? 'YOUR GUARD: ' + mw(ctx.guardMW) + ' MW. The battery answers within a second.'
+    case 'battery': return ctx.guardMW > 0 ? (ctx.nightGuard ? NIGHT_GUARD.toUpperCase() : 'YOUR GUARD') + ': ' + mw(ctx.guardMW) + ' MW. The battery answers within a second.'
       : 'The battery answers from its own droop. No guard held back.';
     case 'governors':
       if (inv >= INVERTER_NAME_MW) return 'Governors open the valves; solar and wind give back ' + mw(inv) + ' MW.' + (at ? ' Nadir ' + at + '.' : '');
@@ -161,7 +164,7 @@ export function beatTimeline(tr, upTo = V.WATCH_S * TPS, c) {
  * @param {object} tr the contingency's trace (app/record.js)
  * @param {object} c the contingency record (state or observe())
  * @param {number} tick now
- * @param {{rate:number, version:string, guardMW:number}} m
+ * @param {{rate:number, version:string, guardMW:number, nightGuard?:boolean}} m
  * @returns {{n:number, tS:number, beat:string, beatIndex:number, caption:string, stopwatch:string,
  *   nadirHz:number, rate:number, version:string, guardMW:number, cause:string, id:string, lostMW:number,
  *   rise:boolean, inverterMW:number}} nadirHz is the extreme (a peak when rise); inverterMW the
@@ -179,7 +182,7 @@ export function watchView(w, tr, c, tick, m) {
   let nadir = 0;
   if (c.extremeTick >= c.startTick && tick - c.extremeTick > TPS / 2) nadir = c.extremeHz;
   const tS = k / TPS, inverterMW = inverterAt(tr, Math.max(0, Math.min(k, tr.len - 2)));
-  return {n: c.n, tS, beat: BEATS[b], beatIndex: b, caption: caption(BEATS[b], {guardMW: m.guardMW, nadirHz: nadir, rise, inverterMW}),
+  return {n: c.n, tS, beat: BEATS[b], beatIndex: b, caption: caption(BEATS[b], {guardMW: m.guardMW, nightGuard: m.nightGuard, nadirHz: nadir, rise, inverterMW}),
     stopwatch: stopwatch(tS, m.rate), nadirHz: nadir, rate: m.rate, version: m.version, guardMW: m.guardMW,
     cause: c.cause, id: c.id, lostMW: c.lostMW, rise, inverterMW};
 }
@@ -200,7 +203,7 @@ const mmss = s => { const t = Math.max(0, Math.round(s)); return Math.floor(t / 
  * The K-16 respond card.
  * @param {object} obs observe() at the card (the watch's end)
  * @param {object} c the contingency record (obs.contingency)
- * @param {{glow?:Set<string>|string[]}} [o]
+ * @param {{glow?:Set<string>|string[], nightGuard?:boolean}} [o] nightGuard: the GUARD is still the night shift's (D-29)
  * The "Caught by" line names each source with the MW it caught as a magnitude, in the words of the
  * event's sign: after a loss of supply the battery and the governors gave N MW; after a loss of
  * load the battery took N MW and the governors backed off N MW. The inverters (Phase 2a, C-7) are
@@ -222,8 +225,8 @@ export function respondCard(obs, c, o) {
   const falls = c.lostMW >= 0, inverter = caught.inverterMW || 0;
   // X-40: a catch of zero or less is never printed as a number: the battery and the governors are
   // named for why they gave nothing (the third item of a part is its word then), other sources are
-  // left out; a GUARD the player set is named beside the battery's MW.
-  const guard = obs.battery && obs.battery.guardMW > 0 ? ' (your GUARD ' + mw(obs.battery.guardMW) + ')' : '';
+  // left out; a GUARD the player set is named beside the battery's MW (D-29: the night shift's, while it is theirs).
+  const guard = obs.battery && obs.battery.guardMW > 0 ? ' (' + (o && o.nightGuard ? NIGHT_GUARD : 'your GUARD') + ' ' + mw(obs.battery.guardMW) + ')' : '';
   const parts = (falls
     ? [['battery', battery, 'battery empty', guard], ['governors', caught.governorsMW, 'governors spent'],
       ['load relief (motors slow)', caught.loadReliefMW], ['UFLS', caught.uflsMW]]
