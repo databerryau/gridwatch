@@ -470,10 +470,15 @@ export function bootGame(doc, deps) {
     const date = $('briefing-date');
     // (a daily's exception seed is its date + k·1e8, Q-75; a Hard day has no date: it is not that date's daily)
     if (date) date.textContent = game.hard ? '' : dateText(game.seed % 1e8);
-    // W6: the daily's number (Y-1) and whether this run counts (Y-2, Q-99), its reason in the title
-    const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null, run = G.runView(game);
+    // W6 (D-29): an anniversary's account, the briefing's first card (no button: TAKE THE DESK stays D-3's one click)
+    const an = G.anniversaryFor(game), acc = $('briefing-account'), accText = $('briefing-account-text'), accSrc = $('briefing-account-source');
+    if (acc) acc.hidden = !an;
+    if (accText) accText.textContent = an ? an.account : '';
+    if (accSrc) { accSrc.textContent = an ? 'Source: ' + an.sourceName : ''; accSrc.href = an ? an.source : ''; }
+    // W6: the daily's number (Y-1), the anniversary it is (D-29), and whether this run counts (Y-2, Q-99), its reason in the title
+    const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null, run = G.runView(game), what = an ? ' · ' + an.name + ', ' + an.year : '';
     if (title) {
-      title.textContent = G.noDaily(game) ? NO_DAILY : n ? 'Daily #' + n + ' · ' + RUN_TAG[run.status] : game.hard ? 'Hard day ' + game.hard + ' · PRACTICE' : 'Practice desk';
+      title.textContent = G.noDaily(game) ? NO_DAILY : n ? 'Daily #' + n + what + ' · ' + RUN_TAG[run.status] : game.hard ? 'Hard day ' + game.hard + what + ' · PRACTICE' : 'Practice desk' + what;
       title.title = game.hard ? RUN_WHY.hard : RUN_WHY[run.status === 'practice' ? run.why : run.status];
     }
     const score = $('how-score');   // D-3: the score's rule is behind the header "?" (HOW TO PLAY)

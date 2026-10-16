@@ -128,7 +128,8 @@ export function shareRows(you, par, black) {
  * @param {{ymd:number|null, n:number|null, seed:number, grade:object|null, perfect:boolean, black:boolean, lowHz:number,
  *   spark:number[], endS:number, you:object, par:object|null, tags:string[], closing:string}} o
  *   ymd and n: the daily's date and number (null off the calendar: `name`, a Hard day's, else the seed, is named instead); grade: app/score.js
- *   grade's; you, par: app/score.js allIn's; tags: FIRST SHIFT, PRACTICE, HAND-FLOWN, NO COACH, GLASS BROKEN, HARD DAY.
+ *   grade's; you, par: app/score.js allIn's; tags: ANNIVERSARY (D-29), FIRST SHIFT, PRACTICE, HAND-FLOWN,
+ *   NO COACH or COACHED, GLASS BROKEN, HARD DAY.
  * @returns {{text:string, lines:string[]}} the closing line is dropped, then the last tags, to stay within MAX_CHARS.
  */
 export function shareCard(o) {

@@ -26,7 +26,8 @@ import {restoreAllowedS, isPerfect} from '../sim/market.js';
 import {imbalanceSegments} from '../desk/calc.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
-import {DAILIES, scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
+import {DAILIES, dailyScenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
+import {anniversaryOf} from '../content/anniversaries.js';
 import {objective, consequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
@@ -160,8 +161,14 @@ function setSetting(game, key, value) {
   return '';
 }
 
-// C-2, Q-75: the scenario of the seed's date
-export const scenarioForSeed = seed => SCENARIOS[scenarioIdOf(ymdOf(seed))];
+// C-2, Q-75: the scenario of the seed's date (W6, D-29: on an anniversary, its variant: content/anniversaries.js)
+export const scenarioForSeed = seed => SCENARIOS[dailyScenarioIdOf(ymdOf(seed))];
+
+/** W6 (D-29): the anniversary that shapes this game's day (its date's, when it plays the date's variant), else null. */
+export function anniversaryFor(game) {
+  const ymd = ymdOf(game.seed), a = anniversaryOf(ymd);
+  return a && game.state.scenarioId === dailyScenarioIdOf(ymd) ? a : null;
+}
 
 // The build stamp a daily list is gated under (Q-75).
 export const dailyStamp = () => SIM_VERSION + '|' + scenarioHash(SCENARIOS.desk) + '|' + scenarioHash(SCENARIOS['desk-weekend']);
@@ -1145,7 +1152,8 @@ export function shareFor(game, end) {
   // (the coach is the exception that is tagged: a first shift coaches unless switched off, a later one is off unless switched
   // on, O-8; so NO COACH on a first shift and COACHED on a later one, where O-8's text has NO COACH on every later card)
   // (PRACTICE on any run that does not count: an unclaimed first shift, a run that ended before 09:00, a practice run)
-  const tags = [end.firstShift && 'FIRST SHIFT', !official(game) && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
+  // (D-29: ANNIVERSARY first, so a long card drops it last; the incident's name stays off the card, as every event does)
+  const tags = [anniversaryFor(game) && 'ANNIVERSARY', end.firstShift && 'FIRST SHIFT', !official(game) && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
     end.firstShift ? end.noCoach && 'NO COACH' : !end.noCoach && 'COACHED', end.glassBroken && 'GLASS BROKEN', g && g.hardMWh && 'HARD DAY'].filter(Boolean);
   const n = dailyNumber(ymd);
   const card = SH.shareCard({ymd, n, seed: game.seed, name: game.hard ? 'Hard day ' + game.hard : '', grade: g, perfect: end.perfect, black: end.black, lowHz: end.lowHz, spark: end.spark,
