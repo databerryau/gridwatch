@@ -37,6 +37,7 @@ import * as W from './watch.js';
 import * as AM from '../audio/model.js';
 import * as S from './score.js';
 import * as VD from './verdict.js';
+import {createMarg, margSay, MARG_LINES, MARG_FROM} from './marg.js';
 import {createParRunner, seriesAt, parMinute} from './par.js';
 
 const TPS = V.TICKS_PER_S;
@@ -252,6 +253,7 @@ export function resetDay(game, seed) {
   game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
   game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
   game.noCoach = false;   // (O-8: set when the desk is taken)
+  game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
   parFor(game);
   return game;
@@ -464,6 +466,9 @@ export function takeDesk(game) {
   for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c);
   game.phase = 'play';
   game.noCoach = !coachOn(game);   // O-8: the end card's "no coach" (and W6's share card), while it stays off
+  // O-6: Marg's day (a first shift's limit is MARG_FIRST lines), and her first line: the day's peak
+  game.marg = createMarg(!(game.director.seen.shifts > 0));
+  margBeat(game, 'take', MARG_LINES.take(observe(game.state), weather.forecast(game.state, V.DAY_S - game.state.tick / TPS, V.FC_STEP_S)));
   game.director.paused = game.startPaused;
   game.director.held = game.ui.alarmsOpen; // Q-46: an alarm panel opened in the briefing holds the clock now
   return true;
@@ -905,6 +910,7 @@ export function buildVm(game, f) {
     end.grade = S.grade(end.allIn, end.parAllIn, end.black, S.parShedMWh(par.score)); // (S-7: a Hard day when par shed)
   }
   if (end) verdictFor(game);
+  margFrame(game, obs, mode);
   // spoolUp: no sim record marks a machine starting (booked starts included), so it is read
   // off the unit's mode between two frames (audio/model.js cueOfModeChange).
   if (!game.unitModes) game.unitModes = {};
@@ -940,6 +946,31 @@ export function buildVm(game, f) {
   };
 }
 
+// ------------------------------------------------------------------ O-6: Marg
+
+/** O-6: Marg says the text at its key's beat (app/marg.js: once, within the day's limit), as a tray card. */
+export function margBeat(game, key, text, target) {
+  if (!game.marg) return null;
+  const line = margSay(game.marg, key, text, Math.floor(game.state.tick / TPS), target);
+  if (line) for (const c of T.trayMarg(game.tray, line, MARG_FROM)) pushCue(game, c);
+  return line;
+}
+// Once a frame in play: the act changes, the first watch's settle (a first shift's), the 21:00 handover.
+function margFrame(game, obs, mode) {
+  if (!game.marg || game.phase !== 'play' || obs.over) return;
+  if (mode.act !== game.margAct) {
+    const was = game.margAct;
+    game.margAct = mode.act;
+    if (was >= 0 && (mode.act === 2 || mode.act === 3)) margBeat(game, 'act' + mode.act, MARG_LINES['act' + mode.act](obs, game.dayAhead || obs.forecast));
+  }
+  const st = game.state, c = st.contIdx >= 0 ? st.conts[st.contIdx] : null;
+  if (game.marg.first && !game.margWatched && c && st.tick >= c.watchEndTick && mode.mode !== 'WATCH') {
+    game.margWatched = true;
+    margBeat(game, 'watch', MARG_LINES.watch(c), 'dial-freq');
+  }
+  if (obs.nightShift) margBeat(game, 'handover', MARG_LINES.handover());
+}
+
 // ------------------------------------------------------------------ W3: the verdict
 
 /**
@@ -967,6 +998,10 @@ function verdictFor(game) {
     moment: m, card: VD.historyCard(mem, conts, end.black), strip: VD.strip(mem),
     demand: VD.demandLine(mem), trips: VD.tripsLine(conts),
   };
+  // O-6: her closing line, once the grade is in (said once; kept on the verdict after)
+  const said = game.marg && game.marg.said.find(l => l.key === 'verdict');
+  const closing = said || (game.marg ? margSay(game.marg, 'verdict', MARG_LINES.verdict(end.grade), Math.floor(st.tick / TPS)) : null);
+  end.verdict.marg = closing ? closing.text : '';
 }
 
 // ------------------------------------------------------------------ F-6

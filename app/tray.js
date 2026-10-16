@@ -214,6 +214,14 @@ export function trayRecords(tr, recs) {
   return cues;
 }
 
+/** O-6: one of Marg's lines (app/marg.js) as an information card; its button goes to the control it is about. ['tick'], or [] at night. */
+export function trayMarg(tr, line, from) {
+  if (!add(tr, {key: null, from, sev: 'info', text: line.text, button: {label: 'SHOW ME', target: line.target}}, line.atS)) return [];
+  while (tr.cards.length > MAX_CARDS) { const i = tr.cards.findIndex(c => c.sev === 'info'); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
+  tr.rev++;
+  return tr.night ? [] : ['tick'];
+}
+
 /** Q-81: the 04:00 news as cards at TAKE THE DESK; ['ring2'] once, or []. */
 export function trayBriefing(tr, news) {
   let made = 0;

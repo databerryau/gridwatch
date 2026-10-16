@@ -181,6 +181,7 @@ export function createEndCard(doc, root, actions, deps) {
     if (!x) return;
     const box = el('div', '', '', parent), row = (k, text, id) => { const p = el('p', '', 'vrow', box); el('b', k, '', p); p.append(' ' + text); p.id = id; };
     box.id = 'end-verdict';
+    if (x.marg) row('MARG', x.marg, 'end-marg');   // (O-6: the closing line)
     row('LIGHTS', x.lights, 'end-lights');
     row('COST', x.cost, 'end-cost');
     row('CARBON', x.carbon, 'end-carbon');
