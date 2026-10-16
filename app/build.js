@@ -25,7 +25,7 @@ export const LATER = 'GRIDWATCH was updated: refresh before your next shift.';
  * (tests/version.test.js keeps this to what the page loads by import()).
  */
 export const LATE = Object.freeze(['content/text.js', 'app/alarmpanel.js', 'content/alarmhelp.js', 'app/endcard.js', 'render/charts.js',
-  'app/perf.js', 'app/suburbcard.js']);
+  'app/perf.js', 'app/suburbcard.js', 'app/momentimage.js', 'app/selftest.js', 'content/selftest.js']);   // (Y-6's picture; risk 5's ?selftest page)
 
 const CSS = '#updated{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:24px 16px;' +
   'background:#0d1117;color:#c9d1d9;font:16px/1.5 system-ui,sans-serif;text-align:center}' +
