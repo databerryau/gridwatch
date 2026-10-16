@@ -138,6 +138,7 @@
   #feeder-card button { font-weight: 700; padding: 4px 14px; border-color: var(--blue); color: var(--blue); }
   #briefing-card { top: calc(var(--hdr) + 40px); width: 520px; }
   #briefing-card .row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  #briefing-card .radios { display: flex; gap: 8px; }   /* K-23: the radio group holds AGC and HAND only */
   #briefing-card .take { font-weight: 700; padding: 6px 16px; border-color: var(--blue); }
   #briefing-watch .gate { display: block; }
   /* W6 (D-29): an anniversary's account, the briefing's first card */
@@ -234,9 +235,8 @@
   <p id="briefing-watch"></p>
   <p id="briefing-real" class="dim">Real NEM physics; you make the operator's calls.</p>
   <p id="briefing-date" class="dim"></p>
-  <div class="row" id="briefing-mode" role="radiogroup" aria-label="Regulation">
-    <button id="btn-agc" class="on" role="radio" aria-checked="true" title="AGC trims every unit inside its band (the default)">AGC</button>
-    <button id="btn-hand" role="radio" aria-checked="false" title="HAND: you set the MW yourself (the levers, the wheel, the stack, RE-DISPATCH), with no AGC and no auto-sync from 04:30 to 21:00 (harder)" hidden>HAND</button>
+  <div class="row" id="briefing-mode">
+    <span class="radios" role="radiogroup" aria-label="Regulation"><button id="btn-agc" class="on" role="radio" aria-checked="true" tabindex="0" title="AGC trims every unit inside its band (the default)">AGC</button><button id="btn-hand" role="radio" aria-checked="false" tabindex="-1" title="HAND: you set the MW yourself (the levers, the wheel, the stack, RE-DISPATCH), with no AGC and no auto-sync from 04:30 to 21:00 (harder)" hidden>HAND</button></span>
     <span class="grow"></span>
     <button id="btn-shelf-brief" title="Past dailies and Hard days, as practice" hidden>MORE DAYS</button>
     <button id="btn-restart" title="Drop the saved shift and start this day again (a run that passed 09:00 stays as it was)" hidden>START OVER</button>

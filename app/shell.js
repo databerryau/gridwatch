@@ -436,13 +436,38 @@ export function bootGame(doc, deps) {
   on('btn-help', 'click', () => actions.ui({do: 'drawer'}));
   on('btn-drawer-close', 'click', () => actions.ui({do: 'drawer', on: false}));
   on('btn-pop-close', 'click', () => closePopover());
-  // Q-64: the briefing's AGC/HAND is the sim's mode: the buttons send it and draw from obs.mode (the desk's key too)
+  // Q-64: the briefing's AGC/HAND is the sim's mode: the buttons send it and draw from obs.mode (the desk's key too). K-23: a
+  // radio group with one Tab stop, the one picked (a roving tabindex; radioKey below gives it its keys)
+  const RADIOS = [['btn-agc', 'AGC'], ['btn-hand', 'HAND']];
   const briefMode = mode => {
-    for (const [id, m] of [['btn-agc', 'AGC'], ['btn-hand', 'HAND']]) { const b = $(id); if (b) { b.classList.toggle('on', mode === m); b.setAttribute('aria-checked', String(mode === m)); } }
+    for (const [id, m] of RADIOS) {
+      const b = $(id), tab = mode === m ? '0' : '-1';
+      if (b) { b.classList.toggle('on', mode === m); b.setAttribute('aria-checked', String(mode === m)); if (b.getAttribute('tabindex') !== tab) b.setAttribute('tabindex', tab); }
+    }
   };
   // (the one already on logs nothing: a radio)
-  for (const [id, agc] of [['btn-agc', true], ['btn-hand', false]]) on(id, 'click', () => { if (game.state.control.mode !== (agc ? 'AGC' : 'HAND')) actions.input({type: 'mode', agc}); briefMode(game.state.control.mode); });
+  const pickMode = m => { if (game.state.control.mode !== m) actions.input({type: 'mode', agc: m === 'AGC'}); briefMode(game.state.control.mode); };
+  for (const [id, m] of RADIOS) on(id, 'click', () => pickMode(m));
   briefMode(game.state.control.mode);
+  /** K-23: what Enter or Space on the radio already picked answers (Q-41: every press answers), in blue. */
+  const PICKED = m => m + ' is on. TAKE THE DESK starts the day.';
+  // K-23 (WCAG 2.1.1): on a focused AGC or HAND, Enter or Space picks it and never takes the desk (D-3: Enter anywhere else on the
+  // briefing still does); the arrows move the pick to the other one shown, and the focus with it. True when the key was the radios'.
+  function radioKey(ev) {
+    const at = RADIOS.findIndex(([id]) => ev.target && ev.target.id === id);
+    if (at < 0) return false;
+    const k = ev.key, m = RADIOS[at][1];
+    if (k === 'Enter' || k === ' ' || k === 'Spacebar') {
+      if (game.state.control.mode === m) showToast(PICKED(m), 'info'); else pickMode(m);
+      return true;
+    }
+    if (!/^Arrow(Left|Right|Up|Down)$/.test(k)) return false;
+    const list = RADIOS.map(([id, mm]) => [$(id), mm]).filter(([b]) => b && !b.hidden), i = list.findIndex(([b]) => b === ev.target);
+    const [b, next] = list[(i + (/Left|Up/.test(k) ? list.length - 1 : 1)) % list.length];
+    pickMode(next);
+    b.focus();
+    return true;
+  }
   // W6: the shelf owns Enter while it is open, and on MORE DAYS (a press there opens it, it never takes the desk)
   const shelfOwns = t => { const sh = $('shelf-card'); return (!!sh && !sh.hidden) || !!(t && (t.id === 'btn-shelf-brief' || (sh && sh.contains(t)))); };
   const take = () => {
@@ -1099,8 +1124,13 @@ export function bootGame(doc, deps) {
     // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
       ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')),
-    // Enter on the briefing card takes the desk (and nothing else: the key stops here).
-    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter' || (ev.target && (ev.target.id === 'btn-restart' || ev.target.tagName === 'A')) || shelfOwns(ev.target)) return false; take(); return true; },   // (F-7: Enter on a focused START OVER is its own; W6: so is the shelf's, and a link's: D-29's source)
+    // Enter on the briefing card takes the desk (and nothing else: the key stops here); on AGC or HAND the radios' keys (K-23).
+    first: ev => {
+      if (game.phase !== 'briefing') return false;
+      if (radioKey(ev)) return true;
+      if (ev.key !== 'Enter' || (ev.target && (ev.target.id === 'btn-restart' || ev.target.tagName === 'A')) || shelfOwns(ev.target)) return false;   // (F-7: Enter on a focused START OVER is its own; W6: so is the shelf's, and a link's: D-29's source)
+      take(); return true;
+    },
     chain: () => [mods.desk, mods.stack, mods.map],
     // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows, into the plan bar too.
     // (With the alarm panel open, panelFirst has closed it before any desk key gets here, but for Enter on a tile: it selects.)
