@@ -1,7 +1,8 @@
 // tools/slow-tests.mjs (REVIEW-2026-10-14 opportunity 16): CLAUDE.md's test budget, measured. The report's lines and
-// GitHub warnings from made-up timings; then the tool itself, once, on a little test file of its own (a suite, a
-// failing test, a child process): the names, lines and times read from node:test's events, the CPU time of the file's
-// process and its child, the failure marked with its first line, and exit 0.
+// GitHub warnings from made-up timings (on a slower machine, "over as written" too) and the yardstick's fastest reading;
+// then the tool itself, once, on a little test file of its own (a suite, a failing test, a child process): the names,
+// lines and times read from node:test's events, the CPU time of the file's process and its child, the failure marked
+// with its first line, and exit 0.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
@@ -9,7 +10,7 @@ import {mkdtempSync, writeFileSync, readFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {report, budgets, FILE_BUDGET_S, TEST_BUDGET_S} from '../tools/slow-tests.mjs';
+import {report, budgets, budgetsOf, FILE_BUDGET_S, TEST_BUDGET_S} from '../tools/slow-tests.mjs';
 
 const TOOL = fileURLToPath(new URL('../tools/slow-tests.mjs', import.meta.url));
 const warnings = lines => lines.filter(l => l.startsWith('::warning '));
@@ -39,11 +40,20 @@ test('report: the slowest first, OVER past the budget, FAILED named with its fir
     '::warning file=tests/a.test.js,title=Test file over budget::tests/a.test.js took 7.2 s, run alone, cpu 6.9 s; the budget is 6 s (CLAUDE.md).',
     '::warning file=tests/a.test.js,line=12,title=Test over budget::"a day > 50%25 of it,%0Aplayed" took 3.1 s; the budget is 2.5 s (CLAUDE.md). Jump the sim between moments; do not step frames.',
   ]);
-  // on a machine half as fast as the owner's laptop by the yardstick, 7.2 s and 3.1 s are within its budgets
+  // on a machine half as fast as the owner's laptop by the yardstick, 7.2 s and 3.1 s are within its budgets: no warning, but
+  // the verdict still names them as over CLAUDE.md's as written (a busy laptop's yardstick must not call them within budget)
   const slow = report(rs, {b: budgets(1.5), yard: 105});
   assert.match(slow[1], /^CPU yardstick 105 ns here, 70 on the owner's laptop: the budgets here are 9 s a file and 3\.8 s a test/);
   assert.deepEqual(warnings(slow), []);
-  assert.ok(slow.includes('Every file and every test is within budget.'));
+  assert.ok(slow.includes('Within the budgets here, but over CLAUDE.md\'s as written (6 s a file, 2.5 s a test): 1 file(s), 1 test(s) ' +
+    '(tests/a.test.js 7.2 s; tests/a.test.js:12 3.1 s). Time them on a quiet machine before calling them within budget.'), slow.join('\n'));
+  assert.ok(slow.includes('   7.2 s  tests/a.test.js  (2 tests, cpu 6.9 s)  over as written'));
+  assert.ok(slow.some(l => l.startsWith('   3.1 s  tests/a.test.js:12  ') && l.endsWith('played  over as written')));
+  assert.ok(!slow.includes('Every file and every test is within budget.'));
+  const quick = [{...rs[1], wall: 5.5, tests: [{...rs[1].tests[0], s: 2.4}]}];
+  assert.ok(report(quick, {b: budgets(1.5), yard: 105}).includes('Every file and every test is within budget.'), 'nothing over even as written');
+  // the fastest of the yardstick's readings scales the budgets: a reading slowed by a busy moment (213 ns) does not loosen them
+  assert.deepEqual(budgetsOf([213, 90, 140]), budgets(90 / 70));
   // and on one twice as fast, the 7.2-s file is over its 3 s
   assert.equal(warnings(report(rs, {b: budgets(0.5), yard: 35}))[0], '::warning file=tests/a.test.js,title=Test file over budget::tests/a.test.js took 7.2 s here, ' +
     'run alone, cpu 6.9 s; the budget is 3 s here (6 s on the owner\'s laptop, CLAUDE.md).');

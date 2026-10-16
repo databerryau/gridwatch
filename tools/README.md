@@ -151,7 +151,10 @@ node tools/slow-tests.mjs --json times.json  # every file's and test's seconds, 
 CLAUDE.md's budget: a test file takes 6 s or less run alone, a test 2.5 s or less, on the owner's
 laptop. Each file runs alone through node:test's `run()`; an offender is timed again with nothing
 beside it. The budgets are scaled by the CPU yardstick of `tests/lib/speed.js` (D-9's), so a slower
-machine is not an offender (`--raw`: the budgets as written). Each file's CPU time is shown beside
+machine is not an offender (`--raw`: the budgets as written). The yardstick is read before the run, after
+it and before each file timed again alone, and the fastest reading scales, so a busy moment does not
+loosen the budgets; a file or test within them but over the budget as written is still marked "over as
+written", and the verdict names it. Each file's CPU time is shown beside
 its wall: a wall far over the CPU says the machine was busy, and the report says so. CI runs it
 after `node --test` and prints a GitHub warning for each offender; it never fails the build.
 (Not `test-times.mjs`: `node --test` runs any `test-*.mjs` as a test file.)
