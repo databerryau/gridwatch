@@ -50,6 +50,7 @@ import {BEATS, FEEDER_ON} from './watch.js';
 import {modeOf, feederCard} from './director.js';
 import {observe} from '../sim/step.js';
 import {unitLabel} from '../desk/util.js';
+import {puzzleNumber} from './share.js';
 
 /** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
 export function layoutSizes(width, height) {
@@ -431,6 +432,8 @@ export function bootGame(doc, deps) {
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
     const date = $('briefing-date');
     if (date) date.textContent = dateText(game.seed % 1e8);   // (a daily's exception seed is its date + k·1e8, Q-75)
+    const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null;   // (W6, Y-1: the daily's number)
+    if (title) title.textContent = n ? 'Daily #' + n : 'Tonight\'s desk';
     const score = $('how-score');   // D-3: the score's rule is behind the header "?" (HOW TO PLAY)
     if (score) score.textContent = GOALS_TEXT;
   }

@@ -7,7 +7,7 @@
 //   act3      the evening (actAt 3): the peak again, and what is too slow for it now
 //   watch     the first watch's settle (a first shift only): where frequency stopped and what caught it
 //   handover  21:00, the night shift takes the desk: "I've got the night. Your day is scored at four."
-//   verdict   the end card's closing line: the score, and one thing to do with it
+//   verdict   the end card's closing line: the score, then the share card's closing line (W6, Y-7: content/closing.js)
 //   ask:<id>  a first shift's first ask for a control (O-3: its plate lifts), one line a control
 // A day holds at most MARG_FIRST lines on a first shift and MARG_LATER on later days; a beat speaks once.
 
@@ -52,7 +52,8 @@ export const MARG_LINES = Object.freeze({
   watch: c => (c.lostMW < 0 ? 'Peaked at ' + c.extremeHz.toFixed(2) + ' Hz: solar and wind backed off. A trip can push frequency up, too.'
     : 'Stopped at ' + c.extremeHz.toFixed(2) + ' Hz. Spin, battery, governors: that is the order. Your job is before it.'),
   handover: () => HANDOVER,
-  verdict: g => (g ? g.points + ' points, ' + g.letter + '. ' + (g.letter === 'A' ? 'Clean shift. Same again tomorrow.' : 'Read the moment, then take tomorrow\'s.') : ''),
+  // (W6, Y-7: `closing` is the share card's closing line, so the card quotes her)
+  verdict: (g, closing) => (g ? g.points + ' points, ' + g.letter + '. ' + (closing || (g.letter === 'A' ? 'Clean shift. Same again tomorrow.' : 'Read the moment, then take tomorrow\'s.')) : ''),
   // O-3: a first shift's first ask for a control
   ask: id => ASK[id] || '',
 });

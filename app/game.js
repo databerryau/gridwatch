@@ -40,6 +40,7 @@ import * as VD from './verdict.js';
 import {createMarg, margSay, MARG_LINES, MARG_FROM} from './marg.js';
 import {plateGroup} from '../desk/desk.js';
 import {createParRunner, seriesAt, parMinute} from './par.js';
+import * as SH from './share.js';
 
 const TPS = V.TICKS_PER_S;
 const EMPTY = Object.freeze([]);
@@ -903,7 +904,12 @@ export function buildVm(game, f) {
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: game.playerInputs, seed: game.seed, v: SIM_VERSION,
       allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null,
       handFlown: !!state.control.handFlown, gated: game.daily ? game.daily.gated : null, // Q-64, Q-75 (null: not a daily)
-      perfect: isPerfect(obs.score, state.black), noCoach: !!game.noCoach}; // S-6; O-8
+      perfect: isPerfect(obs.score, state.black), noCoach: !!game.noCoach, // S-6; O-8
+      // W6 (Y-4): what the share card reads: a first shift (as the desk was taken), the reserve diesel armed by the
+      // player before the night shift (GLASS BROKEN), where the day ended (a black day's later blocks), the lowest Hz
+      firstShift: game.marg ? !!game.marg.first : firstShift(game),
+      glassBroken: state.log.some(r => r.type === 'armRERT' && r.tick < NIGHT_S * TPS), endS: Math.floor(state.tick / TPS),
+      lowHz: obs.score.minHz, spark: obs.score.spark.slice()};
     // D-7: a finished shift, kept with the other seen flags (HAND is offered from the second)
     if (game.phase === 'play') { game.director.seen.shifts = (game.director.seen.shifts || 0) + 1; saveSeen(game); }
   }
@@ -1027,10 +1033,32 @@ function verdictFor(game) {
     moment: m, card: VD.historyCard(mem, conts, end.black), strip: VD.strip(mem),
     demand: VD.demandLine(mem), trips: VD.tripsLine(conts),
   };
-  // O-6: her closing line, once the grade is in (said once; kept on the verdict after)
+  // W6 (Y-4, Y-7): the share card, once par has settled (its score, or none) or the grid went black
+  end.share = !end.black && par && !par.done ? null : shareFor(game, end);
+  // O-6: her closing line, once the grade is in (said once; kept on the verdict after): Y-7's line, the card's quote
   const said = game.marg && game.marg.said.find(l => l.key === 'verdict');
-  const closing = said || (game.marg ? margSay(game.marg, 'verdict', MARG_LINES.verdict(end.grade), Math.floor(st.tick / TPS)) : null);
+  const closing = said || (game.marg ? margSay(game.marg, 'verdict', MARG_LINES.verdict(end.grade, end.share && end.share.closing), Math.floor(st.tick / TPS)) : null);
   end.verdict.marg = closing ? closing.text : '';
+}
+
+/** Y-1: the date of the daily this game plays (its date's listed seed), else null (another seed is not that daily). */
+export function dailyYmd(game) {
+  const d = game.daily;
+  return d && SH.shortDate(d.ymd) && dailyFor(d.ymd, dailyStamp()).seed === game.seed ? d.ymd : null;
+}
+
+/** W6 (Y-4, Y-7): the share card of a finished day: shareCard's {text, lines} with {bucket, closing, n, ymd, tags}. */
+export function shareFor(game, end) {
+  const ymd = dailyYmd(game), you = end.black ? null : end.allIn, par = end.parAllIn, g = end.grade;
+  const bucket = SH.bucketOf({black: end.black, you, par, lowHz: end.lowHz}), closing = SH.closingLine(ymd || game.seed, bucket);
+  // (the coach is the exception that is tagged: a first shift coaches unless switched off, a later one is off unless switched
+  // on, O-8; so NO COACH on a first shift and COACHED on a later one, where O-8's text has NO COACH on every later card)
+  const tags = [end.firstShift && 'FIRST SHIFT', end.handFlown && 'HAND-FLOWN', end.firstShift ? end.noCoach && 'NO COACH' : !end.noCoach && 'COACHED',
+    end.glassBroken && 'GLASS BROKEN', g && g.hardMWh && 'HARD DAY'].filter(Boolean);
+  const n = ymd ? SH.puzzleNumber(ymd) : null;
+  const card = SH.shareCard({ymd, n, seed: game.seed, grade: g, perfect: end.perfect, black: end.black, lowHz: end.lowHz, spark: end.spark,
+    endS: end.endS, you, par, tags, closing});
+  return Object.assign(card, {bucket, closing, n, ymd, tags});
 }
 
 // ------------------------------------------------------------------ F-6

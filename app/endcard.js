@@ -9,11 +9,13 @@
 // HAND-FLOWN (game.end.handFlown, Q-64; "until the night shift took the desk at 21:00" only after
 // that flip, obs.nightShift: a black day ends before it) and "Not gate-checked" only when game.end.gated === false
 // (Q-75; null is not a daily); in the reliability block, on a day with feeders under repair
-// (score.heldMWh > 0), that they count from their hand-back (Q-69).
+// (score.heldMWh > 0), that they count from their hand-back (Q-69). W6: after the verdict, YOUR CARD, the share card as
+// it will be pasted (game.end.share, app/share.js), and SHARE to copy it (Y-5).
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
 import {LETTER_RULE} from './score.js';
+import {copyText} from './share.js';
 import {drawMoment, drawDemandPair, COL} from '../render/charts.js';
 
 /** The reliability readouts' §8.2 row (content/text.js, a drawer entry, renamed in 2c: Q-69): the card's "?" opens it. */
@@ -41,7 +43,8 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
   '#end-strip{display:flex;gap:2px;margin:6px 0 0}#end-strip span{flex:1;height:10px;border-radius:2px;background:var(--line)}' +
   '#end-strip .s-g{background:#3fb950}#end-strip .s-r{background:#f85149}#end-strip .s-b{background:#58a6ff}' +
   '#end-card .why{color:var(--dim);font-size:11px;margin:2px 0}#end-card canvas{display:block;width:100%;height:120px;margin:4px 0}' +
-  '#end-moment,#end-history,#end-debrief{border-top:1px solid var(--line);margin-top:8px;padding-top:4px}' +
+  '#end-moment,#end-history,#end-debrief,#end-share{border-top:1px solid var(--line);margin-top:8px;padding-top:4px}' +
+  '#end-share pre{font:12px/1.35 var(--mono);color:var(--bright);white-space:pre-wrap;margin:4px 0 6px;user-select:all}#btn-share{font-weight:700;border-color:var(--blue)}' +
   '#end-numbers summary{cursor:pointer;color:var(--bright);margin-top:8px}#end-history a{color:#58a6ff}' +
   '#end-card .q{width:22px;height:22px;min-width:0;min-height:0;padding:0;border-radius:50%;font:700 11px/20px system-ui,sans-serif;color:var(--dim)}';
 
@@ -121,6 +124,7 @@ export function createEndCard(doc, root, actions, deps) {
     if (e.perfect) line(body, PERFECT_RULE).id = 'end-perfect';
     if (g) line(body, LETTER_RULE).id = 'end-letter';   // (S-5: the letter with its one-line rule)
     verdict(body, v);
+    shareBox(body, v.end.share);
     // THE NUMBERS (D-20): the dollar ledger and the reliability readouts, behind a summary
     const nums = el('details', '', '', body), bodyOuter = body;
     nums.id = 'end-numbers';
@@ -220,6 +224,28 @@ export function createEndCard(doc, root, actions, deps) {
       charts.push([dc, () => drawDemandPair(dc, x.demand.under, x.demand.oper)]);
     }
     el('p', x.trips, '', db);
+  }
+
+  // W6 (Y-4, Y-5, D-25: SHARE after the verdict): the card exactly as it will be pasted, and SHARE to copy it. A blocked
+  // clipboard leaves the text selected, to copy by hand.
+  function shareBox(parent, s) {
+    if (!s) return;
+    const box = el('div', '', '', parent), pre = el('pre', s.text, '', null), btn = el('button', 'SHARE', '', null);
+    box.id = 'end-share';
+    el('b', 'YOUR CARD', '', box);
+    box.append(pre, btn);
+    pre.id = 'end-share-text';
+    btn.id = 'btn-share';
+    btn.title = 'Copy the card: no times and no events, so it spoils nobody\'s day';
+    btn.addEventListener('click', () => (deps.copy || copyText)(s.text).then(how => {
+      if (how) {
+        btn.textContent = 'COPIED';
+        deps.toast('Copied: paste it anywhere.', 'info');
+      } else {
+        try { const r = doc.createRange(); r.selectNodeContents(pre); const sel = doc.getSelection(); sel.removeAllRanges(); sel.addRange(r); } catch { /* (no selection API) */ }
+        deps.toast('Copy was blocked here: the card is selected, so press Ctrl+C.');
+      }
+    }));
   }
 
   // The verdict's charts, drawn once the card is laid out and again when their width changes (a chart is
