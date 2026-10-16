@@ -121,7 +121,7 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.deepEqual(b.$('end-reliability').querySelectorAll('p').map(p => squash(p.textContent)),
     ['SAIDI 0.0 min · SAIFI 0.00 · MAIFI 0.00 per household today (par: SAIDI 0.0 min)', 'No household was off for more than 3 minutes. ?']);
   assert.match(lines.at(-2), /^Seed 20261008 · v4-[\w.-]+ · 0 inputs · hash 0x[0-9a-f]{8}$/);
-  assert.deepEqual(card.querySelectorAll('button').map(x => x.id), ['q-reliability', 'btn-save-log', 'btn-again']);
+  assert.deepEqual(card.querySelectorAll('button').map(x => x.id), ['btn-share', 'q-reliability', 'btn-save-log', 'btn-again']);
   assert.doesNotMatch(text, FORBIDDEN);
   // the reliability "?": a button inside the card that toggles the reliability entry's popover
   const q = b.$('q-reliability');
@@ -275,7 +275,7 @@ test('Q-48, played (sampled): the CLOCK line carries SCORE against par through t
   p.frames(2);
   const end = p.game.end.grade, look = p.look({controls: false});
   // (2c, Q-75: a bare seed outside the shipped list's dates is not gate-checked, and says so under the h2)
-  assert.match(look, new RegExp('^END Day over: 04:00\\. Not gate-checked: this day may not be solvable\\. ' + scoreText(end, p.game.end.perfect).replace(/[★·]/g, '.') + '( PERFECT: [^.]*\\.)? Letter: .* LIGHTS .* THE NUMBERS YOU PAR Δ SUPPLY', 'm'), look); // (W3: the verdict, then THE NUMBERS)
+  assert.match(look, new RegExp('^END Day over: 04:00\\. Not gate-checked: this day may not be solvable\\. PRACTICE: [^.]*\\. History off: [^.]*\\. ' + scoreText(end, p.game.end.perfect).replace(/[★·]/g, '.') + '( PERFECT: [^.]*\\.)? Letter: .* LIGHTS .* THE NUMBERS YOU PAR Δ SUPPLY', 'm'), look); // (W3: the verdict, then THE NUMBERS)
   assert.match(look, new RegExp('\\| SCORE ' + end.points + '$', 'm'));
   assert.deepEqual(p.h.mods.errors, []);
 });

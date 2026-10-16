@@ -2,7 +2,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GRIDWATCH</title>
-<link rel="icon" href="data:,">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230d1117'/%3E%3Cpath d='M9 1 3 9h4l-1 6 6-8H8z' fill='%23d29922'/%3E%3C/svg%3E">
+<meta name="description" content="Keep a city's lights on for one day: start power stations before the city needs them, and catch the trips. A new daily every day, about six minutes.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="GRIDWATCH: the daily power-grid puzzle">
+<meta property="og:description" content="Keep a city's lights on for one day: start power stations before the city needs them, and catch the trips. A new daily every day, about six minutes.">
+<meta property="og:url" content="https://databerryau.github.io/gridwatch/">
+<meta property="og:image" content="https://databerryau.github.io/gridwatch/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="GRIDWATCH: a frequency trace falling and caught, under the title">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="stylesheet" href="desk/desk.css">
 <!--
   next.html: the Phase 1 game (SPEC Phase 1 "next.html plays a full day at a flat 120x with the
@@ -204,7 +214,7 @@
 <div id="respond-card" class="card" role="dialog" aria-label="What happened" hidden></div>
 <div id="feeder-card" class="card" role="dialog" aria-live="polite" aria-label="A repaired feeder: R or Enter restores it, Esc goes on. A click on the card goes to its CLOSE in the RESTORE bay" title="A click on the card goes to its CLOSE in the RESTORE bay" hidden></div>
 <div id="briefing-card" class="card" role="dialog" aria-label="Briefing" hidden>
-  <h2>Tonight's desk</h2>
+  <h2 id="briefing-title">Tonight's desk</h2>
   <p id="briefing-goal">Keep the lights on: start power stations before the city needs them. The line above the desk says what's next.</p>
   <p id="briefing-day"></p>
   <p id="briefing-watch"></p>
@@ -214,6 +224,7 @@
     <button id="btn-agc" class="on" role="radio" aria-checked="true" title="AGC trims every unit inside its band (the default)">AGC</button>
     <button id="btn-hand" role="radio" aria-checked="false" title="HAND: you set the MW yourself (the levers, the wheel, the stack, RE-DISPATCH), with no AGC and no auto-sync from 04:30 to 21:00 (harder)" hidden>HAND</button>
     <span class="grow"></span>
+    <button id="btn-restart" title="Drop the saved shift and start this day again (a run that passed 09:00 stays as it was)" hidden>START OVER</button>
     <button id="btn-take" class="take" title="Enter">TAKE THE DESK</button>
   </div>
 </div>
@@ -239,5 +250,5 @@
 <div id="q-layer"></div>
 <div id="aria-live" class="sr" role="status" aria-live="polite"></div>
 <pre id="perf" hidden></pre>
-<script type="module" src="app/boot.js"></script>
+<script type="module" src="app/start.js"></script>
 </body>

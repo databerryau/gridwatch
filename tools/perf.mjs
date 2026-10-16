@@ -69,7 +69,13 @@ export function firstVisit(page = 'next.html', root = ROOT) {
   const pageDir = dirname(page);
   const queue = [];
   for (const m of html.matchAll(/<link[^>]+rel="stylesheet"[^>]*href="([^"]+)"/g)) add(join(pageDir, m[1]));
-  for (const m of html.matchAll(/<script[^>]+src="([^"]+)"/g)) queue.push(join(pageDir, m[1]));
+  for (const m of html.matchAll(/<script[^>]+src="([^"]+)"/g)) {
+    const entry = join(pageDir, m[1]);
+    queue.push(entry);
+    // W6 (Y-8): the page's entry (app/start.js) imports the game at once on a desktop: it is part of the first visit
+    const src = String(typeof root === 'function' ? root(entry.split('\\').join('/')) : readFileSync(join(root, entry)));
+    for (const d of src.matchAll(/\bimport\(\s*'(\.{1,2}\/[^']+)'\s*\)/g)) queue.push(join(dirname(entry), d[1]));
+  }
   walk(seen, queue, root);
   return [...seen.values()].sort((a, b) => b.gzip - a.gzip);
 }

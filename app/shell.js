@@ -50,6 +50,8 @@ import {BEATS, FEEDER_ON} from './watch.js';
 import {modeOf, feederCard} from './director.js';
 import {observe} from '../sim/step.js';
 import {unitLabel} from '../desk/util.js';
+import {puzzleNumber} from './share.js';
+import {localYmd} from './history.js';
 
 /** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
 export function layoutSizes(width, height) {
@@ -152,6 +154,15 @@ const BRIEF = {
 };
 /** The briefing's "Watch for" (Q-81): one brief per news item announced at 04:00, in their order. */
 export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]).map(n => BRIEF[n.kind](n, obs));
+/** F-7: the resume's replay runs this long a frame (real ms: the page shows only the briefing meanwhile); and what a player is told when a saved run cannot replay. */
+export const RESUME_BUDGET_MS = 250;
+export const RESUME_LOST = 'GRIDWATCH was updated, so your shift could not resume. Your history and streak are kept.';
+/** W6 (Y-2, Q-99): the briefing title's tag for the run's status, and why (its title attribute). */
+export const RUN_TAG = Object.freeze({first: 'FIRST SHIFT', official: 'OFFICIAL', practice: 'PRACTICE'});
+export const RUN_WHY = Object.freeze({first: 'Your first shift: practice, unless you count it at the end.',
+  official: 'Today\'s daily: this run counts once the clock passes 09:00 (one official run a day).',
+  done: 'Today\'s official run is in: this one is practice.', past: 'A past daily: practice. Only today\'s counts.', seed: 'Not a daily: practice.',
+  future: 'Not today\'s daily: practice. Only today\'s counts.', off: 'History is off in this browser (no storage): practice, nothing counts.'});
 /** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
 export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
 /**
@@ -292,7 +303,7 @@ export function bootGame(doc, deps) {
   let rmQuery = null;
   try { rmQuery = mm ? mm('(prefers-reduced-motion: reduce)') : null; } catch { rmQuery = null; }
   const game = G.createGame({daily: G.dailyFrom(search, o.date), system: o.system, planview: o.planview, scenario: o.scenario, commit: o.commit,
-    startPaused: o.startPaused, par: o.par,
+    startPaused: o.startPaused, par: o.par, todayOf: () => localYmd(o.date || new Date()),   // (W6, Y-1: the player's local date, at each new day)
     storage: o.storage === undefined ? safeStorage() : o.storage, reducedMotion: () => !!(rmQuery && rmQuery.matches)});
   const audio = createAudio(o.audioWin === undefined ? globalThis : o.audioWin);
   let perf = null, PF = null;
@@ -415,22 +426,35 @@ export function bootGame(doc, deps) {
   for (const [id, agc] of [['btn-agc', true], ['btn-hand', false]]) on(id, 'click', () => { if (game.state.control.mode !== (agc ? 'AGC' : 'HAND')) actions.input({type: 'mode', agc}); briefMode(game.state.control.mode); });
   briefMode(game.state.control.mode);
   const take = () => {
+    if (game.resumeSaved) { if (G.resumeBegin(game)) briefingText(); return; }   // (F-7: RESUME AT hh:mm)
     if (G.takeDesk(game)) { const b = $('briefing-card'); if (b) b.hidden = true; }
   };
   on('btn-take', 'click', take);
+  // F-7: START OVER drops the saved run (an official run that passed 09:00 stays a DNF; this one is practice beside it)
+  on('btn-restart', 'click', () => { if (game.replay) return; G.clearResume(game); G.resetDay(game); briefingText(); });
+  if (game.resumeLost) showToast(RESUME_LOST, 'info');
   briefingText();
 
   function briefingText() {
     const b = $('briefing-card');
     if (!b) return;
     b.hidden = game.phase !== 'briefing';
-    const hand = $('btn-hand');
-    if (hand) hand.hidden = !G.handOffered(game);   // D-7: from the second shift
+    const hand = $('btn-hand'), agc = $('btn-agc'), saved = game.resumeSaved, takeB = $('btn-take'), restart = $('btn-restart');
+    if (hand) hand.hidden = !G.handOffered(game) || !!saved;   // D-7: from the second shift (F-7: a resumed day keeps its own)
+    if (agc) agc.hidden = !!saved;
+    if (takeB) takeB.textContent = game.replay ? 'RESUMING…' : saved ? 'RESUME AT ' + clockText(saved.tick / V.TICKS_PER_S, false) : 'TAKE THE DESK';
+    if (restart) restart.hidden = !saved || !!game.replay;
     const st = game.state, obs = observe(st), day = $('briefing-day'), w = $('briefing-watch');
     if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
     const date = $('briefing-date');
     if (date) date.textContent = dateText(game.seed % 1e8);   // (a daily's exception seed is its date + k·1e8, Q-75)
+    // W6: the daily's number (Y-1) and whether this run counts (Y-2, Q-99), its reason in the title
+    const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null, run = G.runView(game);
+    if (title) {
+      title.textContent = (n ? 'Daily #' + n : 'Practice desk') + (n ? ' · ' + RUN_TAG[run.status] : '');
+      title.title = RUN_WHY[run.status === 'practice' ? run.why : run.status];
+    }
     const score = $('how-score');   // D-3: the score's rule is behind the header "?" (HOW TO PLAY)
     if (score) score.textContent = GOALS_TEXT;
   }
@@ -791,6 +815,7 @@ export function bootGame(doc, deps) {
   // fetched from 21:00 when a night shift has the desk (Q-73), so 04:00 shows it at once.
   let endCard = null, endState = '';
   const endDeps = {par: () => game.par, households: () => game.households, log: () => G.gameLog(game), toggleHelp, toast: showToast,
+    run: () => G.runView(game),   // (W6: Y-2, Y-3)
     again: () => { G.resetDay(game); const c = $('end-card'); if (c) c.hidden = true; briefingText(); }};
   function drawEnd(v) {
     const card = $('end-card');
@@ -878,6 +903,14 @@ export function bootGame(doc, deps) {
   on('btn-settings', 'click', () => actions.ui({do: 'settings'}));
   drawSettings(G.settingsView(game), false);
 
+  // F-7: the resume's replay, RESUME_BUDGET_MS a frame, its progress on the briefing's button; then the desk, held where it was
+  function resuming() {
+    const p = G.resumeStep(game, RESUME_BUDGET_MS, now), b = $('btn-take');
+    if (game.replay) { if (b) b.textContent = 'RESUMING… ' + Math.floor(100 * p) + '%'; return; }
+    if (game.resumeFailed) { showToast('Your shift could not be resumed (' + game.resumeFailed + '): a fresh day.'); game.resumeFailed = ''; briefingText(); return; }
+    showToast('Back at ' + clockText(game.state.tick / V.TICKS_PER_S, false) + ', as you left it. Space runs the clock.', 'info');
+  }
+
   // ---------------------------------------------------------------- the frame (X-26: draw after the ticks)
   const drawMs = {};
   const timed = (name, f) => {
@@ -889,6 +922,7 @@ export function bootGame(doc, deps) {
   function onFrame(dtS) {
     const t0 = now();
     for (const a of pollKeys(keys, t0)) run(a);
+    if (game.replay) resuming();   // (F-7)
     const ticks = G.frame(game, dtS, now);
     const t1 = now();
     // Q-48: par, a slice a frame from TAKE THE DESK, in every mode (?perf: its own 'par' line)
@@ -992,7 +1026,7 @@ export function bootGame(doc, deps) {
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
       ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
-    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
+    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter' || (ev.target && ev.target.id === 'btn-restart')) return false; take(); return true; },   // (F-7: Enter on a focused START OVER is its own)
     chain: () => [mods.desk, mods.stack, mods.map],
     // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows, into the plan bar too.
     // (With the alarm panel open, panelFirst has closed it before any desk key gets here, but for Enter on a tile: it selects.)
@@ -1007,7 +1041,10 @@ export function bootGame(doc, deps) {
   doc.addEventListener('keydown', gesture);
 
   let stopRaf = null;
-  if (o.raf !== false) stopRaf = startRaf(onFrame, hidden => { game.director.hidden = hidden; });
+  // (F-7: a hidden or closing tab saves the run where it is)
+  if (o.raf !== false) stopRaf = startRaf(onFrame, hidden => { game.director.hidden = hidden; if (hidden) G.saveResume(game); });
+  const win = doc.defaultView;
+  if (win && typeof win.addEventListener === 'function') win.addEventListener('pagehide', () => G.saveResume(game));
   if (mods.errors.length) showToast(mods.errors[0]);
 
   const handle = {

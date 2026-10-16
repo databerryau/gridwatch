@@ -240,7 +240,7 @@ export function feederHeldAt(state) {
 /**
  * Boot next.html headless and return the driver.
  * @param {{seed?:number, scenario?:string|object|function, commit?:'player'|'system', agc?:boolean, take?:boolean,
- *   run?:boolean, storage?:object|null, shifts?:number, startPaused?:boolean, par?:boolean|object}} [o]
+ *   run?:boolean, storage?:object|null, shifts?:number, startPaused?:boolean, par?:boolean|object, date?:Date}} [o]
  *   seed (default 20261007); scenario: a name in content/scenarios.js, a scenario, or a function
  *   of the seed (default: the page's scenarioForSeed); commit (default 'player', the page's);
  *   agc: AGC (true, default) or HAND at the briefing; take: press TAKE THE DESK (default true);
@@ -249,6 +249,8 @@ export function feederHeldAt(state) {
  *   shifts: the shifts this browser has finished (D-7: HAND is offered from the second), in a storage
  *   of its own when none is given (agc: false implies 1: a HAND day is a returning player's);
  *   par: the game's par (Q-48; default false: no runner; or a finished runner's {score, series?, black?});
+ *   date: the player's local date (W6: today, for the official run; default the machine's); resume: with take, RESUME a
+ *   saved run of this seed (F-7) instead of START OVER (the default: a fresh desk, as every test before F-7 assumed);
  *   plates: a first shift's cover plates (O-3; default false: the tests of the controls press them as a player who
  *   pressed I'VE DONE THIS BEFORE would, without turning the coach off; true: the onboarding's tests).
  */
@@ -272,7 +274,7 @@ export function openGame(o = {}) {
   try {
     h = bootGame(doc, {createDesk, createMap, createLiveStack, system, planview, scenario, commit: o.commit || 'player',
       startPaused: o.startPaused === undefined ? true : o.startPaused, search: '?seed=' + seed, storage: storageOf(o),
-      audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard, perf, suburbCard, par: o.par});
+      audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard, perf, suburbCard, par: o.par, date: o.date});
   } finally { restore(); }
   const game = h.game, $ = id => doc.getElementById(id);
   if (o.plates !== true) { game.settings.plates = false; game.plates.clear(); }   // (O-3: see plates above)
@@ -737,9 +739,12 @@ export function openGame(o = {}) {
   };
 
   if (o.take !== false) {
-    $(o.agc === false ? 'btn-hand' : 'btn-agc').click();
+    // (F-7: a saved run of this seed is offered as RESUME AT hh:mm; the driver takes a fresh desk unless resume: true)
+    if (game.resumeSaved && !o.resume) $('btn-restart').click();
+    if (!game.resumeSaved) $(o.agc === false ? 'btn-hand' : 'btn-agc').click();
     $('btn-take').click();
     frame();
+    for (let k = 0; k < 400 && game.replay; k++) frame();
     if (o.run !== false) key(' ');
   }
   return api;
