@@ -13,8 +13,10 @@
 //   to=HH:MM | to=+30m      jump to a grid time; stops early at a trip or a change of director
 //                           mode (WATCH, the RESPOND card, a feeder card, RESPOND, OVER...), then draws one frame
 //   jump=HH:MM              the same, stopping only where the clock holds (a card, the end)
-//   skip=HH:MM              the same as the sim alone (no frames between, ~half the time: the page's real
-//                           clock moves on by the profile in one step), then draws one frame (W6, the test budget)
+//   skip=HH:MM              the same, ~0.6x the time: the sim with a frame's work (the annunciator, the tray, the
+//                           offers, Marg) once a page frame's grid time (a grid second at least) instead of every
+//                           1/60 real s, the page's real clock charged as its pacer would; the objective line is said
+//                           afresh at the drawn frame (W6, the test budget)
 //   until=EV[,EV][@MAX]     jump until an event: trip, card (the RESPOND card or a feeder card), mode, notice (a tray card or news),
 //                           line (the objective's text changed), ask (a new ask to act), event
 //                           (all but line); MAX ('HH:MM', '+2h') guards it (default: day's end)

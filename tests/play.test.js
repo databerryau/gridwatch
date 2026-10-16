@@ -8,6 +8,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {openGame, diffLooks, parseTime} from './lib/play.js';
 import {badgeText} from '../render/format.js';
+import * as A from '../app/alarms.js';
 import {hashState} from '../sim/step.js';
 import {realBetween} from '../sim/clock.js';
 import {V} from '../sim/params.js';
@@ -65,7 +66,7 @@ test('play driver: a jump shows what frame-by-frame play shows; look, buttons, c
   assert.match(s.diff, /^CTRL .*station-start-gta "START\?"/m);
 });
 
-test('play driver: skipTo() holds where a jump holds (RED7\'s card at 06:45) and lands on the same sim state; the page clock moves on by the profile', () => {
+test('play driver: skipTo() holds where a jump holds (RED7\'s card at 06:45) and lands on the same sim state; the page clock, D-2\'s clock and the annunciator move on as the page\'s', () => {
   const page = openGame({seed: 20261007}), skip = openGame({seed: 20261007}), at = p => [p.clock(), p.mode(), hashState(p.game.state)];
   const r = page.to('07:30', {stop: []}), now0 = skip.now, s = skip.skipTo('07:30');
   assert.deepEqual([s.why, s.at], [r.why, r.at]);
@@ -76,6 +77,16 @@ test('play driver: skipTo() holds where a jump holds (RED7\'s card at 06:45) and
   const r2 = page.to('07:30', {stop: []}), s2 = skip.skipTo('07:30');
   assert.deepEqual([s2.why, s2.at, r2.why, r2.at], ['target', '07:30:00', 'target', '07:30:00']);
   assert.deepEqual(at(skip), at(page));
+  // the page clock: the restore's FOCUS (2 grid s at 1x) and RED5's are real seconds off the profile, as the page's frames charge them
+  assert.ok(Math.abs(skip.now - page.now) < 50, 'the page clock ' + skip.now + ' ms, the page\'s ' + page.now);
+  // D-2's clock (clockReport): every skipped second counted, each in its part
+  const ck = skip.clockReport(), pk = page.clockReport(), parts = c => Object.entries(c.parts).map(([k, x]) => [k, x.n, Math.round(x.realS * 10) / 10]);
+  assert.ok(Math.abs(ck.sinceS - (skip.now - skip.spaceMs) / 1000) < 1e-6 && Math.abs(ck.offS - pk.offS) < 0.05, JSON.stringify([ck, pk]));
+  assert.deepEqual(parts(ck), parts(pk));
+  // the annunciator: the 06:55 dip set UNDER FREQ and cleared it inside the skip (the ring-back, ◇), and sounded once
+  const panel = p => [A.TILES.map(x => x.id + ':' + p.game.alarms.tiles[x.id].state).join(' '), p.game.alarms.audible];
+  assert.match(panel(page)[0], /underFreq:cleared/);
+  assert.deepEqual(panel(skip), panel(page));
   assert.deepEqual(skip.game.state.log.filter(x => x.type === 'restore').map(x => [x.tick, x.args.district]),
     page.game.state.log.filter(x => x.type === 'restore').map(x => [x.tick, x.args.district]));
   assert.deepEqual(skip.game.state.log.filter(x => x.type === 'restore').map(x => x.args.district), ['RED7', 'RED5']);
