@@ -14,6 +14,7 @@
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
 import {LETTER_RULE} from './score.js';
+import {drawMoment, drawDemandPair, COL} from '../render/charts.js';
 
 /** The reliability readouts' §8.2 row (content/text.js, a drawer entry, renamed in 2c: Q-69): the card's "?" opens it. */
 export const RELIABILITY_ROW = 'SAIDI, SAIFI and MAIFI count the outages you cause, per household, in grid-minutes';
@@ -26,6 +27,9 @@ const PARTS = [
 ];
 /** S-6: PERFECT's rule, under the score. */
 export const PERFECT_RULE = 'PERFECT: no load shed all day, and every handed-back feeder closed within ' + mw(V.RESTORE_PACE_MAX_S / V.S_PER_MIN) + ' grid-minutes of when it could be.';
+/** L-10: the strip's legend, and each column's title. */
+export const STRIP_WORDS = 'green: no gap · red: short (homes of yours dark) · blue: wind or solar spilled';
+const STRIP_TITLE = {g: 'no gap', r: 'short', b: 'spill'};
 const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:auto}' +
   '#end-card .big{font:700 16px var(--mono);color:var(--bright)}' +
   '#end-card table{border-collapse:collapse;width:100%;margin:6px 0;font:12px var(--mono)}' +
@@ -33,6 +37,12 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
   '#end-card tr.why td{text-align:left;color:var(--dim);font-size:11px;padding:0 6px 3px 16px}' +
   '#end-card tr.total>*{border-top:1px solid var(--line);font-weight:700;color:var(--bright)}' +
   '#end-reliability{border-top:1px solid var(--line);margin-top:6px;padding-top:2px}' +
+  '#end-card .vrow{margin:3px 0}#end-card .vrow b{color:var(--bright);margin-right:4px}' +
+  '#end-strip{display:flex;gap:2px;margin:6px 0 0}#end-strip span{flex:1;height:10px;border-radius:2px;background:var(--line)}' +
+  '#end-strip .s-g{background:#3fb950}#end-strip .s-r{background:#f85149}#end-strip .s-b{background:#58a6ff}' +
+  '#end-card .why{color:var(--dim);font-size:11px;margin:2px 0}#end-card canvas{display:block;width:100%;height:120px;margin:4px 0}' +
+  '#end-moment,#end-history,#end-debrief{border-top:1px solid var(--line);margin-top:8px;padding-top:4px}' +
+  '#end-numbers summary{cursor:pointer;color:var(--bright);margin-top:8px}' +
   '#end-card .q{width:22px;height:22px;min-width:0;min-height:0;padding:0;border-radius:50%;font:700 11px/20px system-ui,sans-serif;color:var(--dim)}';
 
 /** A difference to par: '+$1.25M', '−$840' (U+2212), '$0'. */
@@ -108,6 +118,13 @@ export function createEndCard(doc, root, actions, deps) {
     // S-6, S-7: the marks' rules, and a Hard day's (par shed: no plan kept every light on)
     if (g && g.hardMWh) line(body, 'HARD DAY: par shed ' + mw(g.hardMWh, 1) + ' MWh: no plan kept every light on today. The points leave those MWh out of both totals; the letter is the gap.').id = 'end-hard';
     if (e.perfect) line(body, PERFECT_RULE).id = 'end-perfect';
+    if (g) line(body, LETTER_RULE).id = 'end-letter';   // (S-5: the letter with its one-line rule)
+    verdict(body, v);
+    // THE NUMBERS (D-20): the dollar ledger and the reliability readouts, behind a summary
+    const nums = el('details', '', '', body), bodyOuter = body;
+    nums.id = 'end-numbers';
+    el('summary', 'THE NUMBERS', '', nums);
+    body = nums;
     if (e.black) {
       line(body, 'The grid went black at ' + clockText(v.obs.s, false) + ': the day was cut short, so it has no YOU column.');
       if (!p) line(body, par.kind === 'black' ? 'Par could not finish this day either.' : status);
@@ -143,7 +160,6 @@ export function createEndCard(doc, root, actions, deps) {
       line(body, gap ? 'Biggest gap to par: ' + gap.name + ' ' + signed(gap.d) + ' (' + gap.why(gap.d, paid(e.score) || paid(pr && pr.score)) + ')' : 'You beat par on all three.');
     }
     line(body, 'Score = 1000 × par\'s ALL-IN ÷ yours. Par is GRIDWATCH\'s own autopilot on this same day.');
-    line(body, LETTER_RULE);   // (S-5)
     // (yours to the moment the grid went black, on a black day)
     const r = el('div', '', '', body), m = e.allIn;
     r.id = 'end-reliability';
@@ -154,7 +170,61 @@ export function createEndCard(doc, root, actions, deps) {
     if (held > 0) line(r, 'Feeders under repair count from their hand-back: the ' + mw(held, 1) + ' MWh dark before it were the network\'s outage, not priced.');
     line(r, m.saidiMin > 0 ? 'Each SAIDI-minute today cost customers about ' + dollars(m.outage / m.saidiMin) + ' at VCR. A distributor\'s STPIS ' +
       'would not count this shedding ' : 'No household was off for more than ' + mw(V.SUSTAINED_INTERRUPTION_S / V.S_PER_MIN) + ' minutes. ').appendChild(q);
+    body = bodyOuter;
   }
+
+  // W3 (D-20, L-10, D-21, D-24, P-1, H-11): the day in words, in D-25's order (app/verdict.js builds it: v.end.verdict)
+  function verdict(parent, v) {
+    const x = v.end.verdict;
+    if (!x) return;
+    const box = el('div', '', '', parent), row = (k, text, id) => { const p = el('p', '', 'vrow', box); el('b', k, '', p); p.append(' ' + text); p.id = id; };
+    box.id = 'end-verdict';
+    row('LIGHTS', x.lights, 'end-lights');
+    row('COST', x.cost, 'end-cost');
+    row('CARBON', x.carbon, 'end-carbon');
+    // L-10: the plan, an hour a column
+    const st = el('div', '', 'strip', box);
+    st.id = 'end-strip';
+    st.setAttribute('aria-label', 'Your day by the hour: ' + STRIP_WORDS);
+    x.strip.forEach((c, h) => { const cell = el('span', '', 's-' + (c || 'n'), st); cell.title = clockText(h * V.S_PER_H, false) + ': ' + (STRIP_TITLE[c] || 'not played'); });
+    el('p', STRIP_WORDS, 'why', box);
+    const m = x.moment;
+    if (m) {
+      const mb = el('div', '', 'moment', box);
+      mb.id = 'end-moment';
+      el('b', 'THE MOMENT', '', mb);
+      const cv = el('canvas', '', '', mb);
+      cv.id = 'end-moment-chart';
+      try {
+        drawMoment(cv, m.trace, [{hz: m.numbers.noGuardHz, label: 'NO GUARD', col: COL.pink}, {hz: m.numbers.parHz, label: 'PAR', col: COL.grey}]);
+      } catch (err) { /* (a chart is optional: the words carry it) */ }
+      for (const t of m.text) el('p', t, '', mb);
+    }
+    const c = x.card;
+    if (c) {
+      const cb = el('div', '', 'history', box);
+      cb.id = 'end-history';
+      el('b', 'THIS REALLY HAPPENED', '', cb);
+      el('p', c.text, '', cb);
+      el('p', 'What GRIDWATCH simplifies: ' + c.simplifies, 'why', cb);
+      const a = el('a', 'Source: ' + c.sourceName, '', el('p', '', 'why', cb));
+      a.href = c.source; a.target = '_blank'; a.rel = 'noopener';
+    }
+    const db = el('div', '', 'debrief', box);
+    db.id = 'end-debrief';
+    if (x.demand.text) {
+      el('p', x.demand.text, '', db);
+      const dc = el('canvas', '', '', db);
+      dc.id = 'end-demand-chart';
+      try { drawDemandPair(dc, x.demand.under, x.demand.oper); } catch (err) { /* (optional) */ }
+    }
+    el('p', x.trips, '', db);
+  }
+
+  // (each verdict object the game builds gets a number: a new one redraws the card)
+  const seenV = new WeakMap();
+  let vN = 0;
+  function verdictN(x) { if (!seenV.has(x)) seenV.set(x, ++vN); return seenV.get(x); }
 
   function download(name, text) {
     try {
@@ -175,7 +245,8 @@ export function createEndCard(doc, root, actions, deps) {
       if (!v.end) { end = null; return; }
       const par = parOf(v.end);
       if (v.end !== end) { end = v.end; parKey = ''; build(v); }
-      if (par.key !== parKey) { parKey = par.key; fill(v, par); }
+      const key = par.key + (v.end.verdict ? '|' + verdictN(v.end.verdict) : '');
+      if (key !== parKey) { parKey = key; fill(v, par); }
     },
   };
 }

@@ -36,7 +36,8 @@ import * as T from './tray.js';
 import * as W from './watch.js';
 import * as AM from '../audio/model.js';
 import * as S from './score.js';
-import {createParRunner, seriesAt} from './par.js';
+import * as VD from './verdict.js';
+import {createParRunner, seriesAt, parMinute} from './par.js';
 
 const TPS = V.TICKS_PER_S;
 const EMPTY = Object.freeze([]);
@@ -242,6 +243,7 @@ export function resetDay(game, seed) {
   game.hist = createHist();
   game.histView = null; game.histViewS = -1;
   game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
+  game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
   parFor(game);
   return game;
@@ -343,7 +345,7 @@ function shedText(state, r) {
 /** A step's (or an input's) records: traces, sounds, refusals, the tray; a card that rings ends FAST (Q-63). */
 export function handleRecords(game, recs, by) {
   for (const r of recs) {
-    if (r.kind === 'contingency') startTrace(game.rec, game.state);
+    if (r.kind === 'contingency') { startTrace(game.rec, game.state); game.guardAt[game.state.conts.length] = game.state.battery.guardMW; } // (D-21: the GUARD set at the trip)
     if (r.kind === 'shed' && r.why === 'directed' && game.phase === 'play') D.startShedWatch(game.director, game.state, shedText(game.state, r));
     let cues = EMPTY;
     try { cues = recordCues(game, r); } catch { cues = EMPTY; } // sound is optional (C-8): never stop the tick
@@ -410,7 +412,10 @@ export function tickOnce(game) {
   if (recs.length) handleRecords(game, recs, ins.length ? 'system' : '');
   onTick(game.rec, state);
   A.sampleTick(game.alarms, state);
-  if (state.tick % TPS === 0) histSecond(game);
+  if (state.tick % TPS === 0) {
+    histSecond(game);
+    if (VD.verdictSecond(game.verdict, state, game.rec) && game.phase === 'play') pushCue(game, 'ramp'); // (L-10: a clean ramp)
+  }
   if (state.tick % (TPS * V.S_PER_H) === 0) game.hashes.push(hashState(state));
 }
 
@@ -882,6 +887,7 @@ export function buildVm(game, f) {
     end.parAllIn = S.allIn(par.score, game.households);
     end.grade = S.grade(end.allIn, end.parAllIn, end.black, S.parShedMWh(par.score)); // (S-7: a Hard day when par shed)
   }
+  if (end) verdictFor(game);
   // spoolUp: no sim record marks a machine starting (booked starts included), so it is read
   // off the unit's mode between two frames (audio/model.js cueOfModeChange).
   if (!game.unitModes) game.unitModes = {};
@@ -914,6 +920,35 @@ export function buildVm(game, f) {
     armed: obs.nightShift ? null : game.ui.armed, held: game.commit === 'player' && heldByHand(game),
     alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
     suburb: game.ui.suburb, dayAhead: game.dayAhead,
+  };
+}
+
+// ------------------------------------------------------------------ W3: the verdict
+
+/**
+ * W3 (D-20, D-21, D-24, L-10, P-1, H-11): game.end.verdict, the day in words (app/verdict.js), rebuilt when par or
+ * the no-GUARD twin arrives. The moment's twin (D-21) is made here once, when a GUARD was set at its trip, and played
+ * by the shell's frames after the day (game.twin.step).
+ */
+function verdictFor(game) {
+  const end = game.end, st = game.state, par = game.par, mem = game.verdict;
+  const nightS = st.scn.night ? NIGHT_S : Infinity, conts = st.conts.filter(c => c.startTick / TPS < nightS);
+  if (end.twinFor === undefined) {
+    const m = VD.moment(mem, conts, {nightS}), c = m && m.cont;
+    end.twinFor = c && c.lostMW > 0 && game.guardAt[c.n] > 0 ? c.n : -1;
+    if (end.twinFor > 0) game.twin = VD.createTwin(game.seed, game.scenario, st.log.slice(), c);
+  }
+  const twin = game.twin, key = (par ? (par.done ? 'p' : 'c') : '-') + (twin ? (twin.done ? 't' : 'w') : '-');
+  if (key === game.verdictKey && end.verdict) return;
+  game.verdictKey = key;
+  const parScore = par && par.done && par.score && !par.black ? par.score : null;
+  const pm = parScore && par.minutes && par.minutes.length ? s => parMinute(par, s) : null;
+  const first = VD.moment(mem, conts, {nightS}), m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: first.cont ? game.guardAt[first.cont.n] : undefined});
+  end.verdict = {
+    lights: VD.lightsRow(mem, end.score, parScore).text,
+    cost: VD.costRow(end.allIn, end.parAllIn), carbon: VD.carbonRow(end.allIn, end.parAllIn),
+    moment: m, card: VD.historyCard(mem, conts, end.black), strip: VD.strip(mem),
+    demand: VD.demandLine(mem), trips: VD.tripsLine(conts),
   };
 }
 
