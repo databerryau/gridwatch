@@ -22,6 +22,8 @@ const PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh:
 const COMPUTING = {step: () => false, done: false, score: null, series: [], at: () => null, progress: 0.4, black: false};
 const local = ymd => new Date(Math.floor(ymd / 1e4), Math.floor(ymd / 100) % 100 - 1, ymd % 100);
 const ymdOf = s => +s.replace(/-/g, '');
+// the calendar date after a YYYYMMDD (a month's or a year's end included)
+const nextYmd = ymd => { const t = new Date(Date.UTC(Math.floor(ymd / 1e4), Math.floor(ymd / 100) % 100 - 1, ymd % 100 + 1)); return t.getUTCFullYear() * 1e4 + (t.getUTCMonth() + 1) * 100 + t.getUTCDate(); };
 // A localStorage stand-in, a shift already finished (D-7): this run is not a first shift
 function store() {
   const mem = new Map([[G.SEEN_KEY, JSON.stringify({shifts: 1})]]);
@@ -70,7 +72,7 @@ test('F-8: when the page\'s own par arrives it fills THE NUMBERS; a total off th
 test('F-8: past the calendar\'s end today\'s date has no daily: "No daily today", practice, nothing counts', () => {
   assert.deepEqual(HI.statusOf({days: {}}, {ymd: 20271012, today: 20271012, firstShift: false, noDaily: true}), {status: 'practice', why: 'nodaily'});
   assert.deepEqual(HI.statusOf({days: {}}, {ymd: 20261016, today: 20261016, firstShift: false, noDaily: false}), {status: 'official', why: 'today'});
-  const after = ymdOf(DAILIES.to) + 1, s = store(), p = openGame({seed: after, run: false, par: PAR, storage: s, date: local(after)});
+  const after = nextYmd(ymdOf(DAILIES.to)), s = store(), p = openGame({seed: after, run: false, par: PAR, storage: s, date: local(after)});
   assert.equal(p.game.daily.gated, false);
   assert.equal(p.$('briefing-title').textContent, NO_DAILY);
   assert.deepEqual([G.runView(p.game).status, G.runView(p.game).why], ['practice', 'nodaily']);
@@ -79,7 +81,9 @@ test('F-8: past the calendar\'s end today\'s date has no daily: "No daily today"
   assert.equal(s.mem.get(HI.HISTORY_KEY), undefined, 'nothing recorded');
   assert.equal(p.game.end.share.n, null, 'the card carries no daily number');
   assert.doesNotMatch(p.game.end.share.text, /#\d/);
-  assert.deepEqual([G.dailyNumber(ymdOf(DAILIES.to)), G.dailyNumber(after)], [365, null]);
+  // the calendar's last daily has its number (the days since #1), the day after has none
+  const lastN = Math.round((Date.UTC(...DAILIES.to.split('-').map((x, i) => +x - (i === 1))) - Date.UTC(2026, 9, 12)) / 864e5) + 1;
+  assert.deepEqual([G.dailyNumber(ymdOf(DAILIES.to)), G.dailyNumber(after)], [lastN, null]);
   assert.deepEqual(p.h.mods.errors, []);
   // with history off (why 'off' comes first) the title still says there is no daily
   assert.equal(openGame({seed: after, run: false, take: false, date: local(after)}).$('briefing-title').textContent, NO_DAILY);
