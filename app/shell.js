@@ -37,6 +37,10 @@
 // the card stays. It sits over the map (never the desk's Live Stack or bay); with the stack out (L) the body
 // class stack-out (placeStack) moves it over the lever bank. The objective line waits while it shows, as at
 // the respond card (the card is the one instruction while the clock holds), but a ‼ URGENT line stays up.
+// W6 (K-22, K-23; the 2026-10-17 accessibility audit): the briefing's AGC/HAND is a radio group (one Tab stop, the arrows:
+// radioKey); the end card's h2 and the shelf's first day take the focus on show and give it back on close; #aria-live says what
+// the objective line asks, the RESPOND card and the end card's score (the line itself is no live region); a toast is said
+// politely when blue and at once when red; a "?" pressed by a key puts the focus in its popover.
 
 import {V} from '../sim/params.js';
 import * as G from './game.js';
@@ -209,6 +213,7 @@ export const HAND_CHIP = Object.freeze({
 export const NIGHT_REDRAW_MS = 500;
 /** A toast lives max(TOAST_MS, TOAST_WORD_MS a word) (real ms), so it can be read (§32.11). */
 export const TOAST_MS = 3000, TOAST_WORD_MS = 300;
+const NBSP = String.fromCharCode(0xa0);   // (K-23: a toast's words again, made new for its live region)
 const millions = x => '$' + (x / 1e6).toFixed(1) + 'M';
 
 // ------------------------------------------------------------------ the live region (K-23, §13.3)
@@ -749,7 +754,6 @@ export function bootGame(doc, deps) {
     if (other) other.textContent = '';
     if (say) say.textContent = say.textContent === text ? text + NBSP : text;
   }
-  const NBSP = String.fromCharCode(0xa0);
   // (as the box goes: its words leave the two regions, so the next toast is new to them)
   function hideToast(t) {
     t.hidden = true;
