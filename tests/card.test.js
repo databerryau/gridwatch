@@ -264,7 +264,9 @@ test('Q-56 in play: the briefing sends nothing and Enter in the card takes the d
   assert.deepEqual([b.vm().phase, flexLog(b)], ['play', []], 'Enter in the card takes the desk, as the answer says (Q-41)');
   const seen = {getItem: k => (k === SEEN_KEY ? JSON.stringify({watch: true}) : null), setItem() {}};
   const p = openGame({seed: HOT, scenario: NOTASK, storage: seen}), st = p.game.state;
-  setDistrictDark(st, st.city.districts.findIndex(x => x.suburb === 'RED'), true, 'directed');
+  const red = st.city.districts.findIndex(x => x.suburb === 'RED');
+  setDistrictDark(st, red, true, 'directed');
+  p.game.director.fc[st.city.districts[red].id] = Infinity; // (D-26: its own card would hold the clock; here it was gone on from)
   p.suburb('RED');
   assert.match(card(p), /^REDGUM FLATS 420k homes 1 DARK: “/);
   assert.equal(p.doc.activeElement.id, 'city-RED-restore', 'its first row');

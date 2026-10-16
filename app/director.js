@@ -181,7 +181,7 @@ export function createDirector(opts) {
     rw: null,                  // the dark task feeders' allowed seconds (windows)
     fc: {},                    // FEEDER-CARD: {district id: the allowed second its card was answered at; Infinity once left dark}
     fq: {},                    // D-27: {district id: true} queued by a RESTORE at the card: it closes itself at its allowed second
-    pv: null,                  // D-27: the last restore check {s, i, n, ok}, one a grid second
+    pv: null,                  // D-27: this grid second's restore checks {s, n, ok: {district index: accepted}}
     shedW: null,               // K-15 (Q-97): the first directed shed's compact watch {startTick, text}, or null
     accepts: o.accepts || null, // D-27: (state, i) => would a restore of district i be accepted now (app/game.js passes the sim's)
     seenDirty: false,          // seen changed: the game saves it
@@ -237,17 +237,27 @@ function focusing(d, state) {
   const sc = state.scope;
   return (sc !== undefined && sc !== null && sc.unit !== '' && sc.unit !== undefined) || state.tick < d.focusUntilTick;
 }
-// The dark task feeders' [i, clearS, allowed second], flat, kept per log length (§32.12 FEEDER-CARD)
+/**
+ * D-26 (Q-95): a dark district the cards hold for: a task feeder (Q-91), or one shed by the relays (UFLS) or the
+ * city desk (directed). Shed districts share a card: the relays' by stage, the city desk's together.
+ */
+export const carded = x => x.dark && (x.shedBy === 'task' ? x.clearS >= 0 : x.shedBy === 'ufls' || x.shedBy === 'directed');
+/** D-26: a carded district's card ('' for a task feeder: its own) and its place among cards due at the same second. */
+export const cardGroup = x => (x.shedBy === 'ufls' ? 'stage ' + x.uflsStage : x.shedBy === 'directed' ? 'directed' : '');
+const rankOf = x => (x.shedBy === 'ufls' ? x.uflsStage : x.shedBy === 'directed' ? 99 : 0);
+// The carded districts' [i, clearS, allowed second, rank], flat, kept per log length (§32.12 FEEDER-CARD)
 function windows(d, state) {
   const ds = state.city.districts, n = state.log ? state.log.length : -1, w = d.rw;
-  let ok = !!w && n >= 0 && w.ds === ds && w.len === ds.length && w.n === n;
-  for (let j = 0; ok && j < w.at.length; j += 3) { const x = ds[w.at[j]]; ok = x.dark && x.shedBy === 'task' && x.clearS === w.at[j + 1]; }
+  let ok = !!w && n >= 0 && w.ds === ds && w.len === ds.length && w.n === n && w.k === darkKey(ds);
+  for (let j = 0; ok && j < w.at.length; j += 4) { const x = ds[w.at[j]]; ok = carded(x) && x.clearS === w.at[j + 1]; }
   if (ok) return w.at;
   const at = [];
-  for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task') at.push(i, ds[i].clearS, restoreAllowedS(ds, i));
-  d.rw = {ds, len: ds.length, n, at};
+  for (let i = 0; i < ds.length; i++) if (carded(ds[i])) at.push(i, ds[i].clearS, restoreAllowedS(ds, i), rankOf(ds[i]));
+  d.rw = {ds, len: ds.length, n, at, k: darkKey(ds)};
   return at;
 }
+// (the relays and the city desk shed with no log entry: a count of the dark districts tells the cache)
+function darkKey(ds) { let k = 0; for (let i = 0; i < ds.length; i++) if (ds[i].dark) k++; return k; }
 // Q-91: the district index whose feeder card is due (from the tick after its allowed second's, so that
 // second's step has handed the feeder back first, until it is restored or answered at that second;
 // never once left by Esc, nor from 21:00), the earliest allowed first; else -1
@@ -255,22 +265,24 @@ function feederDue(d, state) {
   const t = state.tick;
   if (!d.game || t >= NIGHT_S * TPS || night(state)) return -1;
   const at = windows(d, state), ds = state.city.districts;
-  let best = -1, bestA = Infinity;
-  for (let j = 0; j < at.length; j += 3) {
-    const a = at[j + 2], id = ds[at[j]].id, done = d.fc[id];
-    if (t > a * TPS && a < bestA && done !== a && done !== Infinity && !d.fq[id]) { best = at[j]; bestA = a; }
+  let best = -1, bestA = Infinity, bestR = Infinity;
+  for (let j = 0; j < at.length; j += 4) {
+    const a = at[j + 2], r = at[j + 3], id = ds[at[j]].id, done = d.fc[id];
+    if (!(t > a * TPS) || done === a || done === Infinity || d.fq[id] || !(a < bestA || (a === bestA && r < bestR))) continue;
+    // D-27: a card holds only at a second its restore would be accepted (the permissive and its preview, as R's);
+    // D-26: one that would be refused waits without holding up the cards behind it
+    if (accepts(d, state, at[j])) { best = at[j]; bestA = a; bestR = r; }
   }
-  // D-27: the card holds only at a second its restore would be accepted (the permissive and its preview, as R's)
-  return best >= 0 && accepts(d, state, best) ? best : -1;
+  return best;
 }
-// D-27: would a restore of district i be accepted now? Kept for the grid second (and the log's length)
+// D-27: would a restore of district i be accepted now? Kept per district for the grid second (and the log's length)
 function accepts(d, state, i) {
   if (!d.accepts) return true;
-  const s = Math.floor(state.tick / TPS), n = state.log ? state.log.length : -1, m = d.pv;
-  if (m && m.s === s && m.i === i && m.n === n) return m.ok;
-  const ok = !!d.accepts(state, i);
-  d.pv = {s, i, n, ok};
-  return ok;
+  const s = Math.floor(state.tick / TPS), n = state.log ? state.log.length : -1;
+  if (!d.pv || d.pv.s !== s || d.pv.n !== n) d.pv = {s, n, ok: {}};
+  const m = d.pv.ok;
+  if (!(i in m)) m[i] = !!d.accepts(state, i);
+  return m[i];
 }
 // the card shows: due, past any watch and the respond card (it waits for them)
 const feederOn = (d, state) => (watching(state) || cardOpen(d, state) ? -1 : feederDue(d, state));
@@ -488,11 +500,16 @@ export function feederCard(d, state) {
  * Returns true if that card was shown.
  */
 /**
- * D-27: a RESTORE at the card queues every other repaired or repairing task feeder still dark (and not
- * left): each closes itself at its allowed second (app/game.js closeQueued) instead of holding again.
+ * D-27: a RESTORE at the card queues `mates` (queueMates, read before the restore): each closes itself at its
+ * allowed second (app/game.js closeQueued) instead of holding again.
  */
-export function queueFeeders(d, state, id) {
-  for (const x of state.city.districts) if (x.id !== id && x.dark && x.shedBy === 'task' && x.clearS >= 0 && d.fc[x.id] !== Infinity) d.fq[x.id] = true;
+export function queueFeeders(d, mates) {
+  for (const x of mates) d.fq[x.id] = true;
+}
+/** D-27, D-26: the dark districts a RESTORE of `id` at its card queues: the morning's other task feeders, or the rest of its card's group. */
+export function queueMates(d, ds, id) {
+  const me = ds.find(x => x.id === id), g = me ? cardGroup(me) : '';
+  return ds.filter(x => x.id !== id && carded(x) && d.fc[x.id] !== Infinity && (g ? cardGroup(x) === g : x.shedBy === 'task'));
 }
 
 /** D-27: the queued feeders, by district id (app/game.js closes them; a refused close leaves the queue for a card). */
@@ -501,7 +518,8 @@ export function unqueueFeeder(d, id) { delete d.fq[id]; }
 
 export function answerFeeder(d, state, id, leave) {
   if (!id || feederCard(d, state) !== id) return false;
-  const at = d.rw.at, ds = state.city.districts;
-  for (let j = 0; j < at.length; j += 3) if (ds[at[j]].id === id) d.fc[id] = leave ? Infinity : at[j + 2];
+  const at = d.rw.at, ds = state.city.districts, me = ds.find(x => x.id === id), g = me ? cardGroup(me) : '';
+  // (D-26: a shed card answers for its whole group)
+  for (let j = 0; j < at.length; j += 4) { const x = ds[at[j]]; if (x.id === id || (g && cardGroup(x) === g)) d.fc[x.id] = leave ? Infinity : at[j + 2]; }
   return true;
 }

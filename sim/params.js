@@ -35,7 +35,8 @@
 // 2b.1: par's lever rules (S-14 rules 1 and 5) and the end of slice 2b (desk/README.md §31.12);
 // classic still has no levers.
 // 2c.2: slice W1 (SPEC §5): H-18's hot-unit trip on the classic day only, X-43's HAND startToMinS in observe().
-export const SIM_VERSION = 'v4-core-2c.2';
+// 2d.0: slice W3 (SPEC §5): par's reference playback counts a hold at each shed district's restore (D-26), desk only.
+export const SIM_VERSION = 'v4-core-2d.0';
 
 const src = (value, unit, source, extra) => Object.assign({value, unit, src: source}, extra);
 const simp = (value, unit, note, extra) => Object.assign({value, unit, simplified: true, note}, extra);

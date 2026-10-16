@@ -393,3 +393,53 @@ export function drawPriceDay(canvas, minute, nowMin, label) {
   legend(ctx, w, [['SECURE', COL.green], ['TIGHT', COL.amber], ['SHORT / SHEDDING', COL.red]]);
 }
 
+
+// ------------------------------------------------------------------ the verdict (W3: D-21, P-1)
+
+/**
+ * D-21: the moment's frequency, ±3 minutes: each grid second's lowest-highest as a bar (m.trace: {fromS, toS, s,
+ * lo, hi}), the moment marked, and dashed lines for the nadir with no GUARD and par's (refs: [{hz, label, col}]).
+ */
+export function drawMoment(canvas, trace, refs = []) {
+  const {ctx, w, h} = prepare(canvas), f = frameOf(w, h), n = trace.lo.length;
+  let dmin = Infinity, dmax = -Infinity;
+  for (let i = 0; i < n; i++) { if (trace.lo[i] < dmin) dmin = trace.lo[i]; if (trace.hi[i] > dmax) dmax = trace.hi[i]; }
+  for (const r of refs) if (Number.isFinite(r.hz)) { dmin = Math.min(dmin, r.hz); dmax = Math.max(dmax, r.hz); }
+  const [lo, hi] = freqRange(dmin, dmax);
+  const y = v => f.y1 - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) * (f.y1 - f.y0);
+  const x = s => f.x0 + (s - trace.fromS) / Math.max(1, trace.toS - trace.fromS) * (f.x1 - f.x0);
+  freqRefs(ctx, f, y, lo, hi);
+  ctx.fillStyle = COL.blue;
+  const bw = Math.max(1, (f.x1 - f.x0) / Math.max(1, n));
+  for (let i = 0; i < n; i++) {
+    if (!Number.isFinite(trace.lo[i])) continue;
+    const yt = y(trace.hi[i]), yb = y(trace.lo[i]);
+    ctx.fillRect(x(trace.fromS + i), yt, bw, Math.max(1, yb - yt));
+  }
+  for (const r of refs) {
+    if (!Number.isFinite(r.hz)) continue;
+    hline(ctx, f, y(r.hz), r.col || COL.grey, [3, 3]);
+    ctx.fillStyle = r.col || COL.grey; ctx.textAlign = 'right'; ctx.fillText(r.label + ' ' + r.hz.toFixed(2), f.x1 - 2, y(r.hz) - 7);
+  }
+  ctx.strokeStyle = COL.amber; ctx.beginPath(); ctx.moveTo(x(trace.s), f.y0); ctx.lineTo(x(trace.s), f.y1); ctx.stroke();
+  ctx.fillStyle = COL.axis; ctx.textAlign = 'center';
+  for (const s of [trace.fromS, trace.s, trace.toS]) ctx.fillText(clockText(s, false), Math.min(w - 16, Math.max(f.x0 + 14, x(s))), h - 6);
+}
+
+/** P-1: the day's underlying demand (the city's own load) and operational demand (what the grid served), per minute. */
+export function drawDemandPair(canvas, under, oper) {
+  const {ctx, w, h} = prepare(canvas), f = frameOf(w, h);
+  let top = 0;
+  for (let m = 0; m < DAY_MIN; m++) for (const v of [under[m], oper[m]]) if (v > top) top = v;
+  const step = niceStep(Math.max(top, 1000), 3), hi = Math.ceil(Math.max(top, 1000) / step) * step;
+  const y = v => f.y1 - Math.max(0, Math.min(hi, v)) / hi * (f.y1 - f.y0);
+  ctx.textAlign = 'right';
+  for (let v = 0; v <= hi; v += step) {
+    ctx.strokeStyle = COL.grid; ctx.beginPath(); ctx.moveTo(f.x0, y(v)); ctx.lineTo(f.x1, y(v)); ctx.stroke();
+    ctx.fillStyle = COL.axis; ctx.fillText(mw(v), f.x0 - 4, y(v));
+  }
+  dayAxis(ctx, f, h, -1);
+  line(ctx, DAY_MIN, m => xDay(f, m), m => under[m], y, COL.grey, 1.2);
+  line(ctx, DAY_MIN, m => xDay(f, m), m => oper[m], y, COL.bright, 1.4);
+  legend(ctx, w, [['the city\'s own load', COL.grey], ['what the grid served', COL.bright]]);
+}

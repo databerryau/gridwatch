@@ -12,7 +12,7 @@ import {createState, step, observe} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
 import {V, SIM_VERSION} from '../sim/params.js';
 import {DESK} from '../content/scenarios.js';
-import {allIn, grade, LETTERS, LETTER_RULE} from '../app/score.js';
+import {allIn, grade, LETTERS, LETTER_RULE, parShedMWh, HARD_MAX_POINTS} from '../app/score.js';
 import {createParRunner, PAR_KEY, PAR_MARK_S, PAR_CHUNK_TICKS} from '../app/par.js';
 import * as G from '../app/game.js';
 
@@ -146,7 +146,7 @@ test('Q-48 / H-12: shedding is never cheaper than the reserves: VCR > the price 
 
 // ------------------------------------------------------------------ app/par.js: par in the page
 
-const ROW_KEYS = ['costDollars', 'lightsMWh', 'servedMWh', 'co2tPerMWh', 'saidiMin', 'saifi', 'maifi'];
+const ROW_KEYS = ['costDollars', 'lightsMWh', 'servedMWh', 'co2tPerMWh', 'saidiMin', 'saifi', 'maifi', 'uflsMWh', 'directedMWh']; // (S-7: par's shed MWh)
 const rowOf = sc => Object.fromEntries(ROW_KEYS.map(k => [k, sc[k]]));
 const memStore = () => { const box = {}; return {box, read: k => (k in box ? JSON.parse(box[k]) : null), write: (k, v) => { box[k] = JSON.stringify(v); }}; };
 
@@ -180,7 +180,7 @@ test('Q-48: a finished par is kept under gridwatch:v4:par and a runner for the s
   assert.equal(r.step(3000), true);
   assert.deepEqual([r.done, r.black, r.progress, r.series.length], [true, true, 1, 1]);
   const kept = st.read(PAR_KEY);
-  assert.deepEqual(Object.keys(kept), ['v', 'seed', 'scenarioId', 'score', 'series', 'black']);
+  assert.deepEqual(Object.keys(kept), ['v', 'seed', 'scenarioId', 'score', 'series', 'black', 'log', 'minutes']); // (W3: its input log and its minutes, for D-21)
   assert.deepEqual([kept.v, kept.seed, kept.scenarioId, kept.black], [SIM_VERSION, 7, 'desk', true]);
   assert.deepEqual(kept.score, r.score);
   assert.equal(r.step(3000), true, 'a finished runner plays nothing more');
@@ -221,4 +221,20 @@ test('X-46: par\'s in-page step is time-budgeted: past its budget it stops after
   const t1 = s();
   r.step(3000);
   assert.equal(Math.round(s() - t1), 3000, 'no budget: all 3000 ticks');
+});
+
+test('S-7: on a Hard day (par shed) the points leave par\'s shed MWh out of both totals; the letter is the gap, as any day\'s; the points are capped', () => {
+  const shed = 300, parRow = Object.assign({}, ROWS.par, {lightsMWh: shed, uflsMWh: 200, directedMWh: 100});
+  assert.equal(parShedMWh(parRow), shed);
+  const par = allIn(parRow, 0), you = (mwh, k = 1) => allIn(Object.assign({}, ROWS.par, {costDollars: ROWS.par.costDollars * k, lightsMWh: mwh}), 0);
+  const same = grade(you(shed), par, false, shed);
+  assert.deepEqual([same.points, same.letter, same.star, same.hardMWh], [1000, 'A', true, shed], 'par\'s own day: 1000');
+  // 20 MWh more dark than par: 10 MWh past an A, as on any day; the points against the outage-free part, not par's whole total
+  const worse = grade(you(shed + 20), par, false, shed), plain = grade(you(shed + 20), par, false);
+  assert.deepEqual([worse.letter, plain.letter], ['B', 'B'], 'the letter is the gap');
+  assert.ok(worse.points < plain.points, worse.points + ' < ' + plain.points + ': a par that sheds does not make the score easy');
+  assert.equal(Math.round(1000 * (par.total - V.VCR * shed) / (you(shed + 20).total - V.VCR * shed)), worse.points);
+  // every light on where par shed 300 MWh: far ahead of par, capped
+  assert.equal(grade(you(0), par, false, shed).points, HARD_MAX_POINTS);
+  assert.equal(grade(you(0), par, false, 0.01).hardMWh, undefined, 'a few kWh is not a Hard day');
 });

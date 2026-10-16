@@ -40,7 +40,7 @@ test('K-20: the breaker clack decays to -60 dB over 120 ms with partials near 0.
 // ------------------------------------------------------------------ the cue table (pure)
 
 const TABLE = {detent: 'fx', ratchet: 'fx', gate: 'fx', key: 'fx', cover: 'fx', button: 'fx', servo: 'fx', breaker: 'fx',
-  clack: 'fx', growl: 'fx', buzz: 'fx', spoolUp: 'fx', spoolDown: 'fx', horn: 'alarms', chime: 'alarms', ring2: 'alarms', tick: 'alarms'};
+  clack: 'fx', growl: 'fx', buzz: 'fx', spoolUp: 'fx', spoolDown: 'fx', horn: 'alarms', chime: 'alarms', ring2: 'alarms', tick: 'alarms', ramp: 'alarms'}; // (L-10: the clean-ramp chime)
 
 test('§13.2: every cue name has a spec, a bus, a node count and a length; unknown names have none', () => {
   assert.deepEqual([...M.CUE_NAMES].sort(), Object.keys(TABLE).sort());

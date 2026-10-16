@@ -40,7 +40,7 @@
 
 import {V} from '../sim/params.js';
 import * as G from './game.js';
-import {allIn, grade} from './score.js';
+import {allIn, grade, parShedMWh} from './score.js';
 import {startRaf} from './loop.js';
 import {createKeys, bindKeys, poll as pollKeys, typing} from './keys.js';
 import {createAudio} from '../audio/audio.js';
@@ -65,10 +65,12 @@ export const RISE_STRIP = Object.freeze([['SPIN', [0]], ['INVERTERS', [1, 2]], [
 // Why F did nothing, by mode (the director's setFast refuses these).
 const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
   RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE',
-  ALARMS: 'the alarm panel holds the clock: Esc closes it', 'FEEDER-CARD': 'a repaired feeder holds the clock: R, Enter or Esc restores it',
+  ALARMS: 'the alarm panel holds the clock: Esc closes it', 'FEEDER-CARD': 'a feeder you may close holds the clock: R, Enter or Esc restores it',
   OFFER: 'a unit is at full speed: O opens its synchroscope (30× for at most 8 s)', NIGHT: 'the night shift runs the roll to 04:00'};
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
+/** D-21: real ms a frame the no-GUARD twin may replay for, once the day is over. */
+export const TWIN_BUDGET_MS = 10;
 /** X-46: par's in-page slice stops past this many real ms a frame (the day over: no limit). */
 export const PAR_BUDGET_MS = 1.5;
 /** Q-91: a feeder card that shows on the Enter that closed the RESPOND card takes Enter or R this many real ms later. */
@@ -677,7 +679,7 @@ export function bootGame(doc, deps) {
   function scoreOf(v) {
     const par = game.par, hh = game.households, you = allIn(v.obs.score, hh), g0 = v.end && v.end.grade;
     const off = !par || (par.done && (par.black || !par.score)), at = off ? null : par.at(v.obs.s), p = at && allIn(at, hh);
-    return {you, p, off, g0, g: g0 || grade(you, p, false)};
+    return {you, p, off, g0, g: g0 || grade(you, p, false, parShedMWh(at))}; // (S-7: a Hard day so far)
   }
 
   // Q-48: the chip: SCORE against par ('SCORE …' until par gets there); with no par to compare, ALL-IN in cents per kWh asked for.
@@ -882,6 +884,8 @@ export function bootGame(doc, deps) {
     const t1 = now();
     // Q-48: par, a slice a frame from TAKE THE DESK, in every mode (?perf: its own 'par' line)
     if (game.par && game.phase === 'play') timed('par', () => { if (!game.par.done) game.par.step(game.state.over ? PAR_STEP_OVER_TICKS : PAR_STEP_TICKS, game.state.over ? Infinity : PAR_BUDGET_MS); });
+    // D-21: the moment's no-GUARD twin replays the day after it (app/verdict.js createTwin), TWIN_BUDGET_MS a frame
+    if (game.twin && !game.twin.done && game.state.over) timed('twin', () => game.twin.step(Infinity, TWIN_BUDGET_MS));
     vm = G.buildVm(game, {nowMs: t1, dtS});
     if (mods.map) timed('map', () => mods.map.update(vm));
     if (mods.desk) timed('desk', () => mods.desk.update(vm));
@@ -961,7 +965,7 @@ export function bootGame(doc, deps) {
     if (!id || k === 'Enter' && !ev.repeat && ['restore-list', 'suburb-card', 'feeder-card'].some(x => within(x, t))) return;
     ev.preventDefault(); ev.stopPropagation();
     if (ev.repeat) return;
-    if (now() - cardKeyMs < FEEDER_ARM_MS) showToast('A repaired feeder holds the clock: read its card, then R or Enter restores it', 'info');
+    if (now() - cardKeyMs < FEEDER_ARM_MS) showToast('A feeder you may close holds the clock: read its card, then R or Enter restores it', 'info');
     else actions.input({type: 'restore', district: id});
   }
   doc.addEventListener('keydown', escFirst, true);

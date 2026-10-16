@@ -1,5 +1,8 @@
 // app/par.js: par (the autopilot on the same day) run in the page a slice a frame, for the ALL-IN
-// score (Q-48, desk/README.md §30.7): AP.runPar resumes from our state and memo.
+// score (Q-48, desk/README.md §30.7): AP.runPar resumes from our state and memo. W3: a finished par keeps
+// its input log (p.log, for D-21 and a later D-22) and, a grid minute each, its lowest and highest
+// frequency and its spare in 5 min at the minute's end (p.minutes, flat [lowHz, highHz, r5MW, ...]: the
+// verdict's moment, D-21, compares the player's minute with par's).
 
 import {V, SIM_VERSION} from '../sim/params.js';
 import * as AP from '../sim/autopilot.js';
@@ -10,7 +13,7 @@ export const PAR_CHUNK_TICKS = 500;   // the fewest a step plays
 export const PAR_KEY = 'gridwatch:v4:par';
 
 const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-const MARK = PAR_MARK_S * V.TICKS_PER_S, KEYS = ['costDollars', 'lightsMWh', 'servedMWh', 'co2tPerMWh', 'saidiMin', 'saifi', 'maifi'];
+const MARK = PAR_MARK_S * V.TICKS_PER_S, KEYS = ['costDollars', 'lightsMWh', 'servedMWh', 'co2tPerMWh', 'saidiMin', 'saifi', 'maifi', 'uflsMWh', 'directedMWh'];
 
 /**
  * opts.storage: {read(key), write(key, value)}, app/game.js's wrapped storage (C-8).
@@ -21,8 +24,16 @@ export function createParRunner(seed, scenario, opts) {
   const storage = opts && opts.storage, id = scenario.id, row = sc => Object.fromEntries(KEYS.map(k => [k, sc[k]]));
   seed >>>= 0;
   let state = null, memo = null;
-  const run = untilTick => AP.runPar(seed, scenario, {state, memo, untilTick, hashEveryS: V.DAY_S + 1});
-  const p = {done: false, score: null, series: [], progress: 0, black: false,
+  const minutes = [], MIN = V.S_PER_MIN * V.TICKS_PER_S;
+  let lo = Infinity, hi = -Infinity;
+  const onStep = st => {
+    const f = st.phys.fHz;
+    if (f < lo) lo = f;
+    if (f > hi) hi = f;
+    if (st.tick % MIN === 0) { minutes.push(round3(lo), round3(hi), Math.round(st.sec.r5MW)); lo = Infinity; hi = -Infinity; }
+  };
+  const run = untilTick => AP.runPar(seed, scenario, {state, memo, untilTick, hashEveryS: V.DAY_S + 1, onStep});
+  const p = {done: false, score: null, series: [], progress: 0, black: false, log: null, minutes,
     step(maxTicks, budgetMs = Infinity) {
       const t0 = clock();
       try {
@@ -32,8 +43,8 @@ export function createParRunner(seed, scenario, opts) {
           left -= state.tick - t;
           if (state.tick % MARK === 0) p.series.push(row(r.score));
           if (state.over) {
-            Object.assign(p, {done: true, score: r.score, black: state.black});
-            if (storage) storage.write(PAR_KEY, {v: SIM_VERSION, seed, scenarioId: id, score: r.score, series: p.series, black: state.black});
+            Object.assign(p, {done: true, score: r.score, black: state.black, log: state.log.map(x => ({tick: x.tick, type: x.type, args: Object.assign({}, x.args)}))});
+            if (storage) storage.write(PAR_KEY, {v: SIM_VERSION, seed, scenarioId: id, score: r.score, series: p.series, black: state.black, log: p.log, minutes});
           }
         }
       } catch (e) {
@@ -46,9 +57,17 @@ export function createParRunner(seed, scenario, opts) {
     at(s) { return seriesAt(p.series, s); }};
   const k = storage && storage.read(PAR_KEY);
   if (k && k.v === SIM_VERSION && k.seed === seed && k.scenarioId === id && k.score instanceof Object && k.series instanceof Array) {
-    Object.assign(p, {done: true, score: k.score, series: k.series, black: !!k.black, progress: 1});
+    Object.assign(p, {done: true, score: k.score, series: k.series, black: !!k.black, progress: 1, log: k.log || null, minutes: k.minutes || []});
   }
   return p;
+}
+
+const round3 = x => Math.round(x * 1000) / 1000;
+
+/** W3: par's minute holding grid second s from p.minutes: {lowHz, highHz, r5MW}, or null before it was played. */
+export function parMinute(p, s) {
+  const k = Math.floor(s / V.S_PER_MIN) * 3, m = p && p.minutes;
+  return m && k + 2 < m.length ? {lowHz: m[k], highHz: m[k + 1], r5MW: m[k + 2]} : null;
 }
 
 /** A series' row at grid second s, linear between its marks; null past its last mark (at(s); a finished par's too). */

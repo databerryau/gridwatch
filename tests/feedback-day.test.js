@@ -99,7 +99,8 @@ describe('the first RESPOND card', () => {
 describe('the night roll', () => {
   before(() => {
     const p = S.p;
-    for (let i = 0; i < 8; i++) { const r = p.to('21:00:01', {stop: [], line: 'near'}); if (!/^held:(RESPOND|FEEDER)-CARD$/.test(r.why)) break; p.key(r.why === 'held:RESPOND-CARD' ? 'Enter' : 'Escape'); }
+    // (D-26: the evening's shed stages hold too)
+    for (let i = 0; i < 40; i++) { const r = p.to('21:00:01', {stop: [], line: 'near'}); if (!/^held:(RESPOND|FEEDER)-CARD$/.test(r.why)) break; p.key(r.why === 'held:RESPOND-CARD' ? 'Enter' : 'Escape'); }
     assert.equal(p.clock(), '21:00:01');
   });
 

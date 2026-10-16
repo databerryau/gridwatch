@@ -52,7 +52,7 @@ function boot(o = {}) {
     rows: () => $('end-card').querySelectorAll('tr').map(r => r.children.map(c => squash(c.textContent))),
     lines: () => $('end-card').querySelectorAll('p').map(p => squash(p.textContent))};
 }
-const scoreText = g => 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '');
+const scoreText = (g, perfect) => 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + (perfect ? ' · PERFECT' : ''); // (S-6)
 
 test('Q-48: the chip: hidden at the briefing; from TAKE THE DESK, SCORE against par at the same grid time ("SCORE …" until par is there); its title', () => {
   const run = runner({progress: 0.2});
@@ -99,7 +99,7 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.equal(card.hidden, false);
   assert.equal(card.firstElementChild.tagName, 'H2');
   assert.equal(card.firstElementChild.textContent, 'Day over: 04:00.', 'the h2 first and unchanged');
-  assert.equal(b.$('end-score').textContent, scoreText(g));
+  assert.equal(b.$('end-score').textContent, scoreText(g, b.game.end.perfect));
   assert.equal(b.chip(), 'SCORE ' + g.points, 'the chip at 04:00 is the card\'s score');
   const rows = b.rows();
   assert.deepEqual(rows[0], ['', 'YOU', 'PAR', 'Δ']);
@@ -151,7 +151,7 @@ test('Q-48: par computing: "PAR: computing… n%" in the score\'s place, redrawn
   b.frame();
   const g = b.game.end.grade;
   assert.ok(g && g.star && g.letter === 'A', 'par arrived and graded the end in place');
-  assert.equal(b.$('end-score').textContent, scoreText(g));
+  assert.equal(b.$('end-score').textContent, scoreText(g, b.game.end.perfect));
   assert.equal(b.chip(), 'SCORE ' + g.points);
   assert.deepEqual(b.rows()[0], ['', 'YOU', 'PAR', 'Δ']);
   assert.equal(b.$('btn-again'), again, 'the card is redrawn between the h2 and the seed line only');
@@ -275,7 +275,7 @@ test('Q-48, played (sampled): the CLOCK line carries SCORE against par through t
   p.frames(2);
   const end = p.game.end.grade, look = p.look({controls: false});
   // (2c, Q-75: a bare seed outside the shipped list's dates is not gate-checked, and says so under the h2)
-  assert.match(look, new RegExp('^END Day over: 04:00\\. Not gate-checked: this day may not be solvable\\. ' + scoreText(end).replace(/[★·]/g, '.') + ' YOU PAR Δ SUPPLY', 'm'), look);
+  assert.match(look, new RegExp('^END Day over: 04:00\\. Not gate-checked: this day may not be solvable\\. ' + scoreText(end, p.game.end.perfect).replace(/[★·]/g, '.') + '( PERFECT: [^.]*\\.)? Letter: .* LIGHTS .* THE NUMBERS YOU PAR Δ SUPPLY', 'm'), look); // (W3: the verdict, then THE NUMBERS)
   assert.match(look, new RegExp('\\| SCORE ' + end.points + '$', 'm'));
   assert.deepEqual(p.h.mods.errors, []);
 });

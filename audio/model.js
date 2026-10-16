@@ -36,6 +36,8 @@ export const TONES = Object.freeze({
   chime: Object.freeze({notes: Object.freeze([[880, 0, 0.6]]), type: 'sine', level: 0.15}),
   ring2: Object.freeze({notes: Object.freeze([[1320, 0, 0.12], [1320, 0.25, 0.12]]), type: 'triangle', level: 0.08}),
   tick: Object.freeze({notes: Object.freeze([[2000, 0, 0.03]]), type: 'sine', level: 0.05}),
+  // L-10: a clean ramp, the evening peak passed with no red hour: a rising major triad
+  ramp: Object.freeze({notes: Object.freeze([[660, 0, 0.25], [831, 0.16, 0.25], [990, 0.32, 0.6]]), type: 'sine', level: 0.12}),
 });
 
 /** dBFS -> linear gain. */
@@ -116,7 +118,7 @@ export const VOICES = Object.freeze({
 export const BUS = Object.freeze({
   detent: 'fx', ratchet: 'fx', gate: 'fx', key: 'fx', cover: 'fx', button: 'fx', servo: 'fx', breaker: 'fx',
   clack: 'fx', growl: 'fx', buzz: 'fx', spoolUp: 'fx', spoolDown: 'fx',
-  horn: 'alarms', chime: 'alarms', ring2: 'alarms', tick: 'alarms',
+  horn: 'alarms', chime: 'alarms', ring2: 'alarms', tick: 'alarms', ramp: 'alarms',
 });
 /** Every cue name audio/ plays. */
 export const CUE_NAMES = Object.freeze(Object.keys(BUS));
