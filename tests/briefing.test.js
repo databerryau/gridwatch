@@ -14,7 +14,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {bootGame, watchFor, watchForInto, NOT_GATED, dayText, HAND_CHIP, createLive, liveFrame, LIVE_GAP_MS, TOAST_MS, TOAST_WORD_MS,
+import {bootGame, watchFor, watchForInto, NOT_GATED, dayText, dayPlan, HAND_CHIP, createLive, liveFrame, LIVE_GAP_MS, TOAST_MS, TOAST_WORD_MS,
   NIGHT_REDRAW_MS} from '../app/shell.js';
 import * as G from '../app/game.js';
 import * as endCard from '../app/endcard.js';
@@ -92,7 +92,17 @@ test('Q-80: the day\'s line reads the 04:00 news on a planned day, and keeps the
   assert.equal(dayText(hot, null), 'Today: a hot weekday; any heatwave warning comes mid-morning.', 'classic: announced at 10:30');
   assert.equal(dayText({temp: 'HOT', weekend: true}, {heat: false}), 'Today: a hot weekend, one coal unit off, no heatwave forecast.');
   const b = boot(20261011);
-  assert.equal(b.$('briefing-day').textContent, 'Today: a mild weekend, one coal unit off.');
+  assert.equal(b.$('briefing-day').textContent, 'Today: a mild weekend, one coal unit off. Storms likely later.');   // (Q-110: a storm day)
+  // Q-110: a storm or a wind drought "likely later", the week ahead's word (its time comes in the warning, on the day)
+  assert.equal(dayText(hot, {heat: false, word: 'storm'}), 'Today: a hot weekday, no heatwave forecast. Storms likely later.');
+  assert.equal(dayText({temp: 'MILD', weekend: false}, {heat: false, word: 'low wind'}), 'Today: a mild weekday: rooftop solar cuts midday demand. Low wind likely later.');
+  assert.equal(dayText({temp: 'MILD', weekend: true}, {heat: false, word: 'mild'}), 'Today: a mild weekend, one coal unit off.', 'a calm day: nothing later');
+  assert.equal(dayText(hot, null), 'Today: a hot weekday; any heatwave warning comes mid-morning.', 'classic: no outlook');
+  // on the page: 20261019 is a wind-drought daily (its warning at 16:23), as the week ahead from the 16th says
+  const lw = boot(20261019), st = lw.game.state;
+  assert.equal(st.ext.regime.cls, 'drought');
+  assert.equal(lw.$('briefing-day').textContent, 'Today: a mild weekday: rooftop solar cuts midday demand. Low wind likely later.');
+  assert.deepEqual(dayPlan(st, observe(st)), {heat: false, word: 'low wind'});
 });
 
 test('D-7 / Q-64: the header\'s HAND chip: HAND (amber, with the word) from obs.mode until the night shift, then HAND-FLOWN · NIGHT SHIFT ON AGC from obs.handFlown; none on an AGC day', () => {

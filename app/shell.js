@@ -53,6 +53,7 @@ import {unitLabel} from '../desk/util.js';
 import {puzzleNumber} from './share.js';
 import {localYmd} from './history.js';
 import {pastDailies, hardDays, resultText, isoOf} from './shelf.js';
+import {outlookWord} from './week.js';
 
 /** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
 export function layoutSizes(width, height) {
@@ -120,17 +121,21 @@ export function objectiveWord(o) {
 /**
  * The briefing's line about the day (P-3; desk/README.md §21.4): its type and whether it is a
  * weekday, from the public obs.day only (a heatwave day reads HOT, C-2). plan: on a day the event
- * director planned, {heat: a heatwave announced at 04:00} (Q-80: a HOT day without one has none
- * coming); null on the classic day, whose heatwave is announced mid-morning.
+ * director planned, {heat: a heatwave announced at 04:00, word: the day's outlook word} (Q-80: a HOT
+ * day without one has none coming; Q-110: a storm or low wind "likely later", as the week ahead said,
+ * its time in the warning on the day); null on the classic day, whose heatwave is announced mid-morning.
  */
 export function dayText(day, plan) {
   if (!day) return '';
   const when = day.weekend ? 'weekend' : 'weekday';
-  // (D-3: short, so the day and Watch for fit 30 words)
-  const lean = day.weekend ? ', one coal unit off' : '';
-  if (day.temp === 'MILD') return 'Today: a mild ' + when + lean + (day.weekend ? '.' : ': rooftop solar cuts midday demand.');
-  return 'Today: a hot ' + when + lean + (!plan ? '; any heatwave warning comes mid-morning.' : plan.heat ? ', heatwave this afternoon.' : ', no heatwave forecast.');
+  const lean = day.weekend ? ', one coal unit off' : '', later = (plan && LATER[plan.word]) || '';
+  if (day.temp === 'MILD') return 'Today: a mild ' + when + lean + (day.weekend ? '.' : ': rooftop solar cuts midday demand.') + later;
+  return 'Today: a hot ' + when + lean + (!plan ? '; any heatwave warning comes mid-morning.' : plan.heat ? ', heatwave this afternoon.' : ', no heatwave forecast.') + later;
 }
+/** Q-110: the day line's outlook sentence for a storm or a wind drought (app/week.js's words): no time, which the warning gives. */
+export const LATER = Object.freeze({storm: ' Storms likely later.', 'low wind': ' Low wind likely later.'});
+/** The day line's plan (dayText) from the state at 04:00 and its obs: null on the classic day (no director's plan). */
+export const dayPlan = (st, obs) => (st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0), word: outlookWord(st.seed, st.scn)} : null);
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -457,7 +462,7 @@ export function bootGame(doc, deps) {
     const shelfB = $('btn-shelf-brief');   // (W6, Y-2: on a practice day's briefing; a first visit keeps its one click)
     if (shelfB) shelfB.hidden = !SHELF_ON.includes(G.runView(game).why) || G.firstShift(game) || !!game.replay;
     const st = game.state, obs = observe(st), day = $('briefing-day'), w = $('briefing-watch');
-    if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
+    if (day) day.textContent = dayText(st.day, dayPlan(st, obs));
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
     const date = $('briefing-date');
     // (a daily's exception seed is its date + k·1e8, Q-75; a Hard day has no date: it is not that date's daily)

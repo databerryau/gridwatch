@@ -1001,7 +1001,7 @@ test('C-2 at boot: a seed that reads as a Saturday or Sunday plays desk-weekend;
   assert.equal(w.h.game.scenario.id, 'desk-weekend');
   assert.deepEqual(w.h.game.state.day, {temp: 'MILD', weekend: true});
   assert.equal(w.h.game.state.units.find(u => u.id === 'coal4').mode, 'off', 'coal 4 off since Friday night');
-  assert.equal(w.$('briefing-day').textContent, dayText({temp: 'MILD', weekend: true}));
+  assert.equal(w.$('briefing-day').textContent, dayText({temp: 'MILD', weekend: true}) + ' Storms likely later.');   // (Q-110: a storm day)
   // a weekday seed, and a hot one
   const d = boot('?seed=7', {scenario: G.scenarioForSeed});
   d.frames(2);
