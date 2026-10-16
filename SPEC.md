@@ -264,7 +264,7 @@ Every step ships something playable, and the live game works after every step.
 | **W3** | Slice 2d: grade, debrief and the respond window | Built (2026-10-16) ahead of W2 (the owner's call), `v4-core-2d.0`; see W3 below |
 | **W4** | Slice 2e: the commitment desk and onboarding | Built (2026-10-16) ahead of W2 (the owner's call), still `v4-core-2d.0`; see W4 below |
 | **W5** | Playtest gate 1 | After W4 |
-| **W6** | Phase 4: the daily (share card, history, streak, the phone page), then telemetry | After W5; ends at gate 2 |
+| **W6** | Phase 4: the daily (share card, history, streak, the phone page), then telemetry | Started (2026-10-16) ahead of W5: the share card and official runs with streaks are built; see W6 below |
 | Later | Phase 3 (the rest of the city); Phase 5 (week mode) | Not scheduled; decided on the gates' evidence (§9.2) |
 
 The order is the owner's (Q-107), with two placements of mine: the dark-district holds (D-26) go into W3 with the respond-card work, and the commitment desk goes into W4 with the cover plates, because the plates sit on it.
@@ -431,6 +431,16 @@ Also in W3: keep par's input log when it finishes (today `app/par.js` drops it),
 **Fail:** fix the top three issues and re-run with at least two new testers.
 
 ### W6 — Phase 4: the daily
+
+*Started 2026-10-16 (branch `w6-daily`), ahead of W5's playtests, at the owner's request ("implement the next couple of features ... in manageable chunks"). No sim change, so `v4-core-2d.0` stands. Two chunks are in: the share card (Y-1, Y-4, Y-5, Y-7) and official runs with history and streaks (Y-2, Y-3). The rest of W6 is still to build: resume (F-7), the practice shelf and its Hard days, Y-8, Y-11, D-28, D-29, F-8, F-9, F-14 and Y-10. Where the build differs from the text:*
+- **Y-1.** The number is in the briefing's title ("Daily #5"), not on the date line, so D-3's 60 words are unchanged. A seed that is not its date's listed attempt has no number; its card names the seed.
+- **Y-4.** `app/share.js` builds the card; `lintCard` rejects clock times, event and time-of-day words, district ids and characters outside ASCII, the blocks, ★ and ·. The rows: *Lights* is the MWh of yours dark against par's ("★ every light on"); *Cost* is supply c/kWh against par's, in per cent, with ★ at par or better (within 0.5% is level); *Carbon* is t/MWh, the same way. PERFECT follows the letter. A block the day never reached (a black day) is a middle dot. A card over 280 characters drops its closing line first, then its last tags.
+- **Tags.** The coach tag marks the exception. A first shift coaches unless switched off, and since W4 a later shift is off unless switched on, so the card says NO COACH only on a first shift with the coach off, and COACHED on a later shift with it on (O-8's text had NO COACH on every later card, where it says nothing). HARD DAY is added (S-7). OFFICIAL is on the verdict, not the card: a card without PRACTICE is the official run.
+- **Y-5.** SHARE copies through the clipboard, else a hidden textarea and `execCommand('copy')`; the button then reads COPIED. If both are blocked, the card's text is selected and a toast says to press Ctrl+C. The card shows on the end card as YOUR CARD, exactly as it will paste, after the verdict (D-25).
+- **Y-7.** 51 lines in `content/closing.js`, three per bucket: lights (on: no darker than par; dark) × cost (under; over) × the lowest Hz's band (calm: normal band; wobble: containment; deep: above 49.0 Hz; relays: below it), plus black. Marg's closing line on the verdict ends with the same line (O-6), so the card quotes her. Each line is at most 40 characters and passes the lint.
+- **Y-7 (review).** 58 lines: the 16 buckets, plus `held` (streets of yours dark but no more than par's: a Hard day), `solo.on`/`solo.dark` (par could not finish: no cost claim, no ★) and black. A line states the outcome, never its cause, and never blames.
+- **Y-2 (Q-99).** `app/history.js`. A run is FIRST SHIFT (practice unless COUNT THIS ONE at the end), OFFICIAL (today's daily with no entry: an entry marked DNF is written at 09:00 and filled in at the day's end) or PRACTICE (a past date, a seed off the calendar, or today once its run is in). The briefing title carries the tag ("Daily #5 · OFFICIAL", the reason as its title); the end card says why; the share card carries PRACTICE. Without F-7's resume, closing the tab after 09:00 leaves a DNF.
+- **Y-3.** One entry per date under `gridwatch:v4:history` (`{v: 1, days}`, at most 400 dates). STREAK: finished official runs on consecutive dates, to today or yesterday; ★ STREAK (the spec's BEST): the same, at par or better. With storage blocked the game plays and the end card says "History off".
 
 Requirement text for each Y- and F- item is in `SPEC-history.md` Phase 4, amended as below.
 - **Y-1 — Date and number.** The local calendar date; puzzle #1 is 2026-10-12 (`content/dailies.js` `from`). Seeds follow Q-75 (`YYYYMMDD + k·10⁸`), a recorded deviation from Y-1's hash.
