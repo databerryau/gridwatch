@@ -1,5 +1,42 @@
-// app/shell.js: the game page (next.html) around app/game.js.
-// Contract: desk/README.md §32.12 app/shell.js.
+// app/shell.js: the game page (next.html) around app/game.js. It mounts the map, the desk and
+// the Live Stack (whichever modules boot.js passes in), draws the header and the overlays
+// (briefing, watch, respond card, end card, drawer, "?" labels, toast, ?perf), runs the frame
+// loop (ticks, then the view model, then every module draws: never inside step(), X-26),
+// binds the K-23 keys and starts the audio on the first gesture.
+//
+// app/boot.js is the page's one module script: it imports the real modules and calls
+// bootGame(document, {...}). Tests call bootGame with the stand-in DOM (tests/lib/dom.js) and
+// stand-in modules, so the shell is tested before the other stage B files exist.
+//
+// Element ids other modules rely on:
+//   #map, #desk      the roots createMap / createDesk receive
+//   #stack-slot      created BY THE DESK in its third column: createLiveStack's root. If the
+//                    desk has none, the shell makes one at the end of #desk.
+//   #stack-overlay   L-4: while vm.stackExpanded the shell moves the Live Stack's `el` here
+//                    (over the map, ~1248 x 420) and back into #stack-slot after; the stack
+//                    sizes its canvas from its parent on update.
+//
+// Phase 1b (desk/README.md §13): the SETTINGS popover (#btn-settings, `,`; B-7) and the body
+// classes rm / fxlow / crt that follow vm.settings; the one key listener and its order (§13.3:
+// the desk's key(ev), then the stack's and the map's, then app/keys.js); the #aria-live region
+// (createLive / liveFrame below); the ?perf budget marks; ?debug -> globalThis.gridwatch.
+// desk/README.md §30: texts and the alarm panel on demand (Q-44, Q-46), "?" and Esc (Q-47), par (Q-48).
+// desk/README.md §32.8.2 (2c): the briefing's Watch for (Q-81), the header's HAND chip (D-7), the night
+// strip in the objective's place from 21:00 and the end card fetched then (Q-73). Enter at the RESPOND card
+// closes it on the capture phase, before any control's own Enter (K-16: a RESTORE row's would close a breaker).
+// Q-91: the feeder card (#feeder-card, drawFeeder from vm.feeder: what, the keys in blue, what going on means,
+// before a press why a restore would be refused now in amber (vm.feeder.lamp), a refused restore's reason in
+// red (the grid's refusal), and two blue buttons: #feeder-restore "RESTORE <id>" (the restore of its feeder)
+// and #feeder-go-on "GO ON" (ui 'goOn')). On the capture phase (feederFirst, after Esc's closeTop: an Esc that
+// closed something stops there), while the director plays FEEDER-CARD, Enter or R sends the restore of the
+// feeder it names (actions.input: a refusal toasts in red and the card stays) and Esc goes on, but in
+// SETTINGS, the drawer and "?", and but Enter on a RESTORE row (the bay's CLOSE), the suburb card or the
+// card's own buttons, which is theirs. A key's auto-repeat is swallowed, and so is an Enter or R within
+// FEEDER_ARM_MS (250 real ms) of the Enter that closed the RESPOND card (cardFirst; a queued card shows on
+// that press), with a blue answer. A click on the card's body focuses its feeder's CLOSE (restore-<id>) and
+// the card stays. It sits over the map (never the desk's Live Stack or bay); with the stack out (L) the body
+// class stack-out (placeStack) moves it over the lever bank. The objective line waits while it shows, as at
+// the respond card (the card is the one instruction while the clock holds), but a ‼ URGENT line stays up.
 
 import {V} from '../sim/params.js';
 import * as G from './game.js';
@@ -8,8 +45,8 @@ import {startRaf} from './loop.js';
 import {createKeys, bindKeys, poll as pollKeys, typing} from './keys.js';
 import {createAudio} from '../audio/audio.js';
 import {ANCHORS} from '../content/anchors.js';
-import {badgeText, badgeTitle, BADGE_HELP, NIGHT_LOCK, lightsText, centsText, co2Text, clockText, allInCents, mw, VCR_TEXT, VER_TEXT} from '../render/format.js';
-import {BEATS} from './watch.js';
+import {badgeText, badgeTitle, BADGE_HELP, NIGHT_LOCK, lightsChip, centsText, co2Text, clockText, allInCents, mw, VCR_TEXT, VER_TEXT} from '../render/format.js';
+import {BEATS, FEEDER_ON} from './watch.js';
 import {modeOf, feederCard} from './director.js';
 import {observe} from '../sim/step.js';
 import {unitLabel} from '../desk/util.js';
@@ -22,13 +59,18 @@ export function layoutSizes(width, height) {
 }
 
 const WATCH_WORDS = {inertia: 'INERTIA', battery: 'BATTERY', governors: 'GOVERNORS', ufls: 'UFLS', settle: 'SETTLE'};
+/** K-15 (Q-97): the strips, as [word, the beat indices it lights]: a fall's five beats; a rise's own three. */
+export const FALL_STRIP = Object.freeze(BEATS.map((b, i) => [WATCH_WORDS[b], [i]]));
+export const RISE_STRIP = Object.freeze([['SPIN', [0]], ['INVERTERS', [1, 2]], ['SETTLE', [3, 4]]]);
 // Why F did nothing, by mode (the director's setFast refuses these).
 const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
   RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE',
-  ALARMS: 'the alarm panel holds the clock: Esc closes it', 'FEEDER-CARD': 'a repaired feeder holds the clock: R or Enter restores it, Esc goes on',
+  ALARMS: 'the alarm panel holds the clock: Esc closes it', 'FEEDER-CARD': 'a repaired feeder holds the clock: R, Enter or Esc restores it',
   OFFER: 'a unit is at full speed: O opens its synchroscope (30× for at most 8 s)', NIGHT: 'the night shift runs the roll to 04:00'};
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
+/** X-46: par's in-page slice stops past this many real ms a frame (the day over: no limit). */
+export const PAR_BUDGET_MS = 1.5;
 /** Q-91: a feeder card that shows on the Enter that closed the RESPOND card takes Enter or R this many real ms later. */
 export const FEEDER_ARM_MS = 250;
 // Q-46 (§30.3.6): the alarm panel's own keys inside it; the keys that never close it (F: refused, FAST_WAIT).
@@ -79,10 +121,20 @@ export function objectiveWord(o) {
 export function dayText(day, plan) {
   if (!day) return '';
   const when = day.weekend ? 'weekend' : 'weekday';
-  const lean = day.weekend ? ' Demand is lower at the weekend, and one coal unit has been off since Friday night.' : '';
-  if (day.temp === 'MILD') return 'Today: a mild ' + when + '. Rooftop solar will cut the demand your plant must meet around midday; the evening still climbs.' + lean;
-  return 'Today: a hot ' + when + (!plan ? '. A heatwave warning, if one comes, comes mid-morning.'
-    : plan.heat ? ', with a heatwave this afternoon (Watch for, below).' : '. No heatwave is forecast.') + lean;
+  // (D-3: short, so the day and Watch for fit 30 words)
+  const lean = day.weekend ? ', one coal unit off' : '';
+  if (day.temp === 'MILD') return 'Today: a mild ' + when + lean + (day.weekend ? '.' : ': rooftop solar cuts midday demand.');
+  return 'Today: a hot ' + when + lean + (!plan ? '; any heatwave warning comes mid-morning.' : plan.heat ? ', heatwave this afternoon.' : ', no heatwave forecast.');
+}
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+/** D-3: the briefing's date line from a YYYYMMDD seed ('Friday 16 October 2026'), else 'Seed N'. */
+export function dateText(seed) {
+  const y = Math.floor(seed / 1e4), m = Math.floor(seed / 100) % 100, d = seed % 100;
+  const t = new Date(Date.UTC(y, m - 1, d));
+  if (!(y >= 2000 && y < 2100) || t.getUTCMonth() !== m - 1 || t.getUTCDate() !== d) return 'Seed ' + seed;
+  return DAYS[t.getUTCDay()] + ' ' + d + ' ' + MONTHS[m - 1] + ' ' + y;
 }
 
 // Q-81 (§32.8.2): one brief per 04:00 news item, from its kind and the public obs (each <= 8 words)
@@ -368,12 +420,15 @@ export function bootGame(doc, deps) {
     const b = $('briefing-card');
     if (!b) return;
     b.hidden = game.phase !== 'briefing';
-    const st = game.state, obs = observe(st), day = $('briefing-day'), goals = $('briefing-goals'), w = $('briefing-watch');
+    const hand = $('btn-hand');
+    if (hand) hand.hidden = !G.handOffered(game);   // D-7: from the second shift
+    const st = game.state, obs = observe(st), day = $('briefing-day'), w = $('briefing-watch');
     if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
-    if (goals) goals.textContent = GOALS_TEXT;
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
-    const seed = $('briefing-seed');
-    if (seed) seed.textContent = 'Seed ' + game.seed + ' · AGC is on by default; HAND turns it off from 04:30 to 21:00.';
+    const date = $('briefing-date');
+    if (date) date.textContent = dateText(game.seed % 1e8);   // (a daily's exception seed is its date + k·1e8, Q-75)
+    const score = $('how-score');   // D-3: the score's rule is behind the header "?" (HOW TO PLAY)
+    if (score) score.textContent = GOALS_TEXT;
   }
 
   // ---------------------------------------------------------------- on demand (Q-44): a module passed in (tests), a loader, or import()
@@ -592,7 +647,9 @@ export function bootGame(doc, deps) {
     const badge = $('rate-badge');
     if (badge) { badge.className = m.mode; const t = badgeTitle(m); if (badge.title !== t) badge.title = t; } // (Q-78: the act)
     const sc = v.obs.score;
-    setText('chip-lights-v', lightsText(sc));
+    const lights = lightsChip(v.obs), lc = $('chip-lights');
+    setText('chip-lights-v', lights);
+    if (lc && lc.classList.contains('dark') !== (lights !== '100%')) lc.classList.toggle('dark', lights !== '100%');
     setText('chip-cost-v', centsText(sc));
     setText('chip-co2-v', co2Text(sc));
     setText('btn-pause', m.mode === 'PAUSE' || m.mode === 'HIDDEN' || m.mode === 'ALARMS' ? 'PLAY' : 'PAUSE');
@@ -662,14 +719,16 @@ export function bootGame(doc, deps) {
     box.hidden = !w;
     if (!w) return;
     setText('stopwatch', w.stopwatch);
-    setText('beat-caption', w.version === 'full' ? w.caption : WATCH_WORDS[w.beat]);
+    // (K-15: a rise has its own strip; a directed shed's watch has none, only its sentence)
+    const strip = w.shed ? [] : w.rise ? RISE_STRIP : FALL_STRIP, now = strip.find(x => x[1].includes(w.beatIndex));
+    setText('beat-caption', w.version === 'full' || w.shed ? w.caption : now ? now[0] : '');
     const steps = $('beat-steps');
     if (steps) {
       steps.replaceChildren();
-      BEATS.forEach((b, i) => {
+      strip.forEach(([word, at], i) => {
         if (i) steps.appendChild(doc.createTextNode(' → '));
-        const el = doc.createElement(i === w.beatIndex ? 'b' : 'span');
-        el.textContent = WATCH_WORDS[b];
+        const el = doc.createElement(at.includes(w.beatIndex) ? 'b' : 'span');
+        el.textContent = word;
         steps.appendChild(el);
       });
     }
@@ -691,31 +750,33 @@ export function bootGame(doc, deps) {
     });
   }
 
-  // Q-91: the feeder card while a hand-back holds the clock: what, the keys (blue), the mouse's RESTORE and GO ON
-  // (blue), and why a restore is refused: amber before a press (the bay's preview), red once refused (the grid's)
+  // Q-91, D-27: the feeder card while a hand-back holds the clock: what, the morning's plan (this one now, the
+  // others queued), the keys (blue), the mouse's RESTORE and the priced LEAVE, and why a restore is refused: amber
+  // before a press (the bay's preview), red once refused (the grid's)
   function drawFeeder(v) {
     const card = $('feeder-card'), f = v.feeder;
     if (!card) return;
     card.hidden = !f;
     if (!f) return;
     if (!card.children.length) {
-      for (const c of ['what', 'hint', 'on', 'why']) { const p = doc.createElement('p'); p.className = c; card.appendChild(p); }
+      for (const c of ['what', 'plan', 'hint', 'why']) { const p = doc.createElement('p'); p.className = c; card.appendChild(p); }
       const row = doc.createElement('div'), go = (b, f2) => b.addEventListener('click', ev => { ev.stopPropagation(); f2(); });
       row.className = 'row';
       const rb = doc.createElement('button'), ob = doc.createElement('button');
-      rb.id = 'feeder-restore'; rb.type = 'button'; rb.className = 'take'; rb.title = 'R or Enter: close its breaker now';
-      ob.id = 'feeder-go-on'; ob.type = 'button'; ob.textContent = 'GO ON'; ob.title = 'Esc: go on; it stays dark and is yours, in the RESTORE bay';
+      rb.id = 'feeder-restore'; rb.type = 'button'; rb.className = 'take'; rb.title = 'R, Enter or Esc: close its breaker now';
+      ob.id = 'feeder-leave'; ob.type = 'button'; ob.title = FEEDER_ON;
       go(rb, () => { if (game.feeder) actions.input({type: 'restore', district: game.feeder.id}); });
       go(ob, () => actions.ui({do: 'goOn'}));
       row.append(rb, ob);
       card.appendChild(row);
     }
-    const [what, hint, gone, why, row] = card.children, rb = row.children[0];
+    const [what, plan, hint, why, row] = card.children, [rb, ob] = row.children;
     if (what.textContent !== f.text) what.textContent = f.text;
+    if (plan.textContent !== f.plan) plan.textContent = f.plan;
     if (hint.textContent !== f.keys) hint.textContent = f.keys;
-    if (gone.textContent !== f.on) gone.textContent = f.on;
     if (rb.textContent !== 'RESTORE ' + f.id) rb.textContent = 'RESTORE ' + f.id;
-    const w = f.why ? '✕ Refused: ' + f.why + '. Esc goes on.' : f.lamp ? 'Not yet: ' + f.lamp + '. Esc goes on; the RESTORE bay closes it once its lamp lights.' : '';
+    if (ob.textContent !== f.leave) ob.textContent = f.leave;
+    const w = f.why ? '✕ Refused: ' + f.why + '.' : f.lamp ? 'Not yet: ' + f.lamp + '. The RESTORE bay closes it once its lamp lights.' : '';
     if (why.textContent !== w) why.textContent = w;
     if (why.hidden !== !w) why.hidden = !w;
     const cls = f.why ? 'why' : 'why lamp';
@@ -820,7 +881,7 @@ export function bootGame(doc, deps) {
     const ticks = G.frame(game, dtS, now);
     const t1 = now();
     // Q-48: par, a slice a frame from TAKE THE DESK, in every mode (?perf: its own 'par' line)
-    if (game.par && game.phase === 'play') timed('par', () => { if (!game.par.done) game.par.step(game.state.over ? PAR_STEP_OVER_TICKS : PAR_STEP_TICKS); });
+    if (game.par && game.phase === 'play') timed('par', () => { if (!game.par.done) game.par.step(game.state.over ? PAR_STEP_OVER_TICKS : PAR_STEP_TICKS, game.state.over ? Infinity : PAR_BUDGET_MS); });
     vm = G.buildVm(game, {nowMs: t1, dtS});
     if (mods.map) timed('map', () => mods.map.update(vm));
     if (mods.desk) timed('desk', () => mods.desk.update(vm));
@@ -887,7 +948,7 @@ export function bootGame(doc, deps) {
     if (!ev.repeat) cardKeyMs = now();
     actions.ui({do: 'dismissRespond'});
   }
-  // Q-91: at the feeder card Enter or R restores its feeder and Esc goes on (an Esc that closed something stops there),
+  // Q-91, D-27: at the feeder card Enter, R or Esc restores its feeder (an Esc that closed something stops there),
   // before any control hears them (the bay's R), but in SETTINGS, the drawer and "?". Enter on a RESTORE row, a suburb
   // card's button or the card's own buttons is that control's (a CLOSE is the bay's: another feeder's answers the
   // card, its own restores it). A key's auto-repeat is swallowed, and so is an Enter or R within FEEDER_ARM_MS of the
@@ -900,8 +961,7 @@ export function bootGame(doc, deps) {
     if (!id || k === 'Enter' && !ev.repeat && ['restore-list', 'suburb-card', 'feeder-card'].some(x => within(x, t))) return;
     ev.preventDefault(); ev.stopPropagation();
     if (ev.repeat) return;
-    if (k === 'Escape') actions.ui({do: 'goOn'});
-    else if (now() - cardKeyMs < FEEDER_ARM_MS) showToast('A repaired feeder holds the clock: read its card, then R or Enter restores it', 'info');
+    if (now() - cardKeyMs < FEEDER_ARM_MS) showToast('A repaired feeder holds the clock: read its card, then R or Enter restores it', 'info');
     else actions.input({type: 'restore', district: id});
   }
   doc.addEventListener('keydown', escFirst, true);

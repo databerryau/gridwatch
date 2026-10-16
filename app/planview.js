@@ -1,5 +1,53 @@
-// app/planview.js: the Live Stack's plan view (desk/README.md §7; SPEC L-1..L-9).
-// Contract: desk/README.md §32.12 app/planview.js.
+// app/planview.js: the Live Stack's plan view (desk/README.md §7; SPEC L-1..L-9). Pure: it
+// reads an observe() snapshot (and, for the past columns, the shell's history) and imports
+// only sim/params.js and (2c) sim/dark.js. Nothing here changes the grid; the stack sends what
+// snapDrop returns.
+//
+// project(obs, opts)            the next 4.5 h per 5-min column: each layer's MW as the sim's
+//                               plan executor will move it (desk/README §3.1), supply and gaps,
+//                               the rooftop bite and the projected spill (Phase 2a, C-11)
+// blueRuns(proj)                the runs of projected spill ahead (C-11), in the shape of redRuns
+// earliestArrival(obs, st, mw)  the earliest second a station can be at mw (L-4 ghost, L-6, L-9)
+// glowSet(obs, gap)             control ids that can arrive by the gap's start (L-9, K-16)
+// snapDrop(obs, st, atS, mw)    the inputs a drop sends, on the 15-min / 50-MW grid, or the
+//                               earliest-arrival ghost when the drop is infeasible (L-4)
+// snapStart(obs, unit, onAtS)   the same for dragging an off unit's ghost (a booked START)
+// firstGap(proj)                the first red run ahead (the gap a trip opened, K-16)
+//
+// The projection is a 5-s step simulation of the executor rule, so ramps, T1/auto-sync/T2
+// starts, the unload + T4 stop profile, min up/down, clamps and the arrive-by lead all match
+// the sim to within one step; AGC trims, governors and heat derate changes are left out (the
+// stack draws the plan, not the seconds). Where the executor's contract is loose the choice is
+// named in a comment; stage C checks the projection against a stepped sim.
+//
+// Slice 2c (§32.7.4; Q-68, Q-69):
+//   load     each column's demand leaves out the task feeders held at its time (sim/dark.js,
+//            par's functions): p50, p10 and p90 are litMW(forecast x, rooftop column, D) with
+//            D = darkShareAt(obs', t), where obs' has exactly the districts with 0 <= t < clearS
+//            dark (heldAt: a task feeder is dark from 04:00 and cannot be closed before its
+//            clearS, so this is the held set at any t, past or future, on this branch and with
+//            par's announced return alike). Load, deficit, the gaps and the projected spill read
+//            them. So before its hand-back a held feeder leaves no red gap the size of its load
+//            (+251 MW at 04:35 on DESK seed 2 before 2c), and at clearS the skyline steps up: from
+//            then it is the desk's to close. UFLS and directed darkness (clearS -1) stay on the
+//            load, as in 2b: the shed load is a red gap the player relights into, and the respond
+//            card's K-16 glow (app/game.js firstGap), the objective's planShort and Q-77's proxy
+//            read that gap; par plans on lit demand, the stack shows what the city wants. With
+//            nothing held the forecast is used as it is (classic exactly as before).
+//            pastFromHist(hist, pastTimes, obs): the history's demand (the whole city's, app/game.js
+//            histSecond) less the feeders held at each past column's end, the same way, so the
+//            past skyline meets the first future column.
+//   tie      the import limit holds until tie.limitUntilS, then TIE_MAX_MW, column by column;
+//            an arrive-by tie key leads from the imports the limit lets run on both ends, as
+//            grid.js tiePlanSecond. glowCandidates: a tie set within SNAP_MW of its limit (and
+//            under TIE_MAX_MW - SNAP_MW) is a candidate from the limit's end (L-9: it can add
+//            50 MW then, so a gap after the derate glows the knob); set past the limit, it rises
+//            by itself at the end and is none.
+//   outage   earliestOnAt for an off unit is max(s + wait, outUntilS) + startToMin, so the
+//            earliest line, the ghost, glowCandidates, snapStart and earliestArrival put a unit
+//            on outage no earlier than its return + startToMin; simInit copies outUntilS and a
+//            booked START is due at max(atS, outUntilS) (grid.js startDueS): the mirror leaves it
+//            pending until the return, without blocking later bookings, and starts it then.
 
 import {V} from '../sim/params.js';
 import {darkShareAt, litMW} from '../sim/dark.js';

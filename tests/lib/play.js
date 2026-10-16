@@ -71,6 +71,7 @@ import {runFrame} from '../../app/loop.js';
 import * as A from '../../app/alarms.js';
 import * as T from '../../app/tray.js';
 import {V} from '../../sim/params.js';
+import {observe} from '../../sim/step.js';
 import {realBetween, NIGHT_S} from '../../sim/clock.js';
 import {restoreAllowedS} from '../../sim/market.js';
 import {SCENARIOS} from '../../content/scenarios.js';
@@ -228,14 +229,25 @@ export function feederHeldAt(state) {
 /**
  * Boot next.html headless and return the driver.
  * @param {{seed?:number, scenario?:string|object|function, commit?:'player'|'system', agc?:boolean, take?:boolean,
- *   run?:boolean, storage?:object|null, startPaused?:boolean, par?:boolean|object}} [o]
+ *   run?:boolean, storage?:object|null, shifts?:number, startPaused?:boolean, par?:boolean|object}} [o]
  *   seed (default 20261007); scenario: a name in content/scenarios.js, a scenario, or a function
  *   of the seed (default: the page's scenarioForSeed); commit (default 'player', the page's);
  *   agc: AGC (true, default) or HAND at the briefing; take: press TAKE THE DESK (default true);
  *   run: press Space after taking the desk so the clock runs (default true; the page opens
  *   held); storage: a localStorage stand-in (default null: a first-time player, full watch);
+ *   shifts: the shifts this browser has finished (D-7: HAND is offered from the second), in a storage
+ *   of its own when none is given (agc: false implies 1: a HAND day is a returning player's);
  *   par: the game's par (Q-48; default false: no runner; or a finished runner's {score, series?, black?}).
  */
+// The game's storage for openGame's options: o.storage, else one holding only seen.shifts when the options ask for shifts.
+function storageOf(o) {
+  if (o.storage !== undefined) return o.storage;
+  const shifts = o.shifts !== undefined ? o.shifts : o.agc === false ? 1 : 0;
+  if (!shifts) return null;
+  const mem = new Map([[G.SEEN_KEY, JSON.stringify({shifts})]]);
+  return {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k)};
+}
+
 export function openGame(o = {}) {
   const seed = o.seed === undefined ? 20261007 : Number(o.seed);
   const scenario = typeof o.scenario === 'string' ? SCENARIOS[o.scenario] : o.scenario === undefined ? G.scenarioForSeed : o.scenario;
@@ -246,7 +258,7 @@ export function openGame(o = {}) {
   let h;
   try {
     h = bootGame(doc, {createDesk, createMap, createLiveStack, system, planview, scenario, commit: o.commit || 'player',
-      startPaused: o.startPaused === undefined ? true : o.startPaused, search: '?seed=' + seed, storage: o.storage === undefined ? null : o.storage,
+      startPaused: o.startPaused === undefined ? true : o.startPaused, search: '?seed=' + seed, storage: storageOf(o),
       audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard, perf, suburbCard, par: o.par});
   } finally { restore(); }
   const game = h.game, $ = id => doc.getElementById(id);
@@ -664,12 +676,28 @@ export function openGame(o = {}) {
     return {fromS, toS, sinceS, profileS, E, offS: sinceS - E, parts};
   }
 
+  /**
+   * The first contingency that begins at or after `when` ('HH:MM'): jumps there (the objective line
+   * drawn only near the target, as --line=near), pressing Enter at each card on the way as timeline()
+   * does, then plays on to its RESPOND card. Returns the contingency record (observe()'s), or null.
+   */
+  function tripFrom(when) {
+    const st = game.state, atTick = parseTime(when) * TPS;
+    for (let n = 0; n < 100 && !st.over; n++) {
+      const c = st.conts.at(-1);
+      if (c && c.startTick >= atTick) { until('card', {max: '+5m'}); return observe(st).contingency; }
+      const r = st.tick >= atTick ? until('trip', {line: 'near'}) : to(when, {stop: ['trip'], line: 'near'});
+      if (r.why.startsWith('held')) key('Enter');
+    }
+    return null;
+  }
+
   const api = {
     doc, h, game, $,
     get now() { return t; },
     /** The page time of the Space that ran the clock (-1 before it), for D-2's clock (clockReport). */
     get spaceMs() { return spaceMs; },
-    frame, frames, real, to, until, look, lookDiff, buttons, timeline, clockReport,
+    frame, frames, real, to, until, tripFrom, look, lookDiff, buttons, timeline, clockReport,
     click, hover, key, keyDown, keyUp, hold, pointer, send, suburb, press, pressKey,
     vm: () => h.vm(),
     clock: () => clockOfS(game.state.tick / TPS),

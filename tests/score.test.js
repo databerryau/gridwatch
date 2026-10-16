@@ -12,7 +12,7 @@ import {createState, step, observe} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
 import {V, SIM_VERSION} from '../sim/params.js';
 import {DESK} from '../content/scenarios.js';
-import {allIn, grade, LETTERS} from '../app/score.js';
+import {allIn, grade, LETTERS, LETTER_RULE} from '../app/score.js';
 import {createParRunner, PAR_KEY, PAR_MARK_S, PAR_CHUNK_TICKS} from '../app/par.js';
 import * as G from '../app/game.js';
 
@@ -107,22 +107,26 @@ test('Q-48: ALL-IN on seed 20261008: par $9.124M (supply 4.331 + carbon 4.793); 
   assert.deepEqual(['competent', 'lean', 'commitAll', 'doNothing'].map(k => pts(ROWS[k]).points), [987, 945, 809, 11]);
   assert.equal(pts(parDark(ROWS.par, 10)).points, 968);
   near(allIn(parDark(ROWS.par, 10), 0).total - par.total, 10 * V.VCR, 'a dark MWh costs VCR, and nothing else moves');
-  assert.deepEqual(pts(ROWS.par), {points: 1000, letter: 'A', star: true});
+  assert.deepEqual(pts(ROWS.par), {points: 1000, letter: 'A', star: true, gapMWh: 0});
   const nd = allIn(ROWS.doNothing, 1.9e6);
   assert.deepEqual([nd.saidiMin, nd.saifi, nd.maifi], [ROWS.doNothing.saidiMin, 0.53, 0], 'the reliability readouts are copied, never added in');
   near(nd.total, nd.supply + nd.outage + nd.carbon, 'ALL-IN');
 });
 
-test('Q-48 calibration: LETTERS (desk/README.md §30.7): on seed 20261008 a 10-MWh shed and competent are A, lean and commit-all B, no input D; b and c are par + 150 and + 600 MWh dark on the median day', () => {
+test('S-5 (Q-98): the letter comes from the gap to par in MWh-equivalents: A within 10, B 150, C 600, D beyond; the same added mistake earns the same letter on any day; the card says the rule', () => {
   assert.deepEqual(LETTERS.map(l => l[0]), ['A', 'B', 'C', 'D']);
-  assert.ok(LETTERS.every((l, i) => i === 0 || l[1] < LETTERS[i - 1][1]) && LETTERS[3][1] === -Infinity, 'best first, D catches the rest');
-  const [a, b, c] = LETTERS.map(l => l[1]);
-  const par = allIn(ROWS.par, 0), letter = r => grade(allIn(r, 0), par, false).letter;
-  assert.deepEqual(['competent', 'lean', 'commitAll', 'doNothing'].map(k => letter(ROWS[k])), ['A', 'B', 'B', 'D']);
-  assert.equal(letter(parDark(ROWS.par, 10)), 'A');
-  const med = allIn(MEDIAN_PAR, 0), pts = mwh => grade(allIn(parDark(MEDIAN_PAR, mwh), 0), med, false).points;
-  assert.deepEqual([pts(150), pts(600)], [b, c]);
-  assert.ok(pts(10) >= a, 'a 10-MWh shed on the median day: ' + pts(10));
+  assert.deepEqual(LETTERS.map(l => l[1]), [10, 150, 600, Infinity]);
+  assert.match(LETTER_RULE, /^Letter: how far behind par, in MWh dark at VCR: A within 10, B within 150, C within 600, D beyond; F if the grid goes black\.$/);
+  // the same mistake (MWh dark added to par's own day) on a cheap day (20261008) and the median one (DESK seed 55)
+  for (const day of [ROWS.par, MEDIAN_PAR]) {
+    const par = allIn(day, 0), letter = mwh => grade(allIn(parDark(day, mwh), 0), par, false);
+    assert.deepEqual([0, 10, 10.5, 150, 151, 600, 601, 5000].map(m => letter(m).letter), ['A', 'A', 'B', 'B', 'C', 'C', 'D', 'D']);
+    near(letter(150).gapMWh, 150, 'the gap is the MWh dark at VCR');
+  }
+  // the proxies on 20261008
+  const par = allIn(ROWS.par, 0), g = r => grade(allIn(r, 0), par, false);
+  assert.deepEqual(['competent', 'lean', 'commitAll', 'doNothing'].map(k => g(ROWS[k]).letter), ['A', 'B', 'B', 'D'],
+    ['competent', 'lean', 'commitAll', 'doNothing'].map(k => k + ' ' + g(ROWS[k]).gapMWh.toFixed(1)).join(', '));
 });
 
 test('Q-48: grade: a black day is an F at once; no par, or nothing to compare, is no grade; star from 1000', () => {
@@ -205,4 +209,16 @@ test('Q-48: the page\'s par (createGame par: true) reads the kept day, keeps its
   g.state.over = true;
   G.buildVm(g, {nowMs: 0});
   assert.deepEqual(g.end.grade, grade(g.end.allIn, allIn(ROWS.par, g.households), false));
+});
+
+test('X-46: par\'s in-page step is time-budgeted: past its budget it stops after the chunk it is in (a zero budget plays one chunk)', () => {
+  const r = createParRunner(20261008, DESK, {});
+  r.step(0);                                    // the first step builds par's state and plays its first chunk
+  const s = () => r.progress * V.DAY_TICKS;
+  const t0 = s();
+  r.step(3000, 0);
+  assert.equal(Math.round(s() - t0), PAR_CHUNK_TICKS, 'one chunk at a zero budget');
+  const t1 = s();
+  r.step(3000);
+  assert.equal(Math.round(s() - t1), 3000, 'no budget: all 3000 ticks');
 });

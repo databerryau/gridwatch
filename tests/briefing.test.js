@@ -59,11 +59,11 @@ test('Q-81: a heat + tie derate + feeder date (20261005): Watch for names all th
   const w = b.$('briefing-watch'), [head, gate] = w.children.filter(c => c.tagName);
   assert.deepEqual([w.className, head.tagName, head.textContent, gate.className, gate.textContent], ['', 'B', 'Watch for:', 'gate', NOT_GATED],
     'Watch for in the card\'s own colour with a bold head, the label on its own line');
-  assert.match(NEXT, /<p id="briefing-watch"><\/p>\s*<p id="briefing-seed" class="dim"><\/p>/);
+  assert.match(NEXT, /<p id="briefing-watch"><\/p>\s*<p id="briefing-real" class="dim">[^<]+<\/p>\s*<p id="briefing-date" class="dim"><\/p>/);
   assert.match(NEXT, /#briefing-watch \.gate \{ display: block; \}/);
-  assert.equal(b.$('briefing-seed').textContent, 'Seed 20261005 · AGC is on by default; HAND turns it off from 04:30 to 21:00.', 'the small print apart');
+  assert.equal(b.$('briefing-date').textContent, 'Monday 5 October 2026', 'D-3: the date, not the seed');
   // Q-80: the heat is news at 04:00, so the day's line can say it
-  assert.equal(b.$('briefing-day').textContent, 'Today: a hot weekday, with a heatwave this afternoon (Watch for, below).');
+  assert.equal(b.$('briefing-day').textContent, 'Today: a hot weekday, heatwave this afternoon.');
   assert.deepEqual(b.h.mods.errors, []);
 });
 
@@ -87,12 +87,12 @@ test('Q-81: a late return names the unit as the desk does (weekday CCGT 2, weeke
 
 test('Q-80: the day\'s line reads the 04:00 news on a planned day, and keeps the mid-morning words on the classic day', () => {
   const hot = {temp: 'HOT', weekend: false};
-  assert.equal(dayText(hot, {heat: false}), 'Today: a hot weekday. No heatwave is forecast.');
-  assert.equal(dayText(hot, {heat: true}), 'Today: a hot weekday, with a heatwave this afternoon (Watch for, below).');
-  assert.equal(dayText(hot, null), 'Today: a hot weekday. A heatwave warning, if one comes, comes mid-morning.', 'classic: announced at 10:30');
-  assert.match(dayText({temp: 'HOT', weekend: true}, {heat: false}), /^Today: a hot weekend\. No heatwave is forecast\. Demand is lower at the weekend/);
+  assert.equal(dayText(hot, {heat: false}), 'Today: a hot weekday, no heatwave forecast.');
+  assert.equal(dayText(hot, {heat: true}), 'Today: a hot weekday, heatwave this afternoon.');
+  assert.equal(dayText(hot, null), 'Today: a hot weekday; any heatwave warning comes mid-morning.', 'classic: announced at 10:30');
+  assert.equal(dayText({temp: 'HOT', weekend: true}, {heat: false}), 'Today: a hot weekend, one coal unit off, no heatwave forecast.');
   const b = boot(20261011);
-  assert.match(b.$('briefing-day').textContent, /^Today: a mild weekend\. /);
+  assert.equal(b.$('briefing-day').textContent, 'Today: a mild weekend, one coal unit off.');
 });
 
 test('D-7 / Q-64: the header\'s HAND chip: HAND (amber, with the word) from obs.mode until the night shift, then HAND-FLOWN · NIGHT SHIFT ON AGC from obs.handFlown; none on an AGC day', () => {
@@ -121,7 +121,7 @@ test('D-7 / Q-64: the header\'s HAND chip: HAND (amber, with the word) from obs.
 test('§32.11: the badge has a look for a feeder card (Q-91), OFFER and NIGHT, each with its word (K-22: never colour alone)', () => {
   for (const m of ['FEEDER-CARD', 'OFFER', 'NIGHT']) assert.match(NEXT, new RegExp('#rate-badge\\.' + m + '[ ,][^{]*\\{'), m + ' has a look');
   assert.deepEqual([badgeText({mode: 'FEEDER-CARD', rate: 0}), badgeText({mode: 'OFFER', rate: 30}), badgeText({mode: 'NIGHT', rate: 2100, segment: 'NIGHT ROLL'})],
-    ['HELD 0× · R restore · Esc on', 'SYNC 30×', 'NIGHT ROLL 2,100×'], 'and its word');
+    ['HELD 0× · R restore', 'SYNC 30×', 'NIGHT ROLL 2,100×'], 'and its word');
   assert.match(readFileSync(new URL('../app/shell.js', import.meta.url), 'utf8'), /badge\.className = m\.mode;/, 'the class is the mode');
 });
 

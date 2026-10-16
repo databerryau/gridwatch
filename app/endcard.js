@@ -13,6 +13,7 @@
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
+import {LETTER_RULE} from './score.js';
 
 /** The reliability readouts' §8.2 row (content/text.js, a drawer entry, renamed in 2c: Q-69): the card's "?" opens it. */
 export const RELIABILITY_ROW = 'SAIDI, SAIFI and MAIFI count the outages you cause, per household, in grid-minutes';
@@ -137,6 +138,7 @@ export function createEndCard(doc, root, actions, deps) {
       line(body, gap ? 'Biggest gap to par: ' + gap.name + ' ' + signed(gap.d) + ' (' + gap.why(gap.d, paid(e.score) || paid(pr && pr.score)) + ')' : 'You beat par on all three.');
     }
     line(body, 'Score = 1000 × par\'s ALL-IN ÷ yours. Par is GRIDWATCH\'s own autopilot on this same day.');
+    line(body, LETTER_RULE);   // (S-5)
     // (yours to the moment the grid went black, on a black day)
     const r = el('div', '', '', body), m = e.allIn;
     r.id = 'end-reliability';

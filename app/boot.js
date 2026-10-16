@@ -1,5 +1,9 @@
 // app/boot.js: starts the greybox game (next.html, Phase 1a). The page's one module script.
-// Contract: desk/README.md §32.12 app/boot.js.
+// It imports the stage B modules by their contract paths (desk/README.md §1) and hands them to
+// app/shell.js, which mounts them, draws the overlays and runs the frame loop. The Phase 0.2
+// bench's boot is app/bench-boot.js (bench.html).
+//
+// URL query: ?seed=N or ?date=YYYY-MM-DD (default: today's daily, content/dailies.js, Q-75) &perf (the F-11 overlay) &debug.
 
 import {createDesk} from '../desk/desk.js';
 import {createLiveStack} from '../render/livestack.js';

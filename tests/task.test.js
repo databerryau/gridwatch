@@ -165,7 +165,7 @@ test('Q-69 / S-6: the closing second is judged with the rest: a feeder closed pa
     assert.deepEqual(close(s0, due + TPS), [true, false], other + ': at the end of the first late second (dark through it)');
     // mid-second inside the first late second: a fraction of a second late. Booked when nothing else is dark at the
     // second's end; with another feeder dark then, restoredAtS cannot tell it from a close at its start (in time), so
-    // it goes with that feeder: a sub-second tolerance, the player's way (sim/README.md §11 market.js)
+    // it goes with that feeder: a sub-second tolerance, the player's way (sim/README.md, section "market.js")
     assert.deepEqual(close(s0, due + 17), other === 'B held' ? [true, false] : [false, true], other + ': mid-second, inside it');
   }
 });

@@ -259,8 +259,8 @@ Every step ships something playable, and the live game works after every step.
 | Phase 0, 1a, 1b | Honesty fixes; the v4 sim core; the greybox desk; desk polish | Built (text in `SPEC-history.md`) |
 | 2a, 2b, 2c | The belly; the city levers; the day | Built, live as `v4-core-2c.1` |
 | **W0** | This rewrite: the live spec, its history, Q-61–Q-107 recorded | Done (2026-10-15) |
-| **W1** | Slice 2c.2: quick fixes and the cheap decisions | Next |
-| **W2** | The greybox check: two strangers play | After W1 |
+| **W1** | Slice 2c.2: quick fixes and the cheap decisions | Built (2026-10-16), `v4-core-2c.2`; see W1 below |
+| **W2** | The greybox check: two strangers play | Next |
 | **W3** | Slice 2d: grade, debrief and the respond window | After W2 |
 | **W4** | Slice 2e: the commitment desk and onboarding | After W3 |
 | **W5** | Playtest gate 1 | After W4 |
@@ -276,6 +276,14 @@ The order is the owner's (Q-107), with two placements of mine: the dark-district
 ### W1 — Slice 2c.2: quick fixes and the cheap decisions
 
 One slice, one `SIM_VERSION` bump (H-18 changes the sim), the golden re-recorded once, `tools/daily-gen.js` re-run at the end. One browser pass by the integrator.
+
+*Built 2026-10-16 (branch `slice-2c2`, `v4-core-2c.2`).* Every item below is in, each with its accept as a test, but X-48's worktree and branch removal (the owner's go-ahead). X-47: at 1280×600 only the solar farm's box was covered (56%, by the alarm tiles at the plan bar's right end; moving the plan bar to the map's top would have covered hydro and wind instead), so by the owner's call the plan bar stays and the farm moved to the plain south of Redgum Flats and Saltbush Bay (`render/mapdata.js`): every plant's box is now clickable. Where the build differs from the text:
+- **D-3:** the goal line is as written; the line on what is real is "Real NEM physics; you make the operator's calls." (the example, 18 words, would take the card past 60 with the day, Watch for and the date). The day lines are shorter to fit: 61 dates from 2026-10-16 read 60 words or fewer.
+- **D-7:** the briefing's HAND button is hidden until a finished shift; the desk's own AGC key still sets HAND in the briefing (refusing it there broke seven tests that pick HAND; left as a power-user path).
+- **D-27:** the card holds only where R would be accepted, so D-2's RESTORE term (`tests/lib/play.js` clockReport, read from the sim alone) still counts a hold only on its allowed second's next tick; a hold that waits for the lamp is not counted there.
+- **X-45:** LIGHTS ON is the state now ("100%" or "N DARK · MW", red), not the day's share; the day's dark energy is on the ALL-IN chip and the end card.
+- **X-49:** the moved headers are back in 44 files (verbatim from the READMEs, where they had kept growing), `forecast()`'s doc above it, and `sim/clock.js`, `dark.js`, `dayplan.js` carry their §11 sections as headers. `sim/README.md` §11 keeps the other modules' export tables; the restored headers name them ("sim/README.md, section 'grid.js'"). First visit 472.7 KB gzip (+50 KB).
+- **Test budget:** four tests that play a whole day on the real page (X-39 ×2, X-40, X-44, K-15 ×2) take 2.4–5.2 s, over CLAUDE.md's 2.5 s a test; their files stay within or near 6 s by being split.
 
 **X-39 — The watch's beats in physical order.** `app/watch.js rawBeat` names a beat when it is the largest catcher so far in physical order; inverters releasing a little of their own curtailment do not light GOVERNORS. Today GOVERNORS lights at T+0.02 s and BATTERY never on the evening trip whenever any governor or inverter MW precedes the battery (2026-10-17 17:49: the battery caught 386 MW).
 *Accept:* on 2026-10-16 18:49 and 2026-10-17 17:49 BATTERY lights before GOVERNORS; a test asserts BATTERY is lit whenever the battery's catch, GUARD included, exceeds the governors' at the nadir.
@@ -439,8 +447,8 @@ Live targets only. Figures are on the game's day (`desk`, `desk-weekend`) unless
 | Par sheds nothing, raw seeds | `desk` 93.5%, `desk-weekend` 99% (2c stage C) | ≥85% | `tools/par.js` (S-12) |
 | Par sheds nothing, forced heatwave | 74 of 100 | ≥70% (Q-87) | `tools/par.js` |
 | Par arms the reserve diesel | `desk` 6.5–7.5% (2a) | ≤25% | `tools/par.js` (Q-2) |
-| Competent proxy earns A | 75% of 100 `desk` days (after Q-88) | ≥70%; re-measured under Q-98's letters (W1) | `tools/par.js --allin` (S-5) |
-| Lean proxy earns A | 48% of 200 (2b, before Q-98) | ≤40% (S-5) | `tools/par.js --allin` |
+| Competent proxy earns A | 83.5% (167 of 200 `desk`+`desk-weekend` days, Q-98's letters, `v4-core-2c.2`) | ≥70% ✓ | `tools/par.js --allin` (S-5) |
+| Lean proxy earns A | 70% (140 of 200, Q-98's letters, W1; commit-all 2.5%, B on 94%) | ≤40% (S-5) ✗: a lean day is within 10 MWh-equivalents of par; open for the owner | `tools/par.js --allin` |
 | A no-input day | fails on 22 of 22 seeds (2a); 11–54 points, a D, on 2026-10-14 (review) | fails, never black | `tools/par.js` (Q-18) |
 | SECURE states that hold ≥49.5 Hz when a credible contingency trips | `desk` 6,495 of 6,495; `desk-weekend` 6,684 of 6,685 (2a) | 1,000 of 1,000 | H-8 |
 | Heatwave share | 15.4% of 2,000 raw seeds; 17.0% of the shipped year | 15 ± 2% | `tests/dayplan.test.js`, `tools/daily-gen.js` |
@@ -453,8 +461,8 @@ Live targets only. Figures are on the game's day (`desk`, `desk-weekend`) unless
 | Negative-price hours, mild days | weekday 1.68 h, weekend 2.62 h | 2–6 h (open since 2a) | P-9 |
 | Session, link to the verdict | 306.8 real s from Space with no reading (two full watches); 288.3 s returning | first shift ≤6:50 and returning ≤6:00 to SHARE | D-2 (measured when W3 and W6 land) |
 | First click → first real action | 0 s (the clock is held) | ≤60 s | O-2 |
-| Frame cost | sim p95 0.14 ms at 120×, 2.0 ms at 2,100×; par's slice max 9.4 ms | p95 ≤8 ms | `?perf`, `tools/perf.mjs` (F-11) |
-| First-visit transfer | 406 KB gzip | reported (Q-84) | `tools/perf.mjs --sizes` |
+| Frame cost | sim p95 0.14 ms at 120×, 2.0 ms at 2,100×; par's slice, a frame at a time on 2026-10-14: p95 1.9 ms, max 7.1 ms, none over 8 ms (X-46, budget 1.5 ms); night roll's view model p95 0.33 ms, max 0.6 ms | p95 ≤8 ms | `?perf`, `tools/perf.mjs` (F-11) |
+| First-visit transfer | 472.7 KB gzip (W1: 422.7 KB before X-49 put the module headers back, +50.0 KB) | reported (Q-84) | `tools/perf.mjs --sizes` |
 | Playtests | none yet | the W2 and W5 pass lines; gate 2's | W2, W5, W6 |
 
 ---
@@ -551,7 +559,6 @@ Text copies of downloaded sources were kept in the review session's local workin
 
 Every row is labelled in-game behind a "?" (H-14). Its text (the real value, ours and why) is the row's entry in `content/text.js`, built from `sim/params.js`. The titles are tested: `tests/text.test.js` fails when a title here has no entry or an entry has no title, so a row is added here in the same commit as its entry.
 
-*Decided, builds in W1 (H-18):* a row for the GUARD ring (contingency FCAS set by hand); the directed-shedding row tagged as GRIDWATCH's own rule; the hot-unit trip removed.
 
 | Abstraction (the row title the game shows) | Where the player meets it | Entry in `content/text.js` |
 |---|---|---|
@@ -581,7 +588,8 @@ Every row is labelled in-game behind a "?" (H-14). Its text (the real value, our
 | **A mild day is the hot day with its cooling load removed.** | `#stack` | `mild-days` |
 | **The dispatch spills wind and solar automatically, pro rata.** | `#stack` | `auto-curtailment` |
 | **Minimum down time runs from breaker open to the next START.** | `#lever-coal` | `min-down-time` |
-| **Automatic directed shedding when the FOS timers run out.** | `#key-shed` | `directed-shedding` |
+| **Automatic directed shedding when the FOS timers run out.** (GRIDWATCH's own rule, H-18) | `#key-shed` | `directed-shedding` |
+| **The GUARD is contingency FCAS, set by hand.** | `#ring-guard` | `guard-ring` |
 | **Restore permissive** | `#bay-restore` | `restore-permissive` |
 | **Cold-load pickup ×1.5.** | `#bay-restore` | `cold-load` |
 | **City levers' MW, costs and patience.** | `#btn-dr` | `city-levers` |

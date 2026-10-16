@@ -1,6 +1,6 @@
 // content/anchors.js: the "?" badges' index, eager (Q-44): {game: the element id, rows: its
-// entries' row titles}, in content/text.js order, which loads on demand.
-// Contract: desk/README.md §32.12 content/anchors.js.
+// entries' row titles}, in content/text.js order, which loads on demand. tests/anchors.test.js
+// keeps the two equal: an anchored entry added to content/text.js is appended here too.
 
 export const ANCHORS = Object.freeze([
   {game: 'rate-badge', rows: ['Compressed playback.', 'The clock holds at each hand-back.']},
@@ -22,6 +22,7 @@ export const ANCHORS = Object.freeze([
   {game: 'chip-co2', rows: ['CARBON counts the region\'s own generation.']},
   {game: 'gauge-n1', rows: ['LOR states via 1.25 × L.', 'COVER after a trip is R5 ≥ L, not the NEM\'s secure state.']},
   {game: 'key-shed', rows: ['Automatic directed shedding when the FOS timers run out.']},
+  {game: 'ring-guard', rows: ['The GUARD is contingency FCAS, set by hand.']},
   {game: 'btn-dr', rows: ['City levers\' MW, costs and patience.']},
   {game: 'btn-mute', rows: ['Hum reference tone']},
   {game: 'wheel-hydro', rows: ['Daily hydro allocation', 'Hydro spins free.']},

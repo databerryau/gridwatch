@@ -339,7 +339,7 @@ async function allinReport(o, rows, t0) {
   const plus = (r, mwh) => graded(allIn(Object.assign({}, r, {lightsMWh: r.lightsMWh + mwh, servedMWh: r.servedMWh - mwh}), 0), allIn(r, 0), false).points;
   const med = pars[Math.floor((pars.length - 1) / 2)], m = allIn(med, 0);
   console.log(`\nALL-IN against par on ${o.scenario}: ${parBy.size} days (SIM ${SIM_VERSION}), wall ${((Date.now() - t0) / 1000).toFixed(0)} s`);
-  console.log('LETTERS now ' + LETTERS.map(([l, x]) => l + ' >= ' + x).join(', ') + '; VCR $' + V.VCR + '/MWh, VER $' + V.VER + '/t');
+  console.log('LETTERS now (S-5, the gap to par in MWh at VCR) ' + LETTERS.map(([l, x]) => l + ' <= ' + x).join(', ') + '; VCR $' + V.VCR + '/MWh, VER $' + V.VER + '/t');
   console.log(`par's ALL-IN: median ${M(m.total)} (${day(med)}: supply ${M(m.supply)}, outages ${M(m.outage)}, carbon ${M(m.carbon)}), ` +
     `lowest ${M(allIn(pars[0], 0).total)} (${day(pars[0])}), highest ${M(allIn(pars[pars.length - 1], 0).total)} (${day(pars[pars.length - 1])}); ` +
     `par black on ${parBy.size - pars.length} (no score)`);

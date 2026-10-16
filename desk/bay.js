@@ -1,6 +1,31 @@
 // desk/bay.js: the procedure bay (desk/README.md §6): SYNC (K-12 synchroscope) and RESTORE
 // (K-13 feeder breakers).
-// Contract: desk/README.md §32.12 desk/bay.js.
+//
+// SYNC: the READY units (lit when offered, A-4); open one's scope (`scope`), watch the needle at
+// phaseDeg turning at slipHz, trim with [ ] (`syncTrim` ±0.05 Hz), close with C or the breaker
+// handle (`syncClose`; HAND may use the bypass key), U for AUTO (`syncAuto`). With the scope open
+// and no close for 8 real seconds the desk sends `syncAuto` itself (K-12).
+// RESTORE: each dark district is a feeder breaker with its cold-load MW; the RESTORE PERMISSIVE
+// lamp (restoreBlock === ''); a breaker closes (`restore`) only when the lamp and the district's
+// RESTORE PREVIEW (actions.restorePreview) both allow it. R, ←/→, Enter.
+// 2c, the restore task (Q-69, Q-70): a task feeder before its clearS is held (the network's): its
+// row reads "<id> · FAULT · BACK HH:MM" and is listed after the feeders that are the player's, by
+// when it comes back; it never chooses the bay's view (RESTORE opens by itself only for a dark
+// district that is not held; the tab's ✕n still counts every dark district, as the map and the
+// line do, but the tab is lit amber only when one is the player's), and a press on its CLOSE is
+// the red refusal with the sim's reason ("feeder under repair until HH:MM"), as every permissive
+// refusal. From its hand-back the row reads "<id> · REPAIRED" (the FEEDER_CLEAR card's word). The
+// RESTORE tab glows while a feeder card holds the clock (vm.feeder, Q-91: from each allowed second
+// until that feeder is restored or its card answered), not all day; at the card its R is the
+// shell's (it restores the feeder the card names), and so is Enter but on a row (a CLOSE press, or
+// Enter on a row, is the bay's as ever); the list's choice moves to the card's feeder as each card
+// shows (vm.feeder). R (once the card is gone), and each hand-back while the list's choice is held or
+// none, choose the feeder handed back last that can close, else the first that can, else the first
+// that is the player's (the bay's "R, then Enter"); Enter on the RESTORE tab does what R does.
+// Keys (K-23): O opens the first READY unit's scope (an offered one first; again: closes it),
+// B is the bypass key (HAND). The scope canvas is role="img" with a text alternative that changes
+// at most once per real second. Foley (K-20): buttons and tabs cue `button`, the bypass key `key`;
+// the breaker's own sounds come from the sim's records.
 
 import {V} from '../sim/params.js';
 import {scopeAngle, scopeZone, turnS, coldLoad} from './calc.js';

@@ -42,6 +42,8 @@ const lineOf = obs => objective(obs, {edited: false, planview: PV, dayAhead: obs
 /** ACT_WITHIN_S and NOW_S as the line reads them at grid second s (2c, Q-63: their real seconds at TUNED_RATE on the AGC profile). */
 const actAt = s => O.spanAt(s, O.ACT_WITHIN_S, false), nowAt = s => O.spanAt(s, O.NOW_S, false);
 const copy = obs => structuredClone(obs);
+// X-44: the grid itself short by `mw` (the BALANCE bar's gap), as a plan red now is when nothing carries it
+const gridShort = (o, mw = 400) => { o.balance.servedMW += mw + Math.max(0, o.balance.schedSupplyMW - o.balance.servedMW); return o; };
 const unit = (obs, id) => obs.units.find(u => u.id === id);
 
 // ------------------------------------------------------------------ the followed MILD morning (run once)
@@ -422,6 +424,7 @@ test('short now outranks everything else: the battery first, sized to what is sh
   const short = copy(base);
   for (const fc of [short.forecast, short.dayAhead]) for (let k = 0; k < 3; k++) fc.demandP50[k] += 4000;
   short.sec.level = 'SHORT';
+  gridShort(short);
   const x = lineOf(short);
   assert.equal(x.kind, 'short');
   assert.equal(x.level, 'crit');
@@ -461,6 +464,7 @@ test('short now outranks everything else: the battery first, sized to what is sh
   const lead = by.startBy - later.s - actAt(later.s), ctx = {edited: false, planview: PV, dayAhead: later.dayAhead};
   for (const fc of [later.forecast, later.dayAhead]) fc.demandP50[0] += 4000;
   later.sec.level = 'SHORT';
+  gridShort(later);
   const fast = leadS => objective(later, Object.assign({leadS}, ctx)).targets;
   assert.deepEqual(fast(0), ['dial-battery']);
   assert.deepEqual(fast(lead - 60), ['dial-battery'], 'not before its "now"');
@@ -596,6 +600,7 @@ test('short now: the plan\'s red within five minutes is an emergency only when t
   const r = copy(o);
   const R = O.capacityGap(r, r.forecast, {real: true});
   setGap(r.forecast, R, 200, -Infinity, r.s + 301);
+  gridShort(r);
   const x = objective(r, Object.assign({}, ctx, {dayAhead: r.dayAhead}));
   assert.equal(x.kind, 'short');
   assert.match(x.text, /^The plan is [\d,]+ MW below demand now: /);
@@ -775,6 +780,7 @@ test('spare after a trip: a fired GUARD still giving while frequency is high is 
   const hi = copy(keep.stop);
   Object.assign(hi.battery, {guardMW: 400, ffrMW: 400, guardFired: true});
   hi.f.hz = 50.2;
+  hi.contingencies = [...hi.contingencies, {startS: hi.s - 60, cause: 'unit'}];   // (X-43: "after the trip" needs one)
   const x = lineOf(hi);
   assert.deepEqual(x.action, {type: 'guard', mw: 0});
   assert.equal(x.kind, 'spare');
@@ -890,6 +896,7 @@ test('battery: charge before the evening when the evening needs it, on what is s
   // short while it charges: the short-now line outranks the battery's own, and asks for the battery the other way
   const tight = copy(made);
   for (const fc of [tight.forecast, tight.dayAhead]) for (let k = 0; k < 12; k++) fc.demandP50[k] += 2500;
+  gridShort(tight);
   const w = lineOf(tight);
   assert.equal(w.kind, 'short');
   assert.equal(w.action.type, 'battery');

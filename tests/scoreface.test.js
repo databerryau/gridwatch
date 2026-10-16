@@ -247,10 +247,10 @@ test('Q-48 / Q-44: the end card loads on demand (hidden meanwhile), once; a fail
 
 test('Q-48: the briefing names the three goals and their prices (≤ 60 words); EXPLAIN in "how"; the texts never call it a bill', () => {
   const b = boot();
-  assert.equal(b.$('briefing-goals').textContent, GOALS_TEXT);
+  assert.equal(b.$('how-score').textContent, GOALS_TEXT);   // (D-3: behind the header "?", HOW TO PLAY)
   assert.ok(GOALS_TEXT.includes('plus ' + VCR + ' for each MWh') && GOALS_TEXT.includes('plus ' + VER + ' a tonne of CO₂'), GOALS_TEXT);
   assert.ok(GOALS_TEXT.split(/\s+/).length <= 60, GOALS_TEXT.split(/\s+/).length + ' words');
-  assert.ok(b.$('briefing-how').textContent.includes('EXPLAIN (W), beside the alarms, holds the clock and explains each one.'));
+  assert.ok(b.$('how-keys').textContent.includes('EXPLAIN (W), beside the alarms, holds the clock and explains each one.'));
   const byId = new Map(TEXT.abstractions.map(e => [e.id, e]));
   for (const id of ['allin-score', 'allin-vcr', 'allin-carbon', 'reliability-indices']) {
     const e = byId.get(id);

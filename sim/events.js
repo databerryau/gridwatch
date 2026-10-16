@@ -1,5 +1,16 @@
 // sim/events.js: the external event timeline (spec F-3, D-8; legacy menu L331-370).
-// Contract: sim/README.md §11 events.js.
+//
+// Stage A (implemented, frozen): prerollEvents() turns the scenario's event menu into a
+// time-sorted list of ext events at createState. Nothing here ever depends on play.
+// Stage B owner "market + events": applyDue(), which applies the events whose time has come.
+// Phase 2a owner "world" (desk/README.md §21.1): mslSecond(), the P-4 Minimum System Load
+// notices (C-9), from the forecast step() passes in.
+//
+// Event record (state.ext.events[i], plain JSON):
+//   {id: 'e7', atS: 41520, type: 'unitTrip', args: {...}, contingency: true, warned: false, act: 0, crisis: false}
+// (2c: act is the act the dayplan designed the record for, 0 on legacy records; crisis marks each act's designed event)
+// atS is the grid second (0 = 04:00). Contingency events (unitTrip, linkTrip, smelterTrip)
+// trip exactly one element each: the largest credible contingency is <= 800 MW (F-13).
 
 import {V} from './params.js';
 import {STREAM, uniform, pickWith} from './rng.js';
@@ -134,7 +145,7 @@ export function prerollEvents(seed, scn, regime) {
 /**
  * Apply every ext event with atS <= the current grid second, in list order from state.evNext, and
  * the smelter's return ramp; step() calls it at each second boundary, before weather.sampleSecond().
- * Effects by type: sim/README.md §11 events.js.
+ * Effects by type: sim/README.md, section "events.js".
  * @param {object} state
  * @param {Array<object>} out event records (sim/README.md §7)
  */

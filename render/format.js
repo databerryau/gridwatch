@@ -1,5 +1,6 @@
 // render/format.js: plain-text formatting for the bench (numbers, clock, event records).
-// Contract: desk/README.md §32.12 render/format.js.
+// Pure and DOM-free (tests import it). Wording for the desk moves to content/text.js in
+// Phase 1a (README §7); the bench shows the sim's own record text.
 
 import {V} from '../sim/params.js';
 
@@ -79,6 +80,18 @@ export function lightsText(score) {
   return (Math.floor(pct * 10) / 10).toFixed(1) + '%';
 }
 
+/**
+ * X-45: the LIGHTS ON chip now: '2 DARK · 480 MW' while districts that are the player's are dark (their
+ * pickup with cold load, to the 10 MW), '100%' while none is. A feeder still under repair is the
+ * network's outage (Q-69), not counted. The day's dark energy is on the ALL-IN chip and the end card.
+ */
+export function lightsChip(obs) {
+  const mine = (obs.districts || []).filter(d => d.dark && !(d.shedBy === 'task' && d.clearS > obs.s));
+  if (!mine.length) return '100%';
+  const mwOf = mine.reduce((a, d) => a + (d.coldLoadMW || 0), 0);
+  return mine.length + ' DARK · ' + (Math.round(mwOf / 10) * 10).toLocaleString('en-AU') + ' MW';
+}
+
 /** CUSTOMER COST in cents per kWh served ('8.4'), '-' before anything is served. */
 export const centsText = score => (score.servedMWh > 0 && Number.isFinite(score.centsPerKWh) ? score.centsPerKWh.toFixed(1) : '-');
 
@@ -104,7 +117,7 @@ const MODE_LABEL = {OVER: 'DAY OVER', HIDDEN: 'PAUSE', ALARMS: 'HELD', 'RESPOND-
  * The rate badge (F-5: the mode and the rate are always visible): the D-2 segment and its target
  * rate in CRUISE and NIGHT ('PEAK 150×', HAND 'PEAK 75×', 'NIGHT ROLL 2,100×'; Q-78), 'FAST 1,620×',
  * 'SYNC 30×' (a scope offer), 'WATCH T+1.23 s ×0.15', 'HELD 0× · Enter' (the RESPOND card),
- * 'HELD 0× · R restore · Esc on' (a feeder card, Q-91), 'HELD 0× · Esc' (the alarm panel, Q-46),
+ * 'HELD 0× · R restore' (a feeder card, Q-91; D-27: Esc restores too), 'HELD 0× · Esc' (the alarm panel, Q-46),
  * 'PAUSE 0×', 'DAY OVER'. The bench's modes have no segment: 'CRUISE 120×'.
  * @param {{mode:string, rate:number, watchS:number, segment?:string}} m director.modeOf()
  */
@@ -112,8 +125,9 @@ export function badgeText(m) {
   const label = (/^(CRUISE|NIGHT)$/.test(m.mode) && m.segment) || MODE_LABEL[m.mode] || m.mode;
   if (m.mode === 'OVER') return label;
   if (m.mode === 'WATCH') return 'WATCH T+' + Math.max(0, m.watchS).toFixed(2) + ' s ×' + rateText(m.rate).replace('×', '');
+  if (m.mode === 'SHED-WATCH') return 'SHED T+' + Math.max(0, m.watchS).toFixed(2) + ' s ×' + rateText(m.rate).replace('×', ''); // (K-15: a directed shed's watch)
   if (m.mode === 'RESPOND-CARD') return 'HELD 0× · Enter';
-  if (m.mode === 'FEEDER-CARD') return 'HELD 0× · R restore · Esc on';
+  if (m.mode === 'FEEDER-CARD') return 'HELD 0× · R restore';
   if (m.mode === 'ALARMS') return 'HELD 0× · Esc';
   return label + ' ' + rateText(m.rate);
 }

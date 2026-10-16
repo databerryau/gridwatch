@@ -1,11 +1,191 @@
 // app/objective.js: the desk's standing objective (SPEC §9.1 Q-18; Phase 2a: desk/README.md
 // C-10, §21.4). Pure and DOM-free.
-// Contract: desk/README.md §31.8 app/objective.js.
+//
+// In the game the commitment is the player's: which units run, and when. The dispatch of the
+// units they have committed is automatic (app/system.js). This module reads what the player
+// can (observe() and the plan view) and says, in one line, what the desk needs next: nothing;
+// a unit to start, by when, and how long it takes; a unit to stop, what that saves and when to
+// bring it back; the battery to charge or discharge; the levers handed back; a feeder to close.
+// It never acts. Every decision it names has a lead time, and it says by when.
+//
+// The look-ahead is a CAPACITY check, not the plan's own red columns: for each forecast column,
+// what the committed fleet could give (machines on, starting or booked by then, at the plan's
+// loading; hydro for the water it has; the tie; the wind and sun forecast) against the forecast
+// demand plus a margin. The plan's red columns move with every 5-minute dispatch; whether
+// enough plant is committed does not. Three margins (MW above the P50 forecast):
+//   MARGIN_MW         the forecast's own error: under it the desk is short of a safe margin
+//   COMMIT_MARGIN_MW  what the evening needs to ride through one trip: under it a unit is asked for
+//                     (the trip's part counts the water at any hour: a trip is what the gorge is kept for)
+//   MARGIN_MW + the largest single loss   what must remain before a unit may be stopped, with the
+//                     water held until 15:30 as for any plan (§21.4 STOP condition 1)
+// so a unit the line asked for is never one it then asks to stop. What the desk can really give
+// (every unit at its limits from where it is, the water, the tie at its limit; capacityGap real)
+// says whether it is short NOW.
+//
+//   objective(obs, {edited, planview, proj?, dayAhead?, leadS?, held?}) -> {level, kind, text, targets, action, startBy, short, long} | null
+//     (null from obs.nightShift: the night roll has no line, Q-73)
+//     level   'ok' | 'plan' (act later, or worth doing) | 'act' (act now) | 'crit' (short already)
+//     kind    which line it is (desk/README.md §19.5): 'watch' | 'held' | 'short' | 'commit' | 'restore' |
+//             'spare' | 'stop' | 'battery' | 'city' | 'quiet'
+//     targets control ids to light (desk/README.md §5)
+//     action  the sim input (or {redispatch: true}) that answers it now, or null. The game never
+//             sends it: the hint-following player (tests/lib/follow.js) does, to prove that a
+//             player who does only what this line says gets through the day and does it well.
+//     short   the capacity shortfall the line is about {atS, endS, mw}, or the first one in the
+//             4.5-h window, or null
+//     long    the spill ahead {atS, endS, mw} or null (planview's first blue run)
+//     saving  (STOP lines) the dollars the line quotes
+//
+// Branch order (§21.4; 2b §31.9.8; 2c): watch, held, short-now, commit-now, shortAhead, air-con,
+// restore, spare, pickup (2c), stop, battery, soak, commit-later, quiet; at a hand-back with its
+// lamp lit, restore first (2c, below). A line that asks for nothing yet (a
+// start more than ACT_WITHIN_S away, a feeder that cannot close yet, spare that nothing can add,
+// the reserve diesel on its way) gives way to a lower branch that has something to do now; among
+// lines that ask for something, the order above decides; then a critical line; then a city line not
+// yet due (level 'plan': it carries its action, so a player may book ahead, but a booking hours away
+// never hides a feeder to close, a GUARD to raise or a battery order; once due, 'act', it keeps its
+// place in the order); then the first that has something to say. Between commit-now and restore
+// sits the shortfall no start can reach (shortAhead): what every committed MW cannot give within
+// the hour is the battery's to carry, and demand response's when it is more than the battery
+// holds; the reserve diesel only beyond both.
+//
+// The city levers (2b, Q-59, §31.9.8): kind 'city', targets ['suburb-<ID>'], the action the full
+// flex input {type: 'flex', suburb, lever, atS} with atS from aimFlex (sim/autopilot.js) over the
+// day-ahead (or the 4.5-h forecast; -1 is "not now": no line), kept at the shown line's atS while
+// aimFlex is within one 5-minute step of it (`stick`, `cityAim`; ctx.held, the game passes
+// game.objective; the forecast starts at obs.s, off the lattice, so its extreme column slides and
+// aimFlex alone flips between two marks every few grid minutes: 2b final review S1; tests/lib/follow.js
+// and the tools pass none), startBy the booking's deadline
+// (the soak's atS, the air-con's pre-cool start), level 'act' once that is within ACT_WITHIN_S
+// (+ leadS), else 'plan'. Eligibility only through observe().levers' block (a suburb is free when
+// its lever's block is ''). One suburb per line; the next is named once the forecast carries the
+// booking.
+//   soak (after battery: a battery order due now shows first; before commit-later), aimed once:
+//   every free suburb has no soak of its own, so aimFlex gives them all the same atS. When either
+//     (a) an MSL notice stands with its low ahead (obs.msl.level >= 1, atS > now), and some
+//         column of the 4.5-h forecast in 10:00-15:00 is still at or under MSL1_MW + MSL_CLEAR_MW,
+//         raised by MSL_TIE_OUT_MW in a column before the tie's return as sim/events.js raises it
+//         (the notice is re-checked only every MSL_CHECK_S, so a soak booked since would not clear
+//         it until then: without this, a player who books at once would be asked for a suburb a
+//         minute until the next check). It names the free suburb with the most soak MW (par's
+//         rule 1); the low it quotes is that column, the one nearest its threshold;
+//     (b) else, spill the battery will not take: the projection's spill plus the present charge
+//         order per column, the battery modelled as battery() charges it (up to min(ratedMW -
+//         guardMW, PAR_BATT_CHARGE_MAX_MW) a column, from the earliest blue column, its present
+//         order in every column, until (capMWh - socMWh) / BATT_CHARGE_EFF is used); the largest
+//         excess inside the aimed block's span (atS, atS + SOAK_S) above SURPLUS_MIN_MW names the
+//         free suburb with the most soak MW at or under it, else the smallest. Spill outside the
+//         span is not the soak's to take (on a MILD 06:30 aimed at 11:00, spill at 10:00-10:55
+//         gives no line; the line comes once the projection reaches the span).
+//     Text: "MSL1: demand falls to about 1,550 MW at 12:40. Book a HOT WATER SOAK in Old Hazelton,
+//     10:35–14:35 (140 MW): it lifts the low; tonight's heating falls by as much." or "The
+//     battery cannot take all of noon's spill. Book … : tanks take the rest; tonight's heating
+//     falls by as much." (Q-52: the night's heating falls by the booked energy.)
+//   air-con (right after shortAhead) only when lookAhead names no unit (a start beats air-con),
+//     shortAhead's soon does not hold, and for a run of the real gap (capacityGap real, over the
+//     day-ahead) at or after the suburb's fromS (each run in turn: a smaller, earlier one does not
+//     hide the evening's): no gap column in the aimed pre-cool [atS - PRECOOL_S, atS], the run's
+//     largest column inside the core [atS, atS + AIRCON_S], and the run more than the battery holds
+//     (its largest column above ratedMW, or its MWh above the charge over the reserve, where before
+//     15:30 (PAR_BATT_CHARGE_H) the charge counts at least PAR_BATT_CHARGE_TO: battery() fills it by
+//     then on any day with an evening gap): where demand response would be called (Q-59 "before DR";
+//     air-con is $400/MWh against DR's $1,400). The free suburb with the most relief MW that passes.
+//     Text: "From about 18:30 committed units fall short. Book an AIR-CON CYCLE in Redgum Flats,
+//     18:30–20:00 (45 MW): pre-cool from 17:30; 40% of the relief comes back after." ("committed":
+//     a unit that is off but cannot reach the gap may exist; the 40% is of the relieved energy.)
+// Every city line fits LINE_MAX_CHARS with Tallowood Heights and the widest figures
+// (tests/objective-levers.test.js).
+//
+// (The GUARD line asks once for the most the battery can hold for a trip, PAR_GUARD_MAX_MW: a step
+// is worth less the higher the ring already is. Measured at 04:31 on the 11 seeds of both day
+// scenarios: the first 100 MW 0.025 to 0.104 Hz on the trip preview, then 0.021 to 0.062, 0.014 to
+// 0.041, 0.011 to 0.030. A line sized on a step's worth asked twice: 300 MW, then 400.)
+// (After a trip the fired GUARD gives its whole ring for GUARD_SUSTAIN_S; a belly trip is smaller
+// than the ring, so while it is still giving and frequency is above the normal band the line turns it
+// down to 0 (par's rule 2 does the same), raises no ring while it is fired, holds the battery
+// branch's charge orders out of the MW it gave up, and raises it back once it has re-armed, within
+// the hour of the trip. Measured on desk-weekend seed 20261017, coal 1 at minimum, 240 MW, tripping
+// at 14:08:40 under a 400-MW GUARD: 478 s above 50.15 Hz in the next 900 s before, 49 s after.)
+// (Both moved here from the file in 2b, Q-49.)
+//
+// The line says what is true (the wave-3 review): a shortfall is in the present tense only when the
+// desk at its limits (the real check) is short in the next minutes, otherwise it is what the hour
+// lacks against a safe margin; "Enough plant is committed" only with no column short of a trip's
+// worth of spare by THIN_MW; a STOP's saving says it rests on nothing tripping before the unit is
+// back; a unit on its way off counts down its ramp and the T4 slope until its breaker opens.
+//
+// The line is pure, so "never thrash" is kept by state, not by a clock: a STOP is not proposed
+// while another unit is on its way down or has been down under STOP_GAP_S; a battery order is
+// proposed only from idle (or to raise a charge by what is still being spilled, or to end one at
+// the reserve or at the window's end), with bands between the levels that start and end it, and
+// none in the quarter hour before the evening's own order. (The shortfall branches raise a
+// discharge as an evening gap grows: each order is sized for the gap 20 min ahead.)
+//
+//   consequence(obs, target, {planview, dayAhead}) -> {target, text, level} | null
+//     what a guarded press would do, said before it is made (C-10): target is
+//     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
+//
+//   steady(held, next, s, hand?) -> {line, seenS, sinceS}
+//     the line as the desk shows it: a line whose deadline or figure moves with each forecast while
+//     what it asks for and its other words stay the same is kept as it was said, and a quiet line
+//     for STEADY_QUIET_S against another quiet line (the game holds `held`; the objective itself
+//     stays pure, and the action a line carries is never held back or changed). hand: the clock
+//     is HAND's (app/director.js handAt), for spanAt. Its figures (masked) are the numbers, times
+//     and dollars, and since stage C the part of the day a time falls in ("for the afternoon" and
+//     "for the evening" near 17:00 are the shortfall's time moving, and alternated look to look).
+//     The game's 4-s dwell (app/game.js holdLine) holds a line's words and glow but never an action
+//     the fresh line no longer carries (heldLine: another unit or control, or none, drops it).
+//
+// The day (slice 2c, desk/README.md §32.8.1):
+//   - A heatwave is news from 04:00 (Q-80): the look-ahead derates its window from the news;
+//     Q-38's HOT-morning worst case is retired (a HOT day with no heat news has none coming).
+//   - The night roll (Q-73): from obs.nightShift there is no line (objective() returns null; the
+//     shell hides the box and the night strip replaces it, and steady() keeps no day text over
+//     it). A shortfall from 21:00 on a night scenario is the night shift's: the commit look-ahead,
+//     "Next" and the quiet line's thin and real checks look only at runs that begin before 21:00.
+//   - The spans (Q-63): NOW_S, ACT_WITHIN_S and the STEADY spans were tuned at TUNED_RATE (the
+//     flat 120x); each means its real seconds there, as the D-2 profile plays them from where it
+//     starts (spanAt: cut at a night scenario's 21:00, but never under the span itself, so near
+//     21:00 the floor can run a few grid-minutes past it). The act window is one stretch of real
+//     seconds (actWithin: the game's reading lead, then ACT_WITHIN_S from where it ends; 18 real
+//     s). An instant resource, the battery's order and the demand response call, is asked when the
+//     gap opens within instS = max(ACT_WITHIN_S + NOW_S of grid time, NOW_S of the profile): its
+//     energy is grid time (an order made earlier is charge the peak will not have), but never
+//     less than NOW_S's real seconds to press it; "be ready" until then. The reserve diesel is armed
+//     within ACT_WITHIN_S of the profile before its 20 min (no reading lead: it costs by the
+//     minute), never past PAR_RERT_STANDDOWN_MIN ahead (spare()'s stand-down look-ahead, so the two
+//     never chase each other); "arm it by" is 20 min before the shortfall the line names. The
+//     battery's late charging band stays grid time (a band, not a reaction).
+//   - Act I's constraints (Q-68): the tie's import limit per column until its limitUntilS; a booked
+//     start due at a unit's return; a unit out for maintenance planned from its return, or from the
+//     end of a minimum down time that outlasts it (stage C: sim/fleet.js startBlock names only the
+//     outage while it lasts, so startable reads downForS; app/planview.js's earliest line does too) (startable
+//     with later: "Start CCGT 2 at 07:45, when it is back", never an ask or a lit START before it;
+//     its START press says "out for maintenance until 07:45"); the reserve diesel's line comes
+//     before it only when it is back too late for the diesel's shortfall. A capacity ask (commit,
+//     short now, the spare+commit start, "Next", the battery's, the quiet line's) names what binds
+//     (why): "(CCGT 2 out until 07:45; the tie limited to 450 MW until 11:00)", when it fits; a unit
+//     is named only when started now it would be in time (its outage is the reason).
+//   - The restore task (Q-68, Q-69): the look-ahead takes a feeder under repair off the demand
+//     until its clearS (sim/dark.js, as app/planview.js and the dispatch do: the announced return).
+//     From PICKUP_AHEAD_S before a hand-back, with no feeder yet the desk's, "SAL4's feeder is back
+//     at 06:45: hold 250 MW of spare for its pickup" (its cold load now, with the forecast's
+//     underlying demand then, to the 10 MW: a few MW of drift moves it 10 MW, never a 50-MW step;
+//     the spare gauge lit, never the bay, whose tab glows with Q-91's feeder card at the hand-back; a passive line
+//     after spare()'s own, before "Next"). The feeders under repair are named beside the count; R's feeder first (one handed
+//     back, the latest first, as desk/bay.js picks); at a hand-back with its lamp lit the restore
+//     ask comes before every other branch unless the real check is short within instS (the hand-back
+//     is the feeder's moment: Q-91's card holds the clock for it). spare()'s pickup counts a held feeder only once its return is within
+//     the act window (at real sizes a pickup, 200-300 MW, is under the trip's share, 1.05 L).
+//   - On a night scenario a STOP saves until the night shift would stop the unit (stopHorizonS:
+//     21:00, or PAR_DECOMMIT_MIN_ON_MIN on), and a restart from 21:00 is the night shift's (no
+//     start priced, no "Start it again by").
 
 import {V} from '../sim/params.js';
 import {SCENARIOS} from '../content/scenarios.js';
 import {clockText, priceText} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
+import {imbalanceSegments} from '../desk/calc.js';
 import {aimFlex} from '../sim/autopilot.js';
 import {gridAfter, NIGHT_S} from '../sim/clock.js';
 import {darkShareAt, litMW} from '../sim/dark.js';
@@ -22,7 +202,7 @@ export const MARGIN_MW = 150;
  * A unit is asked for when capacity is under the forecast plus this (MW): enough to lose the
  * largest unit (about 620 MW at the plan's loading) and still be within what the battery and one
  * gas turbine can make up. Par's rule 3 keeps 700 MW over full ratings and half the battery,
- * which is about 600 MW in this check's terms; measured in tests/objective.test.js (slow).
+ * which is about 600 MW in this check's terms; set by measuring followed days against par (tools/follow.mjs).
  */
 export const COMMIT_MARGIN_MW = 650;
 /** A shortfall ahead smaller than this is not worth a unit (MW). */
@@ -124,13 +304,17 @@ function heldShare(obs) {
   };
 }
 
+// The auto-synchroniser's wait: none in HAND, where the player SYNCs at full speed (X-43).
+const syncOf = obs => obs.mode === 'HAND' ? 0 : AUTO;
+
 // Seconds from now until unit u (an observe row) is at minimum load, by its mode; -1: not coming.
-function onInS(u, m) {
+// In HAND a unit at full speed is SYNCed now (the line asks for it), as the plan executor counts it.
+function onInS(u, m, obs) {
   switch (u.mode) {
     case 'on': return 0;
     case 'loading': return u.timerS;
-    case 'ready': return u.timerS + m.t2S;
-    case 'starting': return u.timerS + AUTO + m.t2S;
+    case 'ready': return (syncOf(obs) ? u.timerS : 0) + m.t2S;
+    case 'starting': return u.timerS + syncOf(obs) + m.t2S;
     default: return -1;
   }
 }
@@ -182,7 +366,7 @@ export function capacityGap(obs, fc, o = {}) {
   // units on their way off (unloading, in shutdown, or the one a STOP press would send): their own path down
   const going = obs.units.map(u => u.mode === 'unloading' || u.mode === 'shutdown' || (o.leaving === u.id && (u.mode === 'on' || u.mode === 'loading')));
   obs.units.forEach((u, i) => {
-    const d = onInS(u, M[i]);
+    const d = onInS(u, M[i], obs);
     onS[i] = d >= 0 ? s + d : u.mode === 'off' && starts.has(u.id) ? dueS(u, starts.get(u.id)) + u.startToMinS : Infinity;
     if (o.plus && o.plus.unit === u.id && !Number.isFinite(onS[i])) onS[i] = o.plus.atS + u.startToMinS;
     offS[i] = stops.has(u.id) ? stops.get(u.id) : Infinity;
@@ -290,7 +474,7 @@ const leadText = c => minText(c.lead) + ' to reach the grid' + (c.plan > c.lead 
 /** The largest single loss of supply once `without` is gone (MW): the firm tie import, or the largest committed machine at the plan's loading. */
 export function largestLoss(obs, without) {
   let big = obs.tie.tripped ? 0 : TIE_FIRM_MW;
-  obs.units.forEach((u, i) => { if (u.id !== without && onInS(u, M[i]) >= 0 && u.availMW * LOADING > big) big = u.availMW * LOADING; });
+  obs.units.forEach((u, i) => { if (u.id !== without && onInS(u, M[i], obs) >= 0 && u.availMW * LOADING > big) big = u.availMW * LOADING; });
   return big;
 }
 
@@ -323,7 +507,7 @@ export function stopSaving(obs, u, backS, fc, proj, planview) {
   const s = obs.s, m = M.find(x => x.id === u.id), h = fc.stepS / S_PER_H, endS = stopHorizonS(obs, u), again = backS < endS;
   const unloadS = Math.max(0, u.outMW - u.minMW) / m.rampMWs;
   // off line from half-way down the T4 slope until half-way up the T2 slope of its return
-  const offS = s + unloadS + m.t4S / 2, onS = again ? Math.min(endS, backS + m.t1S + AUTO + m.t2S / 2) : endS;
+  const offS = s + unloadS + m.t4S / 2, onS = again ? Math.min(endS, backS + m.t1S + syncOf(obs) + m.t2S / 2) : endS;
   const wv = planview.waterValue(obs.hydro.frac);
   let saving = 0;
   for (let k = 0; k < fc.n; k++) {
@@ -332,7 +516,7 @@ export function stopSaving(obs, u, backS, fc, proj, planview) {
     let floor = 0, big = 0;
     const blocks = [];
     obs.units.forEach((x, i) => {
-      if (x.id === u.id || onInS(x, M[i]) < 0 || t < s + onInS(x, M[i])) return;
+      if (x.id === u.id || onInS(x, M[i], obs) < 0 || t < s + onInS(x, M[i], obs)) return;
       const top = x.ratingMW * LOADING;
       if (x.station === 'hydro') { blocks.push({mw: x.ratingMW, offer: wv}); return; }
       floor += x.minMW;
@@ -410,6 +594,10 @@ export function objective(obs, ctx) {
   // 2. Short right now: the fast answers.
   const now = shortNow(X, line);
   if (now) return now;
+
+  // 2b. X-43: in HAND nothing closes a breaker for the player: a machine at full speed waits for its SYNC.
+  const sync = syncNow(X, line);
+  if (sync) return sync;
 
   // 3-9. The first branch with something to do now; else the first critical one (the reserve diesel
   // on its way: said, but never in place of what the battery can do meanwhile); else the first with
@@ -580,7 +768,7 @@ function arriving(obs) {
   let best = null;
   const booked = new Map(obs.plan.starts.map(e => [e.unit, e.atS]));
   obs.units.forEach((u, i) => {
-    const d = onInS(u, M[i]);
+    const d = onInS(u, M[i], obs);
     const t = u.mode === 'starting' || u.mode === 'ready' ? obs.s + d : u.mode === 'off' && booked.has(u.id) ? dueS(u, booked.get(u.id)) + u.startToMinS : -1;
     if (t >= 0 && (!best || t < best.atS)) best = {name: unitName(u.id), atS: t};
   });
@@ -649,13 +837,19 @@ function shortNow(X, line) {
   const R = realShort(X);
   const planShort = X.redNowMW >= CRIT_MW && R.nowMW > -SHORT_MIN_MW;
   const capShort = shedding && R.nowMW >= SHORT_MIN_MW;
+  // X-44: no emergency while the BALANCE bar reads BALANCED (what the battery already gives through
+  // AGC carries the plan's red): frequency is held, and a reserve short or a dark district has its own
+  // line. The bar shows a 1-s average and AGC hunts under it, so the line reads the gap now against
+  // the least shortfall it would name (SHORT_MIN_MW), not the bar's word thresholds.
+  if (imbalanceSegments(obs.balance, b).schedMW > -SHORT_MIN_MW && obs.f.hz >= V.NORMAL_LO_HZ) return null;
   if (!planShort && !sagging && !capShort) return null;
   const mw = Math.max(planShort ? X.redNowMW : 0, sagging ? obs.agc.unmetMW : 0, R.nowMW, SHORT_MIN_MW);
   const fast = [];
   // The battery first: it is there in seconds and costs only its wear. Sized to the deficit, from
   // the charge above its reserve; MW held back as GUARD are worth more as power while the desk is
   // short (par's rule 2), so the ring comes down first when the order needs the room.
-  const have = b.mode === 'discharge' ? b.orderMW : 0;
+  // (X-44: never less than it is already giving, its GUARD and droop included)
+  const have = Math.max(b.mode === 'discharge' ? b.orderMW : 0, b.outMW > 0 ? b.outMW : 0);
   const want = Math.min(b.ratedMW, Math.ceil((have + mw) / V.GUARD_STEP_MW) * V.GUARD_STEP_MW);
   if (b.socMWh - RESERVE_MWH > want * BATT_MIN_H && want >= have + BATT_MIN_MW) {
     // what the GUARD leaves first (one move, and it is there at once); the ring only when that is used up
@@ -866,6 +1060,24 @@ function restore(X, line) {
   return line({level: 'plan', kind: 'restore', text: n + '. A feeder closes once frequency is steady and there is spare reserve to carry it.', targets: ['bay-restore', 'gauge-n1']});
 }
 
+// 2b. HAND (X-43): a machine at full speed with no synchroscope open asks for its SYNC, at once (the
+// plan and every "on by" time count it as made now).
+function syncNow(X, line) {
+  const obs = X.obs;
+  if (obs.mode !== 'HAND' || obs.scope && obs.scope.open) return null;
+  const u = obs.units.find(x => x.mode === 'ready');
+  if (!u) return null;
+  return line({level: 'act', kind: 'sync', text: unitName(u.id) + ' is at full speed. HAND has no auto-sync: press its START to open the synchroscope, then SYNC.',
+    targets: ['guard-start-' + u.id, 'bay-sync'], action: {type: 'scope', unit: u.id}, startBy: X.s});
+}
+
+// A contingency began within the last `spanS` grid seconds (X-43: "after the trip" needs one).
+const tripWithin = (obs, spanS) => obs.contingencies.some(c => obs.s - c.startS < spanS);
+
+/** The fired GUARD's line while frequency is high ("after the trip" only when there was one, X-43). */
+export const guardStillText = obs => 'Frequency is high: the battery GUARD is still giving its ' + mwText(obs.battery.ffrMW) +
+  (tripWithin(obs, S_PER_H) ? ' after the trip' : ' since frequency fell') + '. Turn it down to 0 MW; it can go back up once the GUARD has re-armed.';
+
 // 5. Enough power, not enough spare: the GUARD for the first second, a fast machine for the minutes
 // (par's rule 2, sim/autopilot.js). And the reserve diesel stood down once the desk holds without it.
 function spare(X, line) {
@@ -876,8 +1088,7 @@ function spare(X, line) {
   // it up the same way), and is not raised again while the fired GUARD is still sustaining (a ring
   // raised then delivers again at once).
   if (b.guardFired && b.guardMW > 0 && b.ffrMW > 0 && obs.f.hz > V.NORMAL_HI_HZ) {
-    return line({level: 'act', kind: 'spare', text: 'Frequency is high: the battery GUARD is still giving its ' + mwText(b.ffrMW) + ' after the trip. Turn it down to 0 MW; ' +
-      'it can go back up once the GUARD has re-armed.', targets: ['ring-guard'], action: {type: 'guard', mw: 0}, startBy: s});
+    return line({level: 'act', kind: 'spare', text: guardStillText(obs), targets: ['ring-guard'], action: {type: 'guard', mw: 0}, startBy: s});
   }
   if (r.armed && !r.standingDown) {
     // Clean without it for PAR_RERT_STANDDOWN_MIN ahead (nothing in that time that the battery and
@@ -934,9 +1145,9 @@ function spare(X, line) {
   const needMW = Math.max(V.PAR_TIGHT_RATIO * sec.lMW, pickup) - sec.r5MW;
   if (!(needMW > 0) && !(sec.lKind !== 'none' && sec.previewNadirHz < V.PAR_NADIR_MIN_HZ)) return null;
   // (one at a time: not while a machine is within a quarter of an hour of the grid)
-  const coming = obs.units.some((u, i) => { const d = u.mode === 'loading' ? u.timerS : onInS(u, M[i]); return d > 0 && d <= QUARTER_S; });
+  const coming = obs.units.some((u, i) => { const d = u.mode === 'loading' ? u.timerS : onInS(u, M[i], obs); return d > 0 && d <= QUARTER_S; });
   if (!coming) {
-    const fastOnes = startable(obs).filter(c => c.lead <= V.STACK_START_WITHIN_S + AUTO).map(c => {
+    const fastOnes = startable(obs).filter(c => c.lead <= V.STACK_START_WITHIN_S + syncOf(obs)).map(c => {
       const u = obs.units.find(x => x.id === c.unit);
       return Object.assign(c, {offer: u.offer, headMW: Math.min(u.availMW - u.minMW, u.rampMWMin * V.R5_WINDOW_MIN)});
     }).sort((a, c) => a.offer - c.offer || a.lead - c.lead);
@@ -978,7 +1189,7 @@ export function stopCandidate(obs) {
   let best = null;
   obs.units.forEach((u, i) => {
     if (!GAS.has(u.cls)) return;
-    if (onInS(u, M[i]) < 0 && !(u.mode === 'off' && booked.has(u.id))) return;
+    if (onInS(u, M[i], obs) < 0 && !(u.mode === 'off' && booked.has(u.id))) return;
     if (!best || u.offer >= best.offer) best = u;
   });
   return best;
@@ -1222,7 +1433,7 @@ export function consequence(obs, target, ctx = {}) {
   const m = M.find(x => x.id === u.id), s = obs.s, name = unitName(u.id), day = ctx.dayAhead || obs.forecast;
   const out = (text, level = 'plan') => ({target, text, level}), nowS = spanAt(s, NOW_S, handOf(obs), nightOf(obs) ? NIGHT_S : Infinity);
   const reason = why => why.replace(/^unit is /, 'the unit is ').replace(OUT_RE, 'out for maintenance until ').replace(/: (\d+) min left$/, (x, n) => ', ' + spanText(n * S_PER_MIN) + ' left');
-  const syncS = obs.mode === 'AGC' ? AUTO : 0, onGrid = u.minMW > 0 ? 'at minimum load' : 'on the grid';
+  const syncS = syncOf(obs), onGrid = u.minMW > 0 ? 'at minimum load' : 'on the grid';
   if (hit[1] === 'start') {
     if (u.mode === 'starting') return out(name + ' is starting: full speed at ' + atDay(s + u.timerS) + (syncS ? ', ' + onGrid + ' by ' + atDay(s + u.timerS + syncS + m.t2S) : '; then SYNC it by hand') + '.', 'ok');
     if (u.mode === 'ready') return out(name + ' is at full speed: a press opens the synchroscope (the clock runs at 1×)' + (syncS ? '; auto-sync closes its breaker at ' + atDay(s + u.timerS) : '') + '.');

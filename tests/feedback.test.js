@@ -126,7 +126,7 @@ const mapLabel = p => p.h.mods.map.el.getAttribute('aria-label') || '';
 
 const H = {};
 test('every press answers: the briefing (AGC/HAND, Space, the rate badge, F, Tab, Enter: a HAND day)', () => {
-  const p = H.p = openGame({take: false});
+  const p = H.p = openGame({take: false, shifts: 1});
   click(p, 'btn-hand', /btn-hand "[^"]*" \[[^\]]*on/, 'brief-hand');
   click(p, 'btn-agc', /btn-agc "[^"]*" \[[^\]]*on/, 'brief-agc');
   click(p, 'btn-hand', /btn-hand "[^"]*" \[[^\]]*on/, 'brief-hand');

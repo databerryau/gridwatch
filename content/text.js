@@ -131,12 +131,12 @@ const ABSTRACTIONS = [
       'calm evening; most evenings without a storm also bring an unwarned trip of the largest unit, and a storm may trip the tie. ' +
       'At most two unwarned trips a day, none before ' + hhmm(a2.windowH[0]) +
       ' or from ' + hhmm(NIGHT_H) + ', at least ' + num(V.SPACING_REAL_S) + ' real s and ' + minutes(V.SPACING_GRID_S) + ' grid-minutes ' +
-      'apart. A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min (' +
-      minutes(V.HOT_TRIP_LOCKOUT_S) + ' min after an overheat trip), then may hot-start at once: minimum down time (' + num(coal.minDownH) +
-      ' h for coal) applies only after a planned stop. The bench\'s classic day keeps the older menu: a large unit trip every day, plus extras.',
+      'apart. A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min, then may hot-start at once: minimum down time (' + num(coal.minDownH) +
+      ' h for coal) applies only after a planned stop. No machine trips for running near its limit: above 96% it simply has no raise ' +
+      'headroom (H-18). The bench\'s classic day keeps the older menu: a large unit trip every day, plus extras, and its overheat trips.',
     why: 'Drama in a short day: every act asks a real question of the fleet, and a trip is a problem to solve within the day, not a ' +
       'lost unit.',
-    params: ['SPACING_REAL_S', 'SPACING_GRID_S', 'HOT_TRIP_LOCKOUT_S', 'FLEET.coal.minDownH'],
+    params: ['SPACING_REAL_S', 'SPACING_GRID_S', 'FLEET.coal.minDownH'],
   },
   {
     id: 'compressed-synchroscope', row: 'Compressed synchroscope.', anchorId: 'sync-scope', game: 'bay-sync',
@@ -454,9 +454,18 @@ const ABSTRACTIONS = [
     ours: 'If frequency is still below ' + hz(V.NORMAL_LO_HZ) + ' Hz when the ' + minutes(V.FOS_RECOVER_S) + '-minute ' +
       'countdown ends, or below ' + hz(V.CONTAIN_LO_HZ) + ' Hz for more than ' + num(V.DIRECTED_BELOW_CONTAIN_S) + ' s, ' +
       'one rotation district goes dark every ' + num(V.DIRECTED_INTERVAL_S) + ' s until frequency recovers. It counts ' +
-      'against LIGHTS ON.',
+      'against LIGHTS ON. These timers are GRIDWATCH\'s own rule, not the frequency standard\'s: a stand-in for AEMO directing the networks (H-18).',
     why: 'No reflex test: the rule is visible and automatic.',
     params: ['NORMAL_LO_HZ', 'FOS_RECOVER_S', 'CONTAIN_LO_HZ', 'DIRECTED_BELOW_CONTAIN_S', 'DIRECTED_INTERVAL_S'],
+  },
+  {
+    id: 'guard-ring', row: 'The GUARD is contingency FCAS, set by hand.', anchorId: 'guard-ring', ui: 'drawer', game: 'ring-guard',
+    real: 'AEMO enables contingency FCAS (fast and very fast raise) in every 5-minute dispatch, co-optimised with energy: a battery is ' +
+      'paid to hold MW back and inject them within a second when frequency falls past its trigger.',
+    ours: 'You set the battery\'s GUARD ring by hand: MW held back from its energy order. Below ' + hz(V.GUARD_TRIGGER_HZ) + ' Hz it ' +
+      'delivers them within a second and holds them for ' + minutes(V.GUARD_SUSTAIN_S) + ' min, then re-arms. No market enables or pays it.',
+    why: 'The market makes this choice in reality; here it is the desk\'s own decision: energy now, or a catch for the next trip (H-18).',
+    params: ['GUARD_TRIGGER_HZ', 'GUARD_SUSTAIN_S'],
   },
   {
     id: 'restore-permissive', row: 'Restore permissive', anchorId: 'restore-permissive', game: 'bay-restore',
@@ -618,8 +627,9 @@ const ABSTRACTIONS = [
       'feeder under repair becomes yours at its hand-back); plus CARBON, ' +
       usd(V.VER) + ' (VER) a tonne on your CO₂ intensity × every MWh the city asked for. SCORE = 1000 × par\'s ALL-IN ÷ ' +
       'yours, par being GRIDWATCH\'s own autopilot on the same day: 1000 is par, more beats it, and a black day scores 0 (F). ' +
-      'Letters: ' + LETTERS.slice(0, -1).map(l => l[0] + ' from ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
-      ' below. Through the day the chip compares you with par at the same grid time. ALL-IN is the day\'s cost to the ' +
+      'The letter comes from how far your ALL-IN is behind par\'s, in MWh dark at VCR: ' +
+      LETTERS.slice(0, -1).map(l => l[0] + ' within ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
+      ' beyond, so the same mistake earns the same letter on any day. Through the day the chip compares you with par at the same grid time. ALL-IN is the day\'s cost to the ' +
       'community, not a price or a bill.',
     why: 'One currency is how regulators trade the three goals off, so the score teaches the real trade: an MWh dark weighs ' +
       'as much as ' + num(V.VCR / V.VER) + ' priced tonnes of CO₂. Dividing par\'s total by yours is GRIDWATCH\'s own rule; it ' +
@@ -761,16 +771,16 @@ const ABSTRACTIONS = [
     game: 'rate-badge',
     real: 'A network hands a repaired feeder back and the control room closes it within minutes; nobody stops time to do it.',
     ours: 'When a feeder under repair may be closed (at its hand-back, and no sooner than ' + minutes(V.RESTORE_INTERVAL_S) +
-      ' grid-minutes after the last restore) the clock holds on a card that names it and its pickup with its cold load; the badge ' +
-      'reads HELD. R, Enter or the card\'s RESTORE restores it (refused, the card says why and stays; it warns you before you ' +
-      'press, too); Esc or GO ON goes on, and the feeder stays dark and is yours from its hand-back: the RESTORE bay and the line ' +
-      'still ask, and no card holds for it again. Any other press on the desk puts the card off and is applied: a later restore ' +
-      'that moves the feeder\'s allowed time brings it back. One card per feeder per allowed time, after a watch and its card, ' +
-      'none from ' + hhmm(NIGHT_H) + '. Closed within ' +
+      ' grid-minutes after the last restore) and its restore would be accepted, the clock holds on one card that names it, its ' +
+      'pickup with its cold load, and the morning\'s other feeders with the time each may close; the badge reads HELD. R, Enter, ' +
+      'Esc or the card\'s RESTORE restores it and queues the others, each closing itself at its time (one the permissive refuses ' +
+      'then brings its own card once its lamp lights). LEAVE, priced at VCR, leaves it dark and yours: the RESTORE bay and the ' +
+      'line still ask, and no card holds for it again. Any other press on the desk puts the card off and is applied. After a ' +
+      'watch and its card, none from ' + hhmm(NIGHT_H) + ' (D-27). Closed within ' +
       minutes(V.RESTORE_PACE_MAX_S) + ' grid-minutes of when it may be, the day can still be PERFECT. Par\'s reference playback counts ' +
       'each card as ' + num(V.REF_RESPOND_CARD_S) + ' real s, as the respond card.',
     why: 'At the profile\'s speeds one real second is minutes of a dark district: the held clock makes the hand-back a decision ' +
-      '(close it now, or go on), not a reflex test.',
+      '(close them now, or leave one dark at its price), not a reflex test.',
     params: ['RESTORE_INTERVAL_S', 'RESTORE_PACE_MAX_S', 'REF_RESPOND_CARD_S'],
   },
   {

@@ -205,15 +205,16 @@ test('F-4 / D-6: one log played through the loop at 0.25x, 1x, 60x and 240x give
   assert.deepEqual(log, [3, 3, 3, 3]);
 });
 
-test('K-15 via the bench: a debug trip opens the watch; it lasts ~29 real s for exactly 30 grid-s; the desk is locked; skip', () => {
+test('K-15 via the bench: a debug trip opens the watch; it lasts the full schedule real s (its slow part to 0.5 s past the extreme, Q-97) for exactly 30 grid-s; the desk is locked; skip', () => {
   const sess = createSession({seed: 2, scenario: CLASSIC, paused: false});
   runTo(sess, at(4, 45) + 11);
   requestDebugTrip(sess);
-  let real = 0, start = -1, end = -1, startTick = -1, endTick = -1;
+  let real = 0, start = -1, end = -1, startTick = -1, endTick = -1, slowTo = -1;
   for (let i = 0; i < 60 * 45; i++) {
     frame(sess, 1 / 60); real += 1 / 60;
     const m = modeOf(sess.director, sess.state);
     if (m.mode === 'WATCH' && start < 0) { start = real; startTick = sess.state.conts.at(-1).startTick; }
+    if (m.mode === 'WATCH' && m.rate >= 1 && slowTo < 0) slowTo = m.watchS;   // where the 0.15x part ended
     if (start >= 0 && m.mode !== 'WATCH') { end = real; endTick = sess.state.tick; break; }
     if (m.mode === 'WATCH' && i % 97 === 0) {
       const r = sendInput(sess, {type: 'tie', mw: 0});
@@ -221,8 +222,9 @@ test('K-15 via the bench: a debug trip opens the watch; it lasts ~29 real s for 
     }
   }
   assert.ok(start >= 0 && end > start, 'the watch played');
-  assert.ok(Math.abs((end - start) - watchRealS()) < 0.1, 'watch took ' + (end - start) + ' real s');
   const c = sess.state.conts.at(-1);
+  assert.ok(slowTo >= 2 && slowTo <= 3 + 1 / TPS, 'the slow part ended at T+' + slowTo + ' s');
+  assert.ok(Math.abs((end - start) - watchRealS(WATCH_SCHEDULE, slowTo)) < 0.1, 'watch took ' + (end - start) + ' real s');
   assert.equal(c.watchEndTick - c.startTick, V.WATCH_S * TPS);
   assert.ok(endTick >= c.watchEndTick && endTick - c.watchEndTick <= FLAT_RATE / 60 / TICK_S + 1, 'cruise resumes in the frame the watch ends');
   assert.equal(startTick % TPS, 0, 'the debug trip lands on a grid second');

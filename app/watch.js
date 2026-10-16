@@ -1,7 +1,46 @@
 // app/watch.js: the K-15 watch's beat model and the K-16 respond card model. Pure, DOM-free.
-// Contract: desk/README.md §32.12 app/watch.js.
+//
+// The watch plays five beats in the physical order (J-25): inertia -> battery -> governors ->
+// UFLS -> settle. Which beat is live is read from the contingency's TRACE (app/record.js: the
+// frequency and what each source had caught at every tick), never from a script, so the
+// caption always says what the physics is doing:
+//   inertia    stored spin carries the hole (its catch exceeds the battery's and the governors')
+//   battery    the battery (its droop plus the GUARD's fast frequency response) catches more
+//              than inertia; "YOUR GUARD: N MW" when the ring holds some back
+//   governors  governor response overtakes the battery, until the fall stops and 10 s pass
+//   ufls       from the first relay operation (only below 49.0 Hz) for 2 grid-s
+//   settle     from 10 grid-s: droop parks frequency below 50 Hz
+// The beat index never goes back (a subsequence of the order above, K-15).
+//
+// Phase 2a (desk/README.md §19.2, §21.4; C-7): a contingency can be a loss of LOAD (the smelter's
+// potline), and wind, utility solar and rooftop solar answer over-frequency. So the beats read
+// the trace by the event's sign (a rise is caught by the same sources working the other way),
+// the inverters' catch (caught.inverterMW) counts with the governors' beat, and the captions
+// and the card say it in words for both signs: negative = "solar and wind backed off N MW" (a
+// rise caught), positive = "gave back N MW" (they were backed off before a loss of supply).
+// A trace or record from before Phase 2a has no inverterMW: it reads as 0.
+//
+// The respond card (K-16) is <= 4 lines, with no buttons: the nadir against the standard, the
+// MW each source caught (the record's caught at the extreme, which is the trace value at the
+// nadir), the problem in plain words (the H-4 level, R5 - L if short, the 30:00 countdown from
+// secureByTick, dark districts except a held task feeder, the network's outage: Q-69), and "Enter
+// (or a click) to take the desk".
+//
+// 2c (Q-74): the problem line speaks COVER's words. COVER is R5 >= L with no district dark for UFLS
+// or direction, within 30 min of the trip, so (SHEDDING first: its head wins over R5 < L):
+// "SHEDDING: n district(s) dark (n MW): relight it/them[ and cover n MW] within m:ss." (the
+// shortfall when R5 < L); "N-1 SHORT: n MW short: cover it within m:ss."; "N-1 TIGHT: spare
+// covers the next trip, without SECURE's margin." (TIGHT already covers: no countdown); SECURE as
+// before.
+// fallbackGlow's tie test reads obs.tie.importLimitMW (a derate's limit, Q-68).
+// Q-91: feederCard(obs, id, suburbs, why, lamp) is the feeder card's model (the clock held at a hand-back):
+// the feeder, its suburb's name and its pickup with its cold load to the 10 MW ("SAL4's feeder in Saltbush
+// Bay is repaired: about 230 MW with its cold load."), the keys (FEEDER_KEYS "R or Enter: restore it now ·
+// Esc: go on"), what going on means (FEEDER_ON), a refused restore's reason (why), and before one why a
+// restore would be refused now (lamp: the RESTORE PREVIEW's reason, '' once why is set).
 
 import {V} from '../sim/params.js';
+import {clockText} from '../render/format.js';
 
 const TPS = V.TICKS_PER_S;
 export const BEATS = Object.freeze(['inertia', 'battery', 'governors', 'ufls', 'settle']);
@@ -62,17 +101,33 @@ const inverterAt = (tr, i) => (tr.caught.inverterMW ? tr.caught.inverterMW[i] ||
 // The beat the trace shows at tick offset k (before the monotonic rule). `sg` is +1 for a loss of
 // supply and -1 for a loss of load, so each source's catch is read as a magnitude in the
 // direction that helps; the inverters' catch counts with the governors (both are droop).
-function rawBeat(tr, k, uflsK, sg = 1) {
+// X-39: a source lights its beat once it carries BEAT_SHARE of the hole (the spin's catch at the
+// first tick) and is the larger of the two droop catchers, so a few MW of inverter release in the
+// first tick light nothing, and the battery, which answers within a second, lights before the
+// governors whenever it caught more. Past the extreme (`extK`, -1 while unknown) the governors,
+// still opening, are what turns frequency round: they light then on the same share.
+function rawBeat(tr, k, uflsK, sg = 1, extK = -1) {
   if (k >= SETTLE_S * TPS) return 4;
   if (uflsK >= 0 && k >= uflsK && k < uflsK + UFLS_BEAT_S * TPS) return 3;
   const i = Math.max(0, Math.min(k, tr.len - 2));
-  const c = tr.caught;
-  const inertia = sg * c.inertiaMW[i], batt = sg * (c.batteryMW[i] + c.guardMW[i]);
+  const c = tr.caught, least = BEAT_SHARE * Math.abs(c.inertiaMW[0]);
+  const batt = sg * (c.batteryMW[i] + c.guardMW[i]);
   const gov = sg * c.governorsMW[i] + Math.max(0, sg * inverterAt(tr, i));
-  if (!(inertia >= 0) && !(batt >= 0)) return 0;
-  if (gov > batt && gov > 0 && k > 0) return 2;
-  if (batt > inertia && batt > 0) return 1;
+  if (gov >= least && (gov > batt || extK >= 0 && k > extK)) return 2;
+  if (batt >= least && batt >= gov) return 1;
   return 0;
+}
+
+/** A droop source's beat lights from this share of the lost MW (X-39). */
+export const BEAT_SHARE = 0.05;
+
+// The tick offset of the extreme: the record's when it has one, else the trace's own (up to `upTo`).
+function extremeK(tr, c, upTo, sg) {
+  if (c && c.extremeTick >= c.startTick) return c.extremeTick - c.startTick;
+  if (!tr.f) return -1;
+  let best = 0;
+  for (let i = 1; i < Math.min(upTo, tr.len); i++) if (sg * tr.f[i] < sg * tr.f[best]) best = i;
+  return best;
 }
 
 // First tick offset at which UFLS had shed load (caught.uflsMW > 0), or -1.
@@ -91,10 +146,10 @@ function firstUfls(tr, upTo) {
  */
 export function beatTimeline(tr, upTo = V.WATCH_S * TPS, c) {
   const out = [];
-  const uflsK = firstUfls(tr, upTo), sg = isRise(tr, c) ? -1 : 1;
+  const uflsK = firstUfls(tr, upTo), sg = isRise(tr, c) ? -1 : 1, extK = extremeK(tr, c, upTo, sg);
   let cur = -1;
   for (let k = 0; k < Math.min(upTo, V.WATCH_S * TPS); k++) {
-    const b = Math.max(cur, rawBeat(tr, k, uflsK, sg));
+    const b = Math.max(cur, rawBeat(tr, k, uflsK, sg, extK));
     if (b !== cur) { out.push({k, beat: BEATS[b]}); cur = b; }
   }
   return out;
@@ -116,7 +171,9 @@ export function watchView(w, tr, c, tick, m) {
   if (w.n !== c.n) { w.n = c.n; w.beat = 0; w.uflsK = -1; }
   const k = tick - c.startTick, rise = isRise(tr, c);
   if (w.uflsK < 0) w.uflsK = firstUfls(tr, k);
-  const b = Math.max(w.beat, rawBeat(tr, k, w.uflsK, rise ? -1 : 1));
+  // the extreme counts once it is known (as the nadir figure below), so a beat never runs ahead of the trace
+  const extK = c.extremeTick >= c.startTick && tick - c.extremeTick > TPS / 2 ? c.extremeTick - c.startTick : -1;
+  const b = Math.max(w.beat, rawBeat(tr, k, w.uflsK, rise ? -1 : 1, extK));
   w.beat = b;
   // The nadir (the peak of a rise) is known once frequency has turned back.
   let nadir = 0;
@@ -163,21 +220,26 @@ export function respondCard(obs, c, o) {
   // df/dt = 0) its catch is about zero, so it is named without a number (§4.1's card), as the
   // BALANCE bar names it: spin.
   const falls = c.lostMW >= 0, inverter = caught.inverterMW || 0;
+  // X-40: a catch of zero or less is never printed as a number: the battery and the governors are
+  // named for why they gave nothing (the third item of a part is its word then), other sources are
+  // left out; a GUARD the player set is named beside the battery's MW.
+  const guard = obs.battery && obs.battery.guardMW > 0 ? ' (your GUARD ' + mw(obs.battery.guardMW) + ')' : '';
   const parts = (falls
-    ? [['battery', battery], ['governors', caught.governorsMW], ['load relief', caught.loadReliefMW], ['UFLS', caught.uflsMW]]
-    : [['battery took', 0 - battery], ['governors backed off', 0 - caught.governorsMW], ['load picked up', 0 - caught.loadReliefMW],
-      ['UFLS', caught.uflsMW]]).filter(p => Math.abs(p[1]) >= 1);
+    ? [['battery', battery, 'battery empty', guard], ['governors', caught.governorsMW, 'governors spent'],
+      ['load relief (motors slow)', caught.loadReliefMW], ['UFLS', caught.uflsMW]]
+    : [['battery took', 0 - battery, 'battery full', guard], ['governors backed off', 0 - caught.governorsMW, 'governors at minimum'],
+      ['load picked up', 0 - caught.loadReliefMW], ['UFLS', caught.uflsMW]]).filter(p => p[1] >= 1 || p[2] && p[1] <= -1);
   if (Math.abs(inverter) >= 1) {
     const part = [inverter < 0 ? 'solar and wind backed off' : 'solar and wind gave back', Math.abs(inverter)];
     // in physical order: the inverters' droop acts with the governors', ahead of them when it caught more
     const g = parts.findIndex(p => p[0].startsWith('governors'));
     if (g < 0) parts.push(part);
-    else parts.splice(Math.abs(inverter) > Math.abs(parts[g][1]) ? g : g + 1, 0, part);
+    else parts.splice(Math.abs(inverter) > Math.max(0, parts[g][1]) ? g : g + 1, 0, part);
   }
   const line1 = (falls ? 'NADIR ' : 'PEAK ') + f3(nadir) + ' Hz: ' + (contained ? 'contained within ' : 'OUTSIDE ') +
-    lo.toFixed(1) + '–' + hi.toFixed(1) + ' Hz ' + (contained ? '✓' : '✗') + '. Back to ' + V.NORMAL_LO_HZ.toFixed(2) + '–' +
+    lo.toFixed(1) + '–' + hi.toFixed(1) + ' Hz ' + (contained ? '✓' : '✗') + '. FOS asks: back in ' + V.NORMAL_LO_HZ.toFixed(2) + '–' +
     V.NORMAL_HI_HZ.toFixed(2) + ' Hz within ' + mmss(V.FOS_RECOVER_S) + '.';
-  const line2 = 'Caught by: ' + ['spin', ...parts.map(p => p[0] + ' ' + mw(p[1]) + ' MW')].join(' → ') + '.';
+  const line2 = 'Caught by: ' + ['spin', ...parts.map(p => p[1] < 1 ? p[2] : p[0] + ' ' + mw(p[1]) + ' MW' + (p[3] || ''))].join(' → ') + '.';
   const sec = obs.sec, short = Math.max(0, sec.lMW - sec.r5MW);
   const secureInS = Math.max(0, (c.secureByTick - obs.tick) / TPS);
   const dark = obs.districts.filter(d => d.dark && !(d.shedBy === 'task' && d.clearS > obs.s)); // (Q-69: not held)
@@ -201,20 +263,26 @@ export function respondCard(obs, c, o) {
   };
 }
 
-/** Q-91: the feeder card's keys, and what going on means. */
-export const FEEDER_KEYS = 'R or Enter: restore it now · Esc: go on', FEEDER_ON = 'Gone on, it stays dark and is yours: the RESTORE bay still has it.';
+/** Q-91, D-27: the feeder card's keys (Esc restores too), and what leaving it dark means. */
+export const FEEDER_KEYS = 'R, Enter or Esc: restore', FEEDER_ON = 'Left dark, it is yours: the RESTORE bay still has it.';
 
 /**
- * Q-91: the feeder card at a hand-back (the clock holds): the feeder, its suburb (from `suburbs`, the
+ * Q-91, D-27: the feeder card at a hand-back (the clock holds): the feeder, its suburb (from `suburbs`, the
  * scenario's) and its pickup with its cold load, to the 10 MW; `why`: a refused restore's reason;
  * `lamp`: before any press, why a restore would be refused now (the bay's RESTORE PREVIEW), or ''.
- * @returns {{id:string, mw:number, text:string, keys:string, on:string, why:string, lamp:string}}
+ * `next`: the morning's other feeders a RESTORE here queues, [{id, atS}] (each closes itself at atS);
+ * `leave`: the LEAVE button's words, with what an hour dark costs at VCR (its customers' own load, S-1).
+ * @returns {{id:string, mw:number, text:string, plan:string, keys:string, leave:string, on:string, why:string, lamp:string}}
  */
-export function feederCard(obs, id, suburbs, why, lamp) {
+export function feederCard(obs, id, suburbs, why, lamp, next) {
   const x = obs.districts.find(d => d.id === id), sub = x && (suburbs || []).find(s => s.id === x.suburb);
-  const pick = x ? Math.round(x.coldLoadMW / 10) * 10 : 0;
+  const pick = x ? Math.round(x.coldLoadMW / 10) * 10 : 0, q = next || [];
+  const hourM = x ? x.coldLoadMW / V.COLD_LOAD_FACTOR * V.VCR / 1e6 : 0;
   return {id, mw: pick, text: id + '\'s feeder' + (sub ? ' in ' + sub.name : '') + ' is repaired: about ' + pick + ' MW with its cold load.',
-    keys: FEEDER_KEYS, on: FEEDER_ON, why: why || '', lamp: why ? '' : lamp || ''};
+    plan: 'RESTORE ' + id + ' now' + q.map(n => '; ' + n.id + ' at ' + clockText(n.atS, false)).join('') +
+      (q.length ? ' (' + (q.length > 1 ? 'they close themselves' : 'it closes itself') + ').' : '.'),
+    keys: FEEDER_KEYS, leave: 'LEAVE ' + id + ' DARK (about $' + Math.max(1, Math.round(hourM)) + 'M an hour at VCR)',
+    on: FEEDER_ON, why: why || '', lamp: why ? '' : lamp || ''};
 }
 
 /**

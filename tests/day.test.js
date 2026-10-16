@@ -337,11 +337,13 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   const armed = $('objective-text').textContent;
   assert.match(armed, /^Press again to confirm\. START CCGT 2: at minimum load \(175 MW\) by 0\d:\d\d, 49 min from now, and it must then run 4 h\. It covers the shortfall from 0\d:\d\d\.$/);
   assert.equal($('objective').className, 'act consider');
-  // what the player is reading to confirm holds still while the clock runs on under it
+  // X-42: its words hold while the clock runs on under it, and its figures follow the clock
   const clock = $('clock-text').textContent;
   for (let i = 0; i < 15; i++) frame();
   assert.notEqual($('clock-text').textContent, clock);
-  assert.equal($('objective-text').textContent, armed, 'held as it read when the cover went up');
+  const later = $('objective-text').textContent, figures = t => t.replace(/\d+/g, '#');
+  assert.equal(figures(later), figures(armed), 'the same words');
+  assert.notEqual(later, armed, 'the deadline moved with the clock');
   tap('s');
   const log = h.game.state.log, at = log.findIndex(r => r.type === 'start' && r.args.unit === 'ccgt2');
   assert.equal(log.filter(r => r.type === 'start' && r.args.unit === 'ccgt2').length, 1, '2, S, S started it');

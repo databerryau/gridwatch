@@ -1,6 +1,22 @@
 // render/mapdata.js: the map's fixed geometry and the colours the stack, the map (and the
-// levers, desk/README §7 L-3) share.
-// Contract: desk/README.md §32.12 render/mapdata.js.
+// levers, desk/README §7 L-3) share. Pure data plus pure helpers; no DOM. Tested by
+// tests/map.test.js (G-1: integer scale, terrain to the frame edges, no building off the
+// terrain; G-2: the silhouette parts of each technology; X-37, X-38; G-3: the rooftop panels
+// of each suburb in proportion to its rooftop MW, ROOF_PV and roofPanels).
+//
+// The map is drawn on a fixed offscreen BASE_W x BASE_H canvas and blitted at an INTEGER
+// scale (G-1). scaleFor() picks the scale from the map area: the largest integer with the
+// whole width shown and the floor-safe rows (SAFE) fitting the height. Rows the frame cannot
+// show are cropped from the top (sky first); room left over is letterboxed with the ground
+// colour below the horizon and the sky colour above it, never sky under the ground.
+//   1280x268 (the 1280x600 floor) -> x2, 640x134 base px, the SAFE rows exactly
+//   1280x344 (1280x720)            -> x2, 640x172
+//   1920x520 (1920x1080)           -> x3, 640x173.3
+// The horizon sits 14 rows inside SAFE, so even the floor shows a strip of sky (G-3: the sun,
+// the sunset, the storm cloud) with the stacks, the towers and the CBD breaking it.
+//
+// Everything a shape needs is data here (base px), so the art can be nudged without touching
+// the drawing code in render/map.js.
 
 export const BASE_W = 640;
 export const BASE_H = 176;
@@ -20,7 +36,6 @@ export const UI = Object.freeze({
   red: '#f85149', amber: '#d29922', blue: '#58a6ff', green: '#3fb950', skyline: '#e6edf3',
   band: 'rgba(230,237,243,0.10)', ghost: 'rgba(230,237,243,0.55)',
 });
-export const GROUND = '#3f6b3a';
 export const SKY = '#6a9fd0';
 
 /** The six suburbs (U-1, SPEC §4.5): code as in obs.districts[].suburb, name, box in base px. */
@@ -35,7 +50,6 @@ export const SUBURBS = Object.freeze([
 
 /** The two city substations: the west trunk (tie, coal, gas) and the east trunk (hydro, wind, solar) end here. */
 export const SUBSTATIONS = Object.freeze([[210, 118], [468, 110]]);
-export const SUBSTATION = SUBSTATIONS[0];
 /** Trunk lines [x, y] pylon by pylon (medium pylons), each ending at a substation. */
 export const TRUNKS = Object.freeze([
   [[84, 128], [116, 126], [148, 123], [180, 120], [210, 118]],
@@ -69,8 +83,9 @@ export const PLANTS = Object.freeze([
     line: [[568, 112], [560, 124]]},
   {id: 'wind', target: null, label: 'GALE RIDGE WIND', box: [590, 42, 50, 78], machines: [],
     line: [[608, 116], [592, 121]]},
-  {id: 'solar', target: null, label: 'SUNPLAIN SOLAR', box: [496, 126, 98, 48], machines: [],
-    line: [[522, 138], [528, 122]]},
+  // (X-47: on the plain south of Redgum Flats and Saltbush Bay, clear of the alarm tiles at the plan bar's right end at 1280×600)
+  {id: 'solar', target: null, label: 'SUNPLAIN SOLAR', box: [336, 150, 72, 25], machines: [],
+    line: [[404, 160], [480, 150], [498, 116]]},
   {id: 'battery', target: 'dial-battery', label: 'BIG BATTERY', box: [268, 152, 56, 22], machines: [],
     line: [[298, 156], [298, 150]]},
   {id: 'tie', target: 'knob-tie', label: 'TIE LINE', box: [0, 104, 46, 28], machines: [],
@@ -118,8 +133,8 @@ export const PLANT_PARTS = Object.freeze({
 /** Wind turbine towers [x, y] (base of the mast) and solar panel rows [x, y] (front-left end). */
 export const WIND_TURBINES = Object.freeze([[600, 78], [614, 74], [628, 70], [602, 96], [616, 92], [630, 88], [606, 114], [620, 110]]);
 export const TURBINE_H = 18;
-export const SOLAR_ROWS = Object.freeze([[500, 146], [509, 150], [518, 154], [527, 158], [536, 162], [545, 166], [554, 170]]);
-export const SOLAR_ROW_W = 36;
+export const SOLAR_ROWS = Object.freeze([[340, 162], [349, 165], [358, 168], [367, 171], [376, 174]]);
+export const SOLAR_ROW_W = 28;
 /** The ridge (hydro and wind sit on it), the lake behind the dam, the river to the bay, the bay. */
 export const RIDGE = Object.freeze([[484, 122], [494, 84], [508, 64], [544, 58], [640, 56], [640, 124], [604, 128], [566, 126], [520, 118]]);
 export const LAKE = Object.freeze([[506, 88], [512, 74], [532, 65], [562, 63], [582, 68], [586, 78], [574, 86], [560, 89]]);

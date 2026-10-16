@@ -1,5 +1,19 @@
 // desk/levers.js: K-1 motorised unit levers and the K-3 machine guards (desk/README.md §6).
-// Contract: desk/README.md §32.12 desk/levers.js.
+//
+// One lever per station (COAL, CCGT, GT·A, GT·B, GT·C). The handle is the station's base point
+// (the plan's now-edge, obs.stations[].basePointMW); behind it the output needle (outMW), the AGC
+// band bracket (base ± band, K-2), the 10-grid-minute ramp cone, detent ticks at MIN/25/50/75%,
+// the 96% spring gate with its red zone (H-2 trip risk) and a tick for the next plan keyframe.
+// A drag sends `basePoint` on release (and at most every 250 ms while dragging); ↑/↓ ±10 MW,
+// Shift ±1, PgUp/PgDn next detent; crossing the gate needs 12 px of extra drag or Shift+↑.
+// An idle station's lever books its start through the plan (`planKey`, AGC mode, L-6).
+// One lamp per machine with its own START and STOP guards (lift, then press; S S / X X).
+// Phase 2a (C-10, desk/README.md §19.5): a guard lights when its id is in vm.glow (the
+// objective's STOP or START), and tells the desk when it is hovered, pressed by a pointer,
+// focused, lifted or committed (ctx.consider), so the shell can say what the press will do
+// before it is made.
+// Foley (K-20): a hand move cues `detent` / `gate` / `ratchet`, a plan move cues `servo`; guards
+// cue `cover` (lift, drop) and `button` (the press that commits). A rough close shakes the lever.
 
 import {V} from '../sim/params.js';
 import {leverScale, nextDetent, rampCone, agcBandMW, stationUnits} from './calc.js';
@@ -13,7 +27,8 @@ export const KEY_STEP_MW = 10, KEY_FINE_MW = 1;
 export const HAND_MS = 500;         // K-20: no servo cue within 0.5 s of a hand move
 export const SERVO_MS = 250;        // K-20: at most one servo cue per lever per 0.25 s
 export const SHAKE_MS = 600;        // K-12: a rough close shakes the lever this long
-const HOT_RISK_TEXT = (V.HOT_TRIP_PER_H * 100).toFixed(1) + '%/h';
+// H-18 (Q-102): above the 96% gate a machine has no raise headroom left; nothing trips for running there.
+const AT_LIMIT = 'above 96%: no raise headroom (T previews a trip)';
 const KEY_S = GUARD_MS / 1000, CLICK_S = GUARD_CLICK_MS / 1000;
 
 const pct = (v, total) => (total > 0 ? clamp(fin(v) / total, 0, 1) * 100 : 0);
@@ -154,13 +169,13 @@ export function createMachine(ctx, k, pan) {
       sa === 'scope' ? 'SYNC ' + name + ': open the synchroscope (' + (ctx.vm().obs.mode === 'AGC' ? 'auto-sync in ' + mmss(u.timerS) : 'HAND: you close it') + ')' : says(w));
     setAttr(stop, 'title', so === 'abort' ? 'ABORT: one click puts ' + name + ' back on' :
       so ? verb + ' ' + name + ': click, then click again to confirm (keys: ' + kc + ', X X)' : sw ? says(sw) : name + ': nothing to stop');
-    const hot = u.hotS > 0 ? ', RUNNING HOT ' + mmss(u.hotS) : '';
+    const hot = u.hotS > 0 ? ', ' + AT_LIMIT : '';
     setAttr(start, 'aria-label', name + ' ' + MODE_WORD[u.mode] + hot + ': ' + (upS ? 'START armed, press again to start' :
       sa === 'start' ? 'START' + twice + 'S S within ' + KEY_S + ' s)' : sa === 'scope' ? 'open synchroscope' : w || 'no start') + (glowS ? hint : ''));
     setAttr(stop, 'aria-label', name + ': ' + (upX ? verb + ' armed, press again' : so === 'abort' ? 'ABORT STOP' :
       so ? verb + twice + 'X X within ' + KEY_S + ' s)' : 'no stop' + (sw ? ', ' + sw : '')) + (glowX ? hint : ''));
     setAttr(box, 'title', name + ' · ' + MODE_WORD[u.mode] + (u.sync ? ' · ' + mw(u.outMW) + ' MW' : '') +
-      (u.hotS > 0 ? ' · RUNNING HOT ' + mmss(u.hotS) + ' (trip risk ' + HOT_RISK_TEXT + ' once armed)' : '') + (w || sw ? ' · ' + w + sw : ''));
+      (u.hotS > 0 ? ' · ' + AT_LIMIT : '') + (w || sw ? ' · ' + w + sw : ''));
   }
 
   return {
@@ -414,14 +429,13 @@ function createLever(ctx, sid, parent) {
       ticks.replaceChildren();
       for (const d of sc.detents) { const t = el(doc, 'i', 'dk-tick'); setStyle(t, 'bottom', pct(d, T).toFixed(2) + '%'); ticks.appendChild(t); }
     }
-    // Hot: the station above its gate or any machine running hot (H-2): risk shown in the slot.
+    // At the limit: the station above its gate or any machine above it (H-18: no raise headroom, no trip).
     const units = stationUnits(o, sid);
     const hotS = Math.max(0, ...units.map(u => fin(u.hotS)));
-    const armed = hotS >= V.HOT_ARM_S;
-    setCls(slot, 'hot', hotS > 0 || (gOn && v > sc.gateMW));
-    setText(gateLbl, hotS > 0 ? (armed ? '✕ ' + HOT_RISK_TEXT : '! ' + mmss(V.HOT_ARM_S - hotS)) : gOn && v > sc.gateMW ? '! >96%' : '96%');
-    setAttr(gate, 'title', 'Spring gate at 96% of available: above it a machine runs hot; after ' + V.HOT_ARM_S / 60 +
-      ' min hot it may trip (≈' + HOT_RISK_TEXT + ')' + (hotS > 0 ? ' · hot ' + mmss(hotS) : ''));
+    const over = hotS > 0 || (gOn && v > sc.gateMW);
+    setCls(slot, 'hot', over);
+    setText(gateLbl, over ? '! >96%' : '96%');
+    setAttr(gate, 'title', 'Spring gate at 96% of available: above it a machine has no raise headroom left for AGC or a trip (T previews one)');
     // HAND: MAN lamp; AGC: hidden (no MAN state in AGC, K-2).
     const hand = o.mode === 'HAND';
     setHidden(man, !hand);
@@ -441,7 +455,7 @@ function createLever(ctx, sid, parent) {
     setAttr(track, 'aria-valuetext', STATION_SHORT[sid] + ' base point ' + mw(v) + ' MW, output ' + mw(so.outMW) + ' MW, ' +
       so.onCount + ' of ' + st.count + ' on' + (so.onCount ? ', ' + mw(sc.minMW) + '–' + mw(sc.maxMW) + ' MW' : '') +
       (nk ? ', plan ' + mw(nk.mw) + ' MW by ' + clockOf(nk.atS) : '') + (p && p.man ? ', MAN: off the plan' : '') +
-      (hotS > 0 ? ', running hot ' + mmss(hotS) + (armed ? ', trip risk ' + HOT_RISK_TEXT : '') : gOn && v > sc.gateMW ? ', above the 96% gate' : ''));
+      (over ? ', above the 96% gate: no raise headroom' : ''));
     setAttr(track, 'aria-disabled', ctx.locked() ? 'true' : 'false');
   }
 

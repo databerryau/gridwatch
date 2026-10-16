@@ -1,5 +1,15 @@
 // desk/dial.js: K-11 frequency dial (canvas) and BALANCE bar (DOM) (desk/README.md §6, §29).
-// Contract: desk/README.md §32.12 desk/dial.js.
+//
+// Dial: 49-51 Hz; normal band green, out to 49.5/50.5 amber, beyond red; UFLS marked at 49.0; the
+// needle (above 10× the last real second's mean, F-4), the TRIP PREVIEW ghost needle, the nadir
+// pin during a watch, a 3-decimal readout, CHANGE (RoCoF over 500 ms) and SPIN (stored energy,
+// GW·s); "HAND" on the face in HAND mode. BALANCE bar: the trend, or in an event the scheduled gap
+// and the borrowed stack that covers it (inertia, battery, governors, load relief and, Phase 2a, the
+// inverters backing off: wind, utility solar and rooftop solar above 50 Hz, C-7); the segments sum to the
+// swing-equation imbalance and balance about zero (calc.imbalanceSegments). SHED is the dark
+// customers' load (obs.demand.unservedMW): the relay MW is net load and is zero or less when a
+// district that was feeding back at noon is dark (P-12). The canvas is role="img"; its text
+// alternative (K-23) changes at most once per real second.
 
 import {V} from '../sim/params.js';
 import {imbalanceSegments} from './calc.js';
@@ -203,6 +213,12 @@ export function shedMarkMW(obs) {
   return Math.max(0, typeof u === 'number' && Number.isFinite(u) ? u : fin(obs.balance && obs.balance.shedMW));
 }
 
+/** X-45: the mark's word: SHED when relays or the city desk shed load, DARK when only feeders under repair are (a hand-back: nothing was shed). */
+export function shedWord(obs) {
+  const dark = (obs.districts || []).filter(d => d.dark);
+  return dark.length && dark.every(d => d.shedBy === 'task') ? 'DARK' : 'SHED';
+}
+
 /** Scale (MW for half the bar) that fits the segments and `floorMW`: 100, 200, 500, 1000, 2000, 5000... */
 export function barScale(seg, floorMW = 0) {
   let pos = 0, neg = 0;
@@ -345,7 +361,7 @@ export function createImbalanceBar(ctx, parent) {
         setAttr(txt, 'class', 'dk-imb-text' + (w.word === 'SHORT' ? ' crit' : w.word === 'SURPLUS' ? ' warn' : ''));
         setText(who, w.who);
         setHidden(shed, !(shedMW > 0.5));
-        setText(shed, '✕ SHED ' + mw(shedMW) + ' MW');
+        setText(shed, '✕ ' + shedWord(o) + ' ' + mw(shedMW) + ' MW');
         setHidden(agcEl, w.word === 'BALANCED' || !lim);   // at the word's thresholds
         lim = false;
       }

@@ -9,20 +9,26 @@ export const PAR_MARK_S = 300;
 export const PAR_CHUNK_TICKS = 500;   // the fewest a step plays
 export const PAR_KEY = 'gridwatch:v4:par';
 
+const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 const MARK = PAR_MARK_S * V.TICKS_PER_S, KEYS = ['costDollars', 'lightsMWh', 'servedMWh', 'co2tPerMWh', 'saidiMin', 'saifi', 'maifi'];
 
-/** opts.storage: {read(key), write(key, value)}, app/game.js's wrapped storage (C-8). */
+/**
+ * opts.storage: {read(key), write(key, value)}, app/game.js's wrapped storage (C-8).
+ * step(maxTicks, budgetMs): plays up to maxTicks (at least PAR_CHUNK_TICKS) in chunks of PAR_CHUNK_TICKS, and
+ * stops after the chunk that passes budgetMs of real time (X-46: a frame's par stays near its budget).
+ */
 export function createParRunner(seed, scenario, opts) {
   const storage = opts && opts.storage, id = scenario.id, row = sc => Object.fromEntries(KEYS.map(k => [k, sc[k]]));
   seed >>>= 0;
   let state = null, memo = null;
   const run = untilTick => AP.runPar(seed, scenario, {state, memo, untilTick, hashEveryS: V.DAY_S + 1});
   const p = {done: false, score: null, series: [], progress: 0, black: false,
-    step(maxTicks) {
+    step(maxTicks, budgetMs = Infinity) {
+      const t0 = clock();
       try {
         if (!state && !p.done) { const r = run(0); state = r.state; memo = r.memo; p.series.push(row(r.score)); }
-        for (let left = Math.max(PAR_CHUNK_TICKS, maxTicks || 0); left > 0 && !p.done;) {
-          const t = state.tick, r = run(Math.min(t + left, (Math.floor(t / MARK) + 1) * MARK, V.DAY_TICKS));
+        for (let left = Math.max(PAR_CHUNK_TICKS, maxTicks || 0), n = 0; left > 0 && !p.done && (n++ === 0 || clock() - t0 < budgetMs);) {
+          const t = state.tick, r = run(Math.min(t + Math.min(left, PAR_CHUNK_TICKS), (Math.floor(t / MARK) + 1) * MARK, V.DAY_TICKS));
           left -= state.tick - t;
           if (state.tick % MARK === 0) p.series.push(row(r.score));
           if (state.over) {

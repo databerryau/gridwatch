@@ -1,5 +1,40 @@
-// app/tray.js: the K-9 message tray model.
-// Contract: desk/README.md §32.12 app/tray.js.
+// app/tray.js: the K-9 message tray model. Pure and DOM-free; desk/tray.js draws trayView()
+// (vm.tray).
+//
+// Cards come from the sim's records: news (`announce`, by kind, Q-82: weather from the WEATHER BUREAU, the tie from MARKET NOTICE, an outage from STATION, feeders from NETWORK), station notices
+// (trips, each START / STOP / CANCEL / ABORT, a unit at full speed, lockout releases, water), market notices (the security level
+// going SHORT or SHEDDING, reserve diesel, DR, and from Phase 2a the minimum-system-load levels,
+// P-4 / desk/README.md C-9) and the city desk (UFLS, directed shedding, restores, a suburb's air-con locking; its bookings and patience: LOG only). Each card: a sender, a grid time, <= 25 words and ONE button that only focuses a
+// control (and lights it, L-9); it never dispatches (K-9). At most 3 cards are visible; older
+// ones (information first) and cards whose life is over go to the LOG drawer. Warning cards ring twice (the
+// audio cue 'ring2') and never repeat: a warning's key (what it is about) is shown once a day.
+// Cards never pause play (§7).
+//
+// 2c (desk/README.md §32.7.3):
+// - Senders by kind (Q-82): `A.isWeather(kind)` (heat, storm, cloud, drought) is the WEATHER BUREAU
+//   with its button to the stack; `tie` MARKET NOTICE (the tie), `outage` STATION (the lever of the
+//   unit its text names), `network` NETWORK (the restore bay); any other kind as before (the map).
+// - A card's life (Q-63) is stored when it is made, as `untilS`: TRAY_LIFE_REAL_S (20) real s of
+//   the step profile (`clock.stepAfter`) from its atS, 04:30 at the earliest; a warning issued in
+//   play (news atS > 0) whose onset (`fromS`) is later stays until its onset (`holdS`). Briefing
+//   cards get the plain 20 s. `trayFrame` retires every card whose life is over, not only the
+//   oldest, so a warning held to its onset stays while a newer information card expires behind it.
+// - `trayBriefing(tr, news)` (Q-81): at TAKE THE DESK one card per news item with atS 0, through
+//   the same 'announce' path (sender, button, seen key), atS 0 ("04:00"); one 'ring2' if it made
+//   any, else [] (classic announces nothing at 04:00); over three, the oldest cards go first.
+// - Log cards: `FEEDER_CLEAR` rings (NETWORK): "<id> feeder repaired and handed back: close its
+//   breaker (R or Enter at its card, or from the RESTORE bay)." with its button to the restore bay
+//   (Q-70, Q-91); that district's `restore` record moves it to the LOG (`done`); `UNIT_AVAILABLE` (STATION,
+//   to the unit's lever) and `TIE_LIMIT_END` (MARKET NOTICE, to the tie) are information; the
+//   weather onsets keep one rule: a `crit` log (heat onset, storm arrival, wind cut-out) rings, and
+//   on a dayplan day the front's `CLOUD_ONSET` over the suburbs and a warned drought's
+//   `WIND_DROUGHT` are information (their warning rang; plan's moments, tests/dayplan.test.js).
+//   Classic is as before (Q-83): its precinct front's `CLOUD_ONSET` makes no card, and a legacy
+//   drought, announced at its onset, makes one card: the log line that twins an `announce` of the
+//   same batch (same text) makes none.
+// - The night (Q-73): from the sim's `NIGHT_SHIFT` record the tray's cards are quiet (made and
+//   logged, no cue), and a unit the night shift brings to full speed is its own to close: its
+//   `UNIT_READY` card drops "(or SYNC now)" and goes TO THE LEVER (`cardOf(r, night)`, stage C).
 
 import {V} from '../sim/params.js';
 import {stepAfter} from '../sim/clock.js';
@@ -83,7 +118,8 @@ export function cardOf(r, night = false) {
         text: unitName(r.id) + ' tripped: ' + Math.round(r.lostMW) + ' MW lost. Protection lockout; the plan has a hole.',
         button: {label: 'TO THE LEVER', target: leverOf(r.id)}};
       if (r.cause === 'link') return {key: 'trip:tie:' + r.tick, from: SENDERS.station, sev: 'warn',
-        text: 'Interconnector tripped: ' + Math.round(r.lostMW) + ' MW of import lost.', button: {label: 'TO THE TIE', target: 'knob-tie'}};
+        text: 'Interconnector tripped: ' + Math.round(Math.abs(r.lostMW)) + ' MW of ' + (r.lostMW < 0 ? 'export' : 'import') + ' lost.', // (X-41: exporting, lostMW < 0)
+        button: {label: 'TO THE TIE', target: 'knob-tie'}};
       return {key: 'trip:load:' + r.tick, from: SENDERS.station, sev: 'warn',
         text: 'Smelter potline tripped: ' + Math.round(Math.abs(r.lostMW)) + ' MW of load gone. Frequency rises.',
         button: {label: 'TO THE DIAL', target: 'dial-freq'}};

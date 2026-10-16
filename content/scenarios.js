@@ -1,5 +1,13 @@
 // content/scenarios.js: scenarios as data (spec F-13, D-8, P-6).
-// Contract: desk/README.md §32.12 content/scenarios.js.
+//
+// A scenario is plain JSON-able data. createState() copies it into state.scn with the
+// source keys (src, note, simplified, unverified) stripped, so the sim never reads this
+// module at run time: state is self-contained.
+//
+// Source rule: every object whose own values include numbers carries a `src` (legacy
+// line refs are to index.html v2.0 + Phase 0.1) or `simplified: true` with a `note`
+// (tests/params.test.js). Times of day are hours; hours >= 24 are the next morning.
+// Model constants shared by every scenario live in sim/params.js.
 
 import {P} from '../sim/params.js';
 
@@ -185,6 +193,7 @@ export const CLASSIC = {
   levers: null, // U-2: no city levers on the classic day
   dayplan: null, // Q-65: the legacy menu above
   night: false, // Q-73
+  hotTrips: true, // H-18 (Q-102): the legacy random hot-unit trip (H-2) is classic's alone
 };
 
 // Deep-frozen: a test or tool that edits a scenario in place would leak into every later

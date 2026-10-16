@@ -1,6 +1,13 @@
 // desk/rotary.js: K-4 hydro gate wheel, K-5 battery dial + GUARD ring, K-6 tie knob
-// (desk/README.md §6).
-// Contract: desk/README.md §32.12 desk/rotary.js.
+// (desk/README.md §6). DOM controls with role="slider" (K-23): drag in a circle, keys, scroll.
+// Each sends its sim input on release / key-up and shows the vm's applied value otherwise.
+// Foley (K-20): a turn cues `detent` across a detent (every GUARD step, the tie's detents, the
+// battery's IDLE) or else `ratchet`; the hydro gate cues `gate` when a new setting is taken.
+// 2c (Q-68): a network outage's import limit (obs.tie.importLimitMW, until limitUntilS) bounds the
+// tie knob (aria-valuemax; a drag snaps through calc.tieSnap(v, limit), never to a detent past it),
+// draws a red arc from it to +800 beside the export cap's, and its lamp reads "● IMP ≤n" in amber
+// (a constraint, never LINK OK's green); a key or wheel turn past it, made at it, says in blue
+// "imports limited to n MW until HH:MM".
 
 import {V} from '../sim/params.js';
 import {waterLastsUntilS, redArcFromMW, knobValue, knobAngle, pointerAngle, guardFromAngle, tieSnap, TIE_DETENTS,
