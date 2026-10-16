@@ -202,7 +202,7 @@ export function createEndCard(doc, root, actions, deps) {
       part('CARBON', 'carbon', '', a.co2tPerMWh.toFixed(2) + ' t/MWh × ' + mw(a.askedMWh) + ' MWh = ' + mw(a.co2tPriced) + ' t × ' + VER_TEXT + ' (VER)',
         who + ' plants emitted ' + mw(a.co2t) + ' t; imports and dark load are counted at ' + who + ' mix');
       const hh = el('span', '$' + a.perHousehold.toFixed(2) + ' per household');
-      hh.title = 'per household of the city\'s ' + (deps.households() / 1e6).toFixed(1) + 'M (unverified); real networks also count businesses';
+      hh.title = 'per household of a Melbourne-size city (' + (deps.households() / 1e6).toFixed(1) + 'M); real networks also count businesses';
       part('ALL-IN', 'total', 'total', [allInCents(a) + ' c/kWh · ', hh]);
     }
     if (both) {
