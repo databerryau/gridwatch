@@ -4,10 +4,12 @@ One copy per tester (`gate2-README.md`). Print it and fill it in by hand while y
 repo uses T1–T5, never a name.
 
 **Tester:** ____________ (T___)  **Date:** __________  **Their date, if in another time zone:** __________
-**New to GRIDWATCH?** Y / N  (if N: from W2 / gate 1; same computer and browser as then? Y / N)
+**New to GRIDWATCH?** Y / N  (if N: from W2 / gate 1; same computer and browser as then? Y / N; finished a day there? Y / N)
+**The briefing's title said:** FIRST SHIFT / OFFICIAL  (a returning tester who never finished a day there gets FIRST SHIFT)
 **Energy professional?** Y / N  **Recorded, with consent?** Y / N  **In person / remote**
 **Your card's first line:** ______________________________  **Sent in (app):** ______________
-**Their computer and browser:** ______________  **Their phone:** iPhone / Android / other
+**Their computer and browser:** ______________  **Screen and scaling** (e.g. 1920×1080 at 150%)**:** __________
+**Their phone:** iPhone / Android / other
 
 ---
 
@@ -32,6 +34,7 @@ Send your card (`gate2-invite.md`). Start the stopwatch when they open your mess
 |---|---|---|---|---|
 | Your message: do they read the card? Is the preview showing? Phone or computer? | | — | | |
 | On the phone (if they tap it there): the landing page. COPY LINK? How does the link get to the computer? | | — | | |
+| Landing page on the computer (a small screen or window): PLAY ANYWAY? A bigger window, and a reload? | | — | | |
 | The game opens on the computer | | — | | |
 | Briefing: do they read it? Open "?"? Press TAKE THE DESK | | | | |
 | First START button: did they find it unprompted? | | | | |
@@ -76,11 +79,16 @@ Don't ask whether they'd play tomorrow or share it.
 Ask: *"Could you scroll up to my message and send me a screenshot of it, as it arrived?"* If they tapped the link on
 their phone: *"And one of the page it opened?"* Keep the screenshots off the repo.
 
-| Check | Y / N | Notes |
+**The preview rule:** the preview shows the picture and the title, and the description too where the app shows
+descriptions. An app that never shows a description (iMessage puts the address there) passes on the picture and the
+title. An app that previews no links at all (some SMS, most email), or none inside a longer message (R-2's step 3),
+makes the preview n/a, and check 4 is then scored on the card and the phone page alone.
+
+| Check | Y / N / n/a | Notes |
 |---|---|---|
 | The card's lines are whole: blocks as bars, ★ as a star, no empty boxes or ? | | |
 | The link is tappable | | |
-| The preview shows the picture, the title ("GRIDWATCH: the daily power-grid puzzle") and the description | | |
+| The preview keeps the rule: the picture, the title ("GRIDWATCH: the daily power-grid puzzle"), the description if this app shows descriptions. n/a if it previews no links, or none inside a message | | |
 | Opened on a phone? Then the landing page showed (not the desk, not an error) | | |
 | COPY LINK used? Then it worked (the button read COPIED) | | |
 
@@ -99,7 +107,8 @@ Two days after the session, in the morning, with the day-2 message (`gate2-invit
 - [ ] **2. Shared unprompted:** pressed SHARE or copied the card, before any word from you.
       Shared another way instead (a screenshot, told someone): ______________________
 - [ ] **3. Played the next day:** the next date's daily, before your message (self-reported).
-- [ ] **4. Card and link in their app:** the card whole, the preview shown; the landing page on a phone, if they used one.
+- [ ] **4. Card and link in their app:** the card whole, the link tappable, the preview by the rule (n/a in an app that
+      previews no links, or none inside a message); the landing page on a phone, if they used one.
 - [ ] **5. Retold the moment:** named what happened at THE MOMENT and one thing about it, without looking.
 - [ ] **6. No spoiler complaint:** none in the session, the questions or the day-2 check.
 

@@ -40,22 +40,44 @@ tappable.
 
 ## R-2. The link previews
 
-*SPEC §11 W6: "the link unfurls" (Y-8: `og:` tags, the image, a favicon).*
+*SPEC §11 W6: "the link unfurls" (Y-8: `og:` tags, the image, a favicon). Y-8's accept: title, description and image
+"in at least two messaging apps".*
 
 1. In the R-1 messages, look at the link's preview: the picture (GRIDWATCH over a frequency line that falls and is
    caught), the title "GRIDWATCH: the daily power-grid puzzle", and the description "Keep a city's lights on for one
-   day: start power stations before the city needs them, and catch the trips. …". Some apps show only the picture and
-   title: fine.
+   day: start power stations before the city needs them, and catch the trips. …".
 2. Check the second address too: the one the landing page copies, `https://databerryau.github.io/gridwatch/next.html`
    (send it alone). Both pages carry the preview.
 3. On the computer, the browser tab shows a small icon: a yellow lightning bolt on a dark square.
 
-**If there is no preview:** send `https://databerryau.github.io/gridwatch/` alone in the same app.
-- That one previews and the card's doesn't: the app doesn't preview a link with no `https://` inside a message. Write it
-  down. The fix would be on the card's last line (Y-4): 8 more characters.
-- Neither previews: the app may not do previews at all (some SMS), or the tags or picture are wrong. Try another app;
-  if no app previews, it's ours.
-- An old preview: apps remember previews for a while, up to a day. Add `?v=2` to the address to see the new one.
+Gate 2's check 4 scores a tester's preview by the same rule, so a preview that passes here can't fail there:
+
+**The preview rule:** the preview shows the picture and the title, and the description too where the app shows
+descriptions. An app that never shows a description (iMessage puts the address there) passes on the picture and the
+title. An app that previews no links at all (some SMS, most email), or none inside a longer message (R-2's step 3),
+makes the preview n/a, and check 4 is then scored on the card and the phone page alone.
+
+**No description?** Send a news article's link (any big news site) in the same app. Its preview shows a description
+and ours doesn't: our `og:description` is broken. It shows none either: the app never shows descriptions. That is
+fine; write it in the record, because gate 2 needs it.
+
+**Pass:** at least two apps show all three, the picture, the title and the description (Y-8's accept: an app that
+never shows descriptions doesn't count toward the two, so try a third; WhatsApp, Slack and Teams usually show them);
+every app you will invite a gate 2 tester in keeps the preview rule; the icon shows.
+
+**If there is no preview,** find out why. In the same app, send these in order, each one change from the one before,
+and stop at the first that previews:
+
+| Send | Link | In the card | If this one previews |
+|---|---|---|---|
+| 1. The card, as SHARE copied it | `databerryau.github.io/gridwatch` | yes | (This is the one that didn't.) |
+| 2. The same card, only its last line changed | `https://databerryau.github.io/gridwatch` | yes | The missing `https://` stopped it. The fix is on the card's last line (Y-4): 8 more characters, which costs a long card its closing line (over 280 characters, the card drops it first). |
+| 3. That last line alone | `https://databerryau.github.io/gridwatch` | no | The link's place stopped it: this app previews a link sent on its own, not one inside a longer message. More characters won't change that, and the preview is n/a in it (the preview rule). Write the app down for the owner: strangers' cards arrive there with no preview. |
+| 4. A news article's link alone | a news site's `https://` address | no | Ours is broken: the tags or the picture (step 0's check of `og.png`; the pages' `og:` tags). |
+
+Nothing previews, not even the news article's link: the app previews no links (some SMS), and the preview is n/a in it
+(the preview rule). An old preview: apps remember previews for a while, up to a day. Add `?v=2` to the address to see
+the new one.
 
 ## R-3. A phone gets the landing page
 
@@ -75,8 +97,9 @@ tappable.
 **An app's own browser** may block copying: the line then says "Copy was blocked: the link is …" and shows the
 address. Not a fail (Y-8 names Safari and Chrome), but it is how strangers meet the page: write down which app.
 
-**Also, on the computer** (optional): make the browser window small (under 1280 wide or 600 high). The landing page
-shows, with PLAY ANYWAY, which opens the game. `?play` on the end of the address skips the landing page.
+**Also, on the computer** (optional): make the browser window small (under 1280 wide or 600 high), then reload (F5).
+The page checks the window's size only when it opens, so shrinking an open game shows nothing new. After the reload the
+landing page shows, with PLAY ANYWAY, which opens the game. `?play` on the end of the address skips the landing page.
 
 ## R-4. `?selftest` passes in Chrome, Edge and Firefox
 
@@ -89,7 +112,8 @@ state as when it was recorded. The state is compared by its **hash**, a fingerpr
 written like `0x1a2b3c4d`.
 
 1. On the computer, in each browser, open <https://databerryau.github.io/gridwatch/next.html?selftest>. Keep the tab
-   in front while it runs (a background tab runs slowly). If the landing page shows instead, make the window bigger.
+   in front while it runs (a background tab runs slowly). If the landing page shows instead, make the window bigger
+   (maximise it, or F11 for full screen) and reload (F5).
 2. Wait until it says it is finished.
 
 **Pass:** every recorded day reads PASS (or a tick), with the hash it expected and the hash it got the same, and a
@@ -129,8 +153,9 @@ Copy this table for each release, newest first. Result: PASS, FAIL or SKIP (and 
 | 0 Site up; `og.png` served | | | | |
 | R-1 Card, app 1: ________ | | | | |
 | R-1 Card, app 2: ________ | | | | |
-| R-2 Preview of the card's link, app 1 | | | | |
-| R-2 Preview of the card's link, app 2 | | | | |
+| R-2 Preview of the card's link, app 1 (shows descriptions? Y / N) | | | | |
+| R-2 Preview of the card's link, app 2 (shows descriptions? Y / N) | | | | |
+| R-2 Preview, app 3 (if app 1 or 2 shows no descriptions) | | | | |
 | R-2 Preview of the `next.html` link | | | | |
 | R-2 Icon in the browser tab | | | | |
 | R-3 Landing page, iPhone Safari | | | | |

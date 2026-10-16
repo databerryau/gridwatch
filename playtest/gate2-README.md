@@ -19,15 +19,18 @@ Phase 4"; the pass lines are in SPEC.md W6, "Gate 2".
 - After gate 1 (W5) has passed and W6 is live. Gate 1's testers may come back for gate 2, so you then need only two
   new people.
 - Each session takes about 25 minutes: getting the game open, 6–8 to play, 2 on the end card, 5 for the questions and
-  a few for the app check. Then one message two days later.
+  a few for the app check. Book 30 (the booking messages ask for 30): the end card, the questions and the app check
+  come last, and checks 2, 4 and 5 are scored there. Then one message two days later.
 - Spread the sessions over a week if you like. Each tester's day-2 check is their own.
 
 ## Who
 
 - **3–5 testers. Five if you can:** the pass lines are written for five.
 - **At least 2 new:** they have never played GRIDWATCH in any form, and nobody has shown it to them.
-- **Returning testers are welcome** (W2 or gate 1). On their own computer they keep their history: no FIRST SHIFT, the
-  coach off (Q-92), a streak if they had one. Note it on their log.
+- **Returning testers are welcome** (W2 or gate 1). They keep their history only in the browser they played in, and
+  only if they finished a day there (reached the verdict, or the city went black): then no FIRST SHIFT, the coach off
+  (Q-92), a streak if they had one. One who never finished a day, or plays in another browser, gets FIRST SHIFT and the
+  coach, like a new player. The briefing's title says which; note it on their log.
 - A mix if you can: not everyone from work. Energy people read the card differently.
 - People who know each other can test on different days, so one can't tell the other about the day.
 
@@ -56,6 +59,12 @@ Phase 4"; the pass lines are in SPEC.md W6, "Gate 2".
 4. **If they open the link on their phone,** let the landing page do its work. It should get them to a computer.
    Stuck there means 60 s with no idea how to get the game onto their computer. The smallest hint: *"It's for a
    computer."*
+   **If the landing page shows on their computer,** its window is under 1280 by 600. A 1920×1080 laptop screen at 150%
+   scaling (many 13–14" work laptops) is under 600 high with the browser maximised. The page shows its phone words
+   ("GRIDWATCH is played on a computer…") and PLAY ANYWAY. A stranger on that laptop meets it too, so let them deal with it. Stuck 60 s: *"Press
+   F11, then PLAY ANYWAY."* F11 makes the window full screen, and PLAY ANYWAY loads the game into it. The page checks the
+   window's size only when it opens, so F11 alone, without a reload, changes nothing. Log it as help, and note their
+   screen.
 5. **After the verdict, keep watching.** Say nothing for at least 2 minutes, or until they say they're done. Don't ask
    "anything else?" and don't close the tab for them.
 6. **The questions** (on the log). Their screen out of sight first: lid closed, or turned away.
@@ -83,7 +92,8 @@ The log has a row for each. In short:
 |---|---|
 | Your message | Do they read the card? Does the preview show? Do they tap the link on their phone or move to the computer? |
 | The phone (if they tap it there) | The landing page: do they understand it? COPY LINK? How does the link get to the computer, and how long does it take? |
-| The briefing | "Daily #N · FIRST SHIFT" in the title (OFFICIAL for a returning tester). Do they read it? How long until TAKE THE DESK? Do they open "?" (HOW TO PLAY)? |
+| The computer (if the landing page shows there) | Do they press PLAY ANYWAY unprompted? Try a bigger window (nothing changes until a reload)? How long until the game? |
+| The briefing | "Daily #N · FIRST SHIFT" in the title (OFFICIAL for a returning tester who finished a day in that browser). Do they read it? How long until TAKE THE DESK? Do they open "?" (HOW TO PLAY)? |
 | The day | Where they stop, get stuck or ask for help. The trip (the watch): what do they look at? |
 | The verdict | Did they reach it? What do they read first? THE MOMENT? The ladder line? |
 | YOUR CARD and SHARE | Do they find it? Press SHARE (it turns COPIED)? Copy the text by hand? Take a screenshot instead? Where does it go, and to whom? |
@@ -109,9 +119,20 @@ Each tester gets a tick or a cross on six checks: five about the person, one abo
 | 1 | **Finished** | The end card showed their score (the verdict), help or not. A black day counts: the day ended. | They stopped, closed the tab, or ran out of time. |
 | 2 | **Shared unprompted** | You saw them press SHARE (it turns COPIED), or select and copy the card's text, before you said anything about it. Pasting it isn't needed, but note where it went. | A screenshot of the end card: note it as "shared another way". It means the text card isn't what they wanted to send. |
 | 3 | **Played the next day** | The day-2 check, as above (self-reported). | Practice days, a later date, after your message. |
-| 4 | **Card and link in their app** | Their screenshot of your message shows the card's lines whole (the blocks as bars, ★ as a star, no empty boxes or ?), the link tappable, and a preview with the picture, the title and the description. If they tapped it on a phone, they reached the landing page (not the desk, not an error). | Boxes or ? in the card, no preview, a broken page on the phone. An app that previews no links at all (some SMS): write "no previews in this app" and send the next invitation in an app that does. |
+| 4 | **Card and link in their app** | Their screenshot of your message shows the card's lines whole (the blocks as bars, ★ as a star, no empty boxes or ?), the link tappable, and a preview that keeps the preview rule (below). If they tapped it on a phone, they reached the landing page (not the desk, not an error). | Boxes or ? in the card, a link that isn't tappable, a preview that breaks the rule, a broken page on the phone. |
 | 5 | **Retold the moment** | With the screen out of sight, their story names what happened at the end card's THE MOMENT (what tripped, what went dark, or the thinnest margin) and one thing about it: when in the day, how far frequency fell, what caught it, which streets went dark. Copy THE MOMENT's first line onto the log during the session, to compare. | Vague: "something broke and it was fine". Read off the screen. |
 | 6 | **No spoiler complaint** | At no point (session, questions, day 2) do they say that something the game showed them before or during play gave away what would happen: your card, the link preview, the landing page, the briefing, THE WEEK AHEAD. | One complaint fails it. A spoiler passed on by a person is noted, not counted against the game. |
+
+**The preview rule:** the preview shows the picture and the title, and the description too where the app shows
+descriptions. An app that never shows a description (iMessage puts the address there) passes on the picture and the
+title. An app that previews no links at all (some SMS, most email), or none inside a longer message (R-2's step 3),
+makes the preview n/a, and check 4 is then scored on the card and the phone page alone.
+
+To tell which kind an app is, look it up in R-2's record (`release-checks.md`), or send a news article's link in it.
+The rule is the same in R-2, so a preview the release checks pass can't fail check 4. Write an n/a app on the log all
+the same: strangers' cards arrive there with no preview, and that goes to the owner. The rule relaxes the spec's gate 2
+line, "title, description, image" in each tester's app: an app that never shows a description would fail a tester with
+nothing wrong in our tags. That change is put to the owner.
 
 ## The pass line
 
@@ -128,8 +149,8 @@ as gate 1 does ("all testers, if only 3").
 | 6 | Spoiler complaints | 0 | 0 | 0 |
 
 **If it fails:** the spec gives gate 2 no fail rule, so this kit uses gate 1's: fix the top three issues, then re-run
-with at least two new testers. A failure only in check 4 is a fix and a re-check in that app (`release-checks.md`),
-with no new testers. `gate2-results.md` says what each failure points at.
+with at least two new testers. A failure only in check 4 is a fix and a re-check in that app (`release-checks.md`:
+R-2's steps say which fault it is), with no new testers. `gate2-results.md` says what each failure points at.
 
 ## Keep it private
 

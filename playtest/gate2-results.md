@@ -7,7 +7,8 @@ Fill this in from the tester logs once every tester's day-2 check is in. T1–T5
 
 ## The six checks
 
-Mark each tester ✓ or ✗. For check 4, write the app too (✓ WhatsApp). For check 6, count the complaints.
+Mark each tester ✓ or ✗. For check 4, write the app too (✓ WhatsApp), and "preview n/a" for an app that previews no
+links, or none inside a message (the preview rule, `gate2-README.md`). For check 6, count the complaints.
 
 | # | Check | Needed (5 / 4 / 3 testers) | T1 | T2 | T3 | T4 | T5 | Count | Pass? |
 |---|---|---|---|---|---|---|---|---|---|
@@ -26,11 +27,12 @@ Not pass lines, but they measure open rows in SPEC §6 (D-2's session length) an
 
 | What | T1 | T2 | T3 | T4 | T5 | Median or count |
 |---|---|---|---|---|---|---|
-| New or returning | | | | | | |
+| New or returning; the briefing's title (FIRST SHIFT or OFFICIAL) | | | | | | |
 | Opened the link on a phone first | | | | | | |
+| Landing page on the computer (a small screen); PLAY ANYWAY unprompted? | | | | | | |
 | Message opened → game open on the computer (m:ss) | | | | | | |
 | Game open → verdict (m:ss) | | | | | | |
-| Game open → SHARE (m:ss; D-2: first shift ≤6:50, returning ≤6:00) | | | | | | |
+| Game open → SHARE (m:ss; D-2: ≤6:50 under FIRST SHIFT, ≤6:00 under OFFICIAL, whatever the tester's history) | | | | | | |
 | Help given (times) | | | | | | |
 | Stuck over 30 s (times) | | | | | | |
 | Stress 1–5 / confusion 1–5 | | | | | | |
@@ -50,10 +52,10 @@ no new testers.
 
 | Check that failed | What it points at | Where the fix probably is |
 |---|---|---|
-| 1 Finished | Strangers who come from a card, not from you, drop out. Where did each one stop: the phone, the briefing, a stuck stretch, the length? | The step where most stopped. The phone detour is the landing page (Y-8). |
+| 1 Finished | Strangers who come from a card, not from you, drop out. Where did each one stop: the phone, the briefing, a stuck stretch, the length? | The step where most stopped. A detour through the landing page, on a phone or a small laptop screen, is `app/landing.js` (Y-8). |
 | 2 Shared | The card isn't pulling. Did they reach YOUR CARD (it comes after the verdict)? Screenshot instead? Say why not? | Screenshots: the picture card (Y-6, on the cut list) moves up. Not reached: SHARE earlier on the end card. Not wanted: what the card says. |
 | 3 Next day | The reason to come back is weak. Did they read THE WEEK AHEAD, press COUNT THIS ONE (a streak starts), say anything about tomorrow? | The return hooks: where the week ahead sits, the streak line, anniversary dailies (D-29). A reminder would need a server, and C-1 allows none today. |
-| 4 Card or link | A fault in that app: the preview tags, the picture, the bare link with no https://, the phone page. | `index.html` and `next.html`'s preview tags, `og.png`, the card's last line (Y-4), `app/landing.js` (Y-8). |
+| 4 Card or link | A fault in that app. R-2's steps, one change at a time, say which: the preview tags or the picture, or the card's link with no https://. Or the phone page. | `index.html` and `next.html`'s preview tags, `og.png`; the card's last line (Y-4) only when the card with `https://` previewed and the card without it didn't; `app/landing.js` (Y-8). |
 | 5 Retell | The day's story doesn't stick. Did they watch the trip? Read THE MOMENT? | THE MOMENT's place and words (D-21); the watch's captions (K-15). |
 | 6 Spoiler | Something gave the day away. Which: your card, the preview, the landing page, the briefing, THE WEEK AHEAD? | That one thing. A card that spoiled: the card's lint (Y-4). |
 

@@ -7,13 +7,13 @@ Short, and the same for every tester. Copy them as they are; fill in the [bracke
 No link and nothing about the game: the invitation has to arrive the way a stranger's would.
 
 **SMS, WhatsApp, Messenger:**
-> Have you got 20 minutes at your computer on [day] at [time]? I'd like to watch you try something I've made. Sound on if you can.
+> Have you got 30 minutes at your computer on [day] at [time]? I'd like to watch you try something I've made. Sound on if you can.
 
 **Slack or Teams:**
-> Got 20 minutes at your computer on [day] at [time]? I'd like to watch you try something I've made. Sound on if you can.
+> Got 30 minutes at your computer on [day] at [time]? I'd like to watch you try something I've made. Sound on if you can.
 
-**Email.** Subject: *20 minutes on [day]?*
-> Hi [name], have you got 20 minutes at your computer on [day] at [time]? I'd like to watch you try something I've made. Sound on if you can. I'll send it to you then.
+**Email.** Subject: *30 minutes on [day]?*
+> Hi [name], have you got 30 minutes at your computer on [day] at [time]? I'd like to watch you try something I've made. Sound on if you can. I'll send it to you then.
 
 Remote? Add: *"I'll call you on [app] and ask you to share your screen."*
 
@@ -41,8 +41,9 @@ databerryau.github.io/gridwatch
   preview while you type, wait for it before you press send.
 - **Slack or Teams:** paste it as plain text, not in a code block (the grey box): the rows would line up, but the link stops
   being a link and makes no preview.
-- **Email:** subject *GRIDWATCH #[N]*, the card as the body. Email shows no link preview, so check 4's preview can't be
-  scored (the card's lines still can). Use it only for someone with no messaging app.
+- **Email:** subject *GRIDWATCH #[N]*, the card as the body. Most email shows no link preview, so check 4's preview is
+  n/a (the preview rule, `gate2-README.md`) and the card's lines are what it scores. Use it only for someone with no
+  messaging app.
 
 ## 3. The day-2 check (two days after the session, in the morning)
 
