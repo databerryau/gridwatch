@@ -52,7 +52,7 @@
 import {V} from '../sim/params.js';
 import {darkShareAt, litMW} from '../sim/dark.js';
 
-const M = V.MACHINES, SIDS = V.STATION_IDS, NS = SIDS.length;
+const M = V.MACHINES, SIDS = V.STATION_IDS;
 export const COL_S = V.FC_STEP_S;
 export const N_FUTURE = Math.round(V.FC_HORIZON_S / V.FC_STEP_S);
 export const N_PAST = 6;

@@ -1047,7 +1047,7 @@ from `env.roofSubMW` as of the last refresh (every grid second, and at every dis
 
 ### weather.js
 
-Stage A (done): `hourOfDay(scn, s)`, `secondOfHour(scn, h)`, `tableLinear(t, x)`,
+Stage A (done): `hourOfDay(scn, s)`, `tableLinear(t, x)`,
 `tableSmooth(t, x)`, `demandBaseMW(scn, h)`, `clearSkySolarMW(scn, h)`, `neighbourPrice(scn, h)`,
 `exportLimitMW(h)`, `heatMultAt(heat, s)`, `prerollRegime(seed, scn)` (2c: on a dayplan
 scenario it returns `dayplan.prerollRegime`), `prerollSeries(seed, scn, regime, events)`, `fineNoiseMW(seed, s)`, `sampleSecond(state)`.

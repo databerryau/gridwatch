@@ -184,7 +184,6 @@ export function makeConsider(now, guards, send) {
     get target() { return sent; },
   };
 }
-export const SHAKE_MS = 600;   // K-12: a rough close shakes the unit's lever this long
 
 const cueName = c => (typeof c === 'string' ? c : c && typeof c.name === 'string' ? c.name : '');
 

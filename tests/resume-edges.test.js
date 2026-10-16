@@ -7,7 +7,6 @@ import {openGame} from './lib/play.js';
 import * as G from '../app/game.js';
 import * as HI from '../app/history.js';
 import * as D from '../app/director.js';
-import {RESUME_LOST} from '../app/shell.js';
 import {hashState} from '../sim/step.js';
 import {V} from '../sim/params.js';
 

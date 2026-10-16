@@ -1222,7 +1222,6 @@ function startOfficial(game) {
 // saved tick proves it (a mismatch gives a fresh day, said so). What frames alone keep (the plates lifted, Marg's day, the
 // K-12 offers) is saved beside the actions. Two slots, so a practice run never overwrites today's official or first shift.
 
-export {RESUME_LOCK, RESUMING} from '../render/format.js';
 /** F-7: the saved runs: today's daily (official or a first shift), and practice. */
 export const RESUME_KEY = 'gridwatch:v4:resume', RESUME_SLOTS = Object.freeze(['daily', 'practice']);
 /** F-7: in play the run is saved this often (grid s), at each action of the player's, and when the tab is hidden or closed. */
