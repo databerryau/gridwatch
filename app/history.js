@@ -1,6 +1,7 @@
 // app/history.js: W6's official runs, history and streaks (Y-2 as amended by Q-99, Y-3), DOM-free; app/game.js stores it.
 //
-// Under HISTORY_KEY: {v: 1, days: {YYYYMMDD: entry}}, one entry per date, at most HISTORY_MAX (the oldest dates go first).
+// Under HISTORY_KEY: {v: 1, days: {YYYYMMDD: entry}, pruned}, one entry per date, at most HISTORY_MAX but for a streak
+// longer than that (the oldest dates go first; `pruned` counts the finished runs that went).
 // An entry is the date's OFFICIAL run: {n, v (SIM_VERSION), dnf, firstShift, hand, points, letter, star, perfect, lowHz,
 // darkMWh}. A run's status (statusOf), fixed when the day is reset or the desk is taken:
 //   first     the browser's first shift, on today's daily: practice unless the player claims it at the end ("COUNT THIS ONE")
@@ -18,19 +19,29 @@ export const HISTORY_MAX = 400;
 /** Q-99: a run becomes the date's official run when the grid clock passes 09:00. */
 export const OFFICIAL_S = (9 - V.DAY_START_H) * V.S_PER_H;
 
-/** A stored history, cleaned: entries keyed by a valid YYYYMMDD, each an object. */
+/** A stored history, cleaned: entries keyed by a valid YYYYMMDD, each an object; `pruned`: finished runs no longer kept. */
 export function readHistory(raw) {
   const days = {};
+  let pruned = 0;
   if (raw && typeof raw === 'object' && raw.v === 1 && raw.days && typeof raw.days === 'object') {
     for (const [k, e] of Object.entries(raw.days)) if (/^\d{8}$/.test(k) && e && typeof e === 'object') days[k] = e;
+    if (Number.isInteger(raw.pruned) && raw.pruned > 0) pruned = raw.pruned;
   }
-  return {v: 1, days};
+  return {v: 1, days, pruned};
 }
 
-/** The history as stored: at most HISTORY_MAX dates, the newest kept. */
+/**
+ * The history as stored: the newest HISTORY_MAX dates, and every date of the run of consecutive dates that ends at the
+ * newest (so a streak is never cut short by the cap). Finished runs that go are counted in `pruned` ("dailies played").
+ */
 export function prune(h) {
   const keys = Object.keys(h.days).sort();
-  for (const k of keys.slice(0, Math.max(0, keys.length - HISTORY_MAX))) delete h.days[k];
+  let start = keys.length - 1;   // (the first date of the consecutive run that ends at the newest)
+  while (start > 0 && prevYmd(+keys[start]) === +keys[start - 1]) start--;
+  for (const k of keys.slice(0, Math.min(Math.max(0, keys.length - HISTORY_MAX), start))) {
+    if (finished(h.days[k])) h.pruned = (h.pruned || 0) + 1;
+    delete h.days[k];
+  }
   return h;
 }
 
@@ -72,5 +83,5 @@ const finished = e => !!e && !e.dnf;
 /** Y-3: {streak, best, played}: STREAK (finished official runs on consecutive dates), BEST (★ on consecutive dates), played (finished dates). */
 export function streaks(h, today) {
   return {streak: run(h, today, finished), best: run(h, today, e => finished(e) && !!e.star),
-    played: Object.values(h.days).filter(finished).length};
+    played: Object.values(h.days).filter(finished).length + (h.pruned || 0)};
 }

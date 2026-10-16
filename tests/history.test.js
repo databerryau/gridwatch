@@ -22,18 +22,23 @@ test('Y-2 (Q-99): the first shift on today\'s daily is practice unless claimed; 
 });
 
 test('Y-3: a stored history is cleaned, and keeps at most 400 dates, the newest', () => {
-  assert.deepEqual(HI.readHistory(null), {v: 1, days: {}});
-  assert.deepEqual(HI.readHistory({v: 2, days: {20261016: {}}}), {v: 1, days: {}}, 'another schema version is not read');
+  assert.deepEqual(HI.readHistory(null), {v: 1, days: {}, pruned: 0});
+  assert.deepEqual(HI.readHistory({v: 2, days: {20261016: {}}}), {v: 1, days: {}, pruned: 0}, 'another schema version is not read');
   assert.deepEqual(Object.keys(HI.readHistory({v: 1, days: {20261016: fin(), x: fin(), 20261017: 5}}).days), ['20261016']);
+  const ymd = k => { const t = new Date(Date.UTC(2026, 9, 12 + k)); return t.getUTCFullYear() * 1e4 + (t.getUTCMonth() + 1) * 100 + t.getUTCDate(); };
+  // every other day for 410 days: the ten oldest go, and still count as played
   const h = hist({});
-  for (let k = 0; k < 410; k++) {
-    const t = new Date(Date.UTC(2026, 9, 12 + k));
-    HI.record(h, t.getUTCFullYear() * 1e4 + (t.getUTCMonth() + 1) * 100 + t.getUTCDate(), fin());
-  }
+  for (let k = 0; k < 410; k++) HI.record(h, ymd(2 * k), fin());
   const keys = Object.keys(h.days).sort();
   assert.equal(keys.length, HI.HISTORY_MAX);
-  assert.equal(keys[0], '20261022', 'the ten oldest dates went');
+  assert.equal(keys[0], String(ymd(20)), 'the ten oldest dates went');
+  assert.equal(HI.streaks(h, ymd(818)).played, 410, 'the dates that went still count as played');
+  assert.equal(HI.readHistory(JSON.parse(JSON.stringify(h))).pruned, 10, 'kept in storage');
   assert.ok(JSON.stringify(h).length < 200 * 1024 / 2, 'F-7: well under 200 KB after 400 dailies');
+  // a 450-day streak is never cut short by the cap
+  const s = hist({});
+  for (let k = 0; k < 450; k++) HI.record(s, ymd(k), fin({star: true}));
+  assert.deepEqual(HI.streaks(s, ymd(449)), {streak: 450, best: 450, played: 450});
 });
 
 test('Y-3: STREAK counts finished official dates in a row to today (or yesterday); BEST the ★ dates in a row; a DNF or a gap breaks both', () => {
