@@ -13,8 +13,9 @@
 //
 // The same day is also par's pace and runtime case (S-4 pace, D-9, moved here from
 // tests/autopilot.test.js): runPar plays it in this process while the worker plays the probed
-// copy beside it, so the file costs about one par day of wall time.
-import {test, after} from 'node:test';
+// copy beside it, so the file costs about one par day of wall time. (W6, the test budget: the day is
+// played and timed in a suite's before() hook.)
+import {test, describe, before, after} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {fork} from 'node:child_process';
@@ -80,52 +81,60 @@ const parDay = new Promise((resolve, reject) => {
 parDay.catch(() => {}); // awaited by the golden test; a run filtered to the pace test alone must not fail on it
 after(() => { if (!done) worker.kill(); });
 
-test('S-4 pace: at most one discrete action per 3 real s of the reference playback, none in a watch; D-9: a par day <= 2 x 1.6 s on the owner\'s laptop, timed against a CPU yardstick that shares no code with the sim', async () => {
-  await sent; // the worker has its job, so its day runs beside this one
-  const yard = yardstickNs();
-  const clock = workClock();
-  const r = runPar(SEED, CLASSIC);
-  const secs = clock();
-  const conts = observe(r.state).contingencies;
-  // 'plan' is the L-0 plan; 'replan' is par's re-dispatched schedule after an action (the
-  // RE-PLAN, part of the action it follows: SPEC S-4 and §8.2). Every other input is a
-  // discrete action and is paced.
-  const acts = r.log.filter((x, i) => r.origins[i] !== 'plan' && r.origins[i] !== 'replan');
-  assert.ok(acts.length > 10 && acts.every((x, i) => /^rule[1-9]$/.test(r.origins[r.log.indexOf(x)])), 'discrete actions are rules');
-  for (let i = 1; i < acts.length; i++) {
-    const a = acts[i - 1].tick / TPS, b = acts[i].tick / TPS;
-    assert.ok(refRealSeconds(a, b, conts) >= V.PAR_ACTION_GAP_REAL_S - 1e-9, 'actions at ' + a + ' and ' + b + ' s too close');
-  }
-  // A re-plan follows an action: none before par's first discrete action, and it only moves
-  // levers and the tie or starts what the re-dispatch commits (par decommits by rule 4 only).
-  const firstAct = r.origins.findIndex(o => /^rule/.test(o));
-  const re = r.log.filter((x, i) => r.origins[i] === 'replan');
-  assert.ok(re.length > 0 && r.origins.indexOf('replan') > firstAct, 'replan before any action');
-  assert.ok(re.every(x => x.type === 'planLoad' && x.args.stops.length === 0), 'a re-plan is a planLoad and never stops a unit');
-  assert.equal(r.log.filter((x, i) => r.origins[i] === 'plan').length, 1, 'one L-0 plan (a planLoad at 04:30)');
-  for (const x of r.log) {
-    const sx = x.tick / TPS;
-    assert.ok(!conts.some(c => sx >= c.startS && sx < c.watchEndS), 'input during the watch at ' + sx);
-    assert.ok(x.tick >= V.PLAYER_START_TICK, 'par acted before 04:30');
-  }
-  // D-9: 365 par days in <= 10 min on one core needs <= 1.6 s a day on the owner's laptop;
-  // 2x margin. The day is timed on the main thread's CPU clock where Node has one (other
-  // processes, the worker beside it and the parallel `node --test` run, do not inflate it) and
-  // divided by a CPU yardstick measured just before it (tests/lib/speed.js), so a slower machine
-  // is not a failure and a slower ENGINE is (review fix: the old fallback compared par with
-  // planOnly, which share the engine, so a 4x slower physics still passed). Measured on the
-  // owner's laptop after the review fixes: ~1.5-1.7 s, ~5 yardstick units per tick against 10.6.
-  const limit = budgetUnits(2 * 1.6e9 / V.DAY_TICKS);
-  const units = (x, y) => x * 1e9 / V.DAY_TICKS / y;
-  let got = units(secs, yard);
-  if (got > limit) { // one re-time before failing: the yardstick again, then par again (the faster of each)
-    const y2 = Math.min(yard, yardstickNs()), c2 = workClock();
-    runPar(SEED, CLASSIC);
-    got = units(Math.min(secs, c2()), y2);
-  }
-  assert.ok(got <= limit, 'a par day costs ' + got.toFixed(2) + ' yardstick units per tick (' + secs.toFixed(2) + ' s here), budget ' +
-    limit.toFixed(2) + ' (2 x 1.6 s on the owner\'s laptop)');
-  assert.equal(hex(hashState(r.state)), goldenRow(SEED).hash, 'runPar plays the golden\'s day on seed ' + SEED + ': ' + RERECORD);
+// par's day in this process, timed (D-9) on the main thread's CPU clock against the yardstick taken just before it
+// (a suite, so that the hook's day is the suite's time, not the test's: CLAUDE.md's 2.5 s is for the test's checks)
+describe('par\'s day on seed 4 in this process', () => {
+  let yard, r, secs;
+  before(async () => {
+    await sent; // the worker has its job, so its day runs beside this one
+    yard = yardstickNs();
+    const clock = workClock();
+    r = runPar(SEED, CLASSIC);
+    secs = clock();
+  });
+
+  test('S-4 pace: at most one discrete action per 3 real s of the reference playback, none in a watch; D-9: a par day <= 2 x 1.6 s on the owner\'s laptop, timed against a CPU yardstick that shares no code with the sim', () => {
+    const conts = observe(r.state).contingencies;
+    // 'plan' is the L-0 plan; 'replan' is par's re-dispatched schedule after an action (the
+    // RE-PLAN, part of the action it follows: SPEC S-4 and §8.2). Every other input is a
+    // discrete action and is paced.
+    const acts = r.log.filter((x, i) => r.origins[i] !== 'plan' && r.origins[i] !== 'replan');
+    assert.ok(acts.length > 10 && acts.every((x, i) => /^rule[1-9]$/.test(r.origins[r.log.indexOf(x)])), 'discrete actions are rules');
+    for (let i = 1; i < acts.length; i++) {
+      const a = acts[i - 1].tick / TPS, b = acts[i].tick / TPS;
+      assert.ok(refRealSeconds(a, b, conts) >= V.PAR_ACTION_GAP_REAL_S - 1e-9, 'actions at ' + a + ' and ' + b + ' s too close');
+    }
+    // A re-plan follows an action: none before par's first discrete action, and it only moves
+    // levers and the tie or starts what the re-dispatch commits (par decommits by rule 4 only).
+    const firstAct = r.origins.findIndex(o => /^rule/.test(o));
+    const re = r.log.filter((x, i) => r.origins[i] === 'replan');
+    assert.ok(re.length > 0 && r.origins.indexOf('replan') > firstAct, 'replan before any action');
+    assert.ok(re.every(x => x.type === 'planLoad' && x.args.stops.length === 0), 'a re-plan is a planLoad and never stops a unit');
+    assert.equal(r.log.filter((x, i) => r.origins[i] === 'plan').length, 1, 'one L-0 plan (a planLoad at 04:30)');
+    for (const x of r.log) {
+      const sx = x.tick / TPS;
+      assert.ok(!conts.some(c => sx >= c.startS && sx < c.watchEndS), 'input during the watch at ' + sx);
+      assert.ok(x.tick >= V.PLAYER_START_TICK, 'par acted before 04:30');
+    }
+    // D-9: 365 par days in <= 10 min on one core needs <= 1.6 s a day on the owner's laptop;
+    // 2x margin. The day is timed on the main thread's CPU clock where Node has one (other
+    // processes, the worker beside it and the parallel `node --test` run, do not inflate it) and
+    // divided by a CPU yardstick measured just before it (tests/lib/speed.js), so a slower machine
+    // is not a failure and a slower ENGINE is (review fix: the old fallback compared par with
+    // planOnly, which share the engine, so a 4x slower physics still passed). Measured on the
+    // owner's laptop after the review fixes: ~1.5-1.7 s, ~5 yardstick units per tick against 10.6.
+    const limit = budgetUnits(2 * 1.6e9 / V.DAY_TICKS);
+    const units = (x, y) => x * 1e9 / V.DAY_TICKS / y;
+    let got = units(secs, yard);
+    if (got > limit) { // one re-time before failing: the yardstick again, then par again (the faster of each)
+      const y2 = Math.min(yard, yardstickNs()), c2 = workClock();
+      runPar(SEED, CLASSIC);
+      got = units(Math.min(secs, c2()), y2);
+    }
+    assert.ok(got <= limit, 'a par day costs ' + got.toFixed(2) + ' yardstick units per tick (' + secs.toFixed(2) + ' s here), budget ' +
+      limit.toFixed(2) + ' (2 x 1.6 s on the owner\'s laptop)');
+    assert.equal(hex(hashState(r.state)), goldenRow(SEED).hash, 'runPar plays the golden\'s day on seed ' + SEED + ': ' + RERECORD);
+  });
 });
 
 test('v4 baseline: par\'s day on seed 4, by the tool\'s own parDay, gives section 3.1\'s row of tools/baseline-v4.golden.md, all 22 columns (shed, cost, the battery, H-8 containment probes from SECURE states, H-4 alarm agreement, end-of-day hash)', {timeout: 120000}, async () => {

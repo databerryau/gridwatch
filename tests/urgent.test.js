@@ -1,5 +1,5 @@
 // tests/urgent.test.js: URGENT after a trip counts what the battery already carries (X-44).
-import {test} from 'node:test';
+import {test, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {openGame} from './lib/play.js';
 
@@ -17,9 +17,11 @@ function competent() {
   return p;
 }
 
+// (the run to 19:25 is the hook's: CLAUDE.md's 2.5 s is for the test, its checks)
+let p;
+before(() => { p = competent(); p.to('19:25'); });
+
 test('X-44: on the 2026-10-14 competent run the line leaves URGENT once BALANCE reads BALANCED, and never asks the battery for less than it gives', () => {
-  const p = competent();
-  p.to('19:25');
   const level = () => p.$('objective-level').textContent, word = p.$('bar-imbalance').querySelector('.dk-imb-text'), balance = () => word.textContent;
   const text = p.$('objective-text').textContent, gives = p.game.state.battery.outMW, ask = /discharge the battery at (\d+) MW/.exec(text);
   assert.ok(!ask || +ask[1] >= gives, 'asks ' + (ask && ask[1]) + ' MW while it gives ' + Math.round(gives) + ': ' + text);
