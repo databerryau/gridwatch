@@ -34,9 +34,25 @@ const PARTS = [
 ];
 /** S-6: PERFECT's rule, under the score. */
 export const PERFECT_RULE = 'PERFECT: no load shed all day, and every handed-back feeder closed within ' + mw(V.RESTORE_PACE_MAX_S / V.S_PER_MIN) + ' grid-minutes of when it could be.';
-/** L-10: the strip's legend, and each column's title. */
-export const STRIP_WORDS = 'green: no gap · red: short (homes of yours dark) · blue: wind or solar spilled';
+/** L-10: the strip's legend, and each column's title. W6 (a11y): never colour alone: short is hatched, a spill dotted (CSS below). */
+export const STRIP_WORDS = 'green: no gap · red, hatched: short (homes of yours dark) · blue, dotted: wind or solar spilled';
 const STRIP_TITLE = {g: 'no gap', r: 'short', b: 'spill'};
+/** W6 (a11y): the strip in words, its image's name: the hours short, spilled or not played, run by run (a run of every
+ *  column is "all day"); the rest, if any, had no gap. */
+export function stripText(strip) {
+  const runs = {r: [], b: [], n: []};
+  strip.forEach((c, h) => {
+    const k = c === 'g' ? '' : c === 'r' || c === 'b' ? c : 'n';
+    if (!k) return;
+    const last = runs[k].at(-1);
+    if (last && last[1] === h) last[1] = h + 1; else runs[k].push([h, h + 1]);
+  });
+  const hh = h => clockText(h * V.S_PER_H, false);
+  const parts = [['short', runs.r], ['spill', runs.b], ['not played', runs.n]].filter(([, r]) => r.length)
+    .map(([w, r]) => w + ' ' + r.map(([a, b]) => (b - a === strip.length ? 'all day' : hh(a) + '–' + hh(b))).join(', '));
+  if (!parts.length) return 'Your day by the hour: no gap in any hour.';
+  return 'Your day by the hour: ' + parts.join('; ') + (strip.includes('g') ? '; no gap in the other hours.' : '.');
+}
 const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:auto}' +
   '#end-card .big{font:700 16px var(--mono);color:var(--bright)}' +
   '#end-card table{border-collapse:collapse;width:100%;margin:6px 0;font:12px var(--mono)}' +
@@ -45,8 +61,9 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
   '#end-card tr.total>*{border-top:1px solid var(--line);font-weight:700;color:var(--bright)}' +
   '#end-reliability{border-top:1px solid var(--line);margin-top:6px;padding-top:2px}' +
   '#end-card .vrow{margin:3px 0}#end-card .vrow b{color:var(--bright);margin-right:4px}' +
-  '#end-strip{display:flex;gap:2px;margin:6px 0 0}#end-strip span{flex:1;height:10px;border-radius:2px;background:var(--line)}' +
-  '#end-strip .s-g{background:#3fb950}#end-strip .s-r{background:#f85149}#end-strip .s-b{background:#58a6ff}' +
+  '#end-strip{display:flex;gap:2px;margin:6px 0 0}#end-strip span{flex:1;height:12px;border-radius:2px;background:var(--line)}' +
+  '#end-strip .s-g{background:#3fb950}#end-strip .s-r{background:repeating-linear-gradient(135deg,#f85149 0 3px,#7d1f1b 3px 5px)}' +
+  '#end-strip .s-b{background:radial-gradient(circle,#58a6ff 1.5px,#0d2238 1.8px) 0 0/4px 4px}' +
   '#end-card .why{color:var(--dim);font-size:11px;margin:2px 0}#end-card canvas{display:block;width:100%;height:120px;margin:4px 0}' +
   '#end-moment,#end-history,#end-debrief,#end-share,#end-week{border-top:1px solid var(--line);margin-top:8px;padding-top:4px}' +
   '#end-share pre{font:12px/1.35 var(--mono);color:var(--bright);white-space:pre-wrap;margin:4px 0 6px;user-select:all}#btn-share{font-weight:700;border-color:var(--blue)}' +
@@ -249,7 +266,8 @@ export function createEndCard(doc, root, actions, deps) {
     // L-10: the plan, an hour a column
     const st = el('div', '', 'strip', box);
     st.id = 'end-strip';
-    st.setAttribute('aria-label', 'Your day by the hour: ' + STRIP_WORDS);
+    st.setAttribute('role', 'img');
+    st.setAttribute('aria-label', stripText(x.strip));
     x.strip.forEach((c, h) => { const cell = el('span', '', 's-' + (c || 'n'), st); cell.title = clockText(h * V.S_PER_H, false) + ': ' + (STRIP_TITLE[c] || 'not played'); });
     el('p', STRIP_WORDS, 'why', box);
     const m = x.moment;

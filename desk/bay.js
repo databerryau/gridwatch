@@ -33,8 +33,9 @@ import {el, setText, setAttr, setCls, setHidden, slowAttr, mw, fin, mmss, clockO
 import {lockedNote} from './emergency.js';
 
 export const SCOPE_AUTO_REAL_MS = 8000;   // K-12: AUTO after 8 real s on the scope without a close
-export const SYNC_LABEL = 'Real operators aim for 15–30 s per turn and close within ±10°. Ours turns faster. ' +
-  'Most plants synchronise automatically, at the station, not in the control room.';
+// (W6 a11y: two 9-px lines in the bay's last row at the floor; it gives the row to the slip line while a unit is on the scope)
+export const SYNC_LABEL = 'Real operators aim for 15–30 s per turn and close within ±10°; ours turns faster. ' +
+  'Most plants sync themselves, at the station.';
 const TRIM_HZ = V.SYNC_TRIM_HZ ?? 0.05;
 
 export function createBay(ctx, parent) {
@@ -171,7 +172,7 @@ export function createBay(ctx, parent) {
   }
 
   function drawScope(u) {
-    const dpr = fin(globalThis.devicePixelRatio, 1) || 1;
+    const dpr = (fin(globalThis.devicePixelRatio, 1) || 1) * (fin(ctx.zoom && ctx.zoom(), 1) || 1);   // (W6 a11y: sharp in the scaled desk)
     const w = Math.max(1, Math.round(fin(cv.clientWidth, 96) * dpr)), h = Math.max(1, Math.round(fin(cv.clientHeight, 96) * dpr));
     if (cv.width !== w) cv.width = w;
     if (cv.height !== h) cv.height = h;
@@ -221,6 +222,7 @@ export function createBay(ctx, parent) {
     }
     const u = su ? unitObs(su) : null;
     drawScope(u && u.mode === 'ready' ? u : null);
+    setCls(vSync, 'scoped', !!(u && u.mode === 'ready'));   // (W6 a11y: desk.css gives the slip line the label's full-width row meanwhile)
     if (u && u.mode === 'ready') {
       const s = fin(u.slipHz);
       setText(slip, unitLabel(su) + ' SLIP ' + (s >= 0 ? '+' : '−') + Math.abs(s).toFixed(2) + ' Hz · ' +

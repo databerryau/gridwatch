@@ -2,7 +2,8 @@
 // second press on a tile) pops the alarms out over the desk while the clock is held. On the left
 // the 12 tiles as a 4 × 3 board (glyph, label, state word, a short live reading), sorted once each
 // time the panel opens (an ACK changes a face in place, never moves it): alarm, then cleared but
-// not acknowledged, then acknowledged, then quiet (dimmed); within a group escalated first, then
+// not acknowledged, then acknowledged, then quiet (a darker face and a plain label, never faded: W6 a11y,
+// its words keep 4.5:1); within a group escalated first, then
 // the newest setAtS. On the right the selected alarm: NOW, WHAT TO DO (GO TO and ACK), WHAT IT
 // MEANS, WHY, ON THE REAL GRID, and the tile's trigger. Arrows move the selection (4 to a row),
 // Home/End jump, and it follows the focus; every change is sent as {do: 'alarmsSel', id}.
@@ -70,9 +71,10 @@ const CSS = `
 .ap-t.s-alarm{border-color:var(--red);background:#f8514926}
 .ap-t.s-cleared{border:1px dashed var(--amber)}
 .ap-t.s-ackd{border-color:#f8514980}
-.ap-t.s-normal{opacity:.55}
+.ap-t.s-normal{background:var(--panel);border-color:var(--line)}
+.ap-t.s-normal .ap-l{color:var(--text)}
 .ap-t.esc{border:3px double var(--red)}
-.ap-t[aria-selected=true]{outline:2px solid var(--blue);outline-offset:1px;opacity:1}
+.ap-t[aria-selected=true]{outline:2px solid var(--blue);outline-offset:1px}
 .ap-sel{overflow:auto;min-height:0;padding-right:4px}
 .ap-sel h3{margin:0 0 2px;font:700 13px var(--mono);color:var(--bright)}
 .ap-sel h4{margin:5px 0 1px;font:700 10px var(--mono);color:var(--dim);letter-spacing:.08em}
