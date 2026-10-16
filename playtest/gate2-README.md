@@ -61,9 +61,11 @@ Phase 4"; the pass lines are in SPEC.md W6, "Gate 2".
    computer."*
    **If the landing page shows on their computer,** its window is under 1280 by 600. A 1920×1080 laptop screen at 150%
    scaling (many 13–14" work laptops) is under 600 high with the browser maximised. The page says by how much ("This
-   window is 1280 by 587: 13 px too short for the desk (1280 by 600).") and offers FULL SCREEN and PLAY ANYWAY. Full
-   screen (or F11), zooming out (Ctrl and minus) or a bigger window starts the game by itself. A stranger on that laptop
-   meets it too, so let them deal with it. Stuck 60 s: *"Press FULL SCREEN."* Log it as help, and note their screen.
+   window is 1280 by 587: 13 px too short for the desk (1280 by 600).") and offers PLAY ANYWAY, and in Chrome and Edge
+   FULL SCREEN (elsewhere it says F11: there Esc, which the game uses, would end the page's full screen). Full screen,
+   zooming out (Ctrl and minus) or a bigger window starts the game by itself. A stranger on that laptop meets it too, so
+   let them deal with it. Stuck 60 s: in Chrome or Edge *"Press FULL SCREEN."*, in Firefox *"Press F11."* (on a Mac,
+   *"Press Control, Command and F."*). Log it as help, and note their screen and browser.
 5. **After the verdict, keep watching.** Say nothing for at least 2 minutes, or until they say they're done. Don't ask
    "anything else?" and don't close the tab for them.
 6. **The questions** (on the log). Their screen out of sight first: lid closed, or turned away.
@@ -91,7 +93,7 @@ The log has a row for each. In short:
 |---|---|
 | Your message | Do they read the card? Does the preview show? Do they tap the link on their phone or move to the computer? |
 | The phone (if they tap it there) | The landing page: do they understand it? COPY LINK? How does the link get to the computer, and how long does it take? |
-| The computer (if the landing page shows there) | Do they press FULL SCREEN or PLAY ANYWAY unprompted? Zoom out, or try a bigger window (the game starts by itself)? How long until the game? |
+| The computer (if the landing page shows there) | Do they press FULL SCREEN (F11 in Firefox) or PLAY ANYWAY unprompted? Zoom out, or try a bigger window (the game starts by itself)? How long until the game? |
 | The briefing | "Daily #N · FIRST SHIFT" in the title (OFFICIAL for a returning tester who finished a day in that browser). Do they read it? How long until TAKE THE DESK? Do they open "?" (HOW TO PLAY)? |
 | The day | Where they stop, get stuck or ask for help. The trip (the watch): what do they look at? |
 | The verdict | Did they reach it? What do they read first? THE MOMENT? The ladder line? |

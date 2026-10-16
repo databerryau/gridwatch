@@ -1,7 +1,8 @@
 // W6, Y-8: the shared link on a phone, and its preview. A phone-sized viewport or a touch-only pointer gets the landing
 // page and never loads the game; a desk-sized one with a mouse loads the game at once; a small window on a computer is told
-// how far it falls short, gets FULL SCREEN and PLAY ANYWAY, and loads the game once it grows. COPY LINK copies the address. Every page carries og: tags with an absolute image on the canonical host
-// (C-4), og.png is a 1200x630 PNG, and the favicon is not the empty one.
+// how far it falls short, gets PLAY ANYWAY (and FULL SCREEN where Esc can stay the game's), and loads the game once it
+// grows; a tablet with a pen or a trackpad keeps the phone's page. COPY LINK copies the address. Every page carries og: tags
+// with an absolute image on the canonical host (C-4), og.png is a 1200x630 PNG, and the favicon is not the empty one.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync, existsSync} from 'node:fs';
@@ -13,13 +14,16 @@ import {start} from '../app/start.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = f => readFileSync(join(ROOT, f), 'utf8');
-// A stand-in window: its viewport and screen, which pointers it has, its address and clipboard, and who listens to it
-function win(w, h, {coarse = false, fine = true, search = '', clip = null, screen} = {}) {
+// A stand-in window: its viewport and screen, which pointers it has (coarse: the main one is a finger), the page's scale
+// (a mobile browser's shrink to fit), its address and clipboard, and who listens to it
+function win(w, h, {coarse = false, fine = true, scale, search = '', clip = null, screen} = {}) {
   const q = {'(pointer: coarse)': coarse, '(any-pointer: fine)': fine}, on = {resize: []};
   return {innerWidth: w, innerHeight: h, screen, matchMedia: s => ({matches: !!q[s]}), location: {href: 'https://databerryau.github.io/gridwatch/' + search, search},
-    navigator: {clipboard: clip}, document: makeDocument(read('next.html')), on,
+    navigator: {clipboard: clip}, document: makeDocument(read('next.html')), on, ...(scale ? {visualViewport: {scale}} : {}),
     addEventListener: (t, f) => (on[t] ||= []).push(f), removeEventListener: (t, f) => { on[t] = (on[t] || []).filter(g => g !== f); }};
 }
+// Chrome and Edge: the keyboard can be locked, so Esc stays the page's in full screen
+const chrome = (x, locked = () => {}) => { x.navigator.keyboard = {lock: async keys => { locked(keys); }}; return x; };
 // The window becomes w x h (a drag, F11, full screen or a zoom), and the browser says so
 function resize(x, w, h) {
   x.innerWidth = w; x.innerHeight = h;
@@ -108,8 +112,7 @@ test('Y-8: a 1280x587 window on a computer says how far it falls short, not the 
 
 test('Y-8: FULL SCREEN on a screen that holds the desk loads the game into it, Esc kept for the game; blocked, it says F11', async () => {
   let loads = 0, locked = null;
-  const w = win(1280, 587, {screen: LAPTOP});
-  w.navigator.keyboard = {lock: async keys => { locked = keys; }};
+  const w = chrome(win(1280, 587, {screen: LAPTOP}), keys => { locked = keys; });
   w.document.documentElement.requestFullscreen = async () => { resize(w, 1280, 720); };
   start(w, () => { loads++; });
   assert.match(w.document.getElementById('landing-how').textContent, /: press FULL SCREEN \(or F11\), or zoom out \(Ctrl and minus\)\.$/);
@@ -117,8 +120,19 @@ test('Y-8: FULL SCREEN on a screen that holds the desk loads the game into it, E
   await tick();
   assert.equal(loads, 1);
   assert.deepEqual(locked, ['Escape'], 'Esc closes the game\'s cards; a held Esc leaves full screen');
+  // Firefox and Safari cannot lock the keyboard: their Esc would leave the page's full screen, not reach the game, and leave
+  // the desk short for the rest of the day; the browser's own full screen leaves Esc to the page
+  for (const [platform, how] of [['Win32', 'press F11 for full screen, or zoom out (Ctrl and minus).'],
+    ['MacIntel', 'press Control, Command and F for full screen, or zoom out (Command and minus).']]) {
+    const f = win(1280, 587, {screen: LAPTOP});
+    f.navigator.platform = platform;
+    f.document.documentElement.requestFullscreen = async () => { resize(f, 1280, 720); };
+    start(f, () => { loads++; });
+    assert.deepEqual(present(f.document, 'landing-full', 'landing-play'), ['landing-play'], platform);
+    assert.equal(f.document.getElementById('landing-how').textContent, 'The game starts by itself once the desk fits: ' + how);
+  }
   // blocked (a page in a frame, a browser's setting), on a Mac
-  const b = win(1280, 587, {screen: LAPTOP});
+  const b = chrome(win(1280, 587, {screen: LAPTOP}));
   b.navigator.platform = 'MacIntel';
   b.document.documentElement.requestFullscreen = () => Promise.reject(new Error('denied'));
   start(b, () => { loads++; });
@@ -128,7 +142,7 @@ test('Y-8: FULL SCREEN on a screen that holds the desk loads the game into it, E
   assert.equal(b.document.getElementById('landing-said').textContent, 'Full screen was blocked: press Control, Command and F.');
   assert.equal(loads, 1);
   // a screen smaller than the desk (1366x768 at 125%): full screen would not hold it, so only zooming out is offered
-  const s = win(1093, 481, {screen: {width: 1093, height: 614}});
+  const s = chrome(win(1093, 481, {screen: {width: 1093, height: 614}}));
   s.document.documentElement.requestFullscreen = async () => {};
   start(s, () => { loads++; });
   assert.deepEqual(present(s.document, 'landing-full'), []);
@@ -150,6 +164,28 @@ test('Y-8: a phone keeps the phone\'s page (a stylus phone too); ?play and ?self
   const t = win(1280, 587, {screen: LAPTOP, search: '?selftest'});
   assert.equal(start(t, () => { loads++; }, async () => ({showSelftest() {}})), 'selftest');
   assert.deepEqual([loads, present(t.document, 'landing'), t.on.resize], [1, [], []]);
+});
+
+test('Y-8: a tablet with a pen or a trackpad is not a computer: widened to the desk or not, it keeps the phone\'s page', () => {
+  let loads = 0;
+  const phonePage = (x, said) => {
+    assert.equal(start(x, () => { loads++; }), 'landing', said);
+    assert.ok(x.document.getElementById('landing').textContent.includes(NEEDS), said + ': the phone\'s words');
+    assert.deepEqual(present(x.document, 'landing-copy', 'landing-play', 'landing-size', 'landing-how'), ['landing-copy', 'landing-play'], said);
+    assert.deepEqual(x.on.resize, [], said);
+  };
+  // a Galaxy Tab S with its pen, in portrait: the pen is a pointer that can aim, the finger the main one; the desk's
+  // min-width widens its window to 1280, as a phone's
+  phonePage(win(1280, 2048, {coarse: true, fine: true, screen: {width: 800, height: 1280}}), 'Galaxy Tab S, widened');
+  phonePage(win(800, 1170, {coarse: true, fine: true, screen: {width: 800, height: 1280}}), 'Galaxy Tab S, not widened: not told to press Ctrl and minus');
+  phonePage(win(1280, 1841, {coarse: true, fine: true, screen: {width: 820, height: 1180}}), 'an iPad with a trackpad');
+  // a browser that calls the pen its main pointer still shrinks the widened page to fit it: 800 of 1280
+  phonePage(win(1280, 2048, {fine: true, scale: 0.625, screen: {width: 800, height: 1280}}), 'a page shrunk to fit');
+  assert.equal(loads, 0);
+  // in landscape the tablet holds the desk; a computer zoomed out past its screen keeps a scale of 1
+  assert.equal(start(win(1280, 690, {coarse: true, fine: true, screen: {width: 1280, height: 800}}), () => { loads++; }), 'game');
+  assert.equal(start(win(1366, 601, {scale: 1, screen: {width: 1093, height: 614}}), () => { loads++; }), 'game');
+  assert.equal(loads, 2);
 });
 
 test('Y-8: every page carries og: tags (an absolute og.png on the canonical host) and a favicon; og.png is 1200x630', () => {

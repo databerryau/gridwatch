@@ -100,8 +100,9 @@ address. Not a fail (Y-8 names Safari and Chrome), but it is how strangers meet 
 **Also, on the computer** (optional): make the browser window small (under 1280 wide or 600 high), then reload (F5).
 The page checks the window's size when it opens, so shrinking an open game shows nothing new. After the reload the
 landing page says how far the window falls short ("This window is … px too short for the desk (1280 by 600)."), with
-FULL SCREEN (when the screen holds the desk) and PLAY ANYWAY, which opens the game. Make the window bigger again: the
-game starts by itself as soon as it fits. `?play` on the end of the address skips the landing page.
+FULL SCREEN (in Chrome and Edge, when the screen holds the desk; elsewhere it says F11) and PLAY ANYWAY, which opens the
+game. Make the window bigger again: the game starts by itself as soon as it fits. `?play` on the end of the address
+skips the landing page.
 
 ## R-4. `?selftest` passes in Chrome, Edge and Firefox
 

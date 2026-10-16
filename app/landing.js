@@ -2,11 +2,11 @@
 // keyboard, a mouse and a screen of at least DESK_W x DESK_H (C-9), and a shared link is mostly opened on a phone; so below
 // that viewport, or with a touch-only pointer, next.html shows this instead of the desk, and the game is never loaded
 // (app/start.js). On a phone it says what GRIDWATCH is, shows the link preview (og.png), and offers COPY LINK, to send it to
-// a computer. On a computer (a pointer that can aim, a screen bigger than a phone's) it is the window that is small, not the
+// a computer. On a computer (its main pointer aims, a screen bigger than a phone's) it is the window that is small, not the
 // device: a 1920x1080 laptop at 150% is 1280x720, and its maximised browser about 1280x587. Then it says how far the window
-// falls short, offers FULL SCREEN when the screen holds the desk, and PLAY ANYWAY, and starts the game by itself as soon as
-// the window holds the desk (full screen, F11, zooming out or a bigger window). Self-contained (no game module), so a phone
-// downloads only this.
+// falls short, offers FULL SCREEN when the screen holds the desk and the browser keeps Esc for the game (Chrome, Edge), and
+// PLAY ANYWAY, and starts the game by itself as soon as the window holds the desk (full screen, F11, zooming out or a bigger
+// window). Self-contained (no game module), so a phone downloads only this.
 
 /** C-9: the desk's floor (CSS px). */
 export const DESK_W = 1280, DESK_H = 600;
@@ -38,12 +38,15 @@ export function needsLanding(win) {
   return touchOnly || !(w >= DESK_W) || !(h >= DESK_H);
 }
 /**
- * A computer, whose window is what is small: a pointer that can aim, and a screen whose short side is not a phone's (a
- * phone with a stylus may have the pointer). The phone's page would tell someone at a computer to go to a computer.
+ * A computer, whose window is what is small: its main pointer aims, and its screen's short side is not a phone's (a phone
+ * with a stylus may have the pointer). The phone's page would tell someone at a computer to go to a computer. A tablet
+ * with a pen or a trackpad also has a pointer that can aim, but its main one is a finger, and its browser widens the page
+ * to the desk's min-width as a phone's does and shrinks it to fit (a scale below 1; zooming out on a computer leaves it at
+ * 1): it keeps the phone's page, and the screen's cap.
  */
 export function onComputer(win) {
-  const sc = win.screen || {};
-  return finePointer(win) && !(Math.min(sc.width, sc.height) < DESK_H);
+  const sc = win.screen || {}, vv = win.visualViewport;
+  return finePointer(win) && !media(win, '(pointer: coarse)') && !(vv && vv.scale < 1) && !(Math.min(sc.width, sc.height) < DESK_H);
 }
 /** The small window's line: how far it falls short of the desk. */
 export function shortOf(w, h) {
@@ -104,9 +107,12 @@ export function showLanding(doc, win, play) {
     const {w, h} = viewport(win), keys = keysOf(win), sc = win.screen || {}, page = doc.documentElement;
     size = el('p', shortOf(w, h), box, 'size');
     size.id = 'landing-size';
-    // full screen helps only when the screen holds the desk; on a smaller screen, zooming out still fits it
+    // full screen helps only when the screen holds the desk; on a smaller screen, zooming out still fits it. The button only
+    // where the keyboard can be locked (Chrome, Edge): elsewhere Esc leaves the page's full screen and never reaches the game
+    // (it closes a card, skips the watch), and the desk falls short again; the browser's own (F11) leaves Esc to the page
     const enter = page && (page.requestFullscreen || page.webkitRequestFullscreen), screenFits = sc.width >= DESK_W && sc.height >= DESK_H;
-    const full = screenFits && typeof enter === 'function' && doc.fullscreenEnabled !== false, zoom = 'zoom out (' + keys.zoom + ')';
+    const kb = win.navigator && win.navigator.keyboard, zoom = 'zoom out (' + keys.zoom + ')';
+    const full = screenFits && typeof enter === 'function' && doc.fullscreenEnabled !== false && !!kb && typeof kb.lock === 'function';
     el('p', 'The game starts by itself once the desk fits: ' + (full ? 'press FULL SCREEN (or ' + keys.full + '), or ' + zoom + '.' :
       screenFits ? 'press ' + keys.full + ' for full screen, or ' + zoom + '.' : zoom + ' until it does.'), box).id = 'landing-how';
     const said = el('p', '', null, 'dim');
@@ -119,12 +125,8 @@ export function showLanding(doc, win, play) {
       b.addEventListener('click', () => {
         let asked;
         try { asked = Promise.resolve(enter.call(page)); } catch (e) { asked = Promise.reject(e); }
-        asked.then(() => {
-          // Esc stays the game's (it closes a card, skips the watch): with the keyboard locked, Chrome and Edge leave full
-          // screen on a held Esc instead
-          const kb = win.navigator && win.navigator.keyboard;
-          if (kb && typeof kb.lock === 'function') kb.lock(['Escape']).catch(() => {});
-        }, () => { said.textContent = 'Full screen was blocked: press ' + keys.full + '.'; });
+        // Esc stays the game's: with the keyboard locked, a held Esc leaves full screen instead
+        asked.then(() => kb.lock(['Escape']), () => { said.textContent = 'Full screen was blocked: press ' + keys.full + '.'; }).catch(() => {});
       });
     }
     playAnyway();

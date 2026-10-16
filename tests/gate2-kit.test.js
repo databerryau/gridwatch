@@ -146,7 +146,10 @@ test('Gate 2 kit: a 1920x1080 laptop at 150% gets the landing page, and the sess
   assert.equal(needsLanding(laptop), true);
   const step = items(README).find(s => /landing page shows on their computer/.test(s));
   assert.ok(step, 'the session says what to do');
-  assert.match(step, /FULL SCREEN and PLAY ANYWAY/);
+  // FULL SCREEN only where the keyboard locks, so Esc stays the game's (Chrome, Edge): elsewhere the page says F11, and so
+  // must the hint
+  assert.match(flat(step), /offers PLAY ANYWAY, and in Chrome and Edge FULL SCREEN/);
+  assert.match(flat(step), /in Chrome or Edge \*"Press FULL SCREEN\."\*, in Firefox \*"Press F11\."\*/, 'the hint goes by the browser');
   assert.ok(flat(step).includes(shortOf(1280, 587)), 'it quotes what the page says to that laptop');
   assert.doesNotMatch(step.slice(step.indexOf('landing page shows on their computer')), /It's for a computer/, 'the phone\'s hint is wrong at a computer');
   assert.ok(items(LOG).some(s => /^\| Landing page on the computer/.test(s)), 'the log has a row for it');
