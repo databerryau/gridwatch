@@ -3,14 +3,17 @@
 // ?play skips the landing page (a small window with a mouse can also press PLAY ANYWAY on it).
 
 import {needsLanding, showLanding} from './landing.js';
+import {loadFailed} from './build.js';
 
 /** 'landing' or 'game'; load() imports the game. */
 export function start(win, load = () => import('./boot.js')) {
+  // W6 (F-9): a load that fails (files from two releases that cannot link, after a deploy) says so, not a blank page
+  const play = () => { try { Promise.resolve(load()).catch(e => loadFailed(win, e)); } catch (e) { loadFailed(win, e); } };
   if (needsLanding(win) && !/[?&]play\b/.test(String(win.location && win.location.search))) {
-    showLanding(win.document, win, load);
+    showLanding(win.document, win, play);
     return 'landing';
   }
-  load();
+  play();
   return 'game';
 }
 
