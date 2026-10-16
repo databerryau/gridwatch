@@ -37,7 +37,6 @@ export const UI = Object.freeze({
   red: '#f85149', amber: '#d29922', blue: '#58a6ff', green: '#3fb950', skyline: '#e6edf3',
   band: 'rgba(230,237,243,0.10)', ghost: 'rgba(230,237,243,0.55)',
 });
-export const SKY = '#6a9fd0';
 
 /** The six suburbs (U-1, SPEC §4.5): code as in obs.districts[].suburb, name, box in base px. */
 export const SUBURBS = Object.freeze([

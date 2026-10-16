@@ -11,7 +11,7 @@ import {sampleSecond, forecast, demandBaseMW, underlyingBaseMW, rooftopClearSkyM
 import {createState, step, observe, hashState} from '../sim/step.js';
 import {V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from '../content/scenarios.js';
-import {TPS, clone, withoutContingencies, legacyDesk} from './lib/sim-helpers.js';
+import {TPS, withoutContingencies, legacyDesk} from './lib/sim-helpers.js';
 
 const H = 3600, secOf = (h, m = 0) => (h - V.DAY_START_H) * H + m * 60;
 const NOON_S = secOf(13); // solar noon: the shape table's 1000 per-mille point (C-4)
