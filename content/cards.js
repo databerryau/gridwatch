@@ -7,9 +7,11 @@
 // report, not SA Power Networks' page (which never names the date); the SA black system's URL added.
 // W6 (D-24, 2026-10-17): five more, each read in its source the same day. 8 Feb 2017 is AEMO's preliminary report (the
 // shed was directed to bring Murraylink back within its limit; times there are market time, so the card gives none);
-// 12 Nov 2022 is AEMO's final report (a tower's footing failed under storm warnings, no load lost); 27 Nov 2024 is AEMO's
-// RERT Q4 2024 report (as the help's rert-terms); 24 Jan 2019's 47.7 °C is Adelaide (Kent Town), its record by 2 °C,
-// and Victoria's 41 °C the report's Table 1; 13 Jun 2024's 88 MW at 13:20 is WattClarity's, "no curtailment of wind".
+// 12 Nov 2022 is AEMO's final report (a tower's footing failed under storm warnings; the split shed no load, but the
+// report's p. 41 has the week's storm outages reaching 163,000 customers, so the card claims the split's, not the
+// week's); 27 Nov 2024 is AEMO's RERT Q4 2024 report (as the help's rert-terms); 24 Jan 2019's 47.7 °C is Adelaide
+// (Kent Town), its record by 2 °C, and Victoria's 41 °C the report's Table 1; 13 Jun 2024's 88 MW at 13:20 is
+// WattClarity's, "no curtailment of wind".
 
 export const CARDS = Object.freeze([
   Object.freeze({id: 'black', trigger: 'the grid went black',
@@ -28,7 +30,7 @@ export const CARDS = Object.freeze([
     source: 'https://www.aemo.com.au/-/media/Files/Electricity/NEM/Market_Notices_and_Events/Power_System_Incident_Reports/2017/System-Event-Report-South-Australia-8-February-2017.pdf',
     sourceName: 'AEMO'}),
   Object.freeze({id: 'islanded', trigger: 'the tie line tripped',
-    text: 'On 12 Nov 2022, under severe thunderstorm warnings, a tower carrying both 275 kV lines from South East to Tailem Bend failed. Most of South Australia ran as an island until 19 Nov; no customer lost supply.',
+    text: 'On 12 Nov 2022, under severe thunderstorm warnings, a tower carrying both 275 kV lines from South East to Tailem Bend failed. Most of South Australia ran as an island until 19 Nov; the split itself shed no load.',
     simplifies: 'Your city is always its own frequency island, and its tie returns within hours. SA ran alone for a week, on FCAS bought inside the island.',
     source: 'https://www.aemo.com.au/-/media/files/electricity/nem/market_notices_and_events/power_system_incident_reports/2022/trip-of-south-east-tailem-bend-275-kv-lines-november-2022.pdf',
     sourceName: 'AEMO'}),

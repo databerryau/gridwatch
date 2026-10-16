@@ -41,6 +41,14 @@ test('D-24: every card is well formed: a trigger, its year, at most 40 words (an
   }
 });
 
+test('D-24: the tie card claims no more than its source: the split shed no load, not that no one lost supply that week', () => {
+  // AEMO's report on 12 Nov 2022: the trip and the split shed and disconnected no load (its incident table), but its p. 41
+  // has the week's storm outages on the distribution network reaching 163,000 customers
+  const {text} = CARDS.find(c => c.id === 'islanded');
+  assert.match(text, /until 19 Nov; the split itself shed no load\.$/);
+  assert.doesNotMatch(text, /no customer|lost supply|no one/i, 'nothing said of the whole week');
+});
+
 test('D-24: each card shows on a day that fits it, the rarest and most dramatic first (the day\'s own before the battery\'s)', () => {
   // [card, memory, the player's trips, black]: each day also fires every trigger after its own, so the order is tested too
   const days = [
