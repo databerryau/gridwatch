@@ -80,7 +80,9 @@
 // trip); `follow` a second 'largest' trip `afterS` after the act's unit trip (a cascade: it keeps no spacing, by design);
 // `towers` a `tieDerate` to `limitMW` until the day's end and a trip of the largest machine at one minute while the storm blows
 // (from its arrival to its pass, Q-72's spacing from every trip, one action from every moment, but not 31 real s from the
-// storm's onsets, which often leave no such minute: the storm is the cause).
+// storm's onsets, which often leave no such minute: the storm is the cause); `cascade` (SA 2016, S-7's first Hard day, on its
+// own scenario: content/anniversaries.js SA2016) a `linkTrip` (cause storm) `afterS` after the storm's own cut-out (no spacing,
+// by design: the wind farms' loss and the tie's trip are one cascade).
 //
 // *Q-71.* A warning is at the latest whole minute with `stepReal(warn, onset)` ≥ `LEAD_REAL_S`:
 // `floor(gridBefore(onset, LEAD_REAL_S) / 60) × 60`, exact (sim/clock.js). The floor of a GT's start +
@@ -275,6 +277,10 @@ export function preroll(seed, scn, regime) {
         incident(III, t, 'tieDerate', {limitMW: x.limitMW, untilS: V.DAY_S});
         incident(III, t, 'unitTrip', {rule: 'largest', lockoutS: mins(r(), x.lockoutMin)});
       }
+    }
+    if (I.cascade) { // SA 2016: the storm's cut-out (the wind farms dropping out) and, afterS later, the tie, overloaded, trips
+      const x = I.cascade, co = list.find(y => y.type === 'windCutout');
+      if (co) incident(III, co.atS + x.afterS, 'linkTrip', {cause: 'storm', lockoutS: mins(r(), x.lockoutMin)}), away(co.atS + x.afterS);
     }
   }
 

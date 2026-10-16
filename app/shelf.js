@@ -1,12 +1,15 @@
 // app/shelf.js: W6, Y-2's practice shelf, DOM-free: what can be played besides today's daily, all of it practice.
 //   Past dailies: the SHELF_PAST dates before today, back to puzzle #1, each with this browser's official result.
-//   Hard days (S-7): days no plan keeps every light on. They are the seeds the daily gate rejected (content/dailies.js:
-//   a date listed with attempt k had its attempts 0..k-1 rejected), one a date, attempt 0, numbered by date. Each was
-//   played by par once on 2026-10-16 (v4-core-2d.0): par shed 116-1,741 MWh on every one (SPEC §5 W6). A Hard day is
+//   Hard days (S-7): days on which par sheds. The first is SA 2016 (D-29: content/anniversaries.js SA2016, its
+//   own scenario and seed; it took the number 1 on 2026-10-17, and the others moved up one). Then the seeds the daily gate
+//   rejected (content/dailies.js: a date listed with attempt k had its attempts 0..k-1 rejected), one a date, attempt 0,
+//   numbered by date (a new list renumbers them anyway: the address and a saved run keep the seed, not the number). Each
+//   was played by par once on 2026-10-16 (v4-core-2d.0): par shed 116-1,741 MWh on every one (SPEC §5 W6). A Hard day is
 //   never a daily; its card is graded on par's outage-free part (S-7) and is named "Hard day n".
 // app/shell.js draws the shelf and plays a pick in the page (C-3), with the address kept in step (?date= or ?seed=).
 
 import {DAILIES} from '../content/dailies.js';
+import {SA2016} from '../content/anniversaries.js';
 import {puzzleNumber, shortDate, LAUNCH_YMD} from './share.js';
 
 /** Y-2: past dailies on the shelf. */
@@ -28,10 +31,10 @@ export function pastDailies(today, history, max = SHELF_PAST) {
   return out;
 }
 
-/** S-7: the Hard days, in date order: {n, seed, weekend}. */
+/** S-7: the Hard days, SA 2016 first (D-29), then the gate's in date order: {n, seed, weekend}. */
 export function hardDays(list = DAILIES) {
-  return Object.keys(list.attempts).map(Number).filter(ymd => list.attempts[ymd] > 0).sort((a, b) => a - b)
-    .map((ymd, i) => ({n: i + 1, seed: ymd, weekend: new Date(utc(ymd)).getUTCDay() % 6 === 0}));
+  const gate = Object.keys(list.attempts).map(Number).filter(ymd => list.attempts[ymd] > 0).sort((a, b) => a - b);
+  return [SA2016.seed, ...gate].map((seed, i) => ({n: i + 1, seed, weekend: new Date(utc(seed % 1e8)).getUTCDay() % 6 === 0}));
 }
 
 /** S-7: a seed's Hard-day number, or 0. */

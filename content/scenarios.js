@@ -10,7 +10,7 @@
 // Model constants shared by every scenario live in sim/params.js.
 
 import {P} from '../sim/params.js';
-import {ANNIVERSARIES} from './anniversaries.js';
+import {ANNIVERSARIES, SA2016} from './anniversaries.js';
 import {scenarioIdOf, dailyScenarioIdOf} from './dailies.js';
 
 const LEG = 'legacy index.html';
@@ -331,7 +331,15 @@ export const ANNIVERSARY_SCENARIOS = Object.freeze(Object.fromEntries(Object.ent
   return [id, deepFreeze(overlay(base, Object.assign({}, a.overrides, {id, name: base.name + '; the ' + a.name + ' anniversary (' + a.year + ')'})))];
 })));
 
-export const SCENARIOS = Object.freeze({classic: CLASSIC, desk: DESK, 'desk-weekend': DESK_WEEKEND, ...ANNIVERSARY_SCENARIOS});
+/**
+ * W6 (D-29, S-7): SA 2016, the practice shelf's first Hard day: DESK (its date was a weekday) with the overrides of
+ * content/anniversaries.js SA2016, under its own id. Played from its own seed (app/game.js scenarioForSeed); no date's daily.
+ */
+export const SA2016_SCENARIO = deepFreeze(overlay(DESK, Object.assign({}, SA2016.overrides, {id: 'desk-' + SA2016.key,
+  name: DESK.name + '; the ' + SA2016.name + ' (' + SA2016.year + '), a Hard day'})));
+
+export const SCENARIOS = Object.freeze({classic: CLASSIC, desk: DESK, 'desk-weekend': DESK_WEEKEND, ...ANNIVERSARY_SCENARIOS,
+  [SA2016_SCENARIO.id]: SA2016_SCENARIO});
 
 /** Scenario by id; throws on an unknown id. */
 export function getScenario(id) {

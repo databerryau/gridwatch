@@ -72,7 +72,7 @@ export function runText(r) {
   if (r.status === 'official') return r.started === false && !r.claimed ? 'PRACTICE: it ended before 09:00, so it did not count. The next run past 09:00 does.' : 'OFFICIAL: ' + daily + ', today\'s run that counts.';
   const e = r.entry;
   if (r.why === 'done') return 'PRACTICE: today\'s official run is in' + (e ? e.dnf ? ' (it did not finish).' : e.letter ? ' (' + e.points + ' ' + e.letter + ').' : '.' : '.');
-  if (r.hard) return 'PRACTICE: Hard day ' + r.hard + '. No plan keeps every light on: you are graded on the rest.';
+  if (r.hard) return 'PRACTICE: Hard day ' + r.hard + '. Par sheds load on this day: you are graded on the rest.';
   return {past: 'PRACTICE: a past daily. Only today\'s counts.', future: 'PRACTICE: not today\'s daily. Only today\'s counts.',
     off: 'PRACTICE: history is off in this browser, so nothing counts.', nodaily: 'PRACTICE: no daily today, so nothing counts.'}[r.why] || 'PRACTICE: not a daily.';
 }
@@ -156,8 +156,8 @@ export function createEndCard(doc, root, actions, deps) {
     const score = line(body, g ? 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + (e.perfect ? ' · PERFECT' : '')
       : par.kind === 'off' ? 'ALL-IN ' + allInCents(e.allIn) + ' c/kWh · PAR: off' : status || 'no score', 'big');
     score.id = 'end-score';
-    // S-6, S-7: the marks' rules, and a Hard day's (par shed: no plan kept every light on)
-    if (g && g.hardMWh) line(body, 'HARD DAY: par shed ' + mw(g.hardMWh, 1) + ' MWh: no plan kept every light on today. The points leave those MWh out of both totals; the letter is the gap.').id = 'end-hard';
+    // S-6, S-7: the marks' rules, and a Hard day's (par shed; a player may shed less, or none)
+    if (g && g.hardMWh) line(body, 'HARD DAY: par shed ' + mw(g.hardMWh, 1) + ' MWh today. The points leave those MWh out of both totals; the letter is the gap.').id = 'end-hard';
     if (e.perfect) line(body, PERFECT_RULE).id = 'end-perfect';
     if (g) line(body, LETTER_RULE).id = 'end-letter';   // (S-5: the letter with its one-line rule)
     if (e.ladder) ladderRow(body, e.ladder);   // (W6, Y-11: where you sit among GRIDWATCH's own players)

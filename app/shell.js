@@ -171,14 +171,16 @@ export const RESUME_LOST = 'GRIDWATCH was updated, so your shift could not resum
 export const SHELF_ON = Object.freeze(['done', 'past', 'future', 'seed']);
 /** W6 (Y-2): the practice shelf's notes. */
 export const SHELF_NOTE = 'Practice never changes your streak: only today\'s daily counts.';
-export const HARD_NOTE = 'Days no plan gets through: par sheds load on every one. You are graded on what par could save.';
+export const HARD_NOTE = 'Par sheds load on every one of these days. You are graded on what par could save.';
 /** W6 (Y-2, Q-99): the briefing title's tag for the run's status, and why (its title attribute). */
 export const RUN_TAG = Object.freeze({first: 'FIRST SHIFT', official: 'OFFICIAL', practice: 'PRACTICE'});
 export const RUN_WHY = Object.freeze({first: 'Your first shift: practice, unless you count it at the end.',
   official: 'Today\'s daily: this run counts once the clock passes 09:00 (one official run a day).',
   done: 'Today\'s official run is in: this one is practice.', past: 'A past daily: practice. Only today\'s counts.', seed: 'Not a daily: practice.',
-  future: 'Not today\'s daily: practice. Only today\'s counts.', hard: 'A Hard day: no plan keeps every light on, so you are graded on the rest. Practice.', off: 'History is off in this browser (no storage): practice, nothing counts.',
+  future: 'Not today\'s daily: practice. Only today\'s counts.', hard: 'A Hard day: par sheds load on it, so you are graded on the rest. Practice.', off: 'History is off in this browser (no storage): practice, nothing counts.',
   nodaily: 'GRIDWATCH has no gate-checked daily for today\'s date yet: this day is practice, and nothing counts.'});
+/** W6 (D-29): the briefing account's head: an anniversary daily's date is the incident's; a Hard day is played on any date, so it takes the end card's head for a true story. */
+export const ACCOUNT_HEAD = Object.freeze({dated: 'ON THIS DAY', hard: 'THIS REALLY HAPPENED'});
 /** F-8: the briefing title on a date past the dailies' calendar. */
 export const NO_DAILY = 'No daily today · PRACTICE';
 /** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
@@ -475,10 +477,11 @@ export function bootGame(doc, deps) {
     // (a daily's exception seed is its date + k·1e8, Q-75; a Hard day has no date: it is not that date's daily)
     if (date) date.textContent = game.hard ? '' : dateText(game.seed % 1e8);
     // W6 (D-29): an anniversary's account, the briefing's first card (no button: TAKE THE DESK stays D-3's one click), then
-    // what of it today's desk echoes
+    // what of it today's desk echoes. Its head is ON THIS DAY under a daily's date; a Hard day (SA 2016) shows no date
     const an = G.anniversaryFor(game), acc = $('briefing-account'), accText = $('briefing-account-text'), accSrc = $('briefing-account-source');
-    const accEcho = $('briefing-account-echo');
+    const accEcho = $('briefing-account-echo'), accHead = $('briefing-account-head');
     if (acc) acc.hidden = !an;
+    if (accHead) accHead.textContent = game.hard ? ACCOUNT_HEAD.hard : ACCOUNT_HEAD.dated;
     if (accText) accText.textContent = an ? an.account : '';
     if (accEcho) accEcho.textContent = an ? an.echo : '';
     if (accSrc) { accSrc.textContent = an ? 'Source: ' + an.sourceName : ''; accSrc.href = an ? an.source : ''; }
