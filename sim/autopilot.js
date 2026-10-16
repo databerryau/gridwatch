@@ -359,10 +359,13 @@ function allowedS(ds, i) {
  * on the held clock a player takes the time they need, so the card never makes a restore late.
  */
 const holdOf = p => Math.max(p.cardS || CARD_REAL, p.gapS);
-function feederHolds(obs, realS) {
+function feederHolds(obs, realS, shed) {
   const ds = obs.districts, out = [];
   for (let i = 0; i < ds.length; i++) {
     const d = ds[i];
+    // D-26 (Q-95; `shed`: a night scenario's, so classic's par is bit-identical): each relit shed district held
+    // the clock at its restore (one hold a restore, where the page holds one a stage: a slightly kinder pace)
+    if (shed && d.clearS < 0 && !d.dark && d.restoredAtS >= 0 && d.restoredAtS < NIGHT_S) out.push({atS: d.restoredAtS, realS});
     if (d.clearS < 0 || (d.dark && d.shedBy !== 'task')) continue;
     const a = allowedS(ds, i);
     if (a < NIGHT_S) out.push({atS: a, realS});
@@ -1783,7 +1786,7 @@ export function decide(obs, memo) {
   if (memo.amendDue && memo.plan) memo.outbox.push({input: amend(obs, memo, memo.plan), tag: 'replan'});
   memo.amendDue = false;
   if (memo.lastActTick >= 0 && (proxy.gridS ? obs.tick - memo.lastActTick < proxy.gridS * TPS
-    : refRealSeconds(memo.lastActTick / TPS, obs.tick / TPS, paceConts(obs), feederHolds(obs, holdOf(proxy))) < proxy.gapS)) return [];
+    : refRealSeconds(memo.lastActTick / TPS, obs.tick / TPS, paceConts(obs), feederHolds(obs, holdOf(proxy), memo.shedCards)) < proxy.gapS)) return [];
   let C = null;
   for (const r of (restoreWindow(obs) ? RESTORE_ORDER : RULE_ORDER)[memo.proxy]) {
     if (NEEDS_SITUATION.has(r) && C === null) C = situation(obs, memo);
@@ -1905,6 +1908,7 @@ export function runPar(seed, scenario, opts) {
   const hashEvery = (o.hashEveryS === undefined ? S_PER_H : o.hashEveryS) * TPS;
   const onStep = o.onStep || null;
   const memo = o.memo || createAutopilot({proxy});
+  if (memo.shedCards === undefined) memo.shedCards = !!state.scn.night; // D-26: the page's shed cards (a night scenario's)
   const origins = new Array(state.log.length).fill('external');
   const hashes = [];
   const sink = [], tags = [];

@@ -105,9 +105,11 @@ test('Q-91: a hand-back holds the clock (FEEDER-CARD, rate 0, no FAST) until its
 
 test('Q-91: one card per feeder per allowed second, re-armed by a later restore of any district (the second feeder closed first); tests/lib/play.js feederDue holds whenever one shows', () => {
   // T0 back 06:45 and never closed; T1 back 07:15 and closed at 07:16:00.4; a UFLS district X closed at 07:40:00.2;
-  // each card answered by another input the moment it shows
-  const st = fake({clears: CLEARS, s: START}), d = director(), ds = st.city.districts;
-  ds.push({id: 'X', clearS: -1, dark: true, shedBy: 'ufls', restoredAtS: -1});
+  // each card answered by another input the moment it shows. (D-26: X's own card holds only while its restore
+  // would be accepted; here frequency stays below the permissive's, so it never shows)
+  const st = fake({clears: CLEARS, s: START}), d = D.createDirector({game: true, paused: false, accepts: (s, i) => s.city.districts[i].id !== 'X'}), ds = st.city.districts;
+  ds.push({id: 'X', clearS: -1, dark: true, shedBy: 'ufls', uflsStage: 1, restoredAtS: -1});
+  st.last = {fMeanHz: 49};
   const rs = [{t: CLEARS[1] + 60.4, id: 'T1'}, {t: 3 * H + 40 * 60 + 0.2, id: 'X'}], shown = [];
   let due = 0;
   for (let k = 0, t = START * TPS; t < 5 * H * TPS; t += 10) {                          // every 0.2 grid-s
@@ -316,7 +318,7 @@ test('Q-64: in the briefing AGC/HAND is the sim\'s mode: the desk\'s key and the
   // a feeder card and OFFER answer F with why (a hand-back moved to now; an offer)
   const x = p.game.state.city.districts.find(q => q.clearS >= 0), clearS = x.clearS;
   x.clearS = Math.floor(p.game.state.tick / TPS);
-  assert.match(p.pressKey('f', {}, {after: 1 / 60}).during, /^TOAST blue FAST waits: a repaired feeder holds the clock: R, Enter or Esc restores it$/m);
+  assert.match(p.pressKey('f', {}, {after: 1 / 60}).during, /^TOAST blue FAST waits: a feeder you may close holds the clock: R, Enter or Esc restores it$/m);
   x.clearS = clearS;                                                     // (HAND has no auto-synchroniser: the answer is true in both modes)
   assert.equal(p.send({type: 'start', unit: 'gta1'}), '');
   p.until('mode', {max: '+15m'});
@@ -416,7 +418,7 @@ test('D-6 (1 of 2): one input log ticked alone and played with F held gives one 
   assert.ok(fastFrames > 100, fastFrames + ' frames at FAST');
   assert.ok(fast.game.objective && fast.game.sys, 'the line and the system ran');
   assert.deepEqual([fast.hash, fast.accepted], [ref.hash, INPUTS.length]);
-  assert.deepEqual(fast.feeders, ['HAZ4', 'HAZ5'], 'each hand-back held the clock on its card');
+  assert.deepEqual(fast.feeders, ['HAZ4', 'HAZ5', 'RED1'], 'each hand-back held the clock on its card, and the trip\'s relay stage (D-26) on its own');
 });
 
 test('D-6 (2 of 2): the same log with 50 seeded random pauses gives the same hashState', () => {

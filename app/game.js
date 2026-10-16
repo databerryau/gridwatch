@@ -378,11 +378,12 @@ function closeQueued(game) {
 }
 
 // D-27: the feeders a RESTORE of `id` at the card would queue, each at the second it may close: the
-// later of its hand-back and RESTORE_INTERVAL_S after the one before (the card's own now)
+// later of its hand-back and RESTORE_INTERVAL_S after the one before (the card's own now). D-26: a shed
+// card's queue is the rest of its group (D.queueMates).
 function queuePlan(game, obs, id) {
-  const left = game.director.fc, out = [];
+  const out = [];
   let prev = obs.s;
-  for (const x of obs.districts.filter(d => d.id !== id && d.dark && d.shedBy === 'task' && d.clearS >= 0 && left[d.id] !== Infinity).sort((a, b) => a.clearS - b.clearS)) {
+  for (const x of D.queueMates(game.director, obs.districts, id).sort((a, b) => a.clearS - b.clearS)) {
     prev = Math.max(x.clearS, prev + V.RESTORE_INTERVAL_S);
     out.push({id: x.id, atS: prev});
   }
@@ -471,6 +472,7 @@ export function sendInput(game, x, shown) {
   const fc = shown === undefined ? shownFeeder(game) : shown, own = !!fc && !!x && x.type === 'restore' && x.district === fc;
   // (fc: a card already showing, never one queued behind the respond card this input dismisses)
   if (!own) { D.dismissCard(d, state); if (fc) D.answerFeeder(d, state, fc, false); }
+  const mates = own ? D.queueMates(d, state.city.districts, x.district) : null; // (D-26: read before the restore relights its group's first)
   const out = [];
   const r = applyInput(state, x, out);
   if (out.length) handleRecords(game, out, '');
@@ -479,7 +481,7 @@ export function sendInput(game, x, shown) {
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
     if (x.type === 'restore') D.focusRestore(d, state);
-    if (own) D.queueFeeders(d, state, x.district); // D-27: the card's RESTORE queues the morning's other feeders
+    if (own) D.queueFeeders(d, mates); // D-27: the card's RESTORE queues the morning's other feeders (D-26: the rest of its group)
     if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
   } else if (own) game.feederWhy = {id: fc, why: r.reason};
   return r.ok ? '' : r.reason;

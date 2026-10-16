@@ -276,12 +276,17 @@ export const FEEDER_KEYS = 'R, Enter or Esc: restore', FEEDER_ON = 'Left dark, i
  */
 export function feederCard(obs, id, suburbs, why, lamp, next) {
   const x = obs.districts.find(d => d.id === id), sub = x && (suburbs || []).find(s => s.id === x.suburb);
-  const pick = x ? Math.round(x.coldLoadMW / 10) * 10 : 0, q = next || [];
-  const hourM = x ? x.coldLoadMW / V.COLD_LOAD_FACTOR * V.VCR / 1e6 : 0;
-  return {id, mw: pick, text: id + '\'s feeder' + (sub ? ' in ' + sub.name : '') + ' is repaired: about ' + pick + ' MW with its cold load.',
+  const q = next || [], all = [x, ...q.map(n => obs.districts.find(d => d.id === n.id))].filter(Boolean);
+  // D-26: a shed card names its group (a relay stage, or the city desk's sheds) and the whole group's pickup
+  const shed = !!x && (x.shedBy === 'ufls' || x.shedBy === 'directed'), cold = shed ? all.reduce((a, d) => a + d.coldLoadMW, 0) : x ? x.coldLoadMW : 0;
+  const pick = Math.round(cold / 10) * 10, hourM = cold / V.COLD_LOAD_FACTOR * V.VCR / 1e6;
+  const names = all.map(d => d.id), list = names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names.at(-1) : names[0];
+  const what = !shed ? id : x.shedBy === 'ufls' ? 'stage ' + x.uflsStage : 'the city desk\'s sheds';
+  return {id, mw: pick, text: !shed ? id + '\'s feeder' + (sub ? ' in ' + sub.name : '') + ' is repaired: about ' + pick + ' MW with its cold load.'
+      : 'RESTORE ' + what + ': ' + list + ', about ' + pick + ' MW with ' + (all.length > 1 ? 'their' : 'its') + ' cold load.',
     plan: 'RESTORE ' + id + ' now' + q.map(n => '; ' + n.id + ' at ' + clockText(n.atS, false)).join('') +
       (q.length ? ' (' + (q.length > 1 ? 'they close themselves' : 'it closes itself') + ').' : '.'),
-    keys: FEEDER_KEYS, leave: 'LEAVE ' + id + ' DARK (about $' + Math.max(1, Math.round(hourM)) + 'M an hour at VCR)',
+    keys: FEEDER_KEYS, leave: 'LEAVE ' + what.toUpperCase() + ' DARK (about $' + Math.max(1, Math.round(hourM)) + 'M an hour at VCR)',
     on: FEEDER_ON, why: why || '', lamp: why ? '' : lamp || ''};
 }
 

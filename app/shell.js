@@ -65,7 +65,7 @@ export const RISE_STRIP = Object.freeze([['SPIN', [0]], ['INVERTERS', [1, 2]], [
 // Why F did nothing, by mode (the director's setFast refuses these).
 const FAST_WAIT = {WATCH: 'the watch plays the trip in slow motion', 'RESPOND-CARD': 'read the card, then Enter',
   RESPOND: 'RESPOND runs 30× until frequency is back in band', FOCUS: 'the clock runs 1× while you SYNC or RESTORE',
-  ALARMS: 'the alarm panel holds the clock: Esc closes it', 'FEEDER-CARD': 'a repaired feeder holds the clock: R, Enter or Esc restores it',
+  ALARMS: 'the alarm panel holds the clock: Esc closes it', 'FEEDER-CARD': 'a feeder you may close holds the clock: R, Enter or Esc restores it',
   OFFER: 'a unit is at full speed: O opens its synchroscope (30× for at most 8 s)', NIGHT: 'the night shift runs the roll to 04:00'};
 /** Q-48: par's ticks per frame while the day runs, and once it is over. */
 export const PAR_STEP_TICKS = 3000, PAR_STEP_OVER_TICKS = 6000;
@@ -961,7 +961,7 @@ export function bootGame(doc, deps) {
     if (!id || k === 'Enter' && !ev.repeat && ['restore-list', 'suburb-card', 'feeder-card'].some(x => within(x, t))) return;
     ev.preventDefault(); ev.stopPropagation();
     if (ev.repeat) return;
-    if (now() - cardKeyMs < FEEDER_ARM_MS) showToast('A repaired feeder holds the clock: read its card, then R or Enter restores it', 'info');
+    if (now() - cardKeyMs < FEEDER_ARM_MS) showToast('A feeder you may close holds the clock: read its card, then R or Enter restores it', 'info');
     else actions.input({type: 'restore', district: id});
   }
   doc.addEventListener('keydown', escFirst, true);

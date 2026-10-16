@@ -39,7 +39,11 @@ const windows = p => Object.values(p.h.mods.map.debug.districts).reduce((a, d) =
 
 before(() => {
   const p = S.p = openGame({seed: SEED, storage, par: {score: series.at(-1), series}});
-  for (let i = 0; i < 8; i++) { const r = p.to('21:00:01', {stop: [], line: 'near'}); if (r.why !== 'held:RESPOND-CARD') break; p.key('Enter'); }
+  // (D-26: each shed stage's card is gone on from, LEAVE, so the night still starts dark)
+  for (let i = 0; i < 40; i++) {
+    const r = p.to('21:00:01', {stop: [], line: 'near'});
+    if (r.why === 'held:RESPOND-CARD') p.key('Enter'); else if (r.why === 'held:FEEDER-CARD') p.click('feeder-leave'); else break;
+  }
   S.t21 = p.now;
 });
 

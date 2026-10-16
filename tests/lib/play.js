@@ -74,6 +74,7 @@ import {V} from '../../sim/params.js';
 import {observe} from '../../sim/step.js';
 import {realBetween, NIGHT_S} from '../../sim/clock.js';
 import {restoreAllowedS} from '../../sim/market.js';
+import {restorePermissive} from '../../sim/grid.js';
 import {SCENARIOS} from '../../content/scenarios.js';
 // Q-44: the page loads these on demand; the driver hands them to the shell up front (synchronous)
 import {TEXT} from '../../content/text.js';
@@ -202,12 +203,22 @@ const fmtControl = c => (c.id || '?') + ' "' + c.label + '"' + (c.value !== unde
  * (market.restoreAllowedS: the later of its clearS and the last restore of any district +
  * RESTORE_INTERVAL_S) has come (from the tick after that second's own, whose step hands it back),
  * before 21:00. The director adds only which card was answered (Esc, another input), and queues one
- * behind a watch and the respond card.
+ * behind a watch and the respond card. D-26: a district shed by the relays or the city desk from the first
+ * tick past its allowed second at which its restore would be accepted (the permissive and its preview).
  */
 export function feederDue(state) {
   const ds = state.city.districts, t = state.tick;
   if (t >= NIGHT_S * TPS) return false;
   for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task' && t > restoreAllowedS(ds, i) * TPS) return true;
+  return shedDue(state);
+}
+// D-26: a shed district past its allowed second whose restore would be accepted now
+function shedDue(state) {
+  const ds = state.city.districts, t = state.tick;
+  for (let i = 0; i < ds.length; i++) {
+    if (!ds[i].dark || (ds[i].shedBy !== 'ufls' && ds[i].shedBy !== 'directed') || !(t > restoreAllowedS(ds, i) * TPS)) continue;
+    if (restorePermissive(state, i, {preview: true}) === '') return true;
+  }
   return false;
 }
 
@@ -221,7 +232,7 @@ export function feederHeldAt(state) {
   const ds = state.city.districts, t = state.tick;
   if (t >= NIGHT_S * TPS) return false;
   for (let i = 0; i < ds.length; i++) if (ds[i].clearS >= 0 && ds[i].dark && ds[i].shedBy === 'task' && restoreAllowedS(ds, i) * TPS + 1 === t) return true;
-  return false;
+  return shedDue(state); // (D-26: a shed card holds at the first accepted tick, unknown in advance; clockReport counts only frames that run no tick)
 }
 
 // ------------------------------------------------------------------ the driver
@@ -676,10 +687,13 @@ export function openGame(o = {}) {
     return {fromS, toS, sinceS, profileS, E, offS: sinceS - E, parts};
   }
 
+  // D-26: the feeder card showing is a shed group's (a relay stage's or the city desk's), not a hand-back's
+  const shedCard = () => { const id = modeNow() === 'FEEDER-CARD' && D.feederCard(game.director, game.state), x = id && game.state.city.districts.find(d => d.id === id); return !!x && D.cardGroup(x) !== ''; };
   /**
    * The first contingency that begins at or after `when` ('HH:MM'): jumps there (the objective line
    * drawn only near the target, as --line=near), pressing Enter at each card on the way as timeline()
-   * does, then plays on to its RESPOND card. Returns the contingency record (observe()'s), or null.
+   * does, but going on from a shed card (D-26: the sim's day, and so its later trips, stay as they were
+   * before the shed cards), then plays on to its RESPOND card. Returns the contingency record (observe()'s), or null.
    */
   function tripFrom(when) {
     const st = game.state, atTick = parseTime(when) * TPS;
@@ -687,7 +701,7 @@ export function openGame(o = {}) {
       const c = st.conts.at(-1);
       if (c && c.startTick >= atTick) { until('card', {max: '+5m'}); return observe(st).contingency; }
       const r = st.tick >= atTick ? until('trip', {line: 'near'}) : to(when, {stop: ['trip'], line: 'near'});
-      if (r.why.startsWith('held')) key('Enter');
+      if (r.why.startsWith('held')) { if (shedCard()) { G.ui(game, {do: 'goOn'}); frame(); } else key('Enter'); }
     }
     return null;
   }
