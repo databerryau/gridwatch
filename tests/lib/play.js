@@ -249,7 +249,8 @@ export function feederHeldAt(state) {
  *   shifts: the shifts this browser has finished (D-7: HAND is offered from the second), in a storage
  *   of its own when none is given (agc: false implies 1: a HAND day is a returning player's);
  *   par: the game's par (Q-48; default false: no runner; or a finished runner's {score, series?, black?});
- *   date: the player's local date (W6: today, for the official run; default the machine's);
+ *   date: the player's local date (W6: today, for the official run; default the machine's); resume: with take, RESUME a
+ *   saved run of this seed (F-7) instead of START OVER (the default: a fresh desk, as every test before F-7 assumed);
  *   plates: a first shift's cover plates (O-3; default false: the tests of the controls press them as a player who
  *   pressed I'VE DONE THIS BEFORE would, without turning the coach off; true: the onboarding's tests).
  */
@@ -738,9 +739,12 @@ export function openGame(o = {}) {
   };
 
   if (o.take !== false) {
-    $(o.agc === false ? 'btn-hand' : 'btn-agc').click();
+    // (F-7: a saved run of this seed is offered as RESUME AT hh:mm; the driver takes a fresh desk unless resume: true)
+    if (game.resumeSaved && !o.resume) $('btn-restart').click();
+    if (!game.resumeSaved) $(o.agc === false ? 'btn-hand' : 'btn-agc').click();
     $('btn-take').click();
     frame();
+    for (let k = 0; k < 400 && game.replay; k++) frame();
     if (o.run !== false) key(' ');
   }
   return api;

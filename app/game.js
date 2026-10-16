@@ -225,6 +225,8 @@ export function createGame(o) {
   };
   game.cueCtx = {suburbOf: id => suburbOf(game, id)};
   resetDay(game, game.seed);
+  game.replay = null; game.resumeLost = false; game.resumeFailed = '';
+  game.resumeSaved = resumable(game);   // (F-7: a saved run of this seed: the briefing offers RESUME AT hh:mm)
   return game;
 }
 
@@ -431,10 +433,12 @@ function queuePlan(game, obs, id) {
 export function tickOnce(game) {
   const state = game.state;
   if (state.over) return;
-  if (game.beforeTick) game.beforeTick(game);
-  closeQueued(game);
+  const R = game.replay;   // (F-7: resuming, the saved log stands in for the player, the system and the queued restores)
+  if (game.beforeTick && !R) game.beforeTick(game);
+  if (!R) closeQueued(game);
   let ins = EMPTY;
-  if (game.sys) {
+  if (R) ins = replayBatch(R, state.tick);
+  else if (game.sys) {
     try {
       ins = game.sysMod.systemInputs(game.sys, state) || EMPTY;
     } catch (e) {
@@ -443,12 +447,14 @@ export function tickOnce(game) {
       ins = EMPTY;
     }
   }
-  const recs = step(state, ins);
+  const logged = state.log.length, recs = step(state, ins);
+  if (R && state.log.length - logged !== ins.length) R.failed = 'a saved input was refused at tick ' + state.tick;
   if (recs.length) handleRecords(game, recs, ins.length ? 'system' : '');
   onTick(game.rec, state);
   A.sampleTick(game.alarms, state);
   if (state.tick % TPS === 0) {
     if (game.run.status === 'official' && !game.run.started && state.tick >= HI.OFFICIAL_S * TPS) startOfficial(game);   // (W6, Q-99)
+    if (!R && game.phase === 'play' && state.tick % (RESUME_EVERY_S * TPS) === 0) saveResume(game);   // (F-7)
     histSecond(game);
     if (VD.verdictSecond(game.verdict, state, game.rec) && game.phase === 'play') pushCue(game, 'ramp'); // (L-10: a clean ramp)
   }
@@ -497,6 +503,8 @@ export function takeDesk(game) {
   margBeat(game, 'take', MARG_LINES.take(observe(game.state), weather.forecast(game.state, V.DAY_S - game.state.tick / TPS, V.FC_STEP_S)));
   game.director.paused = game.startPaused;
   game.director.held = game.ui.alarmsOpen; // Q-46: an alarm panel opened in the briefing holds the clock now
+  game.resumeSaved = null;   // (F-7: this run replaces any saved one)
+  saveResume(game);
   return true;
 }
 
@@ -937,6 +945,7 @@ export function buildVm(game, f) {
     // D-7: a finished shift, kept with the other seen flags (HAND is offered from the second)
     if (game.phase === 'play') { game.director.seen.shifts = (game.director.seen.shifts || 0) + 1; saveSeen(game); }
     recordRun(game);   // (W6, Y-3: an official run is finished, its grade filled in when par's arrives)
+    if (!game.replay) clearResume(game);   // (F-7: nothing left to resume)
   }
   const par = game.par, end = game.end; // (a par day that went black gives no grade)
   if (end && !end.parAllIn && par && par.done && par.score && !par.black) {
@@ -1106,11 +1115,100 @@ function yieldTo(game) {
 // Q-99: the grid clock passed 09:00 on today's daily with no entry for it: this is the date's official run. The entry is
 // a DNF until the day ends, so closing the tab after 09:00 leaves one.
 function startOfficial(game) {
-  const ymd = dailyYmd(game);
-  if (freshHistory(game).days[ymd]) return yieldTo(game);
+  const ymd = dailyYmd(game), e = freshHistory(game).days[ymd];
+  if (e && e.id !== game.run.id) return yieldTo(game);
   game.run.started = true;
+  if (e) return;   // (F-7: a resumed run passing 09:00 again: the entry is already its own)
   HI.record(game.history, ymd, {n: SH.puzzleNumber(ymd), v: SIM_VERSION, id: game.run.id, dnf: true, firstShift: false, hand: game.state.control.mode === 'HAND'});
   saveHistory(game);
+}
+
+// ------------------------------------------------------------------ W6: resume (F-7)
+
+/** F-7: the run in progress, kept so that reopening a closed tab resumes it. */
+export const RESUME_KEY = 'gridwatch:v4:resume';
+/** F-7: in play the run is saved this often (grid s), at each input of the player's, and when the tab is hidden or closed. */
+export const RESUME_EVERY_S = 15 * V.S_PER_MIN;
+
+/**
+ * F-7: save the run in progress: the seed, SIM_VERSION, the tick, the input log (every accepted input: the player's, the
+ * system's, the queued restores) and the run's status, from TAKE THE DESK until the day ends. Not while resuming.
+ */
+export function saveResume(game) {
+  const st = game.state, r = game.run;
+  if (game.phase !== 'play' || st.over || game.replay || !game.historyOn) return false;
+  return writeJson(game.storage, RESUME_KEY, {v: 1, sim: SIM_VERSION, seed: game.seed, today: game.today, tick: st.tick,
+    log: st.log.map(x => [x.tick, x.type, x.args]), run: {status: r.status, why: r.why, id: r.id, started: r.started, claimed: r.claimed},
+    inputs: game.playerInputs, noCoach: !!game.noCoach, first: game.marg ? !!game.marg.first : firstShift(game)});
+}
+/** F-7: forget the saved run (the day ended, or START OVER). */
+export function clearResume(game) {
+  try { if (game.storage) game.storage.removeItem(RESUME_KEY); } catch { /* (storage blocked) */ }
+  game.resumeSaved = null;
+}
+
+// F-7: at boot, the saved run of this seed, if any (a run saved by another build cannot replay: dropped, game.resumeLost).
+// The run's status comes back with it when it was saved today and the date's entry, if any, is its own.
+function resumable(game) {
+  const r = readJson(game.storage, RESUME_KEY);
+  if (!r || r.v !== 1 || r.seed !== game.seed || !Array.isArray(r.log) || !(r.tick > 0)) return null;
+  if (r.sim !== SIM_VERSION) { clearResume(game); game.resumeLost = true; return null; }
+  const e = game.history.days[dailyYmd(game)], s = r.run;
+  if (s && r.today === game.today && (!e || e.id === s.id || s.status !== 'official')) Object.assign(game.run, s);
+  return r;
+}
+
+/** F-7: RESUME AT hh:mm: replay the saved log from 04:00 (resumeStep runs it, a slice a frame). */
+export function resumeBegin(game) {
+  const r = game.resumeSaved;
+  if (!r || game.phase !== 'briefing' || game.replay) return false;
+  game.replay = {log: r.log, j: 0, until: r.tick, from: game.state.tick, saved: r, failed: ''};
+  return true;
+}
+
+// F-7: the saved inputs of this tick, as step() takes them
+function replayBatch(R, tick) {
+  let out = EMPTY;
+  while (R.j < R.log.length && R.log[R.j][0] <= tick) {
+    const [, type, args] = R.log[R.j++];
+    if (out === EMPTY) out = [];
+    out.push(Object.assign({type}, args));
+  }
+  return out;
+}
+
+/**
+ * F-7: run the resume's replay for at most budgetMs (real ms, `now` a ms clock); at the saved tick the desk opens there, held.
+ * Every tick runs through tickOnce, so the recorder, the verdict's memory and the alarms are rebuilt as in play.
+ * @returns {number} progress 0..1 (1: resumed, or nothing to resume); game.resumeFailed says why a replay was given up
+ */
+export function resumeStep(game, budgetMs = Infinity, now = () => Date.now()) {
+  const R = game.replay, st = game.state;
+  if (!R) return 1;
+  const t0 = now();
+  while (!st.over && st.tick < R.until && !R.failed) {
+    tickOnce(game);
+    if (st.tick % 256 === 0 && now() - t0 > budgetMs) break;
+  }
+  if (R.failed || st.over) {   // (the log does not replay here: a fresh day, said so)
+    game.resumeFailed = R.failed || 'the saved day ended early';
+    game.replay = null;
+    clearResume(game);
+    resetDay(game);
+    return 1;
+  }
+  if (st.tick < R.until) return (st.tick - R.from) / Math.max(1, R.until - R.from);
+  const s = R.saved;
+  game.replay = null; game.resumeSaved = null;
+  game.phase = 'play';
+  game.cues = [];   // (nothing the replay heard is played)
+  game.playerInputs = s.inputs | 0;
+  game.noCoach = !!s.noCoach;
+  game.marg = createMarg(!!s.first);
+  game.margAct = -1;
+  game.director.paused = true;
+  game.objectiveS = -1e9; game.lineFresh = true;
+  return 1;
 }
 
 /** Y-3: write the finished official run's entry (again when the grade arrives; a claimed first shift's too). */
@@ -1166,8 +1264,9 @@ export function replayGame(file, scenario, untilTick) {
 export function makeActions(game) {
   return {
     // (X-45: the end card counts the player's accepted inputs, a RE-DISPATCH as one; never the system's or the night shift's)
-    input: x => { const r = sendInput(game, x); if (!r) game.playerInputs++; return r; },
-    redispatch: () => { const r = redispatch(game); if (!r) game.playerInputs++; return r; },
+    // (F-7: each accepted input saves the run, so a closed tab resumes after it)
+    input: x => { const r = sendInput(game, x); if (!r) { game.playerInputs++; saveResume(game); } return r; },
+    redispatch: () => { const r = redispatch(game); if (!r) { game.playerInputs++; saveResume(game); } return r; },
     ui: cmd => ui(game, cmd),
     previewTrip: opts => previewTrip(game, opts),
     restorePreview: id => restorePreview(game, id),

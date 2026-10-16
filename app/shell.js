@@ -154,6 +154,9 @@ const BRIEF = {
 };
 /** The briefing's "Watch for" (Q-81): one brief per news item announced at 04:00, in their order. */
 export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]).map(n => BRIEF[n.kind](n, obs));
+/** F-7: the resume's replay runs this long a frame (real ms); and what a player is told when a saved run cannot replay. */
+export const RESUME_BUDGET_MS = 30;
+export const RESUME_LOST = 'GRIDWATCH was updated, so your shift could not resume. Your history and streak are kept.';
 /** W6 (Y-2, Q-99): the briefing title's tag for the run's status, and why (its title attribute). */
 export const RUN_TAG = Object.freeze({first: 'FIRST SHIFT', official: 'OFFICIAL', practice: 'PRACTICE'});
 export const RUN_WHY = Object.freeze({first: 'Your first shift: practice, unless you count it at the end.',
@@ -423,17 +426,24 @@ export function bootGame(doc, deps) {
   for (const [id, agc] of [['btn-agc', true], ['btn-hand', false]]) on(id, 'click', () => { if (game.state.control.mode !== (agc ? 'AGC' : 'HAND')) actions.input({type: 'mode', agc}); briefMode(game.state.control.mode); });
   briefMode(game.state.control.mode);
   const take = () => {
+    if (game.resumeSaved) { if (G.resumeBegin(game)) briefingText(); return; }   // (F-7: RESUME AT hh:mm)
     if (G.takeDesk(game)) { const b = $('briefing-card'); if (b) b.hidden = true; }
   };
   on('btn-take', 'click', take);
+  // F-7: START OVER drops the saved run (an official run that passed 09:00 stays a DNF; this one is practice beside it)
+  on('btn-restart', 'click', () => { if (game.replay) return; G.clearResume(game); G.resetDay(game); briefingText(); });
+  if (game.resumeLost) showToast(RESUME_LOST, 'info');
   briefingText();
 
   function briefingText() {
     const b = $('briefing-card');
     if (!b) return;
     b.hidden = game.phase !== 'briefing';
-    const hand = $('btn-hand');
-    if (hand) hand.hidden = !G.handOffered(game);   // D-7: from the second shift
+    const hand = $('btn-hand'), agc = $('btn-agc'), saved = game.resumeSaved, takeB = $('btn-take'), restart = $('btn-restart');
+    if (hand) hand.hidden = !G.handOffered(game) || !!saved;   // D-7: from the second shift (F-7: a resumed day keeps its own)
+    if (agc) agc.hidden = !!saved;
+    if (takeB) takeB.textContent = game.replay ? 'RESUMING…' : saved ? 'RESUME AT ' + clockText(saved.tick / V.TICKS_PER_S, false) : 'TAKE THE DESK';
+    if (restart) restart.hidden = !saved || !!game.replay;
     const st = game.state, obs = observe(st), day = $('briefing-day'), w = $('briefing-watch');
     if (day) day.textContent = dayText(st.day, st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)} : null);
     if (w) watchForInto(doc, w, obs, game.daily ? game.daily.gated : null);
@@ -893,6 +903,14 @@ export function bootGame(doc, deps) {
   on('btn-settings', 'click', () => actions.ui({do: 'settings'}));
   drawSettings(G.settingsView(game), false);
 
+  // F-7: the resume's replay, RESUME_BUDGET_MS a frame, its progress on the briefing's button; then the desk, held where it was
+  function resuming() {
+    const p = G.resumeStep(game, RESUME_BUDGET_MS, now), b = $('btn-take');
+    if (game.replay) { if (b) b.textContent = 'RESUMING… ' + Math.floor(100 * p) + '%'; return; }
+    if (game.resumeFailed) { showToast('Your shift could not be resumed (' + game.resumeFailed + '): a fresh day.'); game.resumeFailed = ''; briefingText(); return; }
+    showToast('Back at ' + clockText(game.state.tick / V.TICKS_PER_S, false) + ', as you left it. Space runs the clock.', 'info');
+  }
+
   // ---------------------------------------------------------------- the frame (X-26: draw after the ticks)
   const drawMs = {};
   const timed = (name, f) => {
@@ -904,6 +922,7 @@ export function bootGame(doc, deps) {
   function onFrame(dtS) {
     const t0 = now();
     for (const a of pollKeys(keys, t0)) run(a);
+    if (game.replay) resuming();   // (F-7)
     const ticks = G.frame(game, dtS, now);
     const t1 = now();
     // Q-48: par, a slice a frame from TAKE THE DESK, in every mode (?perf: its own 'par' line)
@@ -1022,7 +1041,10 @@ export function bootGame(doc, deps) {
   doc.addEventListener('keydown', gesture);
 
   let stopRaf = null;
-  if (o.raf !== false) stopRaf = startRaf(onFrame, hidden => { game.director.hidden = hidden; });
+  // (F-7: a hidden or closing tab saves the run where it is)
+  if (o.raf !== false) stopRaf = startRaf(onFrame, hidden => { game.director.hidden = hidden; if (hidden) G.saveResume(game); });
+  const win = doc.defaultView;
+  if (win && typeof win.addEventListener === 'function') win.addEventListener('pagehide', () => G.saveResume(game));
   if (mods.errors.length) showToast(mods.errors[0]);
 
   const handle = {

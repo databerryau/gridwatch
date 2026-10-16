@@ -102,7 +102,7 @@ test('Y-2 on the page: a first shift is practice until COUNT THIS ONE; then it i
   assert.deepEqual(p.h.mods.errors, []);
 });
 
-test('Y-2 on the page: a later shift is official from 09:00 (a DNF if the tab closes); reopened, the date is PRACTICE; finished, the streak counts it', () => {
+test('Y-2 on the page: a later shift is official from 09:00 (a DNF until it ends); abandoned in another tab (START OVER), the date is PRACTICE there; finished, the streak counts it', () => {
   const s = store({[G.SEEN_KEY]: {shifts: 3}, [HI.HISTORY_KEY]: {v: 1, days: {20261015: {dnf: false, star: true, points: 1001, letter: 'A'}}}});
   const p = openGame({seed: 20261016, run: false, par: PAR, storage: s, date: TODAY});
   assert.equal(p.$('briefing-title').textContent, 'Daily #5 · OFFICIAL');
@@ -110,7 +110,7 @@ test('Y-2 on the page: a later shift is official from 09:00 (a DNF if the tab cl
   assert.equal(stored(s).days[20261016], undefined, 'not before 09:00');
   past9(p);
   assert.equal(stored(s).days[20261016].dnf, true, 'from 09:00 the date has its run, a DNF until the day ends');
-  // the tab closed and reopened: today is practice, and says why
+  // another tab that starts over (F-7: the driver's default) is practice beside the run, and says why
   const q = openGame({seed: 20261016, run: false, par: PAR, storage: s, date: TODAY});
   assert.equal(q.$('briefing-title').textContent, 'Daily #5 · PRACTICE');
   endDay(q);
