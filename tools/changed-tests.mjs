@@ -48,7 +48,7 @@ function changedFiles() {
 
 // ---------------------------------------------------------------- dependencies, read from source
 
-const PATH_LIT = /^(?:(?:\.\.?\/)+)?(?:(?:app|desk|sim|render|content|tools|tests|audio)\/[\w./-]*|[\w-]+\.(?:html|css|md|json))$/;
+const PATH_LIT = /^(?:(?:\.\.?\/)+)?(?:(?:app|desk|sim|render|content|tools|tests|audio|playtest)\/[\w./-]*|[\w-]+\.(?:html|css|md|json))$/;
 const deps = new Map();   // file (repo-relative) -> {files:Set, prefixes:Set, all:boolean}
 
 function scan(file) {
