@@ -254,7 +254,7 @@ test('Q-73 on the page: the sim\'s night flip is the one test (badge, mode, lock
   const s = p.press('guard-start-gta1', {after: 1 / 60});
   blue(s.during, 'START');
   assert.doesNotMatch(s.during, line, 'no line promises what the lock refuses');
-  blue(p.press('btn-redispatch', {after: 1 / 60}).during, 'RE-DISPATCH');
+  blue(p.pressKey('n', {}, {after: 1 / 60}).during, 'RE-DISPATCH (N; K-24: the key is HAND\'s)');
   assert.deepEqual([G.sendInput(p.game, {type: 'tie', mw: 100}), G.redispatch(p.game)], [G.NIGHT_LOCK, G.NIGHT_LOCK]);
   // the night shift's own inputs are logged (Q-73: replay holds); none of the player's refused presses is
   assert.ok(!st.log.some(r => (r.type === 'start' && r.args.unit === 'gta1') || (r.type === 'tie' && r.args.mw === 100)), 'no START or tie of the player is logged');

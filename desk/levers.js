@@ -6,7 +6,8 @@
 // the 96% spring gate with its red zone (H-2 trip risk) and a tick for the next plan keyframe.
 // A drag sends `basePoint` on release (and at most every 250 ms while dragging); ↑/↓ ±10 MW,
 // Shift ±1, PgUp/PgDn next detent; crossing the gate needs 12 px of extra drag or Shift+↑.
-// An idle station's lever books its start through the plan (`planKey`, AGC mode, L-6).
+// K-24 (Q-93): on an AGC day the lever is the dispatch's readout (a press answers in blue, DISPATCH_NOTE) and the
+// station's START / STOP word buttons (stationButtons) press its machines' guards; HAND keeps the live lever.
 // One lamp per machine with its own START and STOP guards (lift, then press; S S / X X).
 // Phase 2a (C-10, desk/README.md §19.5): a guard lights when its id is in vm.glow (the
 // objective's STOP or START), and tells the desk when it is hovered, pressed by a pointer,
@@ -19,7 +20,7 @@ import {V} from '../sim/params.js';
 import {leverScale, nextDetent, rampCone, agcBandMW, stationUnits} from './calc.js';
 import {lockedNote} from './emergency.js';
 import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, clamp, fin, clockOf, mmss, unitLabel,
-  STATION_SHORT, LEVER_STATIONS, MODE_GLYPH, MODE_WORD, PAN, GUARD_MS, GUARD_CLICK_MS} from './util.js';
+  STATION_SHORT, LEVER_STATIONS, MODE_GLYPH, MODE_WORD, PAN, GUARD_MS, GUARD_CLICK_MS, DISPATCH_NOTE, agcDesk} from './util.js';
 
 export const GATE_PX = 12;          // K-1: extra drag past the spring gate
 export const DRAG_SEND_MS = 250;    // K-1: at most one basePoint per 250 ms while dragging
@@ -65,7 +66,11 @@ export function createMachine(ctx, k, pan) {
   start.id = 'guard-start-' + m.id; start.type = 'button';
   const stop = el(doc, 'button', 'dk-guard dk-stop');
   stop.id = 'guard-stop-' + m.id; stop.type = 'button';
-  box.append(start, stop);
+  // K-24: on an AGC day the machine is a lamp; its station's START and STOP press its guards (stationButtons)
+  const lamp = el(doc, 'span', 'dk-lamp');
+  lamp.id = 'lamp-' + m.id;
+  box.append(start, stop, lamp);
+  let agc = false;
   let u = null, offered = false, wasS = false, wasX = false, glowS = false, glowX = false;
   let keyS = false, keyX = false;   // lifted by S / X
   let last = '';                    // 'CCGT 2 START sent': said again by a press in the 1-s rest
@@ -156,6 +161,9 @@ export function createMachine(ctx, k, pan) {
     setAttr(start, 'tabindex', upX ? -1 : 0); setAttr(stop, 'tabindex', upS ? -1 : 0);
     setAttr(box, 'class', 'dk-mach m-' + u.mode + (u.hotS > 0 ? ' hot' : '') + (offered ? ' offered' : '') + (upS || upX ? ' armed' : ''));
     setText(start, upS ? 'START?' : (MODE_GLYPH[u.mode] || '?') + m.j);
+    setHidden(start, agc); setHidden(stop, agc); setHidden(lamp, !agc);
+    setText(lamp, (MODE_GLYPH[u.mode] || '?') + m.j + (u.mode === 'starting' || u.mode === 'tripped' ? ' ' + mmss(u.timerS) : ''));
+    setAttr(lamp, 'title', name + ' · ' + MODE_WORD[u.mode] + (u.sync ? ' · ' + mw(u.outMW) + ' MW' : ''));
     setText(stop, upX ? (so === 'cancel' ? 'CANCEL?' : 'STOP?') : so === 'abort' ? '↺' : so ? '■' : '·');
     setCls(start, 'lifted', upS); setCls(stop, 'lifted', upX);
     setCls(start, 'key', upS && keyS); setCls(stop, 'key', upX && keyX);
@@ -182,12 +190,15 @@ export function createMachine(ctx, k, pan) {
     el: box, start, stop, id: m.id, k,
     update(vm) {
       u = vm.obs.units[k];
+      agc = agcDesk(vm);
       offered = !!(vm.offers && vm.offers.some(o => o.unit === m.id));
       glowS = !!(vm.glow && vm.glow.has(start.id)); glowX = !!(vm.glow && vm.glow.has(stop.id));
       render();
     },
     pressStart, pressStop, startAction, stopAction,
     mode: () => (u ? u.mode : 'off'),
+    timerS: () => (u ? u.timerS : 0),
+    glowS: () => glowS, glowX: () => glowX,
   };
 }
 
@@ -209,6 +220,81 @@ export function stationKey(machines, key) {
 export function nothingTo(ctx, host, machines, k) {
   const s = k === 's', all = machines.filter(m => !(s ? /^(on|loading|ready)$/ : /^(off|tripped)$/).test(m.mode())).map(m => (s ? m.start : m.stop).getAttribute('title')).join(', ');
   ctx.note(host, 'nothing to ' + (s ? 'start: ' + (all || 'all running') : 'stop: ' + (all || 'none running')), 5000, 'info');
+}
+
+/**
+ * K-24 (Q-93): a station's two word buttons on an AGC day, START and STOP, beside its lamps. Each presses one
+ * machine's guard (the guard sequence, the two-press rule and the "? IF PRESSED" line unchanged): the machine
+ * whose cover is up, else the one the line points at, else the first that can start (a READY one opens its
+ * scope) or the last that can stop. Labels: START? / STOP? (CANCEL?) armed; "◔ 4:59" while the only machine left
+ * is starting; "✕ 12:00" while it is locked out. Ids station-start-<sid>, station-stop-<sid>.
+ */
+export function stationButtons(ctx, sid, machines, pan) {
+  const doc = ctx.doc, S = STATION_SHORT[sid];
+  const row = el(doc, 'div', 'dk-stbtns');
+  const bs = el(doc, 'button', 'dk-btn dk-stbtn dk-stbtn-start', 'START'), bx = el(doc, 'button', 'dk-btn dk-stbtn dk-stbtn-stop', 'STOP');
+  bs.setAttribute('aria-label', S + ' START'); bx.setAttribute('aria-label', S + ' STOP');
+  bs.id = 'station-start-' + sid; bs.type = 'button';
+  bx.id = 'station-stop-' + sid; bx.type = 'button';
+  row.append(bs, bx);
+  let on = false;
+  const lifted = g => ctx.guards.lifted(g.id);
+  const forStart = () => machines.find(m => lifted(m.start)) || machines.find(m => m.glowS() && m.startAction()) ||
+    machines.find(m => m.startAction() === 'start') || machines.find(m => m.startAction() === 'scope') ||
+    machines.find(m => ctx.guards.locked(m.id)) || machines.find(m => m.mode() === 'off') || null;   // (one resting after its press, or an OFF one that cannot start, says why)
+  const forStop = () => {
+    const can = m => m.stopAction() !== '';
+    const any = machines.find(m => lifted(m.stop)) || machines.find(m => m.glowX() && can(m));
+    if (any) return any;
+    for (let i = machines.length - 1; i >= 0; i--) if (machines[i].stopAction() === 'stop' || machines[i].stopAction() === 'cancel') return machines[i];
+    for (let i = machines.length - 1; i >= 0; i--) if (can(machines[i])) return machines[i];
+    return null;
+  };
+  // C-10: what the press would do is the chosen machine's guard's (hover, focus, press)
+  let hov = {start: '', stop: ''};
+  const target = (b, m) => (m ? (b === bs ? m.start.id : m.stop.id) : '');
+  for (const [b, pick, k] of [[bs, forStart, 'start'], [bx, forStop, 'stop']]) {
+    b.addEventListener('pointerenter', () => { hov[k] = target(b, pick()); if (hov[k]) ctx.consider.hover(hov[k], true); });
+    b.addEventListener('pointerleave', () => { if (hov[k]) ctx.consider.hover(hov[k], false); hov[k] = ''; });
+    b.addEventListener('focus', () => { const t = target(b, pick()); if (t) ctx.consider.focus(t, true); });
+    b.addEventListener('blur', () => { for (const m of machines) ctx.consider.focus(k === 'start' ? m.start.id : m.stop.id, false); });
+  }
+  bs.addEventListener('click', () => {
+    if (lockedPress(ctx, row)) return;
+    const m = forStart();
+    if (m) { ctx.consider.press(m.start.id); m.pressStart(false); ctx.consider.up(m.start.id); return; }
+    help(ctx, row, S + ': nothing to start (' + machines.map(x => x.start.getAttribute('title')).join(', ') + ')');
+  });
+  bx.addEventListener('click', () => {
+    if (lockedPress(ctx, row)) return;
+    const m = forStop();
+    if (m) { ctx.consider.press(m.stop.id); m.pressStop(false); ctx.consider.up(m.stop.id); return; }
+    help(ctx, row, S + ': nothing to stop (none running)');
+  });
+  return {
+    el: row,
+    update(vm) {
+      on = agcDesk(vm);
+      setHidden(row, !on);
+      if (!on) return;
+      const ms = forStart(), mx = forStop();
+      const upS = !!ms && lifted(ms.start), upX = !!mx && lifted(mx.stop);
+      const canS = !!ms && !!ms.startAction(), canX = !!mx && !!mx.stopAction();   // (a press that only says why is not live)
+      const starting = machines.filter(m => m.mode() === 'starting'), out = machines.filter(m => m.mode() === 'tripped');
+      setText(bs, upS ? 'START?' : canS ? 'START' : starting.length ? '◔ ' + mmss(Math.min(...starting.map(m => m.timerS()))) :
+        out.length ? '✕ ' + mmss(Math.min(...out.map(m => m.timerS()))) : 'START');
+      setText(bx, upX ? (mx.stopAction() === 'cancel' ? 'CANCEL?' : 'STOP?') : 'STOP');
+      setCls(bs, 'lifted', upS); setCls(bx, 'lifted', upX);
+      setCls(bs, 'live', canS); setCls(bx, 'live', canX);
+      setCls(bs, 'glow', machines.some(m => m.glowS())); setCls(bx, 'glow', machines.some(m => m.glowX()));
+      setAttr(bs, 'aria-disabled', canS ? 'false' : 'true'); setAttr(bx, 'aria-disabled', canX ? 'false' : 'true');
+      setAttr(bs, 'aria-pressed', upS ? 'true' : 'false'); setAttr(bx, 'aria-pressed', upX ? 'true' : 'false');
+      setAttr(bs, 'title', ms ? ms.start.getAttribute('title') : S + ': nothing to start');
+      setAttr(bx, 'title', mx ? mx.stop.getAttribute('title') : S + ': nothing to stop');
+      setAttr(bs, 'aria-label', S + ' START: ' + (ms ? ms.start.getAttribute('aria-label') : 'nothing to start'));
+      setAttr(bx, 'aria-label', S + ' STOP: ' + (mx ? mx.stop.getAttribute('aria-label') : 'nothing to stop'));
+    },
+  };
 }
 
 /** P on a station (K-2, L-6): why it already follows the plan; `how` says, in HAND, how it leaves it. */
@@ -250,6 +336,8 @@ function createLever(ctx, sid, parent) {
   const st = V.STATIONS[sid];
   const machines = [];
   for (let k = st.first; k < st.first + st.count; k++) { const m = createMachine(ctx, k, pan); machines.push(m); machCol.appendChild(m.el); }
+  const words = stationButtons(ctx, sid, machines, pan);
+  machCol.prepend(words.el);
   body.append(track, machCol);
   const foot = el(doc, 'div', 'dk-lever-foot');
   const rBase = el(doc, 'span', 'dk-rd-base'), rOut = el(doc, 'span', 'dk-rd-out');
@@ -283,13 +371,10 @@ function createLever(ctx, sid, parent) {
     let r;
     if (sc.onCount > 0) r = ctx.send({type: 'basePoint', station: sid, mw: x}, slot);
     else if (!final) return '';
-    else if (o.mode === 'AGC') r = ctx.send({type: 'planKey', station: sid, atS: o.s, mw: x}, slot);
-    else { help(ctx, slot, 'no machine on: START one first (S S)'); r = 'no machine on'; }
-    shown = r ? null : {v: sc.onCount > 0 ? x : baseNow(), afterTick: o.tick, frames: 0};
+    else { help(ctx, slot, 'no machine on: START one first (S S)'); r = 'no machine on'; }   // (K-24: only HAND reaches here)
+    shown = r ? null : {v: x, afterTick: o.tick, frames: 0};
     handT = ctx.now();
     if (!r) ctx.live(STATION_SHORT[sid] + ' ' + x + ' MW');
-    const m0 = V.MACHINES[st.first];
-    if (!r && sc.onCount === 0) ctx.note(slot, 'START booked now: ' + STATION_SHORT[sid] + ', ' + clamp(x, m0.minMW, m0.ratingMW) + ' MW', 4000, 'info');
     return r;
   }
 
@@ -312,8 +397,9 @@ function createLever(ctx, sid, parent) {
     drag.v = Math.round(v);
     feel(was, drag.v);
   }
+  const readout = () => { if (!agcDesk(vm)) return false; help(ctx, slot, DISPATCH_NOTE); return true; };   // K-24
   track.addEventListener('pointerdown', ev => {
-    if (!vm || lockedPress(ctx, slot)) return;
+    if (!vm || lockedPress(ctx, slot) || readout()) return;
     if (ev.button !== undefined && ev.button !== 0) return;
     track.setPointerCapture && track.setPointerCapture(ev.pointerId);
     const t = ctx.now();
@@ -354,6 +440,7 @@ function createLever(ctx, sid, parent) {
   // ---- keyboard (K-23): ↑↓ ±10, Shift ±1 (and crosses the gate), PgUp/PgDn detents, Home/End
   track.addEventListener('keydown', ev => {
     if (!vm || ctx.locked()) return;
+    if (/^(Arrow|Page|Home$|End$)/.test(ev.key) && agcDesk(vm)) { ev.preventDefault(); readout(); return; }
     const v = current(), [lo, hi] = bounds();
     let t = null;
     const up = ev.key === 'ArrowUp' || ev.key === 'ArrowRight', down = ev.key === 'ArrowDown' || ev.key === 'ArrowLeft';
@@ -456,7 +543,8 @@ function createLever(ctx, sid, parent) {
       so.onCount + ' of ' + st.count + ' on' + (so.onCount ? ', ' + mw(sc.minMW) + '–' + mw(sc.maxMW) + ' MW' : '') +
       (nk ? ', plan ' + mw(nk.mw) + ' MW by ' + clockOf(nk.atS) : '') + (p && p.man ? ', MAN: off the plan' : '') +
       (over ? ', above the 96% gate: no raise headroom' : ''));
-    setAttr(track, 'aria-disabled', ctx.locked() ? 'true' : 'false');
+    setAttr(track, 'aria-disabled', ctx.locked() || agcDesk(vm) ? 'true' : 'false');   // (K-24: a readout on an AGC day)
+    setCls(slot, 'readout', agcDesk(vm));
   }
 
   return {
@@ -475,6 +563,7 @@ function createLever(ctx, sid, parent) {
       }
       prevBase = b;
       for (const m of machines) m.update(v);
+      words.update(v);
       render();
     },
     key(k, shift) {

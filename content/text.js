@@ -187,7 +187,8 @@ const ABSTRACTIONS = [
     game: 'btn-redispatch',
     real: 'AEMO re-runs pre-dispatch every 30 minutes, and its dispatch engine (NEMDE) moves every committed unit every 5 ' +
       'minutes; operators decide commitment, reserves, the interconnector and emergencies, not each base point.',
-    ours: 'RE-DISPATCH, a key on the desk, re-runs the ' + hhmm(V.PLAYER_START_H) + ' pre-dispatch from now to 04:00 over the ' +
+    ours: 'On an AGC day the dispatch re-runs itself every 5 grid-minutes and at each START, STOP or battery order, and holds the ' +
+      'tie where you set it. On a HAND day RE-DISPATCH, a key on the desk, re-runs the ' + hhmm(V.PLAYER_START_H) + ' pre-dispatch from now to 04:00 over the ' +
       'units you have committed now, and every lever glides to the new plan. It is refused during the watch, before ' +
       hhmm(V.PLAYER_START_H) + ' and from ' + hhmm(NIGHT_H) + ' (the night shift has the desk). Par makes the same re-dispatch ' +
       'after each of its actions, without spending one.',
@@ -223,9 +224,9 @@ const ABSTRACTIONS = [
   {
     id: 'player-commits', row: 'The player commits units and sets output.', anchorId: 'stations-panel', game: 'lever-coal',
     real: 'Generators self-commit and bid; AEMO dispatches every 5 minutes and issues directions.',
-    ours: 'You START and STOP each of the ' + V.MACHINES.length + ' machines and set one base point per station (' +
-      V.STATION_IDS.length + ' levers, shared equally by the machines that are on); AGC trims them every ' +
-      num(V.AGC_CYCLE_S) + ' s.',
+    ours: 'You START and STOP each of the ' + V.MACHINES.length + ' machines (on an AGC day, with each station\'s START and STOP), ' +
+      'and the dispatch sets one base point per station (' + V.STATION_IDS.length + ' levers, shared equally by the machines that ' +
+      'are on); AGC trims them every ' + num(V.AGC_CYCLE_S) + ' s. On a HAND day the levers, the hydro wheel and the stack are yours too.',
     why: 'The player stands for the whole system.',
     params: ['AGC_CYCLE_S'],
   },

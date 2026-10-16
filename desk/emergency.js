@@ -135,6 +135,7 @@ export function createEmergency(ctx, keysParent, emergParent) {
   function redispatch() {
     if (!vm) return false;
     if (ctx.locked()) { lockedNote(ctx, keys); return true; }
+    if (redis.hidden) { ctx.note(keys, 'AGC: the dispatch re-plans by itself (RE-DISPATCH is HAND\'s)', undefined, 'info'); return true; }   // K-24
     const r = typeof ctx.actions.redispatch === 'function' ? ctx.actions.redispatch() || '' : 'not available';
     if (r) ctx.note(keys, '✕ ' + r); else { ctx.cue('button', PAN.keys); ctx.note(keys, '✓ levers re-planned', undefined, 'info'); ctx.live('RE-DISPATCH: plan re-run'); }
     return true;
@@ -181,6 +182,7 @@ export function createEmergency(ctx, keysParent, emergParent) {
     setCls(redis, 'glow', !!(vm.glow && vm.glow.has('btn-redispatch')));
     // held by hand: HELD, not amber alone (K-22); a note when it starts
     const held = !!vm.held;
+    setHidden(redis, vm.obs.mode !== 'HAND' && !held);   // K-24: the AGC desk re-dispatches by itself
     setCls(redis, 'lit', held);
     setText(redisGlyph, held ? '⟳ HELD' : '⟳');
     setAttr(redis, 'title', held ? 'HELD BY HAND: you moved a lever, the HYDRO wheel or the TIE knob, so the dispatch stopped ' +

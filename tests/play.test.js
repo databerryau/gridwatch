@@ -29,20 +29,20 @@ test('play driver: a jump shows what frame-by-frame play shows; look, buttons, c
   assert.match(l, /^LINE \S/m);
   assert.match(l, /^BALANCE \S/m);
   assert.match(l, /^CTRL .*btn-pause "PAUSE"/m);
-  assert.ok(fast.buttons().some(b => b.id === 'guard-start-gta1' && b.label === '○1'));
+  assert.ok(fast.buttons().some(b => b.id === 'station-start-gta' && b.label === 'START')); // (K-24: an AGC day's START is the station's word)
 
   // a guarded START by mouse: the first click lifts the cover and the line says what it would do
   fast.click('guard-start-gta1');
   const armed = fast.look();
-  assert.match(armed, /guard-start-gta1 "START\?" \[pressed,ARMED/);
+  assert.match(armed, /station-start-gta "START\?" \[pressed,ARMED/);
   assert.match(armed, /^LINE ● ARMED Press again to confirm\. START GT·A/m);
-  assert.match(diffLooks(l, armed), /^CTRL .*guard-start-gta1 "START\?"/m);
+  assert.match(diffLooks(l, armed), /^CTRL .*station-start-gta "START\?"/m);
 
   // until: no trip this early, so the guard stops it; the cover dropped on the way (a click's 5 real s: an hour at 540x)
   const t0 = fast.game.state.tick, u = fast.until('trip', {max: '+1h'});
   assert.equal(u.why, 'target');
   assert.equal(fast.game.state.tick, t0 + 3600 * TPS);
-  assert.match(fast.look(), /guard-start-gta1 "○1"/);
+  assert.match(fast.look(), /station-start-gta "START"/);
   // D-2's clock (tools/play.mjs clock): every real second since Space is the profile's, the frames and jumps alike
   const ck = fast.clockReport();
   assert.ok(fast.spaceMs > 0 && Math.abs(ck.sinceS - (fast.now - fast.spaceMs) / 1000) < 1e-6 && Math.abs(ck.offS) < 0.1, JSON.stringify(ck));
@@ -50,8 +50,8 @@ test('play driver: a jump shows what frame-by-frame play shows; look, buttons, c
 
   // press(): three samples (before, the press frame, 0.5 real s after) and the diff across them
   const s = fast.press('guard-start-gta1');
-  assert.match(s.before, /guard-start-gta1 "○1"/);
-  assert.match(s.during, /guard-start-gta1 "START\?" \[pressed,ARMED/);
-  assert.match(s.after, /guard-start-gta1 "START\?" \[pressed,ARMED/, 'the cover stays up for 0.5 s');
-  assert.match(s.diff, /^CTRL .*guard-start-gta1 "START\?"/m);
+  assert.match(s.before, /station-start-gta "START"/);
+  assert.match(s.during, /station-start-gta "START\?" \[pressed,ARMED/);
+  assert.match(s.after, /station-start-gta "START\?" \[pressed,ARMED/, 'the cover stays up for 0.5 s');
+  assert.match(s.diff, /^CTRL .*station-start-gta "START\?"/m);
 });

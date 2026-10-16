@@ -96,6 +96,10 @@ export function unitLabel(id) {
 }
 
 /** Machine state -> lamp glyph and word: one glyph per state, so no state is told by colour alone (K-22). */
+export {DISPATCH_NOTE} from '../render/format.js';
+/** K-24: the commitment desk is up (an AGC day; HAND keeps the live levers). */
+export const agcDesk = vm => !!vm && vm.obs.mode !== 'HAND';
+
 export const MODE_GLYPH = Object.freeze({
   off: '○', starting: '◔', ready: '◑', loading: '▲', on: '●', unloading: '▼', shutdown: '◌', tripped: '✕',
 });

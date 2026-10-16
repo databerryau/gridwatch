@@ -12,8 +12,8 @@
 import {V} from '../sim/params.js';
 import {waterLastsUntilS, redArcFromMW, knobValue, knobAngle, pointerAngle, guardFromAngle, tieSnap, TIE_DETENTS,
   nextDetent, wrapDeg, KNOB_SWEEP, GUARD_MAX_MW} from './calc.js';
-import {createMachine, stationKey, nothingTo, rejoinPlan, help, lockedPress, lockKeys} from './levers.js';
-import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, smw, clamp, fin, clockOf, mmss, PAN} from './util.js';
+import {createMachine, stationKey, nothingTo, rejoinPlan, help, lockedPress, lockKeys, stationButtons} from './levers.js';
+import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, smw, clamp, fin, clockOf, mmss, PAN, DISPATCH_NOTE, agcDesk} from './util.js';
 
 export const WHEEL_MW_PER_TURN = 250;   // K-4: one full turn of the hand wheel
 export const SEND_IDLE_MS = 250;        // scroll / key auto-repeat: send after this long idle
@@ -150,7 +150,7 @@ export function createHydroWheel(ctx, parent) {
       return null;
     },
     wheelStep: ev => (ev.shiftKey ? 0.1 : 0.01) * HYDRO.totalMW,
-    needs: () => (so().onCount > 0 ? '' : 'no hydro machine on: START one (S S)'),
+    needs: () => (agcDesk(vm) ? DISPATCH_NOTE : so().onCount > 0 ? '' : 'no hydro machine on: START one (S S)'),   // (K-24: AGC, a readout)
     send(v) {
       if (!(so().onCount > 0)) { help(ctx, box, 'no hydro machine on: START one (S S)'); return 'no machine on'; }
       const res = ctx.send({type: 'basePoint', station: 'hydro', mw: Math.round(v)}, box);
@@ -167,6 +167,8 @@ export function createHydroWheel(ctx, parent) {
   const machCol = el(doc, 'div', 'dk-machs');
   const machines = [];
   for (let k = HYDRO.first; k < HYDRO.first + HYDRO.count; k++) { const m = createMachine(ctx, k, PAN.hydro); machines.push(m); machCol.appendChild(m.el); }
+  const words = stationButtons(ctx, 'hydro', machines, PAN.hydro);   // K-24
+  machCol.prepend(words.el);
   const left = el(doc, 'div', 'dk-rot-main');
   left.append(title, face, lasts, store);
   box.append(left, machCol);
@@ -211,11 +213,12 @@ export function createHydroWheel(ctx, parent) {
     setAttr(r.knob, 'aria-valuetext', 'hydro gate ' + mw(v) + ' MW, output ' + mw(s.outMW) + ' MW, ' +
       (v <= 0 ? 'gate shut' : until >= dayEnd ? 'water lasts all day' : 'water lasts until ' + clockOf(until)) +
       (red !== null ? ', settings above ' + mw(red) + ' MW empty the dam before the peak ends' : ''));
-    setAttr(r.knob, 'aria-disabled', ctx.locked() ? 'true' : 'false');
+    setAttr(r.knob, 'aria-disabled', ctx.locked() || agcDesk(vm) ? 'true' : 'false');   // (K-24: a readout on an AGC day)
+    setCls(box, 'readout', agcDesk(vm));
   }
   return {
     el: box, knob: r.knob, machines,
-    update(v) { vm = v; r.tick(v); for (const m of machines) m.update(v); render(); },
+    update(v) { vm = v; r.tick(v); for (const m of machines) m.update(v); words.update(v); render(); },
     /** S, X, P (Shift: KEEP) for a target in the wheel's box; true if handled. */
     key(target, k, shift) {
       if (!target || !box.contains(target)) return false;
@@ -313,7 +316,17 @@ export function createBatteryDial(ctx, parent) {
   read.title = 'Your order (CHG / IDLE / DIS), then OUT: what the battery does now, MW (− charging; AGC trims it)';
   const lamps = el(doc, 'div', 'dk-lamps');
   const ffr = el(doc, 'span', 'dk-lamp dk-ffr'), full = el(doc, 'span', 'dk-lamp dk-full');
-  lamps.append(ffr);
+  // K-24: SET n, while the line asks for a GUARD of n MW: one press sets it
+  const set = el(doc, 'button', 'dk-btn dk-guard-set');
+  set.id = 'guard-set'; set.type = 'button';
+  set.setAttribute('aria-label', 'SET the GUARD as the line asks');
+  let asked = null;
+  set.addEventListener('click', () => {
+    if (lockedPress(ctx, box) || asked === null) return;
+    const r = ctx.send({type: 'guard', mw: asked}, box);
+    if (!r) { ctx.cue('button', PAN.battery); ctx.live('GUARD ' + asked + ' MW'); }
+  });
+  lamps.append(ffr, set);
   title.appendChild(lamps);
   box.append(title, face, read, full);
   parent.appendChild(box);
@@ -334,10 +347,15 @@ export function createBatteryDial(ctx, parent) {
       ' · OUT ' + smw(b.outMW).replace('+', ''));
     setText(soc, Math.round(fin(b.socMWh) / fin(b.capMWh, V.BATT_MWH) * 100) + '%');
     setAttr(soc, 'title', 'state of charge ' + mw(b.socMWh) + ' of ' + mw(b.capMWh) + ' MWh');
-    setText(ffr, b.guardFired ? '⚡ FIRED ' + mw(b.ffrMW) : (g > 0 ? '⚡ GUARD ' : '○ GUARD ') + mw(g));
+    setText(ffr, b.guardFired ? '⚡ FIRED ' + mw(b.ffrMW) : (g > 0 ? '⚡ GUARD ' : '○ GUARD ') + mw(g) + (agcDesk(vm) ? ' held' : ''));   // (K-24: the words fit the title row; its title has them in full)
+    const ask = vm.objective && vm.objective.action && vm.objective.action.type === 'guard' ? vm.objective.action.mw : null;
+    asked = agcDesk(vm) && ask !== null && ask !== fin(b.guardMW) ? ask : null;
+    setHidden(set, asked === null);
+    if (asked !== null) { setText(set, 'SET ' + mw(asked)); setAttr(set, 'title', 'Set the GUARD to ' + mw(asked) + ' MW, as the line asks'); }
+    setCls(set, 'glow', asked !== null);
     setCls(ffr, 'lit', g > 0 && !b.guardFired);
     setCls(ffr, 'fired', !!b.guardFired);
-    setAttr(ffr, 'title', 'FFR ARMED: ' + mw(g) + ' MW held back on the GUARD ring, delivered within 1 s of a trip');
+    setAttr(ffr, 'title', 'GUARD ' + mw(g) + ' MW held for trips: FFR ARMED, held back on the GUARD ring, delivered within 1 s of a trip');
     setText(full, b.fullHold ? 'F FULL–HOLD' : b.ufSuspend ? '! UF HOLD' : '');
     setHidden(full, !(b.fullHold || b.ufSuspend));
     setCls(full, 'lit', !!(b.fullHold || b.ufSuspend));

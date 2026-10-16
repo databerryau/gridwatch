@@ -37,6 +37,8 @@ import * as W from './watch.js';
 import * as AM from '../audio/model.js';
 import * as S from './score.js';
 import * as VD from './verdict.js';
+import {createMarg, margSay, MARG_LINES, MARG_FROM} from './marg.js';
+import {plateGroup} from '../desk/desk.js';
 import {createParRunner, seriesAt, parMinute} from './par.js';
 
 const TPS = V.TICKS_PER_S;
@@ -98,8 +100,8 @@ function writeJson(storage, key, value) {
  * follow the system's prefers-reduced-motion). crt: the B-4 scanline overlay (on by default).
  */
 export const SETTINGS_DEFAULT = Object.freeze({volume: 0.8, hum: 1, fx: 1, alarms: 1, muted: false, reducedMotion: null,
-  reducedEffects: false, crt: true});
-const LEVEL_KEYS = ['volume', 'hum', 'fx', 'alarms'], BOOL_KEYS = ['muted', 'reducedEffects', 'crt'];
+  reducedEffects: false, crt: true, coach: null, plates: true});   // (O-8: coach true | false | null, null: on for a first shift only; O-3: plates)
+const LEVEL_KEYS = ['volume', 'hum', 'fx', 'alarms'], BOOL_KEYS = ['muted', 'reducedEffects', 'crt', 'plates'];
 
 // A stored object, cleaned: unknown keys dropped, bad values replaced by the defaults.
 function cleanSettings(raw) {
@@ -107,6 +109,7 @@ function cleanSettings(raw) {
   for (const k of LEVEL_KEYS) if (typeof r[k] === 'number' && r[k] >= 0 && r[k] <= 1) s[k] = r[k];
   for (const k of BOOL_KEYS) if (typeof r[k] === 'boolean') s[k] = r[k];
   if (r.reducedMotion === true || r.reducedMotion === false) s.reducedMotion = r.reducedMotion;
+  if (r.coach === true || r.coach === false) s.coach = r.coach;
   return s;
 }
 
@@ -121,6 +124,12 @@ export function settingsView(game) {
   return {volume: s.volume, hum: s.hum, fx: s.fx, alarms: s.alarms, muted: s.muted,
     reducedMotion: s.reducedMotion === null ? sys : s.reducedMotion, reducedEffects: s.reducedEffects, crt: s.crt && !s.reducedEffects};
 }
+
+/**
+ * O-8 (Q-92): does the line coach (name the unit, the MW and the minute)? The plan bar's COACH choice once made
+ * (remembered); before that, on a first shift only (no finished shift in this browser, D-7's count).
+ */
+export const coachOn = game => (game.settings.coach === null ? !(game.director.seen.shifts > 0) : game.settings.coach);
 
 // actions.ui({do: 'set', key, value}): one choice, validated, then stored (C-8: storage is optional).
 function setSetting(game, key, value) {
@@ -244,6 +253,9 @@ export function resetDay(game, seed) {
   game.histView = null; game.histViewS = -1;
   game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
   game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
+  game.noCoach = false;   // (O-8: set when the desk is taken)
+  game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
+  game.plates = firstShift(game) && game.settings.plates ? new Set(PLATE_GROUPS) : new Set();   // (O-3: a first shift's cover plates)
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
   parFor(game);
   return game;
@@ -455,6 +467,10 @@ export function takeDesk(game) {
   runTo(game, V.PLAYER_START_TICK);
   for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c);
   game.phase = 'play';
+  game.noCoach = !coachOn(game);   // O-8: the end card's "no coach" (and W6's share card), while it stays off
+  // O-6: Marg's day (a first shift's limit is MARG_FIRST lines), and her first line: the day's peak
+  game.marg = createMarg(firstShift(game));
+  margBeat(game, 'take', MARG_LINES.take(observe(game.state), weather.forecast(game.state, V.DAY_S - game.state.tick / TPS, V.FC_STEP_S)));
   game.director.paused = game.startPaused;
   game.director.held = game.ui.alarmsOpen; // Q-46: an alarm panel opened in the briefing holds the clock now
   return true;
@@ -619,6 +635,15 @@ export function ui(game, cmd) {
     case 'armed': if (cmd.on) u.armed = cmd.target || null; else if (u.armed === cmd.target) u.armed = null; u.considerMs = null; game.considerDirty = true; return '';
     // Settings (K-22, §13.1, B-7): the popover never pauses the game.
     case 'mute': return setSetting(game, 'muted', !game.settings.muted);
+    case 'doneBefore': return doneBefore(game);   // O-1
+    // O-8: COACH ON / OFF (remembered); the line follows at once; the day keeps "no coach" only while it stays off
+    case 'coach': {
+      game.settings.coach = !coachOn(game);
+      writeJson(game.storage, SETTINGS_KEY, game.settings);
+      if (game.settings.coach) game.noCoach = false;
+      game.objectiveS = -1e9; game.lineFresh = true;
+      return '';
+    }
     case 'volume': return setSetting(game, 'volume', cmd.volume); // the 1a form of {do: 'set', key: 'volume'}
     case 'set': return setSetting(game, cmd.key, cmd.value);
     case 'settings': u.settingsOpen = cmd.on === undefined ? !u.settingsOpen : !!cmd.on; return '';
@@ -826,7 +851,7 @@ export function buildVm(game, f) {
         // projection once per line (F-11: the objective and its STOP saving read the same one).
         game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
         const proj = game.planview.project(obs);
-        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective});
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective, coach: coachOn(game)});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s, D.handAt(state));
@@ -878,7 +903,7 @@ export function buildVm(game, f) {
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: game.playerInputs, seed: game.seed, v: SIM_VERSION,
       allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null,
       handFlown: !!state.control.handFlown, gated: game.daily ? game.daily.gated : null, // Q-64, Q-75 (null: not a daily)
-      perfect: isPerfect(obs.score, state.black)}; // S-6
+      perfect: isPerfect(obs.score, state.black), noCoach: !!game.noCoach}; // S-6; O-8
     // D-7: a finished shift, kept with the other seen flags (HAND is offered from the second)
     if (game.phase === 'play') { game.director.seen.shifts = (game.director.seen.shifts || 0) + 1; saveSeen(game); }
   }
@@ -888,6 +913,8 @@ export function buildVm(game, f) {
     end.grade = S.grade(end.allIn, end.parAllIn, end.black, S.parShedMWh(par.score)); // (S-7: a Hard day when par shed)
   }
   if (end) verdictFor(game);
+  margFrame(game, obs, mode);
+  platesFrame(game, mode);
   // spoolUp: no sim record marks a machine starting (booked starts included), so it is read
   // off the unit's mode between two frames (audio/model.js cueOfModeChange).
   if (!game.unitModes) game.unitModes = {};
@@ -919,8 +946,58 @@ export function buildVm(game, f) {
     // the guard with its cover up, or null (none under the night lock: no press to confirm, Q-73); levers held by hand
     armed: obs.nightShift ? null : game.ui.armed, held: game.commit === 'player' && heldByHand(game),
     alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
+    plates: [...game.plates], firstShift: firstShift(game) && game.settings.plates,   // O-3, O-1
     suburb: game.ui.suburb, dayAhead: game.dayAhead,
   };
+}
+
+// ------------------------------------------------------------------ O-6: Marg
+
+/** O-1, O-3: a first shift: no finished shift in this browser (D-7's count). */
+export const firstShift = game => !(game.director.seen.shifts > 0);
+/** O-3 (Q-101): the groups a first shift's plates cover (desk/desk.js plateGroup names a control's). */
+export const PLATE_GROUPS = Object.freeze(['start', 'stop', 'guard', 'battery', 'tie', 'restore', 'dr', 'rert', 'shed']);
+// O-3: the line's first ask for a control lifts its group's plate (never in a watch), with Marg's line for it (O-6)
+function platesFrame(game, mode) {
+  if (!game.plates.size || game.phase !== 'play' || mode.mode === 'WATCH' || !game.objective) return;
+  for (const t of game.objective.targets || []) {
+    const g = plateGroup(t);
+    if (!g || !game.plates.has(g)) continue;
+    game.plates.delete(g);
+    margBeat(game, 'ask:' + g, MARG_LINES.ask(g), t);
+  }
+}
+/** O-1: I'VE DONE THIS BEFORE: the coach and the plates off, remembered. */
+export function doneBefore(game) {
+  game.settings.coach = false; game.settings.plates = false;
+  writeJson(game.storage, SETTINGS_KEY, game.settings);
+  game.plates.clear();
+  if (game.phase === 'briefing') game.noCoach = true;
+  game.objectiveS = -1e9; game.lineFresh = true;
+  return '';
+}
+
+/** O-6: Marg says the text at its key's beat (app/marg.js: once, within the day's limit), as a tray card. */
+export function margBeat(game, key, text, target) {
+  if (!game.marg) return null;
+  const line = margSay(game.marg, key, text, Math.floor(game.state.tick / TPS), target);
+  if (line) for (const c of T.trayMarg(game.tray, line, MARG_FROM)) pushCue(game, c);
+  return line;
+}
+// Once a frame in play: the act changes, the first watch's settle (a first shift's), the 21:00 handover.
+function margFrame(game, obs, mode) {
+  if (!game.marg || game.phase !== 'play' || obs.over) return;
+  if (mode.act !== game.margAct) {
+    const was = game.margAct;
+    game.margAct = mode.act;
+    if (was >= 0 && (mode.act === 2 || mode.act === 3)) margBeat(game, 'act' + mode.act, MARG_LINES['act' + mode.act](obs, game.dayAhead || obs.forecast));
+  }
+  const st = game.state, c = st.contIdx >= 0 ? st.conts[st.contIdx] : null;
+  if (game.marg.first && !game.margWatched && c && st.tick >= c.watchEndTick && mode.mode !== 'WATCH') {
+    game.margWatched = true;
+    margBeat(game, 'watch', MARG_LINES.watch(c), 'dial-freq');
+  }
+  if (obs.nightShift) margBeat(game, 'handover', MARG_LINES.handover());
 }
 
 // ------------------------------------------------------------------ W3: the verdict
@@ -950,6 +1027,10 @@ function verdictFor(game) {
     moment: m, card: VD.historyCard(mem, conts, end.black), strip: VD.strip(mem),
     demand: VD.demandLine(mem), trips: VD.tripsLine(conts),
   };
+  // O-6: her closing line, once the grade is in (said once; kept on the verdict after)
+  const said = game.marg && game.marg.said.find(l => l.key === 'verdict');
+  const closing = said || (game.marg ? margSay(game.marg, 'verdict', MARG_LINES.verdict(end.grade), Math.floor(st.tick / TPS)) : null);
+  end.verdict.marg = closing ? closing.text : '';
 }
 
 // ------------------------------------------------------------------ F-6

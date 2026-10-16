@@ -57,6 +57,12 @@ const DAY_AHEAD = Object.freeze({dayAhead: true});
 const EDITS = new Set(['basePoint', 'tie', 'planKey', 'planDel', 'planStart', 'planStop', 'planUnbook', 'planRejoin', 'planLoad']);
 /** 'player' mode: hand edits of the levers take them over; commitment inputs are the plan itself. */
 const HAND_EDITS = new Set(['basePoint', 'tie', 'planKey', 'planDel', 'planRejoin']);
+/**
+ * K-24 (Q-93): on an AGC day the player's tie move is not a hand on the levers: the dispatch holds the tie
+ * there for the rest of the day (the planner's tie hold, memo.tieHoldS / tieHoldMW) and re-dispatches the
+ * units around it at once (commitSig).
+ */
+const TIE_HOLD_S = V.DAY_S;
 /** 'player' mode: the dispatch of committed units refreshes this often (NEMDE's 5-minute dispatch). */
 export const DISPATCH_S = 300;
 
@@ -99,7 +105,7 @@ function playerInputs(sys, state, s) {
     delete P.load;
     memo.plan = P;
   }
-  const sig = commitSig(obs);
+  const sig = commitSig(obs) + (memo.tieHoldS > obs.s ? 'H' + memo.tieHoldMW : ''); // (K-24: the player's tie, held)
   if (!first && (sys.edited || (sig === sys.sig && s - sys.dispatchS < DISPATCH_S))) return EMPTY;
   const input = AP.replan(obs, memo);
   if (!input) return EMPTY;
@@ -114,6 +120,10 @@ function scanEdits(sys, state) {
   const log = state.log;
   for (let i = sys.logIdx; i < log.length; i++) {
     const r = log[i];
+    if (sys.commit === 'player' && r.type === 'tie' && state.control.mode !== 'HAND') {   // K-24
+      sys.memo.tieHoldS = TIE_HOLD_S; sys.memo.tieHoldMW = r.args.mw;
+      continue;
+    }
     if (!(sys.commit === 'player' ? HAND_EDITS : EDITS).has(r.type) || r.tick < sys.loadTick) continue;
     if (r.type === 'planLoad' && r.tick === sys.loadTick) continue; // the system's own
     sys.edited = true;

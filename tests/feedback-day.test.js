@@ -109,7 +109,7 @@ describe('the night roll', () => {
     answers(p, 'f', /^TOAST blue FAST waits: the night shift runs the roll to 04:00$/m, 'F at night', true);
     const lock = new RegExp('^(TOAST blue|NOTE blue [^\\n]*?:) ' + esc(NIGHT_LOCK) + '$', 'm');
     answers(p, 'guard-start-gta1', lock, 'START at night');
-    answers(p, 'btn-redispatch', lock, 'RE-DISPATCH at night');
+    answers(p, 'n', lock, 'RE-DISPATCH (N) at night', true); // (K-24: the key itself is HAND's)
     assert.ok(!p.game.state.log.some(x => x.type === 'start' && x.args.unit === 'gta1'), 'refused, not logged');
     assert.deepEqual(p.h.mods.errors, []);
   });

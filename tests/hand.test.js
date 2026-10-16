@@ -11,6 +11,7 @@ const line = p => p.$('objective-text').textContent;
 
 test('X-43: at 04:30 on 2026-10-14 HAND says 45 min where AGC says 49; observe() leaves the auto-sync out', () => {
   const hand = openGame({seed: 20261014, agc: false}), agc = openGame({seed: 20261014});
+  G.ui(hand.game, {do: 'coach'});   // (O-8: a HAND day is a second shift, in problem mode unless COACH is on)
   hand.to('04:30'); agc.to('04:30');
   assert.match(line(hand), /Start CCGT 2 now: it takes 45 min to reach the grid\./);
   assert.match(line(agc), /Start CCGT 2 now: it takes 49 min to reach the grid\./);

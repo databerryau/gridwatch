@@ -95,7 +95,7 @@ test('Q-68: the tie limit holds each column\'s import until its end; an injected
   const knob = mw => PV.glowCandidates({...obs, tie: {...obs.tie, setMW: mw}}).filter(c => c.id === 'knob-tie').map(c => c.atS);
   assert.deepEqual([knob(400), knob(V.TIE_MAX_MW)], [[END + Math.ceil(PV.SNAP_MW / TIE_RATE)], []]);
   const {v: stack, cv} = mount(createLiveStack, 336, 164);
-  stack.update(baseVm(structuredClone(obs)));
+  stack.update(baseVm(Object.assign(structuredClone(obs), {mode: 'HAND'}))); // (K-24: a drag on the stack is a HAND day's)
   assert.deepEqual(stack.debug.ghosts.filter(g => g.station === 'ccgt').map(g => [g.unit, g.atS]), [['ccgt2', OUT + TO_MIN]], 'the stack\'s ghost');
   // the ghost says why it is late, and so does a drag before it
   const gh = stack.debug.ghosts.find(g => g.unit === 'ccgt2'), y = gh.y + gh.h / 2, xBook = stack.debug.geom.x(BOOK + TO_MIN);

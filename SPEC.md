@@ -262,7 +262,7 @@ Every step ships something playable, and the live game works after every step.
 | **W1** | Slice 2c.2: quick fixes and the cheap decisions | Built (2026-10-16), `v4-core-2c.2`; see W1 below |
 | **W2** | The greybox check: two strangers play | Kit ready (`playtest/W2-tester-log.md`); runs when the owner can |
 | **W3** | Slice 2d: grade, debrief and the respond window | Built (2026-10-16) ahead of W2 (the owner's call), `v4-core-2d.0`; see W3 below |
-| **W4** | Slice 2e: the commitment desk and onboarding | After W3 |
+| **W4** | Slice 2e: the commitment desk and onboarding | Built (2026-10-16) ahead of W2 (the owner's call), still `v4-core-2d.0`; see W4 below |
 | **W5** | Playtest gate 1 | After W4 |
 | **W6** | Phase 4: the daily (share card, history, streak, the phone page), then telemetry | After W5; ends at gate 2 |
 | Later | Phase 3 (the rest of the city); Phase 5 (week mode) | Not scheduled; decided on the gates' evidence (§9.2) |
@@ -391,6 +391,14 @@ The dollar ledger and the reliability readouts move behind THE NUMBERS.
 Also in W3: keep par's input log when it finishes (today `app/par.js` drops it), for D-21 and a later D-22.
 
 ### W4 — Slice 2e: the commitment desk and onboarding
+
+*Built 2026-10-16 (branch `slice-2e`), before W2's playtests, at the owner's request ("next feature please"). No sim change, so `v4-core-2d.0` stands.* Each item below is in, each with its accept as a test or a measure. Where the build differs from the text:
+- **K-24.** A station's START and STOP each press one machine's guard. The choice is the machine whose cover is up, else the one the line asks for, else the first that can start (a READY one opens its scope) or the last that can stop. With nothing to start, the button says why the first OFF machine can't (an outage, for example). The SET chip shows only while the line's action is a GUARD. The tie knob no longer holds the levers on an AGC day: the player's system holds the tie through the planner's tie hold (`memo.tieHoldS`) and re-dispatches around it. AGC LIMIT's GO TO is now the battery (its advice was RE-DISPATCH). The idle-lever booking of a start (`planKey` from an AGC lever) went with the live levers. *Measured:* 48 enabled controls at 04:30 on 2026-10-14 (81 before); a HAND day keeps every lever input.
+- **O-8.** COACH ON / OFF sits on the plan bar beside the line it governs, not in the header: at 1280 px the header had no room (a HAND-flown night already overflowed it by 13 px). It is remembered in the settings and hidden from 21:00. Until it is pressed, coaching is on for a first shift only (D-7's count of finished shifts). In problem mode a START is named only when exactly one unit can still arrive in time; otherwise the line says "n units can still make it in time: the lit STARTs." and lights them all. Such a line carries no action but still counts as something to do now. *Measured* (`tools/follow.mjs --problem`, seeds 1–11): the coaching follower scores a median 992; the problem-mode follower a median 38, short on every day.
+- **O-1, O-3.** The plates cover nine groups: START, STOP, the GUARD, the battery, the tie, RESTORE, DR, the reserve diesel and DIRECT SHED. The map and the suburb cards are not covered. A covered control's press, keys and hold answer in blue. I'VE DONE THIS BEFORE is on the plan bar on a first shift; it turns the coach and the plates off, remembered. The GUARD lamp reads "GUARD n held" (the title row fits no more); its tooltip and accessible name say "GUARD n MW held for trips".
+- **O-6.** Marg's lines are tray cards from MARG, SUPERVISOR, plus the end card's closing line. Later days have 5 beats (taking the desk, midday, the evening, 21:00, the verdict). A first shift adds the first watch's settle and one line per plate lifted, at most 25. *Measured* on 2026-10-14 (Enter at every card): 6 lines on a first shift, 5 on a later one.
+- **D-7 (copy).** The HAND button: "you set the MW yourself (the levers, the wheel, the stack, RE-DISPATCH), with no AGC and no auto-sync from 04:30 to 21:00 (harder)".
+- **O-2** holds: a first shift's first line asks for a control and lifts its plate at once (2026-10-14: START at 04:30).
 
 **K-24 — The commitment desk** (Q-93; on AGC days it replaces the lever-writing parts of K-1, K-4, L-4 and L-6).
 - The five levers, the hydro wheel and the Live Stack are motorised readouts on an AGC day: the handle glides with the dispatch; the band, the ramp cone and the gate stay. A press on one answers in blue: "The dispatch sets the MW; START and STOP are yours."

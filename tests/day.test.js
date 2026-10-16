@@ -38,6 +38,7 @@ function boot(seed) {
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
   const h = bootGame(doc, {createDesk, createMap, createLiveStack, system, planview, search: '?seed=' + seed, storage: null,
     audioWin: {}, raf: false, now: () => t});
+  h.game.settings.plates = false; h.game.plates.clear();   // (O-3: a returning player's desk: no cover plates)
   restore();
   const $ = id => doc.getElementById(id);
   // Frames of 0.1 real s (F-5's longest counted frame): 0.1 x the rate in grid s each (12 at 120x).
@@ -195,12 +196,12 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   assert.equal(g.h.game.phase, 'play', 'Enter takes the desk');
   playTo(tickAt(5));
 
-  // 2: the CCGT lever, three steps up (K-1).
+  // 2: the CCGT lever. K-24: on an AGC day a readout: its arrows send nothing (the dispatch sets the MW).
   tap('2');
   assert.equal(doc.activeElement.id, 'lever-ccgt');
   let n = count('basePoint');
   for (let i = 0; i < 3; i++) tap('ArrowUp');
-  assert.ok(count('basePoint') > n, 'the lever moved by arrows');
+  assert.equal(count('basePoint'), n, 'an AGC lever is a readout');
   // 7: the battery to DISCHARGE and up; G: the GUARD ring; 8: the tie.
   tap('7'); tap('ArrowRight'); tap('ArrowUp');
   assert.ok(count('battery') >= 1, 'battery order by keys');
@@ -210,20 +211,14 @@ test('K-23: a player sending only keyboard events runs the desk, the stack, the 
   assert.ok(count('guard') >= 1, 'GUARD ring by keys');
   tap('8'); tap('ArrowUp');
   assert.ok(count('tie') >= 1, 'tie knob by keys');
-  // 6: the hydro wheel.
-  n = count('basePoint');
+  // 6: the hydro wheel, N (RE-DISPATCH) and the Live Stack's keys: K-24, on an AGC day the dispatch's (nothing sent)
+  n = count('basePoint') + count('planLoad') + count('planKey');
   tap('6'); tap('ArrowRight');
-  assert.ok(count('basePoint') > n, 'hydro wheel by keys');
-  // N: RE-DISPATCH.
-  n = count('planLoad');
   tap('n');
-  assert.equal(count('planLoad'), n + 1, 'RE-DISPATCH by key');
-  // L: the Live Stack; 2 selects the CCGT layer, arrows move one snap step, Enter drops (L-4).
   tap('l');
-  n = count('planKey');
   assert.equal(doc.activeElement.id, 'stack');
   tap('2'); tap('ArrowRight'); tap('ArrowRight'); tap('ArrowUp'); tap('Enter'); tap('Enter');
-  assert.ok(count('planKey') > n, 'a Live Stack keyframe dropped by keys');
+  assert.equal(count('basePoint') + count('planLoad') + count('planKey'), n, 'the wheel, N and the stack are HAND\'s');
   // D held 0.6 s: industrial DR (never on a tap).
   tap('d');
   assert.equal(count('callDR'), 0);
