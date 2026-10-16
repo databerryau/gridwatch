@@ -133,7 +133,7 @@ test('D-29: the incident draws from its own slot: the rest of the plan is the da
   }
 });
 
-test('D-29: the briefing: ON THIS DAY and the sourced account (60 words at most) as its first box; the title names the day; TAKE THE DESK is still the one click', () => {
+test('D-29: the briefing: ON THIS DAY, the sourced account (60 words at most) and its echo as its first box; the title names the day; TAKE THE DESK is still the one click (Enter on the source link is the link\'s)', () => {
   for (const ymd of DAYS) {
     const a = anniversaryOf(ymd), p = openGame({seed: daily(ymd).d.seed, run: false, take: false, date: local(ymd)});
     const card = p.$('briefing-card'), acc = p.$('briefing-account'), src = p.$('briefing-account-source');
@@ -151,6 +151,13 @@ test('D-29: the briefing: ON THIS DAY and the sourced account (60 words at most)
     assert.match(src.href, a.sourceName === 'AEMO' ? /^https:\/\/(www\.)?aemo\.com\.au\/.+\.pdf$/ : /^https:\/\/wattclarity\.com\.au\//);
     assert.equal(p.$('briefing-title').textContent, 'Daily #' + SH.puzzleNumber(ymd) + ' · ' + a.name + ', ' + a.year + ' · PRACTICE', 'no storage: history off');
     assert.deepEqual(card.querySelectorAll('button').filter(b => !b.hidden).map(b => b.id), ['btn-agc', 'btn-take']);
+    // Enter on the focused source link is the link's (it opens the source): the desk is not taken, the key not consumed
+    src.focus();
+    const ev = p.doc.dispatch('keydown', {key: 'Enter'});
+    assert.deepEqual([p.game.phase, ev.defaultPrevented], ['briefing', false], 'Enter on the link');
+    src.blur();
+    p.key('Enter');
+    assert.equal(p.game.phase, 'play', 'Enter anywhere else on the briefing still takes the desk');
   }
   const p = openGame({seed: 20261215, run: false, take: false, date: local(20261215)});
   assert.equal(p.$('briefing-account').hidden, true, 'a plain daily has none');

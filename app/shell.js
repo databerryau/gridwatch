@@ -1100,7 +1100,7 @@ export function bootGame(doc, deps) {
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
       ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
-    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter' || (ev.target && ev.target.id === 'btn-restart') || shelfOwns(ev.target)) return false; take(); return true; },   // (F-7: Enter on a focused START OVER is its own; W6: so is the shelf's)
+    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter' || (ev.target && (ev.target.id === 'btn-restart' || ev.target.tagName === 'A')) || shelfOwns(ev.target)) return false; take(); return true; },   // (F-7: Enter on a focused START OVER is its own; W6: so is the shelf's, and a link's: D-29's source)
     chain: () => [mods.desk, mods.stack, mods.map],
     // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows, into the plan bar too.
     // (With the alarm panel open, panelFirst has closed it before any desk key gets here, but for Enter on a tile: it selects.)
