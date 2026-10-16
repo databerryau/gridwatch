@@ -20,6 +20,7 @@
 
 import {P, V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from './scenarios.js';
+import {ANNIVERSARIES} from './anniversaries.js';
 import {SEGMENTS, gridBefore} from '../sim/clock.js';
 import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
@@ -83,6 +84,18 @@ const leads = [a2.front.onsetH, a3.storm.arriveH, a3.drought.onsetH].flatMap(([h
   return out;
 });
 
+// W6 (D-29): the anniversary dailies (content/anniversaries.js) keep their real incident, which the rules of the designed day
+// above do not: each said from its variant's own incident, so a tuned one retunes the text.
+const ACT_NAMES = ['I', 'II', 'III'], MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const annivs = Object.entries(ANNIVERSARIES).map(([d, a]) => ({
+  on: num(+d % 100) + ' ' + MONTH_NAMES[Math.floor(+d / 100) % 100 - 1] + ' (' + a.name + ', ' + a.year + ')', i: a.overrides.dayplan.incident}));
+const incidentText = i => (i.early ? 'the largest unit trips between ' + hhmm(i.early.windowH[0]) + ' and ' + hhmm(i.early.windowH[1])
+  : i.follow ? 'Act ' + ACT_NAMES[i.follow.act - 1] + '\'s unwarned trip takes the next largest unit with it ' + minutes(i.follow.afterS) + ' grid-minutes later'
+    : 'in the storm the tie is limited to ' + num(i.towers.limitMW) + ' MW, unannounced, as the largest unit trips');
+const ANNIV_RULES = 'The anniversary dailies keep their real incident instead: ' + annivs.map(x => x.on + ', ' + incidentText(x.i)).join('; ') + '.';
+const towersOn = annivs.filter(x => x.i.towers).map(x => x.on);
+const ANNIV_TIE = towersOn.length ? ' On ' + towersOn.join(' and ') + ', the storm limits the tie with no notice (Event-dense day).' : '';
+
 // The K-12 synchroscope's speed, from the sim's Phase 1a params (desk/README.md §3.3) once
 // they exist; until the sim branch merges, the Phase 0.2 stub's text.
 const SCOPE_KEYS = ['SYNC_SLIP_MIN_HZ', 'SYNC_SLIP_MAX_HZ', 'SYNC_TRIM_HZ', 'SYNC_CLEAN_DEG', 'SYNC_ROUGH_DEG', 'SYNC_BREAKER_TICKS'];
@@ -131,7 +144,7 @@ const ABSTRACTIONS = [
       'calm evening; most evenings without a storm also bring an unwarned trip of the largest unit, and a storm may trip the tie. ' +
       'At most two unwarned trips a day, none before ' + hhmm(a2.windowH[0]) +
       ' or from ' + hhmm(NIGHT_H) + ', at least ' + num(V.SPACING_REAL_S) + ' real s and ' + minutes(V.SPACING_GRID_S) + ' grid-minutes ' +
-      'apart. A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min, then may hot-start at once: minimum down time (' + num(coal.minDownH) +
+      'apart. ' + ANNIV_RULES + ' A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min, then may hot-start at once: minimum down time (' + num(coal.minDownH) +
       ' h for coal) applies only after a planned stop. No machine trips for running near its limit: above 96% it simply has no raise ' +
       'headroom (H-18). The bench\'s classic day keeps the older menu: a large unit trip every day, plus extras, and its overheat trips.',
     why: 'Drama in a short day: every act asks a real question of the fleet, and a trip is a problem to solve within the day, not a ' +
@@ -748,7 +761,7 @@ const ABSTRACTIONS = [
     ours: 'A weather warning in play comes at the latest whole minute that leaves at least ' + num(V.LEAD_REAL_S) + ' real seconds ' +
       'before its onset on the clock you play: about ' + num(Math.min(...leads)) + '–' + num(Math.max(...leads)) + ' grid-minutes ' +
       'ahead. A pause or a watch only adds to it, and the warning ends FAST. The heatwave, the tie limit, a late return and the ' +
-      'feeders\' repair times are announced at ' + hhmm(V.DAY_START_H) + ', before the clock runs. Trips are never warned.',
+      'feeders\' repair times are announced at ' + hhmm(V.DAY_START_H) + ', before the clock runs.' + ANNIV_TIE + ' Trips are never warned.',
     why: 'Hours of grid time pass in seconds of yours: the lead is sized to the time you need to read the card and act, not to ' +
       'the Bureau\'s.',
     params: ['LEAD_REAL_S'],

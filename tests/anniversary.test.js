@@ -18,6 +18,7 @@ import {ANNIVERSARIES, GATED, anniversaryOf} from '../content/anniversaries.js';
 import {DAILIES, ANNIVERSARY_KEYS, dailyFor, seedOf, scenarioIdOf, dailyScenarioIdOf} from '../content/dailies.js';
 import {SCENARIOS, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {LADDER} from '../content/ladder.js';
+import {TEXT} from '../content/text.js';
 import {openGame} from './lib/play.js';
 
 const DG = createRequire(import.meta.url)('../tools/daily-gen.js');
@@ -111,6 +112,17 @@ test('D-29: each gated daily holds its incident, unwarned, as designed; an attem
   const bare = Object.assign({}, st, {ext: Object.assign({}, st.ext, {events: st.ext.events.filter(e => !e.incident)})});
   assert.equal(DG.hasIncident(bare), false);
   assert.equal(DG.hasIncident(createState(20261215, DESK)), true, 'any other day');
+});
+
+test('D-29: the help behind the tray\'s "?" says where each anniversary breaks the designed day\'s rules (Event-dense day; Warning leads)', () => {
+  const ours = id => TEXT.abstractions.find(e => e.id === id).ours, dense = ours('event-dense-day');
+  // the rules, then the exceptions (the plans above hold them: before 09:00; a third unwarned trip 5 grid-minutes on; an unannounced limit)
+  assert.ok(dense.includes('At most two unwarned trips a day, none before 09:00 or from 21:00, at least 90 real s and 60 grid-minutes apart. ' +
+    'The anniversary dailies keep their real incident instead: 14 Dec (Loy Yang A3, 2017), the largest unit trips between 05:15 and 06:00; ' +
+    '13 Feb (Moorabool towers, 2024), in the storm the tie is limited to 400 MW, unannounced, as the largest unit trips; ' +
+    '25 May (Callide C, 2021), Act III\'s unwarned trip takes the next largest unit with it 5 grid-minutes later.'), dense);
+  assert.ok(ours('warning-leads').includes('announced at 04:00, before the clock runs. On 13 Feb (Moorabool towers, 2024), the storm limits ' +
+    'the tie with no notice (Event-dense day). Trips are never warned.'), ours('warning-leads'));
 });
 
 test('D-29: the incident draws from its own slot: the rest of the plan is the date\'s own (the late return aside: it keeps one action from it)', () => {
