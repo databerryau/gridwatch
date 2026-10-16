@@ -266,6 +266,8 @@
 .dk-sync.scoped .dk-scope { position: static; }
 .dk-sync.scoped .dk-slip { position: absolute; left: 2px; right: 2px; bottom: 2px; font: 9px/1.1 var(--dk-mono); color: var(--dk-text); }
 .dk-sync.scoped .dk-sync-label { visibility: hidden; }
+/* and the bay's notes (a blocked CLOSE's above all) sit over that row, not on it: the slip is how the next close is timed */
+.dk-sync.scoped:not([hidden]) ~ .dk-note { bottom: 16px; }
 .dk-sync-ctl { display: grid; grid-template-columns: repeat(3, minmax(24px, 1fr)); grid-template-rows: repeat(3, 24px); gap: 0 2px; }
 .dk-sync-ctl .dk-btn { height: 24px; padding: 0 2px; }
 .dk-breaker { background: #2f7d3f44; border-color: var(--dk-green); color: var(--dk-bright); font-weight: 700; grid-column: span 2; }
@@ -291,14 +293,19 @@
 /* its notes over the map, not the tiles */
 .dk-annun > .dk-note { bottom: calc(100% + 4px); }
 .dk-tile.s-alarm { --dk-hi: #c93c37; --dk-lo: #5a1d1b; background: #da3633aa; color: var(--dk-bright); }
-.dk-tile.s-alarm.p3 { --dk-hi: #80641c; --dk-lo: #3d300d; background: #9a7a22aa; }
+.dk-tile.s-alarm.p3 { --dk-hi: #80641c; --dk-lo: #2e240a; background: #9a7a22aa; }
 .dk-tile.s-ackd { background: #da363366; color: var(--dk-bright); }
-.dk-tile.s-cleared { --dk-hi: #3d3214; --dk-lo: #0d1117; color: var(--dk-text); border-color: var(--dk-amber); }
+.dk-tile.s-cleared { --dk-hi: #66521a; --dk-lo: #0d1117; --dk-hi-edge: var(--dk-amber); --dk-lo-edge: var(--dk-line);
+  color: var(--dk-text); border-color: var(--dk-amber); }
 /* ISA-18.1 sequence R (§11 B-2): fast 2.5 Hz, slow 0.8 Hz, never above 3 Hz (WCAG 2.3.1). The fill flashes between its
-   --dk-hi and --dk-lo, never the words: they keep 4.5:1 in both phases (W6 a11y; a brightness filter dimmed them too). */
+   --dk-hi and --dk-lo, never the words: they keep 4.5:1 in both phases (W6 a11y; a brightness filter dimmed them too).
+   The two phases differ by 2.5:1 or more, and the ring-back's amber edge flashes with its fill: it is often the panel's
+   only motion. */
 .dk-tile.flash-fast { animation: dk-flash 0.4s steps(2, jump-none) infinite; }
 .dk-tile.flash-slow { animation: dk-flash 1.25s steps(2, jump-none) infinite; }
-@keyframes dk-flash { 0% { background-color: var(--dk-hi); } 100% { background-color: var(--dk-lo); } }
+@keyframes dk-flash {
+  0% { background-color: var(--dk-hi); border-color: var(--dk-hi-edge, var(--dk-line)); }
+  100% { background-color: var(--dk-lo); border-color: var(--dk-lo-edge, var(--dk-line)); } }
 /* B-1: an escalated tile (a P2 tile showing as P1) is double-bordered and bold, with ‼ in its glyph. */
 .dk-tile.esc { border-style: double; border-width: 3px; font-weight: 700; }
 /* Reduced motion: fast = 1 Hz, slow = steady (the ◇ glyph carries it); no shake; no handle glide. */

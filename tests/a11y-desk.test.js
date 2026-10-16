@@ -3,7 +3,7 @@
 // words are raised where its boxes hold them (CSS arithmetic below: the stand-in DOM has no layout, so the sums are
 // done here, with a width model wider than the fonts'). The canvases draw at devicePixelRatio × the scale and the
 // pointers read the screen, so a scaled desk stays sharp and true. The end card's hour strip is never colour alone;
-// the Live Stack's L button has a name; quiet and flashing alarm tiles keep WCAG's 4.5:1.
+// the Live Stack's L button has a name; quiet and flashing alarm tiles keep WCAG's 4.5:1, and a flash still shows.
 // TEXT SIZE (no setting): every window measured is width-bound once the desk scales (1366, 1536 and 1920 wide fill
 // their width; 1280×600 is the floor), so a larger type has no room that a bigger desk does not already use.
 import {test} from 'node:test';
@@ -17,6 +17,7 @@ import {V} from '../sim/params.js';
 import {layoutSizes} from '../app/shell.js';
 import {createDesk, deskScale, DESK_SCALE_MAX, LAYOUT} from '../desk/desk.js';
 import {SYNC_LABEL} from '../desk/bay.js';
+import {SYNC_BLOCKED} from '../sim/grid.js';
 import {createLiveStack, screenScale, EXPAND_NAME} from '../render/livestack.js';
 import {createEndCard, stripText, STRIP_WORDS} from '../app/endcard.js';
 import {createAlarmPanel} from '../app/alarmpanel.js';
@@ -145,6 +146,29 @@ test('W6 a11y: the floor holds the raised words: three two-row tray cards, the s
   assert.ok(textW('GT·C 1 SLIP −0.40 Hz · 2.5 s/turn · SLOW ↺', pxOf(on, 'font'), true) <= bayW - 4 && pxOf(on, 'font') * 1.1 <= row, 'the slip line across the bay');
   assert.match(CSS, /\.dk-sync\.scoped \.dk-scope \{ position: static; \}/, 'positioned by the view, not the 72-px scope column');
   assert.match(CSS, /\.dk-sync\.scoped \.dk-sync-label \{ visibility: hidden; \}/);
+  // the bay's notes (on the panel, from its padding edge) sit over the slip line meanwhile, not on it, and under the canvas
+  // (in the 72-px row's top 62 px): a blocked CLOSE's note would hide the Hz the next close is timed by
+  const nr = ruleOf(CSS, '\\.dk-note'), npx = pxOf(nr, 'font-size'), noteH = npx * Number(/line-height: ([\d.]+);/.exec(nr)[1]) + 2 * 1 + 2 * 1;
+  assert.match(nr, /padding: 1px 4px;[\s\S]*border: 1px solid/);
+  const noteBottom = pxOf(ruleOf(CSS, '\\.dk-sync\\.scoped:not\\(\\[hidden\\]\\) ~ \\.dk-note'), 'bottom');
+  const slipTop = 3 + pxOf(on, 'bottom') + pxOf(on, 'font') * 1.1, canvasBottom = 3 + row + 2 + 72 - 62;
+  assert.ok(slipTop <= noteBottom && noteBottom + noteH <= canvasBottom,
+    'the slip line ' + (3 + pxOf(on, 'bottom')) + '–' + slipTop.toFixed(1) + ' px, a note ' + noteBottom + '–' + (noteBottom + noteH) + ' px, the canvas from ' + canvasBottom + ' px');
+  {
+    // GT·A on the scope, a close the relay blocks: the note is the bay panel's, a later sibling of the scoped view (the ~ rule's)
+    const bd = makeDocument(), br = bd.createElement('div');
+    bd.body.appendChild(br);
+    const bay = createDesk(bd, br, {input: x => (x.type === 'syncClose' ? SYNC_BLOCKED : ''), ui() {}});
+    const obs = observe(createState(1, CLASSIC)), u = obs.units.find(x => x.station === 'gta');
+    Object.assign(obs, {mode: 'HAND', scope: {unit: u.id, open: true}});
+    Object.assign(u, {mode: 'ready', slipHz: 0.62, phaseDeg: 120});
+    bay.update(baseVm(obs));
+    bd.getElementById('sync-close').click();
+    const view = bd.querySelector('.dk-sync'), kids = view.parentElement.children, note = kids.find(c => c.classList.contains('dk-note'));
+    assert.ok(view.classList.contains('scoped') && !view.hidden, view.className);
+    assert.ok(note && !note.hidden && note.textContent === '✕ ' + SYNC_BLOCKED, 'the blocked close\'s note on the bay');
+    assert.ok(kids.indexOf(note) > kids.indexOf(view), 'after the view');
+  }
   // the emergency row (80 px): with DIRECT SHED shown, each hold button holds its face and its 9-px price lines
   const doc = makeDocument(), root = doc.createElement('div');
   doc.body.appendChild(root);
@@ -245,6 +269,10 @@ test('W6 a11y: the end card\'s hour strip is never colour alone: green solid, re
   assert.equal(st.getAttribute('aria-label'), 'Your day by the hour: short 17:00–19:00; spill 06:00–09:00, 20:00–21:00; not played 01:00–04:00; ' +
     'no gap in the other hours.');
   assert.equal(stripText(strip.map(() => 'g')), 'Your day by the hour: no gap in any hour.');
+  // no hour without a gap (a day gone black at 04:38: the rest not played) claims none; a run of every column is all day
+  assert.equal(stripText(['b', ...strip.slice(1).map(() => '')]), 'Your day by the hour: spill 04:00–05:00; not played 05:00–04:00.');
+  assert.equal(stripText(strip.map(() => 'b')), 'Your day by the hour: spill all day.');
+  assert.equal(stripText(strip.map((c, h) => (h < 12 ? 'r' : 'g'))), 'Your day by the hour: short 04:00–16:00; no gap in the other hours.');
   // the columns' titles keep their words
   assert.deepEqual([0, 2, 13, 23].map(h => st.children[h].title), ['04:00: no gap', '06:00: spill', '17:00: short', '03:00: not played']);
   assert.deepEqual([0, 2, 13, 23].map(h => st.children[h].className), ['s-g', 's-b', 's-r', 's-n']);
@@ -264,15 +292,22 @@ test('W6 a11y: quiet and flashing alarm tiles keep 4.5:1: the desk\'s faint word
   // --dk-faint carries words (a quiet tile, an empty list, an off lamp): on the tile's ground and on every panel
   for (const bg of ['#0d1117', dk['--dk-panel'], dk['--dk-panel2']]) assert.ok(contrast(rgb(dk['--dk-faint']), rgb(bg)) >= 4.5, '--dk-faint on ' + bg);
   assert.match(ruleOf(CSS, '\\.dk-tile'), /background: #0d1117; color: var\(--dk-faint\);/);
-  // the flash moves the fill between --dk-hi and --dk-lo, never the words; each phase and the steady face keep 4.5:1
-  assert.match(CSS, /@keyframes dk-flash \{ 0% \{ background-color: var\(--dk-hi\); \} 100% \{ background-color: var\(--dk-lo\); \} \}/);
+  // the flash moves the fill between --dk-hi and --dk-lo (and the edge, where a state gives one), never the words; each phase
+  // and the steady face keep 4.5:1
+  assert.match(CSS, /@keyframes dk-flash \{\s*0% \{ background-color: var\(--dk-hi\); border-color: var\(--dk-hi-edge, var\(--dk-line\)\); \}\s*100% \{ background-color: var\(--dk-lo\); border-color: var\(--dk-lo-edge, var\(--dk-line\)\); \} \}/);
   assert.doesNotMatch(CSS, /filter: brightness/);
   for (const [sel, ink] of [['\\.dk-tile\\.s-alarm', '--dk-bright'], ['\\.dk-tile\\.s-alarm\\.p3', '--dk-bright'], ['\\.dk-tile\\.s-cleared', '--dk-text']]) {
-    const body = ruleOf(CSS, sel), steady = /background: (#\w+);/.exec(body);
-    for (const c of [/--dk-hi: (#\w+)/.exec(body)[1], /--dk-lo: (#\w+)/.exec(body)[1], ...(steady ? [steady[1]] : [])]) {
+    const body = ruleOf(CSS, sel), steady = /background: (#\w+);/.exec(body), hi = /--dk-hi: (#\w+)/.exec(body)[1], lo = /--dk-lo: (#\w+)/.exec(body)[1];
+    for (const c of [hi, lo, ...(steady ? [steady[1]] : [])]) {
       assert.ok(contrast(rgb(dk[ink]), rgb(c)) >= 4.5, sel + ' on ' + c + ': ' + contrast(rgb(dk[ink]), rgb(c)).toFixed(2));
     }
+    // ...and it shows: the two phases differ by 2.5:1 or more (the red's; a near-black pulse is missed at the plan bar's end)
+    assert.ok(contrast(rgb(hi), rgb(lo)) >= 2.5, sel + ' flashes ' + hi + ' / ' + lo + ': ' + contrast(rgb(hi), rgb(lo)).toFixed(2));
   }
+  // the ring-back (cleared, not ACKed: often the panel's only motion) flashes its amber edge too; steady, the edge stays amber
+  const cl = ruleOf(CSS, '\\.dk-tile\\.s-cleared'), edge = p => dk[new RegExp(p + ': var\\((--[\\w-]+)\\)').exec(cl)[1]];
+  assert.ok(contrast(rgb(edge('--dk-hi-edge')), rgb(edge('--dk-lo-edge'))) >= 4.5 && edge('--dk-hi-edge') === dk['--dk-amber'], 'the edge: amber, then the panel\'s line');
+  assert.match(cl, /border-color: var\(--dk-amber\);/);
   // the balance bar's letters on its red and blue
   assert.match(ruleOf(CSS, '\\.dk-seg'), /color: #000;/);
   for (const c of ['#da3633', dk['--dk-blue']]) assert.ok(contrast([0, 0, 0], rgb(c)) >= 4.5, 'GAP on ' + c);

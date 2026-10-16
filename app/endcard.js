@@ -37,7 +37,8 @@ export const PERFECT_RULE = 'PERFECT: no load shed all day, and every handed-bac
 /** L-10: the strip's legend, and each column's title. W6 (a11y): never colour alone: short is hatched, a spill dotted (CSS below). */
 export const STRIP_WORDS = 'green: no gap · red, hatched: short (homes of yours dark) · blue, dotted: wind or solar spilled';
 const STRIP_TITLE = {g: 'no gap', r: 'short', b: 'spill'};
-/** W6 (a11y): the strip in words, its image's name: the hours short, spilled or not played, run by run; the rest had no gap. */
+/** W6 (a11y): the strip in words, its image's name: the hours short, spilled or not played, run by run (a run of every
+ *  column is "all day"); the rest, if any, had no gap. */
 export function stripText(strip) {
   const runs = {r: [], b: [], n: []};
   strip.forEach((c, h) => {
@@ -48,8 +49,9 @@ export function stripText(strip) {
   });
   const hh = h => clockText(h * V.S_PER_H, false);
   const parts = [['short', runs.r], ['spill', runs.b], ['not played', runs.n]].filter(([, r]) => r.length)
-    .map(([w, r]) => w + ' ' + r.map(([a, b]) => hh(a) + '–' + hh(b)).join(', '));
-  return 'Your day by the hour: ' + (parts.length ? parts.join('; ') + '; no gap in the other hours.' : 'no gap in any hour.');
+    .map(([w, r]) => w + ' ' + r.map(([a, b]) => (b - a === strip.length ? 'all day' : hh(a) + '–' + hh(b))).join(', '));
+  if (!parts.length) return 'Your day by the hour: no gap in any hour.';
+  return 'Your day by the hour: ' + parts.join('; ') + (strip.includes('g') ? '; no gap in the other hours.' : '.');
 }
 const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:auto}' +
   '#end-card .big{font:700 16px var(--mono);color:var(--bright)}' +
