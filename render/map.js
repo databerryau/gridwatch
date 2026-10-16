@@ -1266,16 +1266,25 @@ export function createMap(doc, root, actions) {
     g.fillStyle = wallBody;
     g.beginPath();
     for (let i = 0; i < 5; i++) { const cx = x - 4 - i * 11, cy = HORIZON_Y - 8 - (i & 1) * 3; g.moveTo(cx + 9, cy); g.ellipse(cx, cy, 9, 5, 0, 0, TAU); }
-    if (x > 50) g.rect(0, 0, x - 50, HORIZON_Y - 8);
+    if (x > 50) raggedTo(x - 50, HORIZON_Y - 8);   // (the ceiling: its edge leans and frays, never a ruled line in the sky)
     g.fill();
     g.fillStyle = wallRim; g.fillRect(Math.max(0, x - 52), HORIZON_Y - 3, 50, 1);
     fx.shelfX = x;
   }
 
+  // A sky region from the left edge to a leading edge at e (at y = bottom), leaning 26 px further ahead at the top and frayed in
+  // six steps, as a storm's front looks (added to the current path)
+  function raggedTo(e, bottom) {
+    g.moveTo(0, 0); g.lineTo(e + 26, 0);
+    for (let i = 1; i <= 6; i++) g.lineTo(e + 26 * (1 - i / 6) + (i & 1 ? 4 : -3), bottom * i / 6);
+    g.lineTo(0, bottom); g.closePath();
+  }
+
   /** Behind the storm's leading edge at x the sky and the ground darken by a (the rain leans: its foot 24 px behind). */
   function bandFrame(x, a) {
     g.fillStyle = step(BAND, a / 0.5);
-    g.beginPath(); g.moveTo(0, 0); g.lineTo(x + 8, 0); g.lineTo(x + 8, HORIZON_Y); g.lineTo(x - 16, BASE_H); g.lineTo(0, BASE_H); g.closePath(); g.fill();
+    g.beginPath(); raggedTo(x + 8, HORIZON_Y);
+    g.moveTo(0, HORIZON_Y); g.lineTo(x + 8, HORIZON_Y); g.lineTo(x - 16, BASE_H); g.lineTo(0, BASE_H); g.closePath(); g.fill();
     fx.bandX = x; fx.bandA = a;
   }
 
