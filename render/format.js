@@ -109,7 +109,9 @@ export const allInCents = a => (a && a.askedMWh > 0 && Number.isFinite(a.cents) 
  */
 export const BRIEF_LOCK = 'Take the desk first: Enter.',
   NIGHT_LOCK = 'The night shift has the desk to 04:00: it starts and stands down units and calls demand response as par would.';
-export const isLock = r => r === BRIEF_LOCK || r === NIGHT_LOCK;
+/** F-7: what a desk action is told while a saved shift is offered or replaying (a lock: answered in blue). */
+export const RESUME_LOCK = 'Resume your shift or start over first.', RESUMING = 'Resuming your shift: a moment.';
+export const isLock = r => r === BRIEF_LOCK || r === NIGHT_LOCK || r === RESUME_LOCK || r === RESUMING;
 /** K-24 (Q-93): on an AGC day the levers, the wheel and the stack are the dispatch's readouts; a press answers this, in blue. */
 export const DISPATCH_NOTE = 'The dispatch sets the MW; START and STOP are yours.';
 

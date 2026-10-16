@@ -25,7 +25,7 @@ import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {restoreAllowedS, isPerfect} from '../sim/market.js';
 import {imbalanceSegments} from '../desk/calc.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
-import {BRIEF_LOCK, NIGHT_LOCK} from '../render/format.js';
+import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
 import {scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
 import {objective, consequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
@@ -464,6 +464,7 @@ export function tickOnce(game) {
  * @returns {number} ticks run
  */
 export function frame(game, dtS, now) {
+  if (game.replay) return 0;   // (F-7: the replay owns the ticks)
   const d = game.director, state = game.state;
   const n = runFrame(game.pacer, dtS, {
     rate: () => D.rateOf(d, state),
@@ -1132,8 +1133,7 @@ function startOfficial(game) {
 // saved tick proves it (a mismatch gives a fresh day, said so). What frames alone keep (the plates lifted, Marg's day, the
 // K-12 offers) is saved beside the actions. Two slots, so a practice run never overwrites today's official or first shift.
 
-/** F-7: what a desk action is told while a resume replays. */
-export const RESUMING = 'Resuming your shift: a moment.';
+export {RESUME_LOCK, RESUMING} from '../render/format.js';
 /** F-7: the saved runs: today's daily (official or a first shift), and practice. */
 export const RESUME_KEY = 'gridwatch:v4:resume', RESUME_SLOTS = Object.freeze(['daily', 'practice']);
 /** F-7: in play the run is saved this often (grid s), at each action of the player's, and when the tab is hidden or closed. */
@@ -1149,18 +1149,26 @@ function act(game, a) { if (!game.replay) game.acts.push([game.state.tick, ...a]
 export function saveResume(game) {
   const st = game.state, r = game.run;
   if (game.phase !== 'play' || st.over || game.replay || !game.historyOn) return false;
-  const key = slotOf(game), ok = writeJson(game.storage, key, {v: 2, sim: SIM_VERSION, seed: game.seed, today: game.today, tick: st.tick,
+  // (the lease: an official run whose date's entry another tab has taken is practice now, and never writes the daily slot)
+  const ymd = dailyYmd(game), e = ymd && (r.started || r.claimed) ? freshHistory(game).days[ymd] : null;
+  if (e && e.id !== r.id) yieldTo(game);
+  const key = slotOf(game), other = RESUME_KEY + ':' + (key.endsWith(':daily') ? 'practice' : 'daily'), ok = writeJson(game.storage, key, {v: 2, sim: SIM_VERSION, seed: game.seed, today: game.today, tick: st.tick,
     hash: hashState(st), acts: game.acts, run: {status: r.status, why: r.why, id: r.id, started: r.started, claimed: r.claimed},
     noCoach: !!game.noCoach, plates: [...game.plates], marg: game.marg ? {said: game.marg.said, beats: game.marg.beats, watched: game.margWatched} : null,
     tally: game.tally, offered: game.offered});
   if (!ok) { try { game.storage.removeItem(key); } catch { /* (blocked) */ } }
+  const o = readJson(game.storage, other);   // (this run's save in the other slot, from before it turned practice, goes)
+  if (o && o.seed === game.seed && o.run && o.run.id === r.id) { try { game.storage.removeItem(other); } catch { /* (blocked) */ } }
   return ok;
 }
-/** F-7: forget this seed's saved run (the day ended, START OVER, or a replay that failed). */
-export function clearResume(game) {
+/**
+ * F-7: forget a saved run of this seed (the day ended, START OVER, or a replay that failed): the one offered, else this run's
+ * (`id`); another run's save of the same seed (a practice beside the official run) stays.
+ */
+export function clearResume(game, id = game.resumeSaved && game.resumeSaved.run ? game.resumeSaved.run.id : game.run.id) {
   for (const s of RESUME_SLOTS) {
     const k = RESUME_KEY + ':' + s, r = readJson(game.storage, k);
-    if (r && r.seed === game.seed) { try { game.storage.removeItem(k); } catch { /* (blocked) */ } }
+    if (r && r.seed === game.seed && (!r.run || r.run.id === id)) { try { game.storage.removeItem(k); } catch { /* (blocked) */ } }
   }
   game.resumeSaved = null;
 }
@@ -1175,7 +1183,7 @@ function resumable(game) {
     if (x && x.seed === game.seed) { r = x; break; }
   }
   if (!r || r.v !== 2 || !Array.isArray(r.acts) || !(r.tick > 0)) return null;
-  if (r.sim !== SIM_VERSION) { clearResume(game); game.resumeLost = true; return null; }
+  if (r.sim !== SIM_VERSION) { clearResume(game, r.run && r.run.id); game.resumeLost = true; return null; }
   const e = game.history.days[dailyYmd(game)], s = r.run;
   if (s && r.today === game.today && (!e || e.id === s.id || s.status !== 'official')) Object.assign(game.run, s);
   else if (r.today !== game.today) Object.assign(game.run, {status: 'practice', why: s && s.status === 'practice' ? s.why : 'past', started: false, claimed: false});
@@ -1186,6 +1194,10 @@ function resumable(game) {
 export function resumeBegin(game) {
   const r = game.resumeSaved;
   if (!r || game.phase !== 'briefing' || game.replay) return false;
+  const run = Object.assign({}, game.run);
+  resetDay(game);
+  Object.assign(game.run, run);
+  game.resumeSaved = r;
   game.replay = {acts: r.acts, k: 0, until: r.tick, saved: r};
   return true;
 }
@@ -1222,10 +1234,11 @@ export function resumeStep(game, budgetMs = Infinity, now = () => Date.now()) {
   game.cues = [];   // (nothing the replay heard is played)
   if (failed) {
     game.resumeFailed = failed;
-    clearResume(game);
+    clearResume(game, s.run && s.run.id);
     resetDay(game);
     return 1;
   }
+  game.acts = R.acts.slice();   // (the next save holds the whole day's actions, so it resumes again)
   // what frames alone kept: the plates still covered, Marg's day, the K-12 offers; the coach as it stood
   game.noCoach = !!s.noCoach;
   if (Array.isArray(s.plates)) game.plates = new Set(s.plates.filter(g => PLATE_GROUPS.includes(g)));
@@ -1238,6 +1251,7 @@ export function resumeStep(game, budgetMs = Infinity, now = () => Date.now()) {
   game.run.id = game.seed + '-' + Date.now() + '-' + (++runCount);
   const e = ymd && freshHistory(game).days[ymd];
   if (e && e.id === old) { e.id = game.run.id; saveHistory(game); }
+  clearResume(game, s.run ? s.run.id : old);   // (the save just resumed, in whichever slot: the next save is the new lease's)
   game.director.paused = true;
   game.objectiveS = -1e9; game.lineFresh = true;
   saveResume(game);
@@ -1300,6 +1314,7 @@ export function makeActions(game) {
     // (F-7: each action is kept for the save, with the feeder card it answered, and saves the run; none while resuming)
     input: x => {
       if (game.replay) return RESUMING;
+      if (game.resumeSaved) return RESUME_LOCK;
       const shown = shownFeeder(game);
       act(game, ['i', Object.assign({}, x), shown]);
       const r = sendInput(game, x, shown);
