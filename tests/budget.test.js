@@ -55,6 +55,7 @@ test('Q-44: the on-demand modules stay out of the first visit, are the only ones
         const s = toks[k + 2];
         assert.ok(s && s.type === 'str' && toks[k + 3] && toks[k + 3].text === ')', rel(f) + ':' + t.line + ': import( of a string literal');
         const target = rel(join(dirname(f), s.text.slice(1, -1)));
+        if (rel(f) === 'app/start.js' && target === 'app/boot.js') return;   // (W6, Y-8: the page's entry loads the game at once, or the landing page)
         assert.ok(named.includes(target), rel(f) + ':' + t.line + ' loads ' + target + ' on demand: name it in ON_DEMAND (with a cap)');
       });
     }

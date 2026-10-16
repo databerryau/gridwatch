@@ -44,7 +44,7 @@ const BENCH = readFileSync(join(ROOT, 'bench.html'), 'utf8');
 // ------------------------------------------------------------------ static
 
 test('C-2 / C-1: both pages start with the charset meta, load one ES module each, and name no other origin', () => {
-  for (const [name, html, entry] of [['next.html', NEXT, 'app/boot.js'], ['bench.html', BENCH, 'app/bench-boot.js']]) {
+  for (const [name, html, entry] of [['next.html', NEXT, 'app/start.js'], ['bench.html', BENCH, 'app/bench-boot.js']]) {   // (W6, Y-8: next.html's entry loads app/boot.js, or the landing page)
     assert.match(html, /^<!doctype html>\s*<meta charset="utf-8">/i, name);
     const scripts = [...html.matchAll(/<script\b([^>]*)>/g)].map(m => m[1].trim());
     assert.deepEqual(scripts, ['type="module" src="' + entry + '"'], name);
