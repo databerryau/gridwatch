@@ -14,11 +14,11 @@ export const WEEK_NOTE = 'The coming dailies\' outlook, as a forecast gives it: 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const utc = ymd => Date.UTC(Math.floor(ymd / 1e4), Math.floor(ymd / 100) % 100 - 1, ymd % 100);
 
-/** A regime in a word: HEATWAVE, storm, no wind (a wind drought), hot, mild. */
+/** A regime in a word: HEATWAVE, storm, low wind (a wind drought: the stack's LOW WIND, wind toward 12% of capacity), hot, mild. */
 export function dayWord(regime) {
   if (regime.cls === 'heat') return 'HEATWAVE';
   if (regime.cls === 'storm') return 'storm';
-  if (regime.cls === 'drought') return 'no wind';
+  if (regime.cls === 'drought') return 'low wind';
   return regime.temp === 'MILD' ? 'mild' : 'hot';
 }
 
@@ -38,5 +38,5 @@ export function weekAhead(today, stamp, n = WEEK_DAYS) {
   return out;
 }
 
-/** The end card's line: 'Sat mild · Sun storm · Mon HEATWAVE · …'. */
-export const weekText = w => w.map(x => x.day + ' ' + x.word).join(' · ');
+/** The end card's line: 'Sat mild · Sun storm · Mon HEATWAVE · …', each day held to its word (no-break spaces: a line breaks at a ·). */
+export const weekText = w => w.map(x => (x.day + ' ' + x.word).replace(/ /g, ' ')).join(' · ');

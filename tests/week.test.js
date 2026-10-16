@@ -1,6 +1,7 @@
 // W6, D-28 (Q-109): THE WEEK AHEAD on the end card: the next seven dailies' day types from their seeds alone, each the type the
-// day itself draws (its state's regime), so that day's briefing agrees with it; on the end card, after YOUR CARD. Only this
-// build's gate-checked dailies: it stops at the calendar's end and shows none with a stale list.
+// day itself draws (its state's regime), so the day plays it: a HEATWAVE, hot or mild day's briefing says so, and a storm or
+// low-wind day warns of it on the day. On the end card, after YOUR CARD. Only this build's gate-checked dailies: it stops at
+// the calendar's end and shows none with a stale list.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as W from '../app/week.js';
@@ -30,9 +31,11 @@ test('D-28: the week ahead is the next seven dailies, each named by the regime i
     const d = dailyFor(x.ymd, G.dailyStamp()), st = createState(d.seed, G.scenarioForSeed(d.seed));
     assert.equal(x.word, W.dayWord(st.ext.regime), x.ymd + ': the day\'s own regime');
   }
-  assert.deepEqual(['heat', 'storm', 'drought'].map(cls => W.dayWord({cls})), ['HEATWAVE', 'storm', 'no wind']);
+  assert.deepEqual(['heat', 'storm', 'drought'].map(cls => W.dayWord({cls})), ['HEATWAVE', 'storm', 'low wind']);
   assert.deepEqual(['MILD', 'HOT'].map(temp => W.dayWord({cls: 'calm', temp})), ['mild', 'hot']);
-  assert.match(W.weekText(w), /^Sat \S+( \S+)? · Sun /);
+  // each day held to its word: the line breaks only between days
+  assert.match(W.weekText(w), /^Sat [^ ]+ · Sun [^ ]+ · /);
+  assert.equal(W.weekText([{day: 'Mon', word: 'low wind'}, {day: 'Tue', word: 'mild'}]), 'Mon low wind · Tue mild');
   // across a month's end and a year's
   assert.deepEqual(W.weekAhead(20261230, G.dailyStamp(), 3).map(x => x.ymd), [20261231, 20270101, 20270102]);
 });
@@ -45,8 +48,8 @@ test('D-28: only gate-checked dailies: it stops at the calendar\'s end, and a st
   assert.deepEqual(W.weekAhead(NaN, st), []);
 });
 
-test('D-28: each word is what that day\'s own briefing says (a month of dailies)', () => {
-  const from = ymdOf(DAILIES.from), seen = new Set();
+test('D-28: each word is what that day plays: HEATWAVE, hot and mild in its briefing; a storm or low wind warned on the day (a month of dailies)', () => {
+  const from = ymdOf(DAILIES.from), seen = new Set(), WARN = {storm: 'stormWarn', 'low wind': 'droughtWarn'};
   for (const x of W.weekAhead(from - 1, G.dailyStamp(), 30)) {
     const d = dailyFor(x.ymd, G.dailyStamp()), st = createState(d.seed, G.scenarioForSeed(d.seed)), obs = observe(st);
     const text = dayText(st.day, {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0)}), why = x.ymd + ' ' + x.word + ': ' + text;
@@ -54,9 +57,10 @@ test('D-28: each word is what that day\'s own briefing says (a month of dailies)
     assert.equal(x.word === 'HEATWAVE', /heatwave this afternoon/.test(text), why);
     if (x.word === 'mild') assert.match(text, /^Today: a mild /, why);
     if (x.word === 'hot') assert.match(text, /^Today: a hot .*no heatwave forecast\.$/, why);
-    if (x.word === 'storm' || x.word === 'no wind') assert.match(text, /^Today: a (mild|hot) /, why);   // (warned hours ahead, on the day)
+    // (a storm or a wind drought is not in the briefing: it is warned hours ahead, on the day; the row's title says so)
+    if (WARN[x.word]) assert.ok(/^Today: a (mild|hot) /.test(text) && st.ext.events.some(e => e.type === WARN[x.word] && e.atS > 0), why);
   }
-  assert.ok(seen.size >= 3, 'a month shows several kinds of day: ' + [...seen]);
+  assert.ok(seen.size >= 4, 'a month shows several kinds of day: ' + [...seen]);
 });
 
 test('D-28 on the page: the end card shows THE WEEK AHEAD from today, after YOUR CARD, with its note', () => {
