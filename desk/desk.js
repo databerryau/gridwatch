@@ -201,8 +201,16 @@ export function roughSyncUnit(vm, prev) {
   return u && u.mode !== 'ready' && u.mode !== 'tripped' && u.mode !== 'off' ? u.id : '';
 }
 
+/** W6 (a11y): the whole desk's scale, DESK_SCALE_MAX at most: the slot over the floor, the tighter way, floored to 0.001 so
+ *  the floor's 1280 × 300 px never overflow the slot. desk.css scales .dk by it (the type, the knobs and the hit boxes together). */
+export const DESK_SCALE_MAX = 1.5;
+export function deskScale(w, h) {
+  const k = Math.min(fin(w, LAYOUT.width) / LAYOUT.width, fin(h, LAYOUT.height) / LAYOUT.height);
+  return clamp(Math.floor(k * 1000) / 1000, 1, DESK_SCALE_MAX);
+}
+
 export function createDesk(doc, root, actions, opts = {}) {
-  let vm = null, lastFocus = null, frameNow = 0, previewKey = '', preview = null, prevScope = null, lastTick = -1;
+  let vm = null, lastFocus = null, frameNow = 0, previewKey = '', preview = null, prevScope = null, lastTick = -1, zoom = 1;
   const nowFn = typeof opts.now === 'function' ? opts.now : () => frameNow;
   const notes = new Map();   // host element -> {span, until, q}, the newest help last
   // Q-47: the "?" or tile q of a note says that it shows; a "?" reads ✕ meanwhile
@@ -222,6 +230,8 @@ export function createDesk(doc, root, actions, opts = {}) {
     locked, viewLocked,
     /** K-22: reduced motion (vm.settings.reducedMotion; absent = off). */
     rm: () => !!(vm && vm.settings && vm.settings.reducedMotion),
+    /** W6 (a11y): the desk's scale (deskScale): a canvas draws at devicePixelRatio × this, so it stays sharp. */
+    zoom: () => zoom,
     guards: null, holds: null,
     ui(cmd) { if (typeof actions.ui === 'function') actions.ui(cmd); },
     /** K-20 foley for a desk gesture (§13.2): presentation only, never a sim input. */
@@ -352,7 +362,8 @@ export function createDesk(doc, root, actions, opts = {}) {
     vm = v;
     setAttr(desk, 'data-plates', (v.plates || []).join(' '));   // (O-3: desk.css draws the plates)
     frameNow = fin(v.frame && v.frame.nowMs, frameNow);
-    const k = clamp(Math.min(fin(root.clientWidth, 1280) / LAYOUT.width, fin(root.clientHeight, 300) / LAYOUT.height), 1, 1.5);
+    const k = deskScale(root.clientWidth, root.clientHeight);
+    zoom = k;
     for (const e of roots) {
       if (e.style.getPropertyValue ? e.style.getPropertyValue('--dk-k') !== k.toFixed(3) : e.style['--dk-k'] !== k.toFixed(3)) {
         e.style.setProperty('--dk-k', k.toFixed(3));
