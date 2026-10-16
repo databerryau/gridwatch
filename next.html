@@ -139,6 +139,10 @@
   #briefing-card .take { font-weight: 700; padding: 6px 16px; border-color: var(--blue); }
   #briefing-watch .gate { display: block; }
   #end-card { top: calc(var(--hdr) + 40px); width: 520px; }
+  #shelf-card { top: calc(var(--hdr) + 40px); width: 520px; max-height: calc(100vh - var(--hdr) - 48px); overflow-y: auto; }
+  #shelf-card h3 { font: 700 12px var(--mono); color: var(--bright); margin: 10px 0 4px; }
+  #shelf-card .days { display: flex; flex-wrap: wrap; gap: 4px; }
+  #shelf-card .days button { font: 12px var(--mono); }
   /* B-7: the SETTINGS popover, under its header button. It never pauses the game. */
   #settings { z-index: 16; top: calc(var(--hdr) + 6px); left: auto; right: 8px; transform: none; width: 268px; }
   #settings label { display: flex; align-items: center; gap: 8px; min-height: 24px; margin: 4px 0; font: 11px var(--mono); color: var(--dim); }
@@ -224,11 +228,13 @@
     <button id="btn-agc" class="on" role="radio" aria-checked="true" title="AGC trims every unit inside its band (the default)">AGC</button>
     <button id="btn-hand" role="radio" aria-checked="false" title="HAND: you set the MW yourself (the levers, the wheel, the stack, RE-DISPATCH), with no AGC and no auto-sync from 04:30 to 21:00 (harder)" hidden>HAND</button>
     <span class="grow"></span>
+    <button id="btn-shelf-brief" title="Past dailies and Hard days, as practice" hidden>MORE DAYS</button>
     <button id="btn-restart" title="Drop the saved shift and start this day again (a run that passed 09:00 stays as it was)" hidden>START OVER</button>
     <button id="btn-take" class="take" title="Enter">TAKE THE DESK</button>
   </div>
 </div>
 <div id="end-card" class="card" role="dialog" aria-label="Day over" hidden></div>
+<div id="shelf-card" class="card" role="dialog" aria-label="More days: practice" hidden></div>
 <div id="alarm-panel" role="dialog" aria-modal="true" aria-label="Alarms explained" tabindex="-1" hidden></div>
 <div id="suburb-card" role="dialog" aria-label="Suburb card (H)" hidden></div>
 <div id="settings" class="card" role="dialog" aria-label="Settings" hidden>

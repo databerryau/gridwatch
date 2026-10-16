@@ -127,13 +127,13 @@ export function shareRows(you, par, black) {
  * Y-4: the share card.
  * @param {{ymd:number|null, n:number|null, seed:number, grade:object|null, perfect:boolean, black:boolean, lowHz:number,
  *   spark:number[], endS:number, you:object, par:object|null, tags:string[], closing:string}} o
- *   ymd and n: the daily's date and number (null off the calendar: the seed is named instead); grade: app/score.js
+ *   ymd and n: the daily's date and number (null off the calendar: `name`, a Hard day's, else the seed, is named instead); grade: app/score.js
  *   grade's; you, par: app/score.js allIn's; tags: FIRST SHIFT, PRACTICE, HAND-FLOWN, NO COACH, GLASS BROKEN, HARD DAY.
  * @returns {{text:string, lines:string[]}} the closing line is dropped, then the last tags, to stay within MAX_CHARS.
  */
 export function shareCard(o) {
   const g = o.grade, score = g ? g.points + ' ' + g.letter + (g.star ? ' ★' : '') + (o.perfect ? ' · PERFECT' : '') : 'no score';
-  const head = tags => ['GRIDWATCH' + (o.n ? ' #' + o.n : ''), o.ymd && shortDate(o.ymd) ? shortDate(o.ymd) : 'seed ' + o.seed, score, ...tags].join(' · ');
+  const head = tags => ['GRIDWATCH' + (o.n ? ' #' + o.n : ''), o.ymd && shortDate(o.ymd) ? shortDate(o.ymd) : o.name || 'seed ' + o.seed, score, ...tags].join(' · ');
   const r = shareRows(o.you, o.par, o.black), row = (k, v) => (v ? (k + '        ').slice(0, 8) + v : '');
   const body = [sparkline(o.spark, o.endS) + '  low ' + (Number.isFinite(o.lowHz) ? o.lowHz.toFixed(2) : '-') + ' Hz',
     row('Lights', r.lights), row('Cost', r.cost), row('Carbon', r.carbon)].filter(Boolean);

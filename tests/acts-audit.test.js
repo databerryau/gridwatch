@@ -78,7 +78,7 @@ const hidden = e => { for (let n = e; n && n.tagName; n = n.parent) if (n.hidden
 function controls(p) {
   const layer = p.$('q-layer'), qOn = p.doc.body.classList.contains('q-on');
   return [...p.doc.body.walk()].filter(e => (e.tagName === 'BUTTON' || e.tagName === 'INPUT' || CONTROL_ROLES.has(e.getAttribute('role'))) &&
-    !hidden(e) && (qOn || !layer.contains(e)));
+    !hidden(e) && (qOn || !layer.contains(e)) && !(e.id === 'btn-shelf-brief' || p.$('shelf-card').contains(e)));   // (W6: the shelf changes the day, sending nothing)
 }
 const regionOf = (p, e) => REGIONS.find(id => p.$(id) && p.$(id).contains(e)) || '';
 const name = e => e.id || (e.dataset.anchor ? 'q:' + e.dataset.anchor : e.tagName + '.' + e.className);
