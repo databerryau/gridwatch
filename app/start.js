@@ -1,6 +1,7 @@
 // app/start.js: next.html's one module script (W6, Y-8). Below the desk's floor or on a touch-only device it shows the
 // landing page (app/landing.js) and never loads the game; otherwise it loads the game (app/boot.js), at once.
-// ?play skips the landing page (a small window with a mouse can also press PLAY ANYWAY on it).
+// ?play skips the landing page. On a computer whose window is what is small, the landing page offers FULL SCREEN and PLAY
+// ANYWAY, and loads the game itself once the window holds the desk (it listens for resize until then).
 // ?selftest (W6, risk 5) shows the golden-run check (app/selftest.js) in place of the game, on any screen, before the landing check.
 
 import {needsLanding, showLanding} from './landing.js';
