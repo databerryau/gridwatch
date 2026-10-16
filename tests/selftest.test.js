@@ -96,6 +96,14 @@ test('risk 5: a FAIL names the first hour whose hash differs, an ALL-IN off the 
   assert.deepEqual(judge(par, Object.assign({}, got, {hash: got.hash ^ 1})).why, ['the hash differs at 04:00']);
   assert.deepEqual(judge(par, Object.assign({}, got, {total: got.total + 3})).why, ['ALL-IN $14,749,201, the stored par is $14,749,198']);
   assert.deepEqual(judge(par, Object.assign({}, got, {tick: 3e6, hashes: got.hashes.slice(0, 16)})).why, ['the day ended at 20:40, not 04:00']);
+  // drift that blacks the grid early: the hour where the numbers split still comes first (it is what the line to copy says)
+  const split = (c, k, n) => c.hashes.slice(0, n).map((h, i) => (i >= k ? h ^ 1 : h));
+  const blacked = Object.assign({}, got, {tick: 8.5 * HOUR, hashes: split(par, 1, 8), hash: 1, total: 5});
+  assert.deepEqual(judge(par, blacked).why, ['the hash first differs at 06:00', 'the day ended at 12:30, not 04:00', 'ALL-IN $5, the stored par is $14,749,198']);
+  assert.match(summaryLine([Object.assign({name: caseName(par)}, judge(par, blacked))], {ymd: 20261016, browser: 'B', stamp: 'S', ms: 1}),
+    /: FAIL 0\/1 \(par Fri 16 Oct: the hash first differs at 06:00\) · /);
+  const [none] = kind('nothing');
+  assert.deepEqual(judge(none, {tick: 9 * HOUR, hashes: split(none, 2, 9), hash: 1}).why, ['the hash first differs at 07:00', 'the day ended at 13:00, not 14:00']);
   assert.deepEqual(judge(par, got, Infinity, {v: 'another build', rows: {}}).why, ['no stored par for this date (content/ladder.js is another build\'s)']);
   assert.deepEqual(judge(rep, {tick: rep.tick, hashes: [], hash: rep.hash ^ 1}).why, ['the hash differs at 08:00']);
   // golden values from another build: every case fails at once, and says how to make them again

@@ -107,13 +107,15 @@ export const storedTotal = (ymd, list = LADDER) => (list.v === G.dailyStamp() &&
 /**
  * W6 (risk 5): case `c`'s golden values against what this engine got: {pass, why: [reasons], note}. Every hourly hash got is
  * compared; at the case's end (unless `upTo` stopped it sooner) its tick and hash too, and par's ALL-IN against the stored par.
+ * The first hour that differs comes first, however the day ended: it is where the numbers split, and a day that blacks out
+ * early or an ALL-IN off par follows from it (the line to copy names only the first reason).
  */
 export function judge(c, got, upTo = Infinity, list = LADDER) {
   const why = [], end = c.kind === 'replay' ? c.tick : Math.min(upTo, c.tick), whole = end === c.tick;
-  const k = got.hashes.findIndex((h, i) => h !== c.hashes[i]);
+  const k = got.hashes.findIndex((h, i) => i < c.hashes.length && h !== c.hashes[i]);
+  if (k >= 0) why.push('the hash first differs at ' + tickClock((k + 1) * HOUR, false));
   if (got.tick !== end) why.push('the day ended at ' + tickClock(got.tick, false) + ', not ' + tickClock(end, false));
-  else if (k >= 0) why.push('the hash first differs at ' + tickClock((k + 1) * HOUR, false));
-  else if (whole && got.hash !== c.hash) why.push('the hash differs at ' + tickClock(end, false));
+  else if (k < 0 && whole && got.hash !== c.hash) why.push('the hash differs at ' + tickClock(end, false));
   const stored = c.kind === 'par' && whole ? storedTotal(c.ymd, list) : null;
   if (c.kind === 'par' && whole && stored === null) why.push('no stored par for this date (content/ladder.js is another build\'s)');
   else if (stored !== null && got.total !== stored) why.push('ALL-IN $' + mw(got.total) + ', the stored par is $' + mw(stored));
