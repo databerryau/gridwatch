@@ -2979,3 +2979,123 @@ Open questions:
 - The owner should decide whether to drop C-9's floor below 600 high, for example to about 557 to cover a bookmarks bar too. That would mean either a smaller map scale or cutting into SAFE's sky strip, plus an X-47-style click-box pass in the browser, or a desk below K-17's 300 px. My recommendation is to keep 1280x600, now that the small-window page gets such a laptop there in one key press or click.
 - Merge note: I edited the gate-2 kit (playtest/gate2-README.md, gate2-results.md, gate2-tester-log.md, release-checks.md and tests/gate2-kit.test.js), which were outside the listed files. tests/gate2-kit.test.js was written to fail once start.js listened for resize. Another branch that edits the kit could conflict.
 - Test hazard elsewhere: when assert.equal(element, null) with no message fails on a stand-in DOM element, Node tries to print the whole parsed next.html and ran out of memory after 152 s. landing.test.js now compares ids. Other test files may use the same pattern.
+
+
+### hygiene (wave 3)
+
+- **X-48, the rest (REVIEW D14; W6).** Removed what the hygiene audit proved dead, each re-checked after F-9, D-29, Y-6, ?selftest and map life with a whole-repo search and the audit's token scans: `SHAKE_MS` in `desk/desk.js` (levers.js and rotary.js keep their own), `SKY` in `render/mapdata.js`, `app/game.js`'s pass-through re-export of `RESUME_LOCK`/`RESUMING` (its own import stays), the unused local `NS` in `app/planview.js`, four unused test imports, `secondOfHour` in sim/README.md's weather.js list, and desk/README.md's `cueOfRecord` fallback (§13.2, §14.1). Kept on purpose: exports only tests use (the tests' way in), the 123 names exported but used only inside their own file, the F-9 `BUILD` carriers (app/boot.js reads them by lookup), the bench page and the branches (the owner's call). Still open from X-48: deleting merged branches, local and on GitHub.
+
+Open questions:
+- The bench page (bench.html plus 5 files, about 68 KB, and 18 exports elsewhere that only it keeps alive) is still the owner's call (REVIEW D14). I left it alone as told.
+- Merged branches are still there: local slice-2d, slice-2e, w6-daily, w6-ladder, w6-outlook, w6-shelf, w6-week, plus 20 on GitHub. Deleting them needs the owner's go-ahead, and the GitHub ones need a push. This is the last open part of X-48.
+- Some rules are written in two places: the K-7 hold time (app/keys.js and desk/util.js), the F-4 needle average (app/record.js and desk/dial.js) and the K-12 shake time (desk/levers.js and desk/rotary.js). Each should have one home. I did not merge them: desk/*.js belongs to the a11yDesk agent this wave.
+- Two comments in sim/market.js are out of date. Lines 156-157 say buildStack is used by the price and the Live Stack, but neither uses it. Line 263 says state.price = clearPrice(state), but the code calls clearInto. Both functions still exist, so these are wrong comments, not dead code. They were outside my files, so I left them for whoever next works in sim/market.js.
+- A wider README scan found history records that name code which has since gone: desk/README.md:3785 points at tests/objective-task.test.js (now folded into tests/objective-day.test.js); §32.6.3 names roofPlan; Q-70's RESTORE_PACE_RATE and RESTORE_FIRST_RATE (marked superseded at :3924); briefAgc and CARD_TTL_S (both recorded as going). I left them because they are records, not pointers to current code. If you want it, a one-line 'since folded into tests/objective-day.test.js' could go on the :3785 one.
+- The audit's item 9 is still open: a small test that the three hydro water-value copies agree (sim/market.js, app/planview.js, sim/autopilot.js). It is outside this task.
+
+### realism ledger (wave 3)
+
+SPEC §8.1, commit 8c493e6. Seven rows amended so they say what their sources say; no row added or removed. Inertia constants: 2–4 s is the literature's hydro figure, and the small GB hydro units measured higher. Start and stop profile: T1 + T2 ≤ 30 min and T1 + T2 + T3 + T4 < 60 min. Auto-synchroniser closing time: a new synchroniser on an existing hydro unit, on default settings, about 1 min. Forecast error by lead time: south and south-east regions only, no σ by lead time found, and the source is a UniSA Mathematics Clinic project supported by AEMO. VPP size: 9% of the NEM-wide FCAS market; 454,473 batteries installed across Australia (CEC/SunWiz H2 2025). Thermal plant reference: Aurecon Tables 4-17, 4-20, 4-23. Return after a coal-unit trip: adds Loy Yang A2, out from 18 May to 24 Dec 2019 (WattClarity), so real returns run from hours to months and ours (90–150 min) is the quick case. §8.2 and §8.3 are unchanged.
+
+Open questions (numbers the owner may want changed):
+- Gas turbine starts: our 300–500 MW GTs reach the grid in 5–8 min (+4 min auto-sync). Real aero-derivatives take about 5 min, but a large F-class frame takes 30 min (Aurecon 2021). Lengthen them, or call ours aero-fast?
+- Auto-sync: the 4-minute wait and its tunable range of 3–5 min are all slower than the measured 48–148 s. It is labelled now, but the range excludes the real value.
+- Coal ramp: ours is 3 MW/min per machine; real existing units do about 5 MW/min. It is kept on purpose (coal as the plan-ahead lever) and labelled. Move it to 5?
+- Cooling: ours is a straight 100 MW/°C from 22 °C to 36 °C. A region our size would see about 250–350 MW/°C, flattening towards 40 °C. Make it steeper or S-shaped?
+- Reserve diesel: there is no readiness fee (real NSW 2024 was about $13,800 per MW readied), the lead is 20 min where real leads are hours, and there is no minimum run time. All labelled, all game choices.
+- Air-con price: ours is $400/MWh relieved; one retailer pays households $2,000/MWh (EnergyAustralia PowerResponse).
+- Air-con snapback: ours lasts 1.5 h; real snapback lasts about 3 h, with two thirds in the first hour.
+- Inertia H is applied to MW rating, but AEMO's figures are on MVA, so our stored energy is slightly low.
+- GUARD trigger: the allowed range of 49.5–49.85 Hz is wider than AEMO's real 49.60–49.80 Hz. The value, 49.75, is inside both.
+- Rooftop return after a restore: ours always takes 6 min. A real inverter ramps at 16.67% of its rating a minute, so a roof at part sun is back sooner.
+- Not edited, needs your OK: content/scenarios.js notes still say clearFactor 0.70, state penetration and 1.9M households are 'unverified, SPEC §8.3', though §8.1 now sources them. The file was off-limits. sim/step.js strips note and src keys from the scenario hash, so a text-only fix may be safe, but someone should confirm first. desk/README.md also has 4 old §8.3 mentions, not reviewed.
+
+### sa2016 (wave 3)
+
+- **D-29, SA 2016 (the first Hard day).** `content/anniversaries.js` SA2016, `content/scenarios.js` 'desk-sa2016', `sim/dayplan.js` dayplan.incident.cascade, `app/shelf.js`. The SA black system is Hard day 1 on the practice shelf (the gate's Hard days follow from 2), on its own seed 120160928: never a daily, never gated. A mild weekday storm: 10-20 grid min after it arrives, its cut-out takes most of the wind, and 10 grid s later the importing tie trips, unwarned. No other day changes. The account is headed THIS REALLY HAPPENED (no date, so not ON THIS DAY), and the echo names the storm's cut-out in place of the protection. *Measured* once (2026-10-17): par sheds 359 MWh, 48.91 Hz, never black. The day can be beaten: par's moves with the tie held at 0 MW from 17:00 shed nothing. So D-29's 'which no plan survives' and S-7's 'no plan kept every light on today' now read: par sheds on a Hard day, and the card says 'par shed X MWh today'. Y-2's 'not built' line goes.
+
+Summary: SA 2016 is the first Hard day on the practice shelf. Pick 'Hard day 1' and the briefing opens with a box headed THIS REALLY HAPPENED, no longer ON THIS DAY, because the day is played on any date and shows no date. The box gives the 45-word account of 28 September 2016 (tornadoes, the wind farms' protection, the link to Victoria tripping, the state going black) and a link to AEMO's final report. Then a line that says plainly where the desk differs: 'Here a storm's cut-out replaces the protection, and your relays have time to shed.' The anniversary dailies keep ON THIS DAY. Their date is the incident's date.
+
+The day itself is unchanged: a mild weekday with a storm. At 17:30 the storm's cut-out takes most of the wind, and 10 grid seconds later the tie trips with no warning, losing about 500 MW of import. Par sheds 359 MWh, falls to 48.91 Hz and never goes black, so the day is graded on par's outage-free part (S-7).
+
+The reviewers showed the day can be beaten. A player who plays as well as par and holds the tie at 0 MW from 17:00 keeps every light on and gets PERFECT. The desk invites this: the 15:51 weather card warns of interconnector faults. The card used to print PERFECT next to 'No plan keeps every light on', which contradicted itself. Every Hard-day line now says what is true by S-7's own definition: par sheds load on the day. That covers the end card's run line and HARD DAY line ('HARD DAY: par shed 358.8 MWh today…'), the shelf's Hard days note and the briefing title's reason. I kept the day beatable. Reading the warnings and cutting the import before the storm is the realistic, rewarding play, and the 2,000-point cap still holds. If you want 'which no plan survives' literally, see the first open question.
+
+No sim, score or stamp change. One commit, whole suite green.
+
+Open questions:
+- Should SA 2016 be unbeatable, as D-29's 'which no plan survives' reads literally? I kept it beatable and made the words true. Cutting the import before a forecast storm is the realistic play, and the desk warns of interconnector faults at 15:51. To make it unbeatable, add a second loss at the cut-out as data (for example a 'largest' unit trip), then measure par and the tie-at-0 plan once more.
+- SPEC needs the record's rewrite in three places. S-7 at SPEC.md:357 and again at :370 says the card says 'no plan kept every light on today'. D-29 at :461 says 'which no plan survives'.
+- next.html is the a11yPage agent's file this wave. I changed one attribute on line 225 (<b id="briefing-account-head">). A merge with their branch should keep that id.
+- The builder's other open points still stand. The shelf button could read 'Hard day 1 · SA 2016'. The help's 'Event-dense day' (content/text.js) does not list SA 2016's tie trip 10 grid s after the warned cut-out. The 'black' card's simplifies line could add 'or interconnector protection'. The builder's ON THIS DAY question is now resolved.
+
+### cards (wave 3)
+
+- **D-24 (W6): five more THIS REALLY HAPPENED cards.** Over a month of dailies, the battery's card showed on 27 of 30 days whatever kind of day it was. Five new cards (content/cards.js), each read against its source on 2026-10-17: the city desk sheds (SA, 8 Feb 2017, AEMO), the tie trips (SA islanded 12-19 Nov 2022, AEMO), the reserve diesel is called (NSW RERT, 27 Nov 2024, AEMO), a heatwave (Adelaide 47.7 °C, 24 Jan 2019, AEMO) and a wind drought (88 MW NEM-wide, 13 Jun 2024, WattClarity). historyCard takes the first that fired, rarest first: black, UFLS, city desk, tie, diesel, heat, drought, battery, backstop, negative price. The verdict's `seen` memory keeps the player's day only, never the night shift's. Review: the tie card had said \"no customer lost supply\", but the same report (p. 41) has storm outages hitting 163,000 customers that week. It now says the split itself shed no load, and a test pins this.
+
+Summary: D-24 now has ten THIS REALLY HAPPENED cards; before this item, five of them never showed. Over a month of dailies, par's card was the battery's (Loy Yang A3) on 27 of 30 days and planOnly's was the relays' on all 30, whatever kind of day it was. The builder (dad5507) added five sourced cards, and app/verdict.js historyCard picks them up through a new `seen` memory. That memory keeps only the player's day, never the night shift's. The five: a shed ordered by the city desk (SA, 8 Feb 2017), the tie tripping (SA islanded 12-19 Nov 2022), the reserve diesel called (NSW RERT, 27 Nov 2024), a heatwave (SA/Vic, 24 Jan 2019) and a wind drought (88 MW NEM-wide, 13 Jun 2024). historyCard shows the first one that fired, in this order: black, UFLS, city-desk shed, tie, diesel, heat, drought, battery, backstop, negative price.
+
+The review read every new card against its source. Four matched in full. The tie card did not: it said \"no customer lost supply\", but its own AEMO source reports 163,000 customers hit by storm outages that same week. That card now says \"the split itself shed no load\", which is what the report's incident table supports. A test pins this, and the full suite passes (1077/1077). Nothing is pushed or merged.
+
+Open questions:
+- The old test 'W3 on the page: a trip, then the day's end...' in tests/verdict.test.js took 5.9 s on its own run here. That is over the 2.5 s per-test budget in CLAUDE.md, and with cards.test.js the run took 7.8 s, so the file is probably over its 6 s budget too. This fix did not cause it, but it should get its own budget fix.
+- The only parts of the source I re-read myself were the tie card's. The reviewer read the other four new cards against their sources and confirmed every figure (8 Feb 2017, RERT Q4 2024, 24 Jan 2019, WattClarity 13 Jun 2024), so I did not open them again.
+
+### a11yPage (wave 3)
+
+- **K-22, K-23: the page's accessibility (the 2026-10-17 audit).** `app/shell.js`, `next.html`, `app/endcard.js`, `app/suburbcard.js`; `tests/a11y-page.test.js`. AGC/HAND is a radio group: one Tab stop, the arrows pick, Enter on the picked radio takes the desk (D-3). The end card's h2 and the shelf's first day take the focus and give it back; Space presses their buttons; a rebuilt end card or suburb card keeps the focused control. #objective is no live region. #aria-live (one message per 2 s) says a new RESPOND card and the end card's score first (again when a late par lands), then alarms, then the whole objective line when its level, kind or first control changes (never for new figures alone; once at the desk's opening, "Clock held: press Space to run"): 100 words a minute on 20261007's morning (the audit: 290). Toasts: blue polite, red alert. A "?" pressed by key focuses its popover, named by its heading. --faint and the URGENT red read at 4.5:1.
+
+Summary: K-22/K-23 (the page's accessibility) now stands like this. Everything was checked headless; no browser, no screen reader.
+
+1. AGC/HAND works from the keyboard as a normal radio pair. The arrows pick, and Enter on the one already picked still takes the desk.
+2. When the day ends, the keyboard lands on the end card's title. MORE DAYS opens the practice shelf on its first day, and closing the shelf gives the focus back. Space now presses the end card's and the shelf's buttons, as it does in any web page. Before, it paused nothing, dropped the player's place and told them to press PLAY THIS DAY AGAIN. When the card redraws itself (par finishing, the no-GUARD comparison, COUNT THIS ONE), the keyboard stays on the button it was on, or goes to the title.
+3. A screen reader hears the instruction line only when what it asks changes. It now hears the whole line, including what to do ('Start GT·C 1 now…', 'Raise the battery GUARD to 400 MW…', 'Close a feeder: R, then Enter'). The old 10-word cut-off dropped exactly that part. On the reference morning this is 5 messages in 84 s, about 100 words a minute; the audit counted 290.
+4. At the desk's opening the screen reader is told once that the clock is held and Space runs it. Pausing later adds nothing.
+5. The "What happened" card after a trip is heard first. The end card's score is heard on show. On a practice or Hard day whose par is still computing, the score is heard again when it lands.
+6. Blue help messages are read politely and red refusals at once. The "?" popover has a name, and opening it from the keyboard moves the focus in. If a suburb card redraws under it, the focus goes back to that card's "?".
+7. The faint grey text and the URGENT badge meet 4.5:1 contrast.
+
+Changed in this review: app/shell.js, app/endcard.js, app/suburbcard.js, tests/a11y-page.test.js (15 tests) and desk/README.md §13.3. Nothing was pushed or merged.
+
+Open questions:
+- (Builder's, still open) Enter on the AGC/HAND radio that is already picked takes the desk, as a native radio's Enter submits its form. Enter on the one not picked picks it. Is this split right for the owner?
+- (Builder's, sharper now) On 20261007 the line flips BATTERY / ACT NOW about every 20 grid minutes between 11:10 and 12:34. The live region now says the whole line on each flip (21 to 32 words, about 4 messages in 15 real s). That is objective.js's own steadiness (steady(), holdLine). Should the line hold an ask longer?
+- (Builder's) #feeder-card and #beat-caption are still their own aria-live regions, outside #aria-live's 2-s limit. Should they move into the card slot?
+- Space on the end card's h2 (not a button) still gives the Q-41 toast 'Day over: PLAY THIS DAY AGAIN for another go', and keys.js blurs the focus to the page. I left this because the toast is Q-41's answer. Should Space on the h2 keep the focus instead?
+- For the integrator's one-browser pass: test natively in a browser, which a headless check cannot do. Space on PLAY THIS DAY AGAIN, MORE DAYS, a shelf day and THE NUMBERS should press or open it. The keyboard should stay on SHARE when the no-GUARD comparison finishes. Also check: no focus ring on the end card's h2 or the popover body (outline:none); the arrow keys on the briefing radios; NVDA or Narrator on the toast regions and on the held-clock line at the take, if a screen reader is available.
+- (Builder's) Other agents' audit items this wave: --dk-faint, the alarm panel's quiet tiles, the hour strip, the control names, and the 1280x600 text sizes. The integrator should check that they landed. The text-size item needs the owner's call on layout space.
+
+### a11yDesk (wave 3)
+
+- **K-22 (W6, the 2026-10-16 accessibility audit, desk side).** Above the 1280×600 floor the whole desk scales with the window: desk.js deskScale, at most 1.5×, applied by a transform in desk.css. Words, knobs and hit boxes grow together: 1× / 1.067× / 1.2× / 1.5× at 1280×600 / 1366×768 / 1536×864 / 1920×1080. Pointers read the screen box, and the canvases draw at devicePixelRatio × the scale. At the floor no desk word is under 8 px. Tray cards are two rows with 10-px messages. While a unit is on the scope, its slip line takes the sync label's row and the bay's notes sit above it. No TEXT SIZE setting: every window is width-bound. --dk-faint is #848d97. A flash moves the tile's fill, never its words, and its phases differ by 2.5:1 or more. The ring-back's amber edge flashes too. The alarm panel's quiet tiles are darker, not faded. The end strip is hatched and dotted and named by its hours. The L button is named. Tests: tests/a11y-desk.test.js.
+
+Summary: K-22 makes the desk easier to read and use for everyone. Nothing has been checked in a browser yet.
+
+Above the smallest supported window (1280×600) the whole desk now grows with the window: text, knobs and click areas together. It is 1.07× at 1366×768, 1.2× at 1536×864 and 1.5× at 1920×1080, so the smallest desk text goes from 8 px to 12 px on a 1920 screen. The dial, the synchroscope and the Live Stack stay sharp, and dragging still lands in the right place.
+
+At the smallest window, text was raised wherever there was room:
+- **Message cards:** two rows, with the message in three 10-px lines.
+- **Popup notes and the log:** 10 px.
+- **Prices:** 9 px.
+- **Nothing is under 8 px.**
+
+There is no text-size setting, because once the desk scales there is no spare width to give one.
+
+Other changes:
+- **Contrast:** faint grey text meets the 4.5:1 minimum.
+- **Alarm tiles:** they flash the tile's background, not its words.
+- **Quiet alarm-panel tiles:** shown darker, not faded.
+- **End card's hour strip:** short hours are striped and spill hours dotted, and a screen reader hears which hours they were.
+- **Live Stack's L button:** has a proper name.
+
+The review found three problems, and I fixed all three:
+1. **Note over the slip readout.** When the sync-check relay blocked a CLOSE, the red note sat on top of the slip readout (unit, Hz, seconds per turn), the number you need to time the next close. While a unit is on the scope the note now sits just above that line and below the scope.
+2. **Weak ring-back flash.** The flash for an alarm that has cleared but not been acknowledged had become a dark-brown-to-black pulse that was easy to miss. Its background is now a lighter amber and its amber border flashes too. Every flashing tile's two phases now differ by at least 2.5:1, and the words still hold 4.5:1 in both. The amber priority-3 alarm's dark phase is a little darker.
+3. **Wrong screen-reader text on the strip.** On a day where no hour was free of a gap, such as a grid that went black at 04:38, it said "no gap in the other hours". It no longer does, and a whole-day run reads "all day".
+
+Open questions:
+- 2.5:1 between a flash's two phases is my bar, not a standard. It is roughly the red flash's 2.57:1. The ring-back tile cannot go much past 2.7:1 with --dk-text words at 4.5:1 on a #0d1117 low phase; it would need --dk-bright words to go further. To meet the bar I also darkened the P3 alarm's low phase (#3d300d to #2e240a).
+- While a unit is on the scope, a bay note wider than about 165 px or longer than one line now covers a few more px than before. For 2.5 s a wide note covers the bottom 7 px of the HAND BYPASS button and of a third ready unit, and a two-line note (the watch's lock note) covers the canvas's bottom 9 px. The blocked-close note (about 150 px) stays clear of all of them.
+- Still open from the build, for the owner: the on-desk sync label is shortened to fit two 9-px lines ('Real operators aim for 15–30 s per turn and close within ±10°; ours turns faster. Most plants sync themselves, at the station.'). The whole sentence stays in the ? drawer.
+- Still open from the build: the plan bar's alarm-tile slot is sized by the page, so its tiles stay 8.5 px below 1600 px wide. The page around the desk does not scale, so the desk stops at 1.5×. Players on 1280-wide windows get only the floor's raises; browser zoom drops them below the floor. The ‼ URGENT badge in next.html (4.23:1) belongs to the page-side item.
+- Not seen in a browser. The integrator's one-pane pass should look at the following at 1280×600 and 1920×1080: the scaled desk; the two-row tray cards; the slip line in the label's row with a blocked-close note above it; the new ring-back colours (#66521a fill, amber/line edge); and the strip's hatch and dots.
+- w6-batch has moved on since this branch started at 508d904. Expect small merges in desk/desk.js and desk/desk.css.
