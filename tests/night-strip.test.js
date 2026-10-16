@@ -1,17 +1,17 @@
 // D-11's accept on the page (desk/README.md §32.8.2, Q-73), sampled: no drawn roll. One game, a returning
-// player's (a compact watch), no input but Enter on each RESPOND card, jumped once to 21:00:01
-// (to('21:00') lands before the sim's flip) by tests/feedback.test.js's card loop. Then three looks: at
+// player's (a compact watch), no input but Enter on each RESPOND card and LEAVE on each shed card, the day to 20:30
+// skipped (the sim alone), then jumped to 21:00:01 (to('21:00') lands before the sim's flip). Then the looks: at
 // 21:00 the plan bar is the night strip (the lock's words over the day's totals), it stays with a guard
-// under the pointer, and the badge reads NIGHT ROLL; at 01:00 every figure has counted up (OUTAGES too: the
-// districts the day shed are dark until the night shift relights them) and the city's windows have gone
-// dark; the night ends at 04:00 by itself (never a card or a hold) within 15 real s of 21:00, and the END
-// line is there at once. Par is a finished stand-in, so the strip shows SCORE. (The end card's fetch at
-// 21:00 and the strip's redraw cadence are tests/briefing.test.js's, on the shell alone.) The file takes
-// 4.6-5.4 s alone, nearly all of it the sim's day and night (a date with no task feeders, so no feeder card
-// holds the jump, Q-91; app/director.js keeps the feeders' allowed seconds per input-log length since stage C).
+// under the pointer, and the badge reads NIGHT ROLL; F and a locked press answer in blue; at 01:00 every figure
+// has counted up (OUTAGES too: the districts the day shed are dark until the night shift relights them) and the
+// city's windows have gone dark; the night ends at 04:00 by itself (never a card or a hold) within 15 real s of
+// 21:00, and the END line is there at once. Par is a finished stand-in, so the strip shows SCORE. (The end card's
+// fetch at 21:00 and the strip's redraw cadence are tests/briefing.test.js's, on the shell alone.) Nearly all of
+// the file's time is the sim's day and night (a date with no task feeders, so no feeder card holds the jump, Q-91;
+// app/director.js keeps the feeders' allowed seconds per input-log length since stage C).
 import {test, before} from 'node:test';
 import assert from 'node:assert/strict';
-import {openGame} from './lib/play.js';
+import {openGame, diffLooks} from './lib/play.js';
 import * as G from '../app/game.js';
 import {NIGHT_LOCK} from '../render/format.js';
 import {PAR_MARK_S} from '../app/par.js';
@@ -39,11 +39,17 @@ const windows = p => Object.values(p.h.mods.map.debug.districts).reduce((a, d) =
 
 before(() => {
   const p = S.p = openGame({seed: SEED, storage, par: {score: series.at(-1), series}});
-  // (D-26: each shed stage's card is gone on from, LEAVE, so the night still starts dark)
-  for (let i = 0; i < 40; i++) {
-    const r = p.to('21:00:01', {stop: [], line: 'near'});
-    if (r.why === 'held:RESPOND-CARD') p.key('Enter'); else if (r.why === 'held:FEEDER-CARD') p.click('feeder-leave'); else break;
-  }
+  // (D-26: each shed stage's card is gone on from, LEAVE, so the night still starts dark. W6, the test budget: to 20:30
+  // as the sim alone, tests/lib/play.js skipTo, stopping at each card for that answer; then the page's own jump, so the
+  // map's districts and the tray have the evening's real seconds behind them at 21:00)
+  const day = go => {
+    for (let i = 0; i < 40; i++) {
+      const r = go();
+      if (r.why === 'held:RESPOND-CARD') p.key('Enter'); else if (r.why === 'held:FEEDER-CARD') p.click('feeder-leave'); else return;
+    }
+  };
+  day(() => p.skipTo('20:30'));
+  day(() => p.to('21:00:01', {stop: [], line: 'near'}));
   S.t21 = p.now;
 });
 
@@ -69,6 +75,30 @@ test('Q-73 at 21:00: the plan bar is the night strip (the lock\'s words, the day
   p.hover('guard-start-gta1');
   const hov = p.look({controls: false});
   assert.deepEqual([lines(hov, 'LINE '), lines(hov, 'NIGHT ').length], [[], 1], 'the strip stays under the pointer:\n' + hov);
+  p.hover(null);
+  assert.deepEqual(p.h.mods.errors, []);
+});
+
+// "Every press answers" (Q-41, desk/README.md §32.8.2) in the night roll: F and a locked press, in blue, with the lock's
+// words (moved here from tests/feedback-day.test.js, whose day now ends in the morning: this file plays the night anyway).
+// Each is press()/pressKey() with one frame after; the notes and the toast a press left are hidden first.
+test('every new press answers: F and a locked press in the night roll, in blue, with the lock\'s words', () => {
+  const p = S.p, esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const answers = (x, want, what, key = false) => {
+    for (const n of p.doc.querySelectorAll('.dk-note')) n.hidden = true;
+    p.$('toast').hidden = true;
+    const r = key ? p.pressKey(x, {}, {after: 1 / 60}) : p.press(x, {after: 1 / 60}), shown = diffLooks(r.before, r.during) + '\n' + r.diff;
+    assert.match(shown, want, what + ' did not answer as expected; it showed:\n' + shown);
+    for (const l of (r.during + '\n' + r.after).split('\n')) {
+      if (l.startsWith('NOTE RED ')) assert.match(l, /: ✕ /, what + ': help in red: ' + l);
+      if (l.startsWith('TOAST RED ')) assert.match(l, /^TOAST RED (Refused|RE-DISPATCH): /, what + ': help in red: ' + l);
+    }
+  };
+  answers('f', /^TOAST blue FAST waits: the night shift runs the roll to 04:00$/m, 'F at night', true);
+  const lock = new RegExp('^(TOAST blue|NOTE blue [^\\n]*?:) ' + esc(NIGHT_LOCK) + '$', 'm');
+  answers('guard-start-gta1', lock, 'START at night');
+  answers('n', lock, 'RE-DISPATCH (N) at night', true); // (K-24: the key itself is HAND's)
+  assert.ok(!p.game.state.log.some(x => x.type === 'start' && x.args.unit === 'gta1'), 'refused, not logged');
   p.hover(null);
   assert.deepEqual(p.h.mods.errors, []);
 });

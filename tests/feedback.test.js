@@ -9,13 +9,13 @@
 // the player sees (the looks' diff, or a named element: the Live Stack's message, the map's label,
 // the focus) and (b) no NOTE or TOAST that is help shows RED.
 //
-// States, by test (three games, each test going on from the one before it): the briefing (its game
+// States, by test (two games, each test going on from the one before it): the briefing (its game
 // then takes a HAND day); the quiet desk at 04:30 (clock held: nothing moves but the press); the desk
-// running (FAST, a unit READY: the scope, the tray); the watch (seed 20261007, COAL 1 at 11:37:31,
-// the first full watch: the desk is locked); the RESPOND card; the shortage (15:40, SHORT: DIRECT
-// SHED, RESTORE); the day over (set by state: playing on to 04:00 costs ~2 s more); the HAND day.
-// The file keeps to CLAUDE.md's budget (<= 6 s alone, a test <= 2.5 s): one frame after a press, and
-// a look without the CTRL lines where the check is a note, a toast, an overlay or the rate.
+// running (FAST, a unit READY: the scope, the tray); the HAND day. The third game, the watch, the
+// RESPOND card, the shortage and the day over, is tests/feedback-watch.test.js's (W6, the test budget:
+// the three were 7-8 s in one file); the helpers are tests/lib/feedback.js's, and each file checks its
+// part of the inventory. Both keep to CLAUDE.md's budget (<= 6 s alone, a test <= 2.5 s): one frame
+// after a press, and a look without the CTRL lines where the check is a note, a toast, an overlay or the rate.
 //
 // NOT PRESSED HERE (no press to answer, or out of reach in the file's 6 s):
 //   hdr-readouts, objective-line, toast: readouts, not controls (their "?" badges are pressed);
@@ -24,103 +24,9 @@
 //     one needs a drop the ramps cannot make, found by search (tests/livestack.test.js covers it).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {openGame, diffLooks} from './lib/play.js';
-import {PLANTS, SUBURBS} from '../render/mapdata.js';
+import {openGame} from './lib/play.js';
 import * as D from '../app/director.js';
-import {badgeText} from '../render/format.js';
-import {legacyDesk} from './lib/sim-helpers.js';
-
-const A = 1 / 60;               // real s after a press: one frame (CLAUDE.md: sample, don't stream)
-const covered = new Set();
-
-/** Hide the notes and the toast a press left, so the next press's answer is new in the diff. */
-function quiet(p) {
-  for (const n of p.doc.querySelectorAll('.dk-note')) n.hidden = true;
-  const t = p.$('toast');
-  if (t) t.hidden = true;
-}
-/** What a press showed: before -> the press frame, and before -> after. */
-const shown = r => diffLooks(r.before, r.during) + '\n' + r.diff;
-/** (b) help is never red: a red note is a '✕' refusal, a red toast 'Refused:' or 'RE-DISPATCH:'. */
-function noRedHelp(r, what) {
-  for (const l of (r.during + '\n' + r.after).split('\n')) {
-    if (l.startsWith('NOTE RED ')) assert.match(l, /: ✕ /, what + ': help in red: ' + l);
-    if (l.startsWith('TOAST RED ')) assert.match(l, /^TOAST RED (Refused|RE-DISPATCH): /, what + ': help in red: ' + l);
-  }
-}
-/**
- * (a) and (b). `want`: a RegExp the press's diff must match, a function of the sample that must be
- * true (a named element changed), or null (the diff is not empty).
- */
-function answers(r, want, what, key) {
-  const s = shown(r);
-  if (want instanceof RegExp) assert.match(s, want, what + ' did not answer as expected; it showed:\n' + s);
-  else if (typeof want === 'function') assert.ok(want(r), what + ' did not answer; it showed:\n' + s);
-  else assert.ok(s.trim(), what + ': a silent press');
-  noRedHelp(r, what);
-  if (key) covered.add(key);
-  return r;
-}
-// A check on a note, a toast, an overlay or the rate needs no CTRL lines (a cheaper look: the file's time budget).
-const lite = want => (want instanceof RegExp && /^\^(NOTE|TOAST|SETTINGS|DRAWER|POPOVER|BRIEFING|END)|×/.test(want.source) ? {controls: false} : undefined);
-const click = (p, x, want, key, what = x) => { quiet(p); return answers(p.press(x, {after: A, look: lite(want)}), want, what, key); };
-const tap = (p, k, want, key, extra = {}, what = (extra.shiftKey ? 'Shift+' : '') + k) => {
-  quiet(p);
-  return answers(p.pressKey(k, extra, {after: A, look: lite(want)}), want, what, key);
-};
-/** A gesture the driver's press() does not make (a hold, a pointer drag, a canvas click), sampled the same way. */
-function act(p, fn, want, key, what, wait = A) {
-  quiet(p);
-  const o = lite(want), before = p.look(o);
-  fn();
-  const during = p.look(o);
-  p.real(wait);
-  const after = p.look(o);
-  return answers({before, during, after, diff: diffLooks(before, after)}, want, what, key);
-}
-const down = (p, id) => () => { p.pointer(id, 'pointerdown'); p.pointer(id, 'pointerup'); p.frame(); };
-const HOLD = 0.62;              // a hold commits after 0.6 s
-const focused = p => { const a = p.doc.activeElement; return a ? a.id || a.className : ''; };
-const lock = /^NOTE blue [^\n]*: desk locked while the grid catches itself: watch this one$/m;
-// The badge the page shows once `f` has changed a copy of the director, in mode `mode`: the rate read, never a 120× literal (slice 2c's profile).
-const badge = (p, mode, f) => { const d = Object.assign({}, p.game.director); f(d, p.game.state); const m = D.modeOf(d, p.game.state); assert.equal(m.mode, mode); return new RegExp(badgeText(m).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')); };
-
-// The Live Stack's canvas: a point in canvas px -> the page's clientX/Y (the stand-in rect).
-function stackAt(p) {
-  const st = p.h.mods.stack, cv = st.el.querySelector('canvas'), G = st.debug.geom, r = cv.getBoundingClientRect();
-  return {st, cv, G, xy: (x, y) => [r.left + x * r.width / G.W, r.top + y * r.height / G.H]};
-}
-function stackHit(p, kind, ok = () => true) {
-  const {st, G} = stackAt(p), vm = p.vm();
-  for (let x = G.x(vm.obs.s) + 4; x < G.x1; x += 3) for (let y = G.y1; y < G.y0; y += 2) {
-    const h = st.debug.hitTest(x, y);
-    if (h && h.kind === kind && ok(h)) return {x, y, h};
-  }
-  return null;
-}
-const stackMsg = p => p.h.mods.stack.el.querySelector('.livestack-msg');
-function stackClick(p, x, y) {
-  const {cv, xy} = stackAt(p), [cx, cy] = xy(x, y);
-  cv.dispatch('pointerdown', {clientX: cx, clientY: cy});
-  cv.dispatch('pointerup', {clientX: cx, clientY: cy});
-  p.frame();
-}
-/** The stack's message after `fn`: blue help matching `re`. */
-function stackSays(p, fn, re, key, what) {
-  const m = stackMsg(p);
-  m.textContent = '';
-  act(p, fn, () => re.test(m.textContent) && m.classList.contains('info'), key, what + ' (stack says "' + m.textContent + '")');
-}
-// The map's canvas: a map (base) point -> clientX/Y.
-function mapClick(p, id) {
-  const map = p.h.mods.map, cv = map.el.querySelector('canvas'), L = map.debug.layout, r = cv.getBoundingClientRect();
-  const cw = map.el.clientWidth || r.width, ch = map.el.clientHeight || r.height;
-  const b = id === 'ground' ? [150, 185, 0, 0] : (PLANTS.find(q => q.id === id) || SUBURBS.find(s => 'sub:' + s.id === id)).box;
-  const x = b[0] + b[2] / 2, y = b[1] + b[3] / 2;
-  cv.dispatch('click', {clientX: r.left + (L.dx + x * L.scale) * r.width / cw, clientY: r.top + (L.dy + (y - L.srcY) * L.scale) * r.height / ch});
-  p.frame();
-}
-const mapLabel = p => p.h.mods.map.el.getAttribute('aria-label') || '';
+import {INVENTORY, WATCH_PART, unpressed, click, tap, act, down, HOLD, focused, badge, stackAt, stackHit, stackClick, stackSays, mapClick, mapLabel} from './lib/feedback.js';
 
 // ---------------------------------------------------------------- the briefing
 
@@ -319,90 +225,6 @@ test('every press answers: the desk running (FAST, a READY unit and its scope, t
   assert.deepEqual(p.h.mods.errors, []);
 });
 
-// ---------------------------------------------------------------- the watch, the card, the shortage, the day over
-
-const W = {};
-test('every press answers: the watch (the first full one: the desk answers with the lock note)', () => {
-  const p = W.p = openGame({scenario: legacyDesk()}); // (today's desk events: the dayplan, slice 2c, moves them)
-  const r = p.until('trip', {max: '13:00', line: 'near'});
-  assert.equal(r.why, 'trip');
-  assert.equal(p.mode(), 'WATCH');
-  click(p, 'station-start-gtc', lock, 'guard-start');
-  tap(p, '1', /lever-coal "[^"]*"=\d+ \[[^\]]*focus/, 'keys-focus');
-  tap(p, 'ArrowUp', lock, 'lever-track');
-  tap(p, 's', lock, 'keys-ss-xx-p');
-  tap(p, '6', null, 'keys-focus');
-  tap(p, 'ArrowUp', lock, 'hydro-wheel');
-  click(p, 'key-agc', lock, 'key-agc-desk');
-  tap(p, 'n', lock, 'keys-misc');
-  act(p, down(p, 'key-rert'), lock, 'key-rert', 'BREAK GLASS in the watch');
-  act(p, down(p, 'btn-dr'), lock, 'btn-dr', 'DR in the watch');
-  act(p, () => { p.keyDown('d'); p.frame(); p.keyUp('d'); }, lock, 'keys-holds', 'D in the watch');
-  tap(p, 'k', lock, 'keys-focus');
-  click(p, 'sync-raise', lock, 'sync-trim');
-  for (const k of ['o', 'b']) tap(p, k, lock, 'keys-scope');
-  const gh = stackHit(p, 'ghost');
-  if (gh) stackSays(p, () => stackClick(p, gh.x, gh.y), /^Read-only during the watch: watch this one$/, 'stack-ghost-start', 'the stack in the watch');
-  tap(p, 'Escape', /^TOAST blue The first watch plays through: Esc skips from the next trip$/m, 'key-esc');
-  tap(p, 'f', /^TOAST blue FAST waits: the watch plays the trip in slow motion$/m, 'key-f-fast');
-  // the annunciator works in the watch
-  click(p, 'btn-silence', null, 'btn-silence');
-  click(p, 'btn-ack', null, 'btn-ack');
-  assert.equal(p.mode(), 'WATCH', 'all of it inside the watch');
-  assert.deepEqual(p.h.mods.errors, []);
-});
-
-test('every press answers: the RESPOND card, then RESPOND', () => {
-  const p = W.p;
-  const r = p.until('card', {max: '+30m'});
-  assert.equal(r.why, 'card');
-  tap(p, 'f', /^TOAST blue FAST waits: read the card, then Enter$/m, 'key-f-fast');
-  click(p, 'respond-card', r2 => !/^CARD /m.test(r2.after), 'respond-card');
-  if (p.mode() === 'RESPOND') tap(p, 'f', /^TOAST blue FAST waits: RESPOND runs 30× until frequency is back in band$/m, 'key-f-fast');
-  assert.deepEqual(p.h.mods.errors, []);
-});
-
-test('every press answers: the shortage (15:40 SHORT: DIRECT SHED, RESTORE, a dark suburb)', () => {
-  const p = W.p;
-  for (let i = 0; i < 4; i++) { const r = p.to('15:40', {stop: [], line: 'near'}); if (r.why !== 'held:RESPOND-CARD') break; p.key('Enter'); }
-  assert.ok(!p.$('key-shed').hidden, 'DIRECT SHED shown: ' + p.look({controls: false}).split('\n').find(l => l.startsWith('N-1')));
-  tap(p, 'k', /key-shed "[^"]*" \[[^\]]*focus/, 'keys-focus');
-  act(p, down(p, 'key-shed'), /key-shed "▶ HOLD: SHED/, 'key-shed', 'DIRECT SHED (cover)');
-  act(p, down(p, 'key-shed'), /^NOTE blue [^\n]*hold 0\.6 s to commit$/m, 'key-shed', 'a short press on DIRECT SHED');
-  // the keyboard's guarded double: the cover lifted under 2 s ago, Enter on the focused key commits
-  tap(p, 'Enter', /bay-restore "✕\d RESTORE"/, 'key-shed', {}, 'Enter on DIRECT SHED');
-  tap(p, 'r', /bay-restore "[^"]*" \[[^\]]*selected/, 'keys-focus');
-  click(p, 'bay-restore', /bay-restore "[^"]*" \[[^\]]*focus/, 'bay-tabs');
-  const row = [...p.doc.querySelectorAll('button')].find(b => /^restore-/.test(b.id) && b.id !== 'restore-list' && !b.hidden);
-  assert.ok(row, 'a dark district on the RESTORE list');
-  click(p, row, null, 'restore-close', 'CLOSE ' + row.id);
-  const dark = p.vm().obs.districts.find(d => d.dark);
-  if (dark) act(p, () => mapClick(p, 'sub:' + dark.suburb), () => p.game.ui.focus === 'bay-restore' && p.game.ui.suburb === dark.suburb, 'map-click', 'a click on a dark suburb (RESTORE, and its card)');
-  assert.deepEqual(p.h.mods.errors, []);
-});
-
-test('every press answers: the day over (desk, header, DOWNLOAD, PLAY THIS DAY AGAIN, TAKE THE DESK)', () => {
-  const p = W.p;
-  // The day's end, by state (as tests/keys.test.js does): playing on to 04:00 is ~2 s more headless.
-  p.game.state.over = true;
-  p.frames(2);
-  assert.match(p.look({controls: false}), /^END Day over: 04:00\./m);
-  const OVER = /^TOAST blue Day over: PLAY THIS DAY AGAIN for another go$/m, DESK = /^NOTE blue [^\n]*the day is over: PLAY THIS DAY AGAIN is on the card$/m;
-  tap(p, ' ', OVER, 'key-space');
-  click(p, 'rate-badge', OVER, 'hdr-rate-badge');
-  tap(p, 'f', OVER, 'key-f-fast');
-  click(p, 'station-start-gtc', DESK, 'guard-start');
-  tap(p, 'n', DESK, 'keys-misc');
-  tap(p, '1', null, 'keys-focus');
-  tap(p, 's', DESK, 'keys-ss-xx-p');
-  tap(p, 'ArrowUp', DESK, 'lever-track');
-  tap(p, 'o', DESK, 'keys-scope');
-  click(p, 'btn-save-log', /^TOAST blue Saved to your downloads: gridwatch-.+-seed-20261007\.json$/m, 'end-download');
-  click(p, 'btn-again', /^BRIEFING /m, 'end-again');
-  click(p, 'btn-take', r => !/^BRIEFING /m.test(r.after), 'brief-take');
-  assert.deepEqual(p.h.mods.errors, []);
-});
-
 // ---------------------------------------------------------------- a HAND day
 
 test('every press answers: a HAND day (the MAN lamp, P / Shift+P, BYPASS, a drag on an idle lever)', () => {
@@ -428,13 +250,6 @@ test('every press answers: a HAND day (the MAN lamp, P / Shift+P, BYPASS, a drag
 
 // ---------------------------------------------------------------- the inventory, all of it
 
-test('every control of the inventory was pressed (but the four listed at the top)', () => {
-  const ALL = ['brief-agc', 'brief-hand', 'brief-take', 'key-enter-briefing', 'hdr-pause', 'hdr-rate-badge', 'key-space', 'key-f-fast',
-    'hdr-mute', 'hdr-settings', 'set-volumes', 'set-rm', 'set-fxlow', 'set-crt', 'hdr-help', 'q-badges', 'guard-start', 'guard-stop',
-    'lever-track', 'man-lamp', 'hydro-wheel', 'battery-dial', 'guard-ring', 'tie-knob', 'key-agc-desk', 'btn-redispatch', 'key-rert',
-    'btn-dr', 'key-shed', 'bay-tabs', 'scope-ready', 'sync-trim', 'sync-close', 'sync-auto', 'sync-bypass', 'sync-exit', 'restore-close',
-    'btn-preview', 'q-desk', 'btn-ack', 'btn-silence', 'tiles', 'tray-card-btn', 'btn-log', 'respond-card', 'key-esc', 'stack-expand',
-    'stack-drag-key-edge', 'stack-ghost-start', 'stack-hover', 'stack-keys', 'map-click', 'map-keys', 'key-tab', 'keys-focus',
-    'keys-ss-xx-p', 'keys-scope', 'keys-holds', 'keys-misc', 'end-download', 'end-again'];
-  assert.deepEqual(ALL.filter(k => !covered.has(k)), []);
+test('every control of this file\'s part of the inventory was pressed (the watch\'s part is tests/feedback-watch.test.js\'s)', () => {
+  assert.deepEqual(unpressed(INVENTORY.filter(k => !WATCH_PART.includes(k))), []);
 });

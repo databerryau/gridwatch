@@ -139,6 +139,26 @@ It reads each test file's imports (through `tests/lib/` and the game's modules) 
 paths it names, and runs the tests that depend on something changed. The whole suite
 (`node --test`) runs once before a merge, and in CI. See `CLAUDE.md`.
 
+## Check the test budget (`slow-tests.mjs`)
+
+```
+npm run test:slow                            # every tests/*.test.js alone, 4 at once: the slowest files and tests
+node tools/slow-tests.mjs -j 2 --top 20      # 2 at once, the slowest 20
+node tools/slow-tests.mjs tests/desk.test.js # these files only
+node tools/slow-tests.mjs --json times.json  # every file's and test's seconds, for a before/after
+```
+
+CLAUDE.md's budget: a test file takes 6 s or less run alone, a test 2.5 s or less, on the owner's
+laptop. Each file runs alone through node:test's `run()`; an offender is timed again with nothing
+beside it. The budgets are scaled by the CPU yardstick of `tests/lib/speed.js` (D-9's), so a slower
+machine is not an offender (`--raw`: the budgets as written). The yardstick is read before the run, after
+it and before each file timed again alone, and the fastest reading scales, so a busy moment does not
+loosen the budgets; a file or test within them but over the budget as written is still marked "over as
+written", and the verdict names it. Each file's CPU time is shown beside
+its wall: a wall far over the CPU says the machine was busy, and the report says so. CI runs it
+after `node --test` and prints a GitHub warning for each offender; it never fails the build.
+(Not `test-times.mjs`: `node --test` runs any `test-*.mjs` as a test file.)
+
 ## Files
 
 | File | What it is |
@@ -146,6 +166,7 @@ paths it names, and runs the tests that depend on something changed. The whole s
 | `play.mjs` | Plays next.html headless and fast; prints what the player sees (`tests/lib/play.js`). An ES module. |
 | `d6.mjs` | D-6's whole-day replay through the real page: one input log at 1x, F held and 50 pauses, one hash (2c). An ES module. |
 | `changed-tests.mjs` | Runs only the test files a change can affect (`npm run test:changed`). An ES module. |
+| `slow-tests.mjs` | Times each test file alone against CLAUDE.md's budget; warns in CI (`npm run test:slow`). An ES module. |
 | `par.js` | v4 par and the proxies over seeds (S-4, S-5, S-11, S-12, S-14) on any scenario; `-j N` forks workers. Exports `grade()`. |
 | `follow.mjs` | The hint-following player over seeds, against par (SPEC §9.1 Q-18; desk/README.md §21.4). An ES module. |
 | `perf.mjs`, `shot-receiver.mjs` | F-11 headless measurements; the PNG receiver for visual QA (SPEC §10). |

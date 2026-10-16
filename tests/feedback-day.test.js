@@ -1,27 +1,29 @@
 // "Every press answers" (SPEC Q-41, Q-42) for the presses slice 2c adds (desk/README.md §32.8.2): the
 // briefing's (HAND and AGC with the header's chip, the "?" beside Watch for, TAKE THE DESK), at 04:30 RESTORE
-// on a feeder still under repair and START on the unit back late from maintenance, and in the night roll F
-// and a locked press. A press answers when what the player sees changes; help is never red (a red note is
-// a '✕' refusal, a red toast 'Refused:'), and a refusal says its reason.
+// on a feeder still under repair and START on the unit back late from maintenance, and Enter at a RESPOND card
+// with the keys on the RESTORE rows. A press answers when what the player sees changes; help is never red (a red
+// note is a '✕' refusal, a red toast 'Refused:'), and a refusal says its reason. (The night roll's F and locked
+// press are tests/night-strip.test.js's, on the night that file plays anyway.)
 //
 // Headless and sampled (CLAUDE.md, tests/lib/play.js): one game on DESK 20261007, whose 04:00 brings both
 // the feeders under repair (RED7 06:45, RED5 07:15) and the late return (CCGT 2 until 07:45), with a
 // returning player's storage; each press is press()/pressKey() (a look before, on the press frame and one
-// frame after). Then RED7 closed at its feeder card (R, Q-91), RED5's card gone on from (Esc), and Enter at the
-// day's first RESPOND card, the keys still on the RESTORE rows (K-16: it closes the card, never RED5's breaker).
-// The jumps are in before() hooks: the card, then the night by tests/feedback.test.js's card loop to 21:00:01.
+// frame after). Then RED7 left dark at its feeder card (LEAVE, D-27), RED5 closed at its own (R, Q-91), and
+// Enter at the day's first RESPOND card (the 09:46 link trip), the keys still on the RESTORE rows and RED7's close
+// accepted there (K-16: Enter closes the card, never RED7's breaker). The jumps are in a before() hook; the hours
+// to the card are skipped (tests/lib/play.js skipTo, W6: the test budget, with the night roll's presses moved to
+// tests/night-strip.test.js).
 import {test, describe, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {openGame, diffLooks} from './lib/play.js';
 import * as G from '../app/game.js';
 import {HAND_CHIP} from '../app/shell.js';
-import {NIGHT_LOCK} from '../render/format.js';
 import {preroll, prerollRegime} from '../sim/dayplan.js';
+import {restorePermissive} from '../sim/grid.js';
 
 const SEED = 20261007, A = 1 / 60;
 const mem = new Map([[G.SEEN_KEY, JSON.stringify({watch: true, shifts: 1})]]);
 const storage = {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v))};
-const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Hide the notes and the toast a press left, so the next press's answer is new in the diff. */
 function quiet(p) {
@@ -83,34 +85,18 @@ describe('the first RESPOND card', () => {
     p.key('r');   // R, as its card says: RED5 restored
     S.restored = restores();
     p.key('r');   // the bay's R: the keys on the RESTORE rows, RED7 waiting there
-    S.card = p.until('card', {max: '21:00', line: 'near'});   // the day's first trip (18:00:30), RED7 still open
+    S.card = p.skipTo('21:00');   // the day's first trip's RESPOND card (09:46:30), RED7 still open
   });
 
   test('K-16: Enter at a RESPOND card closes it, though the keys are still on the RESTORE rows (it never closes a breaker as well)', () => {
     const p = S.p;
-    assert.deepEqual([S.held, S.restored, S.red5, S.card.why, p.mode()], ['held:FEEDER-CARD', ['RED5'], '07:15:00', 'card', 'RESPOND-CARD']);
+    assert.deepEqual([S.held, S.restored, S.red5, S.card.why, S.card.at, p.mode()],
+      ['held:FEEDER-CARD', ['RED5'], '07:15:00', 'held:RESPOND-CARD', '09:46:30', 'RESPOND-CARD']);
     assert.equal(p.doc.activeElement && p.doc.activeElement.id, 'restore-list', 'the keys are on the RESTORE rows, RED7 waiting there');
+    const st = p.game.state;
+    assert.equal(restorePermissive(st, st.city.districts.findIndex(x => x.id === 'RED7'), {preview: true}), '', 'a close of RED7 would be accepted here (or the check below proves nothing)');
     answers(p, 'Enter', x => /^CARD /m.test(x.before) && !/^CARD /m.test(x.after), 'Enter at the card', true);
     assert.deepEqual(restores(), ['RED5'], 'Enter closed the card and nothing else');
-    assert.deepEqual(p.h.mods.errors, []);
-  });
-});
-
-describe('the night roll', () => {
-  before(() => {
-    const p = S.p;
-    // (D-26: the evening's shed stages hold too)
-    for (let i = 0; i < 40; i++) { const r = p.to('21:00:01', {stop: [], line: 'near'}); if (!/^held:(RESPOND|FEEDER)-CARD$/.test(r.why)) break; p.key(r.why === 'held:RESPOND-CARD' ? 'Enter' : 'Escape'); }
-    assert.equal(p.clock(), '21:00:01');
-  });
-
-  test('every new press answers: F and a locked press in the night roll, in blue, with the lock\'s words', () => {
-    const p = S.p;
-    answers(p, 'f', /^TOAST blue FAST waits: the night shift runs the roll to 04:00$/m, 'F at night', true);
-    const lock = new RegExp('^(TOAST blue|NOTE blue [^\\n]*?:) ' + esc(NIGHT_LOCK) + '$', 'm');
-    answers(p, 'guard-start-gta1', lock, 'START at night');
-    answers(p, 'n', lock, 'RE-DISPATCH (N) at night', true); // (K-24: the key itself is HAND's)
-    assert.ok(!p.game.state.log.some(x => x.type === 'start' && x.args.unit === 'gta1'), 'refused, not logged');
     assert.deepEqual(p.h.mods.errors, []);
   });
 });
