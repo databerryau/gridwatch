@@ -42,7 +42,7 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
   '#end-strip .s-g{background:#3fb950}#end-strip .s-r{background:#f85149}#end-strip .s-b{background:#58a6ff}' +
   '#end-card .why{color:var(--dim);font-size:11px;margin:2px 0}#end-card canvas{display:block;width:100%;height:120px;margin:4px 0}' +
   '#end-moment,#end-history,#end-debrief{border-top:1px solid var(--line);margin-top:8px;padding-top:4px}' +
-  '#end-numbers summary{cursor:pointer;color:var(--bright);margin-top:8px}' +
+  '#end-numbers summary{cursor:pointer;color:var(--bright);margin-top:8px}#end-history a{color:#58a6ff}' +
   '#end-card .q{width:22px;height:22px;min-width:0;min-height:0;padding:0;border-radius:50%;font:700 11px/20px system-ui,sans-serif;color:var(--dim)}';
 
 /** A difference to par: '+$1.25M', '−$840' (U+2212), '$0'. */
@@ -176,6 +176,7 @@ export function createEndCard(doc, root, actions, deps) {
   // W3 (D-20, L-10, D-21, D-24, P-1, H-11): the day in words, in D-25's order (app/verdict.js builds it: v.end.verdict)
   function verdict(parent, v) {
     const x = v.end.verdict;
+    charts = [];
     if (!x) return;
     const box = el('div', '', '', parent), row = (k, text, id) => { const p = el('p', '', 'vrow', box); el('b', k, '', p); p.append(' ' + text); p.id = id; };
     box.id = 'end-verdict';
@@ -195,9 +196,7 @@ export function createEndCard(doc, root, actions, deps) {
       el('b', 'THE MOMENT', '', mb);
       const cv = el('canvas', '', '', mb);
       cv.id = 'end-moment-chart';
-      try {
-        drawMoment(cv, m.trace, [{hz: m.numbers.noGuardHz, label: 'NO GUARD', col: COL.pink}, {hz: m.numbers.parHz, label: 'PAR', col: COL.grey}]);
-      } catch (err) { /* (a chart is optional: the words carry it) */ }
+      charts.push([cv, () => drawMoment(cv, m.trace, [{hz: m.numbers.noGuardHz, label: 'NO GUARD', col: COL.pink}, {hz: m.numbers.parHz, label: 'PAR', col: COL.grey}])]);
       for (const t of m.text) el('p', t, '', mb);
     }
     const c = x.card;
@@ -216,11 +215,22 @@ export function createEndCard(doc, root, actions, deps) {
       el('p', x.demand.text, '', db);
       const dc = el('canvas', '', '', db);
       dc.id = 'end-demand-chart';
-      try { drawDemandPair(dc, x.demand.under, x.demand.oper); } catch (err) { /* (optional) */ }
+      charts.push([dc, () => drawDemandPair(dc, x.demand.under, x.demand.oper)]);
     }
     el('p', x.trips, '', db);
   }
 
+  // The verdict's charts, drawn once the card is laid out and again when their width changes (a chart is
+  // optional: the words carry it)
+  let charts = [];
+  function drawCharts() {
+    for (const [cv, draw] of charts) {
+      const w = cv.clientWidth;
+      if (!(w > 1) || cv.dataset.w === String(w)) continue;
+      cv.dataset.w = String(w);
+      try { draw(); } catch (err) { /* (optional) */ }
+    }
+  }
   // (each verdict object the game builds gets a number: a new one redraws the card)
   const seenV = new WeakMap();
   let vN = 0;
@@ -247,6 +257,7 @@ export function createEndCard(doc, root, actions, deps) {
       if (v.end !== end) { end = v.end; parKey = ''; build(v); }
       const key = par.key + (v.end.verdict ? '|' + verdictN(v.end.verdict) : '');
       if (key !== parKey) { parKey = key; fill(v, par); }
+      drawCharts();
     },
   };
 }

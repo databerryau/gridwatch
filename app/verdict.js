@@ -116,7 +116,7 @@ const CAUSES = [
   ['directed', 'directedMWh', 'Shed by the city desk'],
   ['ufls', 'uflsMWh', 'Shed by the relays'],
 ];
-const LIST_MAX = 4;
+const LIST_MAX = 3;
 
 /** One dark spell in words: "HAR4 from 06:55, relit by the night shift at 22:20" or "SOL3 18:30–20:07". */
 export function spellText(sp, nightAware = true) {
