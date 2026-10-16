@@ -1083,17 +1083,21 @@ function verdictFor(game) {
 }
 
 /** Y-11: GRIDWATCH's own players on the ladder (content/ladder.js, tools/ladder.mjs). */
-export const LADDER_NAMES = Object.freeze(['did nothing', 'lean', 'competent']);
+export const LADDER_NAMES = Object.freeze(['did nothing', 'a scripted shift']);
 /**
- * Y-11: where the player sits among GRIDWATCH's own players on this daily: [[name, points, you?], ...] lowest first, par
- * (1000) and YOU in their places; null off the calendar, before the grade, or with a stale list (another build's).
+ * Y-11 (Q-108): where the player sits among GRIDWATCH's own players on this daily: [[name, points, you?], ...] lowest first,
+ * with par (1000) and YOU in their places. The list's ALL-IN totals are graded here as the player is (app/score.js grade, S-7
+ * with par's shed): did nothing, and the better of the lean and competent scripts as one "scripted shift" (either script
+ * collapses on some days, and a row named "competent" below "lean" would say something false). null off the calendar,
+ * before the grade, or with a stale list (another build's).
  */
 export function ladderFor(game, g, list = LADDER) {
-  const ymd = dailyYmd(game), row = ymd && list.v === dailyStamp() ? list.points[ymd] : null;
+  const ymd = dailyYmd(game), row = ymd && list.v === dailyStamp() && list.rows ? list.rows[ymd] : null;
   if (!row || !g) return null;
-  const out = LADDER_NAMES.map((name, i) => [name, row[i]]).filter(x => Number.isFinite(x[1]));
-  out.push(['par', 1000], ['YOU', g.points, true]);
-  return out.sort((a, b) => a[1] - b[1] || (a[2] ? 1 : b[2] ? -1 : 0));
+  const [parT, shed, nothing, lean, competent] = row, par = {total: parT};
+  const pts = t => (t < 0 ? 0 : (S.grade({total: t}, par, false, shed) || {points: NaN}).points);
+  const out = [[LADDER_NAMES[0], pts(nothing)], [LADDER_NAMES[1], Math.max(pts(lean), pts(competent))], ['par', 1000], ['YOU', g.points, true]];
+  return out.filter(x => Number.isFinite(x[1])).sort((a, b) => a[1] - b[1] || (a[2] ? 1 : b[2] ? -1 : 0));
 }
 
 /** Y-1: the date of the daily this game plays (its date's listed seed), else null (another seed is not that daily). */
