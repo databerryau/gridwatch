@@ -43,6 +43,7 @@ import {createParRunner, seriesAt, parMinute} from './par.js';
 import * as SH from './share.js';
 import * as HI from './history.js';
 import {hardDayOf} from './shelf.js';
+import {weekAhead} from './week.js';
 import {LADDER} from '../content/ladder.js';
 
 const TPS = V.TICKS_PER_S;
@@ -946,7 +947,10 @@ export function buildVm(game, f) {
       // player before the night shift (GLASS BROKEN), where the day ended (a black day's later blocks), the lowest Hz
       firstShift: game.marg ? !!game.marg.first : firstShift(game),
       glassBroken: state.log.some(r => r.type === 'armRERT' && r.tick < NIGHT_S * TPS), endS: Math.floor(state.tick / TPS),
-      lowHz: obs.score.minHz, spark: obs.score.spark.slice()};
+      lowHz: obs.score.minHz, spark: obs.score.spark.slice(),
+      // W6 (D-28, Q-109): the next dailies from the date the day ends on (a shift played past midnight looks from the new date),
+      // whatever day was played
+      week: weekAhead(game.todayOf ? game.todayOf() : game.today, dailyStamp())};
     // D-7: a finished shift, kept with the other seen flags (HAND is offered from the second)
     if (game.phase === 'play') { game.director.seen.shifts = (game.director.seen.shifts || 0) + 1; saveSeen(game); }
     recordRun(game);   // (W6, Y-3: an official run is finished, its grade filled in when par's arrives)

@@ -12,12 +12,13 @@
 // (score.heldMWh > 0), that they count from their hand-back (Q-69). W6: above the score, whether the run counts (Y-2:
 // OFFICIAL, FIRST SHIFT with COUNT THIS ONE, or PRACTICE and why; deps.run, app/game.js runView) and the streaks (Y-3, or
 // "history off"); after the verdict, YOUR CARD, the share card as it will be pasted (game.end.share, app/share.js), and
-// SHARE to copy it (Y-5).
+// SHARE to copy it (Y-5); then THE WEEK AHEAD, the next dailies' day types from today (D-28, Q-109: game.end.week, app/week.js).
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
 import {LETTER_RULE} from './score.js';
 import {copyText} from './share.js';
+import {weekText, WEEK_NOTE} from './week.js';
 import {drawMoment, drawDemandPair, COL} from '../render/charts.js';
 
 /** The reliability readouts' §8.2 row (content/text.js, a drawer entry, renamed in 2c: Q-69): the card's "?" opens it. */
@@ -45,7 +46,7 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
   '#end-strip{display:flex;gap:2px;margin:6px 0 0}#end-strip span{flex:1;height:10px;border-radius:2px;background:var(--line)}' +
   '#end-strip .s-g{background:#3fb950}#end-strip .s-r{background:#f85149}#end-strip .s-b{background:#58a6ff}' +
   '#end-card .why{color:var(--dim);font-size:11px;margin:2px 0}#end-card canvas{display:block;width:100%;height:120px;margin:4px 0}' +
-  '#end-moment,#end-history,#end-debrief,#end-share{border-top:1px solid var(--line);margin-top:8px;padding-top:4px}' +
+  '#end-moment,#end-history,#end-debrief,#end-share,#end-week{border-top:1px solid var(--line);margin-top:8px;padding-top:4px}' +
   '#end-share pre{font:12px/1.35 var(--mono);color:var(--bright);white-space:pre-wrap;margin:4px 0 6px;user-select:all}#btn-share{font-weight:700;border-color:var(--blue)}' +
   '#end-numbers summary{cursor:pointer;color:var(--bright);margin-top:8px}#end-history a{color:#58a6ff}' +
   '#end-card .q{width:22px;height:22px;min-width:0;min-height:0;padding:0;border-radius:50%;font:700 11px/20px system-ui,sans-serif;color:var(--dim)}';
@@ -153,6 +154,13 @@ export function createEndCard(doc, root, actions, deps) {
     if (e.ladder) ladderRow(body, e.ladder);   // (W6, Y-11: where you sit among GRIDWATCH's own players)
     verdict(body, v);
     shareBox(body, v.end.share);
+    if (e.week && e.week.length) {   // (W6, D-28: a reason to come back tomorrow)
+      const w = el('p', '', '', body);
+      w.id = 'end-week';
+      w.title = WEEK_NOTE;
+      el('b', 'THE WEEK AHEAD', '', w);
+      w.append(' ' + weekText(e.week));
+    }
     // THE NUMBERS (D-20): the dollar ledger and the reliability readouts, behind a summary
     const nums = el('details', '', '', body), bodyOuter = body;
     nums.id = 'end-numbers';
