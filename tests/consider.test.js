@@ -10,7 +10,7 @@ const plus = (t, m) => { const x = +t.slice(0, 2) * 60 + +t.slice(3) + m; return
 
 test('X-42: with GT·A\'s cover up at 06:00 the ARMED line\'s "by HH:MM, N min from now" follows the clock', () => {
   const p = openGame({seed: 20261007});
-  p.to('06:00');
+  p.skipTo('05:30'); p.to('06:00');   // (W6, the test budget: the sim alone to 05:30, no card on the way; the page and its line from there)
   p.click('guard-start-gta1');
   let seen = 0;
   for (let i = 0; i < 4; i++) {
@@ -20,18 +20,18 @@ test('X-42: with GT·A\'s cover up at 06:00 the ARMED line\'s "by HH:MM, N min f
     const now = hhmm(p), ok = [-1, 0, 1].some(e => plus(now, +m[2] + e) === m[1]);
     assert.ok(ok, now + ': ' + t);
     seen += m[1] !== plus('06:00', +m[2]) ? 1 : 0;
-    p.real(1);
+    p.realJump(1);   // (W6, the test budget: a real second sampled, one drawn frame, not 60)
   }
   assert.ok(seen >= 2, 'the figures moved with the clock');
 });
 
 test('X-42: a pointer resting on a guard gives the line back to the plan after 4 real s', () => {
   const p = openGame({seed: 20261007});
-  p.to('06:00');
+  p.skipTo('05:30'); p.to('06:00');   // (W6, the test budget: the sim alone to 05:30, no card on the way; the page and its line from there)
   p.hover('guard-start-gta1');
   p.frame();
   assert.match(line(p), /IF PRESSED/);
-  p.real(CONSIDER_REST_MS / 1000 + 0.2);
+  p.realJump(CONSIDER_REST_MS / 1000 + 0.2);   // (W6: sampled, one drawn frame after the rest)
   assert.doesNotMatch(line(p), /IF PRESSED|ARMED/, 'the plan line is back: ' + line(p));
   p.hover(null); p.frame(); p.hover('guard-start-gta1'); p.frame();
   assert.match(line(p), /IF PRESSED/, 'a new rest shows it again');
