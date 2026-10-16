@@ -46,7 +46,8 @@ test('Y-4: the rows against par: lights, cost (supply c/kWh) and carbon, ★ at 
   assert.equal(SH.shareRows(a({supplyCents: 4.01}), a()).cost, '★ level with par', 'within half a per cent is level');
   assert.equal(SH.shareRows(a({supplyCents: 4.03}), a()).cost, '+1% vs par', 'dearer never rounds to a ★');
   assert.deepEqual(SH.shareRows(null, a(), true), {lights: 'the grid went black', cost: '', carbon: ''});
-  assert.deepEqual(SH.shareRows(a(), null), {lights: '★ every light on', cost: '4.0 c/kWh', carbon: '0.60 t/MWh'});
+  assert.deepEqual(SH.shareRows(a(), null), {lights: 'every light on', cost: '4.0 c/kWh', carbon: '0.60 t/MWh'}, 'no par: nothing to be at par with, no ★');
+  assert.equal(SH.shareRows(dark(5), null).lights, '5.0 MWh dark');
 });
 
 const card = (o = {}) => SH.shareCard(Object.assign({ymd: 20261014, n: 3, seed: 20261014, grade: {points: 975, letter: 'A', star: false}, perfect: false,
@@ -80,8 +81,9 @@ test('Y-4: the longest card stays within 7 lines and 280 characters: it drops th
 
 test('Y-4: the lint rejects clock times, event words, district ids, emoji, an eighth line and a 281st character', () => {
   const ok = card().text;
-  for (const [bad, why] of [[ok.replace('Lights ', 'At 18:49 '), 'a clock time'], [ok + ' 7pm', 'a clock time'], [ok.replace('Nobody', 'GT·A tripped'), 'the event word "tripped"'],
-    [ok.replace('Nobody', 'The heatwave'), 'the event word "heatwave"'], [ok.replace('Nobody', 'HAR4'), 'a district id'], [ok.replace('★', '🔥'), 'a character outside ASCII, the blocks, ★ and ·']]) {
+  for (const [bad, why] of [[ok.replace('Lights ', 'At 18:49 '), 'a clock time'], [ok + ' 7pm', 'a clock time'], [ok.replace('Nobody', 'It tripped'), 'the event word "tripped"'],
+    [ok.replace('Nobody', 'The heatwave'), 'the event word "heatwave"'], [ok.replace('Nobody', 'HAR4'), 'a place'], [ok.replace('Nobody', 'Saltbush Bay'), 'a place'], [ok.replace('Nobody', 'GT·B'), 'the event word "GT"'],
+    [ok.replace('Nobody', 'The smelter'), 'the event word "smelter"'], [ok.replace('Nobody', 'Storms'), 'the event word "Storm"'], [ok.replace('Nobody', 'COAL'), 'the event word "COAL"'], [ok.replace('★', '🔥'), 'a character outside ASCII, the blocks, ★ and ·']]) {
     assert.ok(SH.lintCard(bad).includes(why), bad);
   }
   assert.match(SH.lintCard(ok + '\nmore').join(), /8 lines/);
@@ -89,7 +91,7 @@ test('Y-4: the lint rejects clock times, event words, district ids, emoji, an ei
 });
 
 test('Y-7: at least 40 closing lines, at least 2 a bucket, every bucket reachable, each lint-clean and short enough for Marg', () => {
-  const buckets = ['black'];
+  const buckets = ['black', 'held', 'solo.on', 'solo.dark'];
   for (const l of ['on', 'dark']) for (const c of ['under', 'over']) for (const b of ['calm', 'wobble', 'deep', 'relays']) buckets.push(l + '.' + c + '.' + b);
   assert.deepEqual(Object.keys(CLOSING).sort(), buckets.slice().sort());
   assert.ok(Object.values(CLOSING).flat().length >= 40);
@@ -98,8 +100,10 @@ test('Y-7: at least 40 closing lines, at least 2 a bucket, every bucket reachabl
     for (const s of lines) {
       assert.deepEqual(SH.lintCard('"' + s + '"'), [], s);
       assert.ok(s.length <= 40, s + ' is ' + s.length + ' characters');
-      const marg = MARG_LINES.verdict({points: 1000, letter: 'A'}, s);
-      assert.ok(words(marg) <= MARG_WORDS && marg.endsWith(s), marg);
+      for (const g of [{points: 1000, letter: 'A'}, null]) {
+        const marg = MARG_LINES.verdict(g, s);
+        assert.ok(words(marg) <= MARG_WORDS && marg.endsWith(s), marg);
+      }
     }
   }
   // the buckets from the outcome
@@ -112,6 +116,13 @@ test('Y-7: at least 40 closing lines, at least 2 a bucket, every bucket reachabl
   assert.equal(b(a(), a(), 49.0), 'on.under.deep');
   assert.equal(b(a(), a(), 48.99), 'on.under.relays');
   assert.equal(SH.bucketOf({black: true}), 'black');
+  // a Hard day: streets of yours dark, but fewer than par's, is 'held' (never an every-light-on line)
+  assert.equal(b(dark(3.3), dark(373), 49.3), 'held');
+  assert.equal(b(dark(0.04), dark(373), 49.3), 'on.under.deep', 'a moment\'s dip is every light on');
+  // no par to compare: no cost claim
+  assert.equal(b(a({supplyCents: 9}), null, 49.9), 'solo.on');
+  assert.equal(b(dark(30), null, 49.9), 'solo.dark');
+  assert.equal(MARG_LINES.verdict(null, ''), '', 'nothing to say says nothing');
 });
 
 test('Y-7: the pick is seeded by (date, bucket): the same result on the same date gets the same line; dates vary it', () => {

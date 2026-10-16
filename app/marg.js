@@ -52,8 +52,9 @@ export const MARG_LINES = Object.freeze({
   watch: c => (c.lostMW < 0 ? 'Peaked at ' + c.extremeHz.toFixed(2) + ' Hz: solar and wind backed off. A trip can push frequency up, too.'
     : 'Stopped at ' + c.extremeHz.toFixed(2) + ' Hz. Spin, battery, governors: that is the order. Your job is before it.'),
   handover: () => HANDOVER,
-  // (W6, Y-7: `closing` is the share card's closing line, so the card quotes her)
-  verdict: (g, closing) => (g ? g.points + ' points, ' + g.letter + '. ' + (closing || (g.letter === 'A' ? 'Clean shift. Same again tomorrow.' : 'Read the moment, then take tomorrow\'s.')) : ''),
+  // (W6, Y-7: `closing` is the share card's closing line, so the card quotes her; with no grade, par could not finish)
+  verdict: (g, closing) => (g ? g.points + ' points, ' + g.letter + '. ' + (closing || (g.letter === 'A' ? 'Clean shift. Same again tomorrow.' : 'Read the moment, then take tomorrow\'s.'))
+    : closing ? 'No score today. ' + closing : ''),
   // O-3: a first shift's first ask for a control
   ask: id => ASK[id] || '',
 });

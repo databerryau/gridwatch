@@ -12,6 +12,8 @@ import {V} from '../sim/params.js';
 import {mw} from '../render/format.js';
 import {DAILIES} from '../content/dailies.js';
 import {CLOSING} from '../content/closing.js';
+import {DESK} from '../content/scenarios.js';
+import {STATION_SHORT} from '../desk/util.js';
 
 /** Y-4: the card's limits. */
 export const MAX_LINES = 7, MAX_CHARS = 280;
@@ -77,11 +79,17 @@ export function atPar(you, par) {
   return {lights: dark <= darkOf(par) + LEVEL_MWH, cost: no(you.supplyCents, par.supplyCents), carbon: no(you.co2tPerMWh, par.co2tPerMWh)};
 }
 
-/** Y-7: the closing line's bucket: 'black', or lights.cost.band ('on.under.calm'). */
+/**
+ * Y-7: the closing line's bucket: 'black'; 'solo.on' or 'solo.dark' with no par to compare; 'held' when streets of yours
+ * went dark but no more than par's (a Hard day); else lights.cost.band ('on.under.calm', 'dark.over.deep').
+ */
 export function bucketOf(o) {
   if (o.black) return 'black';
+  const dark = darkOf(o.you) >= LEVEL_MWH;
+  if (!o.par) return dark ? 'solo.dark' : 'solo.on';
   const p = atPar(o.you, o.par);
-  return (p.lights ? 'on' : 'dark') + '.' + (p.cost ? 'under' : 'over') + '.' + bandOf(o.lowHz);
+  if (dark && p.lights) return 'held';
+  return (dark ? 'dark' : 'on') + '.' + (p.cost ? 'under' : 'over') + '.' + bandOf(o.lowHz);
 }
 
 // FNV-1a over a string: the closing line's pick (the same date and bucket, the same line, in every browser).
@@ -108,9 +116,9 @@ function vsPar(y, p, star) {
 /** Y-4: the three rows, words after their names: {lights, cost, carbon}. */
 export function shareRows(you, par, black) {
   if (black) return {lights: 'the grid went black', cost: '', carbon: ''};
-  const p = atPar(you, par), dark = darkOf(you);
-  const lights = dark < LEVEL_MWH ? '★ every light on'
-    : (p.lights && par ? '★ ' : '') + mwh(dark) + ' MWh dark' + (par ? ' · par ' + (darkOf(par) < LEVEL_MWH ? '0' : mwh(darkOf(par))) : '');
+  const p = atPar(you, par), dark = darkOf(you), star = par && p.lights ? '★ ' : '';   // (★: at par or better; no par, no ★)
+  const lights = dark < LEVEL_MWH ? star + 'every light on'
+    : star + mwh(dark) + ' MWh dark' + (par ? ' · par ' + (darkOf(par) < LEVEL_MWH ? '0' : mwh(darkOf(par))) : '');
   if (!par) return {lights, cost: you.supplyCents.toFixed(1) + ' c/kWh', carbon: you.co2tPerMWh.toFixed(2) + ' t/MWh'};
   return {lights, cost: vsPar(you.supplyCents, par.supplyCents, p.cost), carbon: vsPar(you.co2tPerMWh, par.co2tPerMWh, p.carbon)};
 }
@@ -140,11 +148,19 @@ export function shareCard(o) {
 }
 const len = s => [...s].length;
 
-/** Y-4's lint: words that name an event or a time of day (spoilers), each as a whole word. */
-export const EVENT_WORDS = Object.freeze(['trip', 'trips', 'tripped', 'tripping', 'heatwave', 'heat', 'storm', 'front', 'cloud', 'clouds', 'outage',
-  'fault', 'feeder', 'feeders', 'interconnector', 'tie', 'contingency', 'ufls', 'shed', 'shedding', 'relay', 'relays', 'morning', 'midday', 'noon',
-  'afternoon', 'evening', 'tonight', 'night', 'dawn', 'dusk', 'sunrise', 'sunset', 'peak']);
-const WORD_RE = new RegExp('\\b(' + EVENT_WORDS.join('|') + ')\\b', 'i');
+/**
+ * Y-4's lint: words that name an event, a time of day or a plant (spoilers: "the battery" says what caught a fall), each a
+ * whole word, plural too (tests/share.test.js); the stations' own labels (desk/util.js STATION_SHORT) are added below.
+ */
+export const EVENT_WORDS = Object.freeze(['trip', 'tripped', 'tripping', 'heatwave', 'heat', 'hot', 'storm', 'front', 'cloud', 'outage', 'fault',
+  'feeder', 'interconnector', 'tie', 'link', 'contingency', 'ufls', 'shed', 'shedding', 'relay', 'derate', 'derated', 'smelter', 'potline', 'drought',
+  'cutout', 'cut-out', 'lightning', 'wind', 'solar', 'rooftop', 'gas', 'turbine', 'battery', 'batteries', 'diesel', 'rert', 'dr',
+  'morning', 'midday', 'noon', 'afternoon', 'evening', 'tonight', 'night', 'dawn', 'dusk', 'sunrise', 'sunset', 'peak']);
+const STATION_WORDS = [...new Set(Object.values(STATION_SHORT).map(s => s.split(/[^A-Za-z]/)[0].toLowerCase()))];
+const WORD_RE = new RegExp('\\b(' + [...EVENT_WORDS, ...STATION_WORDS].map(w => w.replace(/-/g, '\\-')).join('|') + ')(s|es)?\\b', 'i');
+// The city's places: each suburb's name, and its id alone or as a district's (SOL, SOL3)
+const PLACES = DESK.city.suburbs, PLACE_RE = new RegExp('\\b(' + PLACES.map(s => s.id).join('|') + ')\\d*\\b|\\b(' +
+  PLACES.map(s => s.name.split(' ').pop()).join('|') + ')\\b', 'i');
 // Allowed: plain ASCII, the middle dot, the eight block glyphs and the star (no emoji).
 const CHARS_RE = /^[\x20-\x7E\n·▁-█★]*$/;
 
@@ -156,7 +172,7 @@ export function lintCard(text) {
   if (/\b\d{1,2}[:h]\d\d\b/.test(text) || /\b\d{1,2}\s?(am|pm)\b/i.test(text)) out.push('a clock time');
   const w = text.match(WORD_RE);
   if (w) out.push('the event word "' + w[1] + '"');
-  if (/\b[A-Z]{3}\d\b/.test(text)) out.push('a district id');
+  if (/\b[A-Z]{3}\d\b/.test(text) || PLACE_RE.test(text)) out.push('a place');
   if (!CHARS_RE.test(text)) out.push('a character outside ASCII, the blocks, ★ and ·');
   return out;
 }
