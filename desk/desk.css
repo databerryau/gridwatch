@@ -336,6 +336,15 @@ body.rm .dk-guard.lifted::after, .dk-rm .dk-guard.lifted::after { animation: non
 .dk-dr-lamps { font-size: 9px; letter-spacing: 2px; color: var(--dk-green); }
 .dk-shed.covered { background: repeating-linear-gradient(135deg, #5a4a18 0 6px, #3d3210 6px 12px); color: var(--dk-bright); }
 
+/* ---- O-3 (Q-101): a first shift's cover plates (data-plates names the groups still covered) */
+.dk[data-plates~="start"] .dk-stbtn-start, .dk[data-plates~="start"] .dk-start,
+.dk[data-plates~="stop"] .dk-stbtn-stop, .dk[data-plates~="stop"] .dk-stop,
+.dk[data-plates~="guard"] #ring-guard, .dk[data-plates~="guard"] #guard-set,
+.dk[data-plates~="battery"] #dial-battery, .dk[data-plates~="tie"] #knob-tie,
+.dk[data-plates~="restore"] #bay-restore, .dk[data-plates~="dr"] #btn-dr,
+.dk[data-plates~="rert"] #key-rert, .dk[data-plates~="shed"] #key-shed {
+  background: repeating-linear-gradient(45deg, #2a3038 0 4px, #20252c 4px 8px); color: var(--dk-faint); border-color: #3a414b; cursor: not-allowed; }
+
 /* ---- K-24 (Q-93): the commitment desk on an AGC day. A station's START / STOP words over its machine lamps;
    the levers, the wheel and the stack are readouts (a press answers in blue). */
 .dk-stbtns { display: flex; flex-direction: column; gap: 2px; }

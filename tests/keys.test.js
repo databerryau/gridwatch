@@ -46,6 +46,7 @@ function boot(deps, query = '?seed=7', hand = false) {
   let t = 1000;
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
   const h = bootGame(doc, Object.assign({search: query, storage: null, audioWin: {}, raf: false, now: () => t, matchMedia: null}, deps));
+  h.game.settings.plates = false; h.game.plates.clear();   // (O-3: a returning player's desk: no cover plates)
   restore();
   const $ = id => doc.getElementById(id);
   const frames = (n, dtS = 1 / 60) => { for (let i = 0; i < n; i++) { t += dtS * 1000; h.frame(dtS); } };

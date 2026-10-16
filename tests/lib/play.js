@@ -248,7 +248,9 @@ export function feederHeldAt(state) {
  *   held); storage: a localStorage stand-in (default null: a first-time player, full watch);
  *   shifts: the shifts this browser has finished (D-7: HAND is offered from the second), in a storage
  *   of its own when none is given (agc: false implies 1: a HAND day is a returning player's);
- *   par: the game's par (Q-48; default false: no runner; or a finished runner's {score, series?, black?}).
+ *   par: the game's par (Q-48; default false: no runner; or a finished runner's {score, series?, black?});
+ *   plates: a first shift's cover plates (O-3; default false: the tests of the controls press them as a player who
+ *   pressed I'VE DONE THIS BEFORE would, without turning the coach off; true: the onboarding's tests).
  */
 // The game's storage for openGame's options: o.storage, else one holding only seen.shifts when the options ask for shifts.
 function storageOf(o) {
@@ -273,6 +275,7 @@ export function openGame(o = {}) {
       audioWin: {}, raf: false, now: () => t, text: {TEXT}, alarmPanel, endCard, perf, suburbCard, par: o.par});
   } finally { restore(); }
   const game = h.game, $ = id => doc.getElementById(id);
+  if (o.plates !== true) { game.settings.plates = false; game.plates.clear(); }   // (O-3: see plates above)
   let hovered = null, lastLook = '';
   // D-2's clock (clockReport): the page time and tick of the Space that ran the clock, and from then every
   // frame's [grid s before, grid s after, real s, the sim's synchroscope open, a scope offer open (any offered

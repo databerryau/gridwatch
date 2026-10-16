@@ -403,6 +403,7 @@ export function bootGame(doc, deps) {
   on('annun-slot', 'pointerdown', ev => { if (!within('btn-explain', ev.target)) dismissCard(); }); // (§30.4; EXPLAIN: back on its close)
   on('btn-mute', 'click', () => { actions.ui({do: 'mute'}); });
   on('btn-coach', 'click', () => { actions.ui({do: 'coach'}); });   // O-8
+  on('btn-done-before', 'click', () => { actions.ui({do: 'doneBefore'}); drawSettings(G.settingsView(game), game.ui.settingsOpen); });   // O-1
   on('btn-help', 'click', () => actions.ui({do: 'drawer'}));
   on('btn-drawer-close', 'click', () => actions.ui({do: 'drawer', on: false}));
   on('btn-pop-close', 'click', () => closePopover());
@@ -844,6 +845,9 @@ export function bootGame(doc, deps) {
       crt.disabled = st.reducedEffects;
       if (row) { row.classList.toggle('off', st.reducedEffects); row.title = st.reducedEffects ? CRT_OFF : ''; }
     }
+    // O-1: I'VE DONE THIS BEFORE, always there on a first shift until pressed
+    const done = $('btn-done-before'), first = G.firstShift(game) && game.settings.plates;
+    if (done && done.hidden === first) done.hidden = !first;
     // O-8: COACH ON / OFF, as the line plays it now (a first shift's default, or the remembered choice)
     const coach = $('btn-coach'), on = G.coachOn(game);
     if (coach) { setText('btn-coach', on ? 'COACH ON' : 'COACH OFF'); if (coach.getAttribute('aria-pressed') !== String(on)) coach.setAttribute('aria-pressed', String(on)); }

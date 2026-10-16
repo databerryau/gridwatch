@@ -67,8 +67,25 @@ import {createTray} from './tray.js';
 import {createGauge} from './gauge.js';
 import {createFreqDial, createImbalanceBar} from './dial.js';
 import {createBay} from './bay.js';
-import {el, makeGuards, makeHolds, setCls, fin, clamp, feelOf, RATCHET_MS, LEVER_STATIONS, GUARD_MS} from './util.js';
+import {el, makeGuards, makeHolds, setCls, setAttr, fin, clamp, feelOf, RATCHET_MS, LEVER_STATIONS, GUARD_MS} from './util.js';
 import {isLock, NIGHT_LOCK} from '../render/format.js';
+
+/**
+ * O-3 (Q-101): a first shift's cover plates, by group (vm.plates names the groups still covered). A control's group,
+ * from its id: a station's or a machine's START / STOP, the GUARD (ring and SET), the battery dial, the tie knob, the
+ * RESTORE bay, DR, the reserve diesel, DIRECT SHED. A covered control answers a press in blue and sends nothing.
+ */
+export const PLATE_NOTE = 'Not yet: the line will ask for this. I\'VE DONE THIS BEFORE lifts every plate.';
+export function plateGroup(id) {
+  if (!id) return '';
+  if (/^(station|guard)-start-/.test(id)) return 'start';
+  if (/^(station|guard)-stop-/.test(id)) return 'stop';
+  if (id === 'ring-guard' || id === 'guard-set') return 'guard';
+  if (id === 'dial-battery') return 'battery';
+  if (id === 'knob-tie') return 'tie';
+  if (id === 'bay-restore' || id === 'restore-list' || /^restore-/.test(id)) return 'restore';
+  return {'btn-dr': 'dr', 'key-rert': 'rert', 'key-shed': 'shed'}[id] || '';
+}
 
 /** K-23 keys 1-8 focus these. */
 export const SLOT_IDS = Object.freeze(['lever-coal', 'lever-ccgt', 'lever-gta', 'lever-gtb', 'lever-gtc', 'wheel-hydro', 'dial-battery', 'knob-tie']);
@@ -320,8 +337,20 @@ export function createDesk(doc, root, actions, opts = {}) {
     return preview;
   }
 
+  // O-3: a press on a covered control stops at the document (before the control's own listeners) and says why
+  const plated = e => { for (let n = e; n && n !== desk; n = n.parent || n.parentElement) { const g = plateGroup(n.id); if (g) return covered(g) ? n : null; } return null; };
+  const covered = g => !!(vm && vm.plates && vm.plates.includes(g));
+  const plateStop = ev => {
+    const n = ev.target && desk.contains(ev.target) ? plated(ev.target) : null;
+    if (!n || (ev.type === 'keydown' && !/^(Arrow|Page|Home$|End$|Enter$| $)/.test(ev.key || ''))) return;
+    ev.stopPropagation(); if (ev.preventDefault) ev.preventDefault();
+    if (ev.type !== 'click') ctx.note(n.parent || n.parentElement || n, PLATE_NOTE, undefined, 'info');
+  };
+  for (const t of ['pointerdown', 'click', 'keydown', 'wheel']) doc.addEventListener(t, plateStop, true);
+
   function update(v) {
     vm = v;
+    setAttr(desk, 'data-plates', (v.plates || []).join(' '));   // (O-3: desk.css draws the plates)
     frameNow = fin(v.frame && v.frame.nowMs, frameNow);
     const k = clamp(Math.min(fin(root.clientWidth, 1280) / LAYOUT.width, fin(root.clientHeight, 300) / LAYOUT.height), 1, 1.5);
     for (const e of roots) {
@@ -383,6 +412,9 @@ export function createDesk(doc, root, actions, opts = {}) {
     // start a second hold of its own for the same key.
     if ((k === 'd' || k === 'e') && !down) { emerg.holdKey(k, false); return true; }
     if (!down || ev.ctrlKey || ev.altKey || ev.metaKey) return false;
+    // O-3: a covered control's key answers on it and does nothing
+    const plate = {d: 'dr', e: 'rert', k: 'shed', s: 'start', x: 'stop'}[k];
+    if (plate && covered(plate) && !locked()) { if (!ev.repeat) ctx.note(desk, PLATE_NOTE, undefined, 'info'); return true; }
     if (k === 'd' || k === 'e') { if (!ev.repeat) emerg.holdKey(k, true); return true; }
     if (k >= '1' && k <= '8') return focus(SLOT_IDS[Number(k) - 1]);
     if (k === 'g' || k === 'v') return focus(DESK_KEYS[k]);

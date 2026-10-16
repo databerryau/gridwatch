@@ -38,6 +38,7 @@ function boot(seed) {
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
   const h = bootGame(doc, {createDesk, createMap, createLiveStack, system, planview, search: '?seed=' + seed, storage: null,
     audioWin: {}, raf: false, now: () => t});
+  h.game.settings.plates = false; h.game.plates.clear();   // (O-3: a returning player's desk: no cover plates)
   restore();
   const $ = id => doc.getElementById(id);
   // Frames of 0.1 real s (F-5's longest counted frame): 0.1 x the rate in grid s each (12 at 120x).

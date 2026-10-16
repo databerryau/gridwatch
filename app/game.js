@@ -38,6 +38,7 @@ import * as AM from '../audio/model.js';
 import * as S from './score.js';
 import * as VD from './verdict.js';
 import {createMarg, margSay, MARG_LINES, MARG_FROM} from './marg.js';
+import {plateGroup} from '../desk/desk.js';
 import {createParRunner, seriesAt, parMinute} from './par.js';
 
 const TPS = V.TICKS_PER_S;
@@ -99,8 +100,8 @@ function writeJson(storage, key, value) {
  * follow the system's prefers-reduced-motion). crt: the B-4 scanline overlay (on by default).
  */
 export const SETTINGS_DEFAULT = Object.freeze({volume: 0.8, hum: 1, fx: 1, alarms: 1, muted: false, reducedMotion: null,
-  reducedEffects: false, crt: true, coach: null});   // (O-8: coach true | false | null, null: on for a first shift only)
-const LEVEL_KEYS = ['volume', 'hum', 'fx', 'alarms'], BOOL_KEYS = ['muted', 'reducedEffects', 'crt'];
+  reducedEffects: false, crt: true, coach: null, plates: true});   // (O-8: coach true | false | null, null: on for a first shift only; O-3: plates)
+const LEVEL_KEYS = ['volume', 'hum', 'fx', 'alarms'], BOOL_KEYS = ['muted', 'reducedEffects', 'crt', 'plates'];
 
 // A stored object, cleaned: unknown keys dropped, bad values replaced by the defaults.
 function cleanSettings(raw) {
@@ -254,6 +255,7 @@ export function resetDay(game, seed) {
   game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
   game.noCoach = false;   // (O-8: set when the desk is taken)
   game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
+  game.plates = firstShift(game) && game.settings.plates ? new Set(PLATE_GROUPS) : new Set();   // (O-3: a first shift's cover plates)
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
   parFor(game);
   return game;
@@ -467,7 +469,7 @@ export function takeDesk(game) {
   game.phase = 'play';
   game.noCoach = !coachOn(game);   // O-8: the end card's "no coach" (and W6's share card), while it stays off
   // O-6: Marg's day (a first shift's limit is MARG_FIRST lines), and her first line: the day's peak
-  game.marg = createMarg(!(game.director.seen.shifts > 0));
+  game.marg = createMarg(firstShift(game));
   margBeat(game, 'take', MARG_LINES.take(observe(game.state), weather.forecast(game.state, V.DAY_S - game.state.tick / TPS, V.FC_STEP_S)));
   game.director.paused = game.startPaused;
   game.director.held = game.ui.alarmsOpen; // Q-46: an alarm panel opened in the briefing holds the clock now
@@ -633,6 +635,7 @@ export function ui(game, cmd) {
     case 'armed': if (cmd.on) u.armed = cmd.target || null; else if (u.armed === cmd.target) u.armed = null; u.considerMs = null; game.considerDirty = true; return '';
     // Settings (K-22, §13.1, B-7): the popover never pauses the game.
     case 'mute': return setSetting(game, 'muted', !game.settings.muted);
+    case 'doneBefore': return doneBefore(game);   // O-1
     // O-8: COACH ON / OFF (remembered); the line follows at once; the day keeps "no coach" only while it stays off
     case 'coach': {
       game.settings.coach = !coachOn(game);
@@ -911,6 +914,7 @@ export function buildVm(game, f) {
   }
   if (end) verdictFor(game);
   margFrame(game, obs, mode);
+  platesFrame(game, mode);
   // spoolUp: no sim record marks a machine starting (booked starts included), so it is read
   // off the unit's mode between two frames (audio/model.js cueOfModeChange).
   if (!game.unitModes) game.unitModes = {};
@@ -942,11 +946,36 @@ export function buildVm(game, f) {
     // the guard with its cover up, or null (none under the night lock: no press to confirm, Q-73); levers held by hand
     armed: obs.nightShift ? null : game.ui.armed, held: game.commit === 'player' && heldByHand(game),
     alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
+    plates: [...game.plates], firstShift: firstShift(game) && game.settings.plates,   // O-3, O-1
     suburb: game.ui.suburb, dayAhead: game.dayAhead,
   };
 }
 
 // ------------------------------------------------------------------ O-6: Marg
+
+/** O-1, O-3: a first shift: no finished shift in this browser (D-7's count). */
+export const firstShift = game => !(game.director.seen.shifts > 0);
+/** O-3 (Q-101): the groups a first shift's plates cover (desk/desk.js plateGroup names a control's). */
+export const PLATE_GROUPS = Object.freeze(['start', 'stop', 'guard', 'battery', 'tie', 'restore', 'dr', 'rert', 'shed']);
+// O-3: the line's first ask for a control lifts its group's plate (never in a watch), with Marg's line for it (O-6)
+function platesFrame(game, mode) {
+  if (!game.plates.size || game.phase !== 'play' || mode.mode === 'WATCH' || !game.objective) return;
+  for (const t of game.objective.targets || []) {
+    const g = plateGroup(t);
+    if (!g || !game.plates.has(g)) continue;
+    game.plates.delete(g);
+    margBeat(game, 'ask:' + g, MARG_LINES.ask(g), t);
+  }
+}
+/** O-1: I'VE DONE THIS BEFORE: the coach and the plates off, remembered. */
+export function doneBefore(game) {
+  game.settings.coach = false; game.settings.plates = false;
+  writeJson(game.storage, SETTINGS_KEY, game.settings);
+  game.plates.clear();
+  if (game.phase === 'briefing') game.noCoach = true;
+  game.objectiveS = -1e9; game.lineFresh = true;
+  return '';
+}
 
 /** O-6: Marg says the text at its key's beat (app/marg.js: once, within the day's limit), as a tray card. */
 export function margBeat(game, key, text, target) {
