@@ -34,7 +34,7 @@ Send your card (`gate2-invite.md`). Start the stopwatch when they open your mess
 |---|---|---|---|---|
 | Your message: do they read the card? Is the preview showing? Phone or computer? | | — | | |
 | On the phone (if they tap it there): the landing page. COPY LINK? How does the link get to the computer? | | — | | |
-| Landing page on the computer (a small screen or window): PLAY ANYWAY? A bigger window, and a reload? | | — | | |
+| Landing page on the computer (a small screen or window): FULL SCREEN or F11, PLAY ANYWAY, zoom out or a bigger window (the game starts by itself)? Which browser? | | — | | |
 | The game opens on the computer | | — | | |
 | Briefing: do they read it? Open "?"? Press TAKE THE DESK | | | | |
 | First START button: did they find it unprompted? | | | | |

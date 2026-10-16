@@ -1,15 +1,16 @@
 // W6, gate 2: the playtest kit (playtest/gate2-*.md) and the release checks (playtest/release-checks.md) are prose the
 // owner follows by hand, so nothing else would catch them drifting from the game or from each other. They quote the
 // game's own words; the booking covers the session they plan; one preview rule serves gate 2's check 4 and R-2; R-2's
-// no-preview steps change one thing at a time; every window-size step reloads (app/start.js decides once, when the page
-// opens); and they plan for what the game does to a returning tester and to a small laptop screen.
+// no-preview steps change one thing at a time; a window that grows from the landing page starts the game by itself, and one
+// that shrinks reloads (app/landing.js listens only while it is up); and they plan for what the game does to a returning
+// tester and to a small laptop screen.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {join} from 'node:path';
 import {makeDocument} from './lib/dom.js';
-import {needsLanding, NEEDS} from '../app/landing.js';
+import {needsLanding, NEEDS, shortOf} from '../app/landing.js';
 import {start} from '../app/start.js';
 import {SHARE_URL} from '../app/share.js';
 import {firstShift, coachOn} from '../app/game.js';
@@ -98,24 +99,34 @@ test('Gate 2 kit: R-2\'s no-preview steps change one thing at a time, and blame 
   assert.equal(+fixes[0].then.match(/(\d+) more characters/)[1], 'https://'.length);
 });
 
-test('Gate 2 kit: the page decides landing or game when it opens, so every window-size step reloads', () => {
-  // app/start.js: no resize listener, so a window resized after the page opened keeps what it showed
-  const heard = [];
+test('Gate 2 kit: a window that grows from the landing page starts the game by itself; one that shrinks reloads', () => {
+  // app/landing.js listens for resize while it is up, and not once the game is: a game shrunk after it opened keeps the desk
+  const heard = {resize: []};
   const win = (w, h) => ({innerWidth: w, innerHeight: h, matchMedia: q => ({matches: q === '(any-pointer: fine)'}),
     location: {href: 'https://databerryau.github.io/gridwatch/next.html', search: ''}, navigator: {},
-    document: makeDocument(read('next.html')), addEventListener: type => heard.push(type)});
-  assert.equal(start(win(1600, 900), () => {}), 'game');
-  assert.equal(start(win(1000, 500), () => {}), 'landing');
-  assert.deepEqual(heard.filter(t => t === 'resize'), [], 'start.js now listens for resize: the kit\'s reload steps can go');
-  const resize = /\bmake the (?:browser )?window\b|\b(?:bigger|larger) window\b|\bF11\b|maximi[sz]e/i;   // (not "a small window", a state)
+    document: makeDocument(read('next.html')), addEventListener: (t, f) => (heard[t] ||= []).push(f),
+    removeEventListener: (t, f) => { heard[t] = heard[t].filter(g => g !== f); }});
+  let loads = 0;
+  assert.equal(start(win(1600, 900), () => { loads++; }), 'game');
+  assert.deepEqual(heard.resize, [], 'the game never looks at the window again');
+  const small = win(1000, 500);
+  assert.equal(start(small, () => { loads++; }), 'landing');
+  Object.assign(small, {innerWidth: 1600, innerHeight: 900});
+  for (const f of heard.resize.slice()) f({type: 'resize'});
+  assert.deepEqual([loads, heard.resize], [2, []], 'a bigger window starts the game, with no reload, and stops listening');
+  // (case matters: "full screen" grows the window, FULL SCREEN is the page's button, named in a tally)
+  const grow = /\b[Mm]ake the (?:browser )?window bigger\b|\b(?:bigger|larger) window\b|\bF11\b|[Mm]aximi[sz]e|\b[Ff]ull screen\b|\b[Zz]oom(?:ing)? out\b/;
+  const shrink = /\bwindow small\b/;   // (not "a small window", a state)
   let n = 0;
   for (const [file, md] of Object.entries(KIT)) {
-    for (const item of items(md).filter(s => resize.test(s))) {
+    for (const item of items(md).filter(s => grow.test(s) || shrink.test(s))) {
       n++;
-      assert.match(item, /\breload|\bF5\b/i, file + ': "' + item.slice(0, 90) + '…" resizes the window and never reloads');
+      const said = file + ': "' + item.slice(0, 90) + '…"';
+      if (shrink.test(item)) assert.match(item, /\breload|\bF5\b/i, said + ' shrinks the window and never reloads');
+      else assert.match(item, /\bby itself\b/i, said + ' grows the window and never says the game starts by itself');
     }
   }
-  assert.ok(n >= 3, 'R-3, R-4 and the session\'s small laptop resize the window');
+  assert.ok(n >= 4, 'R-3, the session\'s small laptop, its watch list and the log\'s row resize the window');
 });
 
 test('Gate 2 kit: a returning tester who never finished a day gets FIRST SHIFT and the coach, and the kit says so', () => {
@@ -135,7 +146,11 @@ test('Gate 2 kit: a 1920x1080 laptop at 150% gets the landing page, and the sess
   assert.equal(needsLanding(laptop), true);
   const step = items(README).find(s => /landing page shows on their computer/.test(s));
   assert.ok(step, 'the session says what to do');
-  assert.match(step, /PLAY ANYWAY/);
+  // FULL SCREEN only where the keyboard locks, so Esc stays the game's (Chrome, Edge): elsewhere the page says F11, and so
+  // must the hint
+  assert.match(flat(step), /offers PLAY ANYWAY, and in Chrome and Edge FULL SCREEN/);
+  assert.match(flat(step), /in Chrome or Edge \*"Press FULL SCREEN\."\*, in Firefox \*"Press F11\."\*/, 'the hint goes by the browser');
+  assert.ok(flat(step).includes(shortOf(1280, 587)), 'it quotes what the page says to that laptop');
   assert.doesNotMatch(step.slice(step.indexOf('landing page shows on their computer')), /It's for a computer/, 'the phone\'s hint is wrong at a computer');
   assert.ok(items(LOG).some(s => /^\| Landing page on the computer/.test(s)), 'the log has a row for it');
 });

@@ -1,8 +1,12 @@
-// app/landing.js: W6, Y-8: the page a shared link opens on a phone. The game needs a keyboard, a mouse and a screen of at
-// least DESK_W x DESK_H (C-9), and a shared link is mostly opened on a phone; so below that viewport, or with a touch-only
-// pointer, next.html shows this instead of the desk, and the game is never loaded (app/start.js). It says what GRIDWATCH is,
-// shows the link preview (og.png), and offers COPY LINK, to send it to a computer; a small window with a mouse also gets
-// PLAY ANYWAY. Self-contained (no game module), so a phone downloads only this.
+// app/landing.js: W6, Y-8: the page a shared link opens on a phone, or in a window too small for the desk. The game needs a
+// keyboard, a mouse and a screen of at least DESK_W x DESK_H (C-9), and a shared link is mostly opened on a phone; so below
+// that viewport, or with a touch-only pointer, next.html shows this instead of the desk, and the game is never loaded
+// (app/start.js). On a phone it says what GRIDWATCH is, shows the link preview (og.png), and offers COPY LINK, to send it to
+// a computer. On a computer (its main pointer aims, a screen bigger than a phone's) it is the window that is small, not the
+// device: a 1920x1080 laptop at 150% is 1280x720, and its maximised browser about 1280x587. Then it says how far the window
+// falls short, offers FULL SCREEN when the screen holds the desk and the browser keeps Esc for the game (Chrome, Edge), and
+// PLAY ANYWAY, and starts the game by itself as soon as the window holds the desk (full screen, F11, zooming out or a bigger
+// window). Self-contained (no game module), so a phone downloads only this.
 
 /** C-9: the desk's floor (CSS px). */
 export const DESK_W = 1280, DESK_H = 600;
@@ -13,22 +17,45 @@ const CSS = '#landing{position:fixed;inset:0;overflow:auto;z-index:100;backgroun
   '#landing .in{max-width:560px;margin:0 auto}#landing h1{font:700 28px/1.2 ui-monospace,monospace;letter-spacing:2px;color:#e6edf3;margin:8px 0 12px}' +
   '#landing img{display:block;width:100%;height:auto;border:1px solid #30363d;border-radius:6px;margin:16px 0}' +
   '#landing button{font:700 15px system-ui,sans-serif;padding:10px 18px;margin:4px 8px 4px 0;border-radius:6px;border:1px solid #58a6ff;background:#161b22;color:#e6edf3;cursor:pointer}' +
-  '#landing .dim{color:#8b949e;font-size:14px}body.landing>*:not(#landing){display:none!important}' +
+  '#landing .dim{color:#8b949e;font-size:14px}#landing .size{color:#d29922;font-weight:600}#landing #landing-full{background:#1f6feb;border-color:#1f6feb}' +
+  'body.landing>*:not(#landing){display:none!important}' +
   // (the desk's floor, min-width 1280px on the body, would keep a phone's page 1280 wide)
   'html:has(body.landing),body.landing{display:block!important;min-width:0!important;min-height:0!important;width:auto!important;height:auto!important;overflow:auto!important}';
 
 const media = (win, q) => { try { return typeof win.matchMedia === 'function' && !!win.matchMedia(q).matches; } catch { return false; } };
 /** A pointer that can aim (a mouse or a trackpad), anywhere on the device. */
 export const finePointer = win => media(win, '(any-pointer: fine)');
-/**
- * Y-8: the landing page, not the desk: a viewport below the floor (the window's, or the screen's: a phone widens its window
- * to the desk's own min-width before this runs), or only a touch pointer.
- */
+// The viewport the desk would get: the window's, or the screen's (a phone widens its window to the desk's own min-width
+// before this runs). On a computer the window's alone: zooming out widens it past a small screen (Chrome keeps the screen's
+// size as it was).
+function viewport(win) {
+  const sc = onComputer(win) ? {} : win.screen || {};
+  return {w: Math.min(win.innerWidth, sc.width > 0 ? sc.width : Infinity), h: Math.min(win.innerHeight, sc.height > 0 ? sc.height : Infinity)};
+}
+/** Y-8: the landing page, not the desk: a viewport below the floor, or only a touch pointer. */
 export function needsLanding(win) {
-  const touchOnly = media(win, '(pointer: coarse)') && !finePointer(win), sc = win.screen || {};
-  const w = Math.min(win.innerWidth, sc.width > 0 ? sc.width : Infinity), h = Math.min(win.innerHeight, sc.height > 0 ? sc.height : Infinity);
+  const touchOnly = media(win, '(pointer: coarse)') && !finePointer(win), {w, h} = viewport(win);
   return touchOnly || !(w >= DESK_W) || !(h >= DESK_H);
 }
+/**
+ * A computer, whose window is what is small: its main pointer aims, and its screen's short side is not a phone's (a phone
+ * with a stylus may have the pointer). The phone's page would tell someone at a computer to go to a computer. A tablet
+ * with a pen or a trackpad also has a pointer that can aim, but its main one is a finger, and its browser widens the page
+ * to the desk's min-width as a phone's does and shrinks it to fit (a scale below 1; zooming out on a computer leaves it at
+ * 1): it keeps the phone's page, and the screen's cap.
+ */
+export function onComputer(win) {
+  const sc = win.screen || {}, vv = win.visualViewport;
+  return finePointer(win) && !media(win, '(pointer: coarse)') && !(vv && vv.scale < 1) && !(Math.min(sc.width, sc.height) < DESK_H);
+}
+/** The small window's line: how far it falls short of the desk. */
+export function shortOf(w, h) {
+  const miss = [w < DESK_W && DESK_W - w + ' px too narrow', h < DESK_H && DESK_H - h + ' px too short'].filter(Boolean);
+  return 'This window is ' + w + ' by ' + h + ': ' + miss.join(' and ') + ' for the desk (' + DESK_W + ' by ' + DESK_H + ').';
+}
+// The keys for full screen and zooming out, on a Mac or elsewhere
+const keysOf = win => (/Mac/.test(String(win.navigator && win.navigator.platform)) ?
+  {full: 'Control, Command and F', zoom: 'Command and minus'} : {full: 'F11', zoom: 'Ctrl and minus'});
 
 // Y-5's copy, kept here so the landing page loads nothing else: the clipboard, else a hidden textarea
 async function copy(win, text) {
@@ -46,7 +73,8 @@ async function copy(win, text) {
 }
 
 /**
- * Show the landing page in `doc`. play(): load the game (PLAY ANYWAY, offered only with a pointer that can aim).
+ * Show the landing page in `doc`: the phone's, or on a computer the small window's. play(): load the game (PLAY ANYWAY,
+ * offered only with a pointer that can aim; on a computer also once the window holds the desk).
  * @returns {Element} #landing
  */
 export function showLanding(doc, win, play) {
@@ -57,22 +85,66 @@ export function showLanding(doc, win, play) {
   root.setAttribute('role', 'main');
   el('h1', 'GRIDWATCH', box);
   el('p', PITCH, box);
-  const img = el('img', '', box);
-  img.src = 'og.png'; img.alt = 'GRIDWATCH: a frequency trace falling and caught, under the title';
-  el('p', NEEDS, box);
-  const link = el('button', 'COPY LINK', box), said = el('p', '', box, 'dim');
-  link.id = 'landing-copy';
-  said.id = 'landing-said';
-  said.setAttribute('aria-live', 'polite');
-  link.addEventListener('click', () => copy(win, String(win.location.href)).then(ok => {
-    said.textContent = ok ? 'Copied: paste it into a message to yourself.' : 'Copy was blocked: the link is ' + win.location.href;
-    if (ok) link.textContent = 'COPIED';
-  }));
-  if (finePointer(win)) {
-    const go = el('button', 'PLAY ANYWAY', box);
-    go.id = 'landing-play';
-    go.title = 'The desk needs ' + DESK_W + ' by ' + DESK_H + ': parts of it may not fit this window';
-    go.addEventListener('click', () => { root.remove(); if (doc.body.classList) doc.body.classList.remove('landing'); play(); });
+  const listen = typeof win.addEventListener === 'function';
+  let size = null;
+  const go = () => {
+    if (listen) win.removeEventListener('resize', fits);
+    root.remove(); if (doc.body.classList) doc.body.classList.remove('landing'); play();
+  };
+  // (on a computer: a window that grows to the floor, by full screen, F11, a zoom or a drag, starts the game)
+  function fits() {
+    if (!needsLanding(win)) return go();
+    const {w, h} = viewport(win);
+    size.textContent = shortOf(w, h);
+  }
+  const playAnyway = () => {
+    const b = el('button', 'PLAY ANYWAY', box);
+    b.id = 'landing-play';
+    b.title = 'The desk needs ' + DESK_W + ' by ' + DESK_H + ': parts of it may not fit this window';
+    b.addEventListener('click', go);
+  };
+  if (onComputer(win)) {
+    const {w, h} = viewport(win), keys = keysOf(win), sc = win.screen || {}, page = doc.documentElement;
+    size = el('p', shortOf(w, h), box, 'size');
+    size.id = 'landing-size';
+    // full screen helps only when the screen holds the desk; on a smaller screen, zooming out still fits it. The button only
+    // where the keyboard can be locked (Chrome, Edge): elsewhere Esc leaves the page's full screen and never reaches the game
+    // (it closes a card, skips the watch), and the desk falls short again; the browser's own (F11) leaves Esc to the page
+    const enter = page && (page.requestFullscreen || page.webkitRequestFullscreen), screenFits = sc.width >= DESK_W && sc.height >= DESK_H;
+    const kb = win.navigator && win.navigator.keyboard, zoom = 'zoom out (' + keys.zoom + ')';
+    const full = screenFits && typeof enter === 'function' && doc.fullscreenEnabled !== false && !!kb && typeof kb.lock === 'function';
+    el('p', 'The game starts by itself once the desk fits: ' + (full ? 'press FULL SCREEN (or ' + keys.full + '), or ' + zoom + '.' :
+      screenFits ? 'press ' + keys.full + ' for full screen, or ' + zoom + '.' : zoom + ' until it does.'), box).id = 'landing-how';
+    const said = el('p', '', null, 'dim');
+    said.id = 'landing-said';
+    said.setAttribute('aria-live', 'polite');
+    if (full) {
+      const b = el('button', 'FULL SCREEN', box);
+      b.id = 'landing-full';
+      b.title = 'The same as ' + keys.full;
+      b.addEventListener('click', () => {
+        let asked;
+        try { asked = Promise.resolve(enter.call(page)); } catch (e) { asked = Promise.reject(e); }
+        // Esc stays the game's: with the keyboard locked, a held Esc leaves full screen instead
+        asked.then(() => kb.lock(['Escape']), () => { said.textContent = 'Full screen was blocked: press ' + keys.full + '.'; }).catch(() => {});
+      });
+    }
+    playAnyway();
+    box.appendChild(said);
+    if (listen) win.addEventListener('resize', fits);
+  } else {
+    const img = el('img', '', box);
+    img.src = 'og.png'; img.alt = 'GRIDWATCH: a frequency trace falling and caught, under the title';
+    el('p', NEEDS, box);
+    const link = el('button', 'COPY LINK', box), said = el('p', '', box, 'dim');
+    link.id = 'landing-copy';
+    said.id = 'landing-said';
+    said.setAttribute('aria-live', 'polite');
+    link.addEventListener('click', () => copy(win, String(win.location.href)).then(ok => {
+      said.textContent = ok ? 'Copied: paste it into a message to yourself.' : 'Copy was blocked: the link is ' + win.location.href;
+      if (ok) link.textContent = 'COPIED';
+    }));
+    if (finePointer(win)) playAnyway();
   }
   if (doc.body.classList) doc.body.classList.add('landing');
   return root;

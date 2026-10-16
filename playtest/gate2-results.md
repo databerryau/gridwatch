@@ -29,7 +29,7 @@ Not pass lines, but they measure open rows in SPEC §6 (D-2's session length) an
 |---|---|---|---|---|---|---|
 | New or returning; the briefing's title (FIRST SHIFT or OFFICIAL) | | | | | | |
 | Opened the link on a phone first | | | | | | |
-| Landing page on the computer (a small screen); PLAY ANYWAY unprompted? | | | | | | |
+| Landing page on the computer (a small screen); FULL SCREEN or PLAY ANYWAY unprompted? | | | | | | |
 | Message opened → game open on the computer (m:ss) | | | | | | |
 | Game open → verdict (m:ss) | | | | | | |
 | Game open → SHARE (m:ss; D-2: ≤6:50 under FIRST SHIFT, ≤6:00 under OFFICIAL, whatever the tester's history) | | | | | | |
