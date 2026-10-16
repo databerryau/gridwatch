@@ -12,8 +12,13 @@
 
 const VOID = new Set(['meta', 'link', 'input', 'br', 'img', 'hr']);
 
+// The links back up the tree are not enumerable: a failed assert prints an element's own fields and children (assert
+// ignores custom inspectors), and through enumerable back links it printed the whole parsed next.html until Node ran out of
+// memory (152 s, the W6 batch's landing tests)
+const backLink = (o, k, v) => Object.defineProperty(o, k, {value: v, writable: true, configurable: true, enumerable: false});
+
 class ClassList {
-  constructor(e) { this.e = e; }
+  constructor(e) { backLink(this, 'e', e); }
   list() { return this.e.className.split(/\s+/).filter(Boolean); }
   add(...c) { const a = this.list(); for (const x of c) if (!a.includes(x)) a.push(x); this.e.className = a.join(' '); }
   remove(...c) { this.e.className = this.list().filter(x => !c.includes(x)).join(' '); }
@@ -58,13 +63,14 @@ function check(stats, k, args) {
 }
 
 export class TextNode {
-  constructor(s) { this.textContent = String(s); this.parent = null; }
+  constructor(s) { this.textContent = String(s); backLink(this, 'parent', null); }
   remove() { if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = null; }
 }
 
 export class Elem {
   constructor(doc, tag) {
-    Object.assign(this, {ownerDocument: doc, tagName: tag.toUpperCase(), children: [], parent: null, className: '', dataset: {},
+    backLink(this, 'ownerDocument', doc); backLink(this, 'parent', null);
+    Object.assign(this, {tagName: tag.toUpperCase(), children: [], className: '', dataset: {},
       style: {setProperty(k, v) { this[k] = v; }, removeProperty(k) { delete this[k]; }},
       own: '', listeners: {}, hidden: false, disabled: false, value: '', type: '', title: '', id: '', scrollTop: 0,
       width: 300, height: 150, href: '', download: '', attrs: {}, tabIndex: -1, checked: false,
@@ -74,6 +80,8 @@ export class Elem {
     this.rect = {left: 10, top: 10, width: 20, height: 20};
     this._cw = 400; this._ch = 120;
   }
+  // (console.log and util.inspect print an element as <tag#id>; assert ignores this and prints its fields: see backLink)
+  [Symbol.for('nodejs.util.inspect.custom')]() { return '<' + this.tagName.toLowerCase() + (this.id ? '#' + this.id : '') + '>'; }
   get textContent() { return this.children.length ? this.children.map(c => c.textContent).join('') : this.own; }
   set textContent(s) { for (const c of this.children) c.parent = null; this.children = []; this.own = String(s); }
   get innerHTML() { return this.textContent; }
