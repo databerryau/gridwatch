@@ -50,6 +50,8 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
   '#end-numbers summary{cursor:pointer;color:var(--bright);margin-top:8px}#end-history a{color:#58a6ff}' +
   '#end-card .q{width:22px;height:22px;min-width:0;min-height:0;padding:0;border-radius:50%;font:700 11px/20px system-ui,sans-serif;color:var(--dim)}';
 
+/** Y-11: the ladder's note (its title): who the other players are. */
+export const LADDER_NOTE = 'GRIDWATCH\'s own scripted players on this same day, graded as you are: one who did nothing (the system still dispatches), a lean one that commits just enough, a competent one. Par is 1000. They are synthetic, not people.';
 /** Y-3: the streaks' rule (the end card's STREAK line, as its title); and what a browser without storage is told. */
 export const STREAK_RULE = 'STREAK: days in a row with an official run finished. ★ STREAK: days in a row at par or better.';
 export const HISTORY_OFF = 'History off: this browser keeps no storage, so there is no streak.';
@@ -148,6 +150,7 @@ export function createEndCard(doc, root, actions, deps) {
     if (g && g.hardMWh) line(body, 'HARD DAY: par shed ' + mw(g.hardMWh, 1) + ' MWh: no plan kept every light on today. The points leave those MWh out of both totals; the letter is the gap.').id = 'end-hard';
     if (e.perfect) line(body, PERFECT_RULE).id = 'end-perfect';
     if (g) line(body, LETTER_RULE).id = 'end-letter';   // (S-5: the letter with its one-line rule)
+    if (e.ladder) ladderRow(body, e.ladder);   // (W6, Y-11: where you sit among GRIDWATCH's own players)
     verdict(body, v);
     shareBox(body, v.end.share);
     // THE NUMBERS (D-20): the dollar ledger and the reliability readouts, behind a summary
@@ -249,6 +252,19 @@ export function createEndCard(doc, root, actions, deps) {
       charts.push([dc, () => drawDemandPair(dc, x.demand.under, x.demand.oper)]);
     }
     el('p', x.trips, '', db);
+  }
+
+  // W6 (Y-11): the ladder, lowest first, YOU in bold in your place
+  function ladderRow(parent, rows) {
+    const p = el('p', '', 'why', parent);
+    p.id = 'end-ladder';
+    p.title = LADDER_NOTE;
+    p.append('On today\'s ladder: ');
+    rows.forEach(([name, pts, you], i) => {
+      if (i) p.append(' · ');
+      if (you) el('b', 'YOU ' + pts, '', p); else p.append(name + ' ' + pts);
+    });
+    p.append(' (GRIDWATCH\'s own scripted players)');
   }
 
   // W6 (Y-2, Y-3): whether this run counts, COUNT THIS ONE on a first shift, and the streaks (or "history off")
