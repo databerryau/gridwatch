@@ -9,8 +9,11 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {makeDocument} from './lib/dom.js';
 import {openGame} from './lib/play.js';
-import {bootGame} from '../app/shell.js';
+import {injectTrip} from './lib/sim-helpers.js';
+import {bootGame, createLive, liveFrame, lineWords, respondWords, LIVE_GAP_MS} from '../app/shell.js';
 import * as G from '../app/game.js';
+import {V} from '../sim/params.js';
+import {TEXT} from '../content/text.js';
 
 const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
 const TODAY = new Date(2026, 9, 16), PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh: 0.56, centsPerKWh: 4}, series: []};
@@ -164,4 +167,126 @@ test('K-23: a shelf pick lands on its briefing\'s TAKE THE DESK; the briefing\'s
   p.frames(2);
   assert.equal(focusOf(p), 'end-title');
   assert.deepEqual(p.h.mods.errors, []);
+});
+
+// ------------------------------------------------------------------ the live region (K-23): the line, the RESPOND card, the score
+
+// A vm as liveFrame reads it, in play: a line {level, kind, text, targets} (null: none), and what else shows
+const vmOf = (o = {}) => ({phase: 'play', obs: {tick: 100, over: false, nightShift: false, f: {hz: 50}, sec: {level: 'SECURE'}},
+  mode: {mode: o.mode || 'CRUISE', rate: 300, watchS: -1}, alarms: {tiles: []}, tray: {cards: []}, objective: o.line === undefined ? null : o.line,
+  respond: o.respond || null, feeder: null, consider: o.consider || null, end: o.end || null});
+const LINE = (level, kind, text, target = 'lever-gta') => ({level, kind, text, targets: target ? [target] : []});
+
+test('K-23: the live region says what the line asks when its level, kind or first control changes: never its figures, the consider text, nor a flip back', () => {
+  const L = createLive();
+  let t = 0;
+  const say = (o, dt = LIVE_GAP_MS) => liveFrame(L, vmOf(o), t += dt);
+  const plan = LINE('plan', 'commit', 'Start GT·A by 17:40 for the evening peak. It takes ten minutes to reach the grid.');
+  assert.equal(say({line: plan}), null, 'the first frame only takes note');
+  assert.equal(say({line: LINE('act', 'commit', 'Start GT·A now: the evening peak needs 120 MW more by 17:50. It takes ten minutes to reach the grid.')}),
+    'ACT NOW: Start GT·A now: the evening peak needs 120 MW more by 17:50.', 'a new level: its word (no glyph) and its lead sentence');
+  assert.equal(say({line: LINE('act', 'commit', 'Start GT·A now: 120 MW short by 17:50. It takes ten minutes.')}), null, 'new figures, the same ask: nothing');
+  assert.equal(say({line: LINE('act', 'commit', 'Start GT·A now: 130 MW short by 17:55.'), consider: {target: 'guard-start-gta1', text: 'Pressed: GT·A would…', level: 'ok'}}),
+    null, 'C-10\'s consider text is the line\'s place on the screen, never said');
+  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 74%. Charge it at 70 MW now, to be full by 15:30: tonight\'s peak will want it.', 'dial-battery')}),
+    'BATTERY: The battery is at 74%. Charge it at 70 MW now, to be full by 15:30: tonight\'s peak will want it.', 'a short first sentence takes the next (LEAD words)');
+  // the audit's 11:10-11:58 flip: BATTERY and ACT NOW inside one gap say nothing new
+  const act = LINE('act', 'spare', 'If your biggest unit tripped now, frequency would fall to 49.07 Hz: too low to be secure.', 'gauge-n1');
+  assert.equal(say({line: act}, 100), null, 'inside the gap');
+  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 75%. Charge it at 70 MW now.', 'dial-battery')}, 100), null);
+  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 75%. Charge it at 70 MW now.', 'dial-battery')}), null, 'back to what was said: nothing waits');
+  // hidden at the RESPOND card: the card is said first, and the line coming back as it was is not said again
+  const card = {n: 1, lines: ['NADIR 49.62 Hz: contained within 49.5–50.5 Hz ✓. FOS asks: back in 49.85–50.15 Hz within 5:00.', 'Caught by: spin → battery 200 MW.',
+    'N-1 SHORT: 120 MW short: cover it within 4:30.', 'Enter (or a click) to take the desk.']};
+  assert.equal(say({line: act, respond: card, mode: 'RESPOND-CARD'}),
+    'NADIR 49.62 Hz: contained within 49.5–50.5 Hz ✓. N-1 SHORT: 120 MW short: cover it within 4:30. Enter (or a click) to take the desk.', 'the card before the badge');
+  assert.equal(say({line: act, respond: card, mode: 'RESPOND-CARD'}), 'HELD 0× · Enter', 'then the badge; the card once');
+  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 75%. Charge it at 70 MW now.', 'dial-battery')}), 'CRUISE 300×');
+  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 75%. Charge it at 70 MW now.', 'dial-battery')}), null, 'the line back as it was said');
+  // the day's end: the end card's h2 takes the focus and says DAY OVER: the badge's is not said
+  assert.equal(say({line: null, mode: 'OVER', end: {}}), null);
+  assert.equal(lineWords(LINE('crit', 'short', 'Start GT·B now: the city is 60 MW short of what it uses. Nothing else is fast enough.')),
+    'URGENT: Start GT·B now: the city is 60 MW short of what it uses.');
+});
+
+test('K-23 on the page: #objective is no live region; the RESPOND card is said through #aria-live, first, within LIVE_GAP_MS', () => {
+  const p = openGame({seed: 20261007});
+  const obj = p.$('objective');
+  assert.deepEqual([obj.getAttribute('role'), obj.getAttribute('aria-live')], [null, null], 'the line rewrites itself several times a minute');
+  injectTrip(p.game.state, Math.floor(p.game.state.tick / V.TICKS_PER_S) + 60);
+  assert.equal(p.until('trip', {max: '+10m'}).why, 'trip');
+  assert.equal(p.until('card', {max: '+10m'}).why, 'card');
+  const want = respondWords(p.vm().respond), live = () => p.$('aria-live').textContent;
+  let at = live() === want ? 0 : -1;
+  for (let k = 1; k <= 3 && at < 0; k++) { p.real(LIVE_GAP_MS / 1000 / 2, 0.5); if (live() === want) at = k; }   // (the card holds the clock: half-second frames)
+  assert.ok(at >= 0, 'said within ' + LIVE_GAP_MS + ' ms: ' + live());
+  assert.match(want, /^(NADIR|PEAK) \d+\.\d+ Hz: .*\. N-1 \w+.*Enter \(or a click\) to take the desk/);
+  assert.deepEqual(p.h.mods.errors, []);
+});
+
+test('K-23: the end card\'s score is said once its h2 has the focus (the live region\'s card slot); its "?" by key opens with the focus in it', () => {
+  const p = dayOver();
+  p.real(LIVE_GAP_MS / 1000 + 0.5, 0.5);
+  assert.equal(p.$('aria-live').textContent, p.$('end-score').textContent);
+  assert.match(p.$('end-score').textContent, /^SCORE \d+ · [A-F]/);
+  // the card's "?" gives the shell no event to read: the input that came last decides (a key here; the mouse: tests/help.test.js)
+  p.$('q-reliability').focus();
+  p.doc.dispatch('keydown', {key: 'Enter'});
+  p.$('q-reliability').click();
+  assert.deepEqual([p.$('popover').hidden, focusOf(p)], [false, 'pop-body']);
+  p.key('Escape');
+  assert.deepEqual([p.$('popover').hidden, focusOf(p)], [true, 'q-reliability']);
+  p.$('q-reliability').dispatch('pointerdown');
+  p.$('q-reliability').click();
+  assert.deepEqual([p.$('popover').hidden, focusOf(p)], [false, 'q-reliability'], 'by the mouse, the focus stays');
+});
+
+// ------------------------------------------------------------------ the toast and the "?" popover (K-23)
+
+test('K-23: a blue answer is said politely and a red refusal at once (two hidden regions); the box itself is not read twice', () => {
+  const b = briefing(), polite = b.$('toast-polite'), alert = b.$('toast-alert');
+  assert.deepEqual([b.$('toast').getAttribute('role'), b.$('toast').getAttribute('aria-hidden')], [null, 'true']);
+  assert.deepEqual([polite.getAttribute('role'), polite.getAttribute('aria-live'), alert.getAttribute('role'), polite.className], ['status', 'polite', 'alert', 'sr']);
+  b.doc.activeElement.blur();
+  b.key(' ');   // the briefing's answer to Space (blue)
+  assert.deepEqual([b.$('toast').className, polite.textContent, alert.textContent], ['info', 'Take the desk first: Enter. Then Space runs the clock.', '']);
+  b.key(' ');
+  assert.equal(polite.textContent, 'Take the desk first: Enter. Then Space runs the clock.' + String.fromCharCode(0xa0), 'the same words again are new to the region (a no-break space)');
+  b.$('btn-take').click();
+  b.h.actions.input({type: 'start', unit: 'nope'});   // a refusal: red
+  assert.deepEqual([b.$('toast').className, polite.textContent], ['', '']);
+  assert.match(alert.textContent, /^Refused: /);
+  b.clock.t += 60000;
+  b.h.frame(1 / 60);
+  assert.deepEqual([b.$('toast').hidden, alert.textContent], [true, ''], 'gone with the box');
+});
+
+test('K-23: the "?" popover is named by its first heading; a "?" pressed by key puts the focus in it, and Esc or ✕ gives it back', () => {
+  const doc = makeDocument(NEXT), clock = {t: 0};
+  const h = bootGame(doc, {search: '?seed=7', storage: null, audioWin: {}, raf: false, now: () => clock.t, text: {TEXT}});
+  const frame = () => { clock.t += 600; h.frame(1 / 60); };
+  frame();
+  const $ = id => doc.getElementById(id), q = doc.querySelectorAll('button.q').find(x => x.dataset.anchor === 'chip-cost'), pop = $('popover');
+  const at = () => doc.activeElement.id || doc.activeElement.className;
+  // the mouse: the popover opens beside its "?", the focus stays (a sighted player's view is unchanged)
+  q.focus();
+  q.dispatch('pointerdown');
+  q.dispatch('click', {detail: 1});
+  assert.deepEqual([pop.hidden, at()], [false, 'q inline on']);
+  assert.equal(pop.getAttribute('aria-labelledby'), 'pop-title');
+  assert.equal($('pop-title').textContent, $('pop-body').querySelector('h4').textContent, 'its name: the first heading');
+  assert.match($('pop-title').textContent, /^CUSTOMER COST/);
+  q.dispatch('click', {detail: 1});
+  assert.equal(pop.hidden, true);
+  // a key (a browser's click from Enter has detail 0): the focus goes to its text; Esc closes it and gives the focus back
+  doc.dispatch('keydown', {key: 'Enter'});
+  q.dispatch('click', {detail: 0});
+  assert.deepEqual([pop.hidden, at()], [false, 'pop-body']);
+  doc.dispatch('keydown', {key: 'Escape'});
+  assert.deepEqual([pop.hidden, at()], [true, 'q inline']);
+  q.dispatch('click', {detail: 0});
+  $('btn-pop-close').focus();
+  $('btn-pop-close').click();
+  assert.deepEqual([pop.hidden, at()], [true, 'q inline'], '✕: back on the "?"');
+  assert.deepEqual(h.mods.errors, []);
 });

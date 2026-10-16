@@ -186,6 +186,7 @@
   #popover .x::before { content: '✕'; }
   #popover h4 { margin: 0 0 4px; color: var(--bright); font-size: 12px; }
   #popover p { margin: 3px 0; } #popover p b { color: var(--dim); }
+  #pop-body:focus { outline: none; }   /* K-23: a "?" pressed by key puts the focus in its text: text, not a control */
   #q-layer { position: fixed; inset: 0; z-index: 7; pointer-events: none; }
   body:not(.q-on) #q-layer { display: none; } /* H-14: shown with the drawer */
   button.q { width: 24px; height: 24px; padding: 0; border-radius: 50%; font: 700 11px/22px system-ui, sans-serif; color: var(--dim);
@@ -217,7 +218,7 @@
   <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)" aria-label="What GRIDWATCH simplifies, and why" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="drawer" aria-expanded="false">?</button>
 </header>
 <div id="map" aria-label="The city and its power stations"></div>
-<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="night-strip" role="group" aria-label="The night shift: your day's totals so far" hidden><b>☾ NIGHT SHIFT</b><span><span id="night-note"></span><span id="night-figs"></span></span></div><button id="btn-coach" title="COACH ON: the line names the unit, the MW and the minute. COACH OFF: it states the problem and lights what can answer it (remembered)" class="done-before" aria-pressed="true">COACH ON</button><button id="btn-done-before" title="A first shift coaches you and covers the controls the line has not asked for yet. This turns both off, for good" class="done-before" hidden>I'VE DONE THIS BEFORE</button><div id="annun-slot" class="dk-vars"></div></div>
+<div id="planbar"><div id="objective" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="night-strip" role="group" aria-label="The night shift: your day's totals so far" hidden><b>☾ NIGHT SHIFT</b><span><span id="night-note"></span><span id="night-figs"></span></span></div><button id="btn-coach" title="COACH ON: the line names the unit, the MW and the minute. COACH OFF: it states the problem and lights what can answer it (remembered)" class="done-before" aria-pressed="true">COACH ON</button><button id="btn-done-before" title="A first shift coaches you and covers the controls the line has not asked for yet. This turns both off, for good" class="done-before" hidden>I'VE DONE THIS BEFORE</button><div id="annun-slot" class="dk-vars"></div></div>
 <div id="desk" aria-label="The control desk"></div>
 <noscript>GRIDWATCH needs JavaScript (ES modules).</noscript>
 
@@ -262,8 +263,8 @@
 <div id="drawer" role="dialog" aria-label="How to play, and what GRIDWATCH simplifies" hidden><div class="top"><h2>How to play</h2><button id="btn-drawer-close" title="Close (? or Esc)">✕ CLOSE</button></div>
 <section id="how-to-play"><p id="how-desk">You decide which power stations run, and when. The dispatch system sets how hard each running unit works; you start more before the city needs them, and stop them when it does not. A coal unit takes two hours to reach the grid, a gas turbine ten minutes.</p><p id="how-score"></p><p id="how-keys">The line above the desk says what is needed next. To start a unit, click its ○ button on the lever bank (hydro units: beside the HYDRO wheel); it turns into START?, so click it again to confirm. Keys: 1–5 pick a lever (6 the HYDRO wheel), then S S. The battery's outer ring is its GUARD: MW held back to catch a trip. Space pauses at any time, and you can act while paused; the clock is held until you first press it. EXPLAIN (W), beside the alarms, holds the clock and explains each one. ? (top right) shows what GRIDWATCH simplifies.</p></section>
 <h2 id="simplified-head">What GRIDWATCH simplifies, and why</h2><div id="drawer-body"></div></div>
-<div id="popover" role="dialog" hidden><button id="btn-pop-close" class="x" title="Close (Esc)" aria-label="Close"></button><div id="pop-body"></div></div>
-<div id="toast" role="alert" hidden></div>
+<div id="popover" role="dialog" aria-labelledby="pop-title" hidden><button id="btn-pop-close" class="x" title="Close (Esc)" aria-label="Close"></button><div id="pop-body" tabindex="-1"></div></div>
+<div id="toast" aria-hidden="true" hidden></div><div id="toast-polite" class="sr" role="status" aria-live="polite"></div><div id="toast-alert" class="sr" role="alert"></div>
 <div id="q-layer"></div>
 <div id="aria-live" class="sr" role="status" aria-live="polite"></div>
 <pre id="perf" hidden></pre>
