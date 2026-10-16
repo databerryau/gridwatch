@@ -295,10 +295,25 @@ export function openGame(o = {}) {
   function real(seconds, dtS = FRAME_DT) { return frames(Math.max(1, Math.round(seconds / dtS)), dtS); }
 
   // ---------------------------------------------------------------- input
+  /**
+   * K-24 (Q-93): on an AGC day a machine's guard (guard-start-gta1) is hidden and its station's word
+   * (station-start-gta) presses it: a hidden guard is reached through that button, and only while the button
+   * would press that very machine (their titles agree), else this throws: a test never presses another unit.
+   */
+  function stationFor(e) {
+    const m = /^guard-(start|stop)-(\w+)$/.exec(e.id || '');
+    if (!m || !isHidden(e)) return e;
+    const mach = V.MACHINES.find(q => q.id === m[2]), b = mach && $('station-' + m[1] + '-' + mach.station);
+    if (!b || isHidden(b)) return e;
+    if (b.getAttribute('title') !== e.getAttribute('title')) {
+      throw new Error('play: ' + e.id + ' is hidden and ' + b.id + ' would press another machine ("' + b.getAttribute('title') + '")');
+    }
+    return b;
+  }
   function find(x) {
-    if (x && x.tagName) return x;
+    if (x && x.tagName) return stationFor(x);
     const byId = $(x);
-    if (byId) return byId;
+    if (byId) return stationFor(byId);
     const cs = controlsOf(doc), want = squash(x).toLowerCase();
     const exact = cs.filter(c => c.label.toLowerCase() === want);
     const hits = exact.length ? exact : cs.filter(c => c.label.toLowerCase().includes(want));

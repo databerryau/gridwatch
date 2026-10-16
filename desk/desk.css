@@ -335,3 +335,20 @@ body.rm .dk-guard.lifted::after, .dk-rm .dk-guard.lifted::after { animation: non
 .dk-dr { border-radius: 18px; }
 .dk-dr-lamps { font-size: 9px; letter-spacing: 2px; color: var(--dk-green); }
 .dk-shed.covered { background: repeating-linear-gradient(135deg, #5a4a18 0 6px, #3d3210 6px 12px); color: var(--dk-bright); }
+
+/* ---- K-24 (Q-93): the commitment desk on an AGC day. A station's START / STOP words over its machine lamps;
+   the levers, the wheel and the stack are readouts (a press answers in blue). */
+.dk-stbtns { display: flex; flex-direction: column; gap: 2px; }
+.dk-stbtn { width: 100%; height: 24px; min-height: 24px; padding: 0 2px; font: 700 9px var(--dk-mono); color: var(--dk-dim); }
+.dk-stbtn.live { border-color: var(--dk-dim); color: var(--dk-bright); }
+.dk .dk-stbtn.lifted { background: #d2992244; border-color: var(--dk-amber); color: var(--dk-bright); }
+.dk-stbtn.glow { box-shadow: 0 0 0 2px var(--dk-blue); }
+.dk-lamp { font: 9px var(--dk-mono); color: var(--dk-faint); white-space: nowrap; padding: 0 2px; }
+.dk-mach.m-on .dk-lamp, .dk-mach.m-loading .dk-lamp { color: var(--dk-green); }
+.dk-mach.m-starting .dk-lamp, .dk-mach.m-unloading .dk-lamp, .dk-mach.m-shutdown .dk-lamp { color: var(--dk-amber); }
+.dk-mach.m-ready .dk-lamp { color: var(--dk-cyan); }
+.dk-mach.m-tripped .dk-lamp { color: var(--dk-red); }
+.dk-lever-slot.readout .dk-track, .dk-hydro.readout .dk-knob { cursor: default; }
+.dk-lever-slot.readout .dk-handle { opacity: 0.75; }
+.dk-guard-set { height: 24px; min-height: 24px; padding: 0 4px; font: 700 9px var(--dk-mono); }
+.dk-guard-set.glow { box-shadow: 0 0 0 2px var(--dk-blue); }

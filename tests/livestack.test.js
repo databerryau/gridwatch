@@ -34,6 +34,8 @@ async function vmOf(key, o, over) {
   return baseVm(c, over);
 }
 const morning = over => vmOf('m', {seed: 7, untilH: 7.5}, over);
+/** K-24 (Q-93): a HAND day's morning: the stack's drag is HAND's (an AGC day's stack is the dispatch's readout). */
+const handMorning = async over => { const v = await morning(over); v.obs.mode = 'HAND'; return v; };
 // the largest unit tripped at the same 07:30 (dayVm runs that par day once for both: the trip
 // leaves a red gap from the first column, and GT·B is still off, so L-9 hovers the CCGT's layer)
 const tripVm = over => vmOf('t', {seed: 7, untilH: 7.5, trip: true}, over);
@@ -77,7 +79,7 @@ test('L-5: after a trip, red appears in the first rendered frame', async () => {
 
 test('L-4: a drag on the stack sends exactly the planKey snapDrop predicted (moving a key also deletes the old one)', async () => {
   const {stack, sent, cv} = mount();
-  const vm = await morning();
+  const vm = await handMorning();
   stack.update(vm);
   const h = stack.debug.handles.find(q => q.kind === 'key' && q.station === 'ccgt');
   assert.ok(h, 'CCGT key handle drawn');
@@ -111,7 +113,7 @@ test('L-4: a drag on the stack sends exactly the planKey snapDrop predicted (mov
 
 test('L-4: an infeasible drop shows the earliest-arrival ghost, is not sent, and Enter takes the ghost', async () => {
   const {stack, sent, cv} = mount();
-  const vm = await morning();
+  const vm = await handMorning();
   stack.update(vm);
   const gh = stack.debug.ghosts.find(g => g.station === 'gtb');
   assert.ok(gh, 'GT·B off: its ghost sits at its earliest-start line');
@@ -133,7 +135,7 @@ test('L-4: an infeasible drop shows the earliest-arrival ghost, is not sent, and
 
 test('L-4: keyboard route: a number selects a layer, arrows move one snap step, Enter drops', async () => {
   const {stack, sent} = mount();
-  const vm = await morning();
+  const vm = await handMorning();
   stack.update(vm);
   stack.el.focus();
   const key = k => stack.el.dispatch('keydown', {key: k});
@@ -785,7 +787,7 @@ test('L-1 (2a): render <= 4 ms with the belly drawn (rooftop bite, past columns,
 
 test('Q-41: every press on the stack answers in blue: a click says what to drag, an edit key with nothing picked what to pick; a refusal is red; the watch lock is blue and true about Esc', async () => {
   const {stack, cv, doc, sent} = mount(1248, 420);
-  const vm = await morning();
+  const vm = await handMorning();
   const msg = stack.el.querySelector('.livestack-msg');
   const blue = re => { assert.match(msg.textContent, re); assert.ok(msg.classList.contains('info'), msg.className); assert.equal(msg.style.color, UI.blue); };
   const click = (x, y) => { at(cv, 'pointerdown', x, y); at(cv, 'pointerup', x, y); };
@@ -832,7 +834,7 @@ test('Q-41: every press on the stack answers in blue: a click says what to drag,
   blue(/^Not planned yet: Enter plans it, Esc drops it$/);
   key('Escape');
   // a red SHORT gap says how to fill it
-  stack.update(await tripVm());
+  stack.update(await (async () => { const t = await tripVm(); t.obs.mode = 'HAND'; return t; })());
   const gap = hit('gap', h => h.color === 'red');
   click(gap.x, gap.y);
   blue(/^Short here: drag a top edge up, or a ghost right$/);

@@ -66,6 +66,8 @@ const TRIP = (() => {
 })();
 const clone = o => structuredClone(o);
 const vmAt = (h, over) => baseVm(clone(DAY.obs[h]), over);
+/** K-24 (Q-93): a HAND day's vm, where the levers, the wheel, the stack and RE-DISPATCH stay the player's. */
+const handAt = (h, over) => { const v = vmAt(h, over); v.obs.mode = 'HAND'; return v; };
 const EVE = 18.5;
 
 function mockActions(o = {}) {
@@ -361,7 +363,7 @@ test('K-3: START and STOP guards never commit on one click; lift then press, or 
 });
 
 test('K-1: a lever drag sends exactly one basePoint on release; the 96% gate needs 12 px more', () => {
-  const vm = vmAt(EVE);
+  const vm = handAt(EVE);
   const {$, desk, actions: a} = mount(at(vm, 1000));
   const coal = vm.obs.stations.find(s => s.id === 'coal');
   const track = $('lever-coal');
@@ -402,7 +404,7 @@ test('K-1: a lever drag sends exactly one basePoint on release; the 96% gate nee
 });
 
 test('K-1 keys: ↑ stops at the gate, Shift+↑ crosses it, PgDn goes to the next detent', () => {
-  const vm = vmAt(EVE);
+  const vm = handAt(EVE);
   const coal = vm.obs.stations.find(s => s.id === 'coal');
   const gate = Math.floor(0.96 * coal.maxMW);
   coal.basePointMW = gate;
@@ -429,16 +431,28 @@ test('K-1 keys: ↑ stops at the gate, Shift+↑ crosses it, PgDn goes to the ne
   assert.deepEqual(a.inputs, [{type: 'basePoint', station: 'coal', mw: C.nextDetent(gate, sc.detents, -1) - 11}], '-10 then -1, one input');
 });
 
-test('K-1 / L-6: an idle station\'s lever books its start through the plan (planKey)', () => {
+test('K-24: on an AGC day a lever, the wheel and their keys send nothing and answer in blue: the dispatch sets the MW; HAND keeps them live', () => {
   const vm = vmAt(EVE);
   const st = vm.obs.stations.find(s => s.id === 'gta');
   Object.assign(st, {onCount: 0, minMW: 0, maxMW: 0, basePointMW: 0, outMW: 0});
-  const {$, actions: a} = mount(at(vm, 1000));
+  const {$, desk, actions: a} = mount(at(vm, 1000));
   const tr = $('lever-gta');
-  tr.rect = {left: 0, top: 0, width: 28, height: 100};   // 5 MW per px (500 MW)
+  tr.rect = {left: 0, top: 0, width: 28, height: 100};
   tr.dispatch('pointerdown', {clientY: 40});
   tr.dispatch('pointerup', {clientY: 40});
-  assert.deepEqual(a.inputs, [{type: 'planKey', station: 'gta', atS: vm.obs.s, mw: 300}]);
+  $('lever-coal').dispatch('keydown', {key: 'ArrowUp'});
+  $('wheel-hydro').dispatch('keydown', {key: 'ArrowUp'});
+  $('wheel-hydro').dispatch('pointerdown', {clientX: 0, clientY: 0});
+  assert.deepEqual(a.inputs, [], 'no lever or wheel input on an AGC day');
+  const notes = [...desk.el.querySelectorAll('.dk-note.info')].map(n => n.textContent);
+  assert.ok(notes.length >= 1 && notes.every(t => t === 'The dispatch sets the MW; START and STOP are yours.'), notes.join(' | '));
+  assert.equal($('lever-coal').getAttribute('aria-disabled'), 'true', 'a readout');
+  // HAND: the same drag on a running station sends its base point
+  const h = handAt(EVE), m = mount(at(h, 1000)), coal = m.$('lever-coal');
+  coal.rect = {left: 0, top: 0, width: 28, height: 260};
+  coal.dispatch('pointerdown', {clientY: 140}); coal.dispatch('pointerup', {clientY: 140});
+  assert.equal(m.actions.inputs.length, 1);
+  assert.equal(m.actions.inputs[0].type, 'basePoint');
 });
 
 test('K-2 HAND: MAN lamp lit for a grabbed lever; double-click or P rejoins, Shift+P keeps', () => {
@@ -491,7 +505,7 @@ test('K-5: the GUARD ring snaps to 50 MW, previews each detent live, sends guard
 });
 
 test('battery dial and tie knob send battery / tie; the hydro wheel steps 1% / 10%', () => {
-  const vm = vmAt(EVE);
+  const vm = handAt(EVE);
   Object.assign(vm.obs.battery, {mode: 'discharge', orderMW: 120, guardMW: 100});
   const {$, actions: a} = mount(at(vm, 1000));
   const d = $('dial-battery');
@@ -516,7 +530,7 @@ test('battery dial and tie knob send battery / tie; the hydro wheel steps 1% / 1
 });
 
 test('K-7: emergency controls never commit on a tap; a 0.6-s hold commits; DIRECT SHED only when SHORT', () => {
-  const vm = vmAt(EVE);
+  const vm = handAt(EVE);
   vm.obs.sec.level = 'TIGHT';
   const {$, desk, actions: a} = mount(at(vm, 1000));
   const rert = $('key-rert'), dr = $('btn-dr');
@@ -565,7 +579,7 @@ test('K-7: emergency controls never commit on a tap; a 0.6-s hold commits; DIREC
     assert.deepEqual(m.actions.inputs, [{type: 'directShed'}]);
   }
   // RE-DISPATCH calls actions.redispatch and shows a refusal.
-  const r = mount(at(vmAt(EVE), 1000), mockActions({redisReason: 'no plan before 04:30'}));
+  const r = mount(at(handAt(EVE), 1000), mockActions({redisReason: 'no plan before 04:30'})); // (K-24: RE-DISPATCH is HAND's)
   r.$('btn-redispatch').click();
   assert.equal(r.actions.redis, 1);
   assert.match(r.desk.el.textContent, /no plan before 04:30/);
@@ -724,7 +738,7 @@ test('keys 1-8 focus COAL…TIE; the trip preview gauge reads plain words', () =
 // ---------------------------------------------------------------- Phase 1b: K-23 by keyboard alone
 
 test('K-23 levers by keys alone: 1-5 focus, ↑↓ move, S S starts, X X stops; each gesture has its cue', () => {
-  const vm = vmAt(EVE);
+  const vm = handAt(EVE);
   const o = vm.obs;
   const k = o.units.findIndex(u => u.station === 'gtc');
   Object.assign(o.units[k], {mode: 'off', sync: false, startBlock: '', stopBlock: 'unit is off'});
@@ -787,7 +801,7 @@ test('K-23 levers by keys alone: 1-5 focus, ↑↓ move, S S starts, X X stops; 
 });
 
 test('K-23 hydro wheel, battery dial, GUARD ring and tie knob by keys alone (the §13.3 table)', () => {
-  const vm = vmAt(EVE);
+  const vm = handAt(EVE);
   const o = vm.obs;
   const hy = o.stations.find(s => s.id === 'hydro');
   hy.basePointMW = Math.round((hy.minMW + hy.maxMW) / 2);
@@ -857,7 +871,7 @@ test('K-23 hydro wheel, battery dial, GUARD ring and tie knob by keys alone (the
 });
 
 test('K-23 emergency row and keys by keyboard: E and D holds, K + Enter Enter sheds, N re-dispatches, V the mode key', () => {
-  const vm = vmAt(EVE);
+  const vm = handAt(EVE);
   vm.obs.sec.level = 'SHORT';
   vm.obs.modeLocked = false;
   const m = mount(at(vm, 1000));
@@ -919,7 +933,7 @@ test('K-23 emergency row and keys by keyboard: E and D holds, K + Enter Enter sh
   assert.equal(tap(m, 'v'), true);
   assert.equal(doc.activeElement.id, 'key-agc');
   tap(m, 'Enter');
-  assert.deepEqual(a.inputs, [{type: 'mode', agc: false}]);
+  assert.deepEqual(a.inputs, [{type: 'mode', agc: true}]); // (a HAND day here, K-24: the key turns it to AGC)
   assert.deepEqual(cuesOf(a), ['key']);
   assert.deepEqual(DESK_KEYS, {g: 'ring-guard', v: 'key-agc', k: 'key-shed', n: 'btn-redispatch', o: 'bay-sync', b: 'sync-bypass'});
   for (const [key, id] of Object.entries(DESK_KEYS)) assert.equal($(id).getAttribute('aria-keyshortcuts'), key.toUpperCase(), id);
@@ -1022,7 +1036,7 @@ test('K-23 annunciator and tray by keyboard: A, Shift+A, tiles and cards with En
 // ---------------------------------------------------------------- Phase 1b: K-20 cues, K-12 shake
 
 test('K-20: a lever drag cues detent / gate / ratchet on real changes only; the plan moving a lever cues servo', () => {
-  const vm = vmAt(EVE);
+  const vm = handAt(EVE);
   const o = vm.obs;
   const coal = o.stations.find(s => s.id === 'coal');
   const sc = C.leverScale(o, 'coal'), gate = sc.gateMW;
@@ -2048,7 +2062,7 @@ function cssHides(e, css = CSS) {
 }
 
 test('K-3 (playtest): an armed guard takes its row; the row\'s other guard folds away but stays drawn and focused, so S S and X X from it commit', () => {
-  const vm = playVm();
+  const vm = playVm(); vm.obs.mode = 'HAND'; // (K-24: the machine guards are HAND's; an AGC day presses them through the station's words)
   Object.assign(vm.obs.units.find(u => u.id === 'ccgt2'), {mode: 'off', sync: false, startBlock: 'minimum down time: 9 min left', stopBlock: 'unit is off'});
   const m = mount(at(vm, 1000));
   const frame = t => { m.desk.update(at(vm, t)); const f = m.doc.activeElement; if (f && cssHides(f)) f.blur(); };
@@ -2233,7 +2247,7 @@ test('K-5 (playtest): the battery lamp says GUARD, and the objective lights the 
     Object.assign(v.obs.battery, {guardMW, guardFired, ffrMW: 390});
     return mount(at(v, 1000)).$('ring-guard').parentElement.parentElement.querySelector('.dk-ffr').textContent;
   };
-  assert.deepEqual([lamp(0, false), lamp(400, false), lamp(400, true)], ['○ GUARD 0', '⚡ GUARD 400', '⚡ FIRED 390']);
+  assert.deepEqual([lamp(0, false), lamp(400, false), lamp(400, true)], ['○ GUARD 0 MW held for trips', '⚡ GUARD 400 MW held for trips', '⚡ FIRED 390']);
   const ring = mount(at(vmAt(EVE, {glow: new Set(['ring-guard'])}), 1000)).$('ring-guard');
   assert.equal(ring.title, 'GUARD: drag around the outer ring (or G, then ↑ ↓), 50 MW a step');
   assert.ok(ring.classList.contains('glow'));
@@ -2243,7 +2257,7 @@ test('K-5 (playtest): the battery lamp says GUARD, and the objective lights the 
   assert.ok(dial.parentElement.parentElement.classList.contains('glow'));
 });
 
-test('A-1 / L-6 (playtest): RE-DISPATCH lights while the levers are held by hand, with one note; an idle lever drag says it booked a start', () => {
+test('A-1 / L-6 (playtest): RE-DISPATCH lights while the levers are held by hand, with one note', () => {
   const {$, desk} = mount(at(vmAt(EVE, {held: true}), 1000));
   const r = $('btn-redispatch'), keys = r.parentElement;
   assert.ok(r.classList.contains('lit'));
@@ -2270,31 +2284,7 @@ test('A-1 / L-6 (playtest): RE-DISPATCH lights while the levers are held by hand
   const plain = mount(at(vmAt(EVE), 1000));
   assert.ok(!plain.$('btn-redispatch').classList.contains('lit'));
   assert.equal(plain.$('btn-redispatch').parentElement.querySelectorAll('.dk-note').length, 0);
-  // the idle-lever drag (K-1 / L-6) sends planKey and says so on the lever
-  const vm = vmAt(EVE);
-  Object.assign(vm.obs.stations.find(s => s.id === 'gta'), {onCount: 0, minMW: 0, maxMW: 0, basePointMW: 0, outMW: 0});
-  const m = mount(at(vm, 1000));
-  const tr = m.$('lever-gta');
-  tr.rect = {left: 0, top: 0, width: 28, height: 100};
-  tr.dispatch('pointerdown', {clientY: 40});
-  tr.dispatch('pointerup', {clientY: 40});
-  assert.deepEqual(m.actions.inputs, [{type: 'planKey', station: 'gta', atS: vm.obs.s, mw: 300}]);
-  const note = slotOf(m.$, 'gta').querySelector('.dk-note.info');
-  assert.equal(note && note.textContent, 'START booked now: GT·A, 300 MW');
-  // the plan books one machine between its MIN and its rating (sim planKey): a low drag books GT·A's 250 MW
-  tr.dispatch('pointerdown', {clientY: 80});
-  tr.dispatch('pointerup', {clientY: 80});
-  assert.equal(m.actions.inputs.at(-1).mw, 100);
-  assert.equal(note.textContent, 'START booked now: GT·A, ' + V.MACHINES.find(x => x.id === 'gta1').minMW + ' MW');
-  // ... and a drag above one machine's rating books that rating: 700 MW on an idle GT·B (2 × 400) is one 400-MW start
-  const vb = vmAt(EVE);
-  Object.assign(vb.obs.stations.find(s => s.id === 'gtb'), {onCount: 0, minMW: 0, maxMW: 0, basePointMW: 0, outMW: 0});
-  const mb = mount(at(vb, 1000)), tb = mb.$('lever-gtb');
-  tb.rect = {left: 0, top: 0, width: 28, height: 100};
-  tb.dispatch('pointerdown', {clientY: 12.5});
-  tb.dispatch('pointerup', {clientY: 12.5});
-  assert.deepEqual(mb.actions.inputs, [{type: 'planKey', station: 'gtb', atS: vb.obs.s, mw: 700}]);
-  assert.equal(slotOf(mb.$, 'gtb').querySelector('.dk-note.info').textContent, 'START booked now: GT·B, 400 MW');
+  // (K-24: the idle-lever booking of a start, planKey from an AGC lever, went with the AGC desk's live levers)
 });
 
 test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why where it was made, by key, in the watch and on the AGC key', () => {
@@ -2545,7 +2535,7 @@ test('Q-41: P and the MAN lamp answer in blue (a RESUME says so); an idle lever 
   assert.equal(noteOn(slotOf($, 'gta')), 'blue no machine on: START one first (S S)');
   assert.equal(a.inputs.length, 1);
   // the hydro wheel with no machine on: a turn, a key or a scroll says so (the key stops at the wheel)
-  const hv = vmAt(EVE);
+  const hv = handAt(EVE); // (K-24: on an AGC day the wheel is a readout)
   Object.assign(hv.obs.stations.find(s => s.id === 'hydro'), {onCount: 0, minMW: 0, maxMW: 0, basePointMW: 0, outMW: 0});
   const w = mount(at(hv, 1000)), box = w.$('wheel-hydro').closest('.dk-rot');
   tap(w, '6');

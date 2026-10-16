@@ -111,8 +111,8 @@ export const ALARM_HELP = {
     trigger: 'Sets after AGC is at the edge of its bands for over ' + A.AGC_LIMIT_REAL_S + ' real s of running clock.',
     means: 'The running units have no room left in their AGC bands to follow demand.',
     why: 'AGC trims each unit within a band around its base point every ' + V.AGC_CYCLE_S + ' s; with every band at its edge, frequency drifts.',
-    todo: {text: 'RE-DISPATCH (N) moves the base points. If short, start a unit or discharge; if long, stop one, charge or export.',
-      target: 'btn-redispatch'},
+    todo: {text: 'If short, START a unit or discharge the battery; if long, STOP one, charge or export. The dispatch moves the base points ' +
+      'itself (on a HAND day, RE-DISPATCH, N).', target: 'dial-battery'},   // (K-24: the AGC desk has no RE-DISPATCH)
     real: {text: 'AEMO: AGC setpoints up to every ' + V.AGC_CYCLE_S + ' s (well established); 5-minute dispatch since 1 Oct 2021 (likely). ' +
       'The alarm itself is GRIDWATCH\'s own rule.', facts: ['AGC and dispatch']},
     reading: o => 'AGC unmet ' + mw(o.agc.unmetMW) + ' MW · at its limit ' + Math.round(o.agc.atLimitS) + ' grid-s',

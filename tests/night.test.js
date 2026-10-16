@@ -146,7 +146,10 @@ test('Q-73: one night for par and for the player: from par\'s state before its f
   tied.log.push({tick: tied.tick, type: 'tie', args: {mw: 300}});
   assert.equal(heldByHand(clone(sys), tied), false);
   tied.control.nightShift = false;
-  assert.equal(heldByHand(clone(sys), tied), true, 'by day the same input is the player\'s hand on the tie');
+  // (K-24: by day on an AGC day the tie knob moves the tie and never holds the levers; on a HAND day it does)
+  assert.equal(heldByHand(clone(sys), tied), false, 'AGC: the dispatch holds the tie there');
+  tied.control.mode = 'HAND';
+  assert.equal(heldByHand(clone(sys), tied), true, 'HAND: the same input is the player\'s hand on the tie');
 });
 
 test('Q-73: the night answers only the night\'s trips: a unit trip at 20:45 that par answered is not answered again at the swap (the night memo has seen the day\'s contingencies)', () => {

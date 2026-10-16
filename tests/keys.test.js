@@ -41,7 +41,7 @@ function standIns(takes, opts = {}) {
   return {calls, createDesk: mk('desk'), createLiveStack: mk('stack'), createMap: mk('map')};
 }
 
-function boot(deps, query = '?seed=7') {
+function boot(deps, query = '?seed=7', hand = false) {
   const doc = makeDocument(NEXT);
   let t = 1000;
   const restore = installGlobals({URL: Object.assign(Object.create(URL), {createObjectURL: () => 'blob:x', revokeObjectURL() {}}), Blob: class {}});
@@ -51,6 +51,7 @@ function boot(deps, query = '?seed=7') {
   const frames = (n, dtS = 1 / 60) => { for (let i = 0; i < n; i++) { t += dtS * 1000; h.frame(dtS); } };
   const key = (k, extra) => doc.dispatch('keydown', Object.assign({key: k}, extra));
   const keyUp = (k, extra) => doc.dispatch('keyup', Object.assign({key: k}, extra));
+  if (hand) $('btn-hand').click();   // (K-24: the levers by keys are a HAND day's)
   $('btn-take').click();
   frames(2);
   return {doc, $, h, frames, key, keyUp, logOf: type => h.game.state.log.filter(r => r.type === type).length};
@@ -207,15 +208,15 @@ test('§13.3: after a module moves the keyboard focus, vm.focus follows it', () 
 
 // ------------------------------------------------------------------ the real desk
 
-function bootReal(seed = 7) {
-  const g = boot({createDesk, system, planview}, '?seed=' + seed);
+function bootReal(seed = 7, hand = false) {
+  const g = boot({createDesk, system, planview}, '?seed=' + seed, hand);
   // Past 04:30 with the plan loaded; frames of 0.1 real s.
   g.frames(20, 0.1);
   return g;
 }
 
 test('the real desk: 1-8 focus through desk.key and vm.focus follows; an arrow on the focused lever moves it exactly once', () => {
-  const {doc, $, h, frames, key, keyUp, logOf} = bootReal();
+  const {doc, $, h, frames, key, keyUp, logOf} = bootReal(7, true);
   assert.equal(typeof h.mods.desk.key, 'function');
   assert.equal(h.keys.deskHolds, true);
   for (const [k, id] of [['1', 'lever-coal'], ['3', 'lever-gta'], ['6', 'wheel-hydro'], ['7', 'dial-battery'], ['8', 'knob-tie'], ['2', 'lever-ccgt']]) {

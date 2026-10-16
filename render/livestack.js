@@ -122,7 +122,7 @@ import {V} from '../sim/params.js';
 import {ACT_S} from '../sim/clock.js';
 import * as PV from '../app/planview.js';
 import {COLOURS, UI, SUBURBS} from './mapdata.js';
-import {clockText, mw as fmtMW, priceText, isLock} from './format.js';
+import {clockText, mw as fmtMW, priceText, isLock, DISPATCH_NOTE} from './format.js';
 
 export const AXIS_MAX_MW = 9000;
 export const HIT_PX = 24;
@@ -292,7 +292,8 @@ export function createLiveStack(doc, root, actions) {
   const unitName = (st, u) => (NAMES[st] || st) + (V.STATIONS[st] && V.STATIONS[st].machines > 1 ? ' ' + u.replace(/\D/g, '') : '');
   // Q-68: why a ghost sits late
   const outage = us => { const u = vm.obs.units.find(q => us.includes(q.id) && q.outUntilS > vm.obs.s); return u ? unitName(u.station, u.id) + ' is on outage until ' + clockText(u.outUntilS, false) : ''; };
-  const sayLocked = () => say(vm.obs.nightShift ? NIGHT_NOTE : 'Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
+  const sayLocked = () => say(vm.obs.nightShift ? NIGHT_NOTE : !locked() && agc() ? DISPATCH_NOTE :
+    'Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
 
   function ensureProj() {
     const obs = vm.obs, k = signature(obs) + '|' + Math.floor(obs.s / RECOMPUTE_S);
@@ -980,11 +981,13 @@ export function createLiveStack(doc, root, actions) {
     return true;
   }
 
-  const locked = () => !!(vm && vm.mode && vm.mode.locked), readOnly = () => locked() || !!(vm && vm.obs.nightShift);
+  // K-24 (Q-93): on an AGC day the stack is the dispatch's readout (HAND keeps its drag)
+  const agc = () => !!(vm && vm.obs.mode !== 'HAND');
+  const locked = () => !!(vm && vm.mode && vm.mode.locked), readOnly = () => locked() || !!(vm && vm.obs.nightShift) || agc();
 
   cv.addEventListener('pointerdown', ev => {
     if (!vm || !G) return;
-    if (readOnly()) { sayLocked(); return; }
+    if (readOnly()) { if (!locked() && agc()) el.focus(); sayLocked(); return; }   // (K-24: an AGC day's stack takes the keys' focus, to read it)
     const p = local(ev), h = hitTest(p.x, p.y);
     // Q-41: a press on what does not drag says what does, in blue
     const nm = h && NAMES[h.id];
@@ -1203,7 +1206,7 @@ export function createLiveStack(doc, root, actions) {
     // live (a drag, a selection, a ghost, a message, a hover, the watch's tear) draws every frame.
     // 2c: at rest at most STACK_MAX_HZ a real second but for the size; frozen at night but for it.
     if (message && nowMs > message.until) say('');
-    const night = v.obs.nightShift, live = !night && (drag || sel || pending || message || hoverLayer || hoverGap || hoverBlue || readOnly());
+    const night = v.obs.nightShift, live = !night && (drag || sel || pending || message || hoverLayer || hoverGap || hoverBlue || locked()); // (the watch animates; an AGC day's read-only stack rests, K-24)
     const size = (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' + expanded + '|' + (globalThis.devicePixelRatio || 1) + (night ? 'N' : '');
     let key = '';
     if (!live && !night) {

@@ -198,29 +198,28 @@ test('every press answers: the quiet desk, header and help (clock held at 04:30)
 test('every press answers: the quiet desk, levers, guards, rotaries, emergency, sync bay, stack, map, focus keys', () => {
   const p = B.p;
   assert.match(p.look({controls: false}), /PAUSE 0×/);
-  // the guards: help in blue, a lift, a commit, a press in the rest after it
-  click(p, 'guard-start-coal1', /^NOTE blue [^\n]*COAL 1 ON: its lever sets the MW$/m, 'guard-start');
-  click(p, 'guard-stop-gtb2', /^NOTE blue [^\n]*GT·B 2 OFF: nothing to stop$/m, 'guard-stop');
-  click(p, 'guard-start-gta1', /guard-start-gta1 "START\?" \[[^\]]*ARMED/, 'guard-start');
-  click(p, 'guard-start-gta1', null, 'guard-start', 'GT·A START commit');
-  click(p, 'guard-start-gta1', /^NOTE blue [^\n]*GT·A START sent/m, 'guard-start', 'a press in the rest after a commit');
-  click(p, 'guard-stop-hydro2', /guard-stop-hydro2 "STOP\?" \[[^\]]*ARMED/, 'guard-stop');
-  // the levers (AGC): focus, a move, RE-DISPATCH, a drag on an idle lever, S S, P
+  // the station's START / STOP words (K-24, an AGC day): help in blue, a lift, a commit, a press in the rest after it
+  click(p, 'station-start-coal', /^NOTE blue [^\n]*COAL: nothing to start \(/m, 'guard-start');
+  click(p, 'station-stop-gtb', /^NOTE blue [^\n]*GT·B: nothing to stop \(none running\)$/m, 'guard-stop');
+  click(p, 'station-start-gta', /station-start-gta "START\?" \[[^\]]*ARMED/, 'guard-start');
+  click(p, 'station-start-gta', null, 'guard-start', 'GT·A START commit');
+  click(p, 'station-start-gta', /^NOTE blue [^\n]*GT·A START sent/m, 'guard-start', 'a press in the rest after a commit');
+  click(p, 'station-stop-hydro', /station-stop-hydro "STOP\?" \[[^\]]*ARMED/, 'guard-stop');
+  // the levers (AGC, K-24): readouts, a key and a drag answer in blue; N says the dispatch re-plans by itself; S S, P
   tap(p, '2', /lever-ccgt "[^"]*"=\d+ \[[^\]]*focus/, 'keys-focus');
-  tap(p, 'ArrowUp', /lever-ccgt "[^"]*"=\d+/, 'lever-track');
-  tap(p, 'n', /btn-redispatch "⟳ RE-DISPATCH"/, 'keys-misc');
-  click(p, 'btn-redispatch', null, 'btn-redispatch');
+  tap(p, 'ArrowUp', /^NOTE blue [^\n]*The dispatch sets the MW; START and STOP are yours\.$/m, 'lever-track');
+  tap(p, 'n', /^NOTE blue [^\n]*AGC: the dispatch re-plans by itself \(RE-DISPATCH is HAND's\)$/m, 'keys-misc');
   act(p, () => { p.pointer('lever-gtc', 'pointerdown', 20, 18); p.pointer('lever-gtc', 'pointermove', 20, 16); p.pointer('lever-gtc', 'pointerup', 20, 16); p.frame(); },
-    null, 'lever-track', 'a drag on the idle GT·C lever');
+    /^NOTE blue [^\n]*The dispatch sets the MW; START and STOP are yours\.$/m, 'lever-track', 'a drag on the idle GT·C lever');
   tap(p, '4', /lever-gtb "[^"]*"=\d+ \[[^\]]*focus/, 'keys-focus');
-  tap(p, 's', /guard-start-gtb1 "START\?"/, 'keys-ss-xx-p');
+  tap(p, 's', /station-start-gtb "START\?"/, 'keys-ss-xx-p');
   tap(p, 's', null, 'keys-ss-xx-p', {}, 'S S');
   tap(p, 'p', /^NOTE blue [^\n]*AGC: /m, 'keys-ss-xx-p');
   // the rotaries
   const slot = id => p.$(id).parent.parent;
   const read = id => slot(id).textContent;
   tap(p, '6', /wheel-hydro "[^"]*"=\d+ \[[^\]]*focus/, 'keys-focus');
-  tap(p, 'ArrowRight', /wheel-hydro "[^"]*"=\d+/, 'hydro-wheel', {shiftKey: true});
+  tap(p, 'ArrowRight', /^NOTE blue [^\n]*The dispatch sets the MW; START and STOP are yours\.$/m, 'hydro-wheel', {shiftKey: true});
   tap(p, 'x', /"STOP\?"/, 'keys-ss-xx-p');
   tap(p, '7', /dial-battery "[^"]*"=-?\d+ \[[^\]]*focus/, 'keys-focus');
   let was = read('dial-battery');
@@ -250,17 +249,17 @@ test('every press answers: the quiet desk, levers, guards, rotaries, emergency, 
   click(p, expand, r => !/stack>button "L" \[[^\]]*pressed/.test(r.after), 'stack-expand', 'L (back)');
   const gh = stackHit(p, 'ghost');
   assert.ok(gh, 'an off unit\'s ghost on the stack');
-  stackSays(p, () => stackClick(p, gh.x, gh.y), /^Drag right to book .+'s START$/, 'stack-ghost-start', 'a click on a ghost');
+  // (K-24: on an AGC day the stack is the dispatch's readout: a click says so)
+  stackSays(p, () => stackClick(p, gh.x, gh.y), /^The dispatch sets the MW; START and STOP are yours\.$/, 'stack-ghost-start', 'a click on a ghost');
   const edge = stackHit(p, 'edge');
-  stackSays(p, () => stackClick(p, edge.x, edge.y), /^Drag to plan .+'s MW: right for later, up for more$/, 'stack-drag-key-edge', 'a click on a layer edge');
+  stackSays(p, () => stackClick(p, edge.x, edge.y), /^The dispatch sets the MW; START and STOP are yours\.$/, 'stack-drag-key-edge', 'a click on a layer edge');
   const tip = p.h.mods.stack.el.querySelector('.livestack-tip');
   act(p, () => { const {cv, xy} = stackAt(p), [cx, cy] = xy(gh.x, gh.y); cv.dispatch('pointermove', {clientX: cx, clientY: cy}); p.frame(); },
     () => tip && !tip.hidden && /is off: earliest/.test(tip.textContent), 'stack-hover', 'a hover on a ghost');
   tap(p, 'l', () => focused(p) === 'stack', 'stack-keys');
-  stackSays(p, () => p.key('ArrowUp'), /^Pick a station first: 1-6$/, 'stack-keys', '↑ with nothing picked');
-  stackSays(p, () => p.key('1'), /^COAL: ←\/→ time, ↑\/↓ MW, Enter plans it$/, 'stack-keys', '1');
-  assert.ok(p.h.mods.stack.debug.sel, 'COAL picked');
-  tap(p, 'Escape', () => !p.h.mods.stack.debug.sel, 'stack-keys', {}, 'Esc on the stack (the pick, drawn on the canvas, goes)');
+  stackSays(p, () => p.key('ArrowUp'), /^The dispatch sets the MW; START and STOP are yours\.$/, 'stack-keys', '↑ on an AGC day');
+  stackSays(p, () => p.key('1'), /^The dispatch sets the MW; START and STOP are yours\.$/, 'stack-keys', '1 on an AGC day');
+  tap(p, 'Escape', () => !p.h.mods.stack.debug.sel, 'stack-keys', {}, 'Esc on the stack');
   // the map: a plant focuses its control; a suburb opens its card (Q-56); wind, solar, the ground answer with a label
   act(p, () => mapClick(p, 'ccgt'), /lever-ccgt "[^"]*"=\d+ \[[^\]]*focus/, 'map-click', 'a click on RIVERTON CCGT');
   act(p, () => mapClick(p, 'sub:RED'), () => p.game.ui.suburb === 'RED', 'map-click', 'a click on sub:RED (its card)'); p.key('h'); // (H closes it: Esc below is the map's)
@@ -315,8 +314,8 @@ test('every press answers: the desk running (FAST, a READY unit and its scope, t
   click(p, 'btn-log', /btn-log "LOG ▾" \[[^\]]*pressed/, 'btn-log');
   click(p, 'btn-log', r => /btn-log "LOG"/.test(r.after), 'btn-log');
   // STOP, then ABORT
-  click(p, 'guard-stop-coal3', null, 'guard-stop', 'COAL 3 STOP lift');
-  click(p, 'guard-stop-coal3', null, 'guard-stop', 'COAL 3 STOP');
+  click(p, 'station-stop-coal', null, 'guard-stop', 'COAL STOP lift');
+  click(p, 'station-stop-coal', null, 'guard-stop', 'COAL STOP');
   assert.deepEqual(p.h.mods.errors, []);
 });
 
@@ -328,14 +327,13 @@ test('every press answers: the watch (the first full one: the desk answers with 
   const r = p.until('trip', {max: '13:00', line: 'near'});
   assert.equal(r.why, 'trip');
   assert.equal(p.mode(), 'WATCH');
-  click(p, 'guard-start-gtc2', lock, 'guard-start');
+  click(p, 'station-start-gtc', lock, 'guard-start');
   tap(p, '1', /lever-coal "[^"]*"=\d+ \[[^\]]*focus/, 'keys-focus');
   tap(p, 'ArrowUp', lock, 'lever-track');
   tap(p, 's', lock, 'keys-ss-xx-p');
   tap(p, '6', null, 'keys-focus');
   tap(p, 'ArrowUp', lock, 'hydro-wheel');
   click(p, 'key-agc', lock, 'key-agc-desk');
-  click(p, 'btn-redispatch', lock, 'btn-redispatch');
   tap(p, 'n', lock, 'keys-misc');
   act(p, down(p, 'key-rert'), lock, 'key-rert', 'BREAK GLASS in the watch');
   act(p, down(p, 'btn-dr'), lock, 'btn-dr', 'DR in the watch');
@@ -393,7 +391,7 @@ test('every press answers: the day over (desk, header, DOWNLOAD, PLAY THIS DAY A
   tap(p, ' ', OVER, 'key-space');
   click(p, 'rate-badge', OVER, 'hdr-rate-badge');
   tap(p, 'f', OVER, 'key-f-fast');
-  click(p, 'guard-start-gtc2', DESK, 'guard-start');
+  click(p, 'station-start-gtc', DESK, 'guard-start');
   tap(p, 'n', DESK, 'keys-misc');
   tap(p, '1', null, 'keys-focus');
   tap(p, 's', DESK, 'keys-ss-xx-p');
@@ -419,6 +417,7 @@ test('every press answers: a HAND day (the MAN lamp, P / Shift+P, BYPASS, a drag
   tap(p, 'p', /man-ccgt "P"/, 'keys-ss-xx-p');
   tap(p, 'ArrowUp', /man-ccgt "M"/, 'lever-track');
   tap(p, 'P', /^NOTE blue [^\n]*CCGT KEEP: the plan goes on from here$/m, 'keys-ss-xx-p', {shiftKey: true});
+  click(p, 'btn-redispatch', null, 'btn-redispatch');   // (K-24: RE-DISPATCH is HAND's)
   p.click('bay-sync');   // (20261007's two held task feeders put the bay's own view on RESTORE at 04:30: desk/bay.js, wave-2 desk)
   click(p, 'sync-bypass', /sync-bypass "● BYPASS"/, 'sync-bypass');
   tap(p, 'b', r => /sync-bypass "BYPASS"/.test(r.after), 'sync-bypass');

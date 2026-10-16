@@ -201,17 +201,17 @@ test('Q-46: every panel control answers: GO TO, ACK, ACK ALL, HORN OFF and CLOSE
   // GO TO: the panel closes, the clock stays paused, the focus is on the control
   p.click('ap-goto');
   assert.deepEqual([p.game.ui.alarmsOpen, p.mode(), p.doc.activeElement.id], [false, 'PAUSE', plan]);
-  // with no act-now line, a tile's own GO TO: AGC LIMIT's is RE-DISPATCH
+  // with no act-now line, a tile's own GO TO: AGC LIMIT's is the battery (K-24: the AGC desk has no RE-DISPATCH)
   p.key('w');
   p.game.objective = null;
   p.click('ap-agcLimit');
-  assert.equal(p.$('ap-goto').textContent, 'GO TO RE-DISPATCH');
+  assert.equal(p.$('ap-goto').textContent, 'GO TO BATTERY');
   p.click('ap-goto');
-  assert.equal(p.doc.activeElement.id, 'btn-redispatch');
+  assert.equal(p.doc.activeElement.id, 'dial-battery');
   // CLOSE gives the focus back to the opener
   p.key('w');
   p.click('btn-alarms-close');
-  assert.deepEqual([p.game.ui.alarmsOpen, p.mode(), p.doc.activeElement.id], [false, 'PAUSE', 'btn-redispatch']);
+  assert.deepEqual([p.game.ui.alarmsOpen, p.mode(), p.doc.activeElement.id], [false, 'PAUSE', 'dial-battery']);
   assert.deepEqual(p.h.mods.errors, []);
 });
 
