@@ -26,7 +26,8 @@ import {restoreAllowedS, isPerfect} from '../sim/market.js';
 import {imbalanceSegments} from '../desk/calc.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
-import {DAILIES, scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
+import {DAILIES, dailyScenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
+import {anniversaryOf} from '../content/anniversaries.js';
 import {objective, consequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
@@ -160,11 +161,32 @@ function setSetting(game, key, value) {
   return '';
 }
 
-// C-2, Q-75: the scenario of the seed's date
-export const scenarioForSeed = seed => SCENARIOS[scenarioIdOf(ymdOf(seed))];
+// C-2, Q-75: the scenario of the seed's date (W6, D-29: on an anniversary, its variant: content/anniversaries.js)
+export const scenarioForSeed = seed => SCENARIOS[dailyScenarioIdOf(ymdOf(seed))];
+
+/** W6 (D-29): the anniversary that shapes this game's day (its date's, when it plays the date's variant), else null. */
+export function anniversaryFor(game) {
+  const ymd = ymdOf(game.seed), a = anniversaryOf(ymd);
+  return a && game.state.scenarioId === dailyScenarioIdOf(ymd) ? a : null;
+}
+
+/**
+ * W6 (D-29): the GUARD is still the one the night shift handed over at 04:00: above 0 (Loy Yang's day arms it,
+ * content/anniversaries.js; every other day hands over none), and the player has not set the ring since. The watch, the
+ * respond card and the moment name it as the night shift's then: YOUR GUARD is one the player set (K-16, X-40, D-21).
+ */
+export const nightGuard = state => state.battery.guardMW > 0 && !state.log.some(r => r.type === 'guard');
 
 // The build stamp a daily list is gated under (Q-75).
 export const dailyStamp = () => SIM_VERSION + '|' + scenarioHash(SCENARIOS.desk) + '|' + scenarioHash(SCENARIOS['desk-weekend']);
+
+/**
+ * W6 (D-29): what an anniversary's daily is made from, beyond the stamp (which hashes the desk scenarios only): {seed (its
+ * listed seed), hash (its variant's scenarioHash)}, else null. tools/ladder.mjs keeps it with the date's row (LADDER.anniv).
+ */
+export function anniversaryStamp(ymd) {
+  return anniversaryOf(ymd) ? {seed: dailyFor(ymd, dailyStamp()).seed, hash: scenarioHash(SCENARIOS[dailyScenarioIdOf(ymd)])} : null;
+}
 
 // Q-75: ?seed=N, ?date=YYYY-MM-DD, else today's daily (§32.5.3)
 export function dailyFrom(search, date) {
@@ -274,7 +296,7 @@ export function resetDay(game, seed) {
   game.hist = createHist();
   game.histView = null; game.histViewS = -1;
   game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
-  game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
+  game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.guardNight = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
   game.acts = [];   // (F-7: the player's actions, for the save)
   game.noCoach = false;   // (O-8: set when the desk is taken)
   game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
@@ -391,7 +413,10 @@ function shedText(state, r) {
 /** A step's (or an input's) records: traces, sounds, refusals, the tray; a card that rings ends FAST (Q-63). */
 export function handleRecords(game, recs, by) {
   for (const r of recs) {
-    if (r.kind === 'contingency') { startTrace(game.rec, game.state); game.guardAt[game.state.conts.length] = game.state.battery.guardMW; } // (D-21: the GUARD set at the trip)
+    if (r.kind === 'contingency') { // (D-21: the GUARD set at the trip; D-29: whether it was still the night shift's)
+      const n = game.state.conts.length;
+      startTrace(game.rec, game.state); game.guardAt[n] = game.state.battery.guardMW; game.guardNight[n] = nightGuard(game.state);
+    }
     if (r.kind === 'shed' && r.why === 'directed' && game.phase === 'play') D.startShedWatch(game.director, game.state, shedText(game.state, r));
     let cues = EMPTY;
     try { cues = recordCues(game, r); } catch { cues = EMPTY; } // sound is optional (C-8): never stop the tick
@@ -860,7 +885,7 @@ export function buildVm(game, f) {
         glow = null;
       }
     }
-    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c)});
+    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c), nightGuard: nightGuard(game.state)});
     game.respondGlow = game.respond.glow;
   }
   if (mode.mode !== 'RESPOND-CARD') game.respond = null;
@@ -933,7 +958,7 @@ export function buildVm(game, f) {
   let watch = null;
   if (mode.mode === 'WATCH' && c) {
     const tr = traceOf(game.rec, c.n);
-    if (tr) watch = W.watchView(game.watchMem, tr, c, state.tick, {rate: mode.rate, version: mode.watchVersion, guardMW: obs.battery.guardMW});
+    if (tr) watch = W.watchView(game.watchMem, tr, c, state.tick, {rate: mode.rate, version: mode.watchVersion, guardMW: obs.battery.guardMW, nightGuard: nightGuard(state)});
   }
   // K-15 (Q-97): the first directed shed's compact watch: its stopwatch and its one sentence, no beats
   if (mode.mode === 'SHED-WATCH') watch = {n: -1, tS: mode.watchS, beat: '', beatIndex: -1, caption: D.shedWatchText(d, state), shed: true,
@@ -1075,7 +1100,8 @@ function verdictFor(game) {
   game.verdictKey = key;
   const parScore = par && par.done && par.score && !par.black ? par.score : null;
   const pm = parScore && par.minutes && par.minutes.length ? s => parMinute(par, s) : null;
-  const first = VD.moment(mem, conts, {nightS}), m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: first.cont ? game.guardAt[first.cont.n] : undefined});
+  const first = VD.moment(mem, conts, {nightS}), fc = first && first.cont;
+  const m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: fc ? game.guardAt[fc.n] : undefined, nightGuard: !!fc && !!game.guardNight[fc.n]});
   end.verdict = {
     lights: VD.lightsRow(mem, end.score, parScore).text,
     cost: VD.costRow(end.allIn, end.parAllIn), carbon: VD.carbonRow(end.allIn, end.parAllIn),
@@ -1111,8 +1137,14 @@ export function ladderFor(game, g, list = LADDER) {
   return out.filter(x => Number.isFinite(x[1])).sort((a, b) => a[1] - b[1] || (a[2] ? 1 : b[2] ? -1 : 0));
 }
 
-// This daily's row in content/ladder.js (this build's list), else null: off the calendar, a Hard day or another seed
-const listedRow = (game, list) => { const ymd = dailyYmd(game); return ymd && list.v === dailyStamp() && list.rows ? list.rows[ymd] || null : null; };
+// This daily's row in content/ladder.js (this build's list), else null: off the calendar, a Hard day or another seed; on an
+// anniversary (D-29), a row made from another seed or variant than today's (the list's anniv: stale, as another build's list is)
+function listedRow(game, list) {
+  const ymd = dailyYmd(game);
+  if (!ymd || list.v !== dailyStamp() || !list.rows) return null;
+  const an = anniversaryStamp(ymd), made = an && list.anniv ? list.anniv[ymd] : null;
+  return !an || (made && made.seed === an.seed && made.hash === an.hash) ? list.rows[ymd] || null : null;
+}
 
 /**
  * F-8 (risk 5): par's stored end on this daily, {total (ALL-IN $), shedMWh}, from content/ladder.js (tools/ladder.mjs runs the
@@ -1145,7 +1177,8 @@ export function shareFor(game, end) {
   // (the coach is the exception that is tagged: a first shift coaches unless switched off, a later one is off unless switched
   // on, O-8; so NO COACH on a first shift and COACHED on a later one, where O-8's text has NO COACH on every later card)
   // (PRACTICE on any run that does not count: an unclaimed first shift, a run that ended before 09:00, a practice run)
-  const tags = [end.firstShift && 'FIRST SHIFT', !official(game) && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
+  // (D-29: ANNIVERSARY first, so a long card drops it last; the incident's name stays off the card, as every event does)
+  const tags = [anniversaryFor(game) && 'ANNIVERSARY', end.firstShift && 'FIRST SHIFT', !official(game) && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
     end.firstShift ? end.noCoach && 'NO COACH' : !end.noCoach && 'COACHED', end.glassBroken && 'GLASS BROKEN', g && g.hardMWh && 'HARD DAY'].filter(Boolean);
   const n = dailyNumber(ymd);
   const card = SH.shareCard({ymd, n, seed: game.seed, name: game.hard ? 'Hard day ' + game.hard : '', grade: g, perfect: end.perfect, black: end.black, lowHz: end.lowHz, spark: end.spark,

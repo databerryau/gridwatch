@@ -5,12 +5,20 @@
 //   node tools/daily-gen.js --from 2026-10-12 --days 365 -j 8   # gate 365 dates, write the list
 //   node tools/daily-gen.js --from 2026-10-12 --days 2 --dry    # a smoke check: report, no write
 //   node tools/daily-gen.js --check -j 8                        # re-gate the shipped list under this build
+//   node tools/daily-gen.js --dates 2026-12-14,2027-02-13 -j 2  # re-gate these dates only, merged into the shipped list
 //
-// Flags: --from YYYY-MM-DD | --days N (default 365) | -j/--workers N | --dry (no write) | --check |
+// Flags: --from YYYY-MM-DD | --days N (default 365) | --dates D,D,... | -j/--workers N | --dry (no write) | --check |
 // --pool FILE (the Hard-day pool, one JSON line per rejected seed) | --json (one JSON line per date).
 //
+// W6 (D-29): an anniversary's date (content/anniversaries.js) plays its variant scenario (dailyScenarioIdOf names it), and an
+// attempt passes only with its incident in the plan (the records sim/dayplan.js marks `incident`): an anniversary without its
+// incident is an ordinary day. Each anniversary gated is written to content/anniversaries.js GATED with the variant's
+// scenarioHash, which tests/anniversary.test.js checks against the variant (the desk scenarios' hashes in the stamp do not
+// cover it). --dates re-gates only the dates named, merged into the shipped list, which must be this build's; then run
+// tools/ladder.mjs --from D --to D for each (F-8: the stored par).
+//
 // Candidates (Q-75): attempt k of a date is seedOf(YYYYMMDD, k) = YYYYMMDD + k x 10^8, on the
-// scenario of the date (scenarioIdOf: Saturday and Sunday play desk-weekend). Attempt 0 is the
+// scenario of the date (dailyScenarioIdOf: Saturday and Sunday play desk-weekend, an anniversary its variant). Attempt 0 is the
 // date itself; a later attempt is played only when its class, the hidden regime's temp and cls
 // (MILD|calm, HEATWAVE|heat, ...), is attempt 0's: the class is never stepped down. At most
 // CAP + 1 attempts (k <= 40): a date with none passing is a LOUD failure and nothing is written.
@@ -33,7 +41,7 @@ const fs = require('fs');
 const {fork} = require('child_process');
 const {pathToFileURL} = require('url');
 
-const ROOT = path.join(__dirname, '..'), LIST = path.join(ROOT, 'content', 'dailies.js');
+const ROOT = path.join(__dirname, '..'), LIST = path.join(ROOT, 'content', 'dailies.js'), ANNIV = path.join(ROOT, 'content', 'anniversaries.js');
 const load = rel => import(pathToFileURL(path.join(ROOT, rel)).href);
 const CAP = 40;
 
@@ -50,6 +58,22 @@ function bound(state, V) {
 
 /** D-9 on a played day {shortMin, score, black}: (1) and (2). */
 const gate = (day, isClean) => day.shortMin === 0 && isClean(day.score, day.black);
+
+/** W6 (D-29): does a day's plan hold its anniversary's incident? (true on any other day) */
+const hasIncident = st => !(st.scn.dayplan && st.scn.dayplan.incident) || st.ext.events.some(e => e.incident);
+
+/** W6 (D-29): content/anniversaries.js's GATED line for {v, hashes} (the stamp and each gated variant's scenarioHash). */
+function renderGated(G) {
+  const h = Object.keys(G.hashes).sort().map(d => d + ': ' + G.hashes[d]).join(', ');
+  return 'export const GATED = {v: \'' + G.v + '\', hashes: {' + h + '}};';
+}
+
+/** content/anniversaries.js with its GATED literal replaced (everything else kept). */
+function writeGated(src, G) {
+  const re = /export const GATED = \{.*\};\n/;
+  if (!re.test(src)) throw new Error('content/anniversaries.js: no GATED literal');
+  return src.replace(re, renderGated(G) + '\n');
+}
 
 /** The list to ship: exceptions only, keys in the shipped order. */
 function listOf(rows, from, to, v) {
@@ -76,10 +100,11 @@ function writeList(src, L) {
 // ---------------------------------------------------------------- one date
 
 async function sim() {
-  const [ap, step, params, scen, daily, market, dm] = await Promise.all(['sim/autopilot.js', 'sim/step.js', 'sim/params.js',
-    'content/scenarios.js', 'content/dailies.js', 'sim/market.js', 'tools/day-measure.mjs'].map(load));
+  const [ap, step, params, scen, daily, market, dm, anniv] = await Promise.all(['sim/autopilot.js', 'sim/step.js', 'sim/params.js',
+    'content/scenarios.js', 'content/dailies.js', 'sim/market.js', 'tools/day-measure.mjs', 'content/anniversaries.js'].map(load));
   return {runPar: ap.runPar, createState: step.createState, V: params.V, SIM_VERSION: params.SIM_VERSION, getScenario: scen.getScenario,
-    seedOf: daily.seedOf, scenarioIdOf: daily.scenarioIdOf, DAILIES: daily.DAILIES, isClean: market.isClean, dm};
+    seedOf: daily.seedOf, dailyScenarioIdOf: daily.dailyScenarioIdOf, DAILIES: daily.DAILIES, isClean: market.isClean, dm,
+    scenarioHash: step.scenarioHash, anniversaryOf: anniv.anniversaryOf, GATED: anniv.GATED};
 }
 
 /** Par's day on one candidate, gated (and its D-10). */
@@ -104,29 +129,31 @@ const classOf = st => st.ext.regime.temp + '|' + st.ext.regime.cls;
 
 /** Gate one date: the first passing attempt of its class, or k -1 at the cap. want: only that attempt (--check). */
 function genDate(S, ymd, want) {
-  const t0 = process.hrtime.bigint(), scn = S.getScenario(S.scenarioIdOf(ymd)), cls = classOf(S.createState(ymd, scn));
+  const t0 = process.hrtime.bigint(), scn = S.getScenario(S.dailyScenarioIdOf(ymd)), cls = classOf(S.createState(ymd, scn));
   const rejected = [];
   let played = 0, hit = null;
   for (let k = want === undefined ? 0 : want; k <= (want === undefined ? CAP : want); k++) {
-    const seed = S.seedOf(ymd, k);
-    if (k > 0 && classOf(S.createState(seed, scn)) !== cls) continue;
+    const seed = S.seedOf(ymd, k), st = S.createState(seed, scn);
+    if (k > 0 && classOf(st) !== cls) continue;
+    if (!hasIncident(st)) { rejected.push({ymd, k, seed, scenario: scn.id, cls, incident: false}); continue; } // D-29: not played
     const day = play(S, seed, scn);
     played++;
     if (day.pass) { hit = Object.assign(day, {k}); break; }
     rejected.push({ymd, k, seed, scenario: scn.id, cls, shortMin: day.shortMin, uflsMWh: day.score.uflsMWh, directedMWh: day.score.directedMWh, black: day.black});
   }
   return {ymd, scenario: scn.id, cls, k: hit ? hit.k : -1, played, rejected, d10: hit ? hit.d10 : null,
-    secs: Number(process.hrtime.bigint() - t0) / 1e9};
+    anniv: S.anniversaryOf(ymd) ? S.scenarioHash(scn) : null, secs: Number(process.hrtime.bigint() - t0) / 1e9};
 }
 
 // ---------------------------------------------------------------- the command line
 
 function parseArgs(argv) {
-  const o = {from: null, days: 365, workers: 1, dry: false, check: false, pool: null, json: false, worker: false};
+  const o = {from: null, days: 365, dates: null, workers: 1, dry: false, check: false, pool: null, json: false, worker: false};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], next = () => argv[++i];
     if (a === '--from') o.from = next();
     else if (a === '--days') o.days = Math.max(1, parseInt(next(), 10) || 1);
+    else if (a === '--dates') o.dates = (next() || '').split(',').map(d => +d.replace(/-/g, '')).filter(Number.isInteger);
     else if (a === '-j' || a === '--workers') o.workers = Math.max(1, parseInt(next(), 10) || 1);
     else if (a === '--dry') o.dry = true;
     else if (a === '--check') o.check = true;
@@ -136,7 +163,8 @@ function parseArgs(argv) {
     else if (a === '-h' || a === '--help') { const src = fs.readFileSync(__filename, 'utf8').split('\n'); console.log(src.slice(0, src.findIndex(l => !l.startsWith('//'))).join('\n')); process.exit(0); }
     else throw new Error('unknown flag ' + a + ' (see --help)');
   }
-  if (!o.check && !o.from && !o.worker) throw new Error('--from YYYY-MM-DD is needed (or --check)'); // a worker gets its dates from the parent
+  if (o.dates && (!o.dates.length || o.check || o.from)) throw new Error('--dates D,D,... names dates alone (no --from or --check)');
+  if (!o.check && !o.from && !o.dates && !o.worker) throw new Error('--from YYYY-MM-DD is needed (or --dates, or --check)'); // a worker gets its dates from the parent
   return o;
 }
 
@@ -193,25 +221,42 @@ async function main() {
   const L = S.DAILIES;
   if (o.check && !L.from) throw new Error('--check: the shipped list is empty');
   const days = o.check ? Math.round((Date.parse(L.to) - Date.parse(L.from)) / 864e5) + 1 : o.days;
-  const jobs = dates(o.check ? L.from : o.from, days).map(ymd => (o.check ? {ymd, k: L.attempts[ymd] || 0} : {ymd}));
+  const jobs = o.dates ? o.dates.map(ymd => ({ymd})) : dates(o.check ? L.from : o.from, days).map(ymd => (o.check ? {ymd, k: L.attempts[ymd] || 0} : {ymd}));
+  const stamp = (await load('app/game.js')).dailyStamp(), ymdIn = iso => +iso.replace(/-/g, '');
+  if (o.dates && (L.v !== stamp || !o.dates.every(d => d >= ymdIn(L.from) && d <= ymdIn(L.to)))) {
+    throw new Error('--dates: the shipped list must be this build\'s and hold every date named (else gate the whole range)');
+  }
   const t0 = Date.now();
   const rows = (o.workers > 1 && jobs.length > 1 ? await runWorkers(o, jobs) : jobs.map(j => genDate(S, j.ymd, j.k))).sort((a, b) => a.ymd - b.ymd);
   if (o.json) for (const r of rows) console.log(JSON.stringify(r));
   const {pool, cap} = report(rows, S, (Date.now() - t0) / 1000);
   if (o.pool) fs.writeFileSync(o.pool, pool.map(x => JSON.stringify(x)).join('\n') + (pool.length ? '\n' : ''));
-  const stamp = (await load('app/game.js')).dailyStamp();
+  // D-29: each anniversary gated, with its variant's hash (a --dates run keeps the other anniversaries', when they are this build's)
+  const ann = rows.filter(r => r.anniv !== null), G = {v: stamp, hashes: o.dates && S.GATED.v === stamp ? Object.assign({}, S.GATED.hashes) : {}};
+  for (const r of ann) G.hashes[r.ymd] = r.anniv;
   if (o.check) {
-    const stale = L.v !== stamp;
-    console.log('\n--check: ' + rows.filter(r => r.k >= 0).length + ' of ' + rows.length + ' listed attempts pass under this build; the list\'s stamp ' + (stale ? 'is STALE (' + L.v + ' vs ' + stamp + ')' : 'is this build\'s'));
-    if (cap.length || stale) process.exitCode = 1;
+    const stale = L.v !== stamp, old = ann.filter(r => S.GATED.v !== stamp || S.GATED.hashes[r.ymd] !== r.anniv);
+    console.log('\n--check: ' + rows.filter(r => r.k >= 0).length + ' of ' + rows.length + ' listed attempts pass under this build; the list\'s stamp ' +
+      (stale ? 'is STALE (' + L.v + ' vs ' + stamp + ')' : 'is this build\'s') + '; anniversaries gated under another variant: ' + (old.map(r => iso(r.ymd)).join(', ') || 'none'));
+    if (cap.length || stale || old.length) process.exitCode = 1;
     return;
   }
   if (cap.length) { process.exitCode = 1; return; }
-  const list = listOf(rows, iso(rows[0].ymd), iso(rows[rows.length - 1].ymd), stamp);
-  if (o.dry) { console.log('\n--dry: content/dailies.js not written; it would hold ' + render(list)); return; }
+  let list = listOf(rows, iso(rows[0].ymd), iso(rows[rows.length - 1].ymd), stamp);
+  if (o.dates) { // merged: the dates named take their new attempt, every other date keeps its own
+    const at = Object.assign({}, L.attempts);
+    for (const r of rows) { delete at[r.ymd]; if (r.k > 0) at[r.ymd] = r.k; }
+    list = {v: stamp, from: L.from, to: L.to, attempts: Object.fromEntries(Object.keys(at).map(Number).sort((a, b) => a - b).map(d => [d, at[d]]))};
+  }
+  if (o.dry) { console.log('\n--dry: content/dailies.js not written; it would hold ' + render(list) + (ann.length ? '\nand content/anniversaries.js ' + renderGated(G) : '')); return; }
   fs.writeFileSync(LIST, writeList(fs.readFileSync(LIST, 'utf8'), list));
   console.log('\nwrote content/dailies.js: ' + list.from + ' to ' + list.to + ', ' + Object.keys(list.attempts).length + ' exceptions, v ' + list.v);
+  if (ann.length || !o.dates) {
+    fs.writeFileSync(ANNIV, writeGated(fs.readFileSync(ANNIV, 'utf8'), G));
+    console.log('wrote content/anniversaries.js GATED: ' + (Object.keys(G.hashes).map(iso).join(', ') || 'none') +
+      (ann.length ? '; now run tools/ladder.mjs --from D --to D for ' + ann.map(r => iso(r.ymd)).join(', ') : ''));
+  }
 }
 
 if (require.main === module) main().catch(e => { console.error(e); process.exit(1); });
-module.exports = {bound, gate, listOf, render, writeList, CAP};
+module.exports = {bound, gate, listOf, render, writeList, renderGated, writeGated, hasIncident, CAP};

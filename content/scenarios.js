@@ -10,6 +10,8 @@
 // Model constants shared by every scenario live in sim/params.js.
 
 import {P} from '../sim/params.js';
+import {ANNIVERSARIES} from './anniversaries.js';
+import {scenarioIdOf, dailyScenarioIdOf} from './dailies.js';
 
 const LEG = 'legacy index.html';
 
@@ -309,7 +311,27 @@ deepFreeze(CLASSIC);
 deepFreeze(DESK);
 deepFreeze(DESK_WEEKEND);
 
-export const SCENARIOS = Object.freeze({classic: CLASSIC, desk: DESK, 'desk-weekend': DESK_WEEKEND});
+// W6 (D-29): `over` laid over `base`: plain objects merged key by key, arrays and values replaced
+function overlay(base, over) {
+  const plain = x => x !== null && typeof x === 'object' && !Array.isArray(x);
+  if (!plain(base) || !plain(over)) return over;
+  const o = Object.assign({}, base);
+  for (const k of Object.keys(over)) o[k] = overlay(base[k], over[k]);
+  return o;
+}
+const DESKS = {desk: DESK, 'desk-weekend': DESK_WEEKEND};
+/**
+ * W6 (D-29): the anniversary dailies' scenarios, by id: the date's own desk scenario with the incident's overrides
+ * (content/anniversaries.js), under the id content/dailies.js dailyScenarioIdOf gives the date. Listed in SCENARIOS, so a state's
+ * scenarioId finds its scenario (the night shift's flag, the city's names); the desk scenarios themselves are untouched.
+ */
+export const ANNIVERSARY_SCENARIOS = Object.freeze(Object.fromEntries(Object.entries(ANNIVERSARIES).map(([d, a]) => {
+  const base = DESKS[scenarioIdOf(+d)], id = dailyScenarioIdOf(+d);
+  if (id === base.id) throw new Error('content/anniversaries.js: ' + d + ' has no key in content/dailies.js ANNIVERSARY_KEYS');
+  return [id, deepFreeze(overlay(base, Object.assign({}, a.overrides, {id, name: base.name + '; the ' + a.name + ' anniversary (' + a.year + ')'})))];
+})));
+
+export const SCENARIOS = Object.freeze({classic: CLASSIC, desk: DESK, 'desk-weekend': DESK_WEEKEND, ...ANNIVERSARY_SCENARIOS});
 
 /** Scenario by id; throws on an unknown id. */
 export function getScenario(id) {
