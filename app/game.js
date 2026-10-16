@@ -126,7 +126,7 @@ export function settingsView(game) {
 }
 
 /**
- * O-8 (Q-92): does the line coach (name the unit, the MW and the minute)? The header's COACH choice once made
+ * O-8 (Q-92): does the line coach (name the unit, the MW and the minute)? The plan bar's COACH choice once made
  * (remembered); before that, on a first shift only (no finished shift in this browser, D-7's count).
  */
 export const coachOn = game => (game.settings.coach === null ? !(game.director.seen.shifts > 0) : game.settings.coach);

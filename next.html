@@ -68,6 +68,8 @@
   @media (min-width: 1600px) { #annun-slot { width: clamp(432px, 30vw, 600px); } }
   /* SPEC §9.1 Q-18: the standing objective, one line along the bottom of the map. The level is
      a glyph and a word as well as a colour (K-22). */
+  /* O-1, O-8: I'VE DONE THIS BEFORE and the COACH toggle, beside the line they govern */
+  #planbar .done-before { flex: none; align-self: center; margin: 0 6px; padding: 2px 8px; font: 700 10px var(--mono); }   /* O-1 */
   #objective { flex: 1 1 auto; min-width: 0; display: flex; align-items: center;
     gap: 8px; min-height: 26px; padding: 3px 10px; font: 600 13px/1.3 system-ui, sans-serif; color: var(--bright);
     background: #0d1117e6; border-top: 1px solid var(--line); pointer-events: none; }
@@ -187,15 +189,13 @@
   <span id="chip-allin" class="chip" hidden><span id="chip-allin-k">SCORE</span> <b id="chip-allin-v">…</b></span>
   <span id="chip-hand" class="chip" hidden>HAND</span>
   <span class="grow"></span>
-  <button id="btn-done-before" title="A first shift coaches you and covers the controls the line has not asked for yet. This turns both off, for good" hidden>I'VE DONE THIS BEFORE</button>
-  <button id="btn-coach" title="COACH ON: the line names the unit, the MW and the minute. COACH OFF: it states the problem and lights what can answer it (remembered)" aria-pressed="true">COACH ON</button>
   <button id="btn-pause" title="Space" aria-keyshortcuts="Space">PAUSE</button>
   <button id="btn-mute" title="Sound on or off (Shift+M)" aria-keyshortcuts="Shift+M" aria-pressed="false">SOUND ON</button>
   <button id="btn-settings" title="Settings: volumes, reduced motion, reduced effects, CRT (,)" aria-keyshortcuts="," aria-haspopup="dialog" aria-expanded="false" aria-controls="settings">SETTINGS</button>
   <button id="btn-help" title="Every abstraction GRIDWATCH makes, and why (?)" aria-label="What GRIDWATCH simplifies, and why" aria-keyshortcuts="?" aria-haspopup="dialog" aria-controls="drawer" aria-expanded="false">?</button>
 </header>
 <div id="map" aria-label="The city and its power stations"></div>
-<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="night-strip" role="group" aria-label="The night shift: your day's totals so far" hidden><b>☾ NIGHT SHIFT</b><span><span id="night-note"></span><span id="night-figs"></span></span></div><div id="annun-slot" class="dk-vars"></div></div>
+<div id="planbar"><div id="objective" role="status" aria-live="polite" hidden><b id="objective-level"></b><span id="objective-text"></span></div><div id="night-strip" role="group" aria-label="The night shift: your day's totals so far" hidden><b>☾ NIGHT SHIFT</b><span><span id="night-note"></span><span id="night-figs"></span></span></div><button id="btn-coach" title="COACH ON: the line names the unit, the MW and the minute. COACH OFF: it states the problem and lights what can answer it (remembered)" class="done-before" aria-pressed="true">COACH ON</button><button id="btn-done-before" title="A first shift coaches you and covers the controls the line has not asked for yet. This turns both off, for good" class="done-before" hidden>I'VE DONE THIS BEFORE</button><div id="annun-slot" class="dk-vars"></div></div>
 <div id="desk" aria-label="The control desk"></div>
 <noscript>GRIDWATCH needs JavaScript (ES modules).</noscript>
 

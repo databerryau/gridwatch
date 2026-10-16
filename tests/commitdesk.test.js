@@ -64,6 +64,6 @@ test('K-24: the GUARD says what it holds; while the line asks for a GUARD, SET n
   p.press('guard-set', {after: 1 / 60});
   assert.equal(p.game.state.battery.guardMW, a.mw);
   p.frames(2);
-  assert.match(p.$('ring-guard').parentElement.parentElement.querySelector('.dk-ffr').textContent, new RegExp('GUARD ' + a.mw + ' MW held for trips'));
+  assert.match(p.$('ring-guard').parentElement.parentElement.querySelector('.dk-ffr').textContent, new RegExp('GUARD ' + a.mw + ' held'));
   assert.ok(p.$('guard-set').hidden, 'set: the chip goes');
 });

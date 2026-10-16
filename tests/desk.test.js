@@ -2247,7 +2247,7 @@ test('K-5 (playtest): the battery lamp says GUARD, and the objective lights the 
     Object.assign(v.obs.battery, {guardMW, guardFired, ffrMW: 390});
     return mount(at(v, 1000)).$('ring-guard').parentElement.parentElement.querySelector('.dk-ffr').textContent;
   };
-  assert.deepEqual([lamp(0, false), lamp(400, false), lamp(400, true)], ['○ GUARD 0 MW held for trips', '⚡ GUARD 400 MW held for trips', '⚡ FIRED 390']);
+  assert.deepEqual([lamp(0, false), lamp(400, false), lamp(400, true)], ['○ GUARD 0 held', '⚡ GUARD 400 held', '⚡ FIRED 390']);
   const ring = mount(at(vmAt(EVE, {glow: new Set(['ring-guard'])}), 1000)).$('ring-guard');
   assert.equal(ring.title, 'GUARD: drag around the outer ring (or G, then ↑ ↓), 50 MW a step');
   assert.ok(ring.classList.contains('glow'));

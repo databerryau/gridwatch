@@ -347,7 +347,7 @@ export function createBatteryDial(ctx, parent) {
       ' · OUT ' + smw(b.outMW).replace('+', ''));
     setText(soc, Math.round(fin(b.socMWh) / fin(b.capMWh, V.BATT_MWH) * 100) + '%');
     setAttr(soc, 'title', 'state of charge ' + mw(b.socMWh) + ' of ' + mw(b.capMWh) + ' MWh');
-    setText(ffr, b.guardFired ? '⚡ FIRED ' + mw(b.ffrMW) : (g > 0 ? '⚡ GUARD ' : '○ GUARD ') + mw(g) + (agcDesk(vm) ? ' MW held for trips' : ''));
+    setText(ffr, b.guardFired ? '⚡ FIRED ' + mw(b.ffrMW) : (g > 0 ? '⚡ GUARD ' : '○ GUARD ') + mw(g) + (agcDesk(vm) ? ' held' : ''));   // (K-24: the words fit the title row; its title has them in full)
     const ask = vm.objective && vm.objective.action && vm.objective.action.type === 'guard' ? vm.objective.action.mw : null;
     asked = agcDesk(vm) && ask !== null && ask !== fin(b.guardMW) ? ask : null;
     setHidden(set, asked === null);
@@ -355,7 +355,7 @@ export function createBatteryDial(ctx, parent) {
     setCls(set, 'glow', asked !== null);
     setCls(ffr, 'lit', g > 0 && !b.guardFired);
     setCls(ffr, 'fired', !!b.guardFired);
-    setAttr(ffr, 'title', 'FFR ARMED: ' + mw(g) + ' MW held back on the GUARD ring, delivered within 1 s of a trip');
+    setAttr(ffr, 'title', 'GUARD ' + mw(g) + ' MW held for trips: FFR ARMED, held back on the GUARD ring, delivered within 1 s of a trip');
     setText(full, b.fullHold ? 'F FULL–HOLD' : b.ufSuspend ? '! UF HOLD' : '');
     setHidden(full, !(b.fullHold || b.ufSuspend));
     setCls(full, 'lit', !!(b.fullHold || b.ufSuspend));

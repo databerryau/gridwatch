@@ -850,6 +850,7 @@ export function bootGame(doc, deps) {
     if (done && done.hidden === first) done.hidden = !first;
     // O-8: COACH ON / OFF, as the line plays it now (a first shift's default, or the remembered choice)
     const coach = $('btn-coach'), on = G.coachOn(game);
+    if (coach && coach.hidden !== !!game.state.control.nightShift) coach.hidden = !!game.state.control.nightShift;   // (no line at night: no coach)
     if (coach) { setText('btn-coach', on ? 'COACH ON' : 'COACH OFF'); if (coach.getAttribute('aria-pressed') !== String(on)) coach.setAttribute('aria-pressed', String(on)); }
     const mute = $('btn-mute');
     if (mute) {
