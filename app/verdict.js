@@ -5,6 +5,8 @@
 // each district's dark spell with its cause and its MWh (task feeders from their hand-back: before it the
 // outage is the network's, Q-69), and once a grid minute the spare in 5 min and the biggest risk, the
 // security level, the player's dark spells open, the underlying and operational demand and the MWh spilled so far.
+// For D-24's cards, `seen` keeps what the player's day saw that the sim keeps no record of: a shed by the city
+// desk, the tie out, the reserve diesel called, a heatwave or a wind drought begun (its news); never the night shift's.
 //
 // verdictView(end, mem, ctx) then builds, for the end card (app/endcard.js):
 //   lights / cost / carbon   D-20's three rows in words against par. The lights row names each dark
@@ -50,7 +52,7 @@ export function createVerdictMem() {
   return {fLo: nan(DAY_S), fHi: nan(DAY_S),
     r5: nan(DAY_MIN), L: nan(DAY_MIN), level: new Int8Array(DAY_MIN).fill(-1), shed: nan(DAY_MIN),
     under: nan(DAY_MIN), oper: nan(DAY_MIN), spill: nan(DAY_MIN), price: nan(DAY_MIN),
-    open: {}, spells: [], peakMW: 0, chimed: false};
+    open: {}, spells: [], peakMW: 0, chimed: false, seen: {}};
 }
 
 /**
@@ -71,7 +73,10 @@ export function verdictSecond(mem, state, rec) {
     }
     if (!dark) continue;
     let sp = mem.open[x.id];
-    if (!sp) { sp = mem.open[x.id] = {id: x.id, by: x.shedBy, stage: x.uflsStage, from: s, to: -1, mwh: 0, night: false}; mem.spells.push(sp); }
+    if (!sp) {
+      sp = mem.open[x.id] = {id: x.id, by: x.shedBy, stage: x.uflsStage, from: s, to: -1, mwh: 0, night: false}; mem.spells.push(sp);
+      if (x.shedBy === 'directed' && !state.control.nightShift) mem.seen.directed = true; // (D-24)
+    }
     sp.mwh += districtColdLoadMW(state, i) / V.COLD_LOAD_FACTOR / V.S_PER_H;
   }
   if ((s + 1) % MIN) return '';
@@ -79,7 +84,19 @@ export function verdictSecond(mem, state, rec) {
   mem.r5[m] = state.sec.r5MW; mem.L[m] = state.sec.lMW; mem.level[m] = LEVELS.indexOf(state.sec.level);
   mem.shed[m] = Object.keys(mem.open).length; // (the player's dark spells: a feeder under repair is the network's)
   mem.under[m] = env.underlyingMW; mem.oper[m] = env.demandMW; mem.spill[m] = state.score.spillMWh; mem.price[m] = state.price.mwh;
+  if (!state.control.nightShift) seenMinute(mem.seen, state, s);
   return cleanRampAt(mem, m) ? 'ramp' : '';
+}
+
+/**
+ * D-24: once a grid minute of the player's day, what the sim keeps no record of: the tie out (a trip at no flow makes
+ * no contingency), the reserve diesel armed (armedEver: an arm stood down within the minute too), and a heatwave or a
+ * wind drought begun (its news, from its onset).
+ */
+function seenMinute(seen, state, s) {
+  if (state.tie.tripped) seen.tie = true;
+  if (state.rert.armedEver) seen.rert = true;
+  for (const n of state.news) if ((n.kind === 'heat' || n.kind === 'drought') && n.fromS <= s) seen[n.kind] = true;
 }
 
 /** L-10: minute m's chime: the evening peak (from 14:00) has passed, before 21:00, and none of the 60 minutes before was red. Once a day. */
@@ -307,14 +324,23 @@ export function tripsLine(conts) {
 export const NEGATIVE_MIN = 30, BACKSTOP_MWH = 200;
 
 /**
- * D-24: at most one card, by trigger, the most dramatic first: the grid went black; the relays shed; the battery
- * (its GUARD or its PFR) caught 50 MW or more of a trip; wind and solar were held back (BACKSTOP_MWH); the price
- * was below $0 for NEGATIVE_MIN minutes. null when none fired. conts: the player's contingencies.
+ * D-24: at most one card, by trigger, in content/cards.js's order: the rarest and most dramatic first. The grid went
+ * black; the relays shed; the city desk shed; the tie line tripped; the reserve diesel was called; a heatwave set in;
+ * the wind dropped away (a drought); the battery (its GUARD or its PFR) caught 50 MW or more of a trip; wind and solar
+ * were held back (BACKSTOP_MWH); the price was below $0 for NEGATIVE_MIN minutes. The day's own cards come before the
+ * battery's, which fires on nearly every trip (a month of dailies, 2026-10-17: par's card was the battery's on 27 of
+ * 30). null when none fired. conts: the player's contingencies.
  */
 export function historyCard(mem, conts, black) {
+  const seen = mem.seen;
   const fired = {
     black: !!black,
     ufls: conts.some(c => c.uflsStages > 0) || mem.spells.some(x => x.by === 'ufls'),
+    directed: !!seen.directed,
+    islanded: !!seen.tie,
+    rert: !!seen.rert,
+    heat: !!seen.heat,
+    drought: !!seen.drought,
     battery: conts.some(c => c.lostMW > 0 && (c.caught.guardMW || 0) + (c.caught.batteryMW || 0) >= 50),
     backstop: lastOf(mem.spill, 0, DAY_MIN) >= BACKSTOP_MWH,
     negative: mem.price.reduce((a, p) => a + (p < 0 ? 1 : 0), 0) >= NEGATIVE_MIN,
