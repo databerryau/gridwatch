@@ -25,7 +25,7 @@ export const REDISPATCH_AFTER = new Set(['start', 'stop', 'abortStop', 'battery'
 /**
  * @param {number} seed
  * @param {object} scenario e.g. DESK or DESK_WEEKEND
- * @param {{follow?:boolean, untilH?:number, objective?:function, onMinute?:function(object, object):void}} [o]
+ * @param {{follow?:boolean, untilH?:number, objective?:function, onMinute?:function(object, object):void, coach?:boolean}} [o]
  *   follow: false = a day with no input at all; untilH: stop at this hour of the unwrapped day
  *   (4..28); objective: a replacement for app/objective.js's (e.g. with a branch switched off);
  *   onMinute(state, obs): called once a grid minute before the line is read (measurements).
@@ -44,7 +44,7 @@ export function followDay(seed, scenario, o = {}) {
       if (o.onMinute) o.onMinute(st, obs);
       if (follow && !obs.inWatch) {
         // (held by hand as the game reads it: app/system.js heldByHand, a fresh scan of the log)
-        const x = line(obs, {edited: SYS.heldByHand(sys, st), planview: PV, dayAhead: obs.dayAhead});
+        const x = line(obs, {edited: SYS.heldByHand(sys, st), planview: PV, dayAhead: obs.dayAhead, coach: o.coach !== false}); // (O-8: coach false, problem mode)
         if (x && x.action) {
           let accepted = true;
           if (x.action.redispatch) redispatch();

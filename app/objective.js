@@ -576,7 +576,8 @@ export function objective(obs, ctx) {
   // instS: an instant resource's window, ACT_WITHIN_S + NOW_S of grid time but never under nowS, §31.8)
   const hand = handOf(obs), endS = nightOf(obs) ? NIGHT_S : Infinity, nowS = spanAt(s, NOW_S, hand, endS), actS = spanAt(s, ACT_WITHIN_S, hand, endS);
   const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV, nowS, actS, instS: Math.max(ACT_WITHIN_S + NOW_S, nowS),
-    act: actWithin(s, ctx.leadS || 0, hand, endS), endS, held: ctx.held || null};
+    act: actWithin(s, ctx.leadS || 0, hand, endS), endS, held: ctx.held || null,
+    coach: ctx.coach !== false};   // O-8 (Q-92): false, problem mode
   // the plan's largest deficit in the columns within nowS (never a later column of the same red run)
   X.redNowMW = 0;
   for (let k = 0; k < proj.n && proj.times[k] - s <= nowS; k++) if (proj.gap[k] === 'red' && proj.deficit[k] > X.redNowMW) X.redNowMW = proj.deficit[k];
@@ -608,7 +609,7 @@ export function objective(obs, ctx) {
   for (const branch of [...(back ? [restore] : []), commitNow, shortAhead, aircon, restore, spare, pickupAhead, stop, battery, soak, commitLater]) {
     const x = branch(X, line);
     if (!x) continue;
-    if (x.action && (x.kind !== 'city' || x.level === 'act')) return x;
+    if ((x.action || x.problem) && (x.kind !== 'city' || x.level === 'act')) return x;   // (O-8: a problem to act on now counts, though it names nothing)
     if (x.action) ask = ask || x; else if (x.level === 'crit') crit = crit || x; else passive = passive || x;
   }
   // 10. Quiet.
@@ -674,14 +675,24 @@ function lookAhead(X) {
   const fastest = all.reduce((a, c) => (!a || arrival(c) < arrival(a) ? c : a), null);
   // the first shortfall a start made now (or at a return) could still be on for
   const reach = fastest ? firstRun(G, arrival(fastest), X.endS) : null;
-  let c = null;
+  let c = null, inTime = [];
   if (reach) {
-    const inTime = all.filter(x => arrival(x) <= reach.atS);
+    inTime = all.filter(x => arrival(x) <= reach.atS);
     c = inTime[0] || fastest;
   }
   const T = capacityGap(obs, X.day, {marginMW: MARGIN_MW});
-  X.ahead = {first, reach, unit: c, startBy: c ? Math.max(c.fromS, reach.atS - c.plan) : -1, thin: thinOf(T, reach || first), none: !all.some(x => x.fromS <= s)};
+  X.ahead = {first, reach, unit: c, inTime, startBy: c ? Math.max(c.fromS, reach.atS - c.plan) : -1, thin: thinOf(T, reach || first), none: !all.some(x => x.fromS <= s)};
   return X.ahead;
+}
+
+/**
+ * O-8 (Q-92), problem mode (X.coach false: from the second shift, or COACH OFF): a line names a unit to start only
+ * when exactly one can still arrive in time; with two or more it states the problem and lights every one of them
+ * (their START guards: the desk's station words glow), and carries no action of its own. null: coach as before.
+ */
+function problemPick(X, cands) {
+  const ready = cands.filter(x => x.fromS <= X.s);
+  return X.coach || ready.length < 2 ? null : {ids: ready.map(x => x.id), text: ready.length + ' units can still make it in time: the lit STARTs.'};
 }
 
 // Q-68's constraints on a shortfall from fromS: ' (CCGT 2 out until 07:45; the tie limited to 450 MW until 11:00)' or '' (§31.8).
@@ -864,13 +875,15 @@ function shortNow(X, line) {
   // One start, for the part of the shortfall it can still reach (lookAhead); never a second for the same gap.
   const A = lookAhead(X);
   if (A && A.unit && A.unit.fromS <= s && A.startBy - s <= X.act) {
-    fast.push({id: A.unit.id, say: 'start ' + unitName(A.unit.unit) + ' (' + minText(A.unit.lead) + ')', action: {type: 'start', unit: A.unit.unit}});
+    const pick = problemPick(X, A.inTime);   // O-8: in problem mode the lit units, none named
+    if (pick) for (const id of pick.ids) fast.push({id, say: id === pick.ids[0] ? 'start one of the ' + pick.ids.length + ' lit units' : '', action: null});
+    else fast.push({id: A.unit.id, say: 'start ' + unitName(A.unit.unit) + ' (' + minText(A.unit.lead) + ')', action: {type: 'start', unit: A.unit.unit}});
   }
   // Demand response when neither can answer: a call is dear and there are few.
   if (!fast.length && obs.dr.callsLeft > 0 && !(obs.dr.activeS > 0)) fast.push({id: 'btn-dr', say: 'call demand response (hold D): industry cuts ' + mwText(V.DR_MW) + ' for ' + spanText(V.DR_DURATION_S), action: {type: 'callDR'}});
   // (not "short": the BALANCE bar's word)
   const a = fast.length ? null : arriving(obs);
-  let text = fitWhy(why(X, s, null), r => 'The plan is ' + figure(mw) + ' below demand now' + r + (fast.length ? ': ' + fast.map(f => f.say).join(', or ') + '.'
+  let text = fitWhy(why(X, s, null), r => 'The plan is ' + figure(mw) + ' below demand now' + r + (fast.length ? ': ' + fast.map(f => f.say).filter(Boolean).join(', or ') + '.'
     : '. ' + (a ? a.name + ' arrives at ' + at(a.atS) + '; until then ' + carries(obs) + '.' : 'Everything that can help is already on its way.')));
   if (fast.length && fast[0].id === 'dial-battery' && text.length <= 145) text += ' It answers in seconds.';
   return line({level: 'crit', kind: 'short', text, targets: fast.map(f => f.id), action: fast.length ? fast[0].action : null, startBy: s});
@@ -891,6 +904,8 @@ function commitNow(X, line) {
   const late = A.first.atS < A.reach.atS && A.first.endS >= A.reach.atS - X.day.stepS;
   const arriveS = arrival(c), gapS = act ? realBefore(X, arriveS) : -1, fromS = late ? A.first.crossS : A.reach.crossS, reason = why(X, fromS, c);
   const tgt = {level: act ? 'act' : 'plan', kind: 'commit', targets: back ? [] : [c.id], action: act ? {type: 'start', unit: c.unit} : null, startBy: Math.max(s, A.startBy), short: pub(A.reach)};
+  const pick = !back ? problemPick(X, A.inTime) : null;   // O-8: the problem, the units lit
+  if (pick) return line(Object.assign(tgt, {targets: pick.ids, action: null, problem: act, text: fitWhy(reason, r => shortHead(X, fromS, A.thin, r) + pick.text)}));
   if (late && act && arriveS - A.first.crossS >= RAMP_HEAD_S) {
     // a slow machine for a shortfall it cannot reach (a coal unit for the evening): when it
     // arrives, and what holds the desk until then
@@ -1152,6 +1167,11 @@ function spare(X, line) {
       return Object.assign(c, {offer: u.offer, headMW: Math.min(u.availMW - u.minMW, u.rampMWMin * V.R5_WINDOW_MIN)});
     }).sort((a, c) => a.offer - c.offer || a.lead - c.lead);
     const c = fastOnes.find(x => x.headMW >= needMW) || fastOnes[0];
+    const enough = fastOnes.filter(x => x.headMW >= needMW), pick = c ? problemPick(X, enough.length ? enough : fastOnes) : null;
+    if (pick) {   // O-8: the problem, the fast units lit
+      return line({level: 'act', kind: 'spare', text: 'Demand is covered, but if ' + what + ' tripped the rest could not make it up in time. ' + pick.text,
+        targets: ['gauge-n1', ...pick.ids], action: null, problem: true, startBy: s});
+    }
     if (c) {
       const free = c.cls === 'hydro', A = lookAhead(X);
       // the unit the commit line was about to ask for anyway: both reasons in one line, so "now" and
@@ -1404,6 +1424,11 @@ function commitLater(X, line) {
   const tail = A.first.atS - X.s > V.FC_HORIZON_S && leadText(c).length < 30 ? '; until then the plant you have covers the forecast' : '';
   // (a unit out for maintenance: from its return, Q-68)
   const by = A.reach.crossS - c.plan, when = c.fromS > X.s && mark(by) <= c.fromS ? ' at ' + at(c.fromS) + ', when it is back,' : ' by ' + atMark(by);
+  const pick = problemPick(X, A.inTime);   // O-8: the problem, the units lit
+  if (pick) {
+    return line({level: 'plan', kind: 'commit', text: fitWhy(why(X, A.reach.crossS, c), r => 'Next: ' + partOfDay(A.reach.atS) + ' will be short' + r + '. ' + pick.text),
+      targets: pick.ids, startBy: A.startBy, short: pub(A.reach)});
+  }
   return line({level: 'plan', kind: 'commit', text: fitWhy(why(X, A.reach.crossS, c), r => 'Next: start ' + unitName(c.unit) + when + ' for ' + partOfDay(A.reach.atS) + r + '. It takes ' + leadText(c) + tail + '.'),
     targets: c.fromS > X.s ? [] : [c.id], startBy: A.startBy, short: pub(A.reach)});
 }

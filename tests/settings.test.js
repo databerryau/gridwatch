@@ -99,7 +99,7 @@ test('K-22 / C-8: settings persist under gridwatch:v4:settings as the choices on
   G.ui(a, {do: 'set', key: 'reducedEffects', value: true});
   G.ui(a, {do: 'mute'});
   const stored = JSON.parse(storage.m.get(G.SETTINGS_KEY));
-  assert.deepEqual(stored, {volume: 0.8, hum: 0.4, fx: 1, alarms: 1, muted: true, reducedMotion: null, reducedEffects: true, crt: true},
+  assert.deepEqual(stored, {volume: 0.8, hum: 0.4, fx: 1, alarms: 1, muted: true, reducedMotion: null, reducedEffects: true, crt: true, coach: null},
     'the choices, not the resolved view (reducedMotion stays null, crt stays the choice)');
   const b = G.createGame({seed: 7, storage});
   assert.deepEqual(G.settingsView(b), {volume: 0.8, hum: 0.4, fx: 1, alarms: 1, muted: true, reducedMotion: false, reducedEffects: true, crt: false});

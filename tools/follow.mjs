@@ -13,7 +13,8 @@
 // Flags: --seed N | --seeds A-B (default 1-11) | --list a,b,c (seeds by name, e.g. the 11 of
 // tests/objective.test.js) | --scenario ID (desk, desk-weekend, classic; default desk) | --until H
 // (stop at this hour of the unwrapped day, 4..28) | --no-follow | --no-par (skip par's day) |
-// --no-stops (skip the STOP re-runs) | --lines | -j/--workers N | --json (one JSON line per seed).
+// --no-stops (skip the STOP re-runs) | --lines | -j/--workers N | --json (one JSON line per seed) | --problem (O-8:
+// the line in problem mode, so the follower acts only where it names one unit or another control).
 //
 // Per seed: the day type, black or not, unserved MWh, score.cost by key, the cost the §21.4
 // accept compares (fuel + no-load + starts + tie + battery wear + the city's payments, flex: RERT
@@ -77,6 +78,7 @@ function parseArgs(argv) {
     else if (a === '--scenario') o.scenario = next();
     else if (a === '--until') o.untilH = Number(next());
     else if (a === '--no-follow') o.follow = false;
+    else if (a === '--problem') o.coach = false;   // O-8: the line in problem mode (from the second shift)
     else if (a === '--no-par') o.par = false;
     else if (a === '--no-stops') o.stops = false;
     else if (a === '--lines') o.lines = true;
@@ -220,7 +222,7 @@ export function followSeed(scenario, seed, o) {
   const cutS = scenario.night ? NIGHT_S : Infinity, cut = (r, score) => r.cutCost ?? planCost(score.cost);
   const atCut = (r, st, obs) => { if (r.cutCost === undefined && obs.s >= cutS) r.cutCost = planCost(st.score.cost); };
   const base = {};
-  const day = followDay(seed, scenario, {follow: o.follow, untilH: o.untilH, objective: o.objective,
+  const day = followDay(seed, scenario, {follow: o.follow, untilH: o.untilH, objective: o.objective, coach: o.coach,
     onMinute: (st, obs) => { atCut(base, st, obs); if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh; }});
   const row = Object.assign({seed, day: dayType(day.st), weather: day.st.ext.regime.cls || '', actOne: actOneOf(day.st)}, summaryOf(day));
   // the restore task (Q-69) and the night (Q-73)

@@ -89,6 +89,7 @@ export function createEndCard(doc, root, actions, deps) {
     // 2c: the HAND tag (Q-64) and a daily the gate did not check (Q-75; null is not a daily: no label)
     if (e.handFlown) line(root, 'HAND-FLOWN: AGC off from 04:30' + (v.obs && v.obs.nightShift ? ' until the night shift took the desk at 21:00' : '') + '.', 'score').id = 'end-hand';
     if (e.gated === false) line(root, 'Not gate-checked: this day may not be solvable.', 'score').id = 'end-gate';
+    if (e.noCoach) line(root, 'NO COACH: played from 04:30 with the coach off.', 'score').id = 'end-nocoach';   // (O-8)
     body = el('div', '', '', root);
     line(root, 'Seed ' + e.seed + ' · ' + e.v + ' · ' + e.inputs + ' inputs · hash 0x' + (e.hash >>> 0).toString(16).padStart(8, '0'), 'score');
     q = el('button', '?', 'q inline');

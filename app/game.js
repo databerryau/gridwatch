@@ -98,7 +98,7 @@ function writeJson(storage, key, value) {
  * follow the system's prefers-reduced-motion). crt: the B-4 scanline overlay (on by default).
  */
 export const SETTINGS_DEFAULT = Object.freeze({volume: 0.8, hum: 1, fx: 1, alarms: 1, muted: false, reducedMotion: null,
-  reducedEffects: false, crt: true});
+  reducedEffects: false, crt: true, coach: null});   // (O-8: coach true | false | null, null: on for a first shift only)
 const LEVEL_KEYS = ['volume', 'hum', 'fx', 'alarms'], BOOL_KEYS = ['muted', 'reducedEffects', 'crt'];
 
 // A stored object, cleaned: unknown keys dropped, bad values replaced by the defaults.
@@ -107,6 +107,7 @@ function cleanSettings(raw) {
   for (const k of LEVEL_KEYS) if (typeof r[k] === 'number' && r[k] >= 0 && r[k] <= 1) s[k] = r[k];
   for (const k of BOOL_KEYS) if (typeof r[k] === 'boolean') s[k] = r[k];
   if (r.reducedMotion === true || r.reducedMotion === false) s.reducedMotion = r.reducedMotion;
+  if (r.coach === true || r.coach === false) s.coach = r.coach;
   return s;
 }
 
@@ -121,6 +122,12 @@ export function settingsView(game) {
   return {volume: s.volume, hum: s.hum, fx: s.fx, alarms: s.alarms, muted: s.muted,
     reducedMotion: s.reducedMotion === null ? sys : s.reducedMotion, reducedEffects: s.reducedEffects, crt: s.crt && !s.reducedEffects};
 }
+
+/**
+ * O-8 (Q-92): does the line coach (name the unit, the MW and the minute)? The header's COACH choice once made
+ * (remembered); before that, on a first shift only (no finished shift in this browser, D-7's count).
+ */
+export const coachOn = game => (game.settings.coach === null ? !(game.director.seen.shifts > 0) : game.settings.coach);
 
 // actions.ui({do: 'set', key, value}): one choice, validated, then stored (C-8: storage is optional).
 function setSetting(game, key, value) {
@@ -244,6 +251,7 @@ export function resetDay(game, seed) {
   game.histView = null; game.histViewS = -1;
   game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
   game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
+  game.noCoach = false;   // (O-8: set when the desk is taken)
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
   parFor(game);
   return game;
@@ -455,6 +463,7 @@ export function takeDesk(game) {
   runTo(game, V.PLAYER_START_TICK);
   for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c);
   game.phase = 'play';
+  game.noCoach = !coachOn(game);   // O-8: the end card's "no coach" (and W6's share card), while it stays off
   game.director.paused = game.startPaused;
   game.director.held = game.ui.alarmsOpen; // Q-46: an alarm panel opened in the briefing holds the clock now
   return true;
@@ -619,6 +628,14 @@ export function ui(game, cmd) {
     case 'armed': if (cmd.on) u.armed = cmd.target || null; else if (u.armed === cmd.target) u.armed = null; u.considerMs = null; game.considerDirty = true; return '';
     // Settings (K-22, §13.1, B-7): the popover never pauses the game.
     case 'mute': return setSetting(game, 'muted', !game.settings.muted);
+    // O-8: COACH ON / OFF (remembered); the line follows at once; the day keeps "no coach" only while it stays off
+    case 'coach': {
+      game.settings.coach = !coachOn(game);
+      writeJson(game.storage, SETTINGS_KEY, game.settings);
+      if (game.settings.coach) game.noCoach = false;
+      game.objectiveS = -1e9; game.lineFresh = true;
+      return '';
+    }
     case 'volume': return setSetting(game, 'volume', cmd.volume); // the 1a form of {do: 'set', key: 'volume'}
     case 'set': return setSetting(game, cmd.key, cmd.value);
     case 'settings': u.settingsOpen = cmd.on === undefined ? !u.settingsOpen : !!cmd.on; return '';
@@ -826,7 +843,7 @@ export function buildVm(game, f) {
         // projection once per line (F-11: the objective and its STOP saving read the same one).
         game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
         const proj = game.planview.project(obs);
-        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective});
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective, coach: coachOn(game)});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s, D.handAt(state));
@@ -878,7 +895,7 @@ export function buildVm(game, f) {
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: game.playerInputs, seed: game.seed, v: SIM_VERSION,
       allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null,
       handFlown: !!state.control.handFlown, gated: game.daily ? game.daily.gated : null, // Q-64, Q-75 (null: not a daily)
-      perfect: isPerfect(obs.score, state.black)}; // S-6
+      perfect: isPerfect(obs.score, state.black), noCoach: !!game.noCoach}; // S-6; O-8
     // D-7: a finished shift, kept with the other seen flags (HAND is offered from the second)
     if (game.phase === 'play') { game.director.seen.shifts = (game.director.seen.shifts || 0) + 1; saveSeen(game); }
   }
