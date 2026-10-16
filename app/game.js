@@ -26,7 +26,7 @@ import {restoreAllowedS, isPerfect} from '../sim/market.js';
 import {imbalanceSegments} from '../desk/calc.js';
 import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
-import {scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
+import {DAILIES, scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
 import {objective, consequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
@@ -287,9 +287,9 @@ export function resetDay(game, seed) {
   // played) and today's local date (a tab left open past midnight); an official run is marked at 09:00 (tickOnce)
   if (game.todayOf) game.today = game.todayOf();
   freshHistory(game);
-  // (F-8: today's date off the gate-checked calendar has no daily: practice, "No daily today")
+  // (F-8: today's date past the calendar's end has no daily: practice, "No daily today")
   game.run = Object.assign(HI.statusOf(game.history, {ymd: dailyYmd(game), today: game.today, firstShift: firstShift(game), off: !game.historyOn,
-    ungated: !!game.daily && game.daily.gated === false}),
+    noDaily: noDaily(game)}),
     {started: false, claimed: false, id: game.seed + '-' + Date.now() + '-' + (++runCount)});   // (the id tells this tab's entry from another's)
   parFor(game);
   return game;
@@ -1086,9 +1086,10 @@ function verdictFor(game) {
   // W6 (Y-4, Y-7): the share card, once par has settled (its score, or none) or the grid went black; Y-3: the run's grade
   end.share = !end.black && par && !par.done ? null : shareFor(game, end);
   if (end.share) recordRun(game);
-  // O-6: her closing line, once the grade is in (said once; kept on the verdict after): Y-7's line, the card's quote
+  // O-6: her closing line, once the share card is made (said once; kept on the verdict after): Y-7's line, the card's quote.
+  // (F-8: a stored par grades before the page's par settles; she waits for the card, so the card still quotes her)
   const said = game.marg && game.marg.said.find(l => l.key === 'verdict');
-  const closing = said || (game.marg ? margSay(game.marg, 'verdict', MARG_LINES.verdict(end.grade, end.share && end.share.closing), Math.floor(st.tick / TPS)) : null);
+  const closing = said || (game.marg && end.share ? margSay(game.marg, 'verdict', MARG_LINES.verdict(end.grade, end.share.closing), Math.floor(st.tick / TPS)) : null);
   end.verdict.marg = closing ? closing.text : '';
 }
 
@@ -1124,6 +1125,13 @@ export function storedPar(game, list = LADDER) {
   return row && row[0] > 0 ? {total: row[0], shedMWh: row[1]} : null;
 }
 
+// F-8: the dailies' calendar ends here (content/dailies.js `to`)
+const TO_YMD = +DAILIES.to.replace(/-/g, '');
+/** F-8: today's date is past the dailies' calendar: there is no daily today ("No daily today": practice, no number). */
+export function noDaily(game) { const ymd = dailyYmd(game); return !!ymd && ymd === game.today && ymd > TO_YMD; }
+/** Y-1, F-8: a date's daily number ("Daily #5"), none before the launch or past the calendar's end. */
+export const dailyNumber = ymd => (ymd && ymd <= TO_YMD ? SH.puzzleNumber(ymd) : null);
+
 /** Y-1: the date of the daily this game plays (its date's listed seed), else null (another seed is not that daily). */
 export function dailyYmd(game) {
   const d = game.daily;
@@ -1139,7 +1147,7 @@ export function shareFor(game, end) {
   // (PRACTICE on any run that does not count: an unclaimed first shift, a run that ended before 09:00, a practice run)
   const tags = [end.firstShift && 'FIRST SHIFT', !official(game) && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
     end.firstShift ? end.noCoach && 'NO COACH' : !end.noCoach && 'COACHED', end.glassBroken && 'GLASS BROKEN', g && g.hardMWh && 'HARD DAY'].filter(Boolean);
-  const n = ymd ? SH.puzzleNumber(ymd) : null;
+  const n = dailyNumber(ymd);
   const card = SH.shareCard({ymd, n, seed: game.seed, name: game.hard ? 'Hard day ' + game.hard : '', grade: g, perfect: end.perfect, black: end.black, lowHz: end.lowHz, spark: end.spark,
     endS: end.endS, you, par, tags, closing});
   return Object.assign(card, {bucket, closing, n, ymd, tags});
@@ -1351,7 +1359,7 @@ export function claimRun(game) {
 export function runView(game) {
   const r = game.run, ymd = dailyYmd(game), st = HI.streaks(game.history, game.today);
   return {status: r.status, why: r.why, hard: game.hard, started: r.started, claimed: r.claimed, claimable: r.status === 'first' && !r.claimed && !!game.end && game.historyOn,
-    historyOn: game.historyOn, n: ymd ? SH.puzzleNumber(ymd) : null, entry: r.why === 'done' ? game.history.days[ymd] || null : null,
+    historyOn: game.historyOn, n: dailyNumber(ymd), entry: r.why === 'done' ? game.history.days[ymd] || null : null,
     streak: st.streak, best: st.best, played: st.played};
 }
 

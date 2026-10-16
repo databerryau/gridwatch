@@ -10,7 +10,7 @@ import * as G from '../app/game.js';
 import * as HI from '../app/history.js';
 import {grade} from '../app/score.js';
 import {V} from '../sim/params.js';
-import {parDriftText} from '../app/endcard.js';
+import {parDriftText, PAR_WAIT} from '../app/endcard.js';
 import {NO_DAILY} from '../app/shell.js';
 import {LADDER} from '../content/ladder.js';
 import {DAILIES} from '../content/dailies.js';
@@ -68,8 +68,8 @@ test('F-8: when the page\'s own par arrives it fills THE NUMBERS; a total off th
 });
 
 test('F-8: past the calendar\'s end today\'s date has no daily: "No daily today", practice, nothing counts', () => {
-  assert.deepEqual(HI.statusOf({days: {}}, {ymd: 20271012, today: 20271012, firstShift: false, ungated: true}), {status: 'practice', why: 'nodaily'});
-  assert.deepEqual(HI.statusOf({days: {}}, {ymd: 20261016, today: 20261016, firstShift: false, ungated: false}), {status: 'official', why: 'today'});
+  assert.deepEqual(HI.statusOf({days: {}}, {ymd: 20271012, today: 20271012, firstShift: false, noDaily: true}), {status: 'practice', why: 'nodaily'});
+  assert.deepEqual(HI.statusOf({days: {}}, {ymd: 20261016, today: 20261016, firstShift: false, noDaily: false}), {status: 'official', why: 'today'});
   const after = ymdOf(DAILIES.to) + 1, s = store(), p = openGame({seed: after, run: false, par: PAR, storage: s, date: local(after)});
   assert.equal(p.game.daily.gated, false);
   assert.equal(p.$('briefing-title').textContent, NO_DAILY);
@@ -77,6 +77,31 @@ test('F-8: past the calendar\'s end today\'s date has no daily: "No daily today"
   endDay(p);
   assert.equal(p.$('end-run').textContent, 'PRACTICE: no daily today, so nothing counts.');
   assert.equal(s.mem.get(HI.HISTORY_KEY), undefined, 'nothing recorded');
+  assert.equal(p.game.end.share.n, null, 'the card carries no daily number');
+  assert.doesNotMatch(p.game.end.share.text, /#\d/);
+  assert.deepEqual([G.dailyNumber(ymdOf(DAILIES.to)), G.dailyNumber(after)], [365, null]);
+  assert.deepEqual(p.h.mods.errors, []);
+  // with history off (why 'off' comes first) the title still says there is no daily
+  assert.equal(openGame({seed: after, run: false, take: false, date: local(after)}).$('briefing-title').textContent, NO_DAILY);
+  // inside the calendar, today's daily is never "No daily today"
+  assert.equal(G.noDaily(openGame({seed: 20261016, run: false, take: false, date: local(20261016)}).game), false);
+});
+
+test('F-8: while the page\'s par computes the card shows the stored score and says the card follows; Marg waits for the card and quotes it', () => {
+  const run = Object.assign({}, COMPUTING), p = openGame({seed: 20261016, run: false, par: run, date: local(20261016)});
+  G.runTo(p.game, (HI.OFFICIAL_S + 60) * V.TICKS_PER_S);
+  const end = endDay(p);
+  assert.ok(end.grade && !end.share, 'graded, no card yet');
+  assert.equal(p.$('end-par-wait').textContent, PAR_WAIT(40));
+  assert.equal(end.verdict.marg, '', 'Marg waits for the card');
+  // the page's par arrives: the card is made, and her closing line ends with its line (Y-7: the card quotes her)
+  Object.assign(run, {done: true, score: PAR.score, progress: 1});
+  p.frames(2);
+  assert.ok(end.share && end.share.closing);
+  assert.equal(p.$('end-par-wait'), null);
+  assert.ok(p.$('end-share'));
+  assert.ok(p.game.marg, 'a first shift: Marg is on the desk');
+  assert.ok(end.verdict.marg.endsWith(end.share.closing), end.verdict.marg + ' / ' + end.share.closing);
   assert.deepEqual(p.h.mods.errors, []);
 });
 

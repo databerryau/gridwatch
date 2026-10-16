@@ -473,7 +473,7 @@ export function bootGame(doc, deps) {
     // W6: the daily's number (Y-1) and whether this run counts (Y-2, Q-99), its reason in the title
     const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null, run = G.runView(game);
     if (title) {
-      title.textContent = run.why === 'nodaily' ? NO_DAILY : n ? 'Daily #' + n + ' · ' + RUN_TAG[run.status] : game.hard ? 'Hard day ' + game.hard + ' · PRACTICE' : 'Practice desk';
+      title.textContent = G.noDaily(game) ? NO_DAILY : n ? 'Daily #' + n + ' · ' + RUN_TAG[run.status] : game.hard ? 'Hard day ' + game.hard + ' · PRACTICE' : 'Practice desk';
       title.title = game.hard ? RUN_WHY.hard : RUN_WHY[run.status === 'practice' ? run.why : run.status];
     }
     const score = $('how-score');   // D-3: the score's rule is behind the header "?" (HOW TO PLAY)

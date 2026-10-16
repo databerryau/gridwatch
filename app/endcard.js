@@ -53,6 +53,8 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
 
 /** Y-11: the ladder's note (its title): who the other players are. */
 export const LADDER_NOTE = 'GRIDWATCH\'s own players on this same day, graded as you are: one who did nothing (the system still dispatches), and the better of two scripted dispatchers. Par is 1000. They are scripts, not people.';
+/** F-8: the line in YOUR CARD's place while the page's par still computes (the score is already the stored par's). */
+export const PAR_WAIT = pct => 'PAR: computing… ' + pct + '%. Your card and par\'s numbers follow.';
 /** F-8 (risk 5): THE NUMBERS' note when this browser's par came out other than the stored par the score is made from. */
 export const parDriftText = d => 'This browser worked par out ' + signed(d) + ' from the stored par. Your score uses the stored one, so it is the same in every browser.';
 /** Y-3: the streaks' rule (the end card's STREAK line, as its title); and what a browser without storage is told. */
@@ -156,6 +158,8 @@ export function createEndCard(doc, root, actions, deps) {
     if (e.ladder) ladderRow(body, e.ladder);   // (W6, Y-11: where you sit among GRIDWATCH's own players)
     verdict(body, v);
     shareBox(body, v.end.share);
+    // (F-8: graded on the stored par while the page's own par still computes: the card and par's numbers follow)
+    if (g && !v.end.share && par.kind === 'computing') line(body, PAR_WAIT(par.pct), 'why').id = 'end-par-wait';
     if (e.week && e.week.length) {   // (W6, D-28: a reason to come back tomorrow)
       const w = el('p', '', '', body);
       w.id = 'end-week';
