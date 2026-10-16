@@ -13,7 +13,7 @@ export const PAR_CHUNK_TICKS = 500;   // the fewest a step plays
 export const PAR_KEY = 'gridwatch:v4:par';
 
 const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-const MARK = PAR_MARK_S * V.TICKS_PER_S, KEYS = ['costDollars', 'lightsMWh', 'servedMWh', 'co2tPerMWh', 'saidiMin', 'saifi', 'maifi'];
+const MARK = PAR_MARK_S * V.TICKS_PER_S, KEYS = ['costDollars', 'lightsMWh', 'servedMWh', 'co2tPerMWh', 'saidiMin', 'saifi', 'maifi', 'uflsMWh', 'directedMWh'];
 
 /**
  * opts.storage: {read(key), write(key, value)}, app/game.js's wrapped storage (C-8).

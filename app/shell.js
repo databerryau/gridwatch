@@ -40,7 +40,7 @@
 
 import {V} from '../sim/params.js';
 import * as G from './game.js';
-import {allIn, grade} from './score.js';
+import {allIn, grade, parShedMWh} from './score.js';
 import {startRaf} from './loop.js';
 import {createKeys, bindKeys, poll as pollKeys, typing} from './keys.js';
 import {createAudio} from '../audio/audio.js';
@@ -677,7 +677,7 @@ export function bootGame(doc, deps) {
   function scoreOf(v) {
     const par = game.par, hh = game.households, you = allIn(v.obs.score, hh), g0 = v.end && v.end.grade;
     const off = !par || (par.done && (par.black || !par.score)), at = off ? null : par.at(v.obs.s), p = at && allIn(at, hh);
-    return {you, p, off, g0, g: g0 || grade(you, p, false)};
+    return {you, p, off, g0, g: g0 || grade(you, p, false, parShedMWh(at))}; // (S-7: a Hard day so far)
   }
 
   // Q-48: the chip: SCORE against par ('SCORE …' until par gets there); with no par to compare, ALL-IN in cents per kWh asked for.

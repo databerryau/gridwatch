@@ -28,10 +28,23 @@ export function allIn(sc, households) {
     supplyCents: sc.centsPerKWh || 0, saidiMin: sc.saidiMin || 0, saifi: sc.saifi || 0, maifi: sc.maifi || 0};
 }
 
-/** {points, letter, star, gapMWh} of `you` against `par` (allIn's); null with no par (or no total) to compare. gapMWh: (yours - par's) ÷ VCR. */
-export function grade(you, par, black) {
+/** S-7: the MWh par shed (UFLS and directed) on a score or a par row: over OUTAGE_MIN_MWH, the day is a Hard day. */
+export const parShedMWh = sc => (sc ? (sc.uflsMWh || 0) + (sc.directedMWh || 0) : 0);
+/** S-7: a Hard day's points are capped here (yours could fall below par's outage-free total by more than it). */
+export const HARD_MAX_POINTS = 2000;
+
+/**
+ * {points, letter, star, gapMWh, hardMWh} of `you` against `par` (allIn's); null with no par (or no total) to compare.
+ * gapMWh: (yours - par's) ÷ VCR. S-7: `shedMWh`, the MWh par itself shed (parShedMWh): on a Hard day (over
+ * OUTAGE_MIN_MWH) the points compare par's outage-free part, its total less VCR × shedMWh, with yours less the same,
+ * so a par that sheds does not make a win trivial; the letter (the gap) is unchanged. hardMWh: that MWh, on a Hard day only.
+ */
+export function grade(you, par, black, shedMWh = 0) {
   if (black) return {points: 0, letter: 'F', star: false};
   if (!par || !(par.total > 0) || !you || !(you.total > 0)) return null;
-  const points = Math.round(1000 * par.total / you.total), gapMWh = (you.total - par.total) / V.VCR;
-  return {points, letter: LETTERS.find(l => gapMWh <= l[1])[0], star: points >= 1000, gapMWh};
+  const hard = shedMWh >= OUTAGE_MIN_MWH ? shedMWh : 0, off = V.VCR * hard, p = par.total - off, y = you.total - off;
+  const points = hard ? Math.min(HARD_MAX_POINTS, Math.round(1000 * p / Math.max(y, p * 1000 / HARD_MAX_POINTS))) : Math.round(1000 * par.total / you.total);
+  const gapMWh = (you.total - par.total) / V.VCR;
+  const g = {points, letter: LETTERS.find(l => gapMWh <= l[1])[0], star: points >= 1000, gapMWh};
+  return hard ? Object.assign(g, {hardMWh: hard}) : g;
 }

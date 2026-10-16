@@ -24,6 +24,8 @@ const PARTS = [
   ['OUTAGES', 'outage', d => mw(d / V.VCR, 1) + ' MWh dark at ' + VCR_TEXT + ' each'],
   ['CARBON', 'carbon', () => 'a dirtier mix than par\'s'],
 ];
+/** S-6: PERFECT's rule, under the score. */
+export const PERFECT_RULE = 'PERFECT: no load shed all day, and every handed-back feeder closed within ' + mw(V.RESTORE_PACE_MAX_S / V.S_PER_MIN) + ' grid-minutes of when it could be.';
 const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:auto}' +
   '#end-card .big{font:700 16px var(--mono);color:var(--bright)}' +
   '#end-card table{border-collapse:collapse;width:100%;margin:6px 0;font:12px var(--mono)}' +
@@ -100,9 +102,12 @@ export function createEndCard(doc, root, actions, deps) {
     const e = v.end, you = e.black ? null : e.allIn, p = par.a || null, g = e.grade;
     const status = {computing: 'PAR: computing… ' + par.pct + '%', black: 'par could not finish this day: no score', off: 'PAR: off'}[par.kind];
     body.replaceChildren();
-    const score = line(body, g ? 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '')
+    const score = line(body, g ? 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + (e.perfect ? ' · PERFECT' : '')
       : par.kind === 'off' ? 'ALL-IN ' + allInCents(e.allIn) + ' c/kWh · PAR: off' : status || 'no score', 'big');
     score.id = 'end-score';
+    // S-6, S-7: the marks' rules, and a Hard day's (par shed: no plan kept every light on)
+    if (g && g.hardMWh) line(body, 'HARD DAY: par shed ' + mw(g.hardMWh, 1) + ' MWh: no plan kept every light on today. The points leave those MWh out of both totals; the letter is the gap.').id = 'end-hard';
+    if (e.perfect) line(body, PERFECT_RULE).id = 'end-perfect';
     if (e.black) {
       line(body, 'The grid went black at ' + clockText(v.obs.s, false) + ': the day was cut short, so it has no YOU column.');
       if (!p) line(body, par.kind === 'black' ? 'Par could not finish this day either.' : status);
