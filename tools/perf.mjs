@@ -57,6 +57,9 @@ function walk(seen, queue, root) {
   return add;
 }
 
+/** W6 (risk 5): the pages next.html's entry shows in the game's place on a query (?selftest), not on a first visit. */
+export const ROUTED = Object.freeze(['app/selftest.js']);
+
 /**
  * Every file a page loads on a first visit: the page, its stylesheets, its module scripts and
  * their static imports (relative .js only, C-1).
@@ -73,8 +76,12 @@ export function firstVisit(page = 'next.html', root = ROOT) {
     const entry = join(pageDir, m[1]);
     queue.push(entry);
     // W6 (Y-8): the page's entry (app/start.js) imports the game at once on a desktop: it is part of the first visit
+    // (not a page the entry shows in the game's place on a query, ROUTED: those load on demand)
     const src = String(typeof root === 'function' ? root(entry.split('\\').join('/')) : readFileSync(join(root, entry)));
-    for (const d of src.matchAll(/\bimport\(\s*'(\.{1,2}\/[^']+)'\s*\)/g)) queue.push(join(dirname(entry), d[1]));
+    for (const d of src.matchAll(/\bimport\(\s*'(\.{1,2}\/[^']+)'\s*\)/g)) {
+      const p = join(dirname(entry), d[1]);
+      if (!ROUTED.includes(p.split('\\').join('/'))) queue.push(p);
+    }
   }
   walk(seen, queue, root);
   return [...seen.values()].sort((a, b) => b.gzip - a.gzip);
