@@ -9,20 +9,19 @@
 // the feeders under repair (RED7 06:45, RED5 07:15) and the late return (CCGT 2 until 07:45), with a
 // returning player's storage; each press is press()/pressKey() (a look before, on the press frame and one
 // frame after). Then RED7 left dark at its feeder card (LEAVE, D-27), RED5 closed at its own (R, Q-91), and
-// Enter at the RESPOND card of a trip injected a minute later (tests/lib/sim-helpers.js injectTrip, as
-// tests/feeder-card.test.js does), the keys still on the RESTORE rows (K-16: it closes the card, never RED7's
-// breaker). The jump is in a before() hook. (W6, the test budget: the day's own first trip is at 18:00:30, and
-// playing to it, then on to the night, made the file 7-12 s alone; its game now ends at 07:16.)
+// Enter at the day's first RESPOND card (the 09:46 link trip), the keys still on the RESTORE rows and RED7's close
+// accepted there (K-16: Enter closes the card, never RED7's breaker). The jumps are in a before() hook; the hours
+// to the card are skipped (tests/lib/play.js skipTo, W6: the test budget, with the night roll's presses moved to
+// tests/night-strip.test.js).
 import {test, describe, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {openGame, diffLooks} from './lib/play.js';
-import {injectTrip} from './lib/sim-helpers.js';
 import * as G from '../app/game.js';
 import {HAND_CHIP} from '../app/shell.js';
 import {preroll, prerollRegime} from '../sim/dayplan.js';
-import {V} from '../sim/params.js';
+import {restorePermissive} from '../sim/grid.js';
 
-const SEED = 20261007, A = 1 / 60, TPS = V.TICKS_PER_S;
+const SEED = 20261007, A = 1 / 60;
 const mem = new Map([[G.SEEN_KEY, JSON.stringify({watch: true, shifts: 1})]]);
 const storage = {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v))};
 
@@ -86,14 +85,16 @@ describe('the first RESPOND card', () => {
     p.key('r');   // R, as its card says: RED5 restored
     S.restored = restores();
     p.key('r');   // the bay's R: the keys on the RESTORE rows, RED7 waiting there
-    injectTrip(p.game.state, Math.floor(p.game.state.tick / TPS) + 60);   // a trip a minute on (the day's own first is at 18:00:30)
-    S.card = p.until('card', {max: '+30m', line: 'near'});   // its RESPOND card, RED7 still open
+    S.card = p.skipTo('21:00');   // the day's first trip's RESPOND card (09:46:30), RED7 still open
   });
 
   test('K-16: Enter at a RESPOND card closes it, though the keys are still on the RESTORE rows (it never closes a breaker as well)', () => {
     const p = S.p;
-    assert.deepEqual([S.held, S.restored, S.red5, S.card.why, p.mode()], ['held:FEEDER-CARD', ['RED5'], '07:15:00', 'card', 'RESPOND-CARD']);
+    assert.deepEqual([S.held, S.restored, S.red5, S.card.why, S.card.at, p.mode()],
+      ['held:FEEDER-CARD', ['RED5'], '07:15:00', 'held:RESPOND-CARD', '09:46:30', 'RESPOND-CARD']);
     assert.equal(p.doc.activeElement && p.doc.activeElement.id, 'restore-list', 'the keys are on the RESTORE rows, RED7 waiting there');
+    const st = p.game.state;
+    assert.equal(restorePermissive(st, st.city.districts.findIndex(x => x.id === 'RED7'), {preview: true}), '', 'a close of RED7 would be accepted here (or the check below proves nothing)');
     answers(p, 'Enter', x => /^CARD /m.test(x.before) && !/^CARD /m.test(x.after), 'Enter at the card', true);
     assert.deepEqual(restores(), ['RED5'], 'Enter closed the card and nothing else');
     assert.deepEqual(p.h.mods.errors, []);
