@@ -29,8 +29,10 @@
 <style>
   :root {
     --bg: #0d1117; --panel: #151b23; --panel2: #1b222c; --line: #2a323d; --text: #c9d1d9; --dim: #8b949e;
-    --faint: #6e7781; --bright: #f0f6fc; --green: #3fb950; --amber: #d29922; --red: #f85149; --blue: #58a6ff;
+    --faint: #848d97; --bright: #f0f6fc; --green: #3fb950; --amber: #d29922; --red: #f85149; --blue: #58a6ff;
     --violet: #a371f7; --orange: #f0883e;
+    /* K-22: every colour that carries words reads at 4.5:1 or more on --panel2 (WCAG 1.4.3); --faint-line is a border's only */
+    --faint-line: #6e7781;
     --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
     --hdr: 32px;
     --desk-h: max(300px, calc((100vh - var(--hdr)) / 2)); --planbar-h: 58px; /* K-17; Q-45 */
@@ -60,7 +62,7 @@
   #rate-badge.FEEDER-CARD { background: #1f6feb44; border-color: var(--blue); }
   #rate-badge.FAST { background: #3fb95022; border-color: var(--green); }
   #rate-badge.NIGHT { background: #0b1020; border-color: var(--dim); color: var(--dim); }
-  #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER, #rate-badge.ALARMS { background: #6e768133; border-color: var(--faint); }
+  #rate-badge.PAUSE, #rate-badge.HIDDEN, #rate-badge.OVER, #rate-badge.ALARMS { background: #6e768133; border-color: var(--faint-line); }
   .chip { font: 11px var(--mono); color: var(--dim); padding: 2px 8px; border: 1px solid var(--line); border-radius: 10px; white-space: nowrap; }
   .chip b { color: var(--bright); font-weight: 700; }
   .chip.dark { border-color: var(--red); } .chip.dark b { color: var(--red); }
@@ -86,7 +88,7 @@
   #objective b { font: 700 11px var(--mono); padding: 1px 6px; border-radius: 3px; border: 1px solid var(--green); color: var(--green); flex: none; }
   #objective.plan b { border-color: var(--blue); color: var(--blue); }
   #objective.act { background: #3a2a00f0; } #objective.act b { border-color: var(--amber); color: var(--amber); }
-  #objective.crit { background: #4a1210f0; } #objective.crit b { border-color: var(--red); color: var(--bright); background: #da3633; }
+  #objective.crit { background: #4a1210f0; } #objective.crit b { border-color: var(--red); color: var(--bright); background: #b62324; }
   /* C-10: what a guarded press would do, in place of the objective while a guard is under the hand. */
   #objective.consider { border-top-style: dashed; border-top-color: var(--dim); }
   /* Q-73: the night strip in the objective's place from 21:00: the lock's words over the day's totals; nothing to press. */
