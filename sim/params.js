@@ -168,7 +168,7 @@ export const P = {
   HOT_LOADING_FRAC: src(0.96, 'pu of available', 'H-2 / ' + LEGACY + ' L480: above 96% loading a unit runs hot'),
   HOT_ARM_S: simp(300, 's', LEGACY + ' L481: trip risk applies after 5 grid-minutes hot.'),
   HOT_TRIP_PER_H: simp(0.035, 'probability per grid-hour', 'H-2: trip risk ~3.5% per grid-hour while hot (legacy 0.00012 per 0.2-min tick). Drawn from the play stream.'),
-  HOT_TRIP_LOCKOUT_S: simp(7200, 's', 'Protection lockout after an overheat trip, inside the legacy 90-150 min (L463; the pre-rolled event trips draw theirs from the same range, content/scenarios.js). After it the unit may hot-start (T1 + T2): S-11 minimum down time applies to planned stops only (owner decision D1, 2026-09-30). Real returns after a protection trip range from hours (Loy Yang A4, Jan 2024: about 3 h, WattClarity) to weeks (§8.2).'),
+  HOT_TRIP_LOCKOUT_S: simp(7200, 's', 'Protection lockout after an overheat trip, inside the legacy 90-150 min (L463; the pre-rolled event trips draw theirs from the same range, content/scenarios.js). After it the unit may hot-start (T1 + T2): S-11 minimum down time applies to planned stops only (owner decision D1, 2026-09-30). Real returns after a protection trip range from hours (Loy Yang A4, Jan 2024: about 3 h) to months (Loy Yang A2, May-Dec 2019; WattClarity; §8.1 "Return after a coal-unit trip").'),
   HEAT_THERMAL_DERATE: src(0.07, 'pu', 'S-10 / ' + LEGACY + ' L462: heatwave derates coal and gas by 7%'),
   HEAT_DEMAND_UPLIFT: src(0.065, 'pu', 'S-10 / ' + LEGACY + ' L433: heatwave demand +6.5%'),
   HEAT_RAMP_S: src(3600, 's', LEGACY + ' L431-433: heat demand ramps in over the hour before onset and out over the hour after'),
@@ -326,7 +326,7 @@ export const P = {
 
   // ---------------------------------------------------------------- emergency resources (F-13, K-7)
   RERT_MW: src(300, 'MW', F13),
-  RERT_LEAD_S: src(1200, 's', F13 + ' / K-7: 20-min lead; real RERT lead times are hours (AEMO RERT Q4 2024; §8.2)'),
+  RERT_LEAD_S: src(1200, 's', F13 + ' / K-7: 20-min lead; real RERT lead times run from under 30 min (Type 1) to hours (AEMO RERT Q4 2024 s2.4; §8.1 "RERT contract terms")'),
   RERT_COST: src(16000, '$/MWh', 'AEMO RERT quarterly report Q4 2024: NSW activation $16,000/MWh (§9 Q-2). Activation only: the readiness payments are left out (§8.2)'),
   RERT_CO2: simp(0.8, 't/MWh', F13 + ' (diesel).'),
   RERT_RAMP_MW_MIN: simp(100, 'MW/min', 'The diesel fleet loads and stands down over 3 minutes rather than as one 300-MW step. Real contracts carry minimum run times (AEMO RERT Q4 2024); ours has none.', UNVERIFIED),

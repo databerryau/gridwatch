@@ -121,7 +121,7 @@ const ABSTRACTIONS = [
   {
     id: 'event-dense-day', row: 'Event-dense day.', anchorId: 'event-log', game: 'tray',
     real: 'Credible unit and link trips are rare: an operator sees a few a year, not one or two a shift. After a ' +
-      'protection trip a unit returns in hours to weeks, depending on the fault and the inspection. Thermal plant trips more ' +
+      'protection trip a unit returns in hours to months, depending on the fault and the inspection. Thermal plant trips more ' +
       'often in extreme heat.',
     ours: 'The game\'s day is designed by an event director. Act I opens with a warned constraint and, on ' + pct(a1.task.p) + '% of days, ' +
       'two feeders to restore. Act II has one belly crisis: without a heatwave, a cloud front over the suburbs (' + pct(a2.mix.front) +
@@ -148,7 +148,7 @@ const ABSTRACTIONS = [
   },
   {
     id: 'auto-sync', row: 'Auto-sync takes 4 grid-minutes', anchorId: 'auto-sync', game: 'bay-sync',
-    real: 'Auto-synchronisers work at the station; IEEE field tests on hydro sets timed 1–2.5 minutes from full speed to ' +
+    real: 'Auto-synchronisers work at the station; IEEE field tests on hydro sets timed 48–148 s from full speed to ' +
       'close.',
     ours: 'In AGC mode a machine at full speed closes its own breaker ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes later ' +
       '(tunable ' + minutes(autoSyncRange[0]) + '–' + minutes(autoSyncRange[1]) + '); SYNC closes it sooner. In HAND every ' +
@@ -478,12 +478,12 @@ const ABSTRACTIONS = [
     // W6 realism (2026-10-17): AEMO's RERT Q4 2024 report (SPEC §8.1 "Emergency reserve cost", "RERT contract terms").
     id: 'rert-terms', row: 'Reserve diesel: a 20-minute lead, paid only for the MWh it runs', anchorId: 'rert-terms', ui: 'drawer',
     game: 'key-rert',
-    real: 'AEMO contracts emergency reserve (RERT) with lead times of hours, minimum run times and payments to get ready. In NSW ' +
-      'on 27 Nov 2024 it paid $2.5M to ready 184 MW and $1.0M for the 65 MWh run: $56,359/MWh all in.',
+    real: 'AEMO contracts emergency reserve (RERT) with lead times from under 30 minutes to hours, minimum run times and payments ' +
+      'to get ready. In NSW on 27 Nov 2024 it paid $2.5M to ready 184 MW and $1.0M for the 65 MWh run: $56,359/MWh all in.',
     ours: 'The reserve diesel key (E) brings ' + num(V.RERT_MW) + ' MW on line ' + minutes(V.RERT_LEAD_S) + ' grid-minutes later, ' +
       'loading at ' + num(V.RERT_RAMP_MW_MIN) + ' MW/min. It costs ' + usd(V.RERT_COST) + ' for each MWh it runs, nothing to ' +
       'arm or to cancel before it arrives, and it can be stood down at any time.',
-    why: 'A day played in minutes has no room for hours of notice, and pricing only what runs keeps the cost readable.',
+    why: 'No payment to get ready and no minimum run: pricing only what runs keeps the cost readable.',
     params: ['RERT_MW', 'RERT_LEAD_S', 'RERT_RAMP_MW_MIN', 'RERT_COST'],
   },
   {
@@ -513,7 +513,7 @@ const ABSTRACTIONS = [
   {
     id: 'cold-load', row: 'Cold-load pickup ×1.5.', anchorId: 'cold-load', game: 'bay-restore',
     real: 'Cold-load pickup varies by feeder and weather. Under AS/NZS 4777.2 an inverter waits at least 60 s after the ' +
-      'grid is back, then rises at most 16.67% of its rating a minute.',
+      'grid is back, then ramps up over minutes.',
     ours: 'A district dark for more than ' + minutes(V.COLD_LOAD_AFTER_S) + ' grid-minutes comes back at ' +
       num(V.COLD_LOAD_FACTOR) + '× its share of demand; the surge decays over ' + minutes(V.COLD_LOAD_DECAY_S) +
       ' grid-minutes. Its rooftop solar waits ' + num(V.ROOF_RECONNECT_S) + ' s and then ramps back over ' +
@@ -582,8 +582,8 @@ const ABSTRACTIONS = [
   },
   {
     id: 'coal-ramp', row: 'Coal ramps at 3 MW/min per machine', anchorId: 'station-coal', game: 'lever-coal',
-    real: 'Existing NEM coal units ramp about 5 MW/min (AEMO 2025); the Aurecon 2021 new-build reference is 3%/min, ' +
-      '19.5 MW/min.',
+    real: 'Existing NEM coal units ramp about 5 MW/min (AEMO 2025); the Aurecon 2021 new-build reference is 3%/min ' +
+      '(20 MW/min).',
     ours: 'Each ' + num(coal.ratingMW) + '-MW coal machine ramps at ' + num(coal.rampMWMin) + ' MW/min (' +
       num(coal.rampMWMin * coal.machines) + ' MW/min for the station), so one takes ' +
       num(Math.round((coal.ratingMW - coal.minMW) / coal.rampMWMin)) + ' minutes from minimum to full.',
