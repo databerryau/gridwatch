@@ -46,7 +46,9 @@ test('F-1: zero requests to other origins: no absolute URLs in bench.html, relat
   for (const f of PAGE_JS) {
     const src = readFileSync(f, 'utf8');
     for (const s of importSpecifiers(tokenize(src), true)) assert.match(s, /^\.\.?\/[\w./-]+\.js$/, rel(f) + ' imports ' + s);
-    assert.ok(!/\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon/.test(src), rel(f) + ' makes a request');
+    // (W6, F-9: app/build.js fetches, and only this site's own files: tests/version.test.js)
+    const req = rel(f) === 'app/build.js' ? /XMLHttpRequest|WebSocket|EventSource|sendBeacon/ : /\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon/;
+    assert.ok(!req.test(src), rel(f) + ' makes a request');
     assert.ok(!/https?:\/\//.test(src.replace(/\/\/.*$/gm, '')), rel(f) + ' names an absolute URL in code');
   }
 });

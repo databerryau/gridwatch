@@ -4,19 +4,22 @@
 // ?selftest (W6, risk 5) shows the golden-run check (app/selftest.js) in place of the game, on any screen, before the landing check.
 
 import {needsLanding, showLanding} from './landing.js';
+import {loadFailed} from './build.js';
 
 /** 'selftest', 'landing' or 'game'; load() imports the game, selftest() the check. */
 export function start(win, load = () => import('./boot.js'), selftest = () => import('./selftest.js')) {
   const search = String(win.location && win.location.search);
-  if (/[?&]selftest\b/.test(search)) {
+  if (/[?&]selftest/.test(search)) {
     selftest().then(m => m.showSelftest(win.document, win), e => { win.document.body.textContent = 'The selftest did not load: ' + (e && e.message || e); });
     return 'selftest';
   }
-  if (needsLanding(win) && !/[?&]play\b/.test(search)) {
-    showLanding(win.document, win, load);
+  // W6 (F-9): a load that fails (files from two releases that cannot link, after a deploy) says so, not a blank page
+  const play = () => { try { Promise.resolve(load()).catch(e => loadFailed(win, e)); } catch (e) { loadFailed(win, e); } };
+  if (needsLanding(win) && !/[?&]play/.test(search)) {
+    showLanding(win.document, win, play);
     return 'landing';
   }
-  load();
+  play();
   return 'game';
 }
 

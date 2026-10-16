@@ -704,3 +704,4 @@ export function replay(seed, scenario, log, opts = {}) {
   }
   return state;
 }
+export const BUILD = '2026-10-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

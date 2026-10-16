@@ -88,3 +88,4 @@ export function streaks(h, today) {
   return {streak: run(h, today, finished), best: run(h, today, e => finished(e) && !!e.star),
     played: Object.values(h.days).filter(finished).length + (h.pruned || 0)};
 }
+export const BUILD = '2026-10-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

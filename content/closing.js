@@ -29,3 +29,4 @@ export const CLOSING = Object.freeze({
   'solo.dark': ['Par couldn\'t finish either. Some dark.', 'A day nobody gets clean. Some dark.'],
   'black': ['The whole board, dark. Read the moment.', 'Lights out. Every one of them.', 'Black. Put the kettle on. Oh, wait.'],
 });
+export const BUILD = '2026-10-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
