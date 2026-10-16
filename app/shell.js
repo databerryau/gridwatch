@@ -154,8 +154,8 @@ const BRIEF = {
 };
 /** The briefing's "Watch for" (Q-81): one brief per news item announced at 04:00, in their order. */
 export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]).map(n => BRIEF[n.kind](n, obs));
-/** F-7: the resume's replay runs this long a frame (real ms); and what a player is told when a saved run cannot replay. */
-export const RESUME_BUDGET_MS = 30;
+/** F-7: the resume's replay runs this long a frame (real ms: the page shows only the briefing meanwhile); and what a player is told when a saved run cannot replay. */
+export const RESUME_BUDGET_MS = 250;
 export const RESUME_LOST = 'GRIDWATCH was updated, so your shift could not resume. Your history and streak are kept.';
 /** W6 (Y-2, Q-99): the briefing title's tag for the run's status, and why (its title attribute). */
 export const RUN_TAG = Object.freeze({first: 'FIRST SHIFT', official: 'OFFICIAL', practice: 'PRACTICE'});
@@ -1026,7 +1026,7 @@ export function bootGame(doc, deps) {
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
       ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here).
-    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter') return false; take(); return true; },
+    first: ev => { if (game.phase !== 'briefing' || ev.key !== 'Enter' || (ev.target && ev.target.id === 'btn-restart')) return false; take(); return true; },   // (F-7: Enter on a focused START OVER is its own)
     chain: () => [mods.desk, mods.stack, mods.map],
     // A module that took a key may have moved the keyboard focus (the desk's 1-8): vm.focus follows, into the plan bar too.
     // (With the alarm panel open, panelFirst has closed it before any desk key gets here, but for Enter on a tile: it selects.)

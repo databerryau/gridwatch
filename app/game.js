@@ -272,6 +272,7 @@ export function resetDay(game, seed) {
   game.histView = null; game.histViewS = -1;
   game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
   game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
+  game.acts = [];   // (F-7: the player's actions, for the save)
   game.noCoach = false;   // (O-8: set when the desk is taken)
   game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
   game.plates = firstShift(game) && game.settings.plates ? new Set(PLATE_GROUPS) : new Set();   // (O-3: a first shift's cover plates)
@@ -359,7 +360,7 @@ export function histView(game) {
 
 // One cue into the frame's queue (vm.cues): a name, or {name, pan?, gain?, delayS?} (§13.2).
 function pushCue(game, c) {
-  if (!c || game.cues.length >= MAX_CUES) return;
+  if (!c || game.cues.length >= MAX_CUES || game.replay) return;   // (F-7: a resume's replay is silent)
   if (typeof c === 'string' || (typeof c === 'object' && typeof c.name === 'string' && c.name)) game.cues.push(c);
 }
 
@@ -433,12 +434,10 @@ function queuePlan(game, obs, id) {
 export function tickOnce(game) {
   const state = game.state;
   if (state.over) return;
-  const R = game.replay;   // (F-7: resuming, the saved log stands in for the player, the system and the queued restores)
-  if (game.beforeTick && !R) game.beforeTick(game);
-  if (!R) closeQueued(game);
+  if (game.beforeTick) game.beforeTick(game);
+  closeQueued(game);
   let ins = EMPTY;
-  if (R) ins = replayBatch(R, state.tick);
-  else if (game.sys) {
+  if (game.sys) {
     try {
       ins = game.sysMod.systemInputs(game.sys, state) || EMPTY;
     } catch (e) {
@@ -447,14 +446,13 @@ export function tickOnce(game) {
       ins = EMPTY;
     }
   }
-  const logged = state.log.length, recs = step(state, ins);
-  if (R && state.log.length - logged !== ins.length) R.failed = 'a saved input was refused at tick ' + state.tick;
+  const recs = step(state, ins);
   if (recs.length) handleRecords(game, recs, ins.length ? 'system' : '');
   onTick(game.rec, state);
   A.sampleTick(game.alarms, state);
   if (state.tick % TPS === 0) {
     if (game.run.status === 'official' && !game.run.started && state.tick >= HI.OFFICIAL_S * TPS) startOfficial(game);   // (W6, Q-99)
-    if (!R && game.phase === 'play' && state.tick % (RESUME_EVERY_S * TPS) === 0) saveResume(game);   // (F-7)
+    if (!game.replay && game.phase === 'play' && state.tick % (RESUME_EVERY_S * TPS) === 0) saveResume(game);   // (F-7)
     histSecond(game);
     if (VD.verdictSecond(game.verdict, state, game.rec) && game.phase === 'play') pushCue(game, 'ramp'); // (L-10: a clean ramp)
   }
@@ -494,6 +492,7 @@ export function runTo(game, tick) {
 /** TAKE THE DESK: 04:00-04:30 runs headless, the briefing's items become tray cards (Q-81), the clock starts. AGC/HAND is the sim's mode (Q-64). */
 export function takeDesk(game) {
   if (game.phase !== 'briefing') return false;
+  act(game, ['t']);   // (F-7)
   runTo(game, V.PLAYER_START_TICK);
   for (const c of T.trayBriefing(game.tray, game.state.news)) pushCue(game, c);
   game.phase = 'play';
@@ -567,11 +566,11 @@ function redispatchAfter(game) {
 }
 
 /** A-1 RE-DISPATCH through app/system.js. Returns '' or the reason it was refused. */
-export function redispatch(game) {
+export function redispatch(game, shown) {
   if (game.phase === 'briefing') return BRIEF_LOCK;
   if (game.state.control.nightShift) return NIGHT_LOCK;
   if (!game.sysMod || !game.sys) return 'RE-DISPATCH needs the system operator' + (game.sysError ? ' (' + game.sysError + ')' : '');
-  const fc = shownFeeder(game); // (Q-91: its inputs answer the card shown, never the next one)
+  const fc = shown === undefined ? shownFeeder(game) : shown; // (Q-91: its inputs answer the card shown, never the next one; F-7: a replay's, as it was)
   D.dismissCard(game.director, game.state);
   let r;
   try {
@@ -977,7 +976,7 @@ export function buildVm(game, f) {
     settings: settingsView(game),
     // Shell additions (desk/README.md §5 plus): what the overlays and audio read. cues: this
     // frame's sounds, each a name or {name, pan?, gain?, delayS?} (§13.2).
-    phase: game.phase, watch, needleHz: needleF(game.rec, mode.rate, game.pacer.alpha), cues, refusal,
+    phase: game.replay ? 'briefing' : game.phase, watch, needleHz: needleF(game.rec, mode.rate, game.pacer.alpha), cues, refusal,
     trayOpen: game.ui.trayOpen, drawer: game.ui.drawer, settingsOpen: game.ui.settingsOpen, end: game.end, seed: game.seed,
     sysError: game.sysError, objective: game.objective, commit: game.commit, objectiveError: game.objectiveError,
     // C-10 (§19.5): {target, text, level} for the guard being hovered, focused or lifted, or null;
@@ -1124,90 +1123,124 @@ function startOfficial(game) {
 }
 
 // ------------------------------------------------------------------ W6: resume (F-7)
+//
+// The day is deterministic from its seed and what the player did, so a save is the player's actions, not the state: each
+// desk input with the feeder card it answered (sendInput's `shown`), each RE-DISPATCH, the presses that answer the cards
+// (dismissRespond, goOn, skipWatch) and TAKE THE DESK, each at its tick (game.acts). RESUME replays them through the same
+// functions, at the same ticks, with the system and the queued restores running as in play: the system's plans, the
+// director's memory of cards and feeders and the end card's counts all come back by themselves, and the state's hash at the
+// saved tick proves it (a mismatch gives a fresh day, said so). What frames alone keep (the plates lifted, Marg's day, the
+// K-12 offers) is saved beside the actions. Two slots, so a practice run never overwrites today's official or first shift.
 
-/** F-7: the run in progress, kept so that reopening a closed tab resumes it. */
-export const RESUME_KEY = 'gridwatch:v4:resume';
-/** F-7: in play the run is saved this often (grid s), at each input of the player's, and when the tab is hidden or closed. */
+/** F-7: what a desk action is told while a resume replays. */
+export const RESUMING = 'Resuming your shift: a moment.';
+/** F-7: the saved runs: today's daily (official or a first shift), and practice. */
+export const RESUME_KEY = 'gridwatch:v4:resume', RESUME_SLOTS = Object.freeze(['daily', 'practice']);
+/** F-7: in play the run is saved this often (grid s), at each action of the player's, and when the tab is hidden or closed. */
 export const RESUME_EVERY_S = 15 * V.S_PER_MIN;
+/** F-7: the presses (actions.ui) that change what a later tick does: the cards' answers. */
+export const REPLAY_UI = Object.freeze(['dismissRespond', 'goOn', 'skipWatch']);
+const slotOf = game => RESUME_KEY + ':' + (game.run.status === 'practice' ? 'practice' : 'daily');
 
-/**
- * F-7: save the run in progress: the seed, SIM_VERSION, the tick, the input log (every accepted input: the player's, the
- * system's, the queued restores) and the run's status, from TAKE THE DESK until the day ends. Not while resuming.
- */
+// F-7: an action of the player's, kept for the save (not while resuming: the replay is making them again)
+function act(game, a) { if (!game.replay) game.acts.push([game.state.tick, ...a]); }
+
+/** F-7: save the run in progress (from TAKE THE DESK until the day ends); a write that fails drops the slot, never leaving an older save. */
 export function saveResume(game) {
   const st = game.state, r = game.run;
   if (game.phase !== 'play' || st.over || game.replay || !game.historyOn) return false;
-  return writeJson(game.storage, RESUME_KEY, {v: 1, sim: SIM_VERSION, seed: game.seed, today: game.today, tick: st.tick,
-    log: st.log.map(x => [x.tick, x.type, x.args]), run: {status: r.status, why: r.why, id: r.id, started: r.started, claimed: r.claimed},
-    inputs: game.playerInputs, noCoach: !!game.noCoach, first: game.marg ? !!game.marg.first : firstShift(game)});
+  const key = slotOf(game), ok = writeJson(game.storage, key, {v: 2, sim: SIM_VERSION, seed: game.seed, today: game.today, tick: st.tick,
+    hash: hashState(st), acts: game.acts, run: {status: r.status, why: r.why, id: r.id, started: r.started, claimed: r.claimed},
+    noCoach: !!game.noCoach, plates: [...game.plates], marg: game.marg ? {said: game.marg.said, beats: game.marg.beats, watched: game.margWatched} : null,
+    tally: game.tally, offered: game.offered});
+  if (!ok) { try { game.storage.removeItem(key); } catch { /* (blocked) */ } }
+  return ok;
 }
-/** F-7: forget the saved run (the day ended, or START OVER). */
+/** F-7: forget this seed's saved run (the day ended, START OVER, or a replay that failed). */
 export function clearResume(game) {
-  try { if (game.storage) game.storage.removeItem(RESUME_KEY); } catch { /* (storage blocked) */ }
+  for (const s of RESUME_SLOTS) {
+    const k = RESUME_KEY + ':' + s, r = readJson(game.storage, k);
+    if (r && r.seed === game.seed) { try { game.storage.removeItem(k); } catch { /* (blocked) */ } }
+  }
   game.resumeSaved = null;
 }
 
-// F-7: at boot, the saved run of this seed, if any (a run saved by another build cannot replay: dropped, game.resumeLost).
-// The run's status comes back with it when it was saved today and the date's entry, if any, is its own.
+// F-7: at boot, this seed's saved run, if any (one saved by another build cannot replay: dropped, game.resumeLost). Its
+// status comes back with it only when it was saved today and the date's entry, if any, is its own; a run saved on
+// another day is practice now (it can never write a date's entry).
 function resumable(game) {
-  const r = readJson(game.storage, RESUME_KEY);
-  if (!r || r.v !== 1 || r.seed !== game.seed || !Array.isArray(r.log) || !(r.tick > 0)) return null;
+  let r = null;
+  for (const s of RESUME_SLOTS) {
+    const x = readJson(game.storage, RESUME_KEY + ':' + s);
+    if (x && x.seed === game.seed) { r = x; break; }
+  }
+  if (!r || r.v !== 2 || !Array.isArray(r.acts) || !(r.tick > 0)) return null;
   if (r.sim !== SIM_VERSION) { clearResume(game); game.resumeLost = true; return null; }
   const e = game.history.days[dailyYmd(game)], s = r.run;
   if (s && r.today === game.today && (!e || e.id === s.id || s.status !== 'official')) Object.assign(game.run, s);
+  else if (r.today !== game.today) Object.assign(game.run, {status: 'practice', why: s && s.status === 'practice' ? s.why : 'past', started: false, claimed: false});
   return r;
 }
 
-/** F-7: RESUME AT hh:mm: replay the saved log from 04:00 (resumeStep runs it, a slice a frame). */
+/** F-7: RESUME AT hh:mm: replay the saved actions from 04:00 (resumeStep runs them, a slice a frame). */
 export function resumeBegin(game) {
   const r = game.resumeSaved;
   if (!r || game.phase !== 'briefing' || game.replay) return false;
-  game.replay = {log: r.log, j: 0, until: r.tick, from: game.state.tick, saved: r, failed: ''};
+  game.replay = {acts: r.acts, k: 0, until: r.tick, saved: r};
   return true;
 }
 
-// F-7: the saved inputs of this tick, as step() takes them
-function replayBatch(R, tick) {
-  let out = EMPTY;
-  while (R.j < R.log.length && R.log[R.j][0] <= tick) {
-    const [, type, args] = R.log[R.j++];
-    if (out === EMPTY) out = [];
-    out.push(Object.assign({type}, args));
-  }
-  return out;
+// F-7: one saved action, through the function that made it
+function replayAct(game, a) {
+  const [, kind, x, shown] = a;
+  if (kind === 't') takeDesk(game);
+  else if (kind === 'i') { if (!sendInput(game, x, shown)) game.playerInputs++; }
+  else if (kind === 'r') { if (!redispatch(game, shown)) game.playerInputs++; }
+  else if (kind === 'u' && REPLAY_UI.includes(x.do)) ui(game, x);
 }
 
 /**
- * F-7: run the resume's replay for at most budgetMs (real ms, `now` a ms clock); at the saved tick the desk opens there, held.
- * Every tick runs through tickOnce, so the recorder, the verdict's memory and the alarms are rebuilt as in play.
- * @returns {number} progress 0..1 (1: resumed, or nothing to resume); game.resumeFailed says why a replay was given up
+ * F-7: run the resume's replay for at most budgetMs (real ms, `now` a ms clock): ticks to each saved action, the action,
+ * on to the saved tick. Every tick runs through tickOnce, so the recorder, the verdict's memory and the alarms are rebuilt
+ * as in play. At the saved tick the state's hash must be the saved one; then the desk opens there, held.
+ * @returns {number} progress 0..1 (1: resumed, or given up: game.resumeFailed says why and the day starts fresh)
  */
 export function resumeStep(game, budgetMs = Infinity, now = () => Date.now()) {
   const R = game.replay, st = game.state;
   if (!R) return 1;
   const t0 = now();
-  while (!st.over && st.tick < R.until && !R.failed) {
+  for (;;) {
+    while (R.k < R.acts.length && R.acts[R.k][0] <= st.tick) replayAct(game, R.acts[R.k++]);
+    const next = R.k < R.acts.length ? R.acts[R.k][0] : R.until;
+    if (st.over || (R.k >= R.acts.length && st.tick >= R.until)) break;
+    if (st.tick >= next) { R.failed = 'an action after the saved moment'; break; }
     tickOnce(game);
-    if (st.tick % 256 === 0 && now() - t0 > budgetMs) break;
+    if (st.tick % 256 === 0 && now() - t0 > budgetMs) return Math.min(0.99, st.tick / Math.max(1, R.until));
   }
-  if (R.failed || st.over) {   // (the log does not replay here: a fresh day, said so)
-    game.resumeFailed = R.failed || 'the saved day ended early';
-    game.replay = null;
+  const s = R.saved, failed = R.failed || (st.over ? 'the saved day ended early' : st.tick !== s.tick || hashState(st) !== s.hash ? 'the replay did not match' : '');
+  game.replay = null; game.resumeSaved = null;
+  game.cues = [];   // (nothing the replay heard is played)
+  if (failed) {
+    game.resumeFailed = failed;
     clearResume(game);
     resetDay(game);
     return 1;
   }
-  if (st.tick < R.until) return (st.tick - R.from) / Math.max(1, R.until - R.from);
-  const s = R.saved;
-  game.replay = null; game.resumeSaved = null;
-  game.phase = 'play';
-  game.cues = [];   // (nothing the replay heard is played)
-  game.playerInputs = s.inputs | 0;
+  // what frames alone kept: the plates still covered, Marg's day, the K-12 offers; the coach as it stood
   game.noCoach = !!s.noCoach;
-  game.marg = createMarg(!!s.first);
+  if (Array.isArray(s.plates)) game.plates = new Set(s.plates.filter(g => PLATE_GROUPS.includes(g)));
+  if (s.marg && game.marg) { game.marg.said = s.marg.said || []; game.marg.beats = s.marg.beats || {}; game.margWatched = !!s.marg.watched; }
+  if (s.tally) game.tally = s.tally;
+  if (s.offered) game.offered = s.offered;
   game.margAct = -1;
+  // a new lease on the run: an older copy of it still open in another tab now finds the date's entry not its own (yieldTo)
+  const old = game.run.id, ymd = dailyYmd(game);
+  game.run.id = game.seed + '-' + Date.now() + '-' + (++runCount);
+  const e = ymd && freshHistory(game).days[ymd];
+  if (e && e.id === old) { e.id = game.run.id; saveHistory(game); }
   game.director.paused = true;
   game.objectiveS = -1e9; game.lineFresh = true;
+  saveResume(game);
   return 1;
 }
 
@@ -1264,10 +1297,26 @@ export function replayGame(file, scenario, untilTick) {
 export function makeActions(game) {
   return {
     // (X-45: the end card counts the player's accepted inputs, a RE-DISPATCH as one; never the system's or the night shift's)
-    // (F-7: each accepted input saves the run, so a closed tab resumes after it)
-    input: x => { const r = sendInput(game, x); if (!r) { game.playerInputs++; saveResume(game); } return r; },
-    redispatch: () => { const r = redispatch(game); if (!r) { game.playerInputs++; saveResume(game); } return r; },
-    ui: cmd => ui(game, cmd),
+    // (F-7: each action is kept for the save, with the feeder card it answered, and saves the run; none while resuming)
+    input: x => {
+      if (game.replay) return RESUMING;
+      const shown = shownFeeder(game);
+      act(game, ['i', Object.assign({}, x), shown]);
+      const r = sendInput(game, x, shown);
+      if (!r) game.playerInputs++;
+      saveResume(game);
+      return r;
+    },
+    redispatch: () => {
+      if (game.replay) return RESUMING;
+      const shown = shownFeeder(game);
+      act(game, ['r', null, shown]);
+      const r = redispatch(game, shown);
+      if (!r) game.playerInputs++;
+      saveResume(game);
+      return r;
+    },
+    ui: cmd => { if (game.replay && cmd && REPLAY_UI.includes(cmd.do)) return RESUMING; if (cmd && REPLAY_UI.includes(cmd.do)) act(game, ['u', Object.assign({}, cmd)]); return ui(game, cmd); },
     previewTrip: opts => previewTrip(game, opts),
     restorePreview: id => restorePreview(game, id),
   };
