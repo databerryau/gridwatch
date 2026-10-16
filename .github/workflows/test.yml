@@ -14,3 +14,4 @@ jobs:
         with:
           node-version: 22
       - run: node --test
+      - run: node tools/calendar-left.mjs   # F-8: warns when fewer than 60 days of dailies are left

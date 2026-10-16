@@ -53,6 +53,8 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
 
 /** Y-11: the ladder's note (its title): who the other players are. */
 export const LADDER_NOTE = 'GRIDWATCH\'s own players on this same day, graded as you are: one who did nothing (the system still dispatches), and the better of two scripted dispatchers. Par is 1000. They are scripts, not people.';
+/** F-8 (risk 5): THE NUMBERS' note when this browser's par came out other than the stored par the score is made from. */
+export const parDriftText = d => 'This browser worked par out ' + signed(d) + ' from the stored par. Your score uses the stored one, so it is the same in every browser.';
 /** Y-3: the streaks' rule (the end card's STREAK line, as its title); and what a browser without storage is told. */
 export const STREAK_RULE = 'STREAK: days in a row with an official run finished. ★ STREAK: days in a row at par or better.';
 export const HISTORY_OFF = 'History off: this browser keeps no storage, so there is no streak.';
@@ -65,7 +67,7 @@ export function runText(r) {
   if (r.why === 'done') return 'PRACTICE: today\'s official run is in' + (e ? e.dnf ? ' (it did not finish).' : e.letter ? ' (' + e.points + ' ' + e.letter + ').' : '.' : '.');
   if (r.hard) return 'PRACTICE: Hard day ' + r.hard + '. No plan keeps every light on: you are graded on the rest.';
   return {past: 'PRACTICE: a past daily. Only today\'s counts.', future: 'PRACTICE: not today\'s daily. Only today\'s counts.',
-    off: 'PRACTICE: history is off in this browser, so nothing counts.'}[r.why] || 'PRACTICE: not a daily.';
+    off: 'PRACTICE: history is off in this browser, so nothing counts.', nodaily: 'PRACTICE: no daily today, so nothing counts.'}[r.why] || 'PRACTICE: not a daily.';
 }
 
 /** A difference to par: '+$1.25M', '−$840' (U+2212), '$0'. */
@@ -201,6 +203,7 @@ export function createEndCard(doc, root, actions, deps) {
       line(body, gap ? 'Biggest gap to par: ' + gap.name + ' ' + signed(gap.d) + ' (' + gap.why(gap.d, paid(e.score) || paid(pr && pr.score)) + ')' : 'You beat par on all three.');
     }
     line(body, 'Score = 1000 × par\'s ALL-IN ÷ yours. Par is GRIDWATCH\'s own autopilot on this same day.');
+    if (p && Math.abs(e.parDrift) >= 1) line(body, parDriftText(e.parDrift)).id = 'end-drift';   // (F-8: another engine's arithmetic)
     // (yours to the moment the grid went black, on a black day)
     const r = el('div', '', '', body), m = e.allIn;
     r.id = 'end-reliability';

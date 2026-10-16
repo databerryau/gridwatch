@@ -50,13 +50,16 @@ export const localYmd = d => d.getFullYear() * 1e4 + (d.getMonth() + 1) * 100 + 
 
 /**
  * Y-2 (Q-99): a run's status: {status: 'first' | 'official' | 'practice', why}, why one of 'first', 'today', 'done' (today's
- * official run is in), 'past' (another date's daily), 'seed' (not a daily).
- * @param {{ymd:number|null, today:number, firstShift:boolean}} o ymd: the date of the daily played (app/game.js dailyYmd)
+ * official run is in), 'past' (another date's daily), 'seed' (not a daily), 'nodaily' (F-8: today has no gate-checked daily,
+ * past the calendar's end: "No daily today").
+ * @param {{ymd:number|null, today:number, firstShift:boolean, ungated:boolean}} o ymd: the date of the daily played (app/game.js
+ *   dailyYmd); ungated: that date is off the gate-checked calendar
  */
 export function statusOf(h, o) {
   if (o.off) return {status: 'practice', why: 'off'};   // (storage blocked: nothing can count)
   if (!o.ymd) return {status: 'practice', why: 'seed'};
   if (o.ymd !== o.today) return {status: 'practice', why: o.ymd > o.today ? 'future' : 'past'};
+  if (o.ungated) return {status: 'practice', why: 'nodaily'};
   if (h.days[o.ymd]) return {status: 'practice', why: 'done'};
   return o.firstShift ? {status: 'first', why: 'first'} : {status: 'official', why: 'today'};
 }

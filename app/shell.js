@@ -173,7 +173,10 @@ export const RUN_TAG = Object.freeze({first: 'FIRST SHIFT', official: 'OFFICIAL'
 export const RUN_WHY = Object.freeze({first: 'Your first shift: practice, unless you count it at the end.',
   official: 'Today\'s daily: this run counts once the clock passes 09:00 (one official run a day).',
   done: 'Today\'s official run is in: this one is practice.', past: 'A past daily: practice. Only today\'s counts.', seed: 'Not a daily: practice.',
-  future: 'Not today\'s daily: practice. Only today\'s counts.', hard: 'A Hard day: no plan keeps every light on, so you are graded on the rest. Practice.', off: 'History is off in this browser (no storage): practice, nothing counts.'});
+  future: 'Not today\'s daily: practice. Only today\'s counts.', hard: 'A Hard day: no plan keeps every light on, so you are graded on the rest. Practice.', off: 'History is off in this browser (no storage): practice, nothing counts.',
+  nodaily: 'GRIDWATCH has no gate-checked daily for today\'s date yet: this day is practice, and nothing counts.'});
+/** F-8: the briefing title on a date past the dailies' calendar. */
+export const NO_DAILY = 'No daily today · PRACTICE';
 /** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
 export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
 /**
@@ -470,7 +473,7 @@ export function bootGame(doc, deps) {
     // W6: the daily's number (Y-1) and whether this run counts (Y-2, Q-99), its reason in the title
     const title = $('briefing-title'), ymd = G.dailyYmd(game), n = ymd ? puzzleNumber(ymd) : null, run = G.runView(game);
     if (title) {
-      title.textContent = n ? 'Daily #' + n + ' · ' + RUN_TAG[run.status] : game.hard ? 'Hard day ' + game.hard + ' · PRACTICE' : 'Practice desk';
+      title.textContent = run.why === 'nodaily' ? NO_DAILY : n ? 'Daily #' + n + ' · ' + RUN_TAG[run.status] : game.hard ? 'Hard day ' + game.hard + ' · PRACTICE' : 'Practice desk';
       title.title = game.hard ? RUN_WHY.hard : RUN_WHY[run.status === 'practice' ? run.why : run.status];
     }
     const score = $('how-score');   // D-3: the score's rule is behind the header "?" (HOW TO PLAY)

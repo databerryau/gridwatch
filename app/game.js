@@ -287,7 +287,9 @@ export function resetDay(game, seed) {
   // played) and today's local date (a tab left open past midnight); an official run is marked at 09:00 (tickOnce)
   if (game.todayOf) game.today = game.todayOf();
   freshHistory(game);
-  game.run = Object.assign(HI.statusOf(game.history, {ymd: dailyYmd(game), today: game.today, firstShift: firstShift(game), off: !game.historyOn}),
+  // (F-8: today's date off the gate-checked calendar has no daily: practice, "No daily today")
+  game.run = Object.assign(HI.statusOf(game.history, {ymd: dailyYmd(game), today: game.today, firstShift: firstShift(game), off: !game.historyOn,
+    ungated: !!game.daily && game.daily.gated === false}),
     {started: false, claimed: false, id: game.seed + '-' + Date.now() + '-' + (++runCount)});   // (the id tells this tab's entry from another's)
   parFor(game);
   return game;
@@ -937,10 +939,12 @@ export function buildVm(game, f) {
   if (mode.mode === 'SHED-WATCH') watch = {n: -1, tS: mode.watchS, beat: '', beatIndex: -1, caption: D.shedWatchText(d, state), shed: true,
     stopwatch: W.stopwatch(mode.watchS, mode.rate), nadirHz: 0, rate: mode.rate, version: 'compact', rise: false};
   if (state.over && !game.end) {
-    // Q-48: black is an F at once; par's ALL-IN and the grade are filled in place below, on the frame par has its score
-    const allIn = S.allIn(obs.score, game.households);
+    // Q-48: black is an F at once; par's ALL-IN is filled in place below, on the frame par has its score. F-8: a listed daily
+    // is graded at once against its stored par (the same in every browser); any other day when the page's par has its score.
+    const allIn = S.allIn(obs.score, game.households), stored = storedPar(game);
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: game.playerInputs, seed: game.seed, v: SIM_VERSION,
-      allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null,
+      allIn, parAllIn: null, stored, parDrift: 0,
+      grade: state.black ? S.grade(allIn, null, true) : stored ? S.grade(allIn, {total: stored.total}, false, stored.shedMWh) : null,
       handFlown: !!state.control.handFlown, gated: game.daily ? game.daily.gated : null, // Q-64, Q-75 (null: not a daily)
       perfect: isPerfect(obs.score, state.black), noCoach: !!game.noCoach, // S-6; O-8
       // W6 (Y-4): what the share card reads: a first shift (as the desk was taken), the reserve diesel armed by the
@@ -953,13 +957,15 @@ export function buildVm(game, f) {
       week: weekAhead(game.todayOf ? game.todayOf() : game.today, dailyStamp())};
     // D-7: a finished shift, kept with the other seen flags (HAND is offered from the second)
     if (game.phase === 'play') { game.director.seen.shifts = (game.director.seen.shifts || 0) + 1; saveSeen(game); }
-    recordRun(game);   // (W6, Y-3: an official run is finished, its grade filled in when par's arrives)
+    recordRun(game);   // (W6, Y-3: an official run is finished, with its grade: F-8's stored par is there at once)
     if (!game.replay) clearResume(game);   // (F-7: nothing left to resume)
   }
   const par = game.par, end = game.end; // (a par day that went black gives no grade)
   if (end && !end.parAllIn && par && par.done && par.score && !par.black) {
     end.parAllIn = S.allIn(par.score, game.households);
-    end.grade = S.grade(end.allIn, end.parAllIn, end.black, S.parShedMWh(par.score)); // (S-7: a Hard day when par shed)
+    // F-8: the stored par keeps the grade; the page's own par differs from it only on an engine whose arithmetic drifts
+    if (end.stored) end.parDrift = Math.round(end.parAllIn.total) - end.stored.total;
+    else end.grade = S.grade(end.allIn, end.parAllIn, end.black, S.parShedMWh(par.score)); // (S-7: a Hard day when par shed)
   }
   if (end) verdictFor(game);
   margFrame(game, obs, mode);
@@ -1096,12 +1102,26 @@ export const LADDER_NAMES = Object.freeze(['did nothing', 'a scripted shift']);
  * before the grade, or with a stale list (another build's).
  */
 export function ladderFor(game, g, list = LADDER) {
-  const ymd = dailyYmd(game), row = ymd && list.v === dailyStamp() && list.rows ? list.rows[ymd] : null;
+  const row = listedRow(game, list);
   if (!row || !g) return null;
   const [parT, shed, nothing, lean, competent] = row, par = {total: parT};
   const pts = t => (t < 0 ? 0 : (S.grade({total: t}, par, false, shed) || {points: NaN}).points);
   const out = [[LADDER_NAMES[0], pts(nothing)], [LADDER_NAMES[1], Math.max(pts(lean), pts(competent))], ['par', 1000], ['YOU', g.points, true]];
   return out.filter(x => Number.isFinite(x[1])).sort((a, b) => a[1] - b[1] || (a[2] ? 1 : b[2] ? -1 : 0));
+}
+
+// This daily's row in content/ladder.js (this build's list), else null: off the calendar, a Hard day or another seed
+const listedRow = (game, list) => { const ymd = dailyYmd(game); return ymd && list.v === dailyStamp() && list.rows ? list.rows[ymd] || null : null; };
+
+/**
+ * F-8 (risk 5): par's stored end on this daily, {total (ALL-IN $), shedMWh}, from content/ladder.js (tools/ladder.mjs runs the
+ * same AP.runPar the page re-runs, under this build's stamp). The grade is made from it, so it is the same in every browser
+ * and is there the moment the day ends; the page's own par only fills THE NUMBERS and the debrief. null off the calendar, on
+ * a Hard day or another seed, or with a stale list (the page's par grades then, as before).
+ */
+export function storedPar(game, list = LADDER) {
+  const row = listedRow(game, list);
+  return row && row[0] > 0 ? {total: row[0], shedMWh: row[1]} : null;
 }
 
 /** Y-1: the date of the daily this game plays (its date's listed seed), else null (another seed is not that daily). */
