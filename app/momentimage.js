@@ -2,11 +2,13 @@
 // on demand when the end card's button is pressed (app/endcard.js, once YOUR CARD is made). On it: the daily's number and
 // date (a Hard day's name, else the seed), the score and its letter, the tags; the moment's frequency, its lowest second
 // marked and the NO GUARD and PAR lines as on the card (render/charts.js plotMoment); the extreme in big figures, the fall
-// with no GUARD under it; what caught it, as a stack in the order it acts (K-15); the closing line (Y-7) and the link.
+// with no GUARD under it (the end card offers the button once that is computed: verdict.js moment's pending), and the
+// day's low under it when the day went lower (as the share card's "low" says); what caught it, as a stack in the end
+// card's order (app/verdict.js caughtText); the closing line (Y-7) and the link.
 // It is public like the share card, so it keeps the card's rule (app/share.js lintCard): every line of words passes the
-// lint or is left off, and the trace has no time axis, only a bar a minute long. The battery's own response is "fast
-// response" and the relays' "homes cut off": "battery" and "relay" are the lint's spoiler words. Canvas 2D only; saved
-// as DOWNLOAD REPLAY LOG is (a Blob, a.download and a toast).
+// lint or is left off, and the trace has no time axis, only a bar a minute long. "battery" and "relay" are the lint's
+// spoiler words, so the battery's own droop is "droop response" (the GUARD is its fast frequency response, glossary) and
+// the relays' cut "homes cut off". Canvas 2D only; saved as DOWNLOAD REPLAY LOG is (a Blob, a.download and a toast).
 
 import {COL, CAUGHT_STYLE, plotMoment} from '../render/charts.js';
 import {mw} from '../render/format.js';
@@ -19,9 +21,9 @@ const PAD = 48, SIDE = 820, K = 2;   // (K: the trace's text at 22px)
 /** Y-6: the trace's box on the picture (its time axis, below it, carries only the minute bar). */
 export const PLOT = Object.freeze({x0: PAD + 70, x1: 780, y0: 192, y1: 536});
 
-/** Y-6: what caught it, in the order it acts, in words the share card's lint passes: [catch key, name, colour]. */
-export const CATCH_WORDS = Object.freeze([['inertiaMW', 'spin'], ['batteryMW', 'fast response'], ['guardMW', 'YOUR GUARD'],
-  ['governorsMW', 'governors'], ['loadReliefMW', 'load relief'], ['inverterMW', 'inverters backing off'], ['uflsMW', 'homes cut off']]
+/** Y-6: what caught it, in the end card's order (app/verdict.js caughtText), in words the share card's lint passes: [catch key, name, colour]. */
+export const CATCH_WORDS = Object.freeze([['inertiaMW', 'spin'], ['guardMW', 'YOUR GUARD'], ['batteryMW', 'droop response'],
+  ['governorsMW', 'governors'], ['loadReliefMW', 'load relief'], ['uflsMW', 'homes cut off'], ['inverterMW', 'inverters backing off']]
   .map(([k, name]) => Object.freeze([k, name, CAUGHT_STYLE[k] ? CAUGHT_STYLE[k][1] : COL.amber])));
 
 /** Y-6: a trip's catch as the stack's rows, {name, mw, col, you}, 5 MW or more each (app/verdict.js caughtText's floor). */
@@ -35,20 +37,25 @@ export function catchRows(c) {
  * Y-6: the picture's words from a finished day's end (game.end: its share card, grade and verdict's moment). Each line
  * made from the day goes through the share card's lint, and one that fails is left off ('' and in `dropped`), so nothing
  * on the picture can spoil a day; the fixed words pass it (tests/momentimage.test.js lints every word drawn).
- * @returns {{title, day, score, tags, big, bigLabel, noGuard, note, rows, closing, refs, rise, dropped}}
+ * A low that is not the day's (a shed before a deeper trip) is "LOWEST HERE", with the day's low (the share card's) under it.
+ * @returns {{title, day, score, tags, big, bigLabel, noGuard, note, dayLow, rows, closing, refs, rise, dropped}}
  */
 export function imageText(end) {
   const s = end.share, m = end.verdict.moment, g = end.grade, n = m.numbers, c = m.cont, rise = !!c && c.lostMW < 0, dropped = [];
   const ok = t => { if (!t) return ''; if (lintCard(t).length) { dropped.push(t); return ''; } return t; };
   const day = (s.lines[0] || '').split(' · ')[1] || '';   // (shareCard's head: GRIDWATCH #n · the day · the score · the tags)
-  const margin = m.kind === 'margin' && Number.isFinite(n.r5MW);
+  const margin = m.kind === 'margin' && Number.isFinite(n.r5MW), low = end.lowHz;
+  const lower = !margin && !rise && Number.isFinite(low) && Number.isFinite(n.extremeHz) && +low.toFixed(2) < +n.extremeHz.toFixed(2);
+  // (a shed with no trip: the city desk's, or the relays' own on frequency alone)
+  const cut = !c && m.kind === 'shed' ? (m.spell && m.spell.by === 'ufls' ? 'Homes were cut off automatically to hold it.' : 'The city desk cut load to hold it.') : '';
   return {title: ok('GRIDWATCH' + (s.n ? ' #' + s.n : '')), day: ok(day), rise, dropped, rows: catchRows(c),
     score: ok(g ? g.points + ' ' + g.letter + (g.star ? ' ★' : '') : 'no score'),
     tags: ok([end.perfect && 'PERFECT', ...(s.tags || [])].filter(Boolean).join(' · ')),
     big: ok(margin ? mw(n.r5MW) + ' MW' : Number.isFinite(n.extremeHz) ? n.extremeHz.toFixed(2) + ' Hz' : ''),
-    bigLabel: margin ? 'SPARE IN 5 MIN' : rise ? 'HIGHEST' : 'LOWEST',
+    bigLabel: margin ? 'SPARE IN 5 MIN' : rise ? 'HIGHEST' : lower ? 'LOWEST HERE' : 'LOWEST',
     noGuard: ok(Number.isFinite(n.noGuardHz) ? 'With no GUARD: ' + n.noGuardHz.toFixed(2) + ' Hz' : ''),
-    note: ok(margin ? 'for a ' + mw(n.riskMW) + ' MW risk: the day\'s thinnest margin' : !c && m.kind === 'shed' ? 'The city desk cut load to hold it.' : ''),
+    note: ok(margin ? 'for a ' + mw(n.riskMW) + ' MW risk: the day\'s thinnest margin' : cut),
+    dayLow: ok(lower ? 'The day\'s low: ' + low.toFixed(2) + ' Hz' : ''),
     closing: ok(s.closing ? '"' + s.closing + '"' : ''),
     refs: [{hz: n.noGuardHz, label: 'NO GUARD', col: COL.pink}, {hz: n.parHz, label: 'PAR', col: COL.grey}]};
 }
@@ -78,13 +85,15 @@ export function drawImage(canvas, end) {
   // the trace (render/charts.js: its own text in the middle baseline)
   plotMoment(ctx, PLOT, m.trace, t.refs, {rise: t.rise, k: K, markHz: m.numbers.extremeHz});
   ctx.textBaseline = 'alphabetic';
-  // the side: the extreme, with no GUARD; what caught it, a bar and a row each (at most seven: they fit above the foot)
+  // the side: the extreme, with no GUARD, and the day's low when lower; what caught it, a bar and a row each (at most
+  // seven: closer together when they would reach the foot)
   const sw = IMAGE_W - PAD - SIDE;
   let y = 200;
   put(t.bigLabel, SIDE, y, '700 20px ' + SANS, COL.axis);
   put(t.big, SIDE, y += 56, '700 56px ' + MONO, COL.bright);
   if (t.noGuard) put(t.noGuard, SIDE, y += 40, '24px ' + SANS, COL.pink);
-  if (t.note) { const nf = ctx.font = '22px ' + SANS; for (const l of wrap(ctx, t.note, sw)) put(l, SIDE, y += 32, nf, COL.text); }
+  const nf = ctx.font = '22px ' + SANS;
+  for (const l of [t.note, t.dayLow].filter(Boolean).flatMap(s => wrap(ctx, s, sw))) put(l, SIDE, y += 32, nf, COL.text);
   if (t.rows.length) {
     put('CAUGHT BY', SIDE, y += 44, '700 20px ' + SANS, COL.axis);
     const total = t.rows.reduce((a, r) => a + r.mw, 0);
@@ -92,8 +101,9 @@ export function drawImage(canvas, end) {
     y += 12;
     for (const r of t.rows) { ctx.fillStyle = r.col; ctx.fillRect(x, y, Math.max(2, sw * r.mw / total - 2), 20); x += sw * r.mw / total; }
     y += 20;
+    const dy = Math.min(28, (IMAGE_H - 60 - y) / t.rows.length);   // (the last row's baseline 30 px above the foot's)
     for (const r of t.rows) {
-      ctx.fillStyle = r.col; ctx.fillRect(SIDE, (y += 28) - 14, 14, 14);
+      ctx.fillStyle = r.col; ctx.fillRect(SIDE, (y += dy) - 14, 14, 14);
       put(r.name + ' ' + mw(r.mw) + ' MW', SIDE + 24, y, (r.you ? '700 ' : '') + '20px ' + SANS, r.you ? COL.bright : COL.text);
     }
   }
