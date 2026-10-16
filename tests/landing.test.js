@@ -27,6 +27,9 @@ test('Y-8: below the desk\'s floor or touch-only, the landing page; a desk-sized
   assert.equal(needsLanding(win(DESK_W, DESK_H)), false);
   assert.equal(needsLanding(win(1366, 625)), false, 'a 1366x768 laptop after its browser chrome');
   assert.equal(needsLanding(win(1920, 1080, {coarse: true, fine: true})), false, 'a touch laptop with a trackpad');
+  // a phone whose window the desk's own min-width has widened to 1280 (measured in the browser pane): its screen says
+  assert.equal(needsLanding(Object.assign(win(1280, 2770, {coarse: false, fine: false}), {screen: {width: 375, height: 812}})), true);
+  assert.equal(needsLanding(Object.assign(win(1280, 720), {screen: {width: 1920, height: 1080}})), false);
 });
 
 test('Y-8: at 390x844 the landing page shows and the game is not loaded; COPY LINK copies the address', async () => {

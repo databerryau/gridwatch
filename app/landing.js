@@ -13,15 +13,21 @@ const CSS = '#landing{position:fixed;inset:0;overflow:auto;z-index:100;backgroun
   '#landing .in{max-width:560px;margin:0 auto}#landing h1{font:700 28px/1.2 ui-monospace,monospace;letter-spacing:2px;color:#e6edf3;margin:8px 0 12px}' +
   '#landing img{display:block;width:100%;height:auto;border:1px solid #30363d;border-radius:6px;margin:16px 0}' +
   '#landing button{font:700 15px system-ui,sans-serif;padding:10px 18px;margin:4px 8px 4px 0;border-radius:6px;border:1px solid #58a6ff;background:#161b22;color:#e6edf3;cursor:pointer}' +
-  '#landing .dim{color:#8b949e;font-size:14px}body.landing>*:not(#landing){display:none!important}';
+  '#landing .dim{color:#8b949e;font-size:14px}body.landing>*:not(#landing){display:none!important}' +
+  // (the desk's floor, min-width 1280px on the body, would keep a phone's page 1280 wide)
+  'html:has(body.landing),body.landing{display:block!important;min-width:0!important;min-height:0!important;width:auto!important;height:auto!important;overflow:auto!important}';
 
 const media = (win, q) => { try { return typeof win.matchMedia === 'function' && !!win.matchMedia(q).matches; } catch { return false; } };
 /** A pointer that can aim (a mouse or a trackpad), anywhere on the device. */
 export const finePointer = win => media(win, '(any-pointer: fine)');
-/** Y-8: the landing page, not the desk: a viewport below the floor, or only a touch pointer. */
+/**
+ * Y-8: the landing page, not the desk: a viewport below the floor (the window's, or the screen's: a phone widens its window
+ * to the desk's own min-width before this runs), or only a touch pointer.
+ */
 export function needsLanding(win) {
-  const touchOnly = media(win, '(pointer: coarse)') && !finePointer(win);
-  return touchOnly || !(win.innerWidth >= DESK_W) || !(win.innerHeight >= DESK_H);
+  const touchOnly = media(win, '(pointer: coarse)') && !finePointer(win), sc = win.screen || {};
+  const w = Math.min(win.innerWidth, sc.width > 0 ? sc.width : Infinity), h = Math.min(win.innerHeight, sc.height > 0 ? sc.height : Infinity);
+  return touchOnly || !(w >= DESK_W) || !(h >= DESK_H);
 }
 
 // Y-5's copy, kept here so the landing page loads nothing else: the clipboard, else a hidden textarea
