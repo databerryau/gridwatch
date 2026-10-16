@@ -43,8 +43,9 @@ export const localYmd = d => d.getFullYear() * 1e4 + (d.getMonth() + 1) * 100 + 
  * @param {{ymd:number|null, today:number, firstShift:boolean}} o ymd: the date of the daily played (app/game.js dailyYmd)
  */
 export function statusOf(h, o) {
+  if (o.off) return {status: 'practice', why: 'off'};   // (storage blocked: nothing can count)
   if (!o.ymd) return {status: 'practice', why: 'seed'};
-  if (o.ymd !== o.today) return {status: 'practice', why: 'past'};
+  if (o.ymd !== o.today) return {status: 'practice', why: o.ymd > o.today ? 'future' : 'past'};
   if (h.days[o.ymd]) return {status: 'practice', why: 'done'};
   return o.firstShift ? {status: 'first', why: 'first'} : {status: 'official', why: 'today'};
 }

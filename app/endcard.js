@@ -57,10 +57,11 @@ export const HISTORY_OFF = 'History off: this browser keeps no storage, so there
 export function runText(r) {
   const daily = r.n ? 'daily #' + r.n : 'this day';
   if (r.status === 'first') return r.claimed ? 'OFFICIAL: your first shift counts as ' + daily + '.' : 'FIRST SHIFT: practice, unless you count it.';
-  if (r.status === 'official') return r.started === false && !r.claimed ? 'Ended before 09:00, so it did not count: the next run past 09:00 does.' : 'OFFICIAL: ' + daily + ', today\'s run that counts.';
+  if (r.status === 'official') return r.started === false && !r.claimed ? 'PRACTICE: it ended before 09:00, so it did not count. The next run past 09:00 does.' : 'OFFICIAL: ' + daily + ', today\'s run that counts.';
   const e = r.entry;
   if (r.why === 'done') return 'PRACTICE: today\'s official run is in' + (e ? e.dnf ? ' (it did not finish).' : e.letter ? ' (' + e.points + ' ' + e.letter + ').' : '.' : '.');
-  return r.why === 'past' ? 'PRACTICE: a past daily. Only today\'s counts.' : 'PRACTICE: not a daily.';
+  return {past: 'PRACTICE: a past daily. Only today\'s counts.', future: 'PRACTICE: not today\'s daily. Only today\'s counts.',
+    off: 'PRACTICE: history is off in this browser, so nothing counts.'}[r.why] || 'PRACTICE: not a daily.';
 }
 
 /** A difference to par: '+$1.25M', '−$840' (U+2212), '$0'. */

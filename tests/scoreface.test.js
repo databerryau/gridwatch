@@ -275,7 +275,7 @@ test('Q-48, played (sampled): the CLOCK line carries SCORE against par through t
   p.frames(2);
   const end = p.game.end.grade, look = p.look({controls: false});
   // (2c, Q-75: a bare seed outside the shipped list's dates is not gate-checked, and says so under the h2)
-  assert.match(look, new RegExp('^END Day over: 04:00\\. Not gate-checked: this day may not be solvable\\. PRACTICE: [^.]*\\. Only today\'s counts\\. History off: [^.]*\\. ' + scoreText(end, p.game.end.perfect).replace(/[★·]/g, '.') + '( PERFECT: [^.]*\\.)? Letter: .* LIGHTS .* THE NUMBERS YOU PAR Δ SUPPLY', 'm'), look); // (W3: the verdict, then THE NUMBERS)
+  assert.match(look, new RegExp('^END Day over: 04:00\\. Not gate-checked: this day may not be solvable\\. PRACTICE: [^.]*\\. History off: [^.]*\\. ' + scoreText(end, p.game.end.perfect).replace(/[★·]/g, '.') + '( PERFECT: [^.]*\\.)? Letter: .* LIGHTS .* THE NUMBERS YOU PAR Δ SUPPLY', 'm'), look); // (W3: the verdict, then THE NUMBERS)
   assert.match(look, new RegExp('\\| SCORE ' + end.points + '$', 'm'));
   assert.deepEqual(p.h.mods.errors, []);
 });

@@ -220,8 +220,8 @@ export function createGame(o) {
     hashes: [], lastFrameMs: -1, end: null,
     par: null, parOpt: o.par || false, parKey: '', households: 0, // Q-48: par's runner, for the day parKey names
     // W6 (Y-2, Y-3): the local date (Y-1), the official runs kept in this browser, and whether its storage works ("history off")
-    today: Number.isInteger(o.today) ? o.today : HI.localYmd(new Date()), history: HI.readHistory(readJson(storage, HI.HISTORY_KEY)),
-    historyOn: storageWorks(storage), run: null,
+    today: Number.isInteger(o.today) ? o.today : HI.localYmd(new Date()), todayOf: typeof o.todayOf === 'function' ? o.todayOf : null,
+    history: HI.readHistory(readJson(storage, HI.HISTORY_KEY)), historyOn: storageWorks(storage), run: null,
   };
   game.cueCtx = {suburbOf: id => suburbOf(game, id)};
   resetDay(game, game.seed);
@@ -237,6 +237,7 @@ function parFor(game) {
     : p.step ? p : Object.assign({step: () => true, done: true, score: null, series: [], at(s) { return seriesAt(this.series || [], s); }, progress: 1, black: false}, p);
 }
 
+let runCount = 0;
 /** In-page reset (C-3): a new day (the same seed by default) on the same game object. */
 export function resetDay(game, seed) {
   if (seed !== undefined) game.seed = seed >>> 0;
@@ -273,8 +274,12 @@ export function resetDay(game, seed) {
   game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
   game.plates = firstShift(game) && game.settings.plates ? new Set(PLATE_GROUPS) : new Set();   // (O-3: a first shift's cover plates)
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
-  // W6 (Y-2, Q-99): first, official or practice, fixed for the day; an official run is marked at 09:00 (tickOnce)
-  game.run = Object.assign(HI.statusOf(game.history, {ymd: dailyYmd(game), today: game.today, firstShift: firstShift(game)}), {started: false, claimed: false});
+  // W6 (Y-2, Q-99): first, official or practice, fixed for the day from what storage holds now (another tab may have
+  // played) and today's local date (a tab left open past midnight); an official run is marked at 09:00 (tickOnce)
+  if (game.todayOf) game.today = game.todayOf();
+  freshHistory(game);
+  game.run = Object.assign(HI.statusOf(game.history, {ymd: dailyYmd(game), today: game.today, firstShift: firstShift(game), off: !game.historyOn}),
+    {started: false, claimed: false, id: game.seed + '-' + Date.now() + '-' + (++runCount)});   // (the id tells this tab's entry from another's)
   parFor(game);
   return game;
 }
@@ -1074,7 +1079,8 @@ export function shareFor(game, end) {
   const bucket = SH.bucketOf({black: end.black, you, par, lowHz: end.lowHz}), closing = SH.closingLine(ymd || game.seed, bucket);
   // (the coach is the exception that is tagged: a first shift coaches unless switched off, a later one is off unless switched
   // on, O-8; so NO COACH on a first shift and COACHED on a later one, where O-8's text has NO COACH on every later card)
-  const tags = [end.firstShift && 'FIRST SHIFT', game.run.status === 'practice' && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
+  // (PRACTICE on any run that does not count: an unclaimed first shift, a run that ended before 09:00, a practice run)
+  const tags = [end.firstShift && 'FIRST SHIFT', !official(game) && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
     end.firstShift ? end.noCoach && 'NO COACH' : !end.noCoach && 'COACHED', end.glassBroken && 'GLASS BROKEN', g && g.hardMWh && 'HARD DAY'].filter(Boolean);
   const n = ymd ? SH.puzzleNumber(ymd) : null;
   const card = SH.shareCard({ymd, n, seed: game.seed, grade: g, perfect: end.perfect, black: end.black, lowHz: end.lowHz, spark: end.spark,
@@ -1086,13 +1092,24 @@ export function shareFor(game, end) {
 
 const saveHistory = game => writeJson(game.storage, HI.HISTORY_KEY, game.history);
 const official = game => (game.run.status === 'official' && game.run.started) || game.run.claimed;
+// The stored history as it is now (another tab writes it too); kept in memory only when storage is blocked
+function freshHistory(game) {
+  if (game.historyOn) game.history = HI.readHistory(readJson(game.storage, HI.HISTORY_KEY));
+  return game.history;
+}
+// Another run (another tab) has the date: this run is practice beside it, and writes nothing
+function yieldTo(game) {
+  Object.assign(game.run, {status: 'practice', why: 'done', started: false, claimed: false});
+  game.verdictKey = '';
+}
 
 // Q-99: the grid clock passed 09:00 on today's daily with no entry for it: this is the date's official run. The entry is
 // a DNF until the day ends, so closing the tab after 09:00 leaves one.
 function startOfficial(game) {
-  game.run.started = true;
   const ymd = dailyYmd(game);
-  HI.record(game.history, ymd, {n: SH.puzzleNumber(ymd), v: SIM_VERSION, dnf: true, firstShift: false, hand: game.state.control.mode === 'HAND'});
+  if (freshHistory(game).days[ymd]) return yieldTo(game);
+  game.run.started = true;
+  HI.record(game.history, ymd, {n: SH.puzzleNumber(ymd), v: SIM_VERSION, id: game.run.id, dnf: true, firstShift: false, hand: game.state.control.mode === 'HAND'});
   saveHistory(game);
 }
 
@@ -1100,8 +1117,10 @@ function startOfficial(game) {
 export function recordRun(game) {
   const end = game.end, ymd = dailyYmd(game);
   if (!end || !ymd || !official(game)) return;
+  const was = freshHistory(game).days[ymd];
+  if (was && was.id !== game.run.id) return yieldTo(game);   // (another tab's run took the date)
   const g = end.grade;
-  HI.record(game.history, ymd, {n: SH.puzzleNumber(ymd), v: SIM_VERSION, dnf: false, firstShift: !!end.firstShift, hand: !!end.handFlown,
+  HI.record(game.history, ymd, {n: SH.puzzleNumber(ymd), v: SIM_VERSION, id: game.run.id, dnf: false, firstShift: !!end.firstShift, hand: !!end.handFlown,
     points: g ? g.points : null, letter: g ? g.letter : null, star: !!(g && g.star), perfect: !!end.perfect, lowHz: end.lowHz,
     darkMWh: end.allIn ? end.allIn.outage / V.VCR : null});
   saveHistory(game);
@@ -1112,7 +1131,7 @@ export function claimRun(game) {
   const r = game.run, ymd = dailyYmd(game);
   if (r.status !== 'first' || r.claimed) return 'only a first shift on today\'s daily can be counted';
   if (!game.end) return 'count it when the day is over';
-  if (game.history.days[ymd]) return 'today already has its official run';
+  if (freshHistory(game).days[ymd]) { yieldTo(game); return 'today already has its official run'; }
   r.claimed = true;
   recordRun(game);
   game.verdictKey = '';   // (the share card loses no tag but is rebuilt with the run's status)
@@ -1125,7 +1144,7 @@ export function claimRun(game) {
  */
 export function runView(game) {
   const r = game.run, ymd = dailyYmd(game), st = HI.streaks(game.history, game.today);
-  return {status: r.status, why: r.why, started: r.started, claimed: r.claimed, claimable: r.status === 'first' && !r.claimed && !!game.end,
+  return {status: r.status, why: r.why, started: r.started, claimed: r.claimed, claimable: r.status === 'first' && !r.claimed && !!game.end && game.historyOn,
     historyOn: game.historyOn, n: ymd ? SH.puzzleNumber(ymd) : null, entry: r.why === 'done' ? game.history.days[ymd] || null : null,
     streak: st.streak, best: st.best, played: st.played};
 }

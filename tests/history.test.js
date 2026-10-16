@@ -75,9 +75,10 @@ test('Y-2 on the page: a first shift is practice until COUNT THIS ONE; then it i
   assert.equal(stored(s), null, 'a first shift writes nothing at 09:00');
   endDay(p);
   assert.equal(p.$('end-run').textContent, 'FIRST SHIFT: practice, unless you count it. COUNT THIS ONE');
-  assert.ok(!p.game.end.share.tags.includes('PRACTICE'));
+  assert.ok(p.game.end.share.tags.includes('PRACTICE'), 'not counted (yet): practice');
   p.click('btn-claim');
   p.frames(2);
+  assert.ok(!p.game.end.share.tags.includes('PRACTICE'), 'counted: the card is rebuilt without PRACTICE');
   const e = stored(s).days[20261016];
   assert.equal(e.dnf, false);
   assert.equal(e.firstShift, true);
@@ -130,4 +131,27 @@ test('Y-2: a past date and a seed off the calendar are practice; Y-3: with stora
   assert.equal(b.$('end-streak').textContent, 'History off: this browser keeps no storage, so there is no streak.');
   assert.ok(b.game.end.share && b.game.end.verdict, 'the day plays to its verdict and card');
   assert.deepEqual(b.h.mods.errors, []);
+});
+
+test('Y-2 (review): two tabs on today\'s daily: the first past 09:00 takes the date; the other turns practice and never overwrites it', () => {
+  const s = store({[G.SEEN_KEY]: {shifts: 2}});
+  const a = openGame({seed: 20261016, run: false, par: PAR, storage: s, date: TODAY}), b = openGame({seed: 20261016, run: false, par: PAR, storage: s, date: TODAY});
+  assert.equal(a.$('briefing-title').textContent, 'Daily #5 · OFFICIAL');
+  assert.equal(b.$('briefing-title').textContent, 'Daily #5 · OFFICIAL');
+  past9(b);
+  endDay(b);
+  const e = stored(s).days[20261016];
+  assert.equal(e.dnf, false);
+  past9(a);
+  endDay(a);
+  assert.deepEqual(stored(s).days[20261016], e, 'the later tab wrote nothing');
+  assert.equal(a.game.run.status, 'practice');
+  assert.match(a.$('end-run').textContent, /^PRACTICE: today's official run is in/);
+  assert.ok(a.game.end.share.tags.includes('PRACTICE'));
+  // storage blocked: practice, said so, and no claim
+  const c = openGame({seed: 20261016, run: false, par: PAR, storage: blocked(), date: TODAY});
+  assert.equal(c.$('briefing-title').textContent, 'Daily #5 · PRACTICE');
+  endDay(c);
+  assert.equal(c.$('btn-claim'), null);
+  assert.equal(c.$('end-run').textContent, 'PRACTICE: history is off in this browser, so nothing counts.');
 });

@@ -148,14 +148,14 @@ const PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh:
 
 test('W6 on the page: the briefing names the daily; the day over, YOUR CARD is the card with its tags, Marg quotes its line, SHARE copies it', async () => {
   const p = openGame({seed: 20261016, run: false, par: PAR, date: new Date(2026, 9, 16)});
-  assert.equal(p.$('briefing-title').textContent, 'Daily #5 · FIRST SHIFT');
+  assert.equal(p.$('briefing-title').textContent, 'Daily #5 · PRACTICE', 'no storage: history off');
   p.send({type: 'armRERT'});
   p.game.state.over = true;
   p.frames(2);
   const s = p.game.end.share;
   assert.equal(p.$('end-share-text').textContent, s.text);
   assert.deepEqual(SH.lintCard(s.text), []);
-  assert.match(s.lines[0], /^GRIDWATCH #5 · Fri 16 Oct · \d+ [A-D]( ★)?( · PERFECT)? · FIRST SHIFT · GLASS BROKEN$/);
+  assert.match(s.lines[0], /^GRIDWATCH #5 · Fri 16 Oct · \d+ [A-D]( ★)?( · PERFECT)? · FIRST SHIFT · PRACTICE · GLASS BROKEN$/);
   assert.ok(p.game.end.verdict.marg.endsWith(s.closing), 'her closing line is the card\'s quote');
   assert.ok(s.text.includes('"' + s.closing + '"'));
   // SHARE: the clipboard takes the card, the button says so

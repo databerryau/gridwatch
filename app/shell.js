@@ -158,7 +158,8 @@ export const watchFor = obs => obs.news.filter(n => n.atS === 0 && BRIEF[n.kind]
 export const RUN_TAG = Object.freeze({first: 'FIRST SHIFT', official: 'OFFICIAL', practice: 'PRACTICE'});
 export const RUN_WHY = Object.freeze({first: 'Your first shift: practice, unless you count it at the end.',
   official: 'Today\'s daily: this run counts once the clock passes 09:00 (one official run a day).',
-  done: 'Today\'s official run is in: this one is practice.', past: 'A past daily: practice. Only today\'s counts.', seed: 'Not a daily: practice.'});
+  done: 'Today\'s official run is in: this one is practice.', past: 'A past daily: practice. Only today\'s counts.', seed: 'Not a daily: practice.',
+  future: 'Not today\'s daily: practice. Only today\'s counts.', off: 'History is off in this browser (no storage): practice, nothing counts.'});
 /** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
 export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
 /**
@@ -299,7 +300,7 @@ export function bootGame(doc, deps) {
   let rmQuery = null;
   try { rmQuery = mm ? mm('(prefers-reduced-motion: reduce)') : null; } catch { rmQuery = null; }
   const game = G.createGame({daily: G.dailyFrom(search, o.date), system: o.system, planview: o.planview, scenario: o.scenario, commit: o.commit,
-    startPaused: o.startPaused, par: o.par, today: localYmd(o.date || new Date()),   // (W6, Y-1: the player's local date)
+    startPaused: o.startPaused, par: o.par, todayOf: () => localYmd(o.date || new Date()),   // (W6, Y-1: the player's local date, at each new day)
     storage: o.storage === undefined ? safeStorage() : o.storage, reducedMotion: () => !!(rmQuery && rmQuery.matches)});
   const audio = createAudio(o.audioWin === undefined ? globalThis : o.audioWin);
   let perf = null, PF = null;
