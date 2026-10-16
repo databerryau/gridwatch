@@ -40,7 +40,7 @@ const POST_MOVE_GZIP = 385154;
 // 2b raised the texts 17 -> 18.5 KB (the city levers' three entries); 2c (Q-61) the texts to 20 KB, the alarm help to 5.5 KB).
 const ON_DEMAND = Object.freeze({'content/text.js': 20 * 1024, 'app/alarmpanel.js': 6 * 1024, 'content/alarmhelp.js': 5.5 * 1024, 'app/endcard.js': 7.5 * 1024, 'render/charts.js': 7 * 1024,
   'app/selftest.js': 7 * 1024, 'content/selftest.js': 2 * 1024,   // (W6, risk 5: next.html?selftest's page and its golden values, on that query only)
-  'app/perf.js': 2 * 1024, 'app/suburbcard.js': 6.5 * 1024}); // (2c map: a held suburb's face, §32.11, 6 -> 6.5 KB; W3: the verdict, the end card 5 -> 6.5 KB and its charts; W6: YOUR CARD and SHARE, 6.5 -> 7.5 KB)
+  'app/perf.js': 2 * 1024, 'app/suburbcard.js': 6.5 * 1024, 'app/momentimage.js': 4.5 * 1024}); // (2c map: a held suburb's face, §32.11, 6 -> 6.5 KB; W3: the verdict, the end card 5 -> 6.5 KB and its charts; W6: YOUR CARD and SHARE, 6.5 -> 7.5 KB; Y-6: the moment's picture, 4 KB, its review 4.5 KB)
 
 test('Q-44: the on-demand modules stay out of the first visit, are the only ones loaded by import(), bring only each other (sizes reported, Q-84)', t => {
   const first = new Set(firstVisit('next.html').map(f => f.path));

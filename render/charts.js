@@ -443,3 +443,62 @@ export function drawDemandPair(canvas, under, oper) {
   line(ctx, DAY_MIN, m => xDay(f, m), m => oper[m], y, COL.bright, 1.4);
   legend(ctx, w, [['the city\'s own load', COL.grey], ['what the grid served', COL.bright]]);
 }
+
+// ------------------------------------------------------------------ the moment as a picture (W6: Y-6)
+
+/** Y-6: the scale bar under the saved moment's trace (it has no time axis: no clock times on a public picture). */
+export const MINUTE_BAR = '1 min';
+
+/**
+ * Y-6: drawMoment's trace for the saved picture (app/momentimage.js), into `box` ({x0, x1, y0, y1}) of a context the caller
+ * has sized and filled: the band, the bars, the dashed refs and the moment's line as on the card, its lowest second (its
+ * highest on a rise) marked with its Hz, and no time axis, only a bar a minute long. o: {rise, k (the text and lines' scale,
+ * 1: the card's 11px), markHz (the figure the mark is labelled with: the moment's own, else the trace's)}. Returns the
+ * mark's {hz, x, y}, or null when the trace holds no second.
+ */
+export function plotMoment(ctx, box, trace, refs = [], o = {}) {
+  const f = box, n = trace.lo.length, rise = !!o.rise, k = o.k || 1, i0 = trace.s - 2 - trace.fromS;
+  let dmin = Infinity, dmax = -Infinity, at = -1;
+  for (let i = 0; i < n; i++) {
+    if (trace.lo[i] < dmin) dmin = trace.lo[i];
+    if (trace.hi[i] > dmax) dmax = trace.hi[i];
+    // (the mark: the extreme from the moment on, where app/verdict.js moment reads its figure)
+    if (i >= i0 && (at < 0 ? Number.isFinite(trace.lo[i]) : rise ? trace.hi[i] > trace.hi[at] : trace.lo[i] < trace.lo[at])) at = i;
+  }
+  for (const r of refs) if (Number.isFinite(r.hz)) { dmin = Math.min(dmin, r.hz); dmax = Math.max(dmax, r.hz); }
+  const [lo, hi] = freqRange(dmin, dmax), span = Math.max(1, trace.toS - trace.fromS);
+  const y = v => f.y1 - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo) * (f.y1 - f.y0);
+  const x = s => f.x0 + (s - trace.fromS) / span * (f.x1 - f.x0);
+  ctx.font = Math.round(11 * k) + FONT.slice(FONT.indexOf('px'));
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = k;
+  freqRefs(ctx, f, y, lo, hi);
+  ctx.fillStyle = COL.blue;
+  const bw = Math.max(1, (f.x1 - f.x0) / Math.max(1, n));
+  for (let i = 0; i < n; i++) {
+    if (!Number.isFinite(trace.lo[i])) continue;
+    const yt = y(trace.hi[i]), yb = y(trace.lo[i]);
+    ctx.fillRect(x(trace.fromS + i), yt, bw, Math.max(k, yb - yt));
+  }
+  ctx.lineWidth = 1.5 * k;
+  for (const r of refs) {
+    if (!Number.isFinite(r.hz)) continue;
+    hline(ctx, f, y(r.hz), r.col || COL.grey, [5 * k, 4 * k]);
+    ctx.fillStyle = r.col || COL.grey; ctx.textAlign = 'right'; ctx.fillText(r.label + ' ' + r.hz.toFixed(2), f.x1 - 2 * k, y(r.hz) - 8 * k);
+  }
+  ctx.lineWidth = k;
+  ctx.strokeStyle = COL.amber; ctx.beginPath(); ctx.moveTo(x(trace.s), f.y0); ctx.lineTo(x(trace.s), f.y1); ctx.stroke();
+  // a minute to scale, at the right under the trace
+  const bx = f.x1 - (f.x1 - f.x0) * Math.min(1, 60 / span), by = f.y1 + 10 * k;
+  ctx.strokeStyle = COL.axis; ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(f.x1, by); ctx.stroke();
+  ctx.fillStyle = COL.axis; ctx.textAlign = 'center'; ctx.fillText(MINUTE_BAR, (bx + f.x1) / 2, by + 9 * k);
+  if (at < 0) return null;
+  const v = Number.isFinite(o.markHz) ? o.markHz : rise ? trace.hi[at] : trace.lo[at];
+  const mx = x(trace.fromS + at) + bw / 2, my = y(v), label = v.toFixed(2) + ' Hz';
+  ctx.fillStyle = COL.amber; ctx.beginPath(); ctx.arc(mx, my, 4 * k, 0, 2 * Math.PI); ctx.fill();
+  // (its figure after it, away from the trace: below a fall's lowest, above a rise's highest; before it at the box's edge)
+  const after = mx + 8 * k + ctx.measureText(label).width < f.x1, ly = my + (rise ? -12 : 12) * k;
+  ctx.textAlign = after ? 'left' : 'right';
+  ctx.fillText(label, mx + (after ? 8 : -8) * k, ly + 6 * k > f.y1 || ly - 6 * k < f.y0 ? my : ly);   // (beside it at the box's top or foot)
+  return {hz: v, x: mx, y: my};
+}

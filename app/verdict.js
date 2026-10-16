@@ -176,16 +176,19 @@ export function caughtText(c) {
 }
 
 /**
- * D-21: the moment: {kind: 'shed'|'trip'|'margin', s, cont (a trip's record), text: [lines], numbers: {...}, trace}.
- * conts: the player's contingencies (state.conts before a night scenario's 21:00). o: {parMinute(s) (app/par.js), twin
- * (createTwin's), guardMW (the GUARD set at the moment's trip), nightS (sheds from it are not candidates)}.
+ * D-21: the moment: {kind: 'shed'|'trip'|'margin', s, cont (a trip's record), text: [lines], numbers: {...}, trace;
+ * pending: true while the no-GUARD twin computes (Y-6: SAVE IMAGE waits for it)}. A relay cut is a trip's when a fall
+ * began at most MOMENT_SPAN_S before it (in the moment's trace), else the relays' own. conts: the player's contingencies
+ * (state.conts before a night scenario's 21:00). o: {parMinute(s) (app/par.js), twin (createTwin's), guardMW (the GUARD
+ * set at the moment's trip), nightS (sheds from it are not candidates)}.
  */
 export function moment(mem, conts, o = {}) {
   const nightS = o.nightS === undefined ? Infinity : o.nightS; // (Q-73: the night shift's sheds are not the player's)
   const shed = mem.spells.filter(x => (x.by === 'ufls' || x.by === 'directed') && x.from < nightS).sort((a, b) => a.from - b.from)[0];
   let m = null;
   if (shed) {
-    const c = shed.by === 'ufls' ? [...conts].reverse().find(x => x.startTick <= (shed.from + 1) * TPS) : null;
+    // (W6 Y-6 review: a fall just before it; a trip hours earlier, or a rise, did not fire the relays)
+    const c = shed.by === 'ufls' ? [...conts].reverse().find(x => x.startTick <= (shed.from + 1) * TPS && x.startTick >= (shed.from - MOMENT_SPAN_S) * TPS && x.lostMW > 0) : null;
     m = {kind: 'shed', s: c ? Math.floor(c.startTick / TPS) : shed.from, cont: c || null, spell: shed};
   } else {
     let best = null;
@@ -219,10 +222,10 @@ export function moment(mem, conts, o = {}) {
     const ng = o.twin && Number.isFinite(o.twin.nadirHz) ? o.twin.nadirHz : NaN;
     if (!rise && o.guardMW === 0) text.push('Your GUARD was at 0 MW: this was the fall with no GUARD.');
     else if (!rise && Number.isFinite(ng)) { n.noGuardHz = ng; text.push('With no GUARD (' + mw(o.guardMW || 0) + ' MW held back): ' + ng.toFixed(2) + ' Hz.'); }
-    else if (!rise && o.twin && !o.twin.done) text.push('With no GUARD: computing…');
+    else if (!rise && o.twin && !o.twin.done) { m.pending = true; text.push('With no GUARD: computing…'); }
   } else {
     const sp = m.spell;
-    text.push(at(s) + ': the city desk shed ' + sp.id + ' to hold frequency. Lowest ' + (Number.isFinite(lo) ? lo.toFixed(2) : '-') + ' Hz.');
+    text.push(at(s) + (sp.by === 'ufls' ? ': the relays shed ' : ': the city desk shed ') + sp.id + ' to hold frequency. Lowest ' + (Number.isFinite(lo) ? lo.toFixed(2) : '-') + ' Hz.');
   }
   if (par) text.push(par);
   const trace = {fromS: from, toS: to, s, lo: mem.fLo.slice(from, to), hi: mem.fHi.slice(from, to)};
