@@ -10,7 +10,7 @@ import {readFileSync} from 'node:fs';
 import {makeDocument} from './lib/dom.js';
 import {openGame} from './lib/play.js';
 import {injectTrip} from './lib/sim-helpers.js';
-import {bootGame, createLive, liveFrame, lineWords, respondWords, LIVE_GAP_MS} from '../app/shell.js';
+import {bootGame, createLive, liveFrame, lineWords, respondWords, LIVE_GAP_MS, HELD_NOTE} from '../app/shell.js';
 import * as G from '../app/game.js';
 import {V} from '../sim/params.js';
 import {TEXT} from '../content/text.js';
@@ -169,54 +169,144 @@ test('K-23: a shelf pick lands on its briefing\'s TAKE THE DESK; the briefing\'s
   assert.deepEqual(p.h.mods.errors, []);
 });
 
+test('K-23: Space on a button of the end card or the shelf is the button\'s (a browser presses it), the focus kept; on the h2 it answers as before (Q-41)', () => {
+  const p = dayOver();
+  /** Space down and up on the focused element, then a frame; returns the keydown event. */
+  const space = () => { const ev = p.doc.dispatch('keydown', {key: ' '}); p.doc.dispatch('keyup', {key: ' '}); p.frames(1); return ev; };
+  p.$('end-numbers').querySelector('summary').focus();
+  assert.deepEqual([space().defaultPrevented, focusOf(p)], [false, 'SUMMARY'], 'THE NUMBERS: a browser\'s Space opens it');
+  p.$('end-numbers').open = true;   // (as it would)
+  for (const id of ['q-reliability', 'btn-again', 'btn-shelf']) {
+    p.$(id).focus();
+    assert.deepEqual([space().defaultPrevented, focusOf(p), p.$('toast').hidden], [false, id, true], id + ': no pause answer, no blur');
+  }
+  p.click('btn-shelf');
+  const day = p.doc.activeElement;
+  assert.deepEqual([space().defaultPrevented, p.doc.activeElement === day, p.$('shelf-card').hidden], [false, true, false], 'a shelf day');
+  p.key('Escape');
+  assert.equal(focusOf(p), 'btn-shelf', 'so Esc still finds its opener');
+  p.$('end-title').focus();
+  assert.equal(space().defaultPrevented, true);
+  assert.equal(p.$('toast').textContent, 'Day over: PLAY THIS DAY AGAIN for another go', 'the h2 is no button: the day\'s answer');
+  assert.deepEqual(p.h.mods.errors, []);
+});
+
+test('K-23: a control the keyboard is on survives the end card\'s rebuild; COUNT THIS ONE, gone once pressed, leaves the focus on the h2', () => {
+  const p = openGame({seed: 20261016, run: false, par: PAR, storage: store(), date: TODAY});   // a first shift on its day
+  p.game.state.over = true;
+  p.frames(2);
+  p.$('btn-claim').focus();
+  p.$('btn-claim').click();
+  p.frames(1);
+  assert.equal(p.$('btn-claim'), null, 'counted: the card is rebuilt without it');
+  assert.ok(p.$('end-card').contains(p.doc.activeElement), focusOf(p) + ' is no longer in the page');
+  assert.equal(focusOf(p), 'end-title');
+  assert.deepEqual(p.h.mods.errors, []);
+});
+
+/** A par runner the page steps once a frame that lands `n` frames after the first (the page's own par, late: no stored par). */
+function latePar(n) {
+  let calls = 0;
+  return {done: false, black: false, score: null, series: [], progress: 0,
+    step() { calls++; this.progress = Math.min(1, calls / n); if (calls >= n) { this.done = true; this.score = PAR.score; } return this.done; },
+    at() { return null; }};
+}
+
+test('K-23: a day graded by the page\'s own par, still computing at the end: its score is said again once it lands; THE NUMBERS keep the focus and stay open', () => {
+  const p = openGame({seed: 7, run: false, par: latePar(12), storage: store({[G.SEEN_KEY]: {shifts: 3}}), date: TODAY});   // (a practice seed)
+  p.game.state.over = true;
+  p.frames(1);
+  assert.match(p.$('end-score').textContent, /^PAR: computing… \d+%$/);
+  const nums = () => p.$('end-numbers'), said = [];
+  nums().querySelector('summary').focus();
+  nums().open = true;
+  for (let k = 0; k < 16; k++) {
+    p.frame(0.5);
+    const t = p.$('aria-live').textContent;
+    if (t !== said[said.length - 1]) said.push(t);
+    assert.deepEqual([focusOf(p), p.doc.activeElement === nums().querySelector('summary'), nums().open], ['SUMMARY', true, true], 'frame ' + k + ': ' + p.$('end-score').textContent);
+  }
+  assert.match(p.$('end-score').textContent, /^SCORE \d+ · [A-F]/, 'par has landed');
+  assert.deepEqual(said.filter(t => /^(PAR|SCORE)/.test(t)).map(t => t.split(' ')[0]), ['PAR:', 'SCORE'], 'par\'s progress once, then the score once: ' + said.join(' | '));
+  assert.ok(said.includes(p.$('end-score').textContent), said.join(' | '));
+  assert.deepEqual(p.h.mods.errors, []);
+});
+
 // ------------------------------------------------------------------ the live region (K-23): the line, the RESPOND card, the score
 
 // A vm as liveFrame reads it, in play: a line {level, kind, text, targets} (null: none), and what else shows
-const vmOf = (o = {}) => ({phase: 'play', obs: {tick: 100, over: false, nightShift: false, f: {hz: 50}, sec: {level: 'SECURE'}},
-  mode: {mode: o.mode || 'CRUISE', rate: 300, watchS: -1}, alarms: {tiles: []}, tray: {cards: []}, objective: o.line === undefined ? null : o.line,
-  respond: o.respond || null, feeder: null, consider: o.consider || null, end: o.end || null});
-const LINE = (level, kind, text, target = 'lever-gta') => ({level, kind, text, targets: target ? [target] : []});
+const vmOf = (o = {}) => ({phase: o.phase || 'play', obs: {tick: o.tick || 100, over: false, nightShift: false, f: {hz: 50}, sec: {level: 'SECURE'}},
+  mode: {mode: o.mode || 'CRUISE', rate: o.mode === 'PAUSE' ? 0 : 300, watchS: -1, act: o.act || 0}, alarms: {tiles: []}, tray: {cards: []},
+  objective: o.line === undefined ? null : o.line, respond: o.respond || null, feeder: null, consider: o.consider || null, end: o.end || null});
+const LINE = (level, kind, text, target) => ({level, kind, text, targets: target ? [target] : []});
+// app/objective.js's lines as seed 20261007 shows them: what is wrong first, then the ask (the control, what to do)
+const GTA = (mw, at) => LINE('act', 'commit', 'You will be ' + mw + ' MW short from ' + at + ' (CCGT 2 out until 07:45). Start GT·A now: it takes 12 min to reach the grid.', 'guard-start-gta1');
+const GTC = LINE('act', 'commit', 'Within the hour you will be up to 200 MW short of a safe margin. Start GT·C 1 now: it takes 9 min to reach the grid.', 'guard-start-gtc1');
+const SPARE = LINE('act', 'spare', 'If your biggest unit tripped now, frequency would fall to 49.07 Hz: too low to be secure. Raise the battery GUARD to 400 MW: it catches the fall in the first second.', 'gauge-n1');
+const BATTERY = pct => LINE('plan', 'battery', 'The battery is at ' + pct + '%. Charge it at 70 MW now, to be full by 15:30: tonight\'s peak will want it.', 'dial-battery');
+const RESTORE = LINE('act', 'restore', '2 districts are dark (RED5 under repair until 07:15) and the permissive lamp is lit. Close a feeder: R, then Enter.', 'bay-restore');
 
-test('K-23: the live region says what the line asks when its level, kind or first control changes: never its figures, the consider text, nor a flip back', () => {
+test('K-23: the live region says the whole line, its ask too, when its level, kind or first control changes: never for figures alone, the consider text, nor a flip back', () => {
   const L = createLive();
   let t = 0;
   const say = (o, dt = LIVE_GAP_MS) => liveFrame(L, vmOf(o), t += dt);
-  const plan = LINE('plan', 'commit', 'Start GT·A by 17:40 for the evening peak. It takes ten minutes to reach the grid.');
-  assert.equal(say({line: plan}), null, 'the first frame only takes note');
-  assert.equal(say({line: LINE('act', 'commit', 'Start GT·A now: the evening peak needs 120 MW more by 17:50. It takes ten minutes to reach the grid.')}),
-    'ACT NOW: Start GT·A now: the evening peak needs 120 MW more by 17:50.', 'a new level: its word (no glyph) and its lead sentence');
-  assert.equal(say({line: LINE('act', 'commit', 'Start GT·A now: 120 MW short by 17:50. It takes ten minutes.')}), null, 'new figures, the same ask: nothing');
-  assert.equal(say({line: LINE('act', 'commit', 'Start GT·A now: 130 MW short by 17:55.'), consider: {target: 'guard-start-gta1', text: 'Pressed: GT·A would…', level: 'ok'}}),
+  assert.equal(say({line: BATTERY(73)}), null, 'the first frame only takes note');
+  assert.equal(say({line: GTA(250, '06:30')}), 'ACT NOW: ' + GTA(250, '06:30').text, 'a new level: its word (no glyph) and the line');
+  assert.equal(say({line: GTA(200, '07:10')}), null, 'new figures, the same ask: nothing');
+  assert.equal(say({line: GTA(200, '07:10'), consider: {target: 'guard-start-gta1', text: 'Pressed: GT·A would…', level: 'ok'}}),
     null, 'C-10\'s consider text is the line\'s place on the screen, never said');
-  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 74%. Charge it at 70 MW now, to be full by 15:30: tonight\'s peak will want it.', 'dial-battery')}),
-    'BATTERY: The battery is at 74%. Charge it at 70 MW now, to be full by 15:30: tonight\'s peak will want it.', 'a short first sentence takes the next (LEAD words)');
+  assert.equal(say({line: GTC}), 'ACT NOW: ' + GTC.text, 'a new first control: the line names it (Start GT·C 1 now), never a near-repeat of GT·A\'s');
+  assert.equal(say({line: SPARE}), 'ACT NOW: ' + SPARE.text, 'the spare line\'s ask: its GUARD');
+  assert.equal(say({line: BATTERY(74)}), 'BATTERY: ' + BATTERY(74).text);
   // the audit's 11:10-11:58 flip: BATTERY and ACT NOW inside one gap say nothing new
-  const act = LINE('act', 'spare', 'If your biggest unit tripped now, frequency would fall to 49.07 Hz: too low to be secure.', 'gauge-n1');
-  assert.equal(say({line: act}, 100), null, 'inside the gap');
-  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 75%. Charge it at 70 MW now.', 'dial-battery')}, 100), null);
-  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 75%. Charge it at 70 MW now.', 'dial-battery')}), null, 'back to what was said: nothing waits');
+  assert.equal(say({line: SPARE}, 100), null, 'inside the gap');
+  assert.equal(say({line: BATTERY(75)}, 100), null);
+  assert.equal(say({line: BATTERY(75)}), null, 'back to what was said: nothing waits');
   // hidden at the RESPOND card: the card is said first, and the line coming back as it was is not said again
   const card = {n: 1, lines: ['NADIR 49.62 Hz: contained within 49.5–50.5 Hz ✓. FOS asks: back in 49.85–50.15 Hz within 5:00.', 'Caught by: spin → battery 200 MW.',
     'N-1 SHORT: 120 MW short: cover it within 4:30.', 'Enter (or a click) to take the desk.']};
-  assert.equal(say({line: act, respond: card, mode: 'RESPOND-CARD'}),
+  assert.equal(say({line: SPARE, respond: card, mode: 'RESPOND-CARD'}),
     'NADIR 49.62 Hz: contained within 49.5–50.5 Hz ✓. N-1 SHORT: 120 MW short: cover it within 4:30. Enter (or a click) to take the desk.', 'the card before the badge');
-  assert.equal(say({line: act, respond: card, mode: 'RESPOND-CARD'}), 'HELD 0× · Enter', 'then the badge; the card once');
-  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 75%. Charge it at 70 MW now.', 'dial-battery')}), 'CRUISE 300×');
-  assert.equal(say({line: LINE('plan', 'battery', 'The battery is at 75%. Charge it at 70 MW now.', 'dial-battery')}), null, 'the line back as it was said');
+  assert.equal(say({line: SPARE, respond: card, mode: 'RESPOND-CARD'}), 'HELD 0× · Enter', 'then the badge; the card once');
+  assert.equal(say({line: BATTERY(75)}), 'CRUISE 300×');
+  assert.equal(say({line: BATTERY(75)}), null, 'the line back as it was said');
+  assert.equal(say({line: RESTORE}), 'ACT NOW: ' + RESTORE.text, 'the restore line\'s keys: R, then Enter');
   // the day's end: the end card's h2 takes the focus and says DAY OVER: the badge's is not said
   assert.equal(say({line: null, mode: 'OVER', end: {}}), null);
-  assert.equal(lineWords(LINE('crit', 'short', 'Start GT·B now: the city is 60 MW short of what it uses. Nothing else is fast enough.')),
-    'URGENT: Start GT·B now: the city is 60 MW short of what it uses.');
+  assert.equal(lineWords(LINE('crit', 'short', 'The city is 60 MW short of what it uses. Start GT·B now: nothing else is fast enough.')),
+    'URGENT: The city is 60 MW short of what it uses. Start GT·B now: nothing else is fast enough.');
 });
 
-test('K-23 on the page: #objective is no live region; the RESPOND card is said through #aria-live, first, within LIVE_GAP_MS', () => {
-  const p = openGame({seed: 20261007});
-  const obj = p.$('objective');
+test('K-23: the desk opens with the clock held: the first line (else the badge) said there says so, once; a pause the player made, never', () => {
+  const open = V.PLAYER_START_TICK;
+  let L = createLive(), t = 0;
+  const say = (o, dt = LIVE_GAP_MS) => liveFrame(L, vmOf(o), t += dt);
+  assert.equal(say({phase: 'briefing', mode: 'PAUSE', tick: 0}), null, 'the briefing takes note');
+  assert.equal(say({mode: 'PAUSE', tick: open, act: 1, line: GTA(250, '06:30')}), 'ACT NOW: ' + GTA(250, '06:30').text + ' ' + HELD_NOTE);
+  assert.equal(say({mode: 'PAUSE', tick: open, act: 1, line: GTA(250, '06:30')}), 'Act I, the morning ramp: the city wakes and demand climbs. PAUSE 0×', 'once');
+  assert.equal(say({mode: 'CRUISE', tick: open + 50, act: 1, line: GTA(250, '06:30')}), 'CRUISE 300×');
+  assert.equal(say({mode: 'PAUSE', tick: open + 50, act: 1, line: GTC}), 'ACT NOW: ' + GTC.text, 'the player\'s own pause: no note');
+  assert.equal(say({mode: 'PAUSE', tick: open + 50, act: 1, line: GTC}), 'PAUSE 0×');
+  // no line at the opening: the badge says it
+  L = createLive();
+  say({phase: 'briefing', mode: 'PAUSE', tick: 0});
+  assert.equal(say({mode: 'PAUSE', tick: open, act: 1}), 'Act I, the morning ramp: the city wakes and demand climbs. PAUSE 0×. ' + HELD_NOTE);
+});
+
+test('K-23 on the page: #objective is no live region; at the desk\'s opening the line is said whole, the clock held; the RESPOND card is said first, within LIVE_GAP_MS', () => {
+  const p = openGame({seed: 20261007, take: false});
+  const obj = p.$('objective'), live = () => p.$('aria-live').textContent, said = [];
   assert.deepEqual([obj.getAttribute('role'), obj.getAttribute('aria-live')], [null, null], 'the line rewrites itself several times a minute');
+  p.frames(2);
+  p.click('btn-take');
+  for (let k = 0; k < 6; k++) { p.frame(0.5); if (live() !== said[said.length - 1]) said.push(live()); }
+  const line = said.find(x => x.startsWith('ACT NOW: '));
+  assert.ok(line && line.includes('Start GT·A now') && line.endsWith(' ' + HELD_NOTE), said.join(' | '));
+  p.key(' ');
   injectTrip(p.game.state, Math.floor(p.game.state.tick / V.TICKS_PER_S) + 60);
   assert.equal(p.until('trip', {max: '+10m'}).why, 'trip');
   assert.equal(p.until('card', {max: '+10m'}).why, 'card');
-  const want = respondWords(p.vm().respond), live = () => p.$('aria-live').textContent;
+  const want = respondWords(p.vm().respond);
   let at = live() === want ? 0 : -1;
   for (let k = 1; k <= 3 && at < 0; k++) { p.real(LIVE_GAP_MS / 1000 / 2, 0.5); if (live() === want) at = k; }   // (the card holds the clock: half-second frames)
   assert.ok(at >= 0, 'said within ' + LIVE_GAP_MS + ' ms: ' + live());
@@ -289,4 +379,18 @@ test('K-23: the "?" popover is named by its first heading; a "?" pressed by key 
   $('btn-pop-close').click();
   assert.deepEqual([pop.hidden, at()], [true, 'q inline'], '✕: back on the "?"');
   assert.deepEqual(h.mods.errors, []);
+});
+
+test('K-23: a suburb card\'s "?" opened by key, the card rebuilt under it (a feeder handed back): the focus is on the rebuilt "?", in the card', () => {
+  const p = openGame({seed: 20261007});
+  p.to('06:30');   // (RED's task feeders are dark, the network's until 06:45)
+  p.suburb('RED');
+  p.$('q-soak').focus();
+  p.key('Enter');   // (the card's own Enter clicks its "?")
+  assert.deepEqual([p.$('popover').hidden, focusOf(p)], [false, 'pop-body']);
+  const old = p.$('q-soak');
+  assert.equal(p.to('07:30').why, 'mode', 'the hand-back holds the clock (FEEDER-CARD): the card\'s shape changed');
+  assert.ok(old !== p.$('q-soak') && p.$('suburb-card').contains(p.doc.activeElement), focusOf(p) + ': the card was rebuilt and the focus left the page');
+  assert.deepEqual([p.$('popover').hidden, focusOf(p)], [true, 'q-soak']);
+  assert.deepEqual(p.h.mods.errors, []);
 });

@@ -147,10 +147,14 @@ export function createEndCard(doc, root, actions, deps) {
     }
   }
 
-  // Everything between the h2 and the seed line: it changes when par arrives.
+  // Everything between the h2 and the seed line: it changes when par arrives (and with each new verdict: the no-GUARD twin's).
+  // K-23: a control the keyboard is on is that control again after (else the h2, which the shell makes focusable: a pressed COUNT
+  // THIS ONE goes), and THE NUMBERS stay open.
   function fill(v, par) {
     const e = v.end, you = e.black ? null : e.allIn, p = par.a || null, g = e.grade;
     const status = {computing: 'PAR: computing… ' + par.pct + '%', black: 'par could not finish this day: no score', off: 'PAR: off'}[par.kind];
+    const ae = doc.activeElement, keep = ae && body.contains(ae) ? (ae.tagName === 'SUMMARY' ? 'end-numbers' : ae.id || '?') : '';
+    const open = !!(doc.getElementById('end-numbers') || {}).open;
     body.replaceChildren();
     runRows(body, deps.run ? deps.run() : null);
     const score = line(body, g ? 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + (e.perfect ? ' · PERFECT' : '')
@@ -224,6 +228,11 @@ export function createEndCard(doc, root, actions, deps) {
     line(r, m.saidiMin > 0 ? 'Each SAIDI-minute today cost customers about ' + dollars(m.outage / m.saidiMin) + ' at VCR. A distributor\'s STPIS ' +
       'would not count this shedding ' : 'No household was off for more than ' + mw(V.SUSTAINED_INTERRUPTION_S / V.S_PER_MIN) + ' minutes. ').appendChild(q);
     body = bodyOuter;
+    if (open) nums.open = true;
+    if (keep) {
+      const n = keep === 'end-numbers' ? nums.querySelector('summary') : doc.getElementById(keep), h = root.querySelector('h2');
+      if (n && body.contains(n) && !n.disabled) n.focus(); else if (h) h.focus();
+    }
   }
 
   // W3 (D-20, L-10, D-21, D-24, P-1, H-11): the day in words, in D-25's order (app/verdict.js builds it: v.end.verdict)
@@ -274,6 +283,7 @@ export function createEndCard(doc, root, actions, deps) {
       el('p', c.text, '', cb);
       el('p', 'What GRIDWATCH simplifies: ' + c.simplifies, 'why', cb);
       const a = el('a', 'Source: ' + c.sourceName, '', el('p', '', 'why', cb));
+      a.id = 'end-source';
       a.href = c.source; a.target = '_blank'; a.rel = 'noopener';
     }
     const db = el('div', '', 'debrief', box);

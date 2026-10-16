@@ -38,9 +38,10 @@
 // class stack-out (placeStack) moves it over the lever bank. The objective line waits while it shows, as at
 // the respond card (the card is the one instruction while the clock holds), but a ‼ URGENT line stays up.
 // W6 (K-22, K-23; the 2026-10-17 accessibility audit): the briefing's AGC/HAND is a radio group (one Tab stop, the arrows:
-// radioKey); the end card's h2 and the shelf's first day take the focus on show and give it back on close; #aria-live says what
-// the objective line asks, the RESPOND card and the end card's score (the line itself is no live region); a toast is said
-// politely when blue and at once when red; a "?" pressed by a key puts the focus in its popover.
+// radioKey); the end card's h2 and the shelf's first day take the focus on show and give it back on close, and Space on their
+// buttons is the buttons'; #aria-live says the objective line when what it asks changes, the RESPOND card and the end card's
+// score (the line itself is no live region); a toast is said politely when blue and at once when red; a "?" pressed by a key
+// puts the focus in its popover.
 
 import {V} from '../sim/params.js';
 import * as G from './game.js';
@@ -235,21 +236,20 @@ export function bandOf(hz) {
 /** A new live-region model (pure; liveFrame feeds it a vm per frame). */
 export function createLive() {
   return {primed: false, lastMs: -Infinity, tick: -1, mode: '', seg: '', act: 0, band: '', bandSaid: '', level: '', levelSaid: '', tiles: {}, cards: new Set(),
-    respond: -1, line: '', lineSaid: '', q: {}};
+    respond: -1, line: '', lineSaid: '', heldSaid: false, q: {}};
 }
 
 /** The objective line is hidden (Q-73: the night strip has its place; Q-91: a card holds the clock, but for a ‼ URGENT line at a feeder card). */
 const lineHidden = v => v.phase !== 'play' || v.obs.over || !!v.respond || (!!v.feeder && !(v.objective && v.objective.level === 'crit')) || !!v.obs.nightShift;
 const firstSentence = s => (/^.*?[.!?](?=\s|$)/.exec(s) || [s])[0];
-/** K-23: an objective line's lead: its sentences up to LEAD_WORDS words ('The battery is at 74%.' alone says nothing to do). */
-export const LEAD_WORDS = 10;
-function lead(s) {
-  let out = '';
-  for (const x of s.match(/.*?[.!?](?=\s|$)|.+$/g) || []) { out += x; if (out.trim().split(/\s+/).length >= LEAD_WORDS) break; }
-  return out.trim();
-}
-/** K-23: what the live region says of an objective line: its word without the glyph, and its lead ('ACT NOW: Start GT·A now: ...'). */
-export const lineWords = o => objectiveWord(o).replace(/^\S+\s+/, '') + ': ' + lead(o.text);
+/**
+ * K-23: what the live region says of an objective line: its word without the glyph, and the whole line (LINE_MAX_CHARS: at most
+ * about 30 words), whose problem comes first and its ask after ('ACT NOW: You will be 250 MW short from 06:30. Start GT·A now: ...').
+ */
+export const lineWords = o => objectiveWord(o).replace(/^\S+\s+/, '') + ': ' + o.text;
+/** Q-18: the line's note while the clock is held (the desk opens so); K-23: the live region says it once, at the desk's opening. */
+export const HELD_NOTE = 'Clock held: press Space to run (you can act while paused).';
+const heldAtOpening = v => v.phase === 'play' && v.mode.mode === 'PAUSE' && !v.obs.over && v.obs.tick === V.PLAYER_START_TICK;
 /** K-23: what it says of a RESPOND card: what happened (its first sentence), what it leaves you, and the key (watch.js respondCard's lines). */
 export const respondWords = r => [firstSentence(r.lines[0]), ...r.lines.slice(2)].join(' ');
 
@@ -301,8 +301,9 @@ export function liveFrame(L, vm, nowMs) {
   const r = vm.respond;
   if (r && r.n !== L.respond && !first) L.q.card = respondWords(r);
   L.respond = r ? r.n : -1;
-  // K-23: the objective line (Q-18) when what it asks changes (its level, kind and first control), never for its figures, the
-  // C-10 consider text or the paused suffix (#objective is no live region: it rewrites itself several times a minute)
+  // K-23: the objective line (Q-18), whole, when what it asks changes (its level, kind and first control): new figures alone never
+  // make it speak, and it never says the C-10 consider text, nor the paused suffix but once at the desk's opening (below)
+  // (#objective is no live region: it rewrites itself several times a minute)
   const o = vm.objective && vm.objective.text && !lineHidden(vm) ? vm.objective : null, line = o ? o.level + '|' + o.kind + '|' + (o.targets[0] || '') : '';
   if (line !== L.line) { L.line = line; if (first) L.lineSaid = line; else if (o) L.q.line = lineWords(o); else delete L.q.line; }
   if (nowMs - L.lastMs < LIVE_GAP_MS) return null;
@@ -311,12 +312,14 @@ export function liveFrame(L, vm, nowMs) {
   if (L.q.level && L.level === L.levelSaid) delete L.q.level;
   if (L.q.line && L.line === L.lineSaid) delete L.q.line;
   for (const k of LIVE_ORDER) {
-    const text = L.q[k];
+    let text = L.q[k];
     if (!text) continue;
     delete L.q[k];
     if (k === 'band') L.bandSaid = L.band;
     if (k === 'level') L.levelSaid = L.level;
     if (k === 'line') L.lineSaid = L.line;
+    // (the desk opens with the clock held: the first line or badge said there says so, once; a pause the player made, never)
+    if ((k === 'line' || k === 'mode') && !L.heldSaid && heldAtOpening(vm)) { L.heldSaid = true; text += (/[.!?]$/.test(text) ? ' ' : '. ') + HELD_NOTE; }
     L.lastMs = nowMs;
     return text;
   }
@@ -778,7 +781,7 @@ export function bootGame(doc, deps) {
     if (box.className !== cls) box.className = cls;
     setText('objective-level', !c ? objectiveWord(o) : armed ? ARMED_WORD : c.level === 'ok' ? UNDER_WAY_WORD : CONSIDER_WORD);
     setText('objective-text', c ? (armed ? 'Press again to confirm. ' : '') + c.text
-      : (o.text || '') + (paused ? '  ·  Clock held: press Space to run (you can act while paused).' : ''));
+      : (o.text || '') + (paused ? '  ·  ' + HELD_NOTE : ''));
   }
 
   function drawHeader(v) {
@@ -998,17 +1001,22 @@ export function bootGame(doc, deps) {
     if (v.end && endCard) { try { endCard.update(v); } catch (e) { err('end card', e); } }
     card.hidden = !v.end || (!endCard && endState !== 'failed');
     if (!card.hidden && v.end !== endFocused) { endFocused = v.end; focusEnd(card); }
+    else if (!card.hidden && PAR_COMPUTING.test(endSaid)) { const s = $('end-score'); if (s && !PAR_COMPUTING.test(s.textContent)) live.q.card = endSaid = s.textContent; }
   }
   // K-23: on the frame a day's end card first shows, its h2 (which names the dialog: #end-card aria-labelledby) takes the focus,
-  // so the keyboard starts on the card, not ~70 Tab stops before it; and the live region's card slot says its score line.
-  let endFocused = null;
+  // so the keyboard starts on the card, not ~70 Tab stops before it; and the live region's card slot says its score line. A day
+  // the page's own par grades (no stored par: a practice seed, a Hard day) may show par's progress there first (endcard.js
+  // fill's 'PAR: computing… N%'): its score is said again, once, when it lands.
+  let endFocused = null, endSaid = '';
+  const PAR_COMPUTING = /^PAR: computing/;
   function focusEnd(card) {
     const h = card.querySelector('h2'), score = $('end-score');
+    endSaid = '';
     if (!h) return;
     h.id = 'end-title';
     h.setAttribute('tabindex', '-1');
     h.focus();
-    if (score) live.q.card = score.textContent;
+    if (score) live.q.card = endSaid = score.textContent;
   }
 
   function placeStack(v) {
@@ -1205,9 +1213,11 @@ export function bootGame(doc, deps) {
     if (game.phase === 'briefing' && a.ui && a.ui.do === 'dismissRespond') return;
     run(a);
   }, now, {
-    // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there.
+    // The popover's sliders and switches work natively: only Esc and `,` (close) are the game's there. K-23: so does Space on a
+    // button (or THE NUMBERS) of the end card and the shelf, which have the focus: it presses it, as a browser's Space does.
     own: ev => (within('settings', ev.target) && ev.key !== 'Escape' && ev.key !== ',') ||
-      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')),
+      ((game.ui.alarmsOpen && inPanel(ev.target) || within('drawer', ev.target)) && PANEL_OWN.test(ev.key)) || (within('suburb-card', ev.target) && CARD_OWN.test(ev.key) && !(ev.key === 'Enter' && game.phase === 'briefing')) ||
+      (/^( |Spacebar)$/.test(ev.key) && ['end-card', 'shelf-card'].some(id => within(id, ev.target)) && /^(BUTTON|SUMMARY)$/.test(ev.target.tagName)),
     // Enter on the briefing card takes the desk (and nothing else: the key stops here); on AGC or HAND the radios' keys (K-23).
     first: ev => {
       if (game.phase !== 'briefing') return false;
