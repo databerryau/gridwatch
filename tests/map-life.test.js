@@ -38,28 +38,46 @@ function viewAt(h, o = {}) {
 }
 const storm = (s, agoS, o = {}) => ({atS: s - agoS - 7200, kind: 'storm', fromS: s - agoS, toS: o.toS ?? null, text: ''});
 
-/** A map at 1280x720's map area; `marks`: the frame's small marks in the life's colours ('colour x,y,w,h'), cleared per frame. */
-function mount() {
+/** The water's glints, the storm's slate by day (its wall and shelf; pale while lightning lights the wall) and its lit crown, a suburb's shade. */
+const GLINT = 'rgba(255,248,220,', SLATE = ['rgb(70,76,94)', 'rgb(206,212,236)'], RIM = 'rgb(168,174,190)', SHADE = 'rgba(10,16,30,';
+
+/**
+ * A map at 1280x720's map area (or w x h). Per frame: `marks`, its small marks in the life's colours and the water's glints
+ * ('colour x,y,w,h'); `fills`, every path it fills ({c: colour, a: alpha, x0, y0, x1, y1}: the path's box, base px).
+ */
+function mount(w = 1280, h = 344) {
   const doc = makeDocument(), root = doc.createElement('div');
   doc.body.appendChild(root);
   const made = [], create = doc.createElement;
   doc.createElement = t => { const e = create(t); if (t === 'canvas') made.push(e); return e; };
   const map = createMap(doc, root, {ui: () => {}});
-  map.el.clientWidth = 1280; map.el.clientHeight = 344;
-  const ours = new Set([...C.cars, C.head, C.tail, C.steam, C.fanBody, C.fanBlade]), g = made[1].getContext('2d'), marks = [];
-  g.fillRect = (x, y, w, h) => { if (ours.has(g.fillStyle)) marks.push(g.fillStyle + ' ' + x + ',' + y + ',' + w + ',' + h); };
+  map.el.clientWidth = w; map.el.clientHeight = h;
+  const ours = new Set([...C.cars, C.head, C.tail, C.steam, C.fanBody, C.fanBlade]), g = made[1].getContext('2d'), marks = [], fills = [];
+  g.fillRect = (x, y, w, h) => { if (ours.has(g.fillStyle) || String(g.fillStyle).startsWith(GLINT)) marks.push(g.fillStyle + ' ' + x + ',' + y + ',' + w + ',' + h); };
+  let box = null;
+  const grow = (x0, y0, x1, y1) => { box = box ? [Math.min(box[0], x0), Math.min(box[1], y0), Math.max(box[2], x1), Math.max(box[3], y1)] : [x0, y0, x1, y1]; };
+  g.beginPath = () => { box = null; };
+  g.moveTo = g.lineTo = (x, y) => grow(x, y, x, y);
+  g.rect = (x, y, w, h) => grow(x, y, x + w, y + h);
+  g.ellipse = (x, y, rx, ry) => grow(x - rx, y - ry, x + rx, y + ry);
+  g.arc = (x, y, r) => grow(x - r, y - r, x + r, y + r);
+  g.fill = () => { if (box) fills.push({c: g.fillStyle, a: g.globalAlpha ?? 1, x0: box[0], y0: box[1], x1: box[2], y1: box[3]}); };
   let nowMs = 1000;
-  /** n frames dtMs apart; the fx (copied) and the marks of each. */
+  /** n frames dtMs apart; the fx (copied), the marks and the fills of each. */
   const frames = (vm, n = 1, dtMs = 100) => {
     const out = [];
     for (let i = 0; i < n; i++) {
-      marks.length = 0; nowMs += dtMs; vm.frame.nowMs = nowMs; map.update(vm);
-      out.push({...map.debug.fx, shade: Array.from(map.debug.fx.shade), fanRate: Array.from(map.debug.fx.fanRate), marks: marks.slice()});
+      marks.length = 0; fills.length = 0; nowMs += dtMs; vm.frame.nowMs = nowMs; map.update(vm);
+      out.push({...map.debug.fx, shade: Array.from(map.debug.fx.shade), fanRate: Array.from(map.debug.fx.fanRate), marks: marks.slice(), fills: fills.slice()});
     }
     return out;
   };
   return {doc, map, frames, last: vm => frames(vm, 12)[11]};
 }
+/** The storm's slate in the sky strip (its wall, its shelf and the shelf's ceiling) at alpha a or more. */
+const slate = (f, a = 0.5) => f.fills.filter(q => SLATE.includes(q.c) && q.y0 < D.HORIZON_Y && q.a >= a);
+/** How far east that slate reaches (base px; -Infinity: none). */
+const slateEast = f => Math.max(...slate(f).map(q => q.x1));
 
 test('W6 (G-4): a storm draws from its warning: its wall rises in the west the hour before the warned arrival, its rain band crosses west to east, its rain moves off east after the warned pass', () => {
   const st = day(9), w = st.ext.events.find(e => e.type === 'stormWarn');
@@ -68,16 +86,18 @@ test('W6 (G-4): a storm draws from its warning: its wall rises in the west the h
   const see = s => { const vm = baseVm(observe(jump(st, s))); return {vm, band: stormBandOf(vm.obs), fx: m.last(vm), text: mapSummary(vm, null)}; };
   const warned = see(arriveS - 1800);
   assert.deepEqual(warned.band, {near: 0.5, lead: -1, trail: -1}, 'warned, half an hour out');
-  assert.deepEqual([warned.fx.near, warned.fx.rain, warned.fx.bandX], [0.5, 0, -1], 'the wall, no rain yet');
+  assert.deepEqual([warned.fx.near, warned.fx.rain, warned.fx.bandX, warned.fx.shelfX], [0.5, 0, -1, -1], 'the wall, no rain yet, no shelf');
   assert.match(warned.text, /^City map, day, a storm in the west\./);
-  // the band's leading edge a third, then two thirds, of the way across (base px from x = -30 to 670): rain only behind it
+  // the band's leading edge a third, then two thirds, of the way across (base px from x = -30 to 670): rain only behind it,
+  // the shelf cloud on the edge
   const third = see(arriveS + 300), twoThirds = see(arriveS + 600), over = see(arriveS + 2400);
   assert.ok(Math.abs(third.fx.bandX - (700 / 3 - 30)) < 1e-6 && Math.abs(twoThirds.fx.bandX - (1400 / 3 - 30)) < 1e-6, third.fx.bandX + ' ' + twoThirds.fx.bandX);
+  assert.deepEqual([third.fx.shelfX, twoThirds.fx.shelfX], [third.fx.bandX, twoThirds.fx.bandX], 'the shelf rides the edge');
   assert.ok(third.fx.bandA > twoThirds.fx.bandA && twoThirds.fx.bandA > 0, 'dark behind the edge, less so as the storm builds over the rest');
   assert.ok(third.fx.rain > 0 && third.fx.rain < twoThirds.fx.rain && twoThirds.fx.rain < over.fx.rain, [third, twoThirds, over].map(q => q.fx.rain).join(' < '));
-  assert.equal(third.fx.near, 0, 'the wall is overhead now');
-  // overhead: no edge, rain over the whole map, as before W6
-  assert.equal(over.fx.bandX, -1);
+  assert.deepEqual([third.fx.near, twoThirds.fx.near], [1, 0], 'the risen wall stands under the shelf until its ceiling has covered it');
+  // overhead: no edge, no shelf, rain over the whole map, as before W6
+  assert.deepEqual([over.fx.bandX, over.fx.shelfX, over.fx.near], [-1, -1, 0]);
   assert.equal(over.fx.rain, Math.round(40 + 110 * weatherOf(over.vm.obs).storm));
   // from the warned pass (the news' toS) the rain moves off east as it fades
   const clearing = see(passS + 900), gone = see(passS + 1801);
@@ -89,6 +109,42 @@ test('W6 (G-4): a storm draws from its warning: its wall rises in the west the h
   short.news[0].toS = null; // the classic day's warning names no pass: 2 h 20 min
   assert.ok(weatherOf(short).storm > 0.5);
   assert.deepEqual(m.doc.canvasStats.bad, []);
+});
+
+test('W6 (G-4): the storm never leaves the sky at its warned arrival: the wall hands over to the shelf, and the shelf fades into the storm\'s sky as it reaches the east', () => {
+  const st = day(9), {arriveS} = st.ext.events.find(e => e.type === 'stormWarn').args, m = mount();
+  const see = s => { const vm = baseVm(observe(jump(st, s))); return {fx: m.last(vm), text: mapSummary(vm, null)}; };
+  // the risen wall reaches about 225 px east (fx.near 1 a second before the arrival); from the arrival its slate stands
+  // until the shelf's ceiling, sweeping in from the west, has covered it: the slate never steps back west
+  const ts = [-1, 1, 30, 60, 120, 200, 300, 400, 450, 500, 600, 800], seen = ts.map(e => see(arriveS + e));
+  const east = seen.map(q => slateEast(q.fx));
+  assert.ok(seen[0].fx.near > 0.99 && east[0] > 220, 'the wall at full height: ' + seen[0].fx.near + ', ' + east[0]);
+  assert.ok(east.every((x, i) => !i || x >= east[i - 1] - 1), 'the slate\'s east edge by second after the arrival: ' + ts.map((e, i) => e + ' s ' + Math.round(east[i])).join(', '));
+  assert.ok(seen[1].fx.shelfX < 0 && seen[1].fx.near === 1, 'the shelf has only just come in from the west, under the wall');
+  // and the text keeps the storm: on the horizon, then here
+  assert.match(seen[0].text, /^City map, day, a storm in the west\./);
+  for (const q of seen.slice(1, 4)) assert.match(q.text, /^City map, day, storm\./);
+  // the crossing's last eighth: the shelf and its ceiling fade with the band, so the last frame before the edge
+  // reaches the east (lead 1, 900 s) is all but clear of slate and the next has none: no sky-wide step
+  const late = see(arriveS + 895), done = see(arriveS + 900);
+  const alpha = f => Math.max(0, ...slate(f, 0).map(q => q.a));
+  assert.ok(late.fx.shelfX > 600 && alpha(late.fx) > 0 && alpha(late.fx) <= 0.05, 'the shelf at ' + late.fx.shelfX + ', alpha ' + alpha(late.fx));
+  assert.deepEqual([done.fx.shelfX, slate(done.fx, 0).length], [-1, 0]);
+});
+
+test('W6 (G-4): the storm wall fits the rows the map area shows: at the 1280x600 floor its towers, anvil and crown are on screen; at 1280x720 it stands at full height', () => {
+  const {arriveS} = day(9).ext.events.find(e => e.type === 'stormWarn').args;
+  const wallAt = (w, h) => {
+    const m = mount(w, h), f = m.last(baseVm(observe(jump(day(9), arriveS - 60))));
+    const wall = f.fills.filter(q => (SLATE.includes(q.c) || q.c === RIM) && q.y0 < D.HORIZON_Y);
+    return {top: Math.min(...wall.map(q => q.y0)), srcY: m.map.debug.layout.srcY, near: f.near, n: wall.length};
+  };
+  for (const [w, h] of [[1280, 268], [1920, 454]]) { // the floor (rows from 42), a maximised 1920x1080 browser (rows from 24)
+    const q = wallAt(w, h);
+    assert.ok(q.near > 0.95 && q.n >= 2 && q.top >= q.srcY - 1e-9, w + 'x' + h + ': the wall\'s top ' + q.top + ', first row shown ' + q.srcY);
+  }
+  const full = wallAt(1280, 344);
+  assert.ok(full.srcY <= 4 && full.top < 20, '1280x720: the wall\'s top at ' + full.top);
 });
 
 test('W6 (G-4, Q-79): a front over the suburbs shades each by its own sky, west to east, and clears the same way; never at night or under a storm', () => {
@@ -201,6 +257,19 @@ test('W6 (U-8): every active lever shows on its suburb: a soak steams, an AIR-CO
   const dark = m.last(vm), sol = life.fans[J('SOL')];
   assert.equal(dark.steam, 0);
   assert.ok(sol.length > 0 && dark.fans === 18 && !dark.marks.some(k => sol.some(u => on(k, C.fanBlade, u) || on(k, C.fanBody, u))), 'SOL\'s condensers are still');
+  // a hot evening keeps them running after dark (dimmed with the roofs: never the day's grey), so a cycle booked for the
+  // 19:30 peak shows its relief (19:30-21:00) and its snapback (to 22:30)
+  const eve = viewAt(20);
+  eve.obs.demand.tempC = 32;
+  eve.obs.levers.blocks = [blk('RED', 'aircon', at(19, 30), at(21))];
+  const relief = m.last(eve);
+  eve.obs.clock.h = 21.5; eve.obs.s = at(21.5); eve.obs.demand.tempC = 29.6;
+  const snap = m.last(eve), hz = tC => 1.4 * (tC - 22) / 14;
+  for (const [f, tC, k] of [[relief, 32, 0.15], [snap, 29.6, 1.4]]) {
+    assert.equal(f.fans, 18, 'the condensers at ' + tC + ' °C after dark');
+    D.SUBURBS.forEach((sb, j) => assert.ok(Math.abs(f.fanRate[j] - hz(tC) * (sb.id === 'RED' ? k : 1)) < 1e-6, sb.id + ' ' + f.fanRate[j]));
+    assert.ok(!f.marks.some(q => q.startsWith(C.fanBody + ' ') || q.startsWith(C.fanBlade + ' ')), 'not lit as by day');
+  }
   // a MILD day, or a HOT one under 26 °C: no condensers running
   vm.obs.day.temp = 'MILD';
   assert.deepEqual([m.last(vm).fans, m.last(vm).fanRate.every(v => v === 0)], [0, true]);
@@ -236,15 +305,20 @@ test('W6 / K-22: reduced motion holds the cars, the steam, the fans, the glints 
   };
   const run = rm => mount().frames(lively(rm), 16, 250);
   const still = run(true), moving = run(false);
-  assert.deepEqual([...new Set(still.map(q => q.marks.join(' ')))].length, 1, 'held');
-  assert.ok(still[0].marks.length > 30 && still[0].cars > 0 && still[0].steam > 0 && still[0].fans > 0 && still[0].blobs > 0, 'and still drawn');
+  // the look: the small marks (cars, steam, fans, the glints on the water) and where the shade's shadows are
+  const look = q => q.marks.join(' ') + ' | ' + q.fills.filter(f => String(f.c).startsWith(SHADE)).map(f => f.x0.toFixed(2) + ',' + f.y0.toFixed(2)).join(' ');
+  assert.deepEqual([...new Set(still.map(look))].length, 1, 'held');
+  assert.ok(still[0].marks.length > 30 && still[0].cars > 0 && still[0].steam > 0 && still[0].fans > 0 && still[0].glitter > 0 && still[0].blobs > 0, 'and still drawn');
+  assert.ok(still[0].marks.some(q => q.startsWith(GLINT)), 'the glints among the marks held');
   assert.deepEqual([...new Set(still.map(q => q.life))], [0]);
   assert.ok(new Set(moving.map(q => q.marks.join(' '))).size >= 15, 'moving otherwise');
-  // the storm: under reduced motion no band crosses (the whole map takes it at once), and no lightning flickers in its wall
+  const drift = q => q.fills.filter(f => String(f.c).startsWith(SHADE)).map(f => f.x0).join(' ');
+  assert.ok(new Set(moving.map(drift)).size >= 8, 'and the shadows drift');
+  // the storm: under reduced motion no band or shelf crosses (the whole map takes it at once), and no lightning flickers in its wall
   const s = at(17), pass = o => mount().frames(viewAt(17, {wind: 0.9, news: [storm(s, 300)], ...o}), 2).at(-1);
-  const rmPass = pass({rm: true});
-  assert.deepEqual([rmPass.bandX, rmPass.rain > 0], [-1, true]);
-  assert.ok(pass({}).bandX > 0);
+  const rmPass = pass({rm: true}), mvPass = pass({});
+  assert.deepEqual([rmPass.bandX, rmPass.shelfX, rmPass.rain > 0], [-1, -1, true]);
+  assert.ok(mvPass.bandX > 0 && mvPass.shelfX === mvPass.bandX);
   const flashes = rm => mount().frames(viewAt(17, {news: [storm(s, -900)], rm}), 240, 250).filter(q => q.flash).length;
   assert.equal(flashes(true), 0);
   assert.ok(flashes(false) >= 1, 'about one in six seconds otherwise');

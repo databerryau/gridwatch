@@ -116,7 +116,10 @@
 //           the western horizon (lightning flickers in it now and then); from the arrival its
 //           shelf cloud and rain band cross the map west to east in 15 grid minutes, as dark
 //           behind the edge as the storm overhead while the cached grade builds ahead of it; from
-//           the warned pass (the news' toS) the rain moves off east as it clears. Under reduced
+//           the warned pass (the news' toS) the rain moves off east as it clears. Nothing pops: the
+//           risen wall stands under the shelf until its ceiling has covered it, and the shelf fades
+//           into the storm's own sky over the crossing's last eighth. The wall fits the rows the map
+//           area shows (the 1280x600 floor's from row 42: lower, anvil and crown kept). Under reduced
 //           motion there is no sweep: the whole map takes the storm as before.
 //   Front   suburbCloud(obs, id): each suburb's own sky (Q-79: a warned front reaches SOL and HAZ
 //           first, SAL 45 min later) as a soft shade on the suburb and as the drifting shadows'
@@ -126,9 +129,9 @@
 //           lamps on the turbines' nacelles at night; the sun glints on the bay and the lake.
 //   Life    cars on the roads, as many as the hour's traffic, headlights after dark; the turbines
 //           each at a speed of their own; a soak's suburb steams from its tank vents; on a HOT
-//           day the air-con condensers' fans turn with the heat, slowly in an AIR-CON CYCLE's
-//           relief, fast while it pre-cools and in the snapback (U-8: every active lever shows on
-//           its suburb). A dark district's vents and fans are still.
+//           day the air-con condensers' fans turn with the heat, by night too (dimmed with the
+//           roofs), slowly in an AIR-CON CYCLE's relief, fast while it pre-cools and in the snapback
+//           (U-8: every active lever shows on its suburb). A dark district's vents and fans are still.
 //   Nothing here is a label, a ring or a hit box, and the alarms (strobes, ✕, hatching) draw after it.
 
 import {V} from '../sim/params.js';
@@ -228,6 +231,8 @@ export function weatherOf(obs) {
 // crosses west to east in STORM_IN_S, as weatherOf builds it overhead; from the warned pass it
 // clears west to east in STORM_OUT_S, as weatherOf fades it.
 const STORM_NEAR_S = 3600;
+/** The risen wall's east edge, base px: wallFrame at near 1 (W 240) ends with its last tower, at 0.76 W + 0.16 W + 4. */
+const WALL_E = 225;
 
 /**
  * W6 (G-4): where the storm is over the map, from its warning only (obs.news; pure).
@@ -298,9 +303,14 @@ const GLINT = alphas(255, 248, 220); // the sun on a rooftop panel (G-3)
 // W6 (G-4, U-8): a suburb's cloud shade, the storm's band, the streetlights and their halo, the cars, the steam, the condensers
 const SHADE = alphas(10, 16, 30, 0.3), BAND = alphas(16, 22, 36, 0.5), LAMP = alphas(255, 214, 150), HALO = alphas(255, 190, 110, 0.3);
 const {cars: CAR_COLOURS, head: CAR_HEAD, tail: CAR_TAIL, steam: STEAM_PUFF, fanBody: FAN_BODY, fanBlade: FAN_BLADE} = LIFE_COLOURS;
-const FAN_OFF = shade(FAN_BODY, 0.4), WALL_FLASH = 'rgb(206,212,236)'; // (a dark roof's condenser: the dark roofs' 0.40)
-/** U-8: the condensers run on a HOT day from FAN_FROM_C, a fan's turns per second rising to FAN_HZ at 36 °C; <= 2 Hz with the snapback's boost (K-22). */
+const WALL_FLASH = 'rgb(206,212,236)';
+/** U-8: the condensers run on a HOT day from FAN_FROM_C, by day and by night, a fan's turns per second rising to FAN_HZ at 36 °C; <= 2 Hz with the snapback's boost (K-22). */
 const FAN_FROM_C = 26, FAN_HZ = 1.4;
+/**
+ * The condensers in the light, by the sun in eighths: [body, blade, a dark roof's body (the dark roofs' 0.40)], dimmed to 0.4
+ * at night as the city layer's roofs under them are, so a fan never glows in the dark.
+ */
+const FAN_LIT = Array.from({length: 9}, (_, i) => { const f = 0.4 + 0.075 * i; return i === 8 ? [FAN_BODY, FAN_BLADE, shade(FAN_BODY, 0.4)] : [shade(FAN_BODY, f), shade(FAN_BLADE, f), shade(FAN_BODY, 0.4 * f)]; });
 /** The guards whose glow lights a plant (L-9, C-10): a START or a STOP of one of its machines. */
 const GUARD_IDS = PLANTS.map(p => p.machines.map(mc => ['guard-start-' + mc.unit, 'guard-stop-' + mc.unit]));
 
@@ -487,9 +497,11 @@ export function darkOf(obs, id) {
 export function mapSummary(vm, hoverId) {
   const obs = vm.obs, wx = weatherOf(obs), parts = [];
   const sky = skyState(obs.clock ? obs.clock.h : 12);
-  // W6: the storm on the horizon before it arrives; the suburbs under cloud while a front crosses the city
-  const under = wx.storm > 0.3 ? [] : SUBURBS.filter(sb => suburbCloud(obs, sb.id) >= 0.5).map(sb => sb.name);
-  const w = [wx.storm > 0.3 ? 'storm' : stormBandOf(obs).near >= 0.25 ? 'a storm in the west' : '', wx.heat ? 'heatwave' : '', wx.cloud > 0.3 ? 'cloud front' : '',
+  // W6: the storm on the horizon before it arrives, and a storm from the warned arrival on (while its shelf crosses, as
+  // it builds); the suburbs under cloud while a front crosses the city
+  const band = stormBandOf(obs), stormy = wx.storm > 0.3 || (band.lead >= 0 && band.trail < 0);
+  const under = stormy ? [] : SUBURBS.filter(sb => suburbCloud(obs, sb.id) >= 0.5).map(sb => sb.name);
+  const w = [stormy ? 'storm' : band.near >= 0.25 ? 'a storm in the west' : '', wx.heat ? 'heatwave' : '', wx.cloud > 0.3 ? 'cloud front' : '',
     !under.length ? '' : under.length === SUBURBS.length ? 'cloud over the city' : 'cloud over ' + (under.length > 2 ? under.length + ' suburbs' : under.join(' and '))].filter(Boolean);
   parts.push('City map, ' + sky + (w.length ? ', ' + w.join(', ') : '') + '.');
   const trips = obs.units.filter(u => u.mode === 'tripped').map(u => u.name);
@@ -565,10 +577,10 @@ export function createMap(doc, root, actions) {
   const SHADOWS = [0, 1, 2, 3, 4, 5, 6].map(i => ({x: i * 114 + hash01('cs', i) * 60, y: 74 + (i * 37) % 92 + hash01('cs', i + 9) * 8, rx: 46 + hash01('cs', i + 20) * 26, ry: 10 + hash01('cs', i + 30) * 5}));
   const fx = {sky: 'day', heat: false, storm: 0, cloud: 0, rain: 0, sheets: 0, bolt: false, shadows: 0, shadowX: 0, clouds: 0, haze: false, shimmer: 0,
     feathered: false, sunUp: false, sunX: 0, sunY: 0, spot: 0, spotX: 0, spotY: 0, hatch: 0, cross: 0, strobe: false, strobeMs: STROBE_MS, phase: 0, battery: '', rings: 0, glint: 0,
-    // W6 (G-4, U-8): the storm's wall (near), its lightning, its band's edge and darkness; each suburb's cloud shade and the
-    // shadows drawn; the streetlights lit at the last city redraw, the gloom; cars, steaming vents, fans and each suburb's
-    // fan turns per second; glints on the water; the turbines' night lamps; the life clock
-    near: 0, flash: false, bandX: -1, bandA: 0, shade: new Float32Array(SUBURBS.length), blobs: 0, lamps: 0, gloom: 0,
+    // W6 (G-4, U-8): the storm's wall (near), its lightning, its shelf cloud's edge, its band's edge and darkness; each
+    // suburb's cloud shade and the shadows drawn; the streetlights lit at the last city redraw, the gloom; cars, steaming
+    // vents, fans and each suburb's fan turns per second; glints on the water; the turbines' night lamps; the life clock
+    near: 0, flash: false, shelfX: -1, bandX: -1, bandA: 0, shade: new Float32Array(SUBURBS.length), blobs: 0, lamps: 0, gloom: 0,
     cars: 0, steam: 0, fans: 0, fanRate: new Float32Array(SUBURBS.length), glitter: 0, navLamps: 0, life: 0};
   // rooftop PV (G-3, Phase 2a): each suburb's panels as typed arrays, laid out when the
   // capacities or the district list change (syncRoof); alpha / on: this frame's glint per suburb
@@ -1229,10 +1241,13 @@ export function createMap(doc, root, actions) {
    * The storm's wall on the western horizon, risen by `near` (stormBandOf): towers tallest in the
    * west, an anvil spreading east from half way, rain shafts under it. Drawn before the terrain, so
    * the stacks and the towers stand in front. Lightning lights it from inside now and then (a
-   * quarter second, about one in six seconds; never under reduced motion).
+   * quarter second, about one in six seconds; never under reduced motion). Its height fits the rows
+   * the map area shows (the anvil's top, 0.95 H + 4 above its foot, on the first): the 1280x600
+   * floor, from row 42, sees a low wide storm with its anvil and crown, never a cropped slab.
    */
   function wallFrame(near, t, rm) {
-    const W = 50 + 190 * near, H = 6 + 34 * near, foot = HORIZON_Y + 1, mid = foot - H * 0.5;
+    const foot = HORIZON_Y + 1, fit = Math.min(1, (foot - layout.srcY - 4) / 38);
+    const W = 50 + 190 * near, H = (6 + 34 * near) * fit, mid = foot - H * 0.5;
     const flash = !rm && near > 0.4 && hash01('flash', Math.floor(t * 4)) < 0.04;
     g.fillStyle = flash ? WALL_FLASH : wallBody;
     g.beginPath();
@@ -1254,6 +1269,7 @@ export function createMap(doc, root, actions) {
     if (x > 50) g.rect(0, 0, x - 50, HORIZON_Y - 8);
     g.fill();
     g.fillStyle = wallRim; g.fillRect(Math.max(0, x - 52), HORIZON_Y - 3, 50, 1);
+    fx.shelfX = x;
   }
 
   /** Behind the storm's leading edge at x the sky and the ground darken by a (the rain leans: its foot 24 px behind). */
@@ -1350,14 +1366,15 @@ export function createMap(doc, root, actions) {
       }
     }
     const tC = obs.demand && Number.isFinite(obs.demand.tempC) ? obs.demand.tempC : 25;
-    const hot = !!(obs.day && obs.day.temp === 'HOT') && sun > 0.2 && tC >= FAN_FROM_C, base = hot ? FAN_HZ * clamp01((tC - 22) / 14) : 0;
+    const hot = !!(obs.day && obs.day.temp === 'HOT') && tC >= FAN_FROM_C, base = hot ? FAN_HZ * clamp01((tC - 22) / 14) : 0;
     fx.fans = 0;
     for (let j = 0; j < NSUB; j++) fx.fanRate[j] = base * (acMode[j] === 2 ? 0.15 : acMode[j] === 1 ? 1.4 : 1);
-    if (base > 0) {
+    if (base > 0) { // (a hot night keeps them running: an evening cycle's relief and its snapback show after dark)
+      const fl = FAN_LIT[Math.round(sun * 8)];
       for (let j = 0; j < NSUB; j++) for (const u of life.fans[j]) { // a dark roof's condenser is dim and still (it never looks lit)
-        g.fillStyle = isOff(cityList[u.ci]) ? FAN_OFF : FAN_BODY; g.fillRect(u.x - 1, u.y - 1, 3, 2); fx.fans++;
+        g.fillStyle = isOff(cityList[u.ci]) ? fl[2] : fl[0]; g.fillRect(u.x - 1, u.y - 1, 3, 2); fx.fans++;
       }
-      g.fillStyle = FAN_BLADE;
+      g.fillStyle = fl[1];
       for (let j = 0; j < NSUB; j++) {
         fanPh[j] = (fanPh[j] + ldt * fx.fanRate[j]) % 1;
         for (const u of life.fans[j]) { // the blade goes round a 2 x 2 square, four steps a turn
@@ -1551,6 +1568,10 @@ export function createMap(doc, root, actions) {
     const dt = Math.min(0.1, Math.max(0, (nowMs - lastMs) / 1000));
     lastMs = nowMs;
     const rm = !!(vm.settings && vm.settings.reducedMotion);
+    // the map area's layout first, so the frame can fit what it draws to the rows shown (the storm's wall)
+    const cw = Math.max(1, el.clientWidth || root.clientWidth || 1280), ch = Math.max(1, el.clientHeight || root.clientHeight || 268);
+    if (!layout || layout.cw !== cw || layout.ch !== ch) { layout = scaleFor(cw, ch); layout.cw = cw; layout.ch = ch; }
+    debug.scale = layout.scale; debug.layout = layout;
     syncBlocks(obs);
     syncRoof(obs);
     const h = hour(obs.clock ? obs.clock.h : 12);
@@ -1563,8 +1584,10 @@ export function createMap(doc, root, actions) {
     const shLen = sunUp ? Math.max(0.3, Math.min(1.7, 0.3 / Math.max(elev, 0.12))) : 0;
     const shQ = sunUp ? Math.round(shLen * 3) * (st < 0.5 ? -1 : 1) : 0;
     // W6 (G-4): while the storm's leading edge crosses (not under reduced motion) the cached grade builds with the
-    // share of the map behind it (the anvil overhead), and the band darkens what is behind the edge
+    // share of the map behind it (the anvil overhead), and the band darkens what is behind the edge; the shelf and the
+    // band fade out over the crossing's last eighth, so the slate gives way to the storm's sky and cloud, never at once
     const band = stormBandOf(obs), passing = !rm && band.lead >= 0 && band.lead < 1, clearing = !rm && band.trail >= 0;
+    const fade = passing ? Math.min(1, (1 - band.lead) * 8) : 1;
     WX.heat = wx.heat; WX.stormB = Math.round(wx.storm * 4 * (passing ? band.lead : 1)); WX.cloudB = Math.round(wx.cloud * 3);
     const lk = lightAt(h, L) + '|' + shQ + '|' + (WX.heat ? 1 : 0) + WX.stormB + WX.cloudB;
     SH.x = shQ / 3 * 0.9; SH.y = Math.abs(shQ) / 3 * 0.28; SH.a = sunUp ? 0.26 * sun * (1 - 0.25 * WX.stormB) * (1 - 0.2 * WX.cloudB) : 0;
@@ -1593,21 +1616,25 @@ export function createMap(doc, root, actions) {
       g.fillStyle = 'rgba(255,' + (248 - 70 * low | 0) + ',' + (214 - 130 * low | 0) + ',' + a.toFixed(2) + ')';
       g.beginPath(); g.arc(fx.sunX, fx.sunY, 4, 0, TAU); g.fill();
     }
-    // W6 (G-4): the storm in the west before it arrives (behind the drifting cloud and the terrain)
-    fx.near = 0; fx.flash = false;
-    if (band.near > 0) wallFrame(band.near, t, rm);
+    // W6 (G-4): the storm in the west before it arrives (behind the drifting cloud and the terrain). From the arrival
+    // the risen wall stands under the shelf crossing from the west until the shelf's ceiling (x - 50) has covered it,
+    // then its foot fades over the next 100 px, so the storm never leaves the sky at the warned arrival (under
+    // reduced motion the whole map takes the storm then instead)
+    fx.near = 0; fx.flash = false; fx.shelfX = -1;
+    const wallA = passing ? clamp01(1 - (edgeX(band.lead) - 50 - WALL_E) / 100) : 1;
+    if (band.near > 0 || (passing && wallA > 0)) { g.globalAlpha = wallA; wallFrame(passing ? 1 : band.near, t, rm); g.globalAlpha = 1; }
     if (hasClouds) {
       const v = 3 + 7 * wx.windy, a = (t * v) % BASE_W, b = (t * v * 1.8) % BASE_W;
       g.drawImage(cloudA, a, 0); g.drawImage(cloudA, a - BASE_W, 0);
       g.drawImage(cloudB, b, 0); g.drawImage(cloudB, b - BASE_W, 0);
     }
-    if (passing) shelfFrame(edgeX(band.lead));
+    if (passing) { g.globalAlpha = fade; shelfFrame(edgeX(band.lead)); g.globalAlpha = 1; }
     g.drawImage(terrL, 0, 0);
     g.drawImage(cityL, 0, 0);
     // W6 (G-4): each suburb's sky; behind the storm's edge, the storm's dark (fading out as the grade takes over)
     shadeFrame(obs, t, sun, wx);
     fx.bandX = -1; fx.bandA = 0;
-    if (passing) bandFrame(edgeX(band.lead), 0.44 * Math.max(0, sFull - WX.stormB / 4) * Math.min(1, (1 - band.lead) * 8));
+    if (passing) bandFrame(edgeX(band.lead), 0.44 * Math.max(0, sFull - WX.stormB / 4) * fade);
     roofFrame(obs, t, sun * (1 - 0.6 * wx.storm));
     lifeFrame(obs, sun, glow, wx, ldt);
     plantsFrame(obs, dt, freqFactor(vm), wx, rm);
@@ -1615,9 +1642,6 @@ export function createMap(doc, root, actions) {
     emissive(obs, night, nowMs, rm);
     // blit at an integer scale (G-1)
     const ctx = prepare();
-    const cw = Math.max(1, el.clientWidth || root.clientWidth || 1280), ch = Math.max(1, el.clientHeight || root.clientHeight || 268);
-    if (!layout || layout.cw !== cw || layout.ch !== ch) { layout = scaleFor(cw, ch); layout.cw = cw; layout.ch = ch; }
-    debug.scale = layout.scale; debug.layout = layout;
     ctx.imageSmoothingEnabled = false;
     if (layout.dx > 0 || layout.dy > 0 || layout.dy + layout.drawH < ch) { // letterbox: sky above the horizon row, ground below
       const hs = Math.max(0, Math.min(ch, sy(HORIZON_Y)));
