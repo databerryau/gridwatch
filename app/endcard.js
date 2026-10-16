@@ -13,6 +13,7 @@
 // OFFICIAL, FIRST SHIFT with COUNT THIS ONE, or PRACTICE and why; deps.run, app/game.js runView) and the streaks (Y-3, or
 // "history off"); after the verdict, YOUR CARD, the share card as it will be pasted (game.end.share, app/share.js), and
 // SHARE to copy it (Y-5); then THE WEEK AHEAD, the next dailies' day types from today (D-28, Q-109: game.end.week, app/week.js).
+// In THE MOMENT, with YOUR CARD, SAVE IMAGE: the moment as a PNG to share (Y-6, app/momentimage.js, loaded when pressed).
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
@@ -57,6 +58,8 @@ export const LADDER_NOTE = 'GRIDWATCH\'s own players on this same day, graded as
 export const PAR_WAIT = pct => 'PAR: computing… ' + pct + '%. Your card and par\'s numbers follow.';
 /** F-8 (risk 5): THE NUMBERS' note when this browser's par came out other than the stored par the score is made from. */
 export const parDriftText = d => 'This browser worked par out ' + signed(d) + ' from the stored par. Your score uses the stored one, so it is the same in every browser.';
+/** Y-6: SAVE IMAGE's title. */
+export const MOMENT_IMAGE_NOTE = 'Save THE MOMENT as a picture to share: no times and no events, so it spoils nobody\'s day';
 /** Y-3: the streaks' rule (the end card's STREAK line, as its title); and what a browser without storage is told. */
 export const STREAK_RULE = 'STREAK: days in a row with an official run finished. ★ STREAK: days in a row at par or better.';
 export const HISTORY_OFF = 'History off: this browser keeps no storage, so there is no streak.';
@@ -247,6 +250,17 @@ export function createEndCard(doc, root, actions, deps) {
       cv.id = 'end-moment-chart';
       charts.push([cv, () => drawMoment(cv, m.trace, [{hz: m.numbers.noGuardHz, label: 'NO GUARD', col: COL.pink}, {hz: m.numbers.parHz, label: 'PAR', col: COL.grey}])]);
       for (const t of m.text) el('p', t, '', mb);
+      // W6 (Y-6): SAVE IMAGE, with YOUR CARD (the picture carries its number, score and closing line): app/momentimage.js on demand
+      if (v.end.share) {
+        const b = el('button', 'SAVE IMAGE', '', el('p', '', '', mb));
+        b.id = 'btn-save-moment';
+        b.title = MOMENT_IMAGE_NOTE;
+        b.addEventListener('click', () => {
+          b.disabled = true;
+          import('./momentimage.js').then(mod => mod.saveMoment(doc, v.end, deps.toast))
+            .catch(err => deps.toast('The image failed: ' + (err && err.message ? err.message : err))).finally(() => { b.disabled = false; });
+        });
+      }
     }
     const c = x.card;
     if (c) {
