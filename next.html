@@ -162,6 +162,7 @@
   #settings input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
   #settings .hint { color: var(--faint); font-size: 11px; margin: 6px 0 0; }
   #end-card .score { font: 13px var(--mono); }
+  #end-title:focus { outline: none; }   /* K-23: the card's h2 takes the focus on show; a heading, not a control: no ring */
   /* Q-46: over the desk while the clock is held (app/alarmpanel.js styles its insides) */
   #alarm-panel { position: fixed; z-index: 13; left: 8px; right: 8px; bottom: 8px; top: calc(100vh - var(--desk-h) + 4px); overflow: auto;
     background: var(--panel2); border: 1px solid var(--dim); border-radius: 8px; }
@@ -243,7 +244,7 @@
     <button id="btn-take" class="take" title="Enter">TAKE THE DESK</button>
   </div>
 </div>
-<div id="end-card" class="card" role="dialog" aria-label="Day over" hidden></div>
+<div id="end-card" class="card" role="dialog" aria-labelledby="end-title" aria-label="Day over" hidden></div>
 <div id="shelf-card" class="card" role="dialog" aria-label="More days: practice" hidden></div>
 <div id="alarm-panel" role="dialog" aria-modal="true" aria-label="Alarms explained" tabindex="-1" hidden></div>
 <div id="suburb-card" role="dialog" aria-label="Suburb card (H)" hidden></div>

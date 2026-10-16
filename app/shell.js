@@ -449,16 +449,17 @@ export function bootGame(doc, deps) {
   const pickMode = m => { if (game.state.control.mode !== m) actions.input({type: 'mode', agc: m === 'AGC'}); briefMode(game.state.control.mode); };
   for (const [id, m] of RADIOS) on(id, 'click', () => pickMode(m));
   briefMode(game.state.control.mode);
-  /** K-23: what Enter or Space on the radio already picked answers (Q-41: every press answers), in blue. */
-  const PICKED = m => m + ' is on. TAKE THE DESK starts the day.';
-  // K-23 (WCAG 2.1.1): on a focused AGC or HAND, Enter or Space picks it and never takes the desk (D-3: Enter anywhere else on the
-  // briefing still does); the arrows move the pick to the other one shown, and the focus with it. True when the key was the radios'.
+  // K-23 (WCAG 2.1.1): the arrows on a focused AGC or HAND move the pick to the other one shown, and the focus with it; Enter or
+  // Space on the one not picked picks it (the desk not taken). On the one picked they are the briefing's, as a native radio's
+  // Enter submits its form: Enter takes the desk (D-3: a mouse player who clicked HAND, which focuses it, then presses Enter),
+  // Space answers as on the rest of the card. True when the key was the radios'.
   function radioKey(ev) {
     const at = RADIOS.findIndex(([id]) => ev.target && ev.target.id === id);
     if (at < 0) return false;
     const k = ev.key, m = RADIOS[at][1];
     if (k === 'Enter' || k === ' ' || k === 'Spacebar') {
-      if (game.state.control.mode === m) showToast(PICKED(m), 'info'); else pickMode(m);
+      if (game.state.control.mode === m) return false;
+      pickMode(m);
       return true;
     }
     if (!/^Arrow(Left|Right|Up|Down)$/.test(k)) return false;
@@ -875,13 +876,17 @@ export function bootGame(doc, deps) {
   const endDeps = {par: () => game.par, households: () => game.households, log: () => G.gameLog(game), toggleHelp, toast: showToast,
     run: () => G.runView(game),   // (W6: Y-2, Y-3)
     shelf: () => openShelf(),   // (W6, Y-2: MORE DAYS)
-    again: () => { G.resetDay(game); for (const id of ['end-card', 'shelf-card']) { const c = $(id); if (c) c.hidden = true; } briefingText(); }};
+    again: () => { G.resetDay(game); for (const id of ['end-card', 'shelf-card']) { const c = $(id); if (c) c.hidden = true; } briefingText(); focusEl('btn-take'); }};   // (K-23: the button pressed is gone)
 
   // W6 (Y-2): the practice shelf: today's daily (when another day is on the desk), the past dailies with this browser's results,
   // and the Hard days (app/shelf.js). A pick is played in the page (C-3), the address kept in step so a reload keeps the day.
+  // K-23: it opens on its first day's button (TODAY, else the newest past daily) and gives the focus back to its opener on CLOSE or
+  // Esc (closeShelf), as the drawer does; a pick lands on the new briefing's TAKE THE DESK.
+  let shelfFrom = null;
   function openShelf() {
     const c = $('shelf-card');
     if (!c || game.replay) return;
+    if (c.hidden) shelfFrom = doc.activeElement;
     if (game.todayOf) game.today = game.todayOf();   // (a day played past midnight: the shelf is the new date's)
     const el = (tag, text, parent, cls) => { const n = doc.createElement(tag); if (text) n.textContent = text; if (cls) n.className = cls; parent.appendChild(n); return n; };
     const pick = (box, label, p, title) => { const b = el('button', label, box); if (title) b.title = title; b.addEventListener('click', () => playDay(p)); return b; };
@@ -898,8 +903,20 @@ export function bootGame(doc, deps) {
     for (const h of hardDays()) pick(hard, 'Hard day ' + h.n, {seed: h.seed, hard: h.n}, h.weekend ? 'a weekend' : 'a weekday');
     const close = el('button', 'CLOSE', el('p', '', c));
     close.id = 'shelf-close';
-    close.addEventListener('click', () => { c.hidden = true; });
+    close.addEventListener('click', () => closeShelf());
     c.hidden = false;
+    c.querySelector('button').focus();
+  }
+  // (the opener, else the MORE DAYS shown: the end card's or the briefing's)
+  function closeShelf() {
+    const c = $('shelf-card');
+    if (!c || c.hidden) return false;
+    const had = c.contains(doc.activeElement);
+    c.hidden = true;
+    if (!had) return true;
+    const back = [shelfFrom, $('btn-shelf'), $('btn-shelf-brief')].find(n => n && n !== doc.body && shown(n));
+    if (back) back.focus(); else doc.activeElement.blur();
+    return true;
   }
   function playDay(p) {
     const daily = p.ymd ? G.dailyFrom('?date=' + isoOf(p.ymd)) : Object.assign(G.dailyFrom('?seed=' + p.seed), {gated: null});
@@ -913,6 +930,7 @@ export function bootGame(doc, deps) {
     } catch { /* (no address: a test page) */ }
     if (game.resumeLost) showToast(RESUME_LOST, 'info');
     briefingText();
+    focusEl('btn-take');
   }
   on('btn-shelf-brief', 'click', () => openShelf());
   function drawEnd(v) {
@@ -925,6 +943,17 @@ export function bootGame(doc, deps) {
     }
     if (v.end && endCard) { try { endCard.update(v); } catch (e) { err('end card', e); } }
     card.hidden = !v.end || (!endCard && endState !== 'failed');
+    if (!card.hidden && v.end !== endFocused) { endFocused = v.end; focusEnd(card); }
+  }
+  // K-23: on the frame a day's end card first shows, its h2 (which names the dialog: #end-card aria-labelledby) takes the focus,
+  // so the keyboard starts on the card, not ~70 Tab stops before it.
+  let endFocused = null;
+  function focusEnd(card) {
+    const h = card.querySelector('h2');
+    if (!h) return;
+    h.id = 'end-title';
+    h.setAttribute('tabindex', '-1');
+    h.focus();
   }
 
   function placeStack(v) {
@@ -1067,7 +1096,7 @@ export function bootGame(doc, deps) {
   function closeTop() {
     const pop = $('popover'), u = game.ui, d = mods.desk, sh = $('shelf-card');
     if (pop && !pop.hidden) closePopover();
-    else if (sh && !sh.hidden) sh.hidden = true;   // (W6: the practice shelf)
+    else if (sh && !sh.hidden) closeShelf();   // (W6: the practice shelf)
     else if (u.settingsOpen || u.drawer || u.alarmsOpen) actions.ui(u.settingsOpen ? {do: 'settings', on: false} : u.drawer ? {do: 'drawer', on: false} : {do: 'alarms', on: false});
     else if (u.suburb && !modeOf(game.director, game.state).locked) actions.ui({do: 'suburb', id: null});
     else return !!(d && d.closeHelp && d.closeHelp());

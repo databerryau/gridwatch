@@ -8,10 +8,12 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {makeDocument} from './lib/dom.js';
+import {openGame} from './lib/play.js';
 import {bootGame} from '../app/shell.js';
 import * as G from '../app/game.js';
 
 const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const TODAY = new Date(2026, 9, 16), PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh: 0.56, centsPerKWh: 4}, series: []};
 
 /** A localStorage stand-in holding `init` (each value as JSON). */
 function store(init = {}) {
@@ -59,7 +61,7 @@ test('K-22: every colour next.html sets on words reads at 4.5:1 or more on each 
 
 // ------------------------------------------------------------------ the briefing's radios (K-23, WCAG 2.1.1)
 
-test('K-23: AGC/HAND is a radio group with one Tab stop: the arrows move the pick and the focus, Enter or Space picks, and neither takes the desk', () => {
+test('K-23: AGC/HAND is a radio group with one Tab stop: the arrows move the pick and the focus; Enter or Space picks the one not picked, the desk not taken', () => {
   const b = briefing(), mode = () => b.game.state.control.mode, tabs = () => ['btn-agc', 'btn-hand'].map(id => b.$(id).getAttribute('tabindex'));
   assert.equal(b.$('btn-hand').hidden, false, 'a returning player: HAND is offered (D-7)');
   const group = b.$('btn-agc').parentElement;
@@ -76,24 +78,24 @@ test('K-23: AGC/HAND is a radio group with one Tab stop: the arrows move the pic
   assert.deepEqual([mode(), b.focus()], ['HAND', 'btn-hand'], 'the arrows wrap');
   b.key('ArrowDown');
   assert.equal(mode(), 'AGC');
-  // the audit's case: Enter on a focused HAND picks HAND and leaves the briefing up
+  // the audit's case: Enter on a focused HAND (not picked) picks HAND and leaves the briefing up
   b.$('btn-hand').focus();
   ev = b.key('Enter');
   assert.deepEqual([mode(), b.game.phase, b.$('briefing-card').hidden, b.focus()], ['HAND', 'briefing', false, 'btn-hand']);
   assert.equal(ev.defaultPrevented, true, 'so a browser fires no click on top');
-  // Enter again on the radio already picked: it answers in blue (Q-41), and still never takes the desk
-  b.key('Enter');
-  assert.deepEqual([b.game.phase, b.$('toast').className, b.$('toast').textContent], ['briefing', 'info', 'HAND is on. TAKE THE DESK starts the day.']);
-  // Space on a radio picks it: no pause answer, the focus kept (the fallback map's Space blurs and answers "Take the desk first")
+  // Space on the one not picked picks it too: no pause answer, the focus kept
   b.$('btn-agc').focus();
   ev = b.key(' ');
-  assert.deepEqual([mode(), b.focus(), ev.defaultPrevented], ['AGC', 'btn-agc', true]);
-  assert.notEqual(b.$('toast').textContent, 'Take the desk first: Enter. Then Space runs the clock.');
-  // D-3: Enter anywhere else takes the desk, in the mode picked
+  assert.deepEqual([mode(), b.focus(), ev.defaultPrevented, b.$('toast').hidden], ['AGC', 'btn-agc', true, true]);
+  // on the one picked, Space answers as on the rest of the card (Q-41), and Enter takes the desk, as a native radio submits its
+  // form (D-3: a mouse player's click on HAND focuses it, then Enter)
+  ev = b.key(' ');
+  assert.deepEqual([b.$('toast').className, b.$('toast').textContent, b.game.phase], ['info', 'Take the desk first: Enter. Then Space runs the clock.', 'briefing']);
+  b.$('btn-agc').focus();   // (that Space let the focus go, as everywhere)
   b.key('ArrowRight');
-  b.doc.activeElement.blur();
+  assert.equal(b.focus(), 'btn-hand');
   b.key('Enter');
-  assert.deepEqual([b.game.phase, mode()], ['play', 'HAND'], 'the one required press');
+  assert.deepEqual([b.game.phase, mode()], ['play', 'HAND'], 'the one required press, in the mode picked');
   assert.deepEqual(b.h.mods.errors, []);
 });
 
@@ -106,4 +108,60 @@ test('K-23: a first visit\'s briefing has AGC alone (D-7): the arrows stay on it
   b.$('btn-take').focus();
   b.key('Enter');
   assert.equal(b.game.phase, 'play');
+});
+
+// ------------------------------------------------------------------ the end card and the shelf take the focus (K-23)
+
+/** A returning player's daily (20261016) on its day, its end card up (test poke: the day over; par given). */
+function dayOver() {
+  const p = openGame({seed: 20261016, run: false, par: PAR, storage: store({[G.SEEN_KEY]: {shifts: 3}}), date: TODAY});
+  p.$('lever-coal').focus();   // (a desk control had the keys when the day ended)
+  p.game.state.over = true;
+  p.frames(2);
+  return p;
+}
+// (ids and words, never elements: a failing assert on two stand-in elements inspects the whole document)
+const focusOf = p => p.doc.activeElement.id || p.doc.activeElement.tagName;
+
+test('K-23: the end card takes the focus on its h2 (which names the dialog); the shelf opens on its first day and gives the focus back to MORE DAYS', () => {
+  const p = dayOver(), card = p.$('end-card'), h2 = card.querySelector('h2');
+  assert.equal(card.hidden, false);
+  assert.equal(focusOf(p), 'end-title', 'the h2, not the lever (70 Tab stops before the card)');
+  assert.deepEqual([h2.id, h2.getAttribute('tabindex'), card.getAttribute('aria-labelledby'), h2.textContent], ['end-title', '-1', 'end-title', 'Day over: 04:00.']);
+  p.$('btn-again').focus();
+  p.frames(3);
+  assert.equal(focusOf(p), 'btn-again', 'once: later frames leave the focus where the player puts it');
+  // MORE DAYS: the shelf opens on its first day (today's daily is on the desk: the newest past one); Esc and CLOSE give it back
+  p.click('btn-shelf');
+  assert.equal(p.$('shelf-card').hidden, false);
+  assert.ok(p.$('shelf-card').contains(p.doc.activeElement), focusOf(p));
+  assert.match(p.doc.activeElement.textContent, /^#4 Thu 15 Oct/);
+  p.key('Escape');
+  assert.deepEqual([p.$('shelf-card').hidden, focusOf(p)], [true, 'btn-shelf'], 'Esc: back on MORE DAYS');
+  p.click('btn-shelf');
+  p.click('shelf-close');
+  assert.deepEqual([p.$('shelf-card').hidden, focusOf(p)], [true, 'btn-shelf'], 'CLOSE: back on MORE DAYS, not lost with the hidden CLOSE');
+  // PLAY THIS DAY AGAIN hides the button pressed: the new briefing's TAKE THE DESK has the focus
+  p.click('btn-again');
+  assert.deepEqual([p.game.phase, focusOf(p)], ['briefing', 'btn-take']);
+  assert.deepEqual(p.h.mods.errors, []);
+});
+
+test('K-23: a shelf pick lands on its briefing\'s TAKE THE DESK; the briefing\'s MORE DAYS gets the focus back from the shelf', () => {
+  const p = dayOver();
+  p.click('btn-shelf');
+  p.click(p.$('shelf-card').querySelector('button'));   // #4, a past daily: practice
+  assert.deepEqual([p.$('briefing-title').textContent, focusOf(p)], ['Daily #4 · PRACTICE', 'btn-take']);
+  p.click('btn-shelf-brief');
+  assert.equal(focusOf(p), 'shelf-today', 'TODAY first: another day is on the desk');
+  p.key('Escape');
+  assert.deepEqual([p.$('shelf-card').hidden, focusOf(p), p.game.phase], [true, 'btn-shelf-brief', 'briefing'], 'Esc never takes the desk');
+  // a new day's end card takes the focus again
+  p.$('btn-take').focus();
+  p.key('Enter');
+  assert.equal(p.game.phase, 'play');
+  p.game.state.over = true;
+  p.frames(2);
+  assert.equal(focusOf(p), 'end-title');
+  assert.deepEqual(p.h.mods.errors, []);
 });
