@@ -87,7 +87,7 @@ export const CLASSIC = {
   // DESK_WEEKEND) carry their own.
   rooftop: {
     simplified: true,
-    note: 'SPEC P-2 rooftop model with capacity 0 on this scenario (desk/README.md C-1). clearFactor 0.70 is the clear-sky output factor (unverified, SPEC §8.3); cloudBite 0.7 gives the rooftop factor 1 - 0.7 (1 - k) at clearness k; heatFactor 0.92 is the hot-panel derate in a heatwave. share is each suburb\'s part of the capacity, in city.suburbs order (U-1: 1,250 / 450 / 1,000 / 250 / 1,150 / 900 MW of 5,000). shapePm is P-2\'s sin^1.5 curve as a 15-min table of integer per-mille of the 13:00 peak (C-4). cloud is the per-suburb clearness process of C-5 (one shared regional sky plus a small local term, 5-min steps): unused while the capacity is 0.',
+    note: 'SPEC P-2 rooftop model with capacity 0 on this scenario (desk/README.md C-1). clearFactor 0.70 is the clear-sky output factor (SPEC §8.1 "Rooftop output on its best days": record days reach about 0.71-0.73); cloudBite 0.7 gives the rooftop factor 1 - 0.7 (1 - k) at clearness k; heatFactor 0.92 is the hot-panel derate in a heatwave. share is each suburb\'s part of the capacity, in city.suburbs order (U-1: 1,250 / 450 / 1,000 / 250 / 1,150 / 900 MW of 5,000). shapePm is P-2\'s sin^1.5 curve as a 15-min table of integer per-mille of the 13:00 peak (C-4). cloud is the per-suburb clearness process of C-5 (one shared regional sky plus a small local term, 5-min steps): unused while the capacity is 0.',
     capacityMW: 0, clearFactor: 0.70, cloudBite: 0.7, heatFactor: 0.92,
     share: [0.25, 0.09, 0.20, 0.05, 0.23, 0.18],
     shapePm: roofShape(),
@@ -130,7 +130,7 @@ export const CLASSIC = {
   events: {
     src: LEG + ' L331-370 (schedule()), times converted from minutes after 04:00 to hours of day',
     bigTrip: {
-      src: LEG + ' L337: always; 08:00-13:30 on heat or storm days, else 11:00-20:00. Target rule (F-3): the largest online machine by output. Lockout L390: 90-150 min (simplified: real returns after a protection trip range from hours to weeks; after the lockout the unit may hot-start, S-11 minimum down time applies to planned stops only, owner decision D1)',
+      src: LEG + ' L337: always; 08:00-13:30 on heat or storm days, else 11:00-20:00. Target rule (F-3): the largest online machine by output. Lockout L390: 90-150 min (simplified: real returns after a protection trip range from hours to months, SPEC §8.1 "Return after a coal-unit trip"; after the lockout the unit may hot-start, S-11 minimum down time applies to planned stops only, owner decision D1)',
       severeWindowH: [8, 13.5], calmWindowH: [11, 20], lockoutMin: [90, 150],
     },
     extraTrip: {
@@ -184,7 +184,7 @@ export const CLASSIC = {
   // directed-shedding rotation (H-11).
   city: {
     simplified: true,
-    note: 'U-1 households (1.9M, unverified) set each suburb\'s share of demand; each suburb is split into equal districts of ~3%. Sixteen districts carry the eight UFLS stages (two per stage, from different suburbs); the other sixteen form the directed-shedding rotation, as real schemes keep UFLS-armed feeders out of rotation.',
+    note: 'U-1 households (1.9M, Melbourne-size: SPEC §8.1 "Households") set each suburb\'s share of demand; each suburb is split into equal districts of ~3%. Sixteen districts carry the eight UFLS stages (two per stage, from different suburbs); the other sixteen form the directed-shedding rotation, as real schemes keep UFLS-armed feeders out of rotation.',
     suburbs: SUBURBS,
     uflsStages: [['RED1', 'SAL1'], ['HAZ1', 'TAL1'], ['SOL1', 'RED2'], ['HAR1', 'SAL2'], ['HAZ2', 'RED3'], ['TAL2', 'SOL2'],
       ['SAL3', 'RED4'], ['HAZ3', 'HAR2']],
@@ -227,7 +227,7 @@ export const DESK = Object.assign({}, CLASSIC, {
   // day and temperatureC objects are its own (DESK_WEEKEND reuses them; CLASSIC's are never touched).
   rooftop: {
     simplified: true,
-    note: 'SPEC P-2: 5,000 MW of rooftop PV (0.65 x the 7.7-GW underlying peak; penetration by state unverified, SPEC §8.3); clear-sky output factor 0.70 (unverified, SPEC §8.3); rooftop factor 1 - 0.7 (1 - k) at clearness k (cloudBite); x 0.92 in a heatwave (heatFactor). share is each suburb\'s part of the capacity, in city.suburbs order SOL HAZ RED HAR TAL SAL (U-1: 1,250 / 450 / 1,000 / 250 / 1,150 / 900 MW). shapePm is P-2\'s sin^1.5 curve between 06:12 and 19:48 as a 15-min table of integer per-mille of the 13:00 peak (desk/README.md C-4). cloud is the per-suburb clearness process of desk/README.md C-5, in 5-min steps (sim/weather.js prerollRooftop): one shared regional sky (starts at startFrac, reverts to mu by revertPerStep of the gap each step, sigmaPerStep of noise, kept inside min..max: about an hour to forget a deviation, 0.05 of spread) plus a zero-mean local term per suburb (about 20 minutes, 0.03 of spread). Game tuning, not weather data (unverified): the values are P-4\'s lever and were kept from stage A after measuring them (Phase 2a world job, seeds 1-1,000, weather and events only): mean daytime clearness 0.937 (the sky cannot be clearer than 1, so the mean sits under mu); median minimum operational demand HOT 3,252, heatwave 3,293, MILD weekday 2,211, MILD weekend 1,756 MW (P-3: each inside +-10%); MSL1 on 21% of mild weekends, MSL2 on 1.3%, MSL3 on none (P-4: 10-30%, <= 10%). With mu 0.92 MSL1 falls to 10.8%, the edge of its band.',
+    note: 'SPEC P-2: 5,000 MW of rooftop PV (0.65 x the 7.7-GW underlying peak; SPEC §8.1 "Rooftop PV against peak demand": VIC about 0.58, SA about 0.87); clear-sky output factor 0.70 (SPEC §8.1 "Rooftop output on its best days": record days reach about 0.71-0.73); rooftop factor 1 - 0.7 (1 - k) at clearness k (cloudBite); x 0.92 in a heatwave (heatFactor). share is each suburb\'s part of the capacity, in city.suburbs order SOL HAZ RED HAR TAL SAL (U-1: 1,250 / 450 / 1,000 / 250 / 1,150 / 900 MW). shapePm is P-2\'s sin^1.5 curve between 06:12 and 19:48 as a 15-min table of integer per-mille of the 13:00 peak (desk/README.md C-4). cloud is the per-suburb clearness process of desk/README.md C-5, in 5-min steps (sim/weather.js prerollRooftop): one shared regional sky (starts at startFrac, reverts to mu by revertPerStep of the gap each step, sigmaPerStep of noise, kept inside min..max: about an hour to forget a deviation, 0.05 of spread) plus a zero-mean local term per suburb (about 20 minutes, 0.03 of spread). Game tuning, not weather data (unverified): the values are P-4\'s lever and were kept from stage A after measuring them (Phase 2a world job, seeds 1-1,000, weather and events only): mean daytime clearness 0.937 (the sky cannot be clearer than 1, so the mean sits under mu); median minimum operational demand HOT 3,252, heatwave 3,293, MILD weekday 2,211, MILD weekend 1,756 MW (P-3: each inside +-10%); MSL1 on 21% of mild weekends, MSL2 on 1.3%, MSL3 on none (P-4: 10-30%, <= 10%). With mu 0.92 MSL1 falls to 10.8%, the edge of its band.',
     capacityMW: 5000, clearFactor: 0.70, cloudBite: 0.7, heatFactor: 0.92,
     share: [0.25, 0.09, 0.20, 0.05, 0.23, 0.18],
     shapePm: roofShape(),

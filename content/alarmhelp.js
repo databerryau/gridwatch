@@ -72,7 +72,7 @@ export const ALARM_HELP = {
     trigger: 'Sets when protection trips a machine carrying over ' + V.EVENT_THRESHOLD_MW + ' MW; ' + watch,
     means: 'A machine dropped off at once, with all its output.',
     why: 'Spin takes the first hit, the battery and governors answer in seconds; AGC and you restore ' + V.F0_HZ + ' Hz. The unit is ' +
-      'locked out for a while (GRIDWATCH\'s rule: how long real ones stay out is unverified).',
+      'locked out for a while (GRIDWATCH\'s rule: real ones are out for hours to months).',
     todo: {text: 'Replace its MW (the plan line names the quickest unit) and be secure within ' + min(V.SECURE_AGAIN_S) + ' min.', target: 'stack'},
     real: {text: FOS + 'counts a loss over ' + V.EVENT_THRESHOLD_MW + ' MW as an event. AEMO\'s 2025 review: the largest credible contingency is ' +
       'about 700–800 MW, frequency back in the band 10–20 s after large credible trips. All well established.',

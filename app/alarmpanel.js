@@ -22,8 +22,8 @@
 //   trigger      when the tile sets and clears: GRIDWATCH's thresholds, built from the constants
 //   reading      NOW: at least one live number from vm.obs; up to its first ' · ' is the board's
 // Numbers come from sim/params.js and app/alarms.js constants, never typed in; a number no constant
-// holds is the cited row's. Nothing on SPEC §8.3's unverified list is stated as fact (the trip
-// lockout, the swing-equation constants, ISA-18.2's acknowledge: ACK is this desk's ACK).
+// holds is the cited row's. Nothing on SPEC §8.3's unverified list is stated as fact; the trip
+// lockout is GRIDWATCH's rule, and ACK is this desk's ACK.
 // tests/alarmpanel.test.js checks all of it.
 
 import {ALARM_HELP} from '../content/alarmhelp.js';

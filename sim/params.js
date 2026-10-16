@@ -48,7 +48,9 @@ const FOS = 'AEMC Frequency Operating Standard (2023), Tables A.2-A.3';
 const PFRR = 'AEMO interim Primary Frequency Response Requirements (2020) s3.3-3.4';
 const AEMO25 = 'AEMO technical review of the NEM frequency control landscape (2025) pp.31, 70';
 const UFLS_PAPER = 'AEMO dynamic arming options for UFLS (2023) App. A1.2';
-const FSIP = 'Split of the hot start into T1 (START to full speed) and T2 (breaker close to MIN), and T4 (MIN to <=5% before the breaker opens), per the NEM fast-start inflexibility profile; the split by class is unverified (§8.3)';
+const FSIP = 'Split of the hot start into T1 (START to full speed) and T2 (breaker close to MIN), and T4 (MIN to <=5% before the breaker opens), borrowing the NEM fast-start inflexibility profile (defined for fast-start units only: T1 + T2 <= 30 min, AEMO FSIP process description 2014); the split by class is unverified (§8.3)';
+const H_AEMO = 'inside AEMO\'s typical 2-8 s for synchronous machines (Inertia in the NEM explained, 2023). AEMO\'s H is on the MVA rating, ours on MW, so stored energy is slightly low';
+const GT_START = 'Aurecon 2021 Table 4-17: 5 min for a 49-MW aero-derivative, 30 min for a 265-MW F-class frame; ours start aero-fast for their size.';
 const LEGACY = 'legacy index.html (v2.0 + Phase 0.1)';
 const GOV_RANGE = 'Range: §8.1 says governor response takes seconds, many slower than 2 s (FFR working paper 2017 s2.3.1); the range brackets that.';
 const RNG_SRC = 'MurmurHash3 fmix32 finaliser (Austin Appleby, public domain) and FNV-1a (Fowler/Noll/Vo, public domain)';
@@ -97,10 +99,10 @@ export const P = {
   BATT_PFR_FULL_HZ: src(0.85, 'Hz beyond deadband', AEMO25 + ': most batteries reach full output 0.85 Hz beyond the deadband (~1.7% droop)'),
   BATT_PFR_DEAD_S: simp(0.1, 's', 'H-8 battery dead time; the source says only "hundreds of ms" (' + AEMO25 + '). Range: dead time plus lag stays within 1 s.', {range: [0.1, 0.5]}),
   BATT_PFR_LAG_S: simp(0.1, 's', 'H-8 battery first-order lag; see BATT_PFR_DEAD_S (same range).', {range: [0.1, 0.5]}),
-  GUARD_TRIGGER_HZ: simp(49.75, 'Hz', 'K-5 GUARD (contingency FFR) trigger. Real switched-controller settings are in the MASS and not yet checked (§8.3). Chosen between the normal band edge (49.85) and containment (49.5), so normal-band wander never fires it; the range is that interval.', {unverified: true, range: [49.5, 49.85]}),
+  GUARD_TRIGGER_HZ: simp(49.75, 'Hz', 'K-5 GUARD (contingency FFR) trigger: inside the 49.80-49.60 Hz AEMO sets a switched controller\'s raise trigger in (MASS v8.0 Table 6, mainland; default 49.80). Chosen between the normal band edge (49.85) and containment (49.5), so normal-band wander never fires it; the range is that interval, wider than the MASS\'s.', {range: [49.5, 49.85]}),
   GUARD_DELIVERY_S: src(1, 's', 'Very Fast raise FCAS timeframe, 1 s (Hornsdale report 2018; WattClarity 2023). Guard MW ramp linearly to full over this time after the trigger.'),
-  GUARD_SUSTAIN_S: simp(600, 's', 'H-8: guard sustained for 10 minutes once fired; sustain time unverified (§8.3).', UNVERIFIED),
-  GUARD_RAMP_OFF_S: simp(60, 's', 'After the sustain time the guard withdraws linearly over this time, so the withdrawal is not itself a contingency.'),
+  GUARD_SUSTAIN_S: simp(600, 's', 'H-8: guard sustained for 10 minutes once fired, as the contingency raise services relay to 10 minutes after the disturbance (AEMO MASS v8.0 Table 8).'),
+  GUARD_RAMP_OFF_S: simp(60, 's', 'After the sustain time the guard withdraws linearly over this time, so the withdrawal is not itself a contingency. No source specifies a ramp-off; a game choice.'),
   GUARD_REARM_HZ: simp(49.85, 'Hz', 'The spent guard re-arms once frequency is back above the normal band edge.'),
   GUARD_STEP_MW: simp(50, 'MW', 'K-5: GUARD ring detents of 50 MW.'),
   UF_SUSPEND_HZ: simp(49.85, 'Hz', 'H-10: under-frequency outside the normal band suspends scheduled battery charging (legacy L501 used -0.15 Hz).'),
@@ -162,11 +164,11 @@ export const P = {
   // ---------------------------------------------------------------- unit behaviour (F-13, H-1, H-2, K-12, S-11)
   SYNC_BLOCK_FRAC: simp(0.05, 'pu of rating', 'K-12 / H-1: breaker close picks up a block of <=5% of rating.'),
   BREAKER_OPEN_FRAC: simp(0.05, 'pu of rating', 'H-1: the T4 shutdown ramp ends at <=5% of rating before the breaker opens.'),
-  AUTO_SYNC_S: simp(240, 's', 'K-12 / §8.2: the auto-synchroniser closes 4 grid-minutes after full speed (tunable 3-5, the range); real auto-sync time unverified (§8.3).', {unverified: true, range: [180, 300]}),
+  AUTO_SYNC_S: simp(240, 's', 'K-12 / §8.2: the auto-synchroniser closes 4 grid-minutes after full speed (tunable 3-5, the range). Slower than real: IEEE PSRC WG J20 (2024) App. B timed 48-148 s on small hydro sets. The wait is also an offered SYNC\'s window.', {range: [180, 300]}),
   HOT_LOADING_FRAC: src(0.96, 'pu of available', 'H-2 / ' + LEGACY + ' L480: above 96% loading a unit runs hot'),
   HOT_ARM_S: simp(300, 's', LEGACY + ' L481: trip risk applies after 5 grid-minutes hot.'),
   HOT_TRIP_PER_H: simp(0.035, 'probability per grid-hour', 'H-2: trip risk ~3.5% per grid-hour while hot (legacy 0.00012 per 0.2-min tick). Drawn from the play stream.'),
-  HOT_TRIP_LOCKOUT_S: simp(7200, 's', 'Protection lockout after an overheat trip, inside the legacy 90-150 min (L463; the pre-rolled event trips draw theirs from the same range, content/scenarios.js). After it the unit may hot-start (T1 + T2): S-11 minimum down time applies to planned stops only (owner decision D1, 2026-09-30). Real returns after a protection trip range from hours to weeks (§8.2).'),
+  HOT_TRIP_LOCKOUT_S: simp(7200, 's', 'Protection lockout after an overheat trip, inside the legacy 90-150 min (L463; the pre-rolled event trips draw theirs from the same range, content/scenarios.js). After it the unit may hot-start (T1 + T2): S-11 minimum down time applies to planned stops only (owner decision D1, 2026-09-30). Real returns after a protection trip range from hours (Loy Yang A4, Jan 2024: about 3 h) to months (Loy Yang A2, May-Dec 2019; WattClarity; §8.1 "Return after a coal-unit trip").'),
   HEAT_THERMAL_DERATE: src(0.07, 'pu', 'S-10 / ' + LEGACY + ' L462: heatwave derates coal and gas by 7%'),
   HEAT_DEMAND_UPLIFT: src(0.065, 'pu', 'S-10 / ' + LEGACY + ' L433: heatwave demand +6.5%'),
   HEAT_RAMP_S: src(3600, 's', LEGACY + ' L431-433: heat demand ramps in over the hour before onset and out over the hour after'),
@@ -180,8 +182,8 @@ export const P = {
       machines: src(4, 'count', F13),
       ratingMW: src(650, 'MW', F13),
       minMW: src(240, 'MW', F13 + ' (37%)'),
-      rampMWMin: simp(3, 'MW/min per machine', '§8.2: 12 MW/min per station as today; the Aurecon 2021 new-build reference is 3%/min, 6.5x faster. Existing-unit ramps unverified (§8.3).', UNVERIFIED),
-      t1Min: simp(50, 'min', FSIP + '. 120-min hot start = T1 50 + T2 70.', UNVERIFIED),
+      rampMWMin: simp(3, 'MW/min per machine', '§8.2: 12 MW/min per station. Existing NEM coal units ramp about 5 MW/min (AEMO 2025 Thermal Audit s4.5); the Aurecon 2021 new-build reference is 3%/min, 6.5x faster. Ours is slower on purpose: coal is the plan-ahead lever.'),
+      t1Min: simp(50, 'min', FSIP + '. 120-min hot start = T1 50 + T2 70. AEMO 2025 Thermal Audit p.47: existing coal hot starts are typically 2 h.', UNVERIFIED),
       t2Min: simp(70, 'min', FSIP + '. T2 70 min keeps the 5% to MIN climb within the 3 MW/min ramp.', UNVERIFIED),
       t4Min: simp(70, 'min', FSIP + '. MIN (240) to 5% (32.5 MW) at <=3 MW/min.', UNVERIFIED),
       offer: src(26, '$/MWh', F13 + '; P-6 coal above minimum'),
@@ -190,14 +192,14 @@ export const P = {
       minUpH: src(8, 'h', F13 + '; S-11'),
       minDownH: src(8, 'h', F13 + '; S-11. After a planned stop only: a protection trip is followed by its lockout, then a hot start (owner decision D1, fleet.startBlock)'),
       co2: src(0.95, 't/MWh', F13),
-      H: simp(5, 's', F13 + '; textbook inertia constant (§8.3: swing-equation constants unverified).'),
+      H: simp(5, 's', F13 + '; ' + H_AEMO + '.'),
     }),
     station('ccgt', 'Riverton CCGT', 'ccgt', {
       machines: src(2, 'count', F13),
       ratingMW: src(650, 'MW', F13),
       minMW: src(175, 'MW', F13),
       rampMWMin: src(17.5, 'MW/min per unit', F13 + ' (legacy L291: 35 MW/min per station)'),
-      t1Min: simp(35, 'min', FSIP + '. 45-min hot start = T1 35 + T2 10.', UNVERIFIED),
+      t1Min: simp(35, 'min', FSIP + '. 45-min hot start = T1 35 + T2 10. A new-build CCGT hot-starts in 30 min (Aurecon 2021 Table 4-20).', UNVERIFIED),
       t2Min: simp(10, 'min', FSIP, UNVERIFIED),
       t4Min: simp(10, 'min', FSIP + '. MIN (175) to 5% at <=17.5 MW/min.', UNVERIFIED),
       offer: src(74, '$/MWh', F13 + '; P-6'),
@@ -206,14 +208,14 @@ export const P = {
       minUpH: src(4, 'h', F13 + '; S-11'),
       minDownH: src(3, 'h', F13 + '; S-11'),
       co2: src(0.42, 't/MWh', F13),
-      H: simp(4.5, 's', F13 + '; textbook (§8.3).'),
+      H: simp(4.5, 's', F13 + '; ' + H_AEMO + '.'),
     }),
     station('gta', 'GT·A', 'ocgt', {
       machines: src(1, 'count', F13),
       ratingMW: src(500, 'MW', F13),
       minMW: src(250, 'MW', F13 + ' (50%, Aurecon 2021 OCGT reference)'),
       rampMWMin: src(160, 'MW/min', F13),
-      t1Min: simp(6, 'min', FSIP + '. 8-min hot start = T1 6 + T2 2.', UNVERIFIED),
+      t1Min: simp(6, 'min', FSIP + '. 8-min hot start = T1 6 + T2 2. ' + GT_START, UNVERIFIED),
       t2Min: simp(2, 'min', FSIP, UNVERIFIED),
       t4Min: simp(2, 'min', FSIP, UNVERIFIED),
       offer: src(148, '$/MWh', F13 + '; P-6'),
@@ -222,14 +224,14 @@ export const P = {
       minUpH: src(1, 'h', F13 + '; S-11'),
       minDownH: src(0.5, 'h', F13 + '; S-11'),
       co2: src(0.63, 't/MWh', F13),
-      H: simp(3.5, 's', F13 + '; textbook (§8.3).'),
+      H: simp(3.5, 's', F13 + '; ' + H_AEMO + '.'),
     }),
     station('gtb', 'GT·B', 'ocgt', {
       machines: src(2, 'count', F13 + ' (2 x 400: no simple-cycle GT above ~600 MW exists)'),
       ratingMW: src(400, 'MW', F13),
       minMW: src(200, 'MW', F13 + ' (50%)'),
       rampMWMin: src(160, 'MW/min per machine', F13),
-      t1Min: simp(6, 'min', FSIP + '. 8-min hot start = T1 6 + T2 2.', UNVERIFIED),
+      t1Min: simp(6, 'min', FSIP + '. 8-min hot start = T1 6 + T2 2. ' + GT_START, UNVERIFIED),
       t2Min: simp(2, 'min', FSIP, UNVERIFIED),
       t4Min: simp(2, 'min', FSIP, UNVERIFIED),
       offer: src(152, '$/MWh', F13 + '; P-6'),
@@ -238,14 +240,14 @@ export const P = {
       minUpH: src(1, 'h', F13 + '; S-11'),
       minDownH: src(0.5, 'h', F13 + '; S-11'),
       co2: src(0.63, 't/MWh', F13),
-      H: simp(3.5, 's', F13 + '; textbook (§8.3).'),
+      H: simp(3.5, 's', F13 + '; ' + H_AEMO + '.'),
     }),
     station('gtc', 'GT·C', 'ocgt', {
       machines: src(2, 'count', F13 + ' (new; S-12 difficulty knob, §9 Q-3). Owner decision D2 (2026-09-30): 2 x 300 MW, so the largest single risk is unchanged; tunable within 1-2 machines x 150-300 MW, never by inflating demand'),
       ratingMW: src(300, 'MW per machine', F13),
       minMW: src(150, 'MW per machine', F13 + ' (50%)'),
       rampMWMin: src(160, 'MW/min per machine', F13),
-      t1Min: simp(4, 'min', FSIP + '. 5-min hot start = T1 4 + T2 1.', UNVERIFIED),
+      t1Min: simp(4, 'min', FSIP + '. 5-min hot start = T1 4 + T2 1. ' + GT_START, UNVERIFIED),
       t2Min: simp(1, 'min', FSIP, UNVERIFIED),
       t4Min: simp(1, 'min', FSIP, UNVERIFIED),
       offer: src(156, '$/MWh', F13 + '; P-6'),
@@ -254,7 +256,7 @@ export const P = {
       minUpH: src(1, 'h', F13 + '; S-11'),
       minDownH: src(0.5, 'h', F13 + '; S-11'),
       co2: src(0.63, 't/MWh', F13),
-      H: simp(3.5, 's', F13 + '; textbook (§8.3).'),
+      H: simp(3.5, 's', F13 + '; ' + H_AEMO + '.'),
     }),
     station('hydro', 'Greyfell Gorge hydro', 'hydro', {
       machines: src(3, 'count', F13),
@@ -270,7 +272,7 @@ export const P = {
       minUpH: simp(0, 'h', 'F-13: none.'),
       minDownH: simp(0, 'h', 'F-13: none.'),
       co2: src(0, 't/MWh', F13),
-      H: simp(3.5, 's', F13 + '; textbook (§8.3).'),
+      H: simp(3.5, 's', F13 + '; ' + H_AEMO + '; inside the 2-4 s cited for hydro (Kraljic et al. 2022).'),
     }),
   ],
 
@@ -324,10 +326,10 @@ export const P = {
 
   // ---------------------------------------------------------------- emergency resources (F-13, K-7)
   RERT_MW: src(300, 'MW', F13),
-  RERT_LEAD_S: src(1200, 's', F13 + ' / K-7: 20-min lead'),
-  RERT_COST: src(16000, '$/MWh', 'AEMO RERT quarterly report Q4 2024: NSW activation $16,000/MWh (§9 Q-2)'),
+  RERT_LEAD_S: src(1200, 's', F13 + ' / K-7: 20-min lead; real RERT lead times run from under 30 min (Type 1) to hours (AEMO RERT Q4 2024 s2.4; §8.1 "RERT contract terms")'),
+  RERT_COST: src(16000, '$/MWh', 'AEMO RERT quarterly report Q4 2024: NSW activation $16,000/MWh (§9 Q-2). Activation only: the readiness payments are left out (§8.2)'),
   RERT_CO2: simp(0.8, 't/MWh', F13 + ' (diesel).'),
-  RERT_RAMP_MW_MIN: simp(100, 'MW/min', 'The diesel fleet loads and stands down over 3 minutes rather than as one 300-MW step; RERT minimum activation unverified (§8.3).', UNVERIFIED),
+  RERT_RAMP_MW_MIN: simp(100, 'MW/min', 'The diesel fleet loads and stands down over 3 minutes rather than as one 300-MW step. Real contracts carry minimum run times (AEMO RERT Q4 2024); ours has none.', UNVERIFIED),
   DR_MW: src(350, 'MW', F13 + ' industrial DR'),
   DR_CALLS: src(3, 'calls/day', F13),
   DR_PRICE: src(1400, '$/MWh', F13 + ' / P-6'),
@@ -418,7 +420,7 @@ export const P = {
   PAR_WATER_RESERVE_MWH: simp(300, 'MWh', 'Par rule 5: the linear release leaves this much water above HYDRO_STOP_MWH at PAR_WATER_EMPTY_BY_H, for the night.'),
   PAR_DECOMMIT_EXTRA_MW: simp(250, 'MW', 'Par rule 4: extra margin on top of PAR_COMMIT_MARGIN_MW before a unit is decommitted (rules lab controller ctl(): +250 MW).'),
   PAR_DR_MARGIN_MW: simp(60, 'MW', 'Par rules 8 and 1: DR is called when present net demand plus this exceeds units, tie and diesel (rules lab controller ctl(): +60 MW), and (rule 8) hydro and the battery cannot carry it or a call can be spared from the peak.'),
-  PAR_RERT_STANDDOWN_MIN: simp(45, 'min', 'Par rules 4 and 8: reserve diesel stays armed at least this long before par stands it down, once the adequacy walk without it is clean (rules lab controller ctl(): 45 min; RERT minimum activation unverified, §8.3).'),
+  PAR_RERT_STANDDOWN_MIN: simp(45, 'min', 'Par rules 4 and 8: reserve diesel stays armed at least this long before par stands it down, once the adequacy walk without it is clean (rules lab controller ctl(): 45 min). Real contracts carry minimum run times (AEMO RERT Q4 2024); the player\'s diesel has none.'),
   PAR_FUZZ_SALT: simp(0x7a667a31, 'u32', 'The fuzz proxy hashes the seed with this private salt (hash(seed ^ salt, minute, draw)), so its inputs never come from the sim streams (F-3).'),
   PAR_FUZZ_P: simp(0.05, 'probability per decision', 'Fuzz proxy: chance of one random input at each decision (every PAR_DECIDE_EVERY_S), about 70 a day.'),
   // ---- stage B "autopilot" block: end
@@ -451,12 +453,12 @@ export const P = {
   // ---- phase 2a "shared" block: begin
   MSL1_MW: simp(1600, 'MW', 'P-4 / desk/README.md C-9: an MSL1 notice when the minimum forecast operational demand (P50, now and over the 4.5-h window) is at or below this: two credible load contingencies (about 300 MW each: the 256-MW potline, or the 300-MW midday export) above the security floor MSL3. AEMO\'s structure (AEMC MSL paper, Table 2.1) with our steps; real floors vary with the network and the synchronous units online.'),
   MSL2_MW: simp(1300, 'MW', 'P-4 / desk/README.md C-9: MSL2, one credible load contingency above MSL3; also about this fleet\'s coal + CCGT minimums (1,310 MW). See MSL1_MW.'),
-  MSL3_MW: simp(1000, 'MW', 'P-4 / desk/README.md C-9: MSL3, the security floor. Above Victoria\'s ~790 MW because this region is an electrical island and must keep its own synchronous plant on; a floor for a region like ours is unverified (§8.3).', UNVERIFIED),
+  MSL3_MW: simp(1000, 'MW', 'P-4 / desk/README.md C-9: MSL3, the security floor. Above Victoria\'s ~790 MW because this region is an electrical island and must keep its own synchronous plant on: scaled up from islanded South Australia\'s 450-550 MW (AEMO 2020 s6.2), whose largest risk is about 280 MW against our 650-MW units; not a published figure (§8.2 msl-tiers).', UNVERIFIED),
   MSL_TIE_OUT_MW: simp(300, 'MW', 'desk/README.md C-9: every MSL threshold is raised by this while the tie is out of service (no export sink: the 300-MW midday export is gone). AEMO\'s floors vary with the network; this is one step of ours.'),
   MSL_CHECK_S: simp(300, 's', 'desk/README.md C-9 / §21.1: the MSL level is re-checked every 5 grid-minutes (one forecast per check, the forecast\'s own column step). A notice cadence and performance budget, not a grid value.'),
   MSL_CLEAR_MW: simp(100, 'MW', 'desk/README.md C-9 / §21.1: hysteresis. A level is left only once the forecast minimum is this far above its threshold, so a notice does not chatter (K-8). Not a grid value.'),
   ROOF_RECONNECT_S: src(60, 's', 'AS/NZS 4777.2:2020: an inverter reconnects no sooner than 60 s after the grid is back within its voltage and frequency limits (P-12, desk/README.md C-8: a restored district picks up its full underlying load first)'),
-  ROOF_RAMP_S: simp(360, 's', 'P-12 / desk/README.md C-8: after the reconnection delay a district\'s rooftop output returns linearly over this time; also the release of the held over-frequency back-off (C-7). AS/NZS 4777.2:2020 limits the power ramp after reconnection to 16.67% of rating per minute (6 minutes to full output); the 6-minute ramp is unverified (§8.3).', UNVERIFIED),
+  ROOF_RAMP_S: simp(360, 's', 'P-12 / desk/README.md C-8: after the reconnection delay a district\'s rooftop output returns linearly over this time; also the release of the held over-frequency back-off (C-7). AS/NZS 4777.2:2020 caps the power ramp after reconnection at 16.67% of rated power a minute (6 minutes from zero to full; read in Horizon Power 2025, region Australia C), so a part-sun roof returns sooner than ours; region Australia A unread (§8.3).', UNVERIFIED),
   ROOF_FW_START_HZ: src(50.25, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: the over-frequency response starts at fULCO = 50.25 Hz (desk/README.md C-7)'),
   ROOF_FW_ZERO_HZ: src(52, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: output falls linearly from fULCO to zero at fPmin = 52 Hz (desk/README.md C-7)'),
   ROOF_FW_HYST_HZ: src(0.1, 'Hz', 'AS/NZS 4777.2:2020, region Australia A: hysteresis 0.1 Hz. The lowest output reached is held until frequency is back under fULCO - 0.1 Hz = 50.15 Hz (desk/README.md C-7)'),
@@ -466,10 +468,10 @@ export const P = {
   // ---- phase 2a "shared" block: end
   //
   // ---- phase 2a "world" block: begin
-  COOLING_MAX_MW: simp(1400, 'MW', 'P-3 / desk/README.md C-3: the cooling load a MILD day does not have. cooling = COOLING_MAX_MW x clamp((T - COOLING_BASE_C) / COOLING_SPAN_C, 0, 1) with T from the scenario\'s hot-day temperature table: about 100 MW per degC above 22 degC, all 1,400 MW at 36 degC. The ~100 MW/degC is unverified (SPEC §8.3).', UNVERIFIED),
-  COOLING_BASE_C: simp(22, 'degC', 'P-3: no cooling load at or below this temperature (see COOLING_MAX_MW; unverified, SPEC §8.3).', UNVERIFIED),
-  COOLING_SPAN_C: simp(14, 'degC', 'P-3: the cooling load reaches COOLING_MAX_MW this far above COOLING_BASE_C (36 degC, the hot-day table\'s peak; see COOLING_MAX_MW; unverified, SPEC §8.3).', UNVERIFIED),
-  WEEKEND_DEMAND_FACTOR: simp(0.92, 'x underlying demand', 'P-3 / J-13 / desk/README.md C-3: a Saturday or Sunday multiplies the underlying demand shape of any day type by this (before the heat uplift and the noise). A game value: one factor for the whole day, where real weekend load shapes differ hour by hour; not checked against a region\'s data.', UNVERIFIED),
+  COOLING_MAX_MW: simp(1400, 'MW', 'P-3 / desk/README.md C-3: the cooling load a MILD day does not have. cooling = COOLING_MAX_MW x clamp((T - COOLING_BASE_C) / COOLING_SPAN_C, 0, 1) with T from the scenario\'s hot-day temperature table: about 100 MW per degC above 22 degC, all 1,400 MW at 36 degC. Gentler than real (SPEC §8.2 "Cooling load"): AEMO (summer 2019-20) put a 30-to-35 degC miss at about 260-360 MW per degC on the mainland, ~100 in SA, flattening towards 40 degC.'),
+  COOLING_BASE_C: simp(22, 'degC', 'P-3: no cooling load at or below this hourly temperature (see COOLING_MAX_MW). AEMO counts cooling above a daily average of 18-20 degC by state (ESOO 2023 methodology App. A2); 22 degC on the hour is a game choice (SPEC §8.2).'),
+  COOLING_SPAN_C: simp(14, 'degC', 'P-3: the cooling load reaches COOLING_MAX_MW this far above COOLING_BASE_C (36 degC, the hot-day table\'s peak; see COOLING_MAX_MW), in a straight line where real cooling flattens towards 40 degC (SPEC §8.2).'),
+  WEEKEND_DEMAND_FACTOR: simp(0.92, 'x underlying demand', 'P-3 / J-13 / desk/README.md C-3: a Saturday or Sunday multiplies the underlying demand shape of any day type by this (before the heat uplift and the noise). A game value: one factor for the whole day, where real weekend load shapes differ hour by hour. Lower all day, most around 6 a.m., in Adelaide 1997-2007 (Cao et al. 2024); the 8% size is unsourced (§8.3).', UNVERIFIED),
   // ---- phase 2a "world" block: end
   //
   // ---- phase 2a "grid" block: begin
@@ -484,22 +486,22 @@ export const P = {
   FLEX_RAMP_S: simp(900, 's', 'Switch-on diversity; trials randomise 15-60 min'),
   SOAK_FROM_H: src(10, 'h', 'SAPN solar sponge window'),
   SOAK_TO_H: src(15, 'h', 'SAPN solar sponge window'),
-  SOAK_S: simp(14400, 's', '4 h x 480 MW: about U-2\'s 1.9-GWh cap'),
+  SOAK_S: simp(14400, 's', '4 h x 480 MW: about U-2\'s 1.9-GWh cap. 480 MW is about 200,000 tanks at ARENA\'s 2.4 kW; the daily energy is unverified (§8.3)'),
   SOAK_NIGHT_FROM_H: simp(22, 'h', 'Night heating, inside the sim day'),
   SOAK_NIGHT_TO_H: simp(28, 'h', 'Night heating, inside the sim day'),
   AIRCON_FROM_H: simp(15, 'h', 'Relief window'),
   AIRCON_TO_H: simp(21, 'h', 'Relief window'),
   AIRCON_S: src(5400, 's', 'U-2 (relief <= 1.5 h)'),
-  PRECOOL_S: src(3600, 's', 'U-2', UNVERIFIED),
-  PRECOOL_FRAC: src(0.5, 'x relief energy', 'U-2', UNVERIFIED),
-  SNAPBACK_S: src(5400, 's', 'SDG&E 2008 / SCE 2019 (17-50%)'),
-  SNAPBACK_FRAC: src(0.4, 'x relief energy', 'SDG&E 2008 / SCE 2019 (17-50%)'),
+  PRECOOL_S: src(3600, 's', 'U-2; no trial sizes pre-cooling (SCE PY2019 saw none): game tuning (§8.3)', UNVERIFIED),
+  PRECOOL_FRAC: src(0.5, 'x relief energy', 'U-2; no trial sizes pre-cooling (SCE PY2019 saw none): game tuning (§8.3)', UNVERIFIED),
+  SNAPBACK_S: src(5400, 's', 'SDG&E 2008 / SCE PY2019: real snapback lasts about 3 h, two thirds in the first hour; ours 1.5 h'),
+  SNAPBACK_FRAC: src(0.4, 'x relief energy', 'SDG&E 2008 16.6-35.1% / SCE PY2019 about 45% of the relief'),
   PATIENCE_AIRCON: simp(10, 'patience', 'U-4 (game)'),
   PATIENCE_REPEAT: simp(5, 'patience', 'U-4 (game)'),
   PATIENCE_FULL: simp(50, 'patience', 'U-4 (game)'),
   PATIENCE_LOCK: simp(25, 'patience', 'U-4 (game)'),
   SOAK_PRICE: simp(0, '$/MWh', 'U-6'),
-  AIRCON_PRICE: simp(400, '$/MWh', 'U-6'),
+  AIRCON_PRICE: simp(400, '$/MWh', 'U-6: a low, simplified price; no per-MWh air-con price exists (PeakSmart pays a rebate of up to $400 an air-con; EnergyAustralia PowerResponse pays households $2,000/MWh)'),
   // ---- phase 2b "levers" block: end
   //
   // ---- phase 2c "the day" block: begin (desk/README.md §32; the reasons are in §32.1)
