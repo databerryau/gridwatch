@@ -1,8 +1,9 @@
 // content/ladder.js: W6, Y-11: par and GRIDWATCH's own players on each daily, [par $, par shed MWh, nothing $, lean $,
 // competent $] (ALL-IN totals; -1: that player's grid went black; null: par's did). app/game.js ladderFor grades them as the
-// player is graded. check: the first daily's no-input day's state hash at 14:00 (tests/ladder.test.js replays it).
+// player is graded. check: the first daily's no-input day's state hash at 14:00 (tests/ladder.test.js replays it). anniv:
+// the seed and the variant's hash each anniversary's row was made from (D-29, app/game.js anniversaryStamp).
 // Written by tools/ladder.mjs; do not edit. The stamp is app/game.js dailyStamp's.
-export const LADDER = {v: "v4-core-2d.0|2010181300|1748646610", check: {"ymd":20261012,"tick":1800000,"hash":928618830}, rows: {
+export const LADDER = {v: "v4-core-2d.0|2010181300|1748646610", check: {"ymd":20261012,"tick":1800000,"hash":928618830}, anniv: {"20261214":{"seed":20261214,"hash":1740361102},"20270213":{"seed":20270213,"hash":832125625},"20270525":{"seed":20270525,"hash":3868733141}}, rows: {
   20261012: [8651492,0,439406889,9286865,8811164],
   20261013: [10484640,0,392250417,10539990,10497978],
   20261014: [8472564,0,285330324,8486852,8372184],

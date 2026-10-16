@@ -17,6 +17,7 @@ import {V} from '../sim/params.js';
 import {ANNIVERSARIES, GATED, anniversaryOf} from '../content/anniversaries.js';
 import {DAILIES, ANNIVERSARY_KEYS, dailyFor, seedOf, scenarioIdOf, dailyScenarioIdOf} from '../content/dailies.js';
 import {SCENARIOS, DESK, DESK_WEEKEND} from '../content/scenarios.js';
+import {LADDER} from '../content/ladder.js';
 import {openGame} from './lib/play.js';
 
 const DG = createRequire(import.meta.url)('../tools/daily-gen.js');
@@ -61,6 +62,21 @@ test('D-29: each variant is the one its date was gated under (GATED: the variant
   const text = DG.writeGated(src, g);
   assert.equal(text.replace(/^export const GATED = .*$/m, ''), src.replace(/^export const GATED = .*$/m, ''), 'the rest of the file is kept');
   assert.match(text, /^export const GATED = \{v: 'stamp', hashes: \{20261214: 5, 20270213: 7\}\};$/m);
+});
+
+test('D-29: each anniversary\'s ladder row (F-8\'s stored par) is held to the seed and variant it was made from; a row made from another is not used', () => {
+  // the stamp hashes the desk scenarios only: a variant changed and re-gated leaves LADDER.v current, so its row says what it was made from
+  assert.deepEqual(LADDER.anniv, Object.fromEntries(DAYS.map(ymd => [ymd, {seed: dailyFor(ymd, STAMP).seed, hash: GATED.hashes[ymd]}])),
+    'a date re-gated since its ladder row was made: run tools/ladder.mjs --from D --to D for it');
+  for (const ymd of DAYS) {
+    const game = G.createGame({daily: dailyFor(ymd, STAMP), scenario: G.scenarioForSeed, storage: null, par: false}), row = LADDER.rows[ymd];
+    assert.deepEqual(G.storedPar(game), {total: row[0], shedMWh: row[1]});
+    for (const made of [{seed: game.seed, hash: GATED.hashes[ymd] + 1}, {seed: game.seed + 1e8, hash: GATED.hashes[ymd]}, undefined]) {
+      const stale = Object.assign({}, LADDER, {anniv: Object.assign({}, LADDER.anniv, {[ymd]: made})});
+      assert.equal(G.storedPar(game, stale), null, ymd + ', a row made from ' + JSON.stringify(made) + ': the page\'s own par grades');
+      assert.equal(G.ladderFor(game, {points: 900}, stale), null, 'and no ladder');
+    }
+  }
 });
 
 test('D-29: each gated daily holds its incident, unwarned, as designed; an attempt without it is no anniversary to the gate', () => {

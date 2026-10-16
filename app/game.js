@@ -173,6 +173,14 @@ export function anniversaryFor(game) {
 // The build stamp a daily list is gated under (Q-75).
 export const dailyStamp = () => SIM_VERSION + '|' + scenarioHash(SCENARIOS.desk) + '|' + scenarioHash(SCENARIOS['desk-weekend']);
 
+/**
+ * W6 (D-29): what an anniversary's daily is made from, beyond the stamp (which hashes the desk scenarios only): {seed (its
+ * listed seed), hash (its variant's scenarioHash)}, else null. tools/ladder.mjs keeps it with the date's row (LADDER.anniv).
+ */
+export function anniversaryStamp(ymd) {
+  return anniversaryOf(ymd) ? {seed: dailyFor(ymd, dailyStamp()).seed, hash: scenarioHash(SCENARIOS[dailyScenarioIdOf(ymd)])} : null;
+}
+
 // Q-75: ?seed=N, ?date=YYYY-MM-DD, else today's daily (§32.5.3)
 export function dailyFrom(search, date) {
   const q = new URLSearchParams(search || ''), n = Number(q.get('seed')), t = q.get('date'), st = dailyStamp();
@@ -1118,8 +1126,14 @@ export function ladderFor(game, g, list = LADDER) {
   return out.filter(x => Number.isFinite(x[1])).sort((a, b) => a[1] - b[1] || (a[2] ? 1 : b[2] ? -1 : 0));
 }
 
-// This daily's row in content/ladder.js (this build's list), else null: off the calendar, a Hard day or another seed
-const listedRow = (game, list) => { const ymd = dailyYmd(game); return ymd && list.v === dailyStamp() && list.rows ? list.rows[ymd] || null : null; };
+// This daily's row in content/ladder.js (this build's list), else null: off the calendar, a Hard day or another seed; on an
+// anniversary (D-29), a row made from another seed or variant than today's (the list's anniv: stale, as another build's list is)
+function listedRow(game, list) {
+  const ymd = dailyYmd(game);
+  if (!ymd || list.v !== dailyStamp() || !list.rows) return null;
+  const an = anniversaryStamp(ymd), made = an && list.anniv ? list.anniv[ymd] : null;
+  return !an || (made && made.seed === an.seed && made.hash === an.hash) ? list.rows[ymd] || null : null;
+}
 
 /**
  * F-8 (risk 5): par's stored end on this daily, {total (ALL-IN $), shedMWh}, from content/ladder.js (tools/ladder.mjs runs the
