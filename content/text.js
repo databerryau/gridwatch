@@ -20,6 +20,7 @@
 
 import {P, V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from './scenarios.js';
+import {ANNIVERSARIES} from './anniversaries.js';
 import {SEGMENTS, gridBefore} from '../sim/clock.js';
 import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
@@ -83,6 +84,18 @@ const leads = [a2.front.onsetH, a3.storm.arriveH, a3.drought.onsetH].flatMap(([h
   return out;
 });
 
+// W6 (D-29): the anniversary dailies (content/anniversaries.js) keep their real incident, which the rules of the designed day
+// above do not: each said from its variant's own incident, so a tuned one retunes the text.
+const ACT_NAMES = ['I', 'II', 'III'], MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const annivs = Object.entries(ANNIVERSARIES).map(([d, a]) => ({
+  on: num(+d % 100) + ' ' + MONTH_NAMES[Math.floor(+d / 100) % 100 - 1] + ' (' + a.name + ', ' + a.year + ')', i: a.overrides.dayplan.incident}));
+const incidentText = i => (i.early ? 'the largest unit trips between ' + hhmm(i.early.windowH[0]) + ' and ' + hhmm(i.early.windowH[1])
+  : i.follow ? 'Act ' + ACT_NAMES[i.follow.act - 1] + '\'s unwarned trip takes the next largest unit with it ' + minutes(i.follow.afterS) + ' grid-minutes later'
+    : 'in the storm the tie is limited to ' + num(i.towers.limitMW) + ' MW, unannounced, as the largest unit trips');
+const ANNIV_RULES = 'The anniversary dailies keep their real incident instead: ' + annivs.map(x => x.on + ', ' + incidentText(x.i)).join('; ') + '.';
+const towersOn = annivs.filter(x => x.i.towers).map(x => x.on);
+const ANNIV_TIE = towersOn.length ? ' On ' + towersOn.join(' and ') + ', the storm limits the tie with no notice (Event-dense day).' : '';
+
 // The K-12 synchroscope's speed, from the sim's Phase 1a params (desk/README.md §3.3) once
 // they exist; until the sim branch merges, the Phase 0.2 stub's text.
 const SCOPE_KEYS = ['SYNC_SLIP_MIN_HZ', 'SYNC_SLIP_MAX_HZ', 'SYNC_TRIM_HZ', 'SYNC_CLEAN_DEG', 'SYNC_ROUGH_DEG', 'SYNC_BREAKER_TICKS'];
@@ -121,7 +134,7 @@ const ABSTRACTIONS = [
   {
     id: 'event-dense-day', row: 'Event-dense day.', anchorId: 'event-log', game: 'tray',
     real: 'Credible unit and link trips are rare: an operator sees a few a year, not one or two a shift. After a ' +
-      'protection trip a unit returns in hours to weeks, depending on the fault and the inspection. Thermal plant trips more ' +
+      'protection trip a unit returns in hours to months, depending on the fault and the inspection. Thermal plant trips more ' +
       'often in extreme heat.',
     ours: 'The game\'s day is designed by an event director. Act I opens with a warned constraint and, on ' + pct(a1.task.p) + '% of days, ' +
       'two feeders to restore. Act II has one belly crisis: without a heatwave, a cloud front over the suburbs (' + pct(a2.mix.front) +
@@ -131,7 +144,7 @@ const ABSTRACTIONS = [
       'calm evening; most evenings without a storm also bring an unwarned trip of the largest unit, and a storm may trip the tie. ' +
       'At most two unwarned trips a day, none before ' + hhmm(a2.windowH[0]) +
       ' or from ' + hhmm(NIGHT_H) + ', at least ' + num(V.SPACING_REAL_S) + ' real s and ' + minutes(V.SPACING_GRID_S) + ' grid-minutes ' +
-      'apart. A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min, then may hot-start at once: minimum down time (' + num(coal.minDownH) +
+      'apart. ' + ANNIV_RULES + ' A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min, then may hot-start at once: minimum down time (' + num(coal.minDownH) +
       ' h for coal) applies only after a planned stop. No machine trips for running near its limit: above 96% it simply has no raise ' +
       'headroom (H-18). The bench\'s classic day keeps the older menu: a large unit trip every day, plus extras, and its overheat trips.',
     why: 'Drama in a short day: every act asks a real question of the fleet, and a trip is a problem to solve within the day, not a ' +
@@ -148,12 +161,12 @@ const ABSTRACTIONS = [
   },
   {
     id: 'auto-sync', row: 'Auto-sync takes 4 grid-minutes', anchorId: 'auto-sync', game: 'bay-sync',
-    real: 'Auto-synchronisers work at the station; how long they take from full speed to breaker close is not yet ' +
-      'checked (§8.3).',
+    real: 'Auto-synchronisers work at the station; IEEE field tests on hydro sets timed 48–148 s from full speed to ' +
+      'close.',
     ours: 'In AGC mode a machine at full speed closes its own breaker ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes later ' +
       '(tunable ' + minutes(autoSyncRange[0]) + '–' + minutes(autoSyncRange[1]) + '); SYNC closes it sooner. In HAND every ' +
       'close is manual until ' + hhmm(NIGHT_H) + ', when the night shift takes the desk on AGC.',
-    why: 'It makes SYNC worth doing: a clean manual close brings the unit on sooner.',
+    why: 'Slower than real, so a clean manual SYNC brings the unit on sooner.',
     params: ['AUTO_SYNC_S'],
   },
   {
@@ -266,18 +279,19 @@ const ABSTRACTIONS = [
     // Phase 2a (P-4; desk/README.md C-9): rebuilt from the MSL params; the notices are tray cards.
     id: 'msl-tiers', row: 'MSL3 = 1,000 MW, with MSL2 and MSL1 300 and 600 MW above it', anchorId: 'msl-gauge', game: 'tray', ui: 'drawer',
     real: 'Minimum-system-load floors vary with the network and the synchronous units online; Victoria\'s are about 790 MW ' +
-      'with ~500-MW steps. AEMO issues MSL1, MSL2 and MSL3 notices from its own forecasts, and at MSL3 may direct the ' +
-      'emergency backstop: networks switch rooftop solar off.',
+      'with ~500-MW steps, and islanded South Australia needed about 450–550 MW (2020–21). AEMO issues MSL1, MSL2 and MSL3 ' +
+      'notices from its own forecasts, and at MSL3 may direct the emergency backstop: networks switch rooftop solar off.',
     ours: 'A market notice when the lowest demand our own forecast sees, now and over the next ' + num(V.FC_HORIZON_S / V.S_PER_H) +
       ' h, is at or below ' + num(V.MSL1_MW) + ' MW (MSL1), ' + num(V.MSL2_MW) + ' MW (MSL2) or ' + num(V.MSL3_MW) +
       ' MW (MSL3): steps of ' + mslStep(V.MSL2_MW, V.MSL3_MW) + ' MW, and every level ' + num(V.MSL_TIE_OUT_MW) + ' MW higher ' +
       'for the hours the tie is out of service (an hour after its announced return is tested at the normal level). It is checked every ' + minutes(V.MSL_CHECK_S) + ' grid-minutes, and a level is left ' +
       'only once the forecast is ' + num(V.MSL_CLEAR_MW) + ' MW above it. The notices say what this desk can do: keep battery ' +
       'room, stop a gas unit. The backstop is not on this desk yet: frequency rises until the roofs back off by themselves.',
-    why: 'Our region is an island whose largest load risk is the ' + num(V.SMELTER_MW) + '-MW smelter potline (or the ' +
-      num(V.TIE_EXPORT_CAP_MW) + '-MW midday export), so the steps are about one such risk apart.',
+    why: 'Our island\'s ' + num(coal.ratingMW) + '-MW units are more than twice South Australia\'s largest risk (about 280 MW), so ' +
+      'MSL3 is its island floor scaled up, not a published figure. The steps are about one load risk apart: the ' +
+      num(V.SMELTER_MW) + '-MW smelter potline, or the ' + num(V.TIE_EXPORT_CAP_MW) + '-MW midday export.',
     params: ['MSL1_MW', 'MSL2_MW', 'MSL3_MW', 'MSL_TIE_OUT_MW', 'MSL_CHECK_S', 'MSL_CLEAR_MW', 'FC_HORIZON_S', 'SMELTER_MW',
-      'TIE_EXPORT_CAP_MW'],
+      'TIE_EXPORT_CAP_MW', 'FLEET.coal.ratingMW'],
   },
   {
     id: 'one-node', row: 'One-node network.', anchorId: 'demand-chart', game: 'map',
@@ -423,6 +437,20 @@ const ABSTRACTIONS = [
     params: ['HEAT_SHARE', 'COOLING_MAX_MW', 'COOLING_BASE_C', 'COOLING_SPAN_C', 'WEEKEND_DEMAND_FACTOR'],
   },
   {
+    // W6 realism (2026-10-17): AEMO's summer 2019-20 analysis puts a mainland state's slope at 260-360 MW/°C (SPEC §8.1).
+    id: 'cooling-slope', row: 'Cooling load: 100 MW per °C above 22 °C, in a straight line.', anchorId: 'cooling-slope',
+    ui: 'drawer', game: 'drawer',
+    real: 'AEMO: a hot weekday forecast at 30 °C that reaches 35 °C lifts the peak by 1,300 MW in Victoria, 1,700 in New South ' +
+      'Wales, 1,800 in Queensland and 500 in South Australia, less towards 40 °C, as most air-cons are already on. It counts ' +
+      'cooling once the daily average passes 18–20 °C, by state.',
+    ours: 'A hot day carries ' + num(V.COOLING_MAX_MW / V.COOLING_SPAN_C) + ' MW of cooling load for each °C its hourly temperature ' +
+      'is above ' + num(V.COOLING_BASE_C) + ' °C, in a straight line to all ' + num(V.COOLING_MAX_MW) + ' MW at ' +
+      num(V.COOLING_BASE_C + V.COOLING_SPAN_C) + ' °C; a mild day has none.',
+    why: 'One line sets the gap between hot and mild days, tuned so that a mild day\'s midday low makes a playable belly. It is ' +
+      'gentler than a mainland state\'s, close to South Australia\'s.',
+    params: ['COOLING_MAX_MW', 'COOLING_BASE_C', 'COOLING_SPAN_C'],
+  },
+  {
     // Phase 2a (desk/README.md C-6, C-11).
     id: 'auto-curtailment', row: 'The dispatch spills wind and solar automatically, pro rata.',
     anchorId: 'auto-curtailment', ui: 'drawer', game: 'stack',
@@ -460,6 +488,18 @@ const ABSTRACTIONS = [
     params: ['NORMAL_LO_HZ', 'FOS_RECOVER_S', 'CONTAIN_LO_HZ', 'DIRECTED_BELOW_CONTAIN_S', 'DIRECTED_INTERVAL_S'],
   },
   {
+    // W6 realism (2026-10-17): AEMO's RERT Q4 2024 report (SPEC §8.1 "Emergency reserve cost", "RERT contract terms").
+    id: 'rert-terms', row: 'Reserve diesel: a 20-minute lead, paid only for the MWh it runs', anchorId: 'rert-terms', ui: 'drawer',
+    game: 'key-rert',
+    real: 'AEMO contracts emergency reserve (RERT) with lead times from under 30 minutes to hours, minimum run times and payments ' +
+      'to get ready. In NSW on 27 Nov 2024 it paid $2.5M to ready 184 MW and $1.0M for the 65 MWh run: $56,359/MWh all in.',
+    ours: 'The reserve diesel key (E) brings ' + num(V.RERT_MW) + ' MW on line ' + minutes(V.RERT_LEAD_S) + ' grid-minutes later, ' +
+      'loading at ' + num(V.RERT_RAMP_MW_MIN) + ' MW/min. It costs ' + usd(V.RERT_COST) + ' for each MWh it runs, nothing to ' +
+      'arm or to cancel before it arrives, and it can be stood down at any time.',
+    why: 'No payment to get ready and no minimum run: pricing only what runs keeps the cost readable.',
+    params: ['RERT_MW', 'RERT_LEAD_S', 'RERT_RAMP_MW_MIN', 'RERT_COST'],
+  },
+  {
     id: 'guard-ring', row: 'The GUARD is contingency FCAS, set by hand.', anchorId: 'guard-ring', ui: 'drawer', game: 'ring-guard',
     real: 'AEMO enables contingency FCAS (fast and very fast raise) in every 5-minute dispatch, co-optimised with energy: a battery is ' +
       'paid to hold MW back and inject them within a second when frequency falls past its trigger.',
@@ -485,8 +525,8 @@ const ABSTRACTIONS = [
   },
   {
     id: 'cold-load', row: 'Cold-load pickup ×1.5.', anchorId: 'cold-load', game: 'bay-restore',
-    real: 'Cold-load pickup varies by feeder and weather. Under AS/NZS 4777.2 a rooftop inverter reconnects no sooner ' +
-      'than 60 s after the grid is back, and then ramps up over minutes.',
+    real: 'Cold-load pickup varies by feeder and weather. Under AS/NZS 4777.2 an inverter waits at least 60 s after the ' +
+      'grid is back, then ramps up over minutes.',
     ours: 'A district dark for more than ' + minutes(V.COLD_LOAD_AFTER_S) + ' grid-minutes comes back at ' +
       num(V.COLD_LOAD_FACTOR) + '× its share of demand; the surge decays over ' + minutes(V.COLD_LOAD_DECAY_S) +
       ' grid-minutes. Its rooftop solar waits ' + num(V.ROOF_RECONNECT_S) + ' s and then ramps back over ' +
@@ -507,7 +547,7 @@ const ABSTRACTIONS = [
       'booked; a soak costs none. Below ' + num(V.PATIENCE_FULL) + ' a suburb responds less (at ' + num(V.PATIENCE_FULL - 10) +
       ', ' + pct((2 * V.PATIENCE_FULL - 10) / (2 * V.PATIENCE_FULL)) + '%); below ' + num(V.PATIENCE_LOCK) + ' its air-con ' +
       'locks; a cancel refunds that cycle\'s cost and can lift the lock. Patience does not recover within a day.',
-    why: 'The ladder is real: air-con is cheaper than DR, dearer than a running gas turbine, so it is a reliability tool. ' +
+    why: 'The ladder is ours: air-con is cheaper than DR, dearer than a running gas turbine, so it is a reliability tool. ' +
       'Patience makes a second cycle in one suburb cost more and give less. Its magnitudes are game tuning.',
     params: ['DR_MW', 'DR_DURATION_S', 'DR_PRICE', 'DR_CALLS', 'DR_RAMP_MW_MIN', 'AIRCON_PRICE', 'PATIENCE_AIRCON', 'PATIENCE_REPEAT',
       'PATIENCE_FULL', 'PATIENCE_LOCK'],
@@ -533,8 +573,8 @@ const ABSTRACTIONS = [
     id: 'aircon-cycle', row: 'An air-con cycle pre-cools, relieves, then snaps back.', anchorId: 'aircon-cycle', ui: 'drawer',
     game: 'drawer',
     real: 'Queensland\'s PeakSmart can cap 155,738 air-cons at 50% for about 107 MW, in events around 16:00–19:00. After an ' +
-      'event the load comes back: 17–35% of the energy relieved in one 2008 trial, about 40–50% in a 2019 one, most of it ' +
-      'in the first hour.',
+      'event load returns: 17–35% of the energy relieved in a 2008 trial, about 45% over three hours in a 2019 one, most in ' +
+      'the first hour.',
     ours: 'Hot days only (a mild day has no cooling load). Relief for ' + minutes(V.AIRCON_S) + ' min with ' + minutes(V.FLEX_RAMP_S) +
       '-minute ramps, at the suburb\'s air-con MW (' + num(sumOf('airconMW')) + ' MW across the city; less while its patience is below ' +
       num(V.PATIENCE_FULL) + '), starting ' + hhmm(V.AIRCON_FROM_H) + '–' +
@@ -555,12 +595,12 @@ const ABSTRACTIONS = [
   },
   {
     id: 'coal-ramp', row: 'Coal ramps at 3 MW/min per machine', anchorId: 'station-coal', game: 'lever-coal',
-    real: 'The Aurecon 2021 new-build reference is 3%/min, 19.5 MW/min for a 650-MW machine; ramps of existing units ' +
-      'are unverified (§8.3).',
+    real: 'Existing NEM coal units ramp about 5 MW/min (AEMO 2025); the Aurecon 2021 new-build reference is 3%/min ' +
+      '(20 MW/min).',
     ours: 'Each ' + num(coal.ratingMW) + '-MW coal machine ramps at ' + num(coal.rampMWMin) + ' MW/min (' +
       num(coal.rampMWMin * coal.machines) + ' MW/min for the station), so one takes ' +
       num(Math.round((coal.ratingMW - coal.minMW) / coal.rampMWMin)) + ' minutes from minimum to full.',
-    why: 'Existing units are slower than new-build (unverified), and it makes coal the plan-ahead lever.',
+    why: 'Slower than real coal on purpose: it makes coal the plan-ahead lever.',
     params: ['FLEET.coal.ratingMW', 'FLEET.coal.minMW', 'FLEET.coal.rampMWMin', 'FLEET.coal.machines'],
   },
   {
@@ -748,7 +788,7 @@ const ABSTRACTIONS = [
     ours: 'A weather warning in play comes at the latest whole minute that leaves at least ' + num(V.LEAD_REAL_S) + ' real seconds ' +
       'before its onset on the clock you play: about ' + num(Math.min(...leads)) + '–' + num(Math.max(...leads)) + ' grid-minutes ' +
       'ahead. A pause or a watch only adds to it, and the warning ends FAST. The heatwave, the tie limit, a late return and the ' +
-      'feeders\' repair times are announced at ' + hhmm(V.DAY_START_H) + ', before the clock runs. Trips are never warned.',
+      'feeders\' repair times are announced at ' + hhmm(V.DAY_START_H) + ', before the clock runs.' + ANNIV_TIE + ' Trips are never warned.',
     why: 'Hours of grid time pass in seconds of yours: the lead is sized to the time you need to read the card and act, not to ' +
       'the Bureau\'s.',
     params: ['LEAD_REAL_S'],
@@ -789,7 +829,7 @@ const ABSTRACTIONS = [
     real: 'Synchronising is mostly automatic, at the power station: nobody slows the grid to watch a breaker close.',
     ours: 'When the desk offers you a unit\'s synchroscope (after a trip, while spare is tight or in the evening peak; a few a day, ' +
       'none from ' + hhmm(NIGHT_H) + ') the clock plays at ' + num(OFFER_RATE) + '× while the unit waits at full speed, for at most ' +
-      'the ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes the auto-synchroniser would take (' + num(V.AUTO_SYNC_S / OFFER_RATE) +
+      'the ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes our auto-synchroniser takes (' + num(V.AUTO_SYNC_S / OFFER_RATE) +
       ' real s): the badge reads SYNC. O opens the scope; the breaker closing ends it. FAST waits for it.',
     why: 'At the profile\'s speeds an offer lived under half a real second: the synchroscope moment needs time to be seen and taken.',
     params: ['AUTO_SYNC_S'],

@@ -10,7 +10,7 @@
 //     for generators re-bidding when supply is tight, and is labelled as an abstraction;
 //   - the price is a single-node, per-second merit-order price with no network, no
 //     co-optimised FCAS and no 5-minute averaging (the real NEM settles every 5 minutes);
-//   - RERT is priced "as if absent" (P-8; intervention pricing is unverified, §8.3);
+//   - RERT is priced "as if absent" (P-8; NER 3.9.3(b) intervention pricing, SPEC §8.1);
 //   - CUSTOMER COST is what a central planner pays for the resources (fuel, no-load,
 //     starts, net imports, wear, DR, RERT), never the market bill and never anything
 //     multiplied by unserved energy (H-12).

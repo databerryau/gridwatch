@@ -13,6 +13,8 @@
 // OFFICIAL, FIRST SHIFT with COUNT THIS ONE, or PRACTICE and why; deps.run, app/game.js runView) and the streaks (Y-3, or
 // "history off"); after the verdict, YOUR CARD, the share card as it will be pasted (game.end.share, app/share.js), and
 // SHARE to copy it (Y-5); then THE WEEK AHEAD, the next dailies' day types from today (D-28, Q-109: game.end.week, app/week.js).
+// In THE MOMENT, with YOUR CARD, SAVE IMAGE: the moment as a PNG to share (Y-6, app/momentimage.js, loaded when pressed;
+// off while the fall with no GUARD computes).
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
@@ -32,9 +34,25 @@ const PARTS = [
 ];
 /** S-6: PERFECT's rule, under the score. */
 export const PERFECT_RULE = 'PERFECT: no load shed all day, and every handed-back feeder closed within ' + mw(V.RESTORE_PACE_MAX_S / V.S_PER_MIN) + ' grid-minutes of when it could be.';
-/** L-10: the strip's legend, and each column's title. */
-export const STRIP_WORDS = 'green: no gap · red: short (homes of yours dark) · blue: wind or solar spilled';
+/** L-10: the strip's legend, and each column's title. W6 (a11y): never colour alone: short is hatched, a spill dotted (CSS below). */
+export const STRIP_WORDS = 'green: no gap · red, hatched: short (homes of yours dark) · blue, dotted: wind or solar spilled';
 const STRIP_TITLE = {g: 'no gap', r: 'short', b: 'spill'};
+/** W6 (a11y): the strip in words, its image's name: the hours short, spilled or not played, run by run (a run of every
+ *  column is "all day"); the rest, if any, had no gap. */
+export function stripText(strip) {
+  const runs = {r: [], b: [], n: []};
+  strip.forEach((c, h) => {
+    const k = c === 'g' ? '' : c === 'r' || c === 'b' ? c : 'n';
+    if (!k) return;
+    const last = runs[k].at(-1);
+    if (last && last[1] === h) last[1] = h + 1; else runs[k].push([h, h + 1]);
+  });
+  const hh = h => clockText(h * V.S_PER_H, false);
+  const parts = [['short', runs.r], ['spill', runs.b], ['not played', runs.n]].filter(([, r]) => r.length)
+    .map(([w, r]) => w + ' ' + r.map(([a, b]) => (b - a === strip.length ? 'all day' : hh(a) + '–' + hh(b))).join(', '));
+  if (!parts.length) return 'Your day by the hour: no gap in any hour.';
+  return 'Your day by the hour: ' + parts.join('; ') + (strip.includes('g') ? '; no gap in the other hours.' : '.');
+}
 const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:auto}' +
   '#end-card .big{font:700 16px var(--mono);color:var(--bright)}' +
   '#end-card table{border-collapse:collapse;width:100%;margin:6px 0;font:12px var(--mono)}' +
@@ -43,8 +61,9 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
   '#end-card tr.total>*{border-top:1px solid var(--line);font-weight:700;color:var(--bright)}' +
   '#end-reliability{border-top:1px solid var(--line);margin-top:6px;padding-top:2px}' +
   '#end-card .vrow{margin:3px 0}#end-card .vrow b{color:var(--bright);margin-right:4px}' +
-  '#end-strip{display:flex;gap:2px;margin:6px 0 0}#end-strip span{flex:1;height:10px;border-radius:2px;background:var(--line)}' +
-  '#end-strip .s-g{background:#3fb950}#end-strip .s-r{background:#f85149}#end-strip .s-b{background:#58a6ff}' +
+  '#end-strip{display:flex;gap:2px;margin:6px 0 0}#end-strip span{flex:1;height:12px;border-radius:2px;background:var(--line)}' +
+  '#end-strip .s-g{background:#3fb950}#end-strip .s-r{background:repeating-linear-gradient(135deg,#f85149 0 3px,#7d1f1b 3px 5px)}' +
+  '#end-strip .s-b{background:radial-gradient(circle,#58a6ff 1.5px,#0d2238 1.8px) 0 0/4px 4px}' +
   '#end-card .why{color:var(--dim);font-size:11px;margin:2px 0}#end-card canvas{display:block;width:100%;height:120px;margin:4px 0}' +
   '#end-moment,#end-history,#end-debrief,#end-share,#end-week{border-top:1px solid var(--line);margin-top:8px;padding-top:4px}' +
   '#end-share pre{font:12px/1.35 var(--mono);color:var(--bright);white-space:pre-wrap;margin:4px 0 6px;user-select:all}#btn-share{font-weight:700;border-color:var(--blue)}' +
@@ -53,6 +72,13 @@ const CSS = '#end-card{max-height:calc(100vh - var(--hdr) - 48px);overflow-y:aut
 
 /** Y-11: the ladder's note (its title): who the other players are. */
 export const LADDER_NOTE = 'GRIDWATCH\'s own players on this same day, graded as you are: one who did nothing (the system still dispatches), and the better of two scripted dispatchers. Par is 1000. They are scripts, not people.';
+/** F-8: the line in YOUR CARD's place while the page's par still computes (the score is already the stored par's). */
+export const PAR_WAIT = pct => 'PAR: computing… ' + pct + '%. Your card and par\'s numbers follow.';
+/** F-8 (risk 5): THE NUMBERS' note when this browser's par came out other than the stored par the score is made from. */
+export const parDriftText = d => 'This browser worked par out ' + signed(d) + ' from the stored par. Your score uses the stored one, so it is the same in every browser.';
+/** Y-6: SAVE IMAGE's title; and its words and title while the fall with no GUARD computes (it waits: the picture shows it). */
+export const MOMENT_IMAGE_NOTE = 'Save THE MOMENT as a picture to share: no times and no events, so it spoils nobody\'s day';
+export const MOMENT_IMAGE_WAIT = 'SAVE IMAGE (computing…)', MOMENT_IMAGE_WAIT_NOTE = 'The picture waits for the fall with no GUARD, computing above';
 /** Y-3: the streaks' rule (the end card's STREAK line, as its title); and what a browser without storage is told. */
 export const STREAK_RULE = 'STREAK: days in a row with an official run finished. ★ STREAK: days in a row at par or better.';
 export const HISTORY_OFF = 'History off: this browser keeps no storage, so there is no streak.';
@@ -63,9 +89,9 @@ export function runText(r) {
   if (r.status === 'official') return r.started === false && !r.claimed ? 'PRACTICE: it ended before 09:00, so it did not count. The next run past 09:00 does.' : 'OFFICIAL: ' + daily + ', today\'s run that counts.';
   const e = r.entry;
   if (r.why === 'done') return 'PRACTICE: today\'s official run is in' + (e ? e.dnf ? ' (it did not finish).' : e.letter ? ' (' + e.points + ' ' + e.letter + ').' : '.' : '.');
-  if (r.hard) return 'PRACTICE: Hard day ' + r.hard + '. No plan keeps every light on: you are graded on the rest.';
+  if (r.hard) return 'PRACTICE: Hard day ' + r.hard + '. Par sheds load on this day: you are graded on the rest.';
   return {past: 'PRACTICE: a past daily. Only today\'s counts.', future: 'PRACTICE: not today\'s daily. Only today\'s counts.',
-    off: 'PRACTICE: history is off in this browser, so nothing counts.'}[r.why] || 'PRACTICE: not a daily.';
+    off: 'PRACTICE: history is off in this browser, so nothing counts.', nodaily: 'PRACTICE: no daily today, so nothing counts.'}[r.why] || 'PRACTICE: not a daily.';
 }
 
 /** A difference to par: '+$1.25M', '−$840' (U+2212), '$0'. */
@@ -138,22 +164,28 @@ export function createEndCard(doc, root, actions, deps) {
     }
   }
 
-  // Everything between the h2 and the seed line: it changes when par arrives.
+  // Everything between the h2 and the seed line: it changes when par arrives (and with each new verdict: the no-GUARD twin's).
+  // K-23: a control the keyboard is on is that control again after (else the h2, which the shell makes focusable: a pressed COUNT
+  // THIS ONE goes), and THE NUMBERS stay open.
   function fill(v, par) {
     const e = v.end, you = e.black ? null : e.allIn, p = par.a || null, g = e.grade;
     const status = {computing: 'PAR: computing… ' + par.pct + '%', black: 'par could not finish this day: no score', off: 'PAR: off'}[par.kind];
+    const ae = doc.activeElement, keep = ae && body.contains(ae) ? (ae.tagName === 'SUMMARY' ? 'end-numbers' : ae.id || '?') : '';
+    const open = !!(doc.getElementById('end-numbers') || {}).open;
     body.replaceChildren();
     runRows(body, deps.run ? deps.run() : null);
     const score = line(body, g ? 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + (e.perfect ? ' · PERFECT' : '')
       : par.kind === 'off' ? 'ALL-IN ' + allInCents(e.allIn) + ' c/kWh · PAR: off' : status || 'no score', 'big');
     score.id = 'end-score';
-    // S-6, S-7: the marks' rules, and a Hard day's (par shed: no plan kept every light on)
-    if (g && g.hardMWh) line(body, 'HARD DAY: par shed ' + mw(g.hardMWh, 1) + ' MWh: no plan kept every light on today. The points leave those MWh out of both totals; the letter is the gap.').id = 'end-hard';
+    // S-6, S-7: the marks' rules, and a Hard day's (par shed; a player may shed less, or none)
+    if (g && g.hardMWh) line(body, 'HARD DAY: par shed ' + mw(g.hardMWh, 1) + ' MWh today. The points leave those MWh out of both totals; the letter is the gap.').id = 'end-hard';
     if (e.perfect) line(body, PERFECT_RULE).id = 'end-perfect';
     if (g) line(body, LETTER_RULE).id = 'end-letter';   // (S-5: the letter with its one-line rule)
     if (e.ladder) ladderRow(body, e.ladder);   // (W6, Y-11: where you sit among GRIDWATCH's own players)
     verdict(body, v);
     shareBox(body, v.end.share);
+    // (F-8: graded on the stored par while the page's own par still computes: the card and par's numbers follow)
+    if (g && !v.end.share && par.kind === 'computing') line(body, PAR_WAIT(par.pct), 'why').id = 'end-par-wait';
     if (e.week && e.week.length) {   // (W6, D-28: a reason to come back tomorrow)
       const w = el('p', '', '', body);
       w.id = 'end-week';
@@ -191,7 +223,7 @@ export function createEndCard(doc, root, actions, deps) {
       part('CARBON', 'carbon', '', a.co2tPerMWh.toFixed(2) + ' t/MWh × ' + mw(a.askedMWh) + ' MWh = ' + mw(a.co2tPriced) + ' t × ' + VER_TEXT + ' (VER)',
         who + ' plants emitted ' + mw(a.co2t) + ' t; imports and dark load are counted at ' + who + ' mix');
       const hh = el('span', '$' + a.perHousehold.toFixed(2) + ' per household');
-      hh.title = 'per household of the city\'s ' + (deps.households() / 1e6).toFixed(1) + 'M (unverified); real networks also count businesses';
+      hh.title = 'per household of a Melbourne-size city (' + (deps.households() / 1e6).toFixed(1) + 'M); real networks also count businesses';
       part('ALL-IN', 'total', 'total', [allInCents(a) + ' c/kWh · ', hh]);
     }
     if (both) {
@@ -201,6 +233,7 @@ export function createEndCard(doc, root, actions, deps) {
       line(body, gap ? 'Biggest gap to par: ' + gap.name + ' ' + signed(gap.d) + ' (' + gap.why(gap.d, paid(e.score) || paid(pr && pr.score)) + ')' : 'You beat par on all three.');
     }
     line(body, 'Score = 1000 × par\'s ALL-IN ÷ yours. Par is GRIDWATCH\'s own autopilot on this same day.');
+    if (p && Math.abs(e.parDrift) >= 1) line(body, parDriftText(e.parDrift)).id = 'end-drift';   // (F-8: another engine's arithmetic)
     // (yours to the moment the grid went black, on a black day)
     const r = el('div', '', '', body), m = e.allIn;
     r.id = 'end-reliability';
@@ -212,6 +245,11 @@ export function createEndCard(doc, root, actions, deps) {
     line(r, m.saidiMin > 0 ? 'Each SAIDI-minute today cost customers about ' + dollars(m.outage / m.saidiMin) + ' at VCR. A distributor\'s STPIS ' +
       'would not count this shedding ' : 'No household was off for more than ' + mw(V.SUSTAINED_INTERRUPTION_S / V.S_PER_MIN) + ' minutes. ').appendChild(q);
     body = bodyOuter;
+    if (open) nums.open = true;
+    if (keep) {
+      const n = keep === 'end-numbers' ? nums.querySelector('summary') : doc.getElementById(keep), h = root.querySelector('h2');
+      if (n && body.contains(n) && !n.disabled) n.focus(); else if (h) h.focus();
+    }
   }
 
   // W3 (D-20, L-10, D-21, D-24, P-1, H-11): the day in words, in D-25's order (app/verdict.js builds it: v.end.verdict)
@@ -228,7 +266,8 @@ export function createEndCard(doc, root, actions, deps) {
     // L-10: the plan, an hour a column
     const st = el('div', '', 'strip', box);
     st.id = 'end-strip';
-    st.setAttribute('aria-label', 'Your day by the hour: ' + STRIP_WORDS);
+    st.setAttribute('role', 'img');
+    st.setAttribute('aria-label', stripText(x.strip));
     x.strip.forEach((c, h) => { const cell = el('span', '', 's-' + (c || 'n'), st); cell.title = clockText(h * V.S_PER_H, false) + ': ' + (STRIP_TITLE[c] || 'not played'); });
     el('p', STRIP_WORDS, 'why', box);
     const m = x.moment;
@@ -240,6 +279,19 @@ export function createEndCard(doc, root, actions, deps) {
       cv.id = 'end-moment-chart';
       charts.push([cv, () => drawMoment(cv, m.trace, [{hz: m.numbers.noGuardHz, label: 'NO GUARD', col: COL.pink}, {hz: m.numbers.parHz, label: 'PAR', col: COL.grey}])]);
       for (const t of m.text) el('p', t, '', mb);
+      // W6 (Y-6): SAVE IMAGE, with YOUR CARD (the picture carries its number, score and closing line): app/momentimage.js on demand.
+      // While the no-GUARD twin computes it is shown off (m.pending): the new verdict when the twin is done re-fills the card.
+      if (v.end.share) {
+        const b = el('button', m.pending ? MOMENT_IMAGE_WAIT : 'SAVE IMAGE', '', el('p', '', '', mb));
+        b.id = 'btn-save-moment';
+        b.title = m.pending ? MOMENT_IMAGE_WAIT_NOTE : MOMENT_IMAGE_NOTE;
+        b.disabled = !!m.pending;
+        if (!m.pending) b.addEventListener('click', () => {
+          b.disabled = true;
+          import('./momentimage.js').then(mod => mod.saveMoment(doc, v.end, deps.toast))
+            .catch(err => deps.toast('The image failed: ' + (err && err.message ? err.message : err))).finally(() => { b.disabled = false; });
+        });
+      }
     }
     const c = x.card;
     if (c) {
@@ -249,6 +301,7 @@ export function createEndCard(doc, root, actions, deps) {
       el('p', c.text, '', cb);
       el('p', 'What GRIDWATCH simplifies: ' + c.simplifies, 'why', cb);
       const a = el('a', 'Source: ' + c.sourceName, '', el('p', '', 'why', cb));
+      a.id = 'end-source';
       a.href = c.source; a.target = '_blank'; a.rel = 'noopener';
     }
     const db = el('div', '', 'debrief', box);

@@ -9,7 +9,10 @@
 // needs no new list. The list carries the build stamp it was made under (app/game.js dailyStamp), like the dailies:
 // tests/ladder.test.js fails when it is stale, and the verdict shows no ladder then. For changes to the page's dispatch that
 // leave the stamp alone, the list also keeps `check`: the first daily's no-input day's state hash at CHECK_H, which the test
-// replays (to 14:00, not the whole day: CLAUDE.md's 2.5 s a test). A statistic: run it once, after tools/daily-gen.js.
+// replays (to 14:00, not the whole day: CLAUDE.md's 2.5 s a test). An anniversary's row (D-29) is made from its date's variant,
+// which the stamp does not hash: `anniv` keeps, for each, the seed and the variant's scenarioHash it was made from (app/game.js
+// anniversaryStamp); the page uses no row made from another, and tests/anniversary.test.js holds them to content/anniversaries.js
+// GATED, so a date re-gated without its row made again cannot merge. A statistic: run it once, after tools/daily-gen.js.
 //
 //   node tools/ladder.mjs [-j 6] [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--dry]
 //   (--dry prints and writes nothing; a range without --dry is merged into the current list, which must be this build's)
@@ -45,6 +48,18 @@ export async function nothingCheck(ymd) {
   return {ymd, tick, hash: hashState(game.state) >>> 0};
 }
 
+/** content/ladder.js's text for {v, check, anniv, rows} (main writes it; tests/ladder.test.js reads the shipped file back through it). */
+export function ladderText(L) {
+  const body = Object.keys(L.rows).sort().map(k => k + ': ' + JSON.stringify(L.rows[k])).join(',\n  ');
+  return '// content/ladder.js: W6, Y-11: par and GRIDWATCH\'s own players on each daily, [par $, par shed MWh, nothing $, lean $,\n' +
+    '// competent $] (ALL-IN totals; -1: that player\'s grid went black; null: par\'s did). app/game.js ladderFor grades them as the\n' +
+    '// player is graded. check: the first daily\'s no-input day\'s state hash at 14:00 (tests/ladder.test.js replays it). anniv:\n' +
+    '// the seed and the variant\'s hash each anniversary\'s row was made from (D-29, app/game.js anniversaryStamp).\n' +
+    '// Written by tools/ladder.mjs; do not edit. The stamp is app/game.js dailyStamp\'s.\n' +
+    'export const LADDER = {v: ' + JSON.stringify(L.v) + ', check: ' + JSON.stringify(L.check) + ', anniv: ' + JSON.stringify(L.anniv) +
+    ', rows: {\n  ' + body + ',\n}};\n';
+}
+
 /** One date's row: [par $, par shed MWh, nothing $, lean $, competent $] (-1: black), or null when par went black. */
 export async function ladderOf(ymd) {
   const [AP, S, G, {dailyFor}] = await Promise.all([imp('sim/autopilot.js'), imp('app/score.js'), imp('app/game.js'), imp('content/dailies.js')]);
@@ -69,11 +84,11 @@ async function main() {
     dates.push(ymd);
   }
   // a range is merged into the shipped list (it must be this build's: a stale list is re-made whole)
-  let rows = {};
+  let rows = {}, anniv = {};
   if (ranged && !dry) {
     const {LADDER} = await imp('content/ladder.js').catch(() => ({LADDER: null}));
     if (!LADDER || LADDER.v !== stamp) throw new Error('the shipped list is not this build\'s: run the whole range (no --from/--to)');
-    rows = Object.assign({}, LADDER.rows);
+    rows = Object.assign({}, LADDER.rows), anniv = Object.assign({}, LADDER.anniv);
   }
   const workers = Math.max(1, +(opt('-j') || 1)), got = {}, t0 = Date.now();
   let next = 0, done = 0;
@@ -103,15 +118,11 @@ async function main() {
   const missing = dates.filter(d => !(d in got));
   if (missing.length) throw new Error(missing.length + ' dates without a row, the first ' + missing[0]);
   Object.assign(rows, got);
-  const keys = Object.keys(rows).sort(), check = await nothingCheck(ymdOf(DAILIES.from));
-  const body = keys.map(k => k + ': ' + JSON.stringify(rows[k])).join(',\n  ');
-  const file = '// content/ladder.js: W6, Y-11: par and GRIDWATCH\'s own players on each daily, [par $, par shed MWh, nothing $, lean $,\n' +
-    '// competent $] (ALL-IN totals; -1: that player\'s grid went black; null: par\'s did). app/game.js ladderFor grades them as the\n' +
-    '// player is graded. check: the first daily\'s no-input day\'s state hash at 14:00 (tests/ladder.test.js replays it).\n' +
-    '// Written by tools/ladder.mjs; do not edit. The stamp is app/game.js dailyStamp\'s.\n' +
-    'export const LADDER = {v: ' + JSON.stringify(stamp) + ', check: ' + JSON.stringify(check) + ', rows: {\n  ' + body + ',\n}};\n';
+  // D-29: each anniversary made now, with the seed and the variant it was made from (the other dates' are kept)
+  for (const ymd of dates) { delete anniv[ymd]; const a = G.anniversaryStamp(ymd); if (a) anniv[ymd] = a; }
+  const file = ladderText({v: stamp, check: await nothingCheck(ymdOf(DAILIES.from)), anniv, rows});
   if (dry) console.log(file.slice(0, 2000));
-  else { writeFileSync(OUT, file); console.log('wrote content/ladder.js: ' + keys.length + ' dates (' + dates.length + ' made) in ' + Math.round((Date.now() - t0) / 1000) + ' s'); }
+  else { writeFileSync(OUT, file); console.log('wrote content/ladder.js: ' + Object.keys(rows).length + ' dates (' + dates.length + ' made) in ' + Math.round((Date.now() - t0) / 1000) + ' s'); }
 }
 
 if (process.argv.includes('--worker')) {

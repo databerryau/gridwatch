@@ -1,5 +1,5 @@
-// W6, Y-2: the practice shelf (app/shelf.js, drawn by app/shell.js). The Hard days are the seeds the daily gate rejected,
-// one a date, numbered by date; the past dailies run back from yesterday to #1 with this browser's results. On the page:
+// W6, Y-2: the practice shelf (app/shelf.js, drawn by app/shell.js). The Hard days are SA 2016 (D-29), then the seeds the
+// daily gate rejected, one a date, numbered by date; the past dailies run back from yesterday to #1 with this browser's results. On the page:
 // MORE DAYS on the end card opens the shelf; a past daily plays in the page as practice; TODAY brings back today's daily as
 // the official run; a Hard day is named, never "not gate-checked", and its card says "Hard day n".
 import {test} from 'node:test';
@@ -18,13 +18,13 @@ function store(init = {}) {
 }
 const button = (p, text) => p.$('shelf-card').querySelectorAll('button').find(b => b.textContent === text || b.textContent.startsWith(text));
 
-test('S-7, Y-2: the Hard days are attempt 0 of each date the gate rejected, numbered by date', () => {
+test('S-7, Y-2: the Hard days are SA 2016 (D-29, tests/sa2016.test.js), then attempt 0 of each date the gate rejected, numbered by date', () => {
   const h = SF.hardDays();
   const rejected = Object.keys(DAILIES.attempts).filter(k => DAILIES.attempts[k] > 0);
-  assert.equal(h.length, rejected.length);
-  assert.deepEqual(h.slice(0, 2), [{n: 1, seed: 20261023, weekend: false}, {n: 2, seed: 20261026, weekend: false}]);
-  for (const x of h) assert.notEqual(dailyFor(x.seed).seed, x.seed, x.seed + ' is not its date\'s daily');
-  assert.equal(SF.hardDayOf(20261023), 1);
+  assert.equal(h.length, rejected.length + 1);
+  assert.deepEqual(h.slice(1, 3), [{n: 2, seed: 20261023, weekend: false}, {n: 3, seed: 20261026, weekend: false}]);
+  for (const x of h) assert.notEqual(dailyFor(x.seed % 1e8).seed, x.seed, x.seed + ' is not its date\'s daily');
+  assert.equal(SF.hardDayOf(20261023), 2);
   assert.equal(SF.hardDayOf(20261016), 0);
 });
 
@@ -63,17 +63,17 @@ test('S-7 on the page: a Hard day is named, never "not gate-checked", and its ca
   p.game.state.over = true;
   p.frames(2);
   p.click('btn-shelf');
-  button(p, 'Hard day 1').click();
+  button(p, 'Hard day 2').click();   // (the gate's first: Hard day 1 is SA 2016's, tests/sa2016.test.js)
   p.frame();
   assert.equal(p.game.seed, 20261023);
-  assert.equal(p.$('briefing-title').textContent, 'Hard day 1 · PRACTICE');
+  assert.equal(p.$('briefing-title').textContent, 'Hard day 2 · PRACTICE');
   assert.ok(!p.$('briefing-watch').textContent.includes(NOT_GATED));
   assert.equal(p.$('briefing-date').textContent, '', 'no date: a Hard day is not that date\'s daily (browser pass)');
   p.key('Enter');
   p.game.state.over = true;
   p.frames(2);
-  assert.match(p.game.end.share.lines[0], /^GRIDWATCH · Hard day 1 · /);
-  assert.equal(p.$('end-run').textContent, 'PRACTICE: Hard day 1. No plan keeps every light on: you are graded on the rest.');
+  assert.match(p.game.end.share.lines[0], /^GRIDWATCH · Hard day 2 · /);
+  assert.equal(p.$('end-run').textContent, 'PRACTICE: Hard day 2. Par sheds load on this day: you are graded on the rest.');
   assert.equal(p.$('end-gate'), null, 'no "not gate-checked" on the card either');
 });
 

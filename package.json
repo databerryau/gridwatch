@@ -5,6 +5,7 @@
   "scripts": {
     "test": "node --test",
     "test:changed": "node tools/changed-tests.mjs",
+    "test:slow": "node tools/slow-tests.mjs",
     "baseline": "node tools/baseline.js",
     "golden": "node tools/baseline.js > tools/baseline.golden.md",
     "baseline:v4": "node tools/baseline-v4.js",

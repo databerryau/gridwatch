@@ -50,13 +50,16 @@ export const localYmd = d => d.getFullYear() * 1e4 + (d.getMonth() + 1) * 100 + 
 
 /**
  * Y-2 (Q-99): a run's status: {status: 'first' | 'official' | 'practice', why}, why one of 'first', 'today', 'done' (today's
- * official run is in), 'past' (another date's daily), 'seed' (not a daily).
- * @param {{ymd:number|null, today:number, firstShift:boolean}} o ymd: the date of the daily played (app/game.js dailyYmd)
+ * official run is in), 'past' (another date's daily), 'seed' (not a daily), 'nodaily' (F-8: today is past the dailies'
+ * calendar: "No daily today").
+ * @param {{ymd:number|null, today:number, firstShift:boolean, noDaily:boolean}} o ymd: the date of the daily played (app/game.js
+ *   dailyYmd); noDaily: today is past the calendar's end (app/game.js noDaily)
  */
 export function statusOf(h, o) {
   if (o.off) return {status: 'practice', why: 'off'};   // (storage blocked: nothing can count)
   if (!o.ymd) return {status: 'practice', why: 'seed'};
   if (o.ymd !== o.today) return {status: 'practice', why: o.ymd > o.today ? 'future' : 'past'};
+  if (o.noDaily) return {status: 'practice', why: 'nodaily'};
   if (h.days[o.ymd]) return {status: 'practice', why: 'done'};
   return o.firstShift ? {status: 'first', why: 'first'} : {status: 'official', why: 'today'};
 }
@@ -85,3 +88,4 @@ export function streaks(h, today) {
   return {streak: run(h, today, finished), best: run(h, today, e => finished(e) && !!e.star),
     played: Object.values(h.days).filter(finished).length + (h.pruned || 0)};
 }
+export const BUILD = '2026-10-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

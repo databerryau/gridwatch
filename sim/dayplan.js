@@ -74,6 +74,16 @@
 // *Then the notices*, `dayplan.notices` at their hours (desk: MORNING_RAMP 05:50, DUCK 15:00; no
 // TROUGH, nothing from 21:00).
 //
+// *An anniversary's incident* (W6, D-29: `dayplan.incident`, on content/anniversaries.js's variants only; no desk scenario has
+// one, so no other day's plan changes and `SIM_VERSION` stands). After Act II, from a fifth slot, its records marked `incident`
+// and unwarned: `early` a trip of the largest machine over `windowH` (Q-72's spacing and one action from every moment, as any
+// trip); `follow` a second 'largest' trip `afterS` after the act's unit trip (a cascade: it keeps no spacing, by design);
+// `towers` a `tieDerate` to `limitMW` until the day's end and a trip of the largest machine at one minute while the storm blows
+// (from its arrival to its pass, Q-72's spacing from every trip, one action from every moment, but not 31 real s from the
+// storm's onsets, which often leave no such minute: the storm is the cause); `cascade` (SA 2016, S-7's first Hard day, on its
+// own scenario: content/anniversaries.js SA2016) a `linkTrip` (cause storm) `afterS` after the storm's own cut-out (no spacing,
+// by design: the wind farms' loss and the tie's trip are one cascade).
+//
 // *Q-71.* A warning is at the latest whole minute with `stepReal(warn, onset)` ≥ `LEAD_REAL_S`:
 // `floor(gridBefore(onset, LEAD_REAL_S) / 60) × 60`, exact (sim/clock.js). The floor of a GT's start +
 // 2 grid-min never binds (the shortest lead is 65 grid-min), so it is a test, not code.
@@ -243,6 +253,35 @@ export function preroll(seed, scn, regime) {
     add(2, on, 'cloudOnset', {clearMu: fr.frontMu, suburbs: true, clearS});
     add(2, clearS, 'cloudClear', {clearMu: fr.clearMu});
     away(warn(on)), away(on);
+  }
+
+  // W6 (D-29): an anniversary's incident (content/anniversaries.js), on its variant's dayplan only. Its own slot, the last, so
+  // every other draw is the date's own; before the late return, which keeps one action from it. Its records carry `incident`
+  // (tools/daily-gen.js gates an anniversary only with them), and none is warned.
+  const I = D.incident, incident = (...a) => { add(...a); Object.assign(list[list.length - 1], {warned: false, incident: true}); };
+  if (I) {
+    r = drawer();
+    if (I.early) { // Loy Yang A3, 2017: the largest machine trips before dawn
+      const x = I.early, t = trip(r(), toS(x.windowH[0]), toS(x.windowH[1]));
+      if (t >= 0) incident(1, t, 'unitTrip', {rule: 'largest', lockoutS: mins(r(), x.lockoutMin)});
+    }
+    if (I.follow) { // Callide C, 2021: the act's unit trip takes the next largest machine with it, afterS later
+      const x = I.follow, e = list.find(y => y.act === x.act && y.type === 'unitTrip');
+      if (e) incident(x.act, e.atS + x.afterS, 'unitTrip', {rule: 'largest', lockoutS: mins(r(), x.lockoutMin)}), away(e.atS + x.afterS);
+    }
+    if (I.towers) { // the Moorabool towers, 2024: in the storm the lines come down: the tie limited, the largest machine trips
+      const x = I.towers, at = list.find(y => y.type === 'stormArrive'), ps = list.find(y => y.type === 'stormPass');
+      const t = at && ps ? when(r(), at.atS + MIN, ps.atS - 1, MIN, trs.map(y => ban(y, SP, V.SPACING_GRID_S))) : -1;
+      if (t >= 0) {
+        trs.push(t), away(t);
+        incident(III, t, 'tieDerate', {limitMW: x.limitMW, untilS: V.DAY_S});
+        incident(III, t, 'unitTrip', {rule: 'largest', lockoutS: mins(r(), x.lockoutMin)});
+      }
+    }
+    if (I.cascade) { // SA 2016: the storm's cut-out (the wind farms dropping out) and, afterS later, the tie, overloaded, trips
+      const x = I.cascade, co = list.find(y => y.type === 'windCutout');
+      if (co) incident(III, co.atS + x.afterS, 'linkTrip', {cause: 'storm', lockoutS: mins(r(), x.lockoutMin)}), away(co.atS + x.afterS);
+    }
   }
 
   if (out) {

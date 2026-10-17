@@ -8,7 +8,7 @@
 //            (CRUISE), whatever released it (a ringing card, an alarm, a trip)
 //   pauses   N seeded random pauses (Space, 1-30 drawn frames, Space), at grid times drawn
 //            uniformly from 04:30 to 04:00
-// The suite checks the same on a 2-h slice (tests/clock-director.test.js, D-6 1 and 2 of 2); this is
+// The suite checks the same on a 2-h slice (tests/clock-slice.test.js, D-6 1 and 2 of 2); this is
 // the whole day, run once by the integrator at stage C. Not loaded by the game; no browser, no server.
 // An ES module (.mjs: tools/package.json pins the .js tools to CommonJS).
 //

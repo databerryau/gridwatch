@@ -2,7 +2,8 @@
 // levers, desk/README §7 L-3) share. Pure data plus pure helpers; no DOM. Tested by
 // tests/map.test.js (G-1: integer scale, terrain to the frame edges, no building off the
 // terrain; G-2: the silhouette parts of each technology; X-37, X-38; G-3: the rooftop panels
-// of each suburb in proportion to its rooftop MW, ROOF_PV and roofPanels).
+// of each suburb in proportion to its rooftop MW, ROOF_PV and roofPanels) and tests/map-life.test.js
+// (W6, G-4 and U-8: the lanes, the traffic curve and the streetlights' spacing).
 //
 // The map is drawn on a fixed offscreen BASE_W x BASE_H canvas and blitted at an INTEGER
 // scale (G-1). scaleFor() picks the scale from the map area: the largest integer with the
@@ -36,7 +37,6 @@ export const UI = Object.freeze({
   red: '#f85149', amber: '#d29922', blue: '#58a6ff', green: '#3fb950', skyline: '#e6edf3',
   band: 'rgba(230,237,243,0.10)', ghost: 'rgba(230,237,243,0.55)',
 });
-export const SKY = '#6a9fd0';
 
 /** The six suburbs (U-1, SPEC §4.5): code as in obs.districts[].suburb, name, box in base px. */
 export const SUBURBS = Object.freeze([
@@ -148,6 +148,19 @@ export const FIELDS = Object.freeze([
   [384, 168, 20, 12, '#b7a654'], [236, 170, 22, 12, '#6c9a48'], [20, 96, 16, 10, '#a9b25a'], [24, 78, 14, 10, '#6c9a48'],
   [606, 152, 22, 14, '#b7a654'], [624, 168, 18, 12, '#8f7a4a'], [612, 140, 14, 8, '#5f8f44'],
 ]);
+/**
+ * W6 (U-8): traffic lanes [x1, y1, x2, y2] along ROADS, stopping short of the plants' hit boxes
+ * (no car's lamp sits beside the battery's or by the solar farm), and the share of the cars on
+ * the road by hour of day ([hour, share], linear in between: the commuter peaks at 08:00 and
+ * 17:30, a few cars all night). Cars keep left.
+ */
+export const LANES = Object.freeze([[126, 121, 196, 121], [196, 121, 224, 107], [196, 107, 470, 107], [298, 62, 298, 148], [376, 62, 376, 148]].map(Object.freeze));
+export const TRAFFIC = Object.freeze([[0, 0.1], [5, 0.1], [7, 0.7], [8, 1], [9.5, 0.6], [12, 0.55], [16, 0.7], [17.5, 1], [19, 0.6], [22, 0.3], [24, 0.1]].map(Object.freeze));
+/** W6 (G-3): a streetlight every LAMP_STEP px along ROADS, either side by turns; it is a district's when that cell is within LAMP_REACH px. */
+export const LAMP_STEP = 8, LAMP_REACH = 8;
+/** W6 (U-8): the cars' paint, their head and tail lights, a soak's steam, the air-con condensers and their fan blades. */
+export const LIFE_COLOURS = Object.freeze({cars: Object.freeze(['#eceae4', '#c8453a', '#3a5a8c', '#a9b0b8', '#2e3036']), head: '#fff2cc', tail: '#e0483c',
+  steam: 'rgba(238,242,246,0.5)', fanBody: '#c9ccd0', fanBlade: '#4a4f57'});
 /** Tree zones [x, y, w, h, n]: n trees scattered (deterministically) in each box. */
 export const TREES = Object.freeze([
   [0, 58, 640, 5, 90], [130, 62, 80, 14, 16], [456, 58, 36, 40, 16], [498, 60, 20, 16, 8], [564, 86, 26, 12, 8],

@@ -39,7 +39,8 @@
 // a blue surplus is barred "|||" and carries a "+" and, where the run is wide enough, the word
 // SURPLUS (GAP_MARK). K-23: the canvas has role="img" and an aria-label saying what the picture
 // says (stackSummary: the gaps, then the surplus runs and the rooftop), refreshed at most once
-// per real second.
+// per real second. W6 (a11y): the L button is named EXPAND_NAME; in the desk's slot the desk is
+// scaled whole (desk/desk.css), so the canvas draws at devicePixelRatio × screenScale(el).
 //
 // Phase 2b, the city levers (desk/README.md §31; U-3, Q-50, Q-57). The skyline already carries
 // every booked MW (flex is in the forecast's P50), so the stack draws where each block is, not
@@ -140,6 +141,17 @@ export const SURPLUS_MIN_PX = 4;
 const ROOF_MIN_MW = 1;
 const ROOF_HATCH_PX = 9;
 const ROOF_HATCH = 'rgba(241,211,92,0.32)', SILHOUETTE = 'rgba(230,237,243,0.5)';
+/** W6 (a11y): the L button's name, the key first as on its face (WCAG 2.5.3); aria-pressed says whether the stack is out. */
+export const EXPAND_NAME = 'L: expand the Live Stack over the map';
+/**
+ * W6 (a11y): the scale the page draws a box at: its box on screen over its own width (desk.css scales the desk's slot whole), so
+ * the canvas's backing store can follow and stay sharp. 1 out of the desk, or when the page cannot say (a stand-in DOM).
+ */
+export function screenScale(e) {
+  const w = e.offsetWidth, r = typeof e.getBoundingClientRect === 'function' ? e.getBoundingClientRect() : null;
+  const z = w > 0 && r && r.width > 0 ? r.width / w : 1;
+  return z > 1.001 && z <= 4 ? Math.round(z * 1000) / 1000 : 1;
+}
 const NAMES = {coal: 'COAL', ccgt: 'CCGT', gta: 'GT·A', gtb: 'GT·B', gtc: 'GT·C', hydro: 'HYDRO', wind: 'WIND', solar: 'SOLAR',
   tie: 'TIE', battery: 'BATTERY', rert: 'DIESEL', dr: 'DR'};
 const LEVER = {soak: 'HOT WATER SOAK', aircon: 'AIR-CON CYCLE'};
@@ -258,6 +270,8 @@ export function createLiveStack(doc, root, actions) {
   btn.type = 'button';
   btn.textContent = 'L';
   btn.title = 'Expand the Live Stack over the map (L)';
+  btn.setAttribute('aria-label', EXPAND_NAME);
+  btn.setAttribute('aria-keyshortcuts', 'L');
   btn.setAttribute('aria-pressed', 'false');
   Object.assign(btn.style, {position: 'absolute', right: '0px', top: '0px', minWidth: '24px', minHeight: '24px', font: FLOOR_FONT, padding: '0'});
   const tip = doc.createElement('div');
@@ -279,7 +293,7 @@ export function createLiveStack(doc, root, actions) {
   // gapMarks: one 'kind:hatch:glyph' per red, amber and blue run drawn; rooftop, surplus, price: what Phase 2a drew
   const stats = {draws: 0, skips: 0, recomputes: 0, tear: null, gapMarks: [], marks: [],
     rooftop: {mw: 0, future: false, past: 0, word: false}, surplus: {cols: 0, minPx: 0, word: 0}, price: {text: '', spill: false}};
-  let drawnKey = '', drawnSize = '', drawnAt = -1e9;
+  let drawnKey = '', drawnSize = '', drawnAt = -1e9, zoom = 1;
 
   // Q-41: kind 'info' help (blue), 'no' a refusal (red), else amber
   const say = (text, kind) => {
@@ -388,7 +402,7 @@ export function createLiveStack(doc, root, actions) {
   // ---------------------------------------------------------------- drawing
 
   function prepare() {
-    const dpr = globalThis.devicePixelRatio || 1;
+    const dpr = (globalThis.devicePixelRatio || 1) * zoom;   // (W6 a11y: in the desk's slot the desk scales it, screenScale)
     const W = Math.max(60, el.clientWidth || cv.clientWidth), H = Math.max(40, el.clientHeight || cv.clientHeight);
     if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
     const ctx = cv.getContext('2d');
@@ -1207,7 +1221,8 @@ export function createLiveStack(doc, root, actions) {
     // 2c: at rest at most STACK_MAX_HZ a real second but for the size; frozen at night but for it.
     if (message && nowMs > message.until) say('');
     const night = v.obs.nightShift, live = !night && (drag || sel || pending || message || hoverLayer || hoverGap || hoverBlue || locked()); // (the watch animates; an AGC day's read-only stack rests, K-24)
-    const size = (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' + expanded + '|' + (globalThis.devicePixelRatio || 1) + (night ? 'N' : '');
+    zoom = screenScale(el);
+    const size = (el.clientWidth || 0) + 'x' + (el.clientHeight || 0) + '|' + expanded + '|' + (globalThis.devicePixelRatio || 1) + '|' + zoom + (night ? 'N' : '');
     let key = '';
     if (!live && !night) {
       let glow = '';
@@ -1230,3 +1245,4 @@ export function createLiveStack(doc, root, actions) {
     },
   };
 }
+export const BUILD = '2026-10-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

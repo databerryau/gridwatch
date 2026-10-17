@@ -24,9 +24,10 @@ import * as weather from '../sim/weather.js';
 import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {restoreAllowedS, isPerfect} from '../sim/market.js';
 import {imbalanceSegments} from '../desk/calc.js';
-import {CLASSIC, SCENARIOS} from '../content/scenarios.js';
+import {CLASSIC, SCENARIOS, SA2016_SCENARIO} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
-import {scenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
+import {DAILIES, dailyScenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
+import {anniversaryOf, SA2016} from '../content/anniversaries.js';
 import {objective, consequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
@@ -160,18 +161,44 @@ function setSetting(game, key, value) {
   return '';
 }
 
-// C-2, Q-75: the scenario of the seed's date
-export const scenarioForSeed = seed => SCENARIOS[scenarioIdOf(ymdOf(seed))];
+// C-2, Q-75: the scenario of the seed's date (W6, D-29: on an anniversary, its variant: content/anniversaries.js; on SA
+// 2016's seed, S-7's first Hard day, its own)
+export const scenarioForSeed = seed => ((seed >>> 0) === SA2016.seed ? SA2016_SCENARIO : SCENARIOS[dailyScenarioIdOf(ymdOf(seed))]);
+
+/**
+ * W6 (D-29): the anniversary that shapes this game's day (its date's, when it plays the date's variant; SA 2016 on its own
+ * scenario, on any date), else null.
+ */
+export function anniversaryFor(game) {
+  if (game.state.scenarioId === SA2016_SCENARIO.id) return SA2016;
+  const ymd = ymdOf(game.seed), a = anniversaryOf(ymd);
+  return a && game.state.scenarioId === dailyScenarioIdOf(ymd) ? a : null;
+}
+
+/**
+ * W6 (D-29): the GUARD is still the one the night shift handed over at 04:00: above 0 (Loy Yang's day arms it,
+ * content/anniversaries.js; every other day hands over none), and the player has not set the ring since. The watch, the
+ * respond card and the moment name it as the night shift's then: YOUR GUARD is one the player set (K-16, X-40, D-21).
+ */
+export const nightGuard = state => state.battery.guardMW > 0 && !state.log.some(r => r.type === 'guard');
 
 // The build stamp a daily list is gated under (Q-75).
 export const dailyStamp = () => SIM_VERSION + '|' + scenarioHash(SCENARIOS.desk) + '|' + scenarioHash(SCENARIOS['desk-weekend']);
+
+/**
+ * W6 (D-29): what an anniversary's daily is made from, beyond the stamp (which hashes the desk scenarios only): {seed (its
+ * listed seed), hash (its variant's scenarioHash)}, else null. tools/ladder.mjs keeps it with the date's row (LADDER.anniv).
+ */
+export function anniversaryStamp(ymd) {
+  return anniversaryOf(ymd) ? {seed: dailyFor(ymd, dailyStamp()).seed, hash: scenarioHash(SCENARIOS[dailyScenarioIdOf(ymd)])} : null;
+}
 
 // Q-75: ?seed=N, ?date=YYYY-MM-DD, else today's daily (§32.5.3)
 export function dailyFrom(search, date) {
   const q = new URLSearchParams(search || ''), n = Number(q.get('seed')), t = q.get('date'), st = dailyStamp();
   if (q.get('seed') && Number.isFinite(n)) {
-    const s = n >>> 0, d = dailyFor(ymdOf(s), st);
-    return {seed: s, scenarioId: d.scenarioId, ymd: d.ymd, gated: d.gated && d.seed === s};
+    const s = n >>> 0, d = dailyFor(ymdOf(s), st);   // (the seed's scenario: SA 2016's is its own, S-7)
+    return {seed: s, scenarioId: scenarioForSeed(s).id, ymd: d.ymd, gated: d.gated && d.seed === s};
   }
   return dailyFor(/^\d{4}-\d\d-\d\d$/.test(t) ? t : date || new Date(), st);
 }
@@ -274,20 +301,22 @@ export function resetDay(game, seed) {
   game.hist = createHist();
   game.histView = null; game.histViewS = -1;
   game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
-  game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
+  game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.guardNight = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
   game.acts = [];   // (F-7: the player's actions, for the save)
   game.noCoach = false;   // (O-8: set when the desk is taken)
   game.marg = null; game.margAct = -1; game.margWatched = false;   // (O-6: Marg's day, from the desk taken)
   game.plates = firstShift(game) && game.settings.plates ? new Set(PLATE_GROUPS) : new Set();   // (O-3: a first shift's cover plates)
   game.households = game.scenario.city.suburbs.reduce((a, s) => a + s.households, 0);
-  // W6 (S-7, Y-2): a Hard day from the shelf is known by its seed: never gate-checked (no plan keeps every light on)
+  // W6 (S-7, Y-2): a Hard day from the shelf is known by its seed: never gate-checked (par sheds on it)
   game.hard = hardDayOf(game.seed);
   if (game.hard && game.daily) game.daily = Object.assign({}, game.daily, {gated: null});
   // W6 (Y-2, Q-99): first, official or practice, fixed for the day from what storage holds now (another tab may have
   // played) and today's local date (a tab left open past midnight); an official run is marked at 09:00 (tickOnce)
   if (game.todayOf) game.today = game.todayOf();
   freshHistory(game);
-  game.run = Object.assign(HI.statusOf(game.history, {ymd: dailyYmd(game), today: game.today, firstShift: firstShift(game), off: !game.historyOn}),
+  // (F-8: today's date past the calendar's end has no daily: practice, "No daily today")
+  game.run = Object.assign(HI.statusOf(game.history, {ymd: dailyYmd(game), today: game.today, firstShift: firstShift(game), off: !game.historyOn,
+    noDaily: noDaily(game)}),
     {started: false, claimed: false, id: game.seed + '-' + Date.now() + '-' + (++runCount)});   // (the id tells this tab's entry from another's)
   parFor(game);
   return game;
@@ -389,7 +418,10 @@ function shedText(state, r) {
 /** A step's (or an input's) records: traces, sounds, refusals, the tray; a card that rings ends FAST (Q-63). */
 export function handleRecords(game, recs, by) {
   for (const r of recs) {
-    if (r.kind === 'contingency') { startTrace(game.rec, game.state); game.guardAt[game.state.conts.length] = game.state.battery.guardMW; } // (D-21: the GUARD set at the trip)
+    if (r.kind === 'contingency') { // (D-21: the GUARD set at the trip; D-29: whether it was still the night shift's)
+      const n = game.state.conts.length;
+      startTrace(game.rec, game.state); game.guardAt[n] = game.state.battery.guardMW; game.guardNight[n] = nightGuard(game.state);
+    }
     if (r.kind === 'shed' && r.why === 'directed' && game.phase === 'play') D.startShedWatch(game.director, game.state, shedText(game.state, r));
     let cues = EMPTY;
     try { cues = recordCues(game, r); } catch { cues = EMPTY; } // sound is optional (C-8): never stop the tick
@@ -858,7 +890,7 @@ export function buildVm(game, f) {
         glow = null;
       }
     }
-    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c)});
+    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c), nightGuard: nightGuard(game.state)});
     game.respondGlow = game.respond.glow;
   }
   if (mode.mode !== 'RESPOND-CARD') game.respond = null;
@@ -931,16 +963,18 @@ export function buildVm(game, f) {
   let watch = null;
   if (mode.mode === 'WATCH' && c) {
     const tr = traceOf(game.rec, c.n);
-    if (tr) watch = W.watchView(game.watchMem, tr, c, state.tick, {rate: mode.rate, version: mode.watchVersion, guardMW: obs.battery.guardMW});
+    if (tr) watch = W.watchView(game.watchMem, tr, c, state.tick, {rate: mode.rate, version: mode.watchVersion, guardMW: obs.battery.guardMW, nightGuard: nightGuard(state)});
   }
   // K-15 (Q-97): the first directed shed's compact watch: its stopwatch and its one sentence, no beats
   if (mode.mode === 'SHED-WATCH') watch = {n: -1, tS: mode.watchS, beat: '', beatIndex: -1, caption: D.shedWatchText(d, state), shed: true,
     stopwatch: W.stopwatch(mode.watchS, mode.rate), nadirHz: 0, rate: mode.rate, version: 'compact', rise: false};
   if (state.over && !game.end) {
-    // Q-48: black is an F at once; par's ALL-IN and the grade are filled in place below, on the frame par has its score
-    const allIn = S.allIn(obs.score, game.households);
+    // Q-48: black is an F at once; par's ALL-IN is filled in place below, on the frame par has its score. F-8: a listed daily
+    // is graded at once against its stored par (the same in every browser); any other day when the page's par has its score.
+    const allIn = S.allIn(obs.score, game.households), stored = storedPar(game);
     game.end = {black: state.black, score: obs.score, hash: hashState(state), inputs: game.playerInputs, seed: game.seed, v: SIM_VERSION,
-      allIn, parAllIn: null, grade: state.black ? S.grade(allIn, null, true) : null,
+      allIn, parAllIn: null, stored, parDrift: 0,
+      grade: state.black ? S.grade(allIn, null, true) : stored ? S.grade(allIn, {total: stored.total}, false, stored.shedMWh) : null,
       handFlown: !!state.control.handFlown, gated: game.daily ? game.daily.gated : null, // Q-64, Q-75 (null: not a daily)
       perfect: isPerfect(obs.score, state.black), noCoach: !!game.noCoach, // S-6; O-8
       // W6 (Y-4): what the share card reads: a first shift (as the desk was taken), the reserve diesel armed by the
@@ -953,13 +987,15 @@ export function buildVm(game, f) {
       week: weekAhead(game.todayOf ? game.todayOf() : game.today, dailyStamp())};
     // D-7: a finished shift, kept with the other seen flags (HAND is offered from the second)
     if (game.phase === 'play') { game.director.seen.shifts = (game.director.seen.shifts || 0) + 1; saveSeen(game); }
-    recordRun(game);   // (W6, Y-3: an official run is finished, its grade filled in when par's arrives)
+    recordRun(game);   // (W6, Y-3: an official run is finished, with its grade: F-8's stored par is there at once)
     if (!game.replay) clearResume(game);   // (F-7: nothing left to resume)
   }
   const par = game.par, end = game.end; // (a par day that went black gives no grade)
   if (end && !end.parAllIn && par && par.done && par.score && !par.black) {
     end.parAllIn = S.allIn(par.score, game.households);
-    end.grade = S.grade(end.allIn, end.parAllIn, end.black, S.parShedMWh(par.score)); // (S-7: a Hard day when par shed)
+    // F-8: the stored par keeps the grade; the page's own par differs from it only on an engine whose arithmetic drifts
+    if (end.stored) end.parDrift = Math.round(end.parAllIn.total) - end.stored.total;
+    else end.grade = S.grade(end.allIn, end.parAllIn, end.black, S.parShedMWh(par.score)); // (S-7: a Hard day when par shed)
   }
   if (end) verdictFor(game);
   margFrame(game, obs, mode);
@@ -1069,7 +1105,8 @@ function verdictFor(game) {
   game.verdictKey = key;
   const parScore = par && par.done && par.score && !par.black ? par.score : null;
   const pm = parScore && par.minutes && par.minutes.length ? s => parMinute(par, s) : null;
-  const first = VD.moment(mem, conts, {nightS}), m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: first.cont ? game.guardAt[first.cont.n] : undefined});
+  const first = VD.moment(mem, conts, {nightS}), fc = first && first.cont;
+  const m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: fc ? game.guardAt[fc.n] : undefined, nightGuard: !!fc && !!game.guardNight[fc.n]});
   end.verdict = {
     lights: VD.lightsRow(mem, end.score, parScore).text,
     cost: VD.costRow(end.allIn, end.parAllIn), carbon: VD.carbonRow(end.allIn, end.parAllIn),
@@ -1080,9 +1117,10 @@ function verdictFor(game) {
   // W6 (Y-4, Y-7): the share card, once par has settled (its score, or none) or the grid went black; Y-3: the run's grade
   end.share = !end.black && par && !par.done ? null : shareFor(game, end);
   if (end.share) recordRun(game);
-  // O-6: her closing line, once the grade is in (said once; kept on the verdict after): Y-7's line, the card's quote
+  // O-6: her closing line, once the share card is made (said once; kept on the verdict after): Y-7's line, the card's quote.
+  // (F-8: a stored par grades before the page's par settles; she waits for the card, so the card still quotes her)
   const said = game.marg && game.marg.said.find(l => l.key === 'verdict');
-  const closing = said || (game.marg ? margSay(game.marg, 'verdict', MARG_LINES.verdict(end.grade, end.share && end.share.closing), Math.floor(st.tick / TPS)) : null);
+  const closing = said || (game.marg && end.share ? margSay(game.marg, 'verdict', MARG_LINES.verdict(end.grade, end.share.closing), Math.floor(st.tick / TPS)) : null);
   end.verdict.marg = closing ? closing.text : '';
 }
 
@@ -1096,13 +1134,40 @@ export const LADDER_NAMES = Object.freeze(['did nothing', 'a scripted shift']);
  * before the grade, or with a stale list (another build's).
  */
 export function ladderFor(game, g, list = LADDER) {
-  const ymd = dailyYmd(game), row = ymd && list.v === dailyStamp() && list.rows ? list.rows[ymd] : null;
+  const row = listedRow(game, list);
   if (!row || !g) return null;
   const [parT, shed, nothing, lean, competent] = row, par = {total: parT};
   const pts = t => (t < 0 ? 0 : (S.grade({total: t}, par, false, shed) || {points: NaN}).points);
   const out = [[LADDER_NAMES[0], pts(nothing)], [LADDER_NAMES[1], Math.max(pts(lean), pts(competent))], ['par', 1000], ['YOU', g.points, true]];
   return out.filter(x => Number.isFinite(x[1])).sort((a, b) => a[1] - b[1] || (a[2] ? 1 : b[2] ? -1 : 0));
 }
+
+// This daily's row in content/ladder.js (this build's list), else null: off the calendar, a Hard day or another seed; on an
+// anniversary (D-29), a row made from another seed or variant than today's (the list's anniv: stale, as another build's list is)
+function listedRow(game, list) {
+  const ymd = dailyYmd(game);
+  if (!ymd || list.v !== dailyStamp() || !list.rows) return null;
+  const an = anniversaryStamp(ymd), made = an && list.anniv ? list.anniv[ymd] : null;
+  return !an || (made && made.seed === an.seed && made.hash === an.hash) ? list.rows[ymd] || null : null;
+}
+
+/**
+ * F-8 (risk 5): par's stored end on this daily, {total (ALL-IN $), shedMWh}, from content/ladder.js (tools/ladder.mjs runs the
+ * same AP.runPar the page re-runs, under this build's stamp). The grade is made from it, so it is the same in every browser
+ * and is there the moment the day ends; the page's own par only fills THE NUMBERS and the debrief. null off the calendar, on
+ * a Hard day or another seed, or with a stale list (the page's par grades then, as before).
+ */
+export function storedPar(game, list = LADDER) {
+  const row = listedRow(game, list);
+  return row && row[0] > 0 ? {total: row[0], shedMWh: row[1]} : null;
+}
+
+// F-8: the dailies' calendar ends here (content/dailies.js `to`)
+const TO_YMD = +DAILIES.to.replace(/-/g, '');
+/** F-8: today's date is past the dailies' calendar: there is no daily today ("No daily today": practice, no number). */
+export function noDaily(game) { const ymd = dailyYmd(game); return !!ymd && ymd === game.today && ymd > TO_YMD; }
+/** Y-1, F-8: a date's daily number ("Daily #5"), none before the launch or past the calendar's end. */
+export const dailyNumber = ymd => (ymd && ymd <= TO_YMD ? SH.puzzleNumber(ymd) : null);
 
 /** Y-1: the date of the daily this game plays (its date's listed seed), else null (another seed is not that daily). */
 export function dailyYmd(game) {
@@ -1117,9 +1182,11 @@ export function shareFor(game, end) {
   // (the coach is the exception that is tagged: a first shift coaches unless switched off, a later one is off unless switched
   // on, O-8; so NO COACH on a first shift and COACHED on a later one, where O-8's text has NO COACH on every later card)
   // (PRACTICE on any run that does not count: an unclaimed first shift, a run that ended before 09:00, a practice run)
-  const tags = [end.firstShift && 'FIRST SHIFT', !official(game) && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
+  // (D-29: ANNIVERSARY first, so a long card drops it last; the incident's name stays off the card, as every event does;
+  // SA 2016 is a Hard day, played on any date: HARD DAY, no ANNIVERSARY)
+  const tags = [anniversaryFor(game) && !game.hard && 'ANNIVERSARY', end.firstShift && 'FIRST SHIFT', !official(game) && 'PRACTICE', end.handFlown && 'HAND-FLOWN',
     end.firstShift ? end.noCoach && 'NO COACH' : !end.noCoach && 'COACHED', end.glassBroken && 'GLASS BROKEN', g && g.hardMWh && 'HARD DAY'].filter(Boolean);
-  const n = ymd ? SH.puzzleNumber(ymd) : null;
+  const n = dailyNumber(ymd);
   const card = SH.shareCard({ymd, n, seed: game.seed, name: game.hard ? 'Hard day ' + game.hard : '', grade: g, perfect: end.perfect, black: end.black, lowHz: end.lowHz, spark: end.spark,
     endS: end.endS, you, par, tags, closing});
   return Object.assign(card, {bucket, closing, n, ymd, tags});
@@ -1161,7 +1228,6 @@ function startOfficial(game) {
 // saved tick proves it (a mismatch gives a fresh day, said so). What frames alone keep (the plates lifted, Marg's day, the
 // K-12 offers) is saved beside the actions. Two slots, so a practice run never overwrites today's official or first shift.
 
-export {RESUME_LOCK, RESUMING} from '../render/format.js';
 /** F-7: the saved runs: today's daily (official or a first shift), and practice. */
 export const RESUME_KEY = 'gridwatch:v4:resume', RESUME_SLOTS = Object.freeze(['daily', 'practice']);
 /** F-7: in play the run is saved this often (grid s), at each action of the player's, and when the tab is hidden or closed. */
@@ -1331,7 +1397,7 @@ export function claimRun(game) {
 export function runView(game) {
   const r = game.run, ymd = dailyYmd(game), st = HI.streaks(game.history, game.today);
   return {status: r.status, why: r.why, hard: game.hard, started: r.started, claimed: r.claimed, claimable: r.status === 'first' && !r.claimed && !!game.end && game.historyOn,
-    historyOn: game.historyOn, n: ymd ? SH.puzzleNumber(ymd) : null, entry: r.why === 'done' ? game.history.days[ymd] || null : null,
+    historyOn: game.historyOn, n: dailyNumber(ymd), entry: r.why === 'done' ? game.history.days[ymd] || null : null,
     streak: st.streak, best: st.best, played: st.played};
 }
 

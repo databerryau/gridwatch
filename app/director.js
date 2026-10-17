@@ -523,3 +523,4 @@ export function answerFeeder(d, state, id, leave) {
   for (let j = 0; j < at.length; j += 4) { const x = ds[at[j]]; if (x.id === id || (g && cardGroup(x) === g)) d.fc[x.id] = leave ? Infinity : at[j + 2]; }
   return true;
 }
+export const BUILD = '2026-10-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

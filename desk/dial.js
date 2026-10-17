@@ -63,8 +63,9 @@ export function dialAngle(hz) {
   return Math.PI + (f - DIAL_LO) / (DIAL_HI - DIAL_LO) * Math.PI;
 }
 
-function fitCanvas(cv) {
-  const dpr = fin(globalThis.devicePixelRatio, 1) || 1;
+// (W6 a11y: the desk is scaled whole, ctx.zoom(): the backing store follows, so the dial stays sharp)
+function fitCanvas(cv, zoom) {
+  const dpr = (fin(globalThis.devicePixelRatio, 1) || 1) * (fin(zoom, 1) || 1);
   const w = Math.max(1, Math.round(fin(cv.clientWidth, 232) * dpr)), h = Math.max(1, Math.round(fin(cv.clientHeight, 100) * dpr));
   if (cv.width !== w) cv.width = w;
   if (cv.height !== h) cv.height = h;
@@ -95,7 +96,7 @@ export function createFreqDial(ctx, parent) {
   parent.appendChild(box);
 
   function draw(vm, fShow, ghostHz, pinHz) {
-    const {w, h, dpr} = fitCanvas(cv);
+    const {w, h, dpr} = fitCanvas(cv, ctx.zoom && ctx.zoom());
     const g = cv.getContext('2d');
     if (!g) return;
     g.setTransform(1, 0, 0, 1, 0, 0);

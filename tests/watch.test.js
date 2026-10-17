@@ -1,5 +1,5 @@
 // tests/watch.test.js: the K-15 watch's beats in physical order (X-39), on the review's real evening trips.
-import {test} from 'node:test';
+import {test, before} from 'node:test';
 import assert from 'node:assert/strict';
 import * as W from '../app/watch.js';
 import {traceOf} from '../app/record.js';
@@ -31,14 +31,18 @@ function assertOrder(tr, c) {
   return names;
 }
 
+// The two evenings are played in the hook, a day each (W6, the test budget: CLAUDE.md's 2.5 s is for a test's checks).
+const T = {};
+before(() => { T.oct16 = tripFrom(20261016, '18:40'); T.oct17 = tripFrom(20261017, '17:40'); });
+
 test('X-39: 2026-10-16 18:49, the battery lights before the governors (no inverter MW lights GOVERNORS at T+0.02 s)', () => {
-  const {c, tr} = tripFrom(20261016, '18:40');
+  const {c, tr} = T.oct16;
   const names = assertOrder(tr, c);
   assert.equal(names[1], 'battery', names.join(' '));
 });
 
 test('X-39: 2026-10-17 17:49, the battery\'s 386 MW gets its beat', () => {
-  const {c, tr} = tripFrom(20261017, '17:40');
+  const {c, tr} = T.oct17;
   assert.ok(atExtreme(tr, c).batt > 300);
   const names = assertOrder(tr, c);
   assert.equal(names[1], 'battery', names.join(' '));

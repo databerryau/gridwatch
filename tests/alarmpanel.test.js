@@ -77,9 +77,10 @@ test('Q-46: every number in an explainer is a constant (sim/params.js, app/alarm
     for (const [k, s] of Object.entries(shown)) {
       for (const n of numbers(s)) assert.ok(isValue(n, k === 'real' ? fromRows : []), t.id + '.' + k + ': ' + n + ' is no constant' + (k === 'real' ? ' and not in the cited rows' : '') + ': ' + s);
     }
-    // SPEC §8.3: the trip lockout only as GRIDWATCH's rule and unverified; no household count, no ISA-18.2, no MSL3 value
+    // SPEC §8: the trip lockout only as GRIDWATCH's rule, beside how long real ones are out (§8.1 "Return after a coal-unit
+    // trip"); no household count, no ISA-18.2, no MSL3 value (a scaled game value, §8.2)
     const all = Object.values(shown).join(' ');
-    if (/locked out|lockout/.test(all)) assert.match(all, /unverified/, t.id);
+    if (/locked out|lockout/.test(all)) assert.match(all, /GRIDWATCH's rule: real ones are out for hours/, t.id);
     assert.doesNotMatch(all, /household|1\.9 ?M|ISA|MSL3|swing/i, t.id);
   }
   // the trigger lines are built from the constants: one spot check each way

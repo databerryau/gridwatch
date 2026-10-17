@@ -67,7 +67,7 @@ const ASK = {
   tie: 'The tie imports from next door. It can trip too: count it as a unit.',
   restore: 'Close one feeder at a time, five minutes apart. Cold load comes back heavier.',
   dr: 'Demand response: industry stops for an hour. Dear, and only a few a day.',
-  rert: 'The diesel is the last card: twenty minutes, and the most expensive MW you buy.',
+  rert: 'The diesel is the last card: twenty minutes here, and the dearest MW you buy.',
   shed: 'Shedding a district holds frequency. Better that than the relays doing it for you.',
   city: 'The suburbs can soak or delay load. They remember being asked too often.',
 };

@@ -7,10 +7,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15   # (the suite, then each test file again alone for the budget: about 5 min on a runner)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: node --test
+      - run: node tools/calendar-left.mjs   # F-8: warns when fewer than 60 days of dailies are left
+      - run: node tools/slow-tests.mjs      # CLAUDE.md's test budget: warns about a file over 6 s alone or a test over 2.5 s

@@ -1,7 +1,11 @@
 /* desk/desk.css: the greybox desk (desk/README.md §6, SPEC §4.2 / K-17). The shell links it.
    Floor layout 1280×300: columns 232 / 424 / 336 / 256 px with 8-px gutters and 4-px side pads;
    panel heights per column below (flex ratios equal the floor pixels, so 300 px is exact).
-   --dk-k (set by desk.js, 1..1.5) scales knobs and type up to the 1920×520 wide layout.
+   --dk-k (set by desk.js, 1..1.5: the window over the floor) scales the WHOLE desk above the floor
+   (W6 a11y): .dk lays out the floor's layout in floor pixels (its box is the slot over --dk-k) and
+   a transform scales it to the slot, so every word, knob and hit box grows together (1.2× at
+   1536×864, 1.5× at 1920×1080). Inside .dk, --u is 1 px; the annunciator's slot (.dk-vars, sized by
+   the page) keeps --u = --dk-k px. Pointers read getBoundingClientRect, which the transform keeps true.
    Every control is at least 24×24 px (WCAG 2.5.8); tests/desk.test.js reads the sizes here.
    Status is never colour-only: every lamp and tile also carries a glyph or letter, and fills that
    differ by state also differ by pattern or border (K-22, desk/README.md §13.4).
@@ -12,21 +16,23 @@
   --dk-k: 1;
   --u: calc(1px * var(--dk-k));
   --dk-bg: #0d1117; --dk-panel: #151b23; --dk-panel2: #1b222c; --dk-line: #2a323d; --dk-text: #c9d1d9;
-  --dk-dim: #8b949e; --dk-faint: #6e7781; --dk-bright: #f0f6fc; --dk-green: #3fb950; --dk-amber: #d29922;
+  /* (W6 a11y: --dk-faint carries words, so 4.5:1 on every panel; the cover plates keep the old #6e7781: they are disabled) */
+  --dk-dim: #8b949e; --dk-faint: #848d97; --dk-bright: #f0f6fc; --dk-green: #3fb950; --dk-amber: #d29922;
   --dk-red: #f85149; --dk-blue: #58a6ff; --dk-violet: #a371f7; --dk-orange: #f0883e; --dk-cyan: #39c5cf;
   --dk-rim: #3a4350; --dk-shade: #0d111799;
   --dk-mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", monospace;
   color: var(--dk-text); font: calc(10 * var(--u))/1.2 system-ui, -apple-system, "Segoe UI", sans-serif; user-select: none;
 }
 .dk {
+  --u: 1px;
   box-sizing: border-box;
   display: grid;
   grid-template-columns: 232fr 424fr 336fr 256fr;
   column-gap: 8px;
   padding: 0 4px;
-  width: 100%; height: 100%;
+  width: calc(100% / var(--dk-k)); height: calc(100% / var(--dk-k));
   min-width: 1280px; min-height: 300px;
-  max-width: 100vw;
+  transform: scale(var(--dk-k)); transform-origin: 0 0;
   overflow: hidden;
   background: var(--dk-bg);
 }
@@ -47,10 +53,10 @@
 .dk-empty { color: var(--dk-faint); padding: 2px; }
 .dk-live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .dk-note { position: absolute; left: 2px; bottom: 2px; z-index: 5; max-width: 220px; padding: 1px 4px; border-radius: 3px;
-  background: #3d1f1f; border: 1px solid var(--dk-red); color: var(--dk-bright); font-size: 9px; line-height: 1.2;
+  background: #3d1f1f; border: 1px solid var(--dk-red); color: var(--dk-bright); font-size: 10px; line-height: 1.2;
   white-space: normal; pointer-events: none; }
 .dk-note[hidden] { display: none; }
-.dk-note.info { background: #0d2238; border-color: var(--dk-blue); font-size: 10px; }
+.dk-note.info { background: #0d2238; border-color: var(--dk-blue); }
 .dk-vars .glow, .dk-vars .dk-focus, .dk .glow, .dk .dk-focus { box-shadow: 0 0 0 2px var(--dk-cyan), 0 0 8px var(--dk-cyan); }
 .dk-vars .dk-focus, .dk .dk-focus { outline: 2px solid var(--dk-bright); outline-offset: 1px; }
 .dk :focus-visible { outline: 2px solid var(--dk-blue); outline-offset: 1px; }
@@ -87,7 +93,7 @@
 .dk-imb-track { position: relative; flex: 1 1 0; min-height: 12px; background: var(--dk-panel2); border-radius: 2px; overflow: hidden; }
 .dk-imb-zero { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--dk-bright); }
 .dk-seg { position: absolute; top: 1px; bottom: 1px; display: flex; align-items: center; justify-content: center; overflow: hidden;
-  font-style: normal; font-size: 8px; color: #000c; }
+  font-style: normal; font-size: 9px; color: #000; }
 .dk-seg b { font-weight: 700; }
 .dk-seg-sched { background: var(--dk-blue); }
 .dk-seg-sched.neg { background: #da3633; }
@@ -151,7 +157,7 @@
 .dk-offzone { position: absolute; left: 0; right: 0; background: repeating-linear-gradient(45deg, #0000 0 4px, #6e778133 4px 6px); }
 .dk-gatezone { position: absolute; left: 0; right: 0; background: #da363355; border-bottom: 2px solid var(--dk-red); }
 .dk-gatezone[hidden] { display: none; }
-.dk-gate-label { position: absolute; right: 1px; bottom: 1px; font-size: 7px; color: var(--dk-bright); white-space: nowrap; }
+.dk-gate-label { position: absolute; right: 1px; bottom: 1px; font-size: 8px; color: var(--dk-bright); white-space: nowrap; }
 .dk-ticks { position: absolute; inset: 0; pointer-events: none; }
 .dk-tick { position: absolute; left: 0; width: 8px; height: 1px; background: var(--dk-dim); }
 .dk-cone { position: absolute; left: 3px; right: 3px; background: #58a6ff22; border: 1px dashed #58a6ff66; }
@@ -255,13 +261,19 @@
 .dk-ready-btn.offered { border-color: var(--dk-cyan); color: var(--dk-cyan); }
 .dk-scope { position: relative; display: flex; flex-direction: column; align-items: center; }
 .dk-scope-canvas { width: 62px; height: 62px; display: block; }
-.dk-slip { font: 7.5px var(--dk-mono); color: var(--dk-dim); white-space: nowrap; }
+.dk-slip { font: 8.5px/1.1 var(--dk-mono); color: var(--dk-dim); white-space: nowrap; }
+/* W6 (a11y): a unit on the scope: its slip line takes the label's row, the bay's whole width */
+.dk-sync.scoped .dk-scope { position: static; }
+.dk-sync.scoped .dk-slip { position: absolute; left: 2px; right: 2px; bottom: 2px; font: 9px/1.1 var(--dk-mono); color: var(--dk-text); }
+.dk-sync.scoped .dk-sync-label { visibility: hidden; }
+/* and the bay's notes (a blocked CLOSE's above all) sit over that row, not on it: the slip is how the next close is timed */
+.dk-sync.scoped:not([hidden]) ~ .dk-note { bottom: 16px; }
 .dk-sync-ctl { display: grid; grid-template-columns: repeat(3, minmax(24px, 1fr)); grid-template-rows: repeat(3, 24px); gap: 0 2px; }
 .dk-sync-ctl .dk-btn { height: 24px; padding: 0 2px; }
 .dk-breaker { background: #2f7d3f44; border-color: var(--dk-green); color: var(--dk-bright); font-weight: 700; grid-column: span 2; }
-.dk-sync-label { grid-column: 1 / -1; font-size: 7.5px; line-height: 1.1; color: var(--dk-faint); }
+.dk-sync-label { grid-column: 1 / -1; font-size: 9px; line-height: 1.1; color: var(--dk-faint); }
 .dk-restore { display: flex; flex-direction: column; gap: 2px; }
-.dk-restore-head { height: 12px; font: 700 calc(8.5 * var(--u)) var(--dk-mono); color: var(--dk-faint); }
+.dk-restore-head { min-height: 12px; flex: none; font: 700 calc(9 * var(--u))/1.2 var(--dk-mono); color: var(--dk-faint); }   /* (a reason wraps to a second line) */
 .dk-restore-head.lit { color: var(--dk-green); }
 .dk-feeders { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; min-height: 0; flex: 1 1 0; }
 .dk-feeder { display: grid; grid-template-columns: 1fr auto 16px 52px; gap: 4px; align-items: center; height: 26px; padding: 0 2px;
@@ -280,14 +292,20 @@
 @media (min-width: 1600px) { .dk-tile { font-size: 10px; white-space: nowrap; text-overflow: ellipsis; } }
 /* its notes over the map, not the tiles */
 .dk-annun > .dk-note { bottom: calc(100% + 4px); }
-.dk-tile.s-alarm { background: #da3633aa; color: var(--dk-bright); }
-.dk-tile.s-alarm.p3 { background: #9a7a22aa; }
+.dk-tile.s-alarm { --dk-hi: #c93c37; --dk-lo: #5a1d1b; background: #da3633aa; color: var(--dk-bright); }
+.dk-tile.s-alarm.p3 { --dk-hi: #80641c; --dk-lo: #2e240a; background: #9a7a22aa; }
 .dk-tile.s-ackd { background: #da363366; color: var(--dk-bright); }
-.dk-tile.s-cleared { color: var(--dk-text); border-color: var(--dk-amber); }
-/* ISA-18.1 sequence R (§11 B-2): fast 2.5 Hz, slow 0.8 Hz, never above 3 Hz (WCAG 2.3.1). */
+.dk-tile.s-cleared { --dk-hi: #66521a; --dk-lo: #0d1117; --dk-hi-edge: var(--dk-amber); --dk-lo-edge: var(--dk-line);
+  color: var(--dk-text); border-color: var(--dk-amber); }
+/* ISA-18.1 sequence R (§11 B-2): fast 2.5 Hz, slow 0.8 Hz, never above 3 Hz (WCAG 2.3.1). The fill flashes between its
+   --dk-hi and --dk-lo, never the words: they keep 4.5:1 in both phases (W6 a11y; a brightness filter dimmed them too).
+   The two phases differ by 2.5:1 or more, and the ring-back's amber edge flashes with its fill: it is often the panel's
+   only motion. */
 .dk-tile.flash-fast { animation: dk-flash 0.4s steps(2, jump-none) infinite; }
 .dk-tile.flash-slow { animation: dk-flash 1.25s steps(2, jump-none) infinite; }
-@keyframes dk-flash { 0% { filter: brightness(1.6); } 100% { filter: brightness(0.6); } }
+@keyframes dk-flash {
+  0% { background-color: var(--dk-hi); border-color: var(--dk-hi-edge, var(--dk-line)); }
+  100% { background-color: var(--dk-lo); border-color: var(--dk-lo-edge, var(--dk-line)); } }
 /* B-1: an escalated tile (a P2 tile showing as P1) is double-bordered and bold, with ‼ in its glyph. */
 .dk-tile.esc { border-style: double; border-width: 3px; font-weight: 700; }
 /* Reduced motion: fast = 1 Hz, slow = steady (the ◇ glyph carries it); no shake; no handle glide. */
@@ -314,19 +332,22 @@ body.rm .dk-guard.lifted::after, .dk-rm .dk-guard.lifted::after { animation: non
 .dk-logbtn { height: 24px; margin-top: -2px; }
 .dk-cards { display: flex; flex-direction: column; gap: 2px; min-height: 0; flex: 1 1 0; overflow: hidden; }
 .dk-cards[hidden], .dk-log[hidden] { display: none; }
-.dk-card { display: grid; grid-template-columns: auto 1fr auto; grid-template-rows: auto; align-items: center; gap: 3px; min-height: 24px;
-  padding: 0 2px; border-left: 3px solid var(--dk-dim); background: #0006; font-size: calc(8.5 * var(--u)); overflow: hidden; }
+/* W6 (a11y): a card is two rows, the sender and its button over the message (three 10-px lines across the card; at the
+   floor three such cards fill the tray's 182 px), where it had a third of the width at 8.5 px */
+.dk-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 3px; min-height: 24px;
+  padding: 0 2px; border-left: 3px solid var(--dk-dim); background: #0006; font-size: calc(10 * var(--u)); overflow: hidden; flex: none; }
 .dk-card.sev-warn { border-left-color: var(--dk-amber); } .dk-card.sev-crit { border-left-color: var(--dk-red); } .dk-card.sev-good { border-left-color: var(--dk-green); }
-.dk-card-meta { display: flex; gap: 3px; color: var(--dk-dim); white-space: nowrap; }
-.dk-card-text { overflow: hidden; max-height: 2.4em; }
-.dk-card-btn { min-width: 24px; min-height: 24px; height: 24px; }
-.dk-log { overflow-y: auto; min-height: 0; flex: 1 1 0; font: 8.5px var(--dk-mono); }
+.dk-card-meta { display: flex; gap: 3px; min-width: 0; overflow: hidden; color: var(--dk-dim); white-space: nowrap; }
+.dk-card-glyph { order: -2; } .dk-card-time { order: -1; }   /* (the time before the sender: a long sender is what the edge cuts) */
+.dk-card-text { grid-column: 1 / -1; overflow: hidden; line-height: 1.15; max-height: 3.45em; }
+.dk-card-btn { grid-row: 1; grid-column: 2; min-width: 24px; min-height: 24px; height: 24px; }
+.dk-log { overflow-y: auto; min-height: 0; flex: 1 1 0; font: 10px var(--dk-mono); }
 .dk-emerg { display: flex; gap: 4px; flex: 1 1 0; min-height: 0; }
 .dk-hold { position: relative; flex: 1 1 0; min-width: 24px; min-height: 24px; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 2px; white-space: normal; text-align: center; overflow: hidden; }
 .dk-hold[hidden] { display: none; }
 .dk-hold-face { font-weight: 700; font-size: calc(9 * var(--u)); }
-.dk-hold-sub { font-size: 7.5px; color: var(--dk-dim); line-height: 1.1; }
+.dk-hold-sub { font-size: 9px; color: var(--dk-dim); line-height: 1.1; }
 .dk-hold-bar { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--dk-amber); }
 .dk-rert { flex: 1.3 1 0; }
 .dk-rert.covered { background: repeating-linear-gradient(135deg, #8a2b2b 0 6px, #6e2222 6px 12px); color: var(--dk-bright); }
@@ -343,7 +364,7 @@ body.rm .dk-guard.lifted::after, .dk-rm .dk-guard.lifted::after { animation: non
 .dk[data-plates~="battery"] #dial-battery, .dk[data-plates~="tie"] #knob-tie,
 .dk[data-plates~="restore"] #bay-restore, .dk[data-plates~="dr"] #btn-dr,
 .dk[data-plates~="rert"] #key-rert, .dk[data-plates~="shed"] #key-shed {
-  background: repeating-linear-gradient(45deg, #2a3038 0 4px, #20252c 4px 8px); color: var(--dk-faint); border-color: #3a414b; cursor: not-allowed; }
+  background: repeating-linear-gradient(45deg, #2a3038 0 4px, #20252c 4px 8px); color: #6e7781; border-color: #3a414b; cursor: not-allowed; }
 
 /* ---- K-24 (Q-93): the commitment desk on an AGC day. A station's START / STOP words over its machine lamps;
    the levers, the wheel and the stack are readouts (a press answers in blue). */

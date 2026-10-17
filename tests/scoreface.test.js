@@ -113,7 +113,7 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.ok(text.includes('your plants emitted ' + Math.round(you.co2t).toLocaleString('en-US') + ' t; imports and dark load are counted at your mix'));
   assert.ok(text.includes(you.cents.toFixed(1) + ' c/kWh · $' + you.perHousehold.toFixed(2) + ' per household'));
   const hhSpan = card.querySelectorAll('span').find(s => /per household/.test(s.textContent));
-  assert.equal(hhSpan.title, 'per household of the city\'s 1.9M (unverified); real networks also count businesses');
+  assert.equal(hhSpan.title, 'per household of a Melbourne-size city (1.9M); real networks also count businesses');
   const lines = b.lines();
   assert.ok(lines.includes('Biggest gap to par: SUPPLY +' + dollars(you.supply - par.supply) + ' (more or dearer plant than par\'s)'), lines.join('\n'));
   { const c = boot({par: {score: Object.assign({}, PAR, {cost: Object.assign({}, sc.cost, {flex: 1})})}}); c.take(); c.over(); assert.ok(c.lines().some(l => /^Biggest gap to par: SUPPLY \+\S+ \(more or dearer plant, or city payments, than par's\)$/.test(l)), c.lines().join('\n')); } // §31.9.11: either day paid the city
@@ -121,7 +121,7 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.deepEqual(b.$('end-reliability').querySelectorAll('p').map(p => squash(p.textContent)),
     ['SAIDI 0.0 min · SAIFI 0.00 · MAIFI 0.00 per household today (par: SAIDI 0.0 min)', 'No household was off for more than 3 minutes. ?']);
   assert.match(lines.at(-2), /^Seed 20261008 · v4-[\w.-]+ · 0 inputs · hash 0x[0-9a-f]{8}$/);
-  assert.deepEqual(card.querySelectorAll('button').map(x => x.id), ['btn-share', 'q-reliability', 'btn-save-log', 'btn-again', 'btn-shelf']);
+  assert.deepEqual(card.querySelectorAll('button').map(x => x.id), ['btn-save-moment', 'btn-share', 'q-reliability', 'btn-save-log', 'btn-again', 'btn-shelf']);
   assert.doesNotMatch(text, FORBIDDEN);
   // the reliability "?": a button inside the card that toggles the reliability entry's popover
   const q = b.$('q-reliability');

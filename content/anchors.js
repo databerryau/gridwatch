@@ -22,6 +22,7 @@ export const ANCHORS = Object.freeze([
   {game: 'chip-co2', rows: ['CARBON counts the region\'s own generation.']},
   {game: 'gauge-n1', rows: ['LOR states via 1.25 × L.', 'COVER after a trip is R5 ≥ L, not the NEM\'s secure state.']},
   {game: 'key-shed', rows: ['Automatic directed shedding when the FOS timers run out.']},
+  {game: 'key-rert', rows: ['Reserve diesel: a 20-minute lead, paid only for the MWh it runs']}, // W6 realism (SPEC §8.2)
   {game: 'ring-guard', rows: ['The GUARD is contingency FCAS, set by hand.']},
   {game: 'btn-dr', rows: ['City levers\' MW, costs and patience.']},
   {game: 'btn-mute', rows: ['Hum reference tone']},

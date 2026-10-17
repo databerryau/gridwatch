@@ -2728,3 +2728,398 @@ Copied verbatim from `desk/README.md` §32.1 when this file was frozen: Q-61–Q
 | **Q-89** | **The owner's call, 2026-10-13: SYNC is a skill flourish.** K-12's "≥ 1 SYNC that matters on 80% of dates" (with D-8's RESTORE) is dropped: measured 0% of 100 dates (a manual close 4 min before the auto-synchroniser almost never fills a gap a competent player has). The offers stay (Q-78, readable at Q-86's 30×) and 2d's debrief counts clean closes. | Realistic (plants mostly synchronise themselves) and honest: the moment is a flourish, not a decision. |
 | **Q-90** | **The owner's call, 2026-10-13: D-10 is decided at playtest.** Measured: the worst gap ≤ 40 real s on 61% of 100 dates (64% of the 365 generated: heat 77, drought 69, calm 62, storm 59%), the median day's worst gap 36 s; opportunities per act 4 / 5 / 11 (inside 3–5 / 5–8 / 8–12). Recorded; gate 1's testers judge whether the quiet stretches feel dead. | The counts per act are on target; whether 45 s of storm afternoon is dead air is a feel question. |
 | **Q-91** | **The owner's call, 2026-10-13: the hand-back holds the clock.** This supersedes Q-70's RESTORE pace and its first-time 10×. Measured first: a player who closed each handed-back feeder 15 real s late (the `slow` proxy) scored a median 656 points (a C) against 991, because after Q-70's 10-s window the morning ramp runs at 270×. The rule now:<br>• **The hold.** At each task feeder's allowed second (`market.restoreAllowedS`: the later of its `clearS` and the last restore + `RESTORE_INTERVAL_S`), the rate director plays **FEEDER-CARD** at rate 0, like the respond card (K-16), with a card that names the feeder and its pickup: "SAL4's feeder is repaired: about 230 MW with its cold load. R or Enter: restore it now · Esc: go on".<br>• **Its keys.** Enter, R or the bay's CLOSE restores the named feeder when the permissive allows (FOCUS 1× for `RESTORE_FOCUS_S` as today). If the permissive refuses, the refusal answers with its reason and the card stays. Esc goes on: the clock resumes, and the feeder stays dark and becomes the operator's (task MWh from `clearS`, PERFECT's window from the allowed second, `RESTORE_PACE_MAX_S`). Any other desk input also dismisses the card and is applied, as with the respond card.<br>• **When.** One card per feeder per allowed second; a feeder left by Esc is not held again (the bay and the line still ask). Never from 21:00. During a watch it waits, after the respond card. FAST is refused while it shows.<br>• **Par.** Its reference playback counts each hand-back as a hold of `REF_RESPOND_CARD_S` real s at zero grid time, in place of Q-70's 30× segment; Q-88's restore-first stays. The `slow` proxy's 15 real s now pass on the held clock.<br>• **D-2's E.** The RESTORE term becomes the cards' held real seconds. The scripted run presses Enter on every card, feeder cards included.<br>• **Retired.** `RESTORE_PACE_RATE`, `RESTORE_FIRST_RATE` and `seen.restore` go (no dead code). | Asked directly: no reflex at all. The hand-back becomes a decision (close it now, or go on and close it from the bay later), at the price of up to two short stops in the morning. |
+
+
+## Appendix D. W6 batch records (2026-10-16/17)
+
+The full records of the items built in parallel on the night of 16-17 October 2026 (each by a builder in its own worktree, reviewed through two lenses, every finding put to a sceptic, the confirmed ones fixed), integrated on branch `w6-batch`. SPEC.md's W6 list keeps one short bullet each. Each record is followed by the questions its builder and fixer left for the owner.
+
+### gate 2 kit
+
+- **Gate 2 kit and the release checks (SPEC §11 W6).** `playtest/gate2-README.md` is the protocol. It needs 3–5 testers, at least 2 new; returning testers keep their history only in the browser they played in, and only after a finished day. Each tester is booked without a link, for 30 minutes (the session runs about 25). The owner plays that date's daily first and sends the card, as SHARE copied it, to the tester's phone as the invitation. The owner then watches in silence from the message to the end card. That includes the landing page on a phone, and on a small laptop screen too: a 1920×1080 screen at 150% is under 600 high when maximised, and the hint there is "Press F11, then PLAY ANYWAY". The protocol lists what never to say: nothing about sharing, tomorrow, streaks or "the moment". Gate 1's "Would you play tomorrow?" is left out, because it plants the day-2 check. A neutral day-2 message goes out two days later. The protocol says how each of the six checks is scored and gives the pass line for 5, 4 or 3 testers. The other files: `gate2-tester-log.md` (one printable sheet), `gate2-invite.md` (the messages for SMS/WhatsApp, Slack/Teams and email), `gate2-results.md` (totals, session times, what each failure points at, the SPEC line to paste) and `release-checks.md` (R-1 the card in two apps; R-2 the preview; R-3 the landing page and COPY LINK on an iPhone and an Android phone; R-4 `?selftest` in Chrome, Edge and Firefox; R-5 a year of dailies; a record table). *Deviations:* one preview rule, word for word, serves check 4 and R-2. The picture and the title always count. The description counts where the app shows descriptions; iMessage shows the address instead. In an app that previews no links, or none inside a longer message, the preview is n/a, and check 4 is scored on the card and the phone page. The spec's gate 2 line asks for title, description and image in every tester's app, which would fail the gate on an app that never shows a description even with nothing wrong in our tags. This change is put to the owner. R-2 keeps Y-8's accept (all three in two apps) and uses a news article's link to tell which kind an app is. R-2's no-preview diagnosis changes one thing at a time: the card, the card with `https://`, that link alone, another site's link. So the 8-character fix to the card's last line (Y-4) is proposed only when `https://` alone made the difference. Window-size steps reload, because `app/start.js` decides between landing and game once, when the page opens. D-2's session limit follows the briefing's title (FIRST SHIFT or OFFICIAL), not whether the tester is new or returning. `tests/gate2-kit.test.js` holds the kit to the game's words (the og: tags, the landing page, COPIED, the card's link) and to these rules; `tools/changed-tests.mjs` now follows `playtest/` paths. *Measured:* on 2026-10-16 the calendar had 360 days of dailies left (it ends 2027-10-11). The release list asks for 365, so it needs extending before launch.
+
+Open questions:
+- Calendar length at release. SPEC §11 W6 wants dailies.js to cover 365 days or more at release. On 2026-10-16 it covers 360, and it loses a day every day. Should Claude extend it before launch (tools/daily-gen.js from 2026-10-12 with more --days, then tools/ladder.mjs, about 25 minutes of machine time), or should the rule be read as 'a year from daily #1'? My recommendation: extend it when the dailies are regenerated at the final SIM_VERSION.
+- No fail rule for gate 2. The spec gives gate 2 no fail rule, so the kit uses gate 1's: fix the top three issues and re-run with at least two new testers. A failure only in the app check (card or preview) is fixed and re-checked without new testers. With 3 or 4 testers the counts needed are rounded up, so with 3 testers the next-day check needs 2 of 3, which is harder than 2 of 5. The kit recommends five testers. Is that all right?
+- The card's link has no https:// in front (databerryau.github.io/gridwatch, to keep the card short). Some apps may not preview a link written that way inside a text message, and release check R-2 will show whether that happens. If an app doesn't preview it, would you accept 8 more characters on the card (it stays within 280)?
+- Running gate 1 and gate 2 together to save testers. I recommend against it and wrote the kit to run gate 2 after gate 1: the two invitations differ (gate 1 sends the link and one sentence; gate 2 sends your card), and gate 1's 'Would you play tomorrow?' would plant gate 2's next-day check. Gate 1's testers are welcome back, so gate 2 only needs two new people. Do you want them combined anyway?
+- The spoiler question. The spec says 'zero spoiler complaints', which may mean complaints the tester raises unprompted. The kit asks one neutral question ('Was there anything you'd rather not have known before you played?') so a spoiler isn't missed, which may turn up weaker complaints. Keep the question?
+- No finding skipped. Open questions for the owner (nothing was left undone):
+- Q1. Gate 2's wording. The spec's gate 2 line (SPEC-history 'title, description, image in each tester's app') is now read through the preview rule: the description counts only where the app shows descriptions, and an app that previews no links, or none inside a message, is n/a. Approve this, or keep the strict wording? Under the strict wording an iMessage tester fails gate 2 even when our tags are fine.
+- Q2. A small laptop gets the phone's landing page. A 1920x1080 laptop at 150% scaling, common on work laptops, gets the landing page in a maximised browser (innerHeight about 587, below DESK_H 600). It then reads 'GRIDWATCH is played on a computer... Send yourself the link', which is wrong for someone sitting at one. My suggestion (not built: app/landing.js and app/start.js are outside this task, and start.js is the selftest agent's this wave): with a fine pointer, say 'This window is smaller than the desk: press F11 for full screen, or PLAY ANYWAY', and load the game when the window grows past 1280x600. Another option: lower DESK_H if the desk fits in about 580.
+- Q3. If R-2's step 3 finds an app that previews a link only when it is sent alone (iMessage may be one), strangers' cards will arrive there with no preview. Adding characters to the card can't fix that, and the kit records it as n/a for the owner. Would you want a change to the card's layout if this turns up?
+
+### ?selftest
+
+- **Risk 5, ?selftest.** next.html?selftest shows a plain check page in place of the game, on any screen including a phone. app/start.js routes it before the landing check and loads app/selftest.js on demand; a page that does not load says 'The selftest did not load: ...'. The page plays five golden runs in this browser and checks each against content/selftest.js, the values Node worked out with the same runner. (1) Par's whole day on Fri 16 Oct, a weekday HEATWAVE: the state's hash (hashState) each grid hour and at the end, and par's ALL-IN, which must equal the stored par the grade uses (content/ladder.js, F-8; $14,749,198). (2) The same on Sat 31 Oct, a weekend storm ($7,780,161). (3) The page's no-input day through app/game.js to 14:00, which is the ladder's own check (LADDER.check). (4) A scripted player's 7 inputs on 16 Oct (the fuzz proxy), replayed with sim/step.js replay to 08:00, past the under-frequency relays at 07:52. (5) A scripted player's 15 inputs on 25 Oct, replayed to 10:15, past a trip at 09:57. Each row says PASS or FAIL with its time. A FAIL gives every reason, in order. First comes the first grid hour whose hash differs, whatever the end: that is where the numbers split. Then a day that ended at a different tick ('the day ended at 12:30, not 04:00'). Then the end's hash, given only when no hour differs. Then an ALL-IN off the stored par, or a ladder from another build. The page shows the browser from its user agent ('Firefox 131 on Windows'), SIM_VERSION and the stamp. It ends with one line for the release notes, copied with COPY: 'GRIDWATCH selftest 2026-10-16: PASS 5/5 · Chrome 141 on Windows · v4-core-2d.0|2010181300|1748646610 · 10.9 s'. The line names each failure by its first reason. Golden values from another build play nothing: every case fails with 'run node tools/selftest-gen.mjs'. The work runs in 40 ms slices and yields between them, so the progress bar moves and the page keeps running in a background tab. The exception is each replay: a single replay() call that cannot pause, so the page stops redrawing for about 0.6 s and then 0.9 s, which is why replay checkpoints stay at 11:00 or earlier. tools/selftest-gen.mjs writes the golden values in about 10 s and stamps them like the ladder. Run it after tools/ladder.mjs whenever SIM_VERSION changes; tests/selftest.test.js fails until you do. That test plays the cases headless in the stand-in DOM to 06:00 (par and the no-input day) and to their checkpoints (the replays): 3.8 s for the file, 2.3 s for its slowest test. It also covers judge()'s reasons, including a split hour together with an early blackout (review fix). Measured: the whole page takes 10.9 s in Node; browsers should take about 11 to 20 s. app/selftest.js is 6.4 KB gzip and content/selftest.js 1.3 KB; both are ON_DEMAND in tests/budget.test.js (7 KB and 2 KB). tools/perf.mjs leaves a routed page (ROUTED) out of the first visit, so the first-visit budget is unchanged. Deviation: tools/perf.mjs is outside the file list; the change is small and only adds code. Still to do: the actual check in Chrome, Edge and Firefox (no browser was opened), a tools/README.md row for selftest-gen.mjs, and F-9's build id in the copy line once that lands.
+
+Open questions:
+- The replay cases use logs from a scripted player that makes random valid moves (the fuzz proxy), not a real person's day, and the generator re-records them at each SIM_VERSION. A real recorded day (yours, or one from Y-10 telemetry later) would carry the system's plans, about 180 KB by 10:00, and would stop replaying at every SIM_VERSION. Are scripted logs fine for the release check, or do you want a real day added once telemetry exists?
+- Each replay is one replay() call, which cannot pause, so its checkpoint is early (08:00 and 10:15) and the page stops drawing for about a second while it runs. Par's whole days already cover the full day. A three-line addition to sim/step.js replay (continue from a saved state, with no change to the sim's results) would let the replays run sliced to the day's end, at about +3 s (Node estimate). Do you want that?
+
+### Y-6, save the moment
+
+- **Y-6, save the moment (REVIEW-2026-10-14 opportunity 14).** `app/momentimage.js`, loaded on demand when pressed. THE MOMENT on the end card gets SAVE IMAGE once YOUR CARD is made; a day without a moment has none. While the no-GUARD twin computes (D-21: 10 ms a frame after the day, seconds for an evening trip), the button is shown off, "SAVE IMAGE (computing…)". `VD.moment` marks the moment `pending`, and the verdict rebuilt when the twin is done re-fills the card with the button on, so a saved picture never lacks the fall with no GUARD. A twin that failed leaves no mark. It draws a 1200×630 PNG on a canvas of its own: GRIDWATCH and the daily's number; the date (a Hard day's name, else the seed) and the tags; the score and letter. Then the moment's frequency, ±3 minutes, with its lowest second (its highest on a rise) marked with its Hz, and the dashed NO GUARD and PAR lines as on the card (`render/charts.js` plotMoment, additive). The extreme is in big figures (on a calm day, the thinnest margin's spare MW), with the fall with no GUARD under it. When the day went lower than the moment, the figure is "LOWEST HERE", with "The day's low: 48.38 Hz" (the share card's "low") under it. This happens when D-21's first shed comes before a deeper trip. A shed with no trip says whose it was: "The city desk cut load to hold it." or "Homes were cut off automatically to hold it." CAUGHT BY is a stacked bar and a row per source, in the end card's order and with its numbers (`caughtText`), YOUR GUARD in bold; seven rows close up to stay above the foot. Last come the closing line (Y-7) and the link. It is saved as DOWNLOAD REPLAY LOG is (a Blob, a.download, a toast): `gridwatch-daily-5-moment.png`, off the calendar `gridwatch-seed-N-moment.png`. It keeps the share card's rule. Each line made from the day goes through `lintCard` and is left off if it fails. The trace has no time axis, only a bar a minute long. *Where it differs:* SPEC-history's Y-6 (the 24-hour trace with the L-10 strip) became the moment, as the review proposed. The lint bans "battery", "relay", "solar" and "wind". So the stack calls the battery's own droop "droop response": the GUARD is its fast frequency response, and no other row says "fast". The relays' cut is "homes cut off" and the inverters' "inverters backing off". The button waits for YOUR CARD, so on a listed daily whose page par still computes, it comes with the card. A calm day's moment (its thinnest margin) gets the button too. *D-21, amended in Y-6's review:* a relay (UFLS) shed counts as a trip's only when a fall began at most 3 minutes (`MOMENT_SPAN_S`) before it. A trip hours earlier, or a rise, no longer claims it. Otherwise the shed is the relays' own: the card says "the relays shed RED1 to hold frequency" (it used to say "the city desk shed" for both), and no twin is made for it. *Measured:* the module is 4.2 KB gzip (4.5 KB noted in `tests/budget.test.js`, reported only, Q-84). `render/charts.js` grew 0.9 KB and `app/endcard.js` 0.4 KB, all on demand. `app/verdict.js` grew 0.2 KB in the first visit (the pending mark and the relays' words). `tests/momentimage.test.js` runs in 0.9 s alone.
+
+Open questions:
+- The share card's lint bans "battery" (its reason: "the battery" says what caught a fall), so the picture's catch stack calls the battery's own response "fast response" and the relays' "homes cut off". The trace on the picture already shows the fall, so the real names would spoil little more. Should the picture be allowed to say "battery" and "relays" (a short exception list for the stack), or are the softer words right?
+- The stack shows MW, as the card does. The MW add up to roughly the size of what tripped, so a friend who knows the plant could guess which unit went. Percentages would hide that but are less concrete. Keep MW?
+- SAVE IMAGE also appears on a calm day, whose moment is its thinnest margin. That picture shows a quiet trace and 'SPARE IN 5 MIN 200 MW'. Keep it, or offer the button only on days with a trip or a cut?
+- On a phone, a download is clumsier than the share sheet. Following the task, the button only downloads, as DOWNLOAD REPLAY LOG does. Should it hand the PNG to the share sheet (navigator.share with files) where the browser offers that, and fall back to the download elsewhere?
+- No finding was skipped. Two notes. (a) Findings 1 and 4 are the same race, fixed once. (b) The builder's four open questions still need the owner and are unchanged: should the stack be allowed to say 'battery' and 'relays'; MW or percentages; should calm days get the button; and navigator.share on phones. app/momentimage.js grew from 3.9 to 4.2 KB gzip, over its 4 KB note. I raised the note in tests/budget.test.js to 4.5 KB; it is reported only, not a gate (Q-84). app/verdict.js grew 0.2 KB, and that is in the first visit.
+
+### F-9, version coherence
+
+- **F-9, version coherence.** `app/build.js` holds `BUILD`, the release: its date, with '.2' for a second release that day ('2026-10-16' now). It is bumped by hand at release, never by an ordinary commit. The same bump goes into `version.json` at the site root (`{"build": ...}`, the live build) and into a copy in each of eight carriers (`app/boot.js` CARRIED): sim/params, sim/step, app/score, app/history, app/director, desk/desk, render/livestack and content/closing.
+  - Copies, not re-exports (a deviation from "every module exports BUILD"): a page loads `app/build.js` once, so a re-export of it would always agree. Eight carriers spread across the layers, not every module, keep the release bump to one search-and-replace.
+  - **At boot**, a carrier from another release (or from before F-9, with no BUILD) stops the game. The page shows "GRIDWATCH was updated — refresh to continue" over everything ("Part of the old version was still in your browser."), and the game is never started. The banner takes the focus. The page boots through `app/boot.js` `boot(win, carried, load)`, and a test boots it with a carrier from another release.
+  - **A mix that cannot link** (a module asks for an export the other release lacks) never reaches boot, because the browser loads nothing. `app/start.js` catches the failed load and shows the same banner. Any other failure says "GRIDWATCH could not load — refresh to try again" with the error's words.
+  - **The modules loaded on demand** (`app/build.js` LATE: content/text, app/alarmpanel, content/alarmhelp, app/endcard, render/charts, app/perf, app/suburbcard) reach app/shell.js through `late()` (`app/boot.js` LOAD). One that cannot link shows UPDATED in the note, refetches, and the game plays on. The shell still says what could not be loaded. A network failure adds nothing.
+  - **The end card and its charts load at boot** (`early()`), not at 21:00. Every day that ends needs them, and a deploy during the day can no longer hand the verdict a file of another release. One that cannot link stops the game under the banner before the day is played; the resume save is kept. One that could not load (the network) is asked for again at the day's end. Cost: about 15.8 KB gzip (app/endcard.js 8,853 B and render/charts.js 6,934 B) fetched right after boot on every visit, including days quit before their end. The first-visit measure does not count it.
+  - **While it plays**, the page asks for `version.json` (cache: 'no-store') at boot and whenever the tab comes back, at most once a minute. A live build that differs shows a quiet note: "GRIDWATCH was updated: refresh before your next shift." with a ✕. The note is one line (18 px) at the top centre of the map, under every card and panel. It is not at a corner, where the hydro and wind labels, their trip and STORAGE LOW alarms, and the map's "?" sit. It never pauses, takes a key or moves the focus. A failed check says nothing. UPDATED in the note (from late) is never softened to LATER.
+  - **Never a reload (C-3).** Chrome's refresh takes a page's other files from the cache while they are fresh, so a plain refresh could load the same mix again for up to 10 minutes. On a mix, a failed load, a newer live build, or an on-demand module that cannot link, the page first fetches again, past the cache: the page itself, every file of this site it has loaded, and all of LATE, loaded yet or not. The modules it runs are already loaded, so nothing in it changes, and the player's refresh then gets one release, the end card and help included.
+  - `tests/version.test.js` (10 tests, 1.9 s) checks:
+    - every carrier's copy and `version.json` equal BUILD; no other module keeps or re-exports one; CARRIED spans sim/app/desk/render/content;
+    - a forced mismatch, at gate() and through app/boot.js boot() (the banner, no desk, no start, no throw, no reload);
+    - a load that cannot link or fetch;
+    - a check that fails or agrees (silent), and the once-a-minute limit;
+    - LATE equals the page's import() targets plus what each brings outside the first visit; every lazy(o.X) in app/shell.js comes from LOAD through late or early;
+    - late() and early(): a mix gives the note or the banner and the refetch; the network says nothing; early loads once at boot and again after a network failure;
+    - the real page with an end card that cannot link: loaded at boot, banner shown, frame loop and keys stopped;
+    - the real page booted with a newer live build (the note shows; the desk is taken as ever);
+    - the note's CSS against every plant and suburb label band from 1280x600 to 2560x1440.
+  - The F-1 request lint in `tests/bench.test.js` exempts `app/build.js` from its fetch( check only: its requests are this site's own files.
+  - *Measured* (2026-10-17): the first visit is 532,249 B gzip. That is up 5,355 B on before F-9 (526,894) and up 1,410 B on F-9's first build (530,839). The whole suite passes 1029 of 1029.
+  - Not covered: an on-demand module from another release that still links (it has no BUILD). Since the end card loads at boot with the static files, this is unlikely for the end card. Stamping BUILD on LATE and checking it in late() would close it.
+  - Not verified in a browser: that `fetch(..., {cache: 'reload'})` refreshes the cache that module loads read from. The Fetch spec says it does; checking needs a real deploy. Also not seen in a browser: the note's top-centre position.
+
+§11 release checklist, **Every slice** (new step):
+- [ ] Bump `BUILD` to the release's date (or '.2' for a second release that day) in `app/build.js`, in its eight copies (`app/boot.js` CARRIED) and in `version.json`. Run `git grep -l "BUILD = 'OLD'" | xargs sed -i "s/BUILD = 'OLD'/BUILD = 'NEW'/"`, then do the same for `"build": "OLD"` in `version.json`. `node --test tests/version.test.js` names any copy you missed. A deploy without a bump is not caught by F-9.
+
+Open questions:
+- A deploy without a BUILD bump is not caught by F-9 (as before it). Should the GitHub Action warn when main changes files under app/, sim/, desk/, render/, content/ or audio/ and app/build.js is unchanged? It would be a warning, like tools/calendar-left.mjs, not a failure. I did not build it because the workflow file and tools/ are not mine this wave.
+- C-3 says "Never location.reload()", so neither the banner nor the note has a REFRESH button: the player presses the browser's refresh. A button would be one click clearer, and it would throw away no resume state at the banner, because the game never started there. Do you want C-3 to allow a reload that the player presses, for an update only?
+- Integrator: app/start.js is the selftest agent's file this wave, and both of us edit the start() function, so the merge may need a manual fix. Keep both sides: the new loadFailed import, and calling play() wherever load() was called (both the landing page's PLAY ANYWAY and the direct load).
+- Finding 3, optional part: putting BUILD on the on-demand modules to catch an old one that still links. The sceptic found no concrete harm, and the fix would add carriers outside CARRIED and a ninth copy to every release bump. The end card now loads at boot, in the same cache generation as the static files, so the likeliest mix is caught when it cannot link. It is recorded below as not covered.
+- Finding 3, optional part: writing F-9's words in each on-demand module's own box. app/shell.js is unchanged; UPDATED shows in the note at the map's top centre while the module's box keeps its own 'could not be loaded' line. The end card, the case that matters most, now gets the full banner at boot instead.
+
+### map life (G-4, U-8)
+
+- **G-4 beyond a tint, U-8 map life.** `render/map.js`: `stormBandOf`, `suburbCloud` and `trafficAt` (pure); the map's life laid out with the blocks (`syncLife`); per-frame `wallFrame`, `shelfFrame`, `bandFrame`, `shadeFrame` and `lifeFrame`. Layout data is in `render/mapdata.js` (`LANES`, `TRAFFIC`, `LAMP_STEP`, `LAMP_REACH`, `LIFE_COLOURS`). Tests are in `tests/map-life.test.js`. Everything is drawn from observe(): the warning's own times, the skies, the wind, the temperature, the districts and the bookings; never the pre-rolled weather.
+  - **A storm.** Its wall rises on the western horizon over the hour before the warned arrival, with lightning in it about one quarter-second in six seconds. From the arrival, its shelf cloud and rain band cross the map west to east in 15 grid minutes. Behind the edge it is as dark as the storm overhead, while the cached grade builds ahead with the share of the map crossed. From the warned pass (the news' toS), the rain moves off east over 30 minutes.
+    - **Nothing pops (review).** At the arrival the risen wall stays at full height under the shelf. Once the shelf's ceiling has covered it (the edge's x - 50 past the wall's east edge, 225 px), its foot fades over the next 100 px (lead 0.44 to 0.58). Over the crossing's last eighth the shelf and its ceiling fade with the band, so the slate gives way to the storm's own sky and cloud and never changes in one frame.
+    - **The wall fits the rows the map area shows (review).** The layout is computed before the frame. The wall's height is scaled so that the anvil's top sits on the first row shown: row 42 at the 1280x600 floor, where the wall is lower but keeps its towers, anvil and crown; row 24 at 1920x1080. At 1280x720 and larger it is unchanged.
+  - **A front (Q-79).** Each suburb is shaded by its own rooftop sky (none at 0.85 of clear or better, full at the front's 0.32), and the drifting cloud shadows are as dark as the sky under them. On DESK 1's front, SOL and HAZ are under at +15 min, RED and HAR at +35, all six at +58, and the west is clear again by +120.
+  - **Light.** A storm's daytime gloom lights 60% of the night's windows and the streetlights. A streetlight belongs to the district whose cell is within 8 px. It goes out with that district's first dark block and returns with its last relit one. The streetlights are drawn in the cached city layer. The turbines get red night lamps.
+  - **Life.**
+    - Cars follow the hour (commuter peaks at 08:00 and 17:30), keep left, hide behind nearer buildings, and show headlights after dark.
+    - Glints on the bay and the lake.
+    - Each turbine turns within 10% of the farm's speed.
+    - A soak's suburb steams from four tank vents.
+    - On a HOT day from 26 °C the condensers' fans turn, by day and by night, at up to 1.4 turns per second at 36 °C: x0.15 in an AIR-CON CYCLE's relief, x1.4 while pre-cooling and in the snapback (at most 2 Hz, K-22). After dark the condensers are dimmed with the roofs (0.4 of the day's grey). Review: they used to stop at 19:24, so a cycle booked for the 19:30 peak lost its relief and its snapback. This is U-8's "every active lever is visible on its suburb".
+    - A dark roof's vent and fan are still.
+    - Under reduced motion the life clock is frozen (the look stays), including the water glints and the drifting shadows. The storm does not sweep: the whole map takes it at once at the arrival, as before. The wall never flashes. In the watch, life runs at 0.15x.
+  - **Deviations.**
+    - weatherOf's hold is now the warning's own pass time (toS) when the news names one, else 2 h 20 min as before, so a late dayplan storm (pass capped at 20:50) clears when it says.
+    - The text alternative adds "a storm in the west" (from a quarter risen) and "cloud over <suburbs>". It says "storm" from the warned arrival on (review), not only once the storm has built past 0.3.
+    - U-8's complaint bubbles, news ticker, EV pulse and backstop clack are not built: there is no EV lever, petition or backstop yet.
+    - The small marks are fillRects, so the glint keeps its one path per suburb.
+  - **Measured** (2026-10-16, tests/lib/dom.js's stand-in canvas, A/B against the map before it, interleaved in one process, 3,000 frames per scene):
+    - About +0.01 ms of script a frame at p50 (within ±0.02 noise).
+    - +0.03 ms p50 and +0.04 ms p95 (+74 canvas calls) on the busiest frame, a HOT afternoon with a soak and the condensers.
+    - Layout about 1.3 ms once.
+    - First visit +9.3 KB gzip (map.js +9.0, mapdata.js +0.6). The review adds 0.9 KB more to map.js, mostly comments.
+    - Not re-measured after the review: the wall now draws during the first 58% of a storm's crossing (about 10 fills).
+    - Draw cost in a browser is not measured (next.html?perf).
+
+Summary for the browser pass:
+The city map now shows the day's weather moving across it, and the city looks alive. Everything is drawn from what the player can see: the warning's own times, the skies, the wind, the temperature, the districts and their own bookings. Nothing comes from the sim's pre-rolled weather.
+
+The cut-list G-4 was already mostly built (haze, storm cloud and rain, drifting shadows, feathered turbines), but the weather was uniform: it switched on over the whole map at once. What I added, and where the integrator should look (1280x720, map area):
+
+1. **A storm approaching.** In the last hour before a warned storm's arrival, a slate-grey storm wall rises on the western horizon. It sits in the left third of the sky strip, behind the coal stacks and towers. It has pale rain shafts under it, an anvil spreading east once it is half grown, and a quarter-second pale flash every few seconds. The text alternative says "a storm in the west".
+
+2. **The storm passing over.** At the warned arrival, a dark shelf cloud (a roll of puffs with a pale underside) crosses the sky strip left to right in 15 grid minutes (about 7.5 s at 120x). West of it, the sky and ground are dark and the rain streaks and sheets fall; east of it there is no rain yet. Once it has crossed, the full-storm look is as before. From the warned pass time, the rain moves off east over 30 grid minutes. A daytime storm also lights about 60% of the night's windows and turns the streetlights on.
+
+3. **A cloud front.** On a day warned "Cloud front over the suburbs ... west to east", Solstice Rise and Old Hazelton (the west pair) get a soft shade with drifting cloud shadows. Redgum Flats and Harbourside follow about 20 minutes later, Tallowood Heights and Saltbush Bay about 40 minutes later, and it clears in the same order. The shade follows each suburb's own sky, the same sky that dims its rooftop glint.
+
+4. **Night.** Warm streetlights line the east-west road between the two rows of suburbs and the two north-south roads. A dark district's nearby lamps go out with its windows and come back when it is fully relit. Red lamps blink on the eight turbine nacelles, in step with the stacks.
+
+5. **Life.**
+   - Small cars on the roads: many at 08:00 and 17:30, few at night. After dark they show as white headlight and red tail pixels. They keep left and pass behind tall buildings.
+   - Slow warm glints on the bay and the lake by day.
+   - Turbines turn at slightly different speeds.
+   - A suburb with an active HOT WATER SOAK has white vapour wisps rising off three or four roofs.
+   - On a HOT day from 26 °C, each suburb has three tiny grey air-con condensers with a turning blade. They turn faster as it gets hotter, slowly during an AIR-CON CYCLE's relief, and fast while pre-cooling and in the snapback.
+   - A dark roof's condenser is dim and still, and it has no steam.
+
+Under reduced motion all of this holds still and stays drawn. The storm takes the whole map at once with no sweep, and the wall never flashes.
+
+None of it is a label or a ring, none of it sits inside a plant's hit box, and all the alarm marks (strobes, ✕, hatching, battery arrow) still draw on top.
+
+**Cost.** Measured on the test canvas stand-in (tools/perf.mjs cannot time drawing without a browser), running the old and new map alternately in one process:
+- About 0.01 ms of script per frame, within the noise.
+- 0.03 ms (p95 0.04 ms, 74 more canvas calls) on the busiest frame: a HOT afternoon with a soak and the condensers.
+- The layout costs about 1.3 ms once, on the first frame.
+- First visit: +9.3 KB gzip (map.js +9.0, mapdata.js +0.6), reported, not capped (Q-84).
+
+Please check in the browser:
+- whether the cars read as cars or as noise;
+- how dark the storm band is behind its edge;
+- whether the suburb shade keeps lit and dark districts easy to tell apart;
+- that the alarm marks still stand out.
+
+Open questions:
+- U-8 also lists complaint bubbles, a news ticker, EV chargers that pulse and the backstop's relay clack. None of these is built: there is no EV lever, petition or backstop yet. Do you want a ticker or complaint bubbles once patience is low (a suburb near LOCKED), or should they wait for Phase 3?
+- U-8 says tanks vent steam during a soak, so that is what I drew: white wisps off roofs. Real electric storage heaters don't steam. If you would rather keep it realistic, the alternative is a warm glow on the roof tanks while they soak. Keep the steam?
+- Under reduced motion the storm does not sweep: the whole map takes it at once, as before W6, because a dark band crossing the full map is large-area motion. The front shade still follows each suburb's sky, since that is state that changes over grid minutes, not animation. Is that the right line?
+- The first visit grows by 9.3 KB gzip, mostly map.js's comments in the house style. It is reported, not capped (Q-84). Fine, or should the W6 comment block be trimmed?
+- The worktree was created from main (c4bd179), not w6-batch. I rebased my one commit onto w6-batch (f7f3d54); w6-batch touches none of my files.
+- Nothing in my list was skipped. Two other findings in map.findings were not in my list, so I did not touch them: the streetlight lamps inside Redgum Flats and Old Hazelton that have no owner, and the reduced-motion air-con look.
+- Not measured: draw cost after these changes. The wall now draws for the first ~58% of each storm crossing, about 10 more fills on those frames. I did not re-run the A/B timing. render/map.js grows by 888 B gzip, mostly comments (35,887 B to 36,775 B).
+
+### D-29, anniversary dailies
+
+- **D-29, anniversary dailies (Q-103).**
+  - **What was built.** `content/anniversaries.js` holds three dates, each with a name, a year, a sourced account of at most 60 words, an `echo` and `overrides` laid over the date's desk scenario:
+    - 14 Dec: Loy Yang A3, 2017.
+    - 13 Feb: the Moorabool towers, 2024.
+    - 25 May: Callide C, 2021.
+  - **Scenarios.** `content/scenarios.js` lists each variant as `desk-loyyang`, `desk-weekend-towers` and `desk-callide`.
+    - `content/dailies.js` `dailyScenarioIdOf` names the variant for every attempt of the date, and `dailyFor` returns it. So the page, the week ahead, the gate and the ladder all play it.
+    - `scenarioIdOf` stays the C-2 weekday rule.
+    - The keys sit in `content/dailies.js` because that module must import nothing: daily-gen rewrites it, and a test imports the rewritten text on its own.
+  - **The sim hook.** The sim reads the overrides only through the scenario. The weather shares fix the day's type: Loy Yang hot and calm, the towers hot and storm, Callide mild and calm.
+    - `sim/dayplan.js` reads `dayplan.incident`, which no desk scenario has. So no other day changes, and `dailyStamp` and `SIM_VERSION` stand.
+    - The hook draws from a fifth slot of its own, after Act II and before the late return. Its records are marked `incident`, and none is warned.
+    - `early`: the largest machine trips between 05:15 and 06:00, before dawn. It keeps Q-72's spacing, so Loy Yang's belly crisis is always a front.
+    - `follow`: a second 'largest' trip comes `afterS` after the act's unit trip.
+    - `towers`: in the same second, a `tieDerate` to 400 MW until 04:00 and a trip of the largest machine, between the storm's arrival and its pass. The storm's own link trip is off on that day.
+  - **The GUARD.**
+    - Loy Yang's 04:00 commitment arms the battery's GUARD at 200 MW. It is the night shift's, handed over at 04:00.
+    - The briefing's Watch for says so: "the night shift's battery GUARD at 200 MW", read from the scenario's commitment.
+    - Until the player sets the ring (`app/game.js` `nightGuard`: no 'guard' input in the log), the GUARD is named as the night shift's: the watch caption ("THE NIGHT SHIFT'S GUARD: 200 MW. The battery answers within a second."), the respond card ("battery 495 MW (the night shift's GUARD 200)") and the moment ("Caught by ... the night shift's GUARD 200 MW"). The value is recorded at each trip, beside guardAt.
+    - Once the player sets the ring it is YOUR GUARD, as on every other day; no other day hands one over.
+    - K-16, X-40 and D-21's YOUR GUARD stays the player's.
+  - **The briefing.**
+    - Its first box is ON THIS DAY: the account, then its echo, then a source link.
+    - Loy Yang's echo: "Today's desk echoes the trip, not the catch: your battery is far bigger than 2017's." The account says old coal did the work, and in play the battery catches most of the trip; a test holds that share.
+    - The towers and Callide: "Today's desk echoes it."
+    - Enter on the focused source link opens the source; it is not the Enter that takes the desk.
+    - The title reads "Daily #64 · Loy Yang A3, 2017 · OFFICIAL". TAKE THE DESK stays D-3's one click.
+  - **The help (§8.2).** `content/text.js` builds each exception from the variant's incident data.
+    - 'Event-dense day.' follows its rules with: "The anniversary dailies keep their real incident instead: 14 Dec (Loy Yang A3, 2017), the largest unit trips between 05:15 and 06:00; 13 Feb (Moorabool towers, 2024), in the storm the tie is limited to 400 MW, unannounced, as the largest unit trips; 25 May (Callide C, 2021), Act III's unwarned trip takes the next largest unit with it 5 grid-minutes later."
+    - 'Warning leads are game-sized.' adds: "On 13 Feb (Moorabool towers, 2024), the storm limits the tie with no notice (Event-dense day)."
+    - Proposed for SPEC §8.2: the same note on both rows.
+  - **The share card.** It carries ANNIVERSARY first of its tags (the lint allows it).
+  - **Gating.**
+    - `tools/daily-gen.js --dates D,D` re-gates the dates named and merges them into the shipped list.
+    - An anniversary attempt passes only with its incident in the plan.
+    - The variant's `scenarioHash` goes to `content/anniversaries.js` `GATED`. `tests/anniversary.test.js` fails when a variant changes after its date was gated.
+    - The account, the echo and the source are not in the variant, so they change with no re-gate. The name and year are in it.
+  - **Stored par and ladder (F-8, Y-11).** The stamp does not hash the variants.
+    - `tools/ladder.mjs` keeps, with each anniversary's row, the seed and the variant's `scenarioHash` it was made from: `content/ladder.js` `anniv`, from `app/game.js` `anniversaryStamp`.
+    - The page uses no row made from another seed or variant. The page's own par grades then, and no ladder shows, as with another build's list.
+    - `tests/anniversary.test.js` holds `anniv` to the listed seeds and `GATED`, so a re-gate without its row made again cannot merge.
+    - The file is written by one `ladderText`, which `tests/ladder.test.js` reads the shipped list back through.
+  - **Deviations.**
+    - The account is a box on the briefing, not a card of its own, to keep D-3's one click. Each account is at most 60 words; the box, with its head, echo and source, is at most 65 (the towers' is 62). The briefing grows by about 42-62 words on those three days (Q-110: the cap "doesn't matter really").
+    - Loy Yang's real trip was near 02:00, in the night the player never plays.
+    - The towers fell at 13:08 AEST. The game's storm stays in Act III.
+    - Callide is softened. Its second trip comes five grid minutes after the evening trip; at one minute, par went into the relays on all six attempts tried (UFLS of 253-2,003 MWh).
+    - The towers' moment keeps no 31 real s from the storm's onsets. With that gap, 2 of 6 attempts had no minute for it.
+    - Each variant fixes its day type; it is not drawn. In the shipped list, 14 Dec and 25 May were heatwaves, 14 Dec only at attempt 11. So the Hard days drop from 17 to 16, and those after 14 Dec renumber.
+    - The derate's text is events.js's existing "Network outage: tie imports limited to 400 MW until 04:00."
+    - Loy Yang's GUARD stays armed. Removing it would need a re-gate, and without it the battery still catches about 489 MW, so it is named instead.
+  - **Measured** (2026-10-17, `v4-core-2d.0`).
+    - All three passed D-9 at attempt 0.
+    - Worst gap (D-10): Loy Yang 53.5 s (17:46-20:00), the towers 44.2 s (18:25-20:31), Callide 36.1 s.
+    - Decisions per act: 5/4/9, 4/5/9 and 4/5/13.
+    - Par's ALL-IN, stored for F-8: $10.69M, $9.89M and $8.74M.
+    - The scripted shift, lean / competent: $39.2M / $31.2M on Loy Yang, $31.5M / $9.90M on the towers, $9.80M / $8.69M on Callide.
+    - Par runs on the attempts tried: Loy Yang clean on 4 of 4, the towers on 6 of 6 (lowest Hz 49.24-49.48), Callide on 3 of 4 with the five-minute gap.
+    - On the Loy Yang daily, a player who does nothing sees COAL 1 trip at 05:57 (621 MW). The watch reads "THE NIGHT SHIFT'S GUARD: 200 MW". The battery catches 495 MW, the card says "(the night shift's GUARD 200)", and the low is 49.32 Hz.
+
+Open questions:
+- Should the account say what today's desk will do? I wrote only "Today's desk echoes it.", a hint rather than a schedule. Your decisions note (question 11) recommends announcing the evening trip on ordinary days. If you adopt that, these accounts could say it too, for example "Expect a trip before dawn".
+- Hard days renumber. 14 Dec's variant passes at attempt 0, so its old heatwave Hard day is gone (17 become 16), and every Hard day after 14 Dec moves down one number: Hard day 5 is now 16 Dec. Accept this, or should Hard-day numbers be fixed by date?
+- D-3 word count: on these three days the briefing is about 36-49 words longer (the account box). I kept it inside the briefing to keep the one click. The alternative is a card of its own that needs an extra click. OK as built?
+- The towers' derate reads "Network outage: tie imports limited to 400 MW until 04:00." (sim/events.js's existing text). "Storm damage: ..." would read better. It would only change the variant's day, but it is a text change in sim/events.js, which was not mine to edit. Want it?
+- More anniversaries? The calendar runs to 2027-10-11. Your decisions note suggests 14 March (South Australia's minimum-demand hold, 2021) as an anniversary daily. The SA black system on 28 Sep was left out, as the task said.
+- tools/day-measure.mjs's own command line still reads scenarioIdOf, so run alone on an anniversary date it measures the desk day, not the variant. daily-gen passes it the variant, so the gate's D-10 numbers are right. It is a one-word change to dailyScenarioIdOf, in a file that was not mine.
+- D-10: the towers day's worst gap is 44.2 s and Loy Yang's 53.5 s, over the 40 s target. That is in line with other storm and calm days; I left it alone.
+- Removing Loy Yang's guardMW override, the first alternative in findings 4 and 5. It changes the variant, so it needs tools/daily-gen.js --dates and tools/ladder.mjs, which this task may not run. The sceptic also showed the battery still catches about 489 MW without the GUARD, so removing it would not make coal carry the trip. Fixed with the presentation instead: Watch for, the night shift's GUARD and the echo.
+
+### Y-8 review: a small laptop window
+
+In the SPEC.md W6 record, replace the Y-8 bullet's second sentence (line 449: "Below 1280×600, or with a touch-only pointer, it shows `app/landing.js` (the pitch, the preview image, "GRIDWATCH is played on a computer...", COPY LINK) and never loads the game; a small window with a mouse also gets PLAY ANYWAY, and `?play` skips the page.") with:
+
+"Below 1280×600, or with a touch-only pointer, it shows `app/landing.js` instead of the desk. On a phone or a tablet that page is the pitch, the preview image, "GRIDWATCH is played on a computer...", COPY LINK, and PLAY ANYWAY when there is a pointer that can aim; it never loads the game. A small window on a computer gets its own page (next bullet). `?play` skips the page."
+
+Then add, after that Y-8 bullet:
+
+- **Y-8, a small window on a computer (2026-10-17).** A 1920×1080 laptop at 150% has a maximised browser of about 1280×587, and it got the phone's page. Now a computer gets the small window's page from `app/landing.js` instead. A computer here means: a pointer that can aim (`any-pointer: fine`), a primary pointer that is not a finger, a page the browser has not shrunk to fit (`visualViewport.scale` not below 1), and a screen whose short side is at least 600.
+  - A stylus phone keeps the phone's page. So does a tablet with a pen or a trackpad (a Galaxy Tab S, an iPad with a trackpad): its main pointer is a finger, and its browser widens the page to the desk's min-width and shrinks it to fit, as a phone's does. The review found that such a tablet in portrait got the desk at once, shrunk to about 62%.
+  - The page shows the pitch and "This window is 1280 by 587: 13 px too short for the desk (1280 by 600)." That line updates as the window changes. There is no picture and no COPY LINK, so the page fits a short window.
+  - It says "The game starts by itself once the desk fits:" and then gives the way: FULL SCREEN, F11 or zooming out. On a Mac the keys are Control, Command and F, and Command and minus. On a screen smaller than the desk it says only to zoom out "until it does".
+  - FULL SCREEN uses the Fullscreen API on the press. It is offered only when the screen holds 1280×600 and the browser can lock the keyboard (Chrome and Edge). It locks Esc for the game: Esc still closes cards and skips the watch, and a held Esc leaves full screen. A blocked request says "Full screen was blocked: press F11."
+  - Firefox and Safari do not get the button. There, Esc ends a page's full screen and never reaches the game, and nothing checks the window once the game is up, so the desk stayed 13 px short for the rest of the day (found in review). Those browsers get "press F11 for full screen", whose browser full screen leaves Esc with the page.
+  - PLAY ANYWAY stays.
+  - While the page is up it listens for resize and loads the game as soon as the window holds the desk, whether from full screen, F11, a zoom or a drag. Once the game is up, nothing checks the window again.
+  - On a computer the window alone decides (the screen no longer caps it), so zooming out past a small screen fits the desk; Chrome keeps the screen's size as it was. A phone or tablet keeps the screen's cap.
+  - `?play` and `?selftest` are unchanged.
+  - The gate 2 kit now says a growing window starts the game by itself and a shrinking one reloads. Its stuck hint depends on the browser: "Press FULL SCREEN." in Chrome or Edge, "Press F11." in Firefox (on a Mac, "Press Control, Command and F.").
+  - The desk was not fitted to 587 px. The map is pixel art at a whole-number scale: 2× needs its 268 px of essential rows (SAFE), and 13 px less drops it to 1× with half-size click boxes. The desk's 300 px is K-17's minimum. C-9 stays 1280×600.
+  - Not checked on a real tablet or in a browser. The tablet rule rests on Chromium's pointer mapping and the widening measured in the browser pane, and either of its two checks alone keeps a widened tablet on the phone's page.
+
+Optionally, in the requirement text at line 458, after "(the pitch, a preview image, COPY LINK)" add "(amended: a small window on a computer gets its own page; see the W6 record)".
+
+Open questions:
+- Browser pass for the integrator (no browser here): at 1280x587 in Chrome, Edge and Firefox, check the page's layout and colours. Check that FULL SCREEN enters full screen and the game loads into it. In Chrome and Edge, check that Esc closes a card and a held Esc leaves full screen. Check that Ctrl and minus (90%) starts the game. I could not test that Chrome keeps the screen's size after a zoom; the code is right either way.
+- The owner should decide whether to drop C-9's floor below 600 high, for example to about 557 to cover a bookmarks bar too. That would mean either a smaller map scale or cutting into SAFE's sky strip, plus an X-47-style click-box pass in the browser, or a desk below K-17's 300 px. My recommendation is to keep 1280x600, now that the small-window page gets such a laptop there in one key press or click.
+- Merge note: I edited the gate-2 kit (playtest/gate2-README.md, gate2-results.md, gate2-tester-log.md, release-checks.md and tests/gate2-kit.test.js), which were outside the listed files. tests/gate2-kit.test.js was written to fail once start.js listened for resize. Another branch that edits the kit could conflict.
+- Test hazard elsewhere: when assert.equal(element, null) with no message fails on a stand-in DOM element, Node tries to print the whole parsed next.html and ran out of memory after 152 s. landing.test.js now compares ids. Other test files may use the same pattern.
+
+
+### hygiene (wave 3)
+
+- **X-48, the rest (REVIEW D14; W6).** Removed what the hygiene audit proved dead, each re-checked after F-9, D-29, Y-6, ?selftest and map life with a whole-repo search and the audit's token scans: `SHAKE_MS` in `desk/desk.js` (levers.js and rotary.js keep their own), `SKY` in `render/mapdata.js`, `app/game.js`'s pass-through re-export of `RESUME_LOCK`/`RESUMING` (its own import stays), the unused local `NS` in `app/planview.js`, four unused test imports, `secondOfHour` in sim/README.md's weather.js list, and desk/README.md's `cueOfRecord` fallback (§13.2, §14.1). Kept on purpose: exports only tests use (the tests' way in), the 123 names exported but used only inside their own file, the F-9 `BUILD` carriers (app/boot.js reads them by lookup), the bench page and the branches (the owner's call). Still open from X-48: deleting merged branches, local and on GitHub.
+
+Open questions:
+- The bench page (bench.html plus 5 files, about 68 KB, and 18 exports elsewhere that only it keeps alive) is still the owner's call (REVIEW D14). I left it alone as told.
+- Merged branches are still there: local slice-2d, slice-2e, w6-daily, w6-ladder, w6-outlook, w6-shelf, w6-week, plus 20 on GitHub. Deleting them needs the owner's go-ahead, and the GitHub ones need a push. This is the last open part of X-48.
+- Some rules are written in two places: the K-7 hold time (app/keys.js and desk/util.js), the F-4 needle average (app/record.js and desk/dial.js) and the K-12 shake time (desk/levers.js and desk/rotary.js). Each should have one home. I did not merge them: desk/*.js belongs to the a11yDesk agent this wave.
+- Two comments in sim/market.js are out of date. Lines 156-157 say buildStack is used by the price and the Live Stack, but neither uses it. Line 263 says state.price = clearPrice(state), but the code calls clearInto. Both functions still exist, so these are wrong comments, not dead code. They were outside my files, so I left them for whoever next works in sim/market.js.
+- A wider README scan found history records that name code which has since gone: desk/README.md:3785 points at tests/objective-task.test.js (now folded into tests/objective-day.test.js); §32.6.3 names roofPlan; Q-70's RESTORE_PACE_RATE and RESTORE_FIRST_RATE (marked superseded at :3924); briefAgc and CARD_TTL_S (both recorded as going). I left them because they are records, not pointers to current code. If you want it, a one-line 'since folded into tests/objective-day.test.js' could go on the :3785 one.
+- The audit's item 9 is still open: a small test that the three hydro water-value copies agree (sim/market.js, app/planview.js, sim/autopilot.js). It is outside this task.
+
+### realism ledger (wave 3)
+
+SPEC §8.1, commit 8c493e6. Seven rows amended so they say what their sources say; no row added or removed. Inertia constants: 2–4 s is the literature's hydro figure, and the small GB hydro units measured higher. Start and stop profile: T1 + T2 ≤ 30 min and T1 + T2 + T3 + T4 < 60 min. Auto-synchroniser closing time: a new synchroniser on an existing hydro unit, on default settings, about 1 min. Forecast error by lead time: south and south-east regions only, no σ by lead time found, and the source is a UniSA Mathematics Clinic project supported by AEMO. VPP size: 9% of the NEM-wide FCAS market; 454,473 batteries installed across Australia (CEC/SunWiz H2 2025). Thermal plant reference: Aurecon Tables 4-17, 4-20, 4-23. Return after a coal-unit trip: adds Loy Yang A2, out from 18 May to 24 Dec 2019 (WattClarity), so real returns run from hours to months and ours (90–150 min) is the quick case. §8.2 and §8.3 are unchanged.
+
+Open questions (numbers the owner may want changed):
+- Gas turbine starts: our 300–500 MW GTs reach the grid in 5–8 min (+4 min auto-sync). Real aero-derivatives take about 5 min, but a large F-class frame takes 30 min (Aurecon 2021). Lengthen them, or call ours aero-fast?
+- Auto-sync: the 4-minute wait and its tunable range of 3–5 min are all slower than the measured 48–148 s. It is labelled now, but the range excludes the real value.
+- Coal ramp: ours is 3 MW/min per machine; real existing units do about 5 MW/min. It is kept on purpose (coal as the plan-ahead lever) and labelled. Move it to 5?
+- Cooling: ours is a straight 100 MW/°C from 22 °C to 36 °C. A region our size would see about 250–350 MW/°C, flattening towards 40 °C. Make it steeper or S-shaped?
+- Reserve diesel: there is no readiness fee (real NSW 2024 was about $13,800 per MW readied), the lead is 20 min where real leads are hours, and there is no minimum run time. All labelled, all game choices.
+- Air-con price: ours is $400/MWh relieved; one retailer pays households $2,000/MWh (EnergyAustralia PowerResponse).
+- Air-con snapback: ours lasts 1.5 h; real snapback lasts about 3 h, with two thirds in the first hour.
+- Inertia H is applied to MW rating, but AEMO's figures are on MVA, so our stored energy is slightly low.
+- GUARD trigger: the allowed range of 49.5–49.85 Hz is wider than AEMO's real 49.60–49.80 Hz. The value, 49.75, is inside both.
+- Rooftop return after a restore: ours always takes 6 min. A real inverter ramps at 16.67% of its rating a minute, so a roof at part sun is back sooner.
+- Not edited, needs your OK: content/scenarios.js notes still say clearFactor 0.70, state penetration and 1.9M households are 'unverified, SPEC §8.3', though §8.1 now sources them. The file was off-limits. sim/step.js strips note and src keys from the scenario hash, so a text-only fix may be safe, but someone should confirm first. desk/README.md also has 4 old §8.3 mentions, not reviewed.
+
+### sa2016 (wave 3)
+
+- **D-29, SA 2016 (the first Hard day).** `content/anniversaries.js` SA2016, `content/scenarios.js` 'desk-sa2016', `sim/dayplan.js` dayplan.incident.cascade, `app/shelf.js`. The SA black system is Hard day 1 on the practice shelf (the gate's Hard days follow from 2), on its own seed 120160928: never a daily, never gated. A mild weekday storm: 10-20 grid min after it arrives, its cut-out takes most of the wind, and 10 grid s later the importing tie trips, unwarned. No other day changes. The account is headed THIS REALLY HAPPENED (no date, so not ON THIS DAY), and the echo names the storm's cut-out in place of the protection. *Measured* once (2026-10-17): par sheds 359 MWh, 48.91 Hz, never black. The day can be beaten: par's moves with the tie held at 0 MW from 17:00 shed nothing. So D-29's 'which no plan survives' and S-7's 'no plan kept every light on today' now read: par sheds on a Hard day, and the card says 'par shed X MWh today'. Y-2's 'not built' line goes.
+
+Summary: SA 2016 is the first Hard day on the practice shelf. Pick 'Hard day 1' and the briefing opens with a box headed THIS REALLY HAPPENED, no longer ON THIS DAY, because the day is played on any date and shows no date. The box gives the 45-word account of 28 September 2016 (tornadoes, the wind farms' protection, the link to Victoria tripping, the state going black) and a link to AEMO's final report. Then a line that says plainly where the desk differs: 'Here a storm's cut-out replaces the protection, and your relays have time to shed.' The anniversary dailies keep ON THIS DAY. Their date is the incident's date.
+
+The day itself is unchanged: a mild weekday with a storm. At 17:30 the storm's cut-out takes most of the wind, and 10 grid seconds later the tie trips with no warning, losing about 500 MW of import. Par sheds 359 MWh, falls to 48.91 Hz and never goes black, so the day is graded on par's outage-free part (S-7).
+
+The reviewers showed the day can be beaten. A player who plays as well as par and holds the tie at 0 MW from 17:00 keeps every light on and gets PERFECT. The desk invites this: the 15:51 weather card warns of interconnector faults. The card used to print PERFECT next to 'No plan keeps every light on', which contradicted itself. Every Hard-day line now says what is true by S-7's own definition: par sheds load on the day. That covers the end card's run line and HARD DAY line ('HARD DAY: par shed 358.8 MWh today…'), the shelf's Hard days note and the briefing title's reason. I kept the day beatable. Reading the warnings and cutting the import before the storm is the realistic, rewarding play, and the 2,000-point cap still holds. If you want 'which no plan survives' literally, see the first open question.
+
+No sim, score or stamp change. One commit, whole suite green.
+
+Open questions:
+- Should SA 2016 be unbeatable, as D-29's 'which no plan survives' reads literally? I kept it beatable and made the words true. Cutting the import before a forecast storm is the realistic play, and the desk warns of interconnector faults at 15:51. To make it unbeatable, add a second loss at the cut-out as data (for example a 'largest' unit trip), then measure par and the tie-at-0 plan once more.
+- SPEC needs the record's rewrite in three places. S-7 at SPEC.md:357 and again at :370 says the card says 'no plan kept every light on today'. D-29 at :461 says 'which no plan survives'.
+- next.html is the a11yPage agent's file this wave. I changed one attribute on line 225 (<b id="briefing-account-head">). A merge with their branch should keep that id.
+- The builder's other open points still stand. The shelf button could read 'Hard day 1 · SA 2016'. The help's 'Event-dense day' (content/text.js) does not list SA 2016's tie trip 10 grid s after the warned cut-out. The 'black' card's simplifies line could add 'or interconnector protection'. The builder's ON THIS DAY question is now resolved.
+
+### cards (wave 3)
+
+- **D-24 (W6): five more THIS REALLY HAPPENED cards.** Over a month of dailies, the battery's card showed on 27 of 30 days whatever kind of day it was. Five new cards (content/cards.js), each read against its source on 2026-10-17: the city desk sheds (SA, 8 Feb 2017, AEMO), the tie trips (SA islanded 12-19 Nov 2022, AEMO), the reserve diesel is called (NSW RERT, 27 Nov 2024, AEMO), a heatwave (Adelaide 47.7 °C, 24 Jan 2019, AEMO) and a wind drought (88 MW NEM-wide, 13 Jun 2024, WattClarity). historyCard takes the first that fired, rarest first: black, UFLS, city desk, tie, diesel, heat, drought, battery, backstop, negative price. The verdict's `seen` memory keeps the player's day only, never the night shift's. Review: the tie card had said \"no customer lost supply\", but the same report (p. 41) has storm outages hitting 163,000 customers that week. It now says the split itself shed no load, and a test pins this.
+
+Summary: D-24 now has ten THIS REALLY HAPPENED cards; before this item, five of them never showed. Over a month of dailies, par's card was the battery's (Loy Yang A3) on 27 of 30 days and planOnly's was the relays' on all 30, whatever kind of day it was. The builder (dad5507) added five sourced cards, and app/verdict.js historyCard picks them up through a new `seen` memory. That memory keeps only the player's day, never the night shift's. The five: a shed ordered by the city desk (SA, 8 Feb 2017), the tie tripping (SA islanded 12-19 Nov 2022), the reserve diesel called (NSW RERT, 27 Nov 2024), a heatwave (SA/Vic, 24 Jan 2019) and a wind drought (88 MW NEM-wide, 13 Jun 2024). historyCard shows the first one that fired, in this order: black, UFLS, city-desk shed, tie, diesel, heat, drought, battery, backstop, negative price.
+
+The review read every new card against its source. Four matched in full. The tie card did not: it said \"no customer lost supply\", but its own AEMO source reports 163,000 customers hit by storm outages that same week. That card now says \"the split itself shed no load\", which is what the report's incident table supports. A test pins this, and the full suite passes (1077/1077). Nothing is pushed or merged.
+
+Open questions:
+- The old test 'W3 on the page: a trip, then the day's end...' in tests/verdict.test.js took 5.9 s on its own run here. That is over the 2.5 s per-test budget in CLAUDE.md, and with cards.test.js the run took 7.8 s, so the file is probably over its 6 s budget too. This fix did not cause it, but it should get its own budget fix.
+- The only parts of the source I re-read myself were the tie card's. The reviewer read the other four new cards against their sources and confirmed every figure (8 Feb 2017, RERT Q4 2024, 24 Jan 2019, WattClarity 13 Jun 2024), so I did not open them again.
+
+### a11yPage (wave 3)
+
+- **K-22, K-23: the page's accessibility (the 2026-10-17 audit).** `app/shell.js`, `next.html`, `app/endcard.js`, `app/suburbcard.js`; `tests/a11y-page.test.js`. AGC/HAND is a radio group: one Tab stop, the arrows pick, Enter on the picked radio takes the desk (D-3). The end card's h2 and the shelf's first day take the focus and give it back; Space presses their buttons; a rebuilt end card or suburb card keeps the focused control. #objective is no live region. #aria-live (one message per 2 s) says a new RESPOND card and the end card's score first (again when a late par lands), then alarms, then the whole objective line when its level, kind or first control changes (never for new figures alone; once at the desk's opening, "Clock held: press Space to run"): 100 words a minute on 20261007's morning (the audit: 290). Toasts: blue polite, red alert. A "?" pressed by key focuses its popover, named by its heading. --faint and the URGENT red read at 4.5:1.
+
+Summary: K-22/K-23 (the page's accessibility) now stands like this. Everything was checked headless; no browser, no screen reader.
+
+1. AGC/HAND works from the keyboard as a normal radio pair. The arrows pick, and Enter on the one already picked still takes the desk.
+2. When the day ends, the keyboard lands on the end card's title. MORE DAYS opens the practice shelf on its first day, and closing the shelf gives the focus back. Space now presses the end card's and the shelf's buttons, as it does in any web page. Before, it paused nothing, dropped the player's place and told them to press PLAY THIS DAY AGAIN. When the card redraws itself (par finishing, the no-GUARD comparison, COUNT THIS ONE), the keyboard stays on the button it was on, or goes to the title.
+3. A screen reader hears the instruction line only when what it asks changes. It now hears the whole line, including what to do ('Start GT·C 1 now…', 'Raise the battery GUARD to 400 MW…', 'Close a feeder: R, then Enter'). The old 10-word cut-off dropped exactly that part. On the reference morning this is 5 messages in 84 s, about 100 words a minute; the audit counted 290.
+4. At the desk's opening the screen reader is told once that the clock is held and Space runs it. Pausing later adds nothing.
+5. The "What happened" card after a trip is heard first. The end card's score is heard on show. On a practice or Hard day whose par is still computing, the score is heard again when it lands.
+6. Blue help messages are read politely and red refusals at once. The "?" popover has a name, and opening it from the keyboard moves the focus in. If a suburb card redraws under it, the focus goes back to that card's "?".
+7. The faint grey text and the URGENT badge meet 4.5:1 contrast.
+
+Changed in this review: app/shell.js, app/endcard.js, app/suburbcard.js, tests/a11y-page.test.js (15 tests) and desk/README.md §13.3. Nothing was pushed or merged.
+
+Open questions:
+- (Builder's, still open) Enter on the AGC/HAND radio that is already picked takes the desk, as a native radio's Enter submits its form. Enter on the one not picked picks it. Is this split right for the owner?
+- (Builder's, sharper now) On 20261007 the line flips BATTERY / ACT NOW about every 20 grid minutes between 11:10 and 12:34. The live region now says the whole line on each flip (21 to 32 words, about 4 messages in 15 real s). That is objective.js's own steadiness (steady(), holdLine). Should the line hold an ask longer?
+- (Builder's) #feeder-card and #beat-caption are still their own aria-live regions, outside #aria-live's 2-s limit. Should they move into the card slot?
+- Space on the end card's h2 (not a button) still gives the Q-41 toast 'Day over: PLAY THIS DAY AGAIN for another go', and keys.js blurs the focus to the page. I left this because the toast is Q-41's answer. Should Space on the h2 keep the focus instead?
+- For the integrator's one-browser pass: test natively in a browser, which a headless check cannot do. Space on PLAY THIS DAY AGAIN, MORE DAYS, a shelf day and THE NUMBERS should press or open it. The keyboard should stay on SHARE when the no-GUARD comparison finishes. Also check: no focus ring on the end card's h2 or the popover body (outline:none); the arrow keys on the briefing radios; NVDA or Narrator on the toast regions and on the held-clock line at the take, if a screen reader is available.
+- (Builder's) Other agents' audit items this wave: --dk-faint, the alarm panel's quiet tiles, the hour strip, the control names, and the 1280x600 text sizes. The integrator should check that they landed. The text-size item needs the owner's call on layout space.
+
+### a11yDesk (wave 3)
+
+- **K-22 (W6, the 2026-10-16 accessibility audit, desk side).** Above the 1280×600 floor the whole desk scales with the window: desk.js deskScale, at most 1.5×, applied by a transform in desk.css. Words, knobs and hit boxes grow together: 1× / 1.067× / 1.2× / 1.5× at 1280×600 / 1366×768 / 1536×864 / 1920×1080. Pointers read the screen box, and the canvases draw at devicePixelRatio × the scale. At the floor no desk word is under 8 px. Tray cards are two rows with 10-px messages. While a unit is on the scope, its slip line takes the sync label's row and the bay's notes sit above it. No TEXT SIZE setting: every window is width-bound. --dk-faint is #848d97. A flash moves the tile's fill, never its words, and its phases differ by 2.5:1 or more. The ring-back's amber edge flashes too. The alarm panel's quiet tiles are darker, not faded. The end strip is hatched and dotted and named by its hours. The L button is named. Tests: tests/a11y-desk.test.js.
+
+Summary: K-22 makes the desk easier to read and use for everyone. Nothing has been checked in a browser yet.
+
+Above the smallest supported window (1280×600) the whole desk now grows with the window: text, knobs and click areas together. It is 1.07× at 1366×768, 1.2× at 1536×864 and 1.5× at 1920×1080, so the smallest desk text goes from 8 px to 12 px on a 1920 screen. The dial, the synchroscope and the Live Stack stay sharp, and dragging still lands in the right place.
+
+At the smallest window, text was raised wherever there was room:
+- **Message cards:** two rows, with the message in three 10-px lines.
+- **Popup notes and the log:** 10 px.
+- **Prices:** 9 px.
+- **Nothing is under 8 px.**
+
+There is no text-size setting, because once the desk scales there is no spare width to give one.
+
+Other changes:
+- **Contrast:** faint grey text meets the 4.5:1 minimum.
+- **Alarm tiles:** they flash the tile's background, not its words.
+- **Quiet alarm-panel tiles:** shown darker, not faded.
+- **End card's hour strip:** short hours are striped and spill hours dotted, and a screen reader hears which hours they were.
+- **Live Stack's L button:** has a proper name.
+
+The review found three problems, and I fixed all three:
+1. **Note over the slip readout.** When the sync-check relay blocked a CLOSE, the red note sat on top of the slip readout (unit, Hz, seconds per turn), the number you need to time the next close. While a unit is on the scope the note now sits just above that line and below the scope.
+2. **Weak ring-back flash.** The flash for an alarm that has cleared but not been acknowledged had become a dark-brown-to-black pulse that was easy to miss. Its background is now a lighter amber and its amber border flashes too. Every flashing tile's two phases now differ by at least 2.5:1, and the words still hold 4.5:1 in both. The amber priority-3 alarm's dark phase is a little darker.
+3. **Wrong screen-reader text on the strip.** On a day where no hour was free of a gap, such as a grid that went black at 04:38, it said "no gap in the other hours". It no longer does, and a whole-day run reads "all day".
+
+Open questions:
+- 2.5:1 between a flash's two phases is my bar, not a standard. It is roughly the red flash's 2.57:1. The ring-back tile cannot go much past 2.7:1 with --dk-text words at 4.5:1 on a #0d1117 low phase; it would need --dk-bright words to go further. To meet the bar I also darkened the P3 alarm's low phase (#3d300d to #2e240a).
+- While a unit is on the scope, a bay note wider than about 165 px or longer than one line now covers a few more px than before. For 2.5 s a wide note covers the bottom 7 px of the HAND BYPASS button and of a third ready unit, and a two-line note (the watch's lock note) covers the canvas's bottom 9 px. The blocked-close note (about 150 px) stays clear of all of them.
+- Still open from the build, for the owner: the on-desk sync label is shortened to fit two 9-px lines ('Real operators aim for 15–30 s per turn and close within ±10°; ours turns faster. Most plants sync themselves, at the station.'). The whole sentence stays in the ? drawer.
+- Still open from the build: the plan bar's alarm-tile slot is sized by the page, so its tiles stay 8.5 px below 1600 px wide. The page around the desk does not scale, so the desk stops at 1.5×. Players on 1280-wide windows get only the floor's raises; browser zoom drops them below the floor. The ‼ URGENT badge in next.html (4.23:1) belongs to the page-side item.
+- Not seen in a browser. The integrator's one-pane pass should look at the following at 1280×600 and 1920×1080: the scaled desk; the two-row tray cards; the slip line in the label's row with a blocked-close note above it; the new ring-back colours (#66521a fill, amber/line edge); and the strip's hatch and dots.
+- w6-batch has moved on since this branch started at 508d904. Expect small merges in desk/desk.js and desk/desk.css.
+
+### the test budget, Q-40 (wave 3)
+
+- **Q-40, the test budget (REVIEW-2026-10-14 opportunity 16).** `tools/slow-tests.mjs` (`npm run test:slow`; in CI after `node --test`, warnings only) times each test file alone against CLAUDE.md's 6 s a file and 2.5 s a test. The budgets are scaled by the CPU yardstick's fastest reading (before the run, after it and before each re-time), and anything over the budget as written is still named. The play driver gained `skipTo`: the sim without 60-fps virtual frames at about 0.6x a jump's cost, with the annunciator, the tray, the offers, Marg and the page clock as the page keeps them. Over five whole days it matched page jumps: the same holds, hashes and tiles, and the clock within 0.1 s. It also gained `realJump` (real seconds sampled), and `tripFrom` skips. The slowest tests sample instead of stream, and a whole day's play sits in a before() hook. Four files were split with every test kept, and K-16 is again checked where a stray close would land.
+
+Summary: Q-40 (the test budget) is done, and the four review fixes are committed on worktree-wf_89609a2e-334-4. Nothing is pushed or merged. The item now has eight commits.
+
+- **slow-tests.mjs:** `npm run test:slow` and a CI step after `node --test` (warnings only, always exits 0) time each test file alone against CLAUDE.md's 6 s per file and 2.5 s per test. The budgets are scaled by the fastest of several CPU yardstick readings, so one busy moment no longer loosens them. Anything within the scaled budget but over the written one is listed as 'over as written'.
+- **Play driver:** it gained `skipTo` and `realJump`, and `tripFrom` now uses `skipTo`.
+  - `skipTo` runs the sim without the 60-fps virtual frames, at about 0.6x a jump's cost.
+  - It still keeps the page's clock, D-2's clock report, the alarm panel, the tray, the offers and Marg's lines as the page does.
+  - Over five whole days it matched page jumps: the same holds, state hashes, alarm tiles, sounding counts and tray, and the clock within 0.1 s.
+  - `realJump` samples real seconds instead of drawing every frame.
+- **Slow tests:** the slowest page tests now sample instead of stream. Tests that need a whole day (urgent X-44, watch X-39, baseline-v4 S-4/D-9) play it in a before() hook, so the test itself only checks.
+- **Split files:** four files were split (feedback, clock-director, system, integration) and every test was kept. A body-by-body comparison found the clock-director, system and integration splits unchanged. The feedback inventory check became one check per file (each covers its own part). Respond-card's X-40 and the night roll's F and locked presses moved into files that play those moments anyway.
+- **Lost check found and fixed:** K-16's "Enter never closes a breaker as well" could not fail. It runs at the day's own 09:46 card again, with its precondition asserted.
+
+Every fix has a test that I showed failing by breaking the code by hand. Measured 2026-10-17 with the yardstick near the owner's laptop, every file in this item is within budget. The longest are watch at 5.8 s and night-strip at 5.7 s (run 2 at once), and the slowest test here is 1.9 s.
+
+Open questions:
+- CLAUDE.md's 'a test 2.5 s or less' is now met by playing a whole day in a before() hook, with only the checks in the test. The file budget (6 s) still covers the hook. Should CLAUDE.md say this outright (setup in hooks counts toward the file, not the test), or would the owner rather have whole-day tests held to 2.5 s some other way?
+- In Node 24.18, the time of a top-level async before() hook (one that awaits) is counted in the first test's duration_ms. A sync hook, or an async one inside describe(), is not counted. A line in CLAUDE.md's 'The loop' would save the next agent from finding this out again. I did not edit CLAUDE.md.
+- Two items this branch did not touch are at the edge as written: tests/resume.test.js takes 6.1 s alone (yardstick 75, about 5.7 s on the owner's laptop), and alarms.test.js:402 (K-8, the competent proxy's day) takes 2.5 s. Both would take the same hook treatment if the owner wants margin.
+- skipTo's per-part split of the D-2 clock (clockReport) can differ from a jump's by up to 0.2 real s per part, because a record frame that contains a mode change is filed by its midpoint, just as a jump's frames are. sinceS and offS stay within 0.1 s. Splitting those frames at the step tick would make the parts exact, at the cost of more driver code. This is not done.

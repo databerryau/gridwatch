@@ -1,16 +1,18 @@
 // W6, Y-11 (Q-108): the ladder. content/ladder.js (tools/ladder.mjs) holds, for every daily, par's ALL-IN and that of GRIDWATCH's
 // own players (did nothing, the lean and competent scripts); the page grades them as it grades the player. The list carries the
 // dailies' build stamp, so a sim or desk-scenario change that leaves it stale cannot merge, and the first daily's no-input day
-// is replayed here to 14:00 against the list's check, for changes to the page's dispatch that leave the stamp alone. The end
+// is replayed here to 14:00 against the list's check, for changes to the page's dispatch that leave the stamp alone (an
+// anniversary's row, made from a variant the stamp does not hash, is held to it in tests/anniversary.test.js). The end
 // card shows did nothing, the better script as "a scripted shift", par and YOU, lowest first; not off the calendar, nor with a
 // stale list.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {LADDER} from '../content/ladder.js';
 import {DAILIES} from '../content/dailies.js';
 import * as G from '../app/game.js';
 import {grade} from '../app/score.js';
-import {nothingCheck} from '../tools/ladder.mjs';
+import {nothingCheck, ladderText} from '../tools/ladder.mjs';
 import {openGame} from './lib/play.js';
 
 const PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh: 0.56, centsPerKWh: 4}, series: []};
@@ -31,6 +33,7 @@ test('Y-11: the ladder is current (the build\'s stamp) and has a row for every d
   const pts = (r, i) => (r[i] < 0 ? 0 : grade({total: r[i]}, {total: r[0]}, false, r[1]).points);
   const rows = keys.map(k => LADDER.rows[k]).filter(Boolean);
   assert.ok(median(rows.map(r => pts(r, 2))) < 100 && median(rows.map(r => Math.max(pts(r, 3), pts(r, 4)))) > 900);
+  assert.equal(ladderText(LADDER), readFileSync(new URL('../content/ladder.js', import.meta.url), 'utf8'), 'tools/ladder.mjs writes the list back as it reads');
 });
 
 test('Y-11: the first daily\'s no-input day, replayed on the page\'s path to 14:00, is the stored one (the dispatch has not moved under the stamp)', async () => {

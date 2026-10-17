@@ -512,8 +512,7 @@ effects) and `body.crt`, so CSS can follow without reading the vm. Modules given
 A cue is a string `name` or `{name, pan?: -1..1, gain?: 0..1, delayS?: number}`. Sources:
 
 * **Sim records** → `audio/model.js cuesOfRecord(record, ctx)` returns an array of cues
-  (`ctx.suburbOf(districtId)` → suburb code, for the pan). The game calls it for every record
-  (until merge it falls back to the 1a `cueOfRecord`: `import * as AM`, test `AM.cuesOfRecord`).
+  (`ctx.suburbOf(districtId)` → suburb code, for the pan). The game calls it for every record.
 * **Alarms** → `horn`, `chime` (app/alarms.js), tray → `ring2`, `tick` (app/tray.js).
 * **Desk gestures** → `actions.ui({do: 'cue', name, pan?})` (B-6), names below.
 
@@ -585,9 +584,19 @@ Roles: levers, wheel, ring, knob, magnitude = `role="slider"` with `aria-valuemi
 `role="switch"` or buttons with `aria-pressed`; tiles, cards, bay rows = buttons. Canvas only
 for the dial, the synchroscope, the stack and the map, each with a text alternative
 (`aria-label` updated at most once per real second). **Live region**: the shell's `#aria-live`
-(polite) mirrors, at most one message per 2 real s: mode changes, the frequency band changing
-(normal / outside normal / outside containment), the N-1 word changing, a new alarm's label, a
-tray warning's text. The desk's `.dk-live` keeps the per-control notes.
+(polite) says at most one message per 2 real s; what waits is one message per kind, the newest
+of a kind replacing the older, said in this order (K-23, W6): a new RESPOND card (what happened,
+what it leaves you, the key) and the end card's score line (again, once, when the page's own par
+lands after the card shows); a new alarm's label; the objective line, whole, with its word,
+when its level, kind or first control changes (new figures alone never, nor C-10's consider
+text; at the desk's opening, the clock held, the first line said there, else the badge, adds
+"Clock held: press Space to run"); a tray warning's text; the frequency band changing (normal /
+outside normal / outside containment); the N-1 word changing; mode changes (not the badge's
+DAY OVER: the end card's h2 takes the focus and says it). A band, N-1 word or line that flips
+back to what was last said before its turn is not said. `#objective` itself is no live region
+(it rewrites itself several times a minute). The toast box is `aria-hidden`: a blue answer is
+said through `#toast-polite` (`role="status"`) and a red refusal through `#toast-alert`
+(`role="alert"`). The desk's `.dk-live` keeps the per-control notes.
 
 ### 13.4 Status is never colour-only (K-22)
 
@@ -612,8 +621,8 @@ test asserts `body.rm`; each owner's test asserts its own module honours the fla
 
 Implement §13.2: every cue, the three buses, the ratchet and servo rate limits, pan
 (`StereoPannerNode` where available, else centre), the 32-node budget with honest accounting
-(`au.live`, `au.peak`, `au.dropped`), `cuesOfRecord`. Keep `cueOfRecord` exported (1a callers)
-until stage C removes it. `au.update(vm)` reads `vm.settings` and `vm.cues` (strings or
+(`au.live`, `au.peak`, `au.dropped`), `cuesOfRecord`.
+`au.update(vm)` reads `vm.settings` and `vm.cues` (strings or
 objects). Hum (K-19) is unchanged apart from its bus. Everything stays pure-testable in
 `audio/model.js` (specs as data, `nodesFor(name)`, `busOf(name)`, `panOfSuburb(code)`, the rate
 limiter as a pure function of timestamps). Tests: every cue name in §13.2 has a spec, a bus
