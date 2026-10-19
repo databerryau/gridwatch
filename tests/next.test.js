@@ -1006,7 +1006,7 @@ test('C-2 at boot: a seed that reads as a Saturday or Sunday plays desk-weekend;
   const d = boot('?seed=7', {scenario: G.scenarioForSeed});
   d.frames(2);
   assert.equal(d.h.game.scenario.id, 'desk');
-  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday, no heatwave forecast.'); // (2c, Q-80: a planned day's heat is news at 04:00, and seed 7 has none)
+  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday, no heatwave forecast. Expect a trip at the peak.'); // (2c, Q-80: a planned day's heat is news at 04:00, and seed 7 has none; W7, Q-121: its plan has the evening trip)
   assert.equal(dayText({temp: 'HOT', weekend: false}, {heat: true}), 'Today: a hot weekday, heatwave this afternoon.');
   // PLAY AGAIN asks the function again (the same seed: the same scenario)
   G.resetDay(w.h.game);

@@ -4,6 +4,7 @@
 // later", warned hours before it comes, on the day: Q-110), and nothing else of a day's events is said. A reason to come back
 // tomorrow. DOM-free.
 import {prerollRegime} from '../sim/weather.js';
+import {preroll} from '../sim/dayplan.js';
 import {dailyFor} from '../content/dailies.js';
 import {SCENARIOS} from '../content/scenarios.js';
 
@@ -25,6 +26,15 @@ export function dayWord(regime) {
 
 /** D-28: a day's word from its seed (the regime drawn first): the week ahead's, and the day's own briefing's (app/shell.js dayPlan). */
 export const outlookWord = (seed, scn) => dayWord(prerollRegime(seed, scn));
+
+/**
+ * W7 (Q-121): whether the day's plan has Act III's evening trip of the largest machine (sim/dayplan.js: a heatwave, wind
+ * drought or calm evening, 17:00-19:30, when a minute is free), from the seed alone, as the sim plans it: the briefing's
+ * "Expect a trip at the peak." Never a storm day's (its tie trip is a chance, not a plan), nor an anniversary's incident.
+ */
+export function eveningTrip(seed, scn) {
+  return !!scn.dayplan && preroll(seed, scn, prerollRegime(seed, scn)).some(e => e.act === 3 && e.type === 'unitTrip' && !e.incident);
+}
 
 /**
  * D-28: the dailies after `today` (YYYYMMDD): [{ymd, day ('Sat'), word}], from the listed seed of each date. Only this build's

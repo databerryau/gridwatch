@@ -58,7 +58,7 @@ import {unitLabel} from '../desk/util.js';
 import {puzzleNumber} from './share.js';
 import {localYmd} from './history.js';
 import {pastDailies, hardDays, resultText, isoOf} from './shelf.js';
-import {outlookWord} from './week.js';
+import {outlookWord, eveningTrip} from './week.js';
 
 /** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
 export function layoutSizes(width, height) {
@@ -128,19 +128,23 @@ export function objectiveWord(o) {
  * weekday, from the public obs.day only (a heatwave day reads HOT, C-2). plan: on a day the event
  * director planned, {heat: a heatwave announced at 04:00, word: the day's outlook word} (Q-80: a HOT
  * day without one has none coming; Q-110: a storm or low wind "likely later", as the week ahead said,
- * its time in the warning on the day); null on the classic day, whose heatwave is announced mid-morning.
+ * its time in the warning on the day; W7, Q-121: trip, the plan has the evening trip: TRIP_LINE, no minute); null on
+ * the classic day, whose heatwave is announced mid-morning.
  */
 export function dayText(day, plan) {
   if (!day) return '';
   const when = day.weekend ? 'weekend' : 'weekday';
-  const lean = day.weekend ? ', one coal unit off' : '', later = (plan && LATER[plan.word]) || '';
+  const lean = day.weekend ? ', one coal unit off' : '', later = ((plan && LATER[plan.word]) || '') + (plan && plan.trip ? TRIP_LINE : '');
   if (day.temp === 'MILD') return 'Today: a mild ' + when + lean + (day.weekend ? '.' : ': rooftop solar cuts midday demand.') + later;
   return 'Today: a hot ' + when + lean + (!plan ? '; any heatwave warning comes mid-morning.' : plan.heat ? ', heatwave this afternoon.' : ', no heatwave forecast.') + later;
 }
 /** Q-110: the day line's outlook sentence for a storm or a wind drought (app/week.js's words): no time, which the warning gives. */
 export const LATER = Object.freeze({storm: ' Storms likely later.', 'low wind': ' Low wind likely later.'});
+/** W7 (Q-121): the day line's sentence when the plan has the evening trip of the largest machine (app/week.js eveningTrip): no minute. */
+export const TRIP_LINE = ' Expect a trip at the peak.';
 /** The day line's plan (dayText) from the state at 04:00 and its obs: null on the classic day (no director's plan). */
-export const dayPlan = (st, obs) => (st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0), word: outlookWord(st.seed, st.scn)} : null);
+export const dayPlan = (st, obs) => (st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0), word: outlookWord(st.seed, st.scn),
+  trip: eveningTrip(st.seed, st.scn)} : null);
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
