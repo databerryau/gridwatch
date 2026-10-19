@@ -372,6 +372,7 @@ export function bootGame(doc, deps) {
   const actions = {
     input: x => { const r = base.input(x), lock = G.isLock(r); if (r) showToast(lock ? r : 'Refused: ' + r, lock ? 'info' : ''); return r; },
     redispatch: () => { const r = base.redispatch(), lock = G.isLock(r); if (r) showToast(lock ? r : 'RE-DISPATCH: ' + r, lock ? 'info' : ''); return r; },
+    soakCity: atS => { const r = base.soakCity(atS), lock = G.isLock(r); if (r) showToast(lock ? r : 'Refused: ' + r, lock ? 'info' : ''); return r; },   // (Q1)
     ui: cmd => {
       const inTray = cmd && cmd.do === 'tray' && $('tray') && $('tray').contains(doc.activeElement);
       const wasOpen = !!game.ui.alarmsOpen, wasCard = game.ui.suburb;

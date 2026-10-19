@@ -49,7 +49,7 @@ import {fork} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {readFileSync} from 'node:fs';
 import {followDay} from '../tests/lib/follow.js';
-import {objective as standingObjective} from '../app/objective.js';
+import {objective as standingObjective, inputsOf} from '../app/objective.js';
 import {runPar} from '../sim/autopilot.js';
 import {getScenario} from '../content/scenarios.js';
 import {V, SIM_VERSION} from '../sim/params.js';
@@ -240,7 +240,8 @@ export function followSeed(scenario, seed, o) {
   row.kinds = kinds;
   row.battAt1630 = batt;
   // the city levers booked (2b) and the day's ALL-IN (Q-48)
-  const flex = lever => day.said.filter(x => x.accepted && x.action.type === 'flex' && x.action.lever === lever).length;
+  // (the blocks booked: a SOAK THE CITY press, one of `actions`, books a soak a suburb, Q1)
+  const flex = lever => day.said.filter(x => x.accepted).flatMap(x => inputsOf(x.action)).filter(i => i.type === 'flex' && i.lever === lever).length;
   row.soaks = flex('soak'); row.aircons = flex('aircon');
   const hh = scenario.city.suburbs.reduce((a, x) => a + x.households, 0), you = allIn(day.score, hh);
   row.allIn = you.total;

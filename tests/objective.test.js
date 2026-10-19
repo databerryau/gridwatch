@@ -204,6 +204,11 @@ test('a MILD morning to 13:00 (seed 8): the follower starts the CCGT for the mor
   // (the saving rests on the day going as forecast until the unit is back: the line says so)
   for (const x of stops) assert.match(x.text, /^CCGT \d is not needed until \d\d:\d\d\. Stop it: saves about \$[\d,]+ if nothing trips before then\. Start it again by \d\d:\d\d\.$/);
   assert.ok(did.includes('battery:battery:charge'), 'the battery charged before the evening');
+  // Q1 (W7): the soak asked for once, the city's: one press, a booking a suburb at one time (before: six asks in 14 grid min)
+  const soaks = day.said.filter(x => x.kind === 'city');
+  assert.deepEqual(soaks.map(x => [x.accepted, x.action.type, x.action.suburbs.length]), [[true, 'soakCity', 6]]);
+  assert.match(soaks[0].text, /Book the city's HOT WATER SOAK, \d\d:\d\d–\d\d:\d\d \(480 MW\): /);
+  assert.deepEqual(day.st.log.filter(r => r.type === 'flex').map(r => r.args.atS), soaks[0].action.suburbs.map(() => soaks[0].action.atS));
   // never thrash: the battery branch's own orders, idle included, are at least a quarter of an hour apart
   const orders = day.said.filter(x => x.accepted && x.kind === 'battery' && x.action.type === 'battery');
   for (let i = 1; i < orders.length; i++) assert.ok(orders[i].s - orders[i - 1].s >= 900, 'battery orders ' + at(orders[i - 1].s) + ' and ' + at(orders[i].s));

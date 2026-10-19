@@ -372,7 +372,7 @@ test('2b S1 at 540x: at the line\'s look cadence there (0.4 real s, 216 grid s) 
     for (let k = 0; k < P.n; k++) { P.surplusMW[k] = P.times[k] >= V.SOAK_FROM_S && P.times[k] <= V.SOAK_TO_S ? 2000 : 0; P.charging[k] = 0; }
     const x = lineOf(obs, {proj: P, held});
     assert.equal(x.kind, 'city', at(s) + ': ' + x.text);
-    raw.push(aimFlex(obs.dayAhead, obs.levers, x.action.suburb, 'soak'));
+    raw.push(aimFlex(obs.dayAhead, obs.levers, x.action.suburbs ? x.action.suburbs[0] : x.action.suburb, 'soak'));   // (Q1: the city's, most MW first)
     shown.push(x.action.atS);
     held = x;
   }

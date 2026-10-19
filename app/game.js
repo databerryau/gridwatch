@@ -556,7 +556,7 @@ export function takeDesk(game) {
  * BRIEF_LOCK, NIGHT_LOCK. `shown`: the feeder card the press was made at (redispatch's), else now's;
  * a card PAUSE, ALARMS or a hidden tab hides is not shown, so an input made under them leaves it.
  */
-export function sendInput(game, x, shown) {
+export function sendInput(game, x, shown, batch = false) {
   const state = game.state, d = game.director;
   const lock = game.phase === 'briefing' ? (x && x.type === 'mode' ? '' : BRIEF_LOCK) : state.control.nightShift ? NIGHT_LOCK : '';
   if (lock) return lock;
@@ -573,9 +573,26 @@ export function sendInput(game, x, shown) {
     game.previewS = -1; game.restoreS = -1;
     if (x.type === 'restore') D.focusRestore(d, state);
     if (own) D.queueFeeders(d, mates); // D-27: the card's RESTORE queues the morning's other feeders (D-26: the rest of its group)
-    if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
+    if (REDISPATCH_AFTER.includes(x.type) && !batch) redispatchAfter(game);   // (batch: soakCity re-dispatches once, after them all)
   } else if (own) game.feederWhy = {id: fc, why: r.reason};
   return r.ok ? '' : r.reason;
+}
+
+/**
+ * Q1 (W7): SOAK THE CITY. One press books the HOT WATER SOAK of every suburb whose soak is free, at atS: a distributor's
+ * ripple control moves its controlled hot water with one signal. Each booking is the sim's own flex input (the log keeps
+ * each), in city order; the system re-dispatches once after them; the press counts once (makeActions, X-45, D-10).
+ * Returns '' when at least one was booked, else the first refusal.
+ */
+export function soakCity(game, atS, shown) {
+  const st = game.state, subs = st.scn.levers ? st.scn.levers.suburbs : [], lock = game.phase === 'briefing' ? BRIEF_LOCK : st.control.nightShift ? NIGHT_LOCK : '';
+  const why0 = subs.map((x, j) => grid.leverView(st, j, 'soak').block), ids = subs.filter((x, j) => why0[j] === '').map(x => x.id);
+  if (lock) return lock;
+  if (!ids.length) return !subs.length ? 'no city levers on this desk' : why0.find(w => !/already booked/.test(w)) || 'every suburb\'s soak is booked';
+  let why = '', n = 0;
+  for (const suburb of ids) { const r = sendInput(game, {type: 'flex', suburb, lever: 'soak', atS}, shown, true); if (r) why = why || r; else n++; }
+  if (n) redispatchAfter(game);
+  return n ? '' : why;
 }
 
 /** Q-91: the district id of the feeder card on the page now ('' unless the director's mode is FEEDER-CARD). */
@@ -1221,7 +1238,7 @@ function startOfficial(game) {
 // ------------------------------------------------------------------ W6: resume (F-7)
 //
 // The day is deterministic from its seed and what the player did, so a save is the player's actions, not the state: each
-// desk input with the feeder card it answered (sendInput's `shown`), each RE-DISPATCH, the presses that answer the cards
+// desk input with the feeder card it answered (sendInput's `shown`), each RE-DISPATCH and SOAK THE CITY (Q1), the presses that answer the cards
 // (dismissRespond, goOn, skipWatch) and TAKE THE DESK, each at its tick (game.acts). RESUME replays them through the same
 // functions, at the same ticks, with the system and the queued restores running as in play: the system's plans, the
 // director's memory of cards and feeders and the end card's counts all come back by themselves, and the state's hash at the
@@ -1315,6 +1332,7 @@ function replayAct(game, a) {
   if (kind === 't') takeDesk(game);
   else if (kind === 'i') { if (!sendInput(game, x, shown)) game.playerInputs++; }
   else if (kind === 'r') { if (!redispatch(game, shown)) game.playerInputs++; }
+  else if (kind === 'c') { if (!soakCity(game, x.atS, shown)) game.playerInputs++; }   // (Q1: SOAK THE CITY, one press)
   else if (kind === 'u' && REPLAY_UI.includes(x.do)) ui(game, x);
 }
 
@@ -1434,6 +1452,17 @@ export function makeActions(game) {
       const shown = shownFeeder(game);
       act(game, ['r', null, shown]);
       const r = redispatch(game, shown);
+      if (!r) game.playerInputs++;
+      saveResume(game);
+      return r;
+    },
+    // (Q1: SOAK THE CITY: one press, saved as one action and counted once, however many suburbs it books)
+    soakCity: atS => {
+      if (game.replay) return RESUMING;
+      if (game.resumeSaved) return RESUME_LOCK;
+      const shown = shownFeeder(game);
+      act(game, ['c', {atS}, shown]);
+      const r = soakCity(game, atS, shown);
       if (!r) game.playerInputs++;
       saveResume(game);
       return r;

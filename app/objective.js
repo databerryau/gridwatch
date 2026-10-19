@@ -28,7 +28,8 @@
 //     kind    which line it is (desk/README.md §19.5): 'watch' | 'held' | 'short' | 'commit' | 'restore' |
 //             'spare' | 'stop' | 'battery' | 'city' | 'quiet'
 //     targets control ids to light (desk/README.md §5)
-//     action  the sim input (or {redispatch: true}) that answers it now, or null. The game never
+//     action  the sim input (or {redispatch: true}, or SOAK THE CITY's {type: 'soakCity', ...}: inputsOf)
+//             that answers it now, or null. The game never
 //             sends it: the hint-following player (tests/lib/follow.js) does, to prove that a
 //             player who does only what this line says gets through the day and does it well.
 //     short   the capacity shortfall the line is about {atS, endS, mw}, or the first one in the
@@ -58,29 +59,34 @@
 // and the tools pass none), startBy the booking's deadline
 // (the soak's atS, the air-con's pre-cool start), level 'act' once that is within ACT_WITHIN_S
 // (+ leadS), else 'plan'. Eligibility only through observe().levers' block (a suburb is free when
-// its lever's block is ''). One suburb per line; the next is named once the forecast carries the
-// booking.
+// its lever's block is ''). An air-con line names one suburb; the next is named once the forecast
+// carries the booking. The soak is the city's, in one booking (Q1, W7).
 //   soak (after battery: a battery order due now shows first; before commit-later), aimed once:
 //   every free suburb has no soak of its own, so aimFlex gives them all the same atS. When either
 //     (a) an MSL notice stands with its low ahead (obs.msl.level >= 1, atS > now), and some
 //         column of the 4.5-h forecast in 10:00-15:00 is still at or under MSL1_MW + MSL_CLEAR_MW,
 //         raised by MSL_TIE_OUT_MW in a column before the tie's return as sim/events.js raises it
 //         (the notice is re-checked only every MSL_CHECK_S, so a soak booked since would not clear
-//         it until then: without this, a player who books at once would be asked for a suburb a
-//         minute until the next check). It names the free suburb with the most soak MW (par's
-//         rule 1); the low it quotes is that column, the one nearest its threshold;
+//         it until then: without this, a player who books at once would be asked again a
+//         minute until the next check); the low it quotes is that column, the one nearest its threshold;
 //     (b) else, spill the battery will not take: the projection's spill plus the present charge
 //         order per column, the battery modelled as battery() charges it (up to min(ratedMW -
 //         guardMW, PAR_BATT_CHARGE_MAX_MW) a column, from the earliest blue column, its present
 //         order in every column, until (capMWh - socMWh) / BATT_CHARGE_EFF is used); the largest
-//         excess inside the aimed block's span (atS, atS + SOAK_S) above SURPLUS_MIN_MW names the
-//         free suburb with the most soak MW at or under it, else the smallest. Spill outside the
+//         excess inside the aimed block's span (atS, atS + SOAK_S) above SURPLUS_MIN_MW. Spill outside the
 //         span is not the soak's to take (on a MILD 06:30 aimed at 11:00, spill at 10:00-10:55
 //         gives no line; the line comes once the projection reaches the span).
-//     Text: "MSL1: demand falls to about 1,550 MW at 12:40. Book a HOT WATER SOAK in Old Hazelton,
-//     10:35–14:35 (140 MW): it lifts the low; tonight's heating falls by as much." or "The
+//     it asks for every free suburb at once (Q1: one ripple-control signal moves a distributor's controlled
+//     hot water; the one-suburb-a-line asks it replaced were six identical free presses within 14 grid
+//     minutes on 2026-10-14): action {type: 'soakCity', lever: 'soak', atS, suburbs: [ids, most MW first]},
+//     the sim inputs inputsOf() names (app/game.js soakCity books them, one press); targets every free
+//     suburb (H opens the first's card, whose SOAK THE CITY row takes the focus). With one suburb free,
+//     the plain flex input for it, by name.
+//     Text: "MSL1: demand falls to about 1,550 MW at 12:40. Book the city's HOT WATER SOAK,
+//     10:35–14:35 (480 MW): it lifts the low; tonight's heating falls by as much." or "The
 //     battery cannot take all of noon's spill. Book … : tanks take the rest; tonight's heating
-//     falls by as much." (Q-52: the night's heating falls by the booked energy.)
+//     falls by as much." ("the HOT WATER SOAK in the other 4 suburbs" once some are booked; "a HOT
+//     WATER SOAK in Old Hazelton" for the last; Q-52: the night's heating falls by the booked energy.)
 //   air-con (right after shortAhead) only when lookAhead names no unit (a start beats air-con),
 //     shortAhead's soon does not hold, and for a run of the real gap (capacityGap real, over the
 //     day-ahead) at or after the suburb's fromS (each run in turn: a smaller, earlier one does not
@@ -985,7 +991,7 @@ function shortAhead(X, line) {
 
 // S1: an aim within a step of keep (in L's window) stays keep (fc starts off the lattice)
 export const stick = (a, keep, L) => (a >= 0 && keep >= L.fromS && keep <= L.toS && Math.abs(a - keep) <= V.FC_STEP_S ? keep : a);
-// line o's atS for this lever (a soak: any suburb's), else -1
+// line o's atS for this lever (a soak: any suburb's, the city's too), else -1
 export const cityAim = (o, lever, id) => { const a = o && o.kind === 'city' && o.action; return a && a.lever === lever && (lever === 'soak' || a.suburb === id) ? a.atS : -1; };
 
 // A city line (Q-59; §31.8).
@@ -1410,10 +1416,20 @@ function soak(X, line) {
   }
   const msl = obs.msl.level > 0 && obs.msl.atS > X.s && m <= V.MSL1_MW + V.MSL_CLEAR_MW;
   if (!msl && !(ex > V.SURPLUS_MIN_MW)) return null;
-  const x = msl ? free[0] : free.find(u => u.soak.mw <= ex) || free[free.length - 1];
-  return city(X, line, x, 'soak', atS, msl ? 'MSL' + obs.msl.level + ': demand falls to about ' + figure(d[lo]) + ' at ' + atMark(P.times[lo]) + '. '
-    : 'The battery cannot take all of noon\'s spill. ', (msl ? 'it lifts the low' : 'tanks take the rest') + '; tonight\'s heating falls by as much.');
+  const head = msl ? 'MSL' + obs.msl.level + ': demand falls to about ' + figure(d[lo]) + ' at ' + atMark(P.times[lo]) + '. ' : 'The battery cannot take all of noon\'s spill. ';
+  const tail = (msl ? 'it lifts the low' : 'tanks take the rest') + '; tonight\'s heating falls by as much.';
+  if (free.length === 1) return city(X, line, free[0], 'soak', atS, head, tail);
+  // Q1 (W7): the city's, one booking for every free suburb (a distributor's ripple control: one signal)
+  const lv = obs.levers, mw = Math.round(free.reduce((a, x) => a + x.soak.mw, 0));
+  const who = free.length === lv.suburbs.length ? 'the city\'s HOT WATER SOAK' : 'the HOT WATER SOAK in the other ' + free.length + ' suburbs';
+  const say = t => head + 'Book ' + who + ', ' + at(atS) + '–' + at(atS + V.SOAK_S) + ' (' + commas(mw) + ' MW): ' + t;
+  const text = say(tail).length <= LINE_MAX_CHARS ? say(tail) : say(tail.slice(0, tail.indexOf(';')) + '.');
+  return line({level: atS - X.s <= X.act ? 'act' : 'plan', kind: 'city', targets: free.map(x => 'suburb-' + x.id), startBy: atS, text,
+    action: {type: 'soakCity', lever: 'soak', atS, suburbs: free.map(x => x.id)}});
 }
+
+/** Q1 (W7): the sim inputs a line's action stands for: SOAK THE CITY's one flex input per suburb it names; any other action, itself. */
+export const inputsOf = a => (a && a.type === 'soakCity' ? a.suburbs.map(suburb => ({type: 'flex', suburb, lever: 'soak', atS: a.atS})) : [a]);
 
 // 8. A shortfall beyond the 4.5-h window: what to start next, and by when.
 function commitLater(X, line) {

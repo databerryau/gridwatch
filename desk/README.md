@@ -242,6 +242,8 @@ actions.previewTrip(opts)  // {kind:'unit'|'link', id?, guardMW?} -> {nadirHz, c
                            // physics.previewTrip on the live state via app/game.js, cached per
                            // grid second and guard value; the ONLY way UI reaches the engine)
 actions.restorePreview(districtId) // -> '' or refusal (grid.restorePermissive with preview)
+actions.soakCity(atS)      // W7 (Q1): SOAK THE CITY, one press: a flex input per suburb whose soak is free, at
+                           // atS, then one re-dispatch; saved and counted as one action -> '' or refusal
 ```
 
 Controls send the **applied** values back through the next frame's view model; a control
@@ -275,11 +277,12 @@ Control and target ids (stable; tiles, tray buttons and glow sets use them):
 `lever-coal lever-ccgt lever-gta lever-gtb lever-gtc wheel-hydro dial-battery ring-guard
 knob-tie key-rert btn-dr key-shed key-agc btn-redispatch guard-start-<unit>
 guard-stop-<unit> bay-sync bay-restore gauge-n1 dial-freq bar-imbalance annunciator tray
-stack map suburb-<ID> suburb-card btn-suburb-close city-<ID>-soak city-<ID>-aircon`.
+stack map suburb-<ID> suburb-card btn-suburb-close city-<ID>-soak city-<ID>-aircon city-soak-all`.
 
 2b (§31.3.8): `suburb-<ID>` is a suburb on the map and its card (bare id `HAZ` in `vm.suburb`),
 `suburb-card` the card itself, `btn-suburb-close` its ✕ (wave 2 keeps it: tests/cardshell.test.js
-presses it), `city-<ID>-soak` and `city-<ID>-aircon` the card's presses.
+presses it), `city-<ID>-soak` and `city-<ID>-aircon` the card's presses. W7 (Q1): `city-soak-all`
+is SOAK THE CITY on any card (`actions.soakCity(atS)`: one press books every free suburb's soak).
 
 ---
 
