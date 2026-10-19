@@ -740,9 +740,11 @@ export function openGame(o = {}) {
    * D-2's clock (desk/README.md §32.2): the real seconds from the Space that ran the clock to now
    * against E, the profile's real seconds over the same grid time (sim/clock.js realBetween) plus,
    * for each span played off the profile, its real seconds as played minus the profile's. The
-   * spans come from the sim's records and the game's offers, not the director: each watch
+   * spans come from the sim's records and the game's offers, not the director's rates: each watch
    * (startTick to watchEndTick), each card (the frames held at its watchEndTick), FOCUS (the
-   * synchroscope open, and RESTORE_FOCUS_S after each accepted restore input), RESTORE (Q-91: the
+   * synchroscope open, and each of the player's restores from its close to its FOCUS's end, W7 Q-115: the
+   * game's record of it, director.rfs, whose end G.tickOnce finds tick by tick from the sim's frequency;
+   * one still running counts to its cap; D-27's queued closes and the night shift's have none), RESTORE (Q-91: the
    * feeder cards' held real s, the frames that run no tick from a feeder card's hold tick,
    * feederHeldAt: the tick after a dark task feeder's allowed second's own, re-armed by every later
    * restore of any district, before 21:00), RESPOND's 30x part (the card to backInBandTick or + RESPOND_MAX_S;
@@ -767,8 +769,8 @@ export function openGame(o = {}) {
       const b = Math.min(back, w + V.RESPOND_MAX_S, nightS);
       if (b > w) spans.RESPOND.push({a: w, b});
     }
-    // every accepted restore: its own FOCUS
-    for (const r of st.log) if (r.type === 'restore') spans.FOCUS.push({a: r.tick / TPS, b: r.tick / TPS + D.RESTORE_FOCUS_S});
+    // each of the player's restores: its own FOCUS, to its end (W7, Q-115)
+    for (const r of game.director.rfs) spans.FOCUS.push({a: r.tick / TPS, b: (r.end >= 0 ? r.end : r.tick + D.RESTORE_FOCUS_MAX_S * TPS) / TPS});
     const K = ['WATCH', 'card', 'FOCUS', 'RESTORE', 'RESPOND', 'OFFER'], parts = {};
     for (const k of K) parts[k] = {n: 0, realS: 0, overS: 0};
     for (const k of Object.keys(spans)) parts[k].n = spans[k].filter(x => x.a >= fromS && x.a < toS).length;

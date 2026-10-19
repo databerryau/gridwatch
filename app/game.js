@@ -455,6 +455,15 @@ function closeQueued(game) {
   }
 }
 
+// W7 (Q-115): the player's restore's FOCUS, its end found tick by tick (D.restoreFocusTick, so a resume's replay finds the
+// same one), and then its one caption: a CITY DESK card in the tray, its button to the frequency dial
+function restoreFocusEnd(game) {
+  const rf = D.restoreFocusTick(game.director, game.state);
+  if (!rf) return;
+  const line = {text: D.restoreCaption(rf), target: 'dial-freq', atS: Math.floor(game.state.tick / TPS)};
+  for (const c of T.trayMarg(game.tray, line, T.SENDERS.city, 'TO THE DIAL')) pushCue(game, c);
+}
+
 // D-27: the feeders a RESTORE of `id` at the card would queue, each at the second it may close: the
 // later of its hand-back and RESTORE_INTERVAL_S after the one before (the card's own now). D-26: a shed
 // card's queue is the rest of its group (D.queueMates).
@@ -486,6 +495,7 @@ export function tickOnce(game) {
   }
   const recs = step(state, ins);
   if (recs.length) handleRecords(game, recs, ins.length ? 'system' : '');
+  restoreFocusEnd(game);
   onTick(game.rec, state);
   A.sampleTick(game.alarms, state);
   if (state.tick % TPS === 0) {
@@ -571,7 +581,7 @@ export function sendInput(game, x, shown) {
     game.objectiveS = -1e9; game.lineFresh = true;
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
-    if (x.type === 'restore') D.focusRestore(d, state);
+    if (x.type === 'restore') { const rr = out.find(o => o.kind === 'restore'); D.focusRestore(d, state, rr ? rr.mw : 0, x.district); } // (W7, Q-115: its pickup, for the caption)
     if (own) D.queueFeeders(d, mates); // D-27: the card's RESTORE queues the morning's other feeders (D-26: the rest of its group)
     if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
   } else if (own) game.feederWhy = {id: fc, why: r.reason};
