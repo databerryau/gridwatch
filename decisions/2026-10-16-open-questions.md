@@ -1,5 +1,7 @@
 # GRIDWATCH: decisions waiting on you (16 Oct 2026)
 
+**Answered 2026-10-20.** The owner took the recommendation on 1-15 ("Your recommendations") and chose the switch-over (17) but not telemetry yet (16). The answers are SPEC.md §9.1 Q-111–Q-126, and they build in W7 (SPEC.md §5). Telemetry stays open in SPEC.md §9.2.
+
 This brief covers the 15 open questions in SPEC.md §9.2 (lines 724-738), plus telemetry (Y-10) and the switch-over to the root page (F-14). Four read-only researchers checked each one in the code and on the shipped dailies. Nothing has been built. Read the table, open any section you doubt, and answer by number ("1 yes, 3 C, 7 relabel"). Most measurements come from one run per date, so treat them as samples. Weak recommendations and conflicts are marked. Some questions are linked: 2 feeds 3, 4 depends on 11, 15 makes later sim changes cheap, and 16 and 17 both need F-9's build id.
 
 **Words used.** *Par*: the reference operator you're graded against. *GUARD*: battery power held back to catch a trip. *N-1*: whether the grid can lose its biggest machine without shedding load. *UFLS*: relays that drop suburbs automatically at 49.0 Hz. *AGC / HAND*: AGC is the default mode, where the system syncs and dispatches units for you; HAND is the harder mode, where you do it yourself. *SIM_VERSION*: the sim's version stamp. Changing it means regenerating the dailies and the stored par.

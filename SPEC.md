@@ -265,7 +265,8 @@ Every step ships something playable, and the live game works after every step.
 | **W4** | Slice 2e: the commitment desk and onboarding | Built (2026-10-16) ahead of W2 (the owner's call), still `v4-core-2d.0`; see W4 below |
 | **W5** | Playtest gate 1 | After W4 |
 | **W6** | Phase 4: the daily (share card, history, streak, the phone page), then telemetry | Started (2026-10-16) ahead of W5: the share card and official runs with streaks are built; see W6 below |
-| Later | Phase 3 (the rest of the city); Phase 5 (week mode) | Not scheduled; decided on the gates' evidence (§9.2) |
+| **W7** | The owner's answers to the open questions (Q-111–Q-126): the desk, the line, the score's reveal, the ending, the tools, and the switch-over | Started 2026-10-20 ahead of W5's playtests, at the owner's request; see W7 below |
+| Later | Light seasons before April 2027 (Q-122); a region-wide VPP on evidence only (Q-123) | Not scheduled; Phase 5 (week mode) is cut |
 
 The order is the owner's (Q-107), with two placements of mine: the dark-district holds (D-26) go into W3 with the respond-card work, and the commitment desk goes into W4 with the cover plates, because the plates sit on it.
 
@@ -480,10 +481,15 @@ Requirement text for each Y- and F- item is in `SPEC-history.md` Phase 4, amende
 **Cut list** (in this order if W6 runs long): Y-6 PNG card, D-23 replay scrub, D-22 counterfactual, G-4 weather art beyond a tint, U-8 map life, K-20 foley beyond the hum and the breaker clack, P-10 battery P&L, Y-9 seasons (the labelled late-summer day stays).
 **Never cut:** H-8 (one physics engine), K-15/K-16 (watch, then respond), S-4 and D-9 (par and solvable days), K-13 (RESTORE), the P-1–P-4 belly.
 
+### W7 — The owner's answers (Q-111–Q-126)
+
+*Started 2026-10-20 (integration branch `w7-decisions`), ahead of W5's playtests. The owner said "I know it's still waiting for a review but can we move on to the next features please" about the open-questions brief, and then took its recommendations. Built in two waves of parallel builders, each branch reviewed through two lenses (the code, and the player) with a fixer checking every finding. The integrator does the switch-over last. Records follow as each item lands.*
+
 ### Later, not scheduled
 
-- **Phase 3, the rest of the city:** P-10, U-2's HOT WATER HOLD, EV DELAY, VPP and rooftop backstop, U-5, U-7, U-8, S-14 extended. Decided on gate 1's evidence (do strangers open the suburb card?).
-- **Phase 5, week mode** (W-1–W-5, H-17): parked.
+- **Seasons, light (Q-122):** before the April 2027 dailies, a month table of sun times, solar output and heatwave share; late summer stays through gate 2.
+- **Phase 3, the rest of the city (Q-123):** only a region-wide VPP (home batteries charged at noon and spent at the peak), built only if testers or telemetry show midday is dead time. The rooftop backstop becomes a 14 March anniversary daily. P-10, U-2's HOT WATER HOLD, EV DELAY, U-5, U-7 and S-14 extended are cut; their text stays in `SPEC-history.md`.
+- **Phase 5, week mode** (W-1–W-5, H-17): cut (Q-123). Its best idea, the outlook, ships as D-28.
 
 ---
 
@@ -740,24 +746,31 @@ The owner's answers to the review, 2026-10-15:
 | Q-109 | **The week ahead goes on the end card** (2026-10-16), not the briefing: "THE WEEK AHEAD: Sat mild · Sun storm · Mon HEATWAVE …". (D-28; amends Q-103's placement) | The briefing is 52-60 words against D-3's 60-word cap; on the end card it is a reason to come back tomorrow. | W6 |
 | Q-110 | **A storm or low-wind day's briefing says so** (2026-10-16): "Storms likely later." / "Low wind likely later." on the day's line, the week ahead's word, no time. The 60-word cap "doesn't matter really". (D-28, D-3) | Without it, a player who read yesterday's week ahead knew more than a first-timer, and the day's own briefing said nothing of what the card promised. | W6 |
 
+The owner's answers to the open-questions brief (`decisions/2026-10-16-open-questions.md`), 2026-10-20. The owner took the brief's recommendation on every in-game question ("Your recommendations") and chose the switch-over but not telemetry yet. The brief's number is in brackets.
+
+| # | Decision | Why | Builds in |
+|---|---|---|---|
+| Q-111 | **One SOAK THE CITY booking** [1]: one press books every free suburb's hot-water soak at the line's time; the suburb card keeps per-suburb CANCEL and BOOK for trimming; the decision count counts presses, not inputs. | Six identical free clicks are a chore; a distributor's ripple control moves all its hot water with one signal. | W7 |
+| Q-112 | **TRIP SHEDS, a fifth N-1 word on the desk** [2] when the trip preview falls below the first UFLS stage ("would fall to 48.99 Hz: the relays would shed 2 districts"), with a minimum display time; no sim change. | TIGHT covered everything from a comfortable margin to "the next trip sets off the relays", so an amber word sat beside a red preview. | W7 |
+| Q-113 | **A quiet alarm board** [3]: plain words on the tiles, and a tile lights only when the player can act (N-1 at SHORT, SHEDDING or TRIP SHEDS; PEAK retired). | On A-grade days N-1 INSECURE was lit 661-753 of 990 minutes; the north star promises a dark board at the peak (EEMUA 191: every alarm needs an action). | W7 |
+| Q-114 | **Prices on both sides, only in "? IF PRESSED"** [4], when the player reaches for the GUARD or a STOP. A weak call. | The trade is 40-100 to 1 for the GUARD, so pricing every ask only says "obey"; shown at the control, the price is the lesson. | W7 |
+| Q-115 | **FOCUS until the dip recovers** after a restore, with one caption, and **SYNC offered on HAND days only** [5]; START on a spun-up unit still opens the scope on AGC days. | The player saw the cold-load fall but never the recovery; a hand close mattered on 0 of 100 dates (Q-89) and the offers cost 15-24 real s. | W7 |
+| Q-116 | **One "when is this unit on" function** [6]; the three "what is short ahead" checks stay separate and named. Par and the system must not move. | Seven copies disagreed in HAND mode (the line said 45 minutes, the Live Stack 49). | W7 |
+| Q-117 | **The SCORE chip is hidden until 21:00** [7], then counts up with the night strip. | It wandered for reasons the player could not see, and read 1001 ten minutes before the lights went out. | W7 |
+| Q-118 | **Rank names beside the letter, everywhere** [8]: D TRAINEE, C SHIFT OPERATOR, B SENIOR OPERATOR, A SHIFT SUPERVISOR, A★ MARG'S CHAIR, BLACK START CREW for a black grid. | People repeat titles; following the coach misses the ★, so the chair means outplaying her. | W7 |
+| Q-119 | **What par did that you didn't** [9]: up to three factual lines under the end card's key moment, and par's GUARD tried on your trip with the existing replay. D-22 (30 re-runs) is retired; one measured re-run may follow gate 1. | 30 re-runs do not fit the night roll; tied to the loss, three facts are sharp, and every number comes from code that already runs. | W7 |
+| Q-120 | **A carbon choice, after a count** [10]: STOP quotes include the carbon the score charges; the line offers "coal off until tomorrow" only if a count shows it pays on enough days. The weakest call. | Carbon is 36-53% of par's cost but players moved it by 1.3% at most, and the line and the score counted costs differently. | W7 |
+| Q-121 | **The briefing says "Expect a trip at the peak."** [11] on a day whose plan has the evening trip; the sim does not change. | Returning players knew; the fun is anticipation (the test is coming, not the minute), and real operators always plan for the biggest single failure. | W7 |
+| Q-122 | **Late summer through gate 2; light seasons before the April 2027 dailies** [12] (a month table of sun times, solar output and heatwave share). | Seasons pay off for players who return for weeks, which gate 2 measures; an April heatwave would break realism. | Later (before 2027-04) |
+| Q-123 | **Phase 5 (week mode) is cut; from Phase 3 only a region-wide VPP, built only on evidence** [13] that midday is dead time; the rooftop backstop becomes a 14 March anniversary daily. | The evening already has 11 decisions against 8-12; week mode's best idea, the outlook, ships as D-28. | — |
+| Q-124 | **O-4's concept cards and O-5's "why?" are cut; Marg gets three first-time lines** [14]: negative prices, coal stuck at minimum while solar spills, the first relay shed. | Lessons land best in a character's voice in the moment, and Q-101 ruled out new pauses. | W7 |
+| Q-125 | **Verify, then restamp** [15]: a verify run replays par on every listed daily and, when everything matches, rewrites only the stamps; the classic golden moves out of the test suite into a tool check. | SIM_VERSION changed 13 times in 16 days at 25-40 minutes each, and the last runs changed only hashes and the stamp; a hand-bumped BALANCE_VERSION could grade everyone against the wrong par. | W7 |
+| Q-126 | **The switch-over** [17] (F-14): the game moves to `index.html`, `next.html` redirects, COPY LINK copies the root, `classic.html` gets a banner. Telemetry [16] waits: it needs the owner's Cloudflare account and a privacy notice. | Gate 2 then tests the exact address that launches. | W7 |
+
 ### 9.2 Open questions for the owner
 
-Raised by the review and not yet decided. Ask before building any of them.
-1. One "soak the city" booking in place of six per-suburb asks a day.
-2. The live SCORE chip: hide it until 21:00, or relabel it "vs PAR so far" (it read 1001 ten minutes before the lights went out).
-3. Rank names beside the letter (TRAINEE … SHIFT SUPERVISOR … MARG'S CHAIR).
-4. A fifth N-1 word, TRIP SHEDS, when the trip preview is below the first UFLS stage (TIGHT can mean the next trip darkens two suburbs).
-5. Prices on both sides of the line's asks (a STOP, the spare, the GUARD against battery energy): Q-92's option not chosen.
-6. The certain evening trip: say "the peak gets a trip" in the briefing, or vary its time and add a rare second trip.
-7. "What par did that you didn't" (a decision diff) in place of D-22's 30 re-simulations.
-8. RESTORE as a small skill (a longer FOCUS that shows the pickup's dip and counts clean pickups); the SYNC scope on AGC days.
-9. Plain words on the alarm tiles, or one ALARMS lamp (Q-93's option D, not chosen now).
-10. The classic-day golden and the dailies stamp as unit tests (a 5-minute and a 15-minute regeneration on every sim change).
-11. Phase 3's levers and Phase 5's week mode: schedule after the gates, or cut.
-12. O-4's concept cards and O-5's "why?" on every message: in a later 2e, or out.
-13. Seasons (Y-9), or a lighter version before gate 2.
-14. A carbon choice that matters (carbon stays inside the score under Q-98).
-15. One module for "when is this unit on, and what is short ahead", shared by the plan line, the Live Stack, par and the plan executor (five copies today, tuned against each other by measurement).
+The fifteen questions the review raised were answered on 2026-10-20 (Q-111–Q-125 in §9.1). Still open:
+1. **Telemetry (Y-10).** The brief (`decisions/2026-10-16-open-questions.md` §16) recommends a Cloudflare Worker writing to D1. It would be anonymous: no IP, no browser details and no stored id, with this browser's streak and dailies played sent instead. Each day played is 1-2 KB. There is an opt-out in SETTINGS, it is off when the browser asks not to be tracked, a one-line notice says so, and only records that replay to their stated hash count. It needs the owner's Cloudflare account and C-1's exception. The alternatives are Supabase (it pauses after a quiet week), Apps Script into a Sheet (it drops records in a spike), or keeping a random id for retention curves.
 
 ### 9.3 Risks
 
