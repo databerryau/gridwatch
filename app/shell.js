@@ -225,7 +225,7 @@ const millions = x => '$' + (x / 1e6).toFixed(1) + 'M';
 export const LIVE_GAP_MS = 2000;
 // What waits is one slot per kind (the newest of a kind replaces the older: "newest alarm
 // wins"), said in this order: a card that holds the clock first (the RESPOND card, the end card's score).
-const LIVE_ORDER = ['card', 'alarm', 'line', 'tray', 'band', 'level', 'mode'];
+const LIVE_ORDER = ['card', 'alarm', 'line', 'guard', 'tray', 'band', 'level', 'mode'];
 const BAND_TEXT = {normal: 'Frequency back in the normal band', outside: 'Frequency outside the normal band',
   containment: 'Frequency outside the containment band'};
 
@@ -304,10 +304,14 @@ export function liveFrame(L, vm, nowMs) {
   if (r && r.n !== L.respond && !first) L.q.card = respondWords(r);
   L.respond = r ? r.n : -1;
   // K-23: the objective line (Q-18), whole, when what it asks changes (its level, kind and first control): new figures alone never
-  // make it speak, and it never says the C-10 consider text, nor the paused suffix but once at the desk's opening (below)
+  // make it speak, and it never says a START or STOP guard's C-10 consider text (a hover would), nor the paused suffix but once at the desk's opening (below)
   // (#objective is no live region: it rewrites itself several times a minute)
   const o = vm.objective && vm.objective.text && !lineHidden(vm) ? vm.objective : null, line = o ? o.level + '|' + o.kind + '|' + (o.targets[0] || '') : '';
   if (line !== L.line) { L.line = line; if (first) L.lineSaid = line; else if (o) L.q.line = lineWords(o); else delete L.q.line; }
+  // Q4 (W7): the GUARD ring turned down is priced in #objective; the ring's own value says only "GUARD n MW", so its
+  // price is said here, the newest replacing one not yet said (a turn of several steps says its last)
+  const gc = vm.consider && vm.consider.target === 'ring-guard' && !lineHidden(vm) ? vm.consider.text : '';
+  if (gc && gc !== L.guardSaid) { L.guardSaid = gc; L.q.guard = CONSIDER_WORD.slice(2) + ': ' + gc; }
   if (nowMs - L.lastMs < LIVE_GAP_MS) return null;
   // A band, level or line that flapped back to what was last said has nothing to say.
   if (L.q.band && L.band === L.bandSaid) delete L.q.band;

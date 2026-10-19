@@ -486,14 +486,16 @@ export function largestLoss(obs, without) {
 
 // ------------------------------------------------------------------ what a stop saves
 
-// The cost ($/h) of supplying x MW from the flexible blocks [{mw, offer}], cheapest first; what
-// the blocks cannot give is charged at the last block's offer (the stop check keeps that from happening).
+// The cost ($/h) of supplying x MW from the flexible blocks [{mw, offer, co2}], in their merit order (cheapest
+// offer first, as the dispatch takes them), each MW at its offer plus its carbon (t/MWh) at the VER the score
+// charges (Q10, W7: the line counts a STOP's saving as the ALL-IN score does); what the blocks cannot give is
+// charged at the last block's (the stop check keeps that from happening).
 function stackCost(blocks, x) {
   let cost = 0, left = x, last = 0;
   for (const b of blocks) {
     if (left <= 0) break;
-    const take = Math.min(left, b.mw);
-    cost += take * b.offer; left -= take; last = b.offer;
+    const take = Math.min(left, b.mw), allIn = b.offer + V.VER * b.co2;
+    cost += take * allIn; left -= take; last = allIn;
   }
   return cost + Math.max(0, left) * last;
 }
@@ -501,8 +503,11 @@ function stackCost(blocks, x) {
 /**
  * What stopping unit u now saves, in dollars, if it stays off until backS (the second it is
  * started again; Infinity: not again today) (§21.4 condition 4). For each idle column: its minimum
- * MW x (its offer - the cost of the energy that replaces it) + its no-load; less one start when it
- * comes back today. The replacement is free in columns where power would be spilled (the plan
+ * MW x (its offer + its carbon at the VER - the cost of the energy that replaces it, with that
+ * energy's carbon) + its no-load; less one start when it comes back today. Carbon is the score's
+ * (Q10, W7; app/score.js ALL-IN: tonnes at the VER): each machine's own t/MWh, hydro none, and an
+ * import at the region's present intensity (the score charges imports at your own mix). The
+ * replacement is free, and carbon-free, in columns where power would be spilled (the plan
  * view's surplusMW inside the 4.5-h window; the same arithmetic on the day-ahead beyond it),
  * otherwise it comes from the cheapest committed sources with room: the merit order of the other
  * machines above their minimums, hydro at its water value (the plan view's waterValue, P-6) and
@@ -514,7 +519,7 @@ export function stopSaving(obs, u, backS, fc, proj, planview) {
   const unloadS = Math.max(0, u.outMW - u.minMW) / m.rampMWs;
   // off line from half-way down the T4 slope until half-way up the T2 slope of its return
   const offS = s + unloadS + m.t4S / 2, onS = again ? Math.min(endS, backS + m.t1S + syncOf(obs) + m.t2S / 2) : endS;
-  const wv = planview.waterValue(obs.hydro.frac);
+  const wv = planview.waterValue(obs.hydro.frac), mix = obs.score && obs.score.co2tPerMWh > 0 ? obs.score.co2tPerMWh : 0;
   let saving = 0;
   for (let k = 0; k < fc.n; k++) {
     const t = fc.fromS + (k + 1) * fc.stepS;
@@ -524,21 +529,21 @@ export function stopSaving(obs, u, backS, fc, proj, planview) {
     obs.units.forEach((x, i) => {
       if (x.id === u.id || onInS(x, M[i], obs) < 0 || t < s + onInS(x, M[i], obs)) return;
       const top = x.ratingMW * LOADING;
-      if (x.station === 'hydro') { blocks.push({mw: x.ratingMW, offer: wv}); return; }
+      if (x.station === 'hydro') { blocks.push({mw: x.ratingMW, offer: wv, co2: 0}); return; }
       floor += x.minMW;
       if (top > big) big = top;
-      blocks.push({mw: Math.max(0, top - x.minMW), offer: x.offer});
+      blocks.push({mw: Math.max(0, top - x.minMW), offer: x.offer, co2: M[i].co2});
     });
     const tripped = obs.tie.tripped && t < s + obs.tie.lockoutS;
     const exp = tripped ? 0 : fc.exportLimitMW[k];
     // the tie as a price-taking block from full export to its secure import (the largest unit)
-    if (!tripped) blocks.push({mw: exp + Math.min(tieLimitAt(obs.tie, t), big), offer: fc.neighbourPrice[k]});
+    if (!tripped) blocks.push({mw: exp + Math.min(tieLimitAt(obs.tie, t), big), offer: fc.neighbourPrice[k], co2: mix});
     blocks.sort((a, b) => a.offer - b.offer);
     // MW the flexible blocks must give, with the unit off and with it at its minimum
     const net = fc.demandP50[k] - fc.windMW[k] - fc.solarMW[k] - (floor - exp);
     const inProj = proj && k < proj.n && Math.abs(proj.times[k] - t) < 1;
     const replace = inProj && proj.surplusMW[k] > 0 ? 0 : stackCost(blocks, Math.max(0, net)) - stackCost(blocks, Math.max(0, net - u.minMW));
-    saving += (u.minMW * u.offer + m.noLoadPerS * S_PER_H - replace) * h;
+    saving += (u.minMW * (u.offer + V.VER * m.co2) + m.noLoadPerS * S_PER_H - replace) * h;
   }
   return saving - (again ? m.startCost : 0);
 }
@@ -1241,11 +1246,7 @@ function stop(X, line) {
   const W = unloadS + m.t4S + m.minDownS + u.startToMinS + STOP_CLEAR_S;
   const n1 = {marginMW: MARGIN_MW + largestLoss(obs, u.id), without: u.id};
   if (firstRun(capacityGap(obs, X.day, n1), -Infinity, s + W)) return null;
-  // when the line will ask for it back: the first shortfall at the commit margin without it (from 21:00 the night shift's)
-  let need = firstRun(tripGap(obs, X.day, COMMIT_TRIP_MW, {without: u.id}));
-  let backS = need ? Math.max(s + unloadS + m.t4S + m.minDownS, need.atS - u.startToMinS) : Infinity;
-  if (backS >= X.endS) { need = null; backS = Infinity; }
-  const saving = stopSaving(obs, u, backS, X.day, X.proj, X.PV);
+  const {need, saving} = stopQuote(obs, u, X.day, X.proj, X.PV, X.endS);
   // (4) worth it; at MSL2 and MSL3 the unit at minimum is in the way and the saving is not the point
   const msl = obs.msl && obs.msl.level >= 2;
   if (!msl && saving < STOP_MIN_SAVING) return null;
@@ -1257,8 +1258,21 @@ function stop(X, line) {
   // dearer starts (measured on hot days: a stop quoted at $36,000 realised -$52,000 and -$90,000).
   const spareOk = u.cls === 'ocgt' ? 'Spare holds without it now: ' : '';
   const text = msl ? 'Demand is falling under what the running units must make. Stop ' + name + ': it ' + until + '.' + again
-    : spareOk + name + ' ' + until + '. Stop it: saves about ' + usdText(saving) + (need ? ' if nothing trips before then' : '') + '.' + again;
+    : spareOk + name + ' ' + until + '. Stop it: saves about ' + usdText(saving) + ', carbon included' + (need ? ', if nothing trips before then' : '') + '.' + again;
   return line({level: msl ? 'act' : 'plan', kind: 'stop', text, targets: ['guard-stop-' + u.id], action: {type: 'stop', unit: u.id}, startBy: s, saving});
+}
+
+/**
+ * A STOP's quote, as the line and its "? IF PRESSED" both say it (§21.4 condition 4; Q4, W7): need, the first shortfall at
+ * the commit margin without unit u (when the line will ask for it back; from endS, a night scenario's 21:00, the night
+ * shift's: none), backS, the second it is started again for it (Infinity: not today), and saving, stopSaving's dollars.
+ */
+export function stopQuote(obs, u, day, proj, PV, endS = Infinity) {
+  const m = M.find(x => x.id === u.id), unloadS = Math.max(0, u.outMW - u.minMW) / m.rampMWs;
+  let need = firstRun(tripGap(obs, day, COMMIT_TRIP_MW, {without: u.id}));
+  let backS = need ? Math.max(obs.s + unloadS + m.t4S + m.minDownS, need.atS - u.startToMinS) : Infinity;
+  if (backS >= endS) { need = null; backS = Infinity; }
+  return {need, backS, saving: stopSaving(obs, u, backS, day, proj, PV)};
 }
 
 // 7. The battery (§21.4): charge on what would be spilled or at a price of $0 or less; charge before
@@ -1537,13 +1551,56 @@ export function consequence(obs, target, ctx = {}) {
   }
   const trip = firstRun(tripGap(obs, day, COMMIT_TRIP_MW, lv));
   if (trip && trip.crossS < backS) return out(head + (trip.atS - s <= nowS ? ' One trip would then leave you short.' : ' From ' + atMark(trip.crossS) + ' one trip would then leave you short.'), 'crit');
+  // Q4 (W7): a STOP that opens no shortfall says what it saves, the line's own quote (stopQuote: carbon included, Q10),
+  // and on what it rests; where the line is too long, "needed again from" goes first, then the price
+  const PV = ctx.planview, q = cancel || u.station === 'hydro' || !PV ? null : stopQuote(obs, u, day, ctx.proj || PV.project(obs), PV, nightOf(obs) ? NIGHT_S : Infinity);
+  const price = !q ? '' : q.saving >= 1000 ? ' Saves about ' + usdText(q.saving) + ', carbon included' + (q.need ? ', if nothing trips first.' : '.') : ' Running on costs no more, carbon included.';
+  const fit = (...ts) => ts.find(t => t.length <= LINE_MAX_CHARS) || ts[ts.length - 1];
   // the latest START that is back in time: no sooner than minimum down time allows after a stop (C-12:
   // from breaker open); a cancelled start never closed the breaker, so it may start again at once
   if (trip) {
-    const againS = Math.max(cancel ? s : openS + m.minDownS, trip.crossS - u.startToMinS);
-    return out(head + ' It is needed again from ' + atMark(trip.crossS) + ': start it ' + (againS - s < FC_MARK_S ? 'again at once.' : 'by ' + atMark(againS) + '.'));
+    const againS = Math.max(cancel ? s : openS + m.minDownS, trip.crossS - u.startToMinS), by = againS - s < FC_MARK_S ? 'again at once.' : 'by ' + atMark(againS) + '.';
+    const from = ' It is needed again from ' + atMark(trip.crossS) + ': start it ' + by;
+    return out(fit(head + price + from, head + price + ' Start it ' + (by[0] === 'a' ? by : 'again ' + by), head + from));
   }
-  return out(head + ' Nothing ahead needs it today.');
+  return out(fit(head + price + ' Nothing ahead needs it today.', head + ' Nothing ahead needs it today.'));
+}
+
+/**
+ * Q4 (W7): the GUARD ring turned down from fromMW to toMW, priced on both sides in the "? IF PRESSED" line (C-10). Both
+ * are estimates, and the line says so ("up to about", "would"):
+ *   gained: the MWh the battery could give by the evening window's end (PAR_BATT_DISCHARGE_H; on a night scenario 21:00,
+ *     where the night shift's own rules take the GUARD) through the inverter
+ *     MW the GUARD no longer holds, from now or 16:30, whichever is later; its charge above the reserve is the limit
+ *     (before 15:30 the charge the battery line fills it to, as aircon() counts it). Valued as the score values gas it
+ *     replaces: the marginal offer while gas sets the price (else the CCGT's, tonight's gas), plus that unit's carbon at the VER.
+ *   risked: preview(mw), the TRIP PREVIEW of the largest loss at that GUARD ({nadirHz, caught: {uflsMW}}: app/game.js
+ *     previewTrip): the MW the relays would shed at toMW (against fromMW's), at the VCR the score charges, per 10 minutes dark.
+ * @param {object} obs observe(state)
+ * @param {number} fromMW the GUARD when the turn began
+ * @param {number} toMW where the ring is now
+ * @param {function(number):object|null} preview
+ * @returns {{target:'ring-guard', text:string, level:'plan'|'crit'}|null} null unless turned down
+ */
+export function guardConsequence(obs, fromMW, toMW, preview) {
+  if (!(toMW < fromMW) || obs.over || obs.inWatch) return null;
+  // (the evening window's end, or the night shift's 21:00 on a night scenario: its own rules set the GUARD from then)
+  const endS = nightOf(obs) ? Math.min(DIS_TO_S, NIGHT_S) : DIS_TO_S;
+  const b = obs.battery, s = obs.s, sec = obs.sec, h = Math.max(0, endS - Math.max(s, DIS_FROM_S)) / S_PER_H;
+  const held = Math.max(0, (s < CHARGE_BY_S ? Math.max(b.socMWh, CHARGE_TO_MWH) : b.socMWh) - RESERVE_MWH);
+  const give = mw => Math.min(held, Math.max(0, b.ratedMW - mw) * h), mwh = give(toMW) - give(fromMW);
+  const mu = gasSetsPrice(obs) ? obs.units.find(x => x.id === obs.price.marginalId) : null, mm = mu && M.find(x => x.id === mu.id);
+  const perMWh = mm ? obs.price.mwh - obs.price.adder + V.VER * mm.co2 : V.STATIONS.ccgt.offer + V.VER * V.STATIONS.ccgt.co2;
+  const head = 'GUARD ' + fromMW + ' → ' + toMW + ' MW: ' + (mwh >= 1 ? 'the battery could replace up to about ' + usdText(mwh * perMWh) + ' more gas and carbon by ' + at(endS) + '.'
+    : 'no more energy by ' + at(endS) + ': the battery\'s charge runs out first either way.');
+  const p1 = sec.lKind === 'none' ? null : preview(toMW), p0 = p1 ? preview(fromMW) : null;
+  if (!p1 || !Number.isFinite(p1.nadirHz)) return {target: 'ring-guard', text: head, level: 'plan'};
+  const who = sec.lKind === 'link' ? 'A tie trip' : 'A ' + unitName(sec.lId) + ' trip', shed = Math.max(0, p1.caught ? p1.caught.uflsMW : 0), was = Math.max(0, p0 && p0.caught ? p0.caught.uflsMW : 0);
+  if (shed < BATT_MIN_MW / 5 || shed <= was) return {target: 'ring-guard', level: 'plan', text: head + ' ' + who + ' would ' + (was >= BATT_MIN_MW / 5 ? 'shed no more' : 'still be caught above the relays') + ', at about ' + p1.nadirHz.toFixed(2) + ' Hz.'};
+  const cost = shed * V.VCR / 6, big = cost >= 1e6 ? '$' + (cost / 1e6).toFixed(1) + 'M' : usdText(cost);
+  const tail = ' would then shed about ' + mwText(shed) + (was >= BATT_MIN_MW / 5 ? ' (' + mwText(was) + ' now)' : '');
+  const fit = [head + ' ' + who + tail + ': ' + big + ' per 10 minutes dark.', head + ' ' + who + tail + ', ' + big + ' per 10 min dark.'];
+  return {target: 'ring-guard', level: 'crit', text: fit.find(t => t.length <= LINE_MAX_CHARS) || fit[1]};
 }
 
 const cap = t => (t === 'tonight' ? 'Tonight' : t === 'the evening' ? 'Tonight\'s peak' : t.charAt(0).toUpperCase() + t.slice(1));
