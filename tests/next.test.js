@@ -579,8 +579,16 @@ test('F-6 / C-3 via the shell: the day ends with the end card; its replay log re
   assert.equal($('briefing-card').hidden, false);
 });
 
-test('K-12 offers (A-4, Q-78): offered only in D-5\'s window, at TIGHT or worse, or in the Peak; tight and peak share one a day', () => {
+test('K-12 offers (A-4, Q-78): offered only in D-5\'s window, at TIGHT or worse, or in the Peak; tight and peak share one a day; W7 (Q-115): on HAND days only', () => {
+  // an AGC day: units at full speed at TIGHT are offered nothing (the auto-synchroniser closes them)
+  const agc = G.createGame({seed: 7, storage: null});
+  G.takeDesk(agc);
+  for (const u of agc.state.units.filter(x => x.mode === 'off').slice(0, 5)) u.mode = 'ready';
+  agc.state.sec.level = 'TIGHT';
+  const va = G.buildVm(agc, {nowMs: 1});
+  assert.deepEqual([va.offers, agc.tally.n, va.glow.has('bay-sync')], [[], 0, false], 'AGC: nothing offered');
   const game = G.createGame({seed: 7, storage: null});
+  assert.equal(G.sendInput(game, {type: 'mode', agc: false}), '');   // HAND (the briefing's choice)
   G.takeDesk(game);
   const vm0 = G.buildVm(game, {nowMs: 0});
   assert.deepEqual(vm0.offers, []);

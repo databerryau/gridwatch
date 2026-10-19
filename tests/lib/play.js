@@ -749,7 +749,8 @@ export function openGame(o = {}) {
    * feederHeldAt: the tick after a dark task feeder's allowed second's own, re-armed by every later
    * restore of any district, before 21:00), RESPOND's 30x part (the card to backInBandTick or + RESPOND_MAX_S;
    * no card or RESPOND from a night scenario's 21:00) and OFFER (any offered unit while it waits at
-   * full speed, at most AUTO_SYNC_S from its own offer, before the night shift has the desk). A frame
+   * full speed, at most AUTO_SYNC_S from its own offer, before the night shift has the desk; W7, Q-115: HAND
+   * days only, so an AGC day's OFFER is n 0, 0 real s). A frame
    * counts in the first of these holding its middle, in the director's precedence (a frame that
    * runs no tick at a watch's end: the card, a feeder card queued behind it included; a feeder
    * card holds over FOCUS). parts[k].n counts the spans begun after Space and before now

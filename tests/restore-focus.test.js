@@ -1,12 +1,14 @@
 // W7, Q-115 (decisions brief §5, option A): the player's restore close plays FOCUS (1x) until frequency is back in the
 // normal band (at least RESTORE_FOCUS_S, at most RESTORE_FOCUS_MAX_S grid s), then one caption in the tray, so the
-// cold-load dip's recovery is seen and not only its fall. The rule on a fake state (the director alone), then the page
-// through the play driver, sampled (CLAUDE.md): a real hand-back's dip.
+// cold-load dip's recovery is seen and not only its fall; and the K-12 scope offer is a HAND day's only: on an AGC day
+// nothing is offered, and START on a unit at full speed still opens its scope. The rule on a fake state (the director
+// alone), then the page through the play driver, sampled (CLAUDE.md): a real hand-back's dip, and an AGC morning's START.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {V} from '../sim/params.js';
 import * as fleet from '../sim/fleet.js';
 import * as D from '../app/director.js';
+import * as G from '../app/game.js';
 import {openGame} from './lib/play.js';
 
 const TPS = V.TICKS_PER_S, H = 3600, LO = V.NORMAL_LO_HZ;
@@ -85,5 +87,19 @@ test('Q-115 on the page: HAR4\'s hand-back at 06:40 (2026-10-22) dips out of ban
   // D-2's clock: the FOCUS part is this close's, at 1x (Space came before the jump: its frames are the skip's)
   const f = p.clockReport().parts.FOCUS;
   assert.ok(f.n === 1 && Math.abs(f.realS - focusS) < 0.1 && Math.abs(f.overS - focusS) < 0.1, JSON.stringify(f));
+  assert.deepEqual(p.h.mods.errors, []);
+});
+
+test('Q-115 on the page: an AGC morning offers nothing when a unit reaches full speed at TIGHT (a HAND day would), and START on it still opens its synchroscope', () => {
+  const p = openGame({seed: 20261002}), st = p.game.state, gta1 = st.units.find(u => u.id === 'gta1');
+  assert.equal(st.control.mode, 'AGC');
+  assert.equal(p.send({type: 'start', unit: 'gta1'}), '');                // (GT·A's one machine: the station's START is its)
+  assert.equal(p.until(({state}) => state.units.find(u => u.id === 'gta1').mode === 'ready', {max: '+30m'}).why, 'pred');
+  const obs = p.vm().obs;
+  assert.notEqual(G.offerWhy(Object.assign({}, obs, {mode: 'HAND'}), {n: 0, extra: 0, contN: -1}), '', 'a HAND day would offer it here');
+  assert.deepEqual([gta1.mode, p.vm().offers, p.game.tally.n, p.mode()], ['ready', [], 0, 'CRUISE'], 'nothing offered: no SYNC 30×');
+  const s = p.press('station-start-gta');
+  assert.deepEqual([st.scope.unit, p.mode()], ['gta1', 'FOCUS'], 'START on the unit at full speed opened its scope');
+  assert.match(s.during, / \| FOCUS 1× \| /);
   assert.deepEqual(p.h.mods.errors, []);
 });

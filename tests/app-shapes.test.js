@@ -12,8 +12,12 @@ import * as T from '../app/tray.js';
 import {PEAK, NIGHT_S} from '../sim/clock.js';
 
 // (wave 2, clock: offerWhy dropped its `mode` (Q-78), and modeOf's segment and act became real; these two tests follow)
-test('K-12, Q-78: G.offerWhy is the bay\'s predicate: respond (D-5\'s window, once per contingency) > tight or peak (one a day), none past MAX_OFFERS or from 21:00', () => {
-  const [p0, p1] = PEAK, obs = (level, s, inRespond = false) => ({s, sec: {level}, inRespond, contingency: {n: 0}}), t = (n, extra = 0, contN = -1) => ({n, extra, contN});
+test('K-12, Q-78: G.offerWhy is the bay\'s predicate: respond (D-5\'s window, once per contingency) > tight or peak (one a day), none past MAX_OFFERS or from 21:00; W7 (Q-115): HAND days only', () => {
+  const [p0, p1] = PEAK, obs = (level, s, inRespond = false, mode = 'HAND') => ({s, mode, handFlown: mode === 'HAND', sec: {level}, inRespond, contingency: {n: 0}}), t = (n, extra = 0, contN = -1) => ({n, extra, contN});
+  for (const [level, s, r] of [['TIGHT', p0, true], ['SHORT', p0, false], ['SECURE', p0, false]]) {
+    assert.equal(G.offerWhy(obs(level, s, r, 'AGC'), t(0)), '', 'an AGC day: nothing is offered (' + level + ')');
+  }
+  assert.equal(G.offerWhy(Object.assign(obs('TIGHT', p0), {handFlown: false}), t(0)), 'tight', 'the held 04:30 desk of a HAND day (mode HAND, not yet tagged)');
   assert.equal(G.offerWhy(obs('TIGHT', p0, true), t(0)), 'respond');
   assert.equal(G.offerWhy(obs('SECURE', 7200, true), t(0)), 'respond');
   assert.equal(G.offerWhy(obs('TIGHT', p0, true), t(1, 0, 0)), 'tight', 'this contingency had its offer: the day\'s tight or peak one is left');

@@ -827,10 +827,12 @@ const ABSTRACTIONS = [
   {
     id: 'offer-pace', row: 'An offered SYNC runs at 30×.', anchorId: 'offer-pace', ui: 'drawer', game: 'bay-sync',
     real: 'Synchronising is mostly automatic, at the power station: nobody slows the grid to watch a breaker close.',
-    ours: 'When the desk offers you a unit\'s synchroscope (after a trip, while spare is tight or in the evening peak; a few a day, ' +
-      'none from ' + hhmm(NIGHT_H) + ') the clock plays at ' + num(OFFER_RATE) + '× while the unit waits at full speed, for at most ' +
-      'the ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes our auto-synchroniser takes (' + num(V.AUTO_SYNC_S / OFFER_RATE) +
-      ' real s): the badge reads SYNC. O opens the scope; the breaker closing ends it. FAST waits for it.',
+    ours: 'On a HAND day, when the desk offers you a unit\'s synchroscope (after a trip, while spare is tight or in the evening ' +
+      'peak; a few a day, none from ' + hhmm(NIGHT_H) + ') the clock plays at ' + num(OFFER_RATE) + '× while the unit waits at full ' +
+      'speed, for at most the ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes our auto-synchroniser would take (' + num(V.AUTO_SYNC_S / OFFER_RATE) +
+      ' real s): the badge reads SYNC. O opens the scope; the breaker closing ends it. FAST waits for it. On an AGC day nothing is ' +
+      'offered: the auto-synchroniser closes the breaker, and while a unit waits at full speed O (or its station\'s START, when ' +
+      'no other unit there can start) still opens its scope.',
     why: 'At the profile\'s speeds an offer lived under half a real second: the synchroscope moment needs time to be seen and taken.',
     params: ['AUTO_SYNC_S'],
   },

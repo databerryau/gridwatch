@@ -800,9 +800,12 @@ export function restorePreview(game, districtId) {
 
 // ------------------------------------------------------------------ the view model (desk/README.md §5)
 
-/** K-12, Q-78 (§32.4.8; the tally: §32.12 app/game.js): why the bay offers a unit reaching full speed now, or ''. */
+/**
+ * K-12, Q-78 (§32.4.8; the tally: §32.12 app/game.js): why the bay offers a unit reaching full speed now, or ''. W7 (Q-115):
+ * on HAND days only; on an AGC day the auto-synchroniser closes it and nothing is offered (START on it still opens its scope).
+ */
 export function offerWhy(obs, tally) {
-  if (tally.n >= MAX_OFFERS || obs.s >= NIGHT_S) return '';
+  if (tally.n >= MAX_OFFERS || obs.s >= NIGHT_S || (obs.mode !== 'HAND' && !obs.handFlown)) return '';
   if (obs.inRespond && obs.contingency.n !== tally.contN) return 'respond';
   return tally.extra ? '' : obs.sec.level !== 'SECURE' ? 'tight' : obs.s >= PEAK[0] && obs.s < PEAK[1] ? 'peak' : '';
 }
