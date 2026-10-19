@@ -127,9 +127,15 @@
 // none in the quarter hour before the evening's own order. (The shortfall branches raise a
 // discharge as an evening gap grows: each order is sized for the gap 20 min ahead.)
 //
-//   consequence(obs, target, {planview, dayAhead}) -> {target, text, level} | null
+//   consequence(obs, target, {planview, dayAhead, proj?}) -> {target, text, level} | null
 //     what a guarded press would do, said before it is made (C-10): target is
 //     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
+//     A STOP that opens no shortfall says what it saves (stopQuote, the line's own; Q4, W7).
+//   guardConsequence(obs, fromMW, toMW, preview) -> {target: 'ring-guard', text, level} | null
+//     the GUARD ring turned down, priced on both sides (Q4, W7): the gas and carbon the freed MW
+//     could replace by the evening's end, against what the largest loss would then shed at the VCR.
+//   stopQuote(obs, u, day, proj, planview, endS?) -> {need, backS, saving}: a STOP's quote; the
+//     saving counts the carbon the ALL-IN score charges (Q10, W7: stopSaving).
 //
 //   steady(held, next, s, hand?) -> {line, seenS, sinceS}
 //     the line as the desk shows it: a line whose deadline or figure moves with each forecast while
@@ -1473,10 +1479,12 @@ function commitLater(X, line) {
  * breaker open to the next START).
  * @param {object} obs observe(state)
  * @param {string|null} target 'guard-start-<unit>' | 'guard-stop-<unit>'
- * @param {{dayAhead?:object|null, planview?:object}} [ctx]
+ * @param {{dayAhead?:object|null, planview?:object, proj?:object}} [ctx]
  * A STOP that opens a shortfall says what the press itself costs: the MW that would be missing
  * that are not missing already (the evening's units not yet started are the objective's to ask
- * for, not this press's doing).
+ * for, not this press's doing). A STOP that opens none says what it saves, the line's own quote
+ * (stopQuote, carbon included), and that it rests on nothing tripping first (Q4, W7; ctx.proj:
+ * the line's projection, else planview.project(obs)). The GUARD ring's price: guardConsequence.
  * @returns {{target:string, text:string, level:'ok'|'plan'|'crit'}|null} level 'crit' when the press
  *   opens a shortfall the unit cannot be back for
  */
@@ -1553,7 +1561,7 @@ export function consequence(obs, target, ctx = {}) {
   if (trip && trip.crossS < backS) return out(head + (trip.atS - s <= nowS ? ' One trip would then leave you short.' : ' From ' + atMark(trip.crossS) + ' one trip would then leave you short.'), 'crit');
   // Q4 (W7): a STOP that opens no shortfall says what it saves, the line's own quote (stopQuote: carbon included, Q10),
   // and on what it rests; where the line is too long, "needed again from" goes first, then the price
-  const PV = ctx.planview, q = cancel || u.station === 'hydro' || !PV ? null : stopQuote(obs, u, day, ctx.proj || PV.project(obs), PV, nightOf(obs) ? NIGHT_S : Infinity);
+  const PV = ctx.planview, q = cancel || u.station === 'hydro' || !PV || !PV.waterValue ? null : stopQuote(obs, u, day, ctx.proj || (PV.project ? PV.project(obs) : null), PV, nightOf(obs) ? NIGHT_S : Infinity);
   const price = !q ? '' : q.saving >= 1000 ? ' Saves about ' + usdText(q.saving) + ', carbon included' + (q.need ? ', if nothing trips first.' : '.') : ' Running on costs no more, carbon included.';
   const fit = (...ts) => ts.find(t => t.length <= LINE_MAX_CHARS) || ts[ts.length - 1];
   // the latest START that is back in time: no sooner than minimum down time allows after a stop (C-12:
