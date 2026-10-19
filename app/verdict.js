@@ -4,7 +4,8 @@
 // (app/game.js tickOnce -> verdictSecond) the second's lowest and highest frequency (from the recorder),
 // each district's dark spell with its cause and its MWh (task feeders from their hand-back: before it the
 // outage is the network's, Q-69), and once a grid minute the spare in 5 min and the biggest risk, the
-// security level, the player's dark spells open, the underlying and operational demand and the MWh spilled so far.
+// security level, the player's dark spells open, the underlying and operational demand and the MWh spilled so far,
+// and (W7, Q-119) the GUARD, the machines synchronised and the tie flow, as app/par.js keeps par's.
 // For D-24's cards, `seen` keeps what the player's day saw that the sim keeps no record of: a shed by the city
 // desk, the tie out, the reserve diesel called, a heatwave or a wind drought begun (its news); never the night shift's.
 //
@@ -19,6 +20,8 @@
 //                            guard-0 twin of the pre-trip preview: createTwin replays the day to the tick before
 //                            the trip, then physics.previewTrip(..., {guardMW: 0}); with no GUARD set, the card
 //                            says the fall was that case) and par's lowest Hz and spare at the same minute.
+//                            W7 (Q-119): then what par did that you didn't (parLines): up to three facts in par's
+//                            favour for this kind of moment, and par's GUARD tried on your trip by the same twin.
 //   strip                    L-10: a column an hour, 'r' short (a district of yours dark), 'b' spill (wind or solar
 //                            held back), 'g' neither. Read from the minutes alone, never from the plan.
 //   demand, trips            P-1: the underlying and operational curves; H-11: after each trip, whether
@@ -29,7 +32,9 @@ import {V} from '../sim/params.js';
 import {createState, step} from '../sim/step.js';
 import {previewTrip} from '../sim/physics.js';
 import {districtColdLoadMW} from '../sim/fleet.js';
+import {flexAt} from '../sim/weather.js';
 import {SEC_WINDOW_S, LEVELS} from './record.js';
+import {unitsOn} from './par.js';
 import {clockText, mw} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
 import {CARDS} from '../content/cards.js';
@@ -52,6 +57,7 @@ export function createVerdictMem() {
   return {fLo: nan(DAY_S), fHi: nan(DAY_S),
     r5: nan(DAY_MIN), L: nan(DAY_MIN), level: new Int8Array(DAY_MIN).fill(-1), shed: nan(DAY_MIN),
     under: nan(DAY_MIN), oper: nan(DAY_MIN), spill: nan(DAY_MIN), price: nan(DAY_MIN),
+    guard: nan(DAY_MIN), on: new Int32Array(DAY_MIN).fill(-1), tie: nan(DAY_MIN),   // (W7, Q-119: as app/par.js keeps par's)
     open: {}, spells: [], peakMW: 0, chimed: false, seen: {}};
 }
 
@@ -84,6 +90,7 @@ export function verdictSecond(mem, state, rec) {
   mem.r5[m] = state.sec.r5MW; mem.L[m] = state.sec.lMW; mem.level[m] = LEVELS.indexOf(state.sec.level);
   mem.shed[m] = Object.keys(mem.open).length; // (the player's dark spells: a feeder under repair is the network's)
   mem.under[m] = env.underlyingMW; mem.oper[m] = env.demandMW; mem.spill[m] = state.score.spillMWh; mem.price[m] = state.price.mwh;
+  mem.guard[m] = state.battery.guardMW; mem.on[m] = unitsOn(state); mem.tie[m] = state.tie.flowMW;
   if (!state.control.nightShift) seenMinute(mem.seen, state, s);
   return cleanRampAt(mem, m) ? 'ramp' : '';
 }
@@ -252,40 +259,162 @@ export function moment(mem, conts, o = {}) {
     text.push(at(s) + (sp.by === 'ufls' ? ': the relays shed ' : ': the city desk shed ') + sp.id + ' to hold frequency. Lowest ' + (Number.isFinite(lo) ? lo.toFixed(2) : '-') + ' Hz.');
   }
   if (par) text.push(par);
+  // W7 (Q-119): what par did that you didn't, under par's line (par finished: its minute is known)
+  if (pm && o.parHad) {
+    const d = parLines(m, mem, o);
+    if (d.pending) m.parPending = true;
+    if (Number.isFinite(d.tryHz)) n.parGuardHz = d.tryHz;
+    m.parLines = d.lines;
+    text.push(...d.lines);
+  }
   const trace = {fromS: from, toS: to, s, lo: mem.fLo.slice(from, to), hi: mem.fHi.slice(from, to)};
   return Object.assign(m, {text, numbers: n, trace});
+}
+
+// ------------------------------------------------------------------ W7 (Q-119): what par did that you didn't
+
+/** Q-119: a difference smaller than this many MW is not one (a GUARD step; the tie; a trip's size). */
+export const DIFF_MW = 50;
+/** Q-119: par's running plant must be this many rated MW above yours before its machines are a difference. */
+export const DIFF_PLANT_MW = 100;
+/** Q-119: par's air-con cycles must take this many MW more off demand than yours to be a difference. */
+export const DIFF_FLEX_MW = 20;
+/** Q-119: at most this many lines. */
+export const DIFF_MAX = 3;
+/** Q-119: a fall no deeper than par's (par's lowest within this of yours, or below it) leaves par's machines unsaid. */
+const DEEPER_HZ = 0.005;
+
+const RATED = V.MACHINES.map(x => x.ratingMW);
+const plantMW = on => { let s = 0; for (let i = 0; i < RATED.length; i++) if (on & (1 << i)) s += RATED[i]; return s; };
+const unitNames = on => V.MACHINES.filter((x, i) => on & (1 << i)).map(x => unitLabel(x.id));
+const andList = xs => (xs.length < 2 ? xs.join('') : xs.length <= 3 ? xs.slice(0, -1).join(', ') + ' and ' + xs.at(-1)
+  : xs.slice(0, 3).join(', ') + ' and ' + (xs.length - 3) + ' more');
+const aircon = (blocks, s) => (blocks ? Math.max(0, -flexAt(blocks, s, '', '', 'aircon')) : NaN);   // (MW off demand: the core's)
+const tieText = x => (x >= 0.5 ? 'importing ' + mw(x) + ' MW' : x <= -0.5 ? 'exporting ' + mw(-x) + ' MW' : 'not importing');
+const tripName = t => (t.cause === 'link' ? 'the tie line' : t.cause === 'load' ? 'a smelter potline' : unitLabel(t.id));
+const stages = k => k + ' stage' + (k > 1 ? 's' : '');
+/** Q-119: the grid minute (0: 04:00-04:01) both sides are read at for moment m: the one before its trip or shed began, or the thinnest margin's own. */
+export const diffMinute = m => (m.kind === 'margin' ? m.minute : Math.floor(m.s / MIN) - 1);
+/** Q-119: a preview of a trip in words: "49.31 Hz, no relays". */
+const previewText = r => (r.black ? 'the grid would go black' : r.nadirHz.toFixed(2) + ' Hz' + (r.uflsStages ? ', and the relays would shed ' + stages(r.uflsStages) : ', no relays'));
+
+/**
+ * W7 (Q-119): what par did that you didn't, at the moment m (moment()'s): at most DIFF_MAX facts, each in par's favour
+ * for this kind of moment. Facts, never a cause ("because"), never blame. Each side is read at the same instant: the
+ * end of the minute before a trip or a shed began (diffMinute; the minute itself for the thinnest margin).
+ *   A fall (a trip that fell, or the relays just after one), in this order (what catches a fall in its seconds first):
+ *     par's trip, when it was another machine, none, or the same one 50 MW or more heavier or lighter: par's numbers
+ *       above are its own trip's, and the twin tries par's GUARD on yours (first: it says what the rest compare);
+ *     par's GUARD, DIFF_MW or more above yours, with par's GUARD tried on your trip (o.parTry: the twin's preview,
+ *       "computing…" until it is in);
+ *     par's machines running that yours were not, when par's rated plant running was DIFF_PLANT_MW above yours; not
+ *       when the fall went no deeper than par's (par's lowest over the trip's minute and the next).
+ *   A shed with no trip before it (the city desk's, or the relays' on frequency alone), the most MW first: par's
+ *     machines (their rated MW over yours); par importing DIFF_MW more over the tie; par's air-con cycles taking
+ *     DIFF_FLEX_MW more off demand; par's GUARD DIFF_MW or more below yours (a GUARD holds the battery's power back from
+ *     the energy it would supply).
+ *   The thinnest margin, only when par's spare in 5 min was DIFF_MW more: par's machines and its air-con cycles, the
+ *     most MW first.
+ *   A rise: none. The soak is not compared: before 21:00 it only adds load (at noon), never helps a short minute.
+ * o: moment()'s, with parHad(k) (app/par.js parHad), parTrips (par's [{tick, cause, id, mw}], null for a par kept
+ * before W7), parBlocks and blocks (par's and your city bookings), parTry(guardMW): undefined (not asked), null
+ * (computing) or the twin's preview {nadirHz (NaN: it failed), uflsStages, black}.
+ * @returns {{lines: string[], pending: boolean (par's GUARD on your trip still computing), tryHz: number}}
+ */
+export function parLines(m, mem, o) {
+  const out = {lines: [], pending: false, tryHz: NaN}, c = m.cont, fall = !!c && c.lostMW > 0;
+  if ((c && !fall) || !o.parHad) return out;
+  const k = diffMinute(m), p = o.parHad(k);
+  if (!p || !(mem.on[k] >= 0)) return out;
+  const you = {guardMW: fall && Number.isFinite(o.guardMW) ? o.guardMW : mem.guard[k], on: mem.on[k], tieMW: mem.tie[k]}, endS = (k + 1) * MIN;
+  const facts = [], fact = (w, text) => facts.push([w, text]);
+  const plant = () => {
+    const d = plantMW(p.on) - plantMW(you.on), extra = p.on & ~you.on;
+    if (d >= DIFF_PLANT_MW && extra) fact(d, 'Par had ' + andList(unitNames(extra)) + ' running; you didn\'t.');
+  };
+  const cycles = () => {
+    const a = aircon(o.parBlocks, endS), b = aircon(o.blocks, endS);
+    if (a - b >= DIFF_FLEX_MW) fact(a - b, 'Par\'s air-con cycles were taking ' + mw(a) + ' MW off demand; ' + (b >= 0.5 ? 'yours ' + mw(b) + ' MW.' : 'you had none running.'));
+  };
+  const guardLine = () => 'Par had a GUARD of ' + mw(p.guardMW) + ' MW; yours was ' + mw(you.guardMW) + '.';
+  if (fall) {
+    const pt = o.parTrips ? o.parTrips.find(t => Math.abs(t.tick - c.startTick) <= TPS) : undefined, mine = tripName(c);
+    if (o.parTrips && !pt) fact(Infinity, 'Par had no trip over ' + mw(V.EVENT_THRESHOLD_MW) + ' MW at ' + at(m.s) + '.');
+    else if (pt && (pt.cause !== c.cause || pt.id !== c.id)) fact(Infinity, 'Par\'s trip took ' + tripName(pt) + ' (' + mw(pt.mw) + ' MW); yours took ' + mine + ' (' + mw(c.lostMW) + ' MW).');
+    else if (pt && Math.abs(pt.mw - c.lostMW) >= DIFF_MW) fact(Infinity, 'Par\'s ' + mine.replace(/^the /, '') + ' was at ' + mw(pt.mw) + ' MW when it tripped; yours was at ' + mw(c.lostMW) + '.');
+    const g = p.guardMW - you.guardMW, lows = [o.parMinute && o.parMinute(m.s), o.parMinute && o.parMinute(m.s + MIN)].filter(Boolean).map(x => x.lowHz);
+    const deeper = !lows.length || Math.min(...lows) > c.extremeHz + DEEPER_HZ;   // (yours went deeper than par's)
+    if (g >= DIFF_MW) {
+      const r = o.parTry ? o.parTry(p.guardMW) : undefined, head = 'Par had a GUARD of ' + mw(p.guardMW) + ' MW. With it on your trip: ';
+      if (r === null) { out.pending = true; fact(g, head + 'computing…'); }
+      else if (r && Number.isFinite(r.nadirHz)) { out.tryHz = r.nadirHz; fact(g, head + previewText(r) + '.'); }
+      else if (deeper) fact(g, guardLine());
+    }
+    if (deeper) plant();
+  } else if (m.kind === 'shed') {
+    plant();
+    const t = p.tieMW - you.tieMW;
+    if (t >= DIFF_MW) fact(t, 'Par was ' + tieText(p.tieMW) + ' over the tie; you were ' + tieText(you.tieMW) + '.');
+    cycles();
+    if (you.guardMW - p.guardMW >= DIFF_MW) fact(you.guardMW - p.guardMW, guardLine());
+    facts.sort((a, b) => b[0] - a[0]);   // (each is MW par could serve load with that you could not: the most first)
+  } else {
+    const pm = o.parMinute && o.parMinute(m.s);
+    if (pm && pm.r5MW - mem.r5[k] >= DIFF_MW) { plant(); cycles(); }
+    facts.sort((a, b) => b[0] - a[0]);
+  }
+  out.lines = facts.slice(0, DIFF_MAX).map(x => x[1]);
+  return out;
 }
 
 // ------------------------------------------------------------------ the no-GUARD twin (D-21)
 
 /**
- * A guard-0 twin of the pre-trip preview: replays seed / scenario / log (the game's) to `startTick` (the tick
- * the trip happened in, its inputs not yet applied) a chunk at a time, then previews the same loss with no GUARD.
+ * A twin of the pre-trip preview: replays seed / scenario / log (the game's) to `startTick` (the tick the trip
+ * happened in, its inputs not yet applied) a chunk at a time, then previews the same loss with each GUARD in
+ * `guards` (D-21: 0, the fall with no GUARD; W7, Q-119: par's GUARD at that minute). It keeps the replayed state, so a
+ * GUARD asked for later (want) is one more preview on it, at once.
  * step(maxTicks, budgetMs): plays up to maxTicks, stopping after the 1,000-tick chunk that passes budgetMs of real
- * time; done, then nadirHz (NaN if the replay failed).
+ * time; done, then nadirHz (the GUARD-0 preview's, NaN if not asked or the replay failed) and tried(g): undefined if g
+ * was not asked, null while computing, else {nadirHz (NaN if it failed), uflsStages, black}. rev counts the previews made.
  */
-export function createTwin(seed, scenario, log, cont) {
-  const st = createState(seed >>> 0, scenario), batch = [], until = cont.startTick;
-  let j = 0;
+export function createTwin(seed, scenario, log, cont, guards = [0]) {
+  const st = createState(seed >>> 0, scenario), batch = [], until = cont.startTick, want = [...guards], tries = new Map();
+  const target = cont.cause === 'link' ? {kind: 'link', id: 'tie'} : cont.cause === 'load' ? {kind: 'load', id: cont.id, mw: -cont.lostMW} : {kind: 'unit', id: cont.id};
+  const FAILED = Object.freeze({nadirHz: NaN, uflsStages: 0, black: false});
+  let j = 0, failed = false;
   const clock = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-  const t = {done: false, nadirHz: NaN, progress: 0, step(maxTicks, budgetMs = Infinity) {
-    const t0 = clock();
-    try {
-      for (let n = 0; n < maxTicks && !t.done && (n % 1000 || n === 0 || clock() - t0 < budgetMs); n++) {
-        if (st.tick >= until || st.over) {
-          const target = cont.cause === 'link' ? {kind: 'link', id: 'tie'} : cont.cause === 'load' ? {kind: 'load', id: cont.id, mw: -cont.lostMW} : {kind: 'unit', id: cont.id};
-          t.nadirHz = previewTrip(st, target, {guardMW: 0}).nadirHz;
-          t.done = true;
-          break;
+  const preview = g => {
+    if (tries.has(g)) return;
+    let r = FAILED;
+    if (!failed) try { const x = previewTrip(st, target, {guardMW: g}); r = {nadirHz: x.nadirHz, uflsStages: x.uflsStages, black: x.black}; } catch (e) { r = FAILED; }
+    tries.set(g, r); t.rev++;
+    if (g === 0) t.nadirHz = r.nadirHz;
+  };
+  const t = {done: false, nadirHz: NaN, progress: 0, rev: 0,
+    step(maxTicks, budgetMs = Infinity) {
+      const t0 = clock();
+      try {
+        for (let n = 0; n < maxTicks && !t.done && (n % 1000 || n === 0 || clock() - t0 < budgetMs); n++) {
+          if (st.tick >= until || st.over) {
+            t.done = true;
+            for (const g of want) preview(g);
+            break;
+          }
+          batch.length = 0;
+          while (j < log.length && log[j].tick <= st.tick) { batch.push(Object.assign({type: log[j].type}, log[j].args)); j++; }
+          step(st, batch);
         }
-        batch.length = 0;
-        while (j < log.length && log[j].tick <= st.tick) { batch.push(Object.assign({type: log[j].type}, log[j].args)); j++; }
-        step(st, batch);
-      }
-    } catch (e) { t.done = true; t.nadirHz = NaN; }
-    t.progress = t.done ? 1 : st.tick / Math.max(1, until);
-    return t.done;
-  }};
+      } catch (e) { t.done = true; failed = true; t.nadirHz = NaN; t.rev++; }
+      t.progress = t.done ? 1 : st.tick / Math.max(1, until);
+      return t.done;
+    },
+    /** Asks for the preview with GUARD g too: made with the others, or at once on the kept state when the replay is done. */
+    want(g) {
+      if (!want.includes(g)) want.push(g);
+      if (t.done) preview(g);
+    },
+    tried(g) { return !want.includes(g) ? undefined : !t.done ? null : tries.get(g) || FAILED; }};
   return t;
 }
 
