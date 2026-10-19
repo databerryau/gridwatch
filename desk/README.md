@@ -2639,7 +2639,9 @@ words). Otherwise the cards stay as today. Both checks use the record and params
   the earliest blue column until its room `(capMWh − socMWh) / BATT_CHARGE_EFF` is used); the line
   shows while the largest excess column is above `SURPLUS_MIN_MW`, naming the free suburb with the
   largest effective soak MW ≤ that excess (else the smallest). It always carries the full `flex`
-  action. The text says it takes the noon power the battery cannot.
+  action. The text says it takes the noon power the battery cannot. *W7 (Q1): the line asks for
+  the city's soak instead, every free suburb in one booking (`soakCity` action, SOAK THE CITY on
+  the card); the last free suburb by name with its `flex` action; app/objective.js's header.*
 - **Air-con branch:** its own branch right after `shortAhead` (unchanged: the next hour belongs to
   the battery and DR), only when `lookAhead` names no unit for the gap (a start beats air-con),
   and only for a run of the real gap at or after the suburb's `fromS` where the aimed block's
