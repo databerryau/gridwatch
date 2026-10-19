@@ -5,7 +5,7 @@
 // at least the proxy's own pace), and §32.10's 'slow' proxy holds each card PROXY_SLOW_RESTORE_REAL_S:
 // its 15 real s pass on the held clock, so it equals competent by construction (a regression guard,
 // not a measure). Classic has no task feeders, so it never opens the window
-// (tests/baseline-v4.test.js holds classic's par bit for bit).
+// (`npm run golden:v4 -- --check` holds classic's par bit for bit; W7 Q15: a tool check, not a test).
 import {test, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {runPar, createAutopilot, decide, PROXY_NAMES} from '../sim/autopilot.js';

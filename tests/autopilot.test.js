@@ -1,5 +1,5 @@
 // Stage B owner "autopilot": sim/autopilot.js acceptance (L-0, S-4, S-11, S-12, P-6, D-2;
-// S-4 pace and D-9 are in tests/baseline-v4.test.js).
+// S-4 pace and D-9 are in tests/par-classic.test.js).
 // The import barrier (autopilot imports only params.js and step.js) is checked for real in
 // sim-lint.
 import {test} from 'node:test';
@@ -129,8 +129,8 @@ test('S-4: information barrier: scrambling hidden state (future events, the regi
   assert.deepEqual(decide(observe(a), createAutopilot()), decide(observe(b), createAutopilot()));
 });
 
-// S-4 pace and D-9 (par's runtime) are checked on the golden's heat day, seed 4, in
-// tests/baseline-v4.test.js, beside the run that compares that day with its golden row.
+// S-4 pace and D-9 (par's runtime) are checked on the classic heat day, seed 4, in
+// tests/par-classic.test.js, beside the run that probes that day's SECURE states (H-8).
 
 test('D-2: the reference profile integrates to 245 +- 3 real s from 04:30 to 04:00; night hours are unwrapped', () => {
   assert.ok(Math.abs(refRealSeconds(V.PLAYER_START_S, V.DAY_S, []) - 245) <= 3);

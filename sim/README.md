@@ -949,7 +949,9 @@ never per tick. `canonicalHash(x)` is the same walk for any plain value (on the 
 * **Test budget** (F-10 < 60 s; since SPEC Q-40 each test file <= 6 s alone, see `CLAUDE.md`):
   `tests/integration.test.js` and `tests/autopilot.test.js` use short windows, injected trips at
   04:31 instead of waiting for pre-rolled ones, and par days played once and resumed;
-  `tests/baseline-v4.test.js` plays one par day (seed 4) in-process against its golden row.
+  `tests/par-classic.test.js` plays one par day (seed 4) in-process (S-4, D-9, H-8, H-4; W7 Q15: no
+  longer against the golden, which `npm run golden:v4 -- --check` compares on demand), and
+  `tests/par-guard.test.js` one daily's par day against the selftest's golden hours.
   Whole days over many seeds are measured with `tools/par.js` and `tools/baseline-v4.js`, not tests.
 * **Measured at the end of Phase 0.2** (the owner's laptop, Node 24, other work running): a par
   day took 2.0-2.3 s (`tools/par.js`; 2.2-2.5 s in `tools/baseline-v4.js`, which adds the H-8

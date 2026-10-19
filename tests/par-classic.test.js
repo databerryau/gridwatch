@@ -1,23 +1,20 @@
-// Exit Phase 0 / F-12 for the v4 core: tools/baseline-v4.js prints the SPEC.md §6 rows the v4
-// core can measure, and tools/baseline-v4.golden.md is its committed output. Every section 3 row
-// depends only on its seed, so this file is a cheap regression guard on one of them: par's day on
-// seed 4 (the heat day: RERT armed, load shed), run by the tool's own code (its parDay, in one of
-// its own worker processes, the H-8 probes on) and compared cell for cell with section 3.1's row,
-// all 22 columns. That includes H-8 containment from par's real SECURE states (the probes, unit,
-// link and other columns: a credible trip from a SECURE state keeps the nadir >= 49.5 Hz), H-4's
-// agreement of the desk's level with the last SECURITY line on every tick (alarm) and the
-// end-of-day hashState. The whole report (section 1's fixed probes, the statistics over 200
-// seeds) is the tool's: `npm run baseline:v4` prints it on demand. An intentional behaviour
-// change re-records the golden (`npm run golden:v4`, about 5 min on 11 worker processes) in the
-// same commit, with a one-line reason.
+// Par's day on the classic scenario's seed 4 (the heat day: RERT armed, load shed), the v4 core's
+// regression anchor, checked for what must hold on any build: S-4's pace, D-9's runtime, H-8's
+// containment from par's real SECURE states (a credible trip from a SECURE state keeps the nadir
+// >= 49.5 Hz) and H-4's agreement of the desk's level with the last SECURITY line on every tick.
+// W7 (Q15): the day's numbers are no longer compared with tools/baseline-v4.golden.md here (that
+// cost a golden re-record at every SIM_VERSION change): `npm run golden:v4 -- --check` compares
+// them on demand. A sim change made without a SIM_VERSION change is caught in the suite by par's
+// day on a daily against the selftest's golden hours (tests/par-guard.test.js), the no-input day
+// to 14:00 (tests/ladder.test.js) and the selftest's cases (tests/selftest.test.js); and on every
+// daily by the verify run (`npm run verify`, and CI's verify workflow on sim/ changes).
 //
-// The same day is also par's pace and runtime case (S-4 pace, D-9, moved here from
-// tests/autopilot.test.js): runPar plays it in this process while the worker plays the probed
-// copy beside it, so the file costs about one par day of wall time. (W6, the test budget: the day is
-// played and timed in a suite's before() hook.)
+// runPar plays the day in this process (S-4, D-9) while the baseline tool's own parDay plays the
+// probed copy (H-8, H-4) in one of its worker processes beside it, so the file costs about one par
+// day of wall time; the two must be the same day. (W6, the test budget: the day is played and timed
+// in a suite's before() hook.)
 import {test, describe, before, after} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {fork} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {observe, hashState} from '../sim/step.js';
@@ -28,38 +25,7 @@ import {TPS} from './lib/sim-helpers.js';
 import {yardstickNs, workClock, budgetUnits} from './lib/speed.js';
 
 const SEED = 4;
-const RERECORD = 'if the change is intended, run `npm run golden:v4` and give the reason in the commit message';
-
-/** Section 3.1's row for `seed` (par, raw seeds), as cells by column name. */
-function goldenRow(seed) {
-  const lines = readFileSync(new URL('../tools/baseline-v4.golden.md', import.meta.url), 'utf8').replace(/\r/g, '').split('\n');
-  const from = lines.indexOf('### 3.1 Par, raw seeds');
-  assert.ok(from >= 0, 'the golden has section 3.1');
-  const cells = l => l.split('|').slice(1, -1).map(c => c.trim());
-  const head = cells(lines.find((l, i) => i > from && l.startsWith('| seed |')));
-  const row = lines.find((l, i) => i > from && l.startsWith('| ' + seed + ' |'));
-  assert.ok(row, 'the golden has a section 3.1 row for seed ' + seed);
-  return Object.fromEntries(cells(row).map((c, i) => [head[i], c]));
-}
-
-// The tool's formats (tools/baseline-v4.js: fix, num, int, hex, hhmm and report()'s parRow).
-const fix = (x, d) => { const s = x.toFixed(d); return /^-0\.?0*$/.test(s) ? s.slice(1) : s; };
-const commas = s => s.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-const num = (x, d) => { const [i, f] = fix(x, d).replace(/^-/, '−').split('.'); return commas(i) + (f ? '.' + f : ''); };
-const int = x => { const s = fix(x, 0); return s[0] === '-' ? '−' + commas(s.slice(1)) : commas(s); };
-const hex = h => '0x' + (h >>> 0).toString(16).padStart(8, '0');
-const hhmm = s => {
-  const m = Math.floor(s / V.S_PER_MIN) + V.DAY_START_H * V.S_PER_MIN;
-  return String(Math.floor(m / V.S_PER_MIN) % V.DAY_H).padStart(2, '0') + ':' + String(m % V.S_PER_MIN).padStart(2, '0');
-};
-const triple = (n, fails, worst) => n + ' / ' + fails + ' / ' + (worst === null ? '-' : fix(worst, 3));
-/** One parDay result as section 3.1's cells by column name. */
-const parCells = r => ({seed: String(r.seed), class: r.cls, black: r.black ? 'BLACK ' + hhmm(r.endS) : '',
-  unserved: num(r.unservedMWh, 1), UFLS: num(r.uflsMWh, 1), directed: num(r.directedMWh, 1), RERT: r.rert ? 'yes' : '', DR: String(r.drCalls),
-  '¢': fix(r.centsPerKWh, 3), t: fix(r.co2tPerMWh, 3), trips: String(r.trips), '19:00': r.p19 === null ? '-' : int(r.p19), neg: fix(r.negH, 1),
-  charge: r.chMWh > 0 ? int(r.chCost / r.chMWh) : '-', 'P&L': int(r.battPnl), short: String(r.shortMin),
-  probes: triple(r.probes, r.fails, r.worst), unit: triple(r.unitN, r.unitFails, r.unitWorst), link: triple(r.linkN, r.linkFails, r.linkWorst),
-  other: triple(r.otherN, r.otherFails, r.otherWorst), alarm: String(r.alarmDiff), hash: hex(r.hash)});
+let day = null; // runPar's state at the day's end (the suite's hook)
 
 // Par's probed day on SEED by the tool's own worker (its --worker protocol: {ready}, then one
 // {job} in and one {result} out; the parent ends the conversation). Started now, so it runs while
@@ -78,7 +44,7 @@ const parDay = new Promise((resolve, reject) => {
   worker.on('error', reject);
   worker.on('exit', code => { jobSent(); if (!done) reject(new Error('tools/baseline-v4.js --worker exited with ' + code + ' before its result\n' + stderr)); });
 });
-parDay.catch(() => {}); // awaited by the golden test; a run filtered to the pace test alone must not fail on it
+parDay.catch(() => {}); // awaited by the H-8 test; a run filtered to the pace test alone must not fail on it
 after(() => { if (!done) worker.kill(); });
 
 // par's day in this process, timed (D-9) on the main thread's CPU clock against the yardstick taken just before it
@@ -91,6 +57,7 @@ describe('par\'s day on seed 4 in this process', () => {
     const clock = workClock();
     r = runPar(SEED, CLASSIC);
     secs = clock();
+    day = r.state;
   });
 
   test('S-4 pace: at most one discrete action per 3 real s of the reference playback, none in a watch; D-9: a par day <= 2 x 1.6 s on the owner\'s laptop, timed against a CPU yardstick that shares no code with the sim', () => {
@@ -133,17 +100,16 @@ describe('par\'s day on seed 4 in this process', () => {
     }
     assert.ok(got <= limit, 'a par day costs ' + got.toFixed(2) + ' yardstick units per tick (' + secs.toFixed(2) + ' s here), budget ' +
       limit.toFixed(2) + ' (2 x 1.6 s on the owner\'s laptop)');
-    assert.equal(hex(hashState(r.state)), goldenRow(SEED).hash, 'runPar plays the golden\'s day on seed ' + SEED + ': ' + RERECORD);
   });
 });
 
-test('v4 baseline: par\'s day on seed 4, by the tool\'s own parDay, gives section 3.1\'s row of tools/baseline-v4.golden.md, all 22 columns (shed, cost, the battery, H-8 containment probes from SECURE states, H-4 alarm agreement, end-of-day hash)', {timeout: 120000}, async () => {
-  const g = goldenRow(SEED), got = parCells(await parDay);
-  assert.deepEqual(Object.keys(got).sort(), Object.keys(g).sort(), 'section 3.1\'s columns');
-  const diff = Object.keys(g).filter(k => got[k] !== g[k]).map(k => k + ': ' + got[k] + ' (golden ' + g[k] + ')');
-  assert.deepEqual(diff, [], 'seed ' + SEED + ', section 3.1 cells that differ from the golden: ' + RERECORD);
-  // H-8 and H-4 on this day, whatever the golden says: every probe contained, the alarm agreed.
-  for (const k of ['probes', 'unit', 'link', 'other']) assert.match(got[k], /^\d+ \/ 0 \/ /, k + ': a trip from a SECURE state fell below 49.5 Hz');
-  assert.ok(Number(got.probes.split(' / ')[0]) > 0, 'the day has SECURE states to probe');
-  assert.equal(got.alarm, '0', 'H-4: ticks where the desk\'s level and the last SECURITY line differ');
+test('H-8 and H-4 on par\'s day on seed 4, by the baseline tool\'s own parDay: every credible trip from a SECURE state holds 49.5 Hz, the desk\'s level always agrees with the last SECURITY line, and it is runPar\'s day', {timeout: 120000}, async () => {
+  const r = await parDay;
+  assert.ok(r.probes > 0, 'the day has SECURE states to probe');
+  for (const k of ['', 'unit', 'link', 'other']) {
+    const n = k ? r[k + 'N'] : r.probes, fails = k ? r[k + 'Fails'] : r.fails;
+    assert.equal(fails, 0, (k || 'previewed') + ': ' + fails + ' of ' + n + ' trips from a SECURE state fell below 49.5 Hz');
+  }
+  assert.equal(r.alarmDiff, 0, 'H-4: ticks where the desk\'s level and the last SECURITY line differ');
+  if (day) assert.equal(r.hash >>> 0, hashState(day) >>> 0, 'the tool\'s parDay (par\'s harness, as the bench runs it) and runPar play one day');
 });

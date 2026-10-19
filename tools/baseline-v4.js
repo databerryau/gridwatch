@@ -7,11 +7,17 @@
 //   node tools/baseline-v4.js --quick         # section 1 plus par on seeds 1-2
 //   node tools/baseline-v4.js --out FILE      # write the report to FILE (UTF-8) instead of stdout
 //   npm run golden:v4                         # re-record the golden (an intentional behaviour change)
+//   npm run golden:v4 -- --check              # compare with the golden instead (W7 Q15: a tool check, not a test)
+//   npm run golden:v4 -- --check --quick      # section 1 and par's rows on seeds 1-2 against the golden's (~10 s)
 //
 // Flags: --seeds A-B (raw par seeds, default 1-200) | --heat N (first N forced-heat seeds,
 // default 100) | --graded N (lean, competent, planOnly and commitAll on seeds 1-N, graded
 // against par: S-5, S-2's correlation, S-11; default 100) | --f3 N (doNothing and a fuzzer
-// beside par on seeds 1-N, default 10) | -j/--workers N (default: logical CPUs - 1) | --quick.
+// beside par on seeds 1-N, default 10) | -j/--workers N (default: logical CPUs - 1) | --quick |
+// --check (write nothing: compare with --out FILE, else the golden; exit 1 on a difference).
+// --check compares section 1 and each section 3 row the run made with the golden's row of the same
+// table and seed; with the golden's own flags, sections 1-3 line for line. Never the Build line or
+// section 4.
 //
 // Sections: 1 = fixed probes (independent of the seed range), 2 = statistics over the seed
 // range, 3 = one row per seed and proxy, 4 = build and machine-dependent lines. Everything
@@ -56,7 +62,7 @@ let isClean = null;
 // ---------------------------------------------------------------- arguments
 function parseArgs(argv) {
   const o = {seeds: [1, 200], heat: 100, graded: 100, f3: 10, workers: Math.max(1, (os.availableParallelism ? os.availableParallelism() : os.cpus().length) - 1),
-    quick: false, out: null, worker: false};
+    quick: false, out: null, worker: false, check: false};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], next = () => argv[++i];
     if (a === '--seeds') { const [x, y] = next().split('-').map(Number); o.seeds = [x, y === undefined ? x : y]; }
@@ -67,7 +73,8 @@ function parseArgs(argv) {
     else if (a === '--quick') Object.assign(o, {quick: true, seeds: [1, 2], heat: 0, graded: 0, f3: 0, workers: 1});
     else if (a === '--out') o.out = next();
     else if (a === '--worker') o.worker = true;
-    else if (a === '-h' || a === '--help') { console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(0, 21).join('\n')); process.exit(0); }
+    else if (a === '--check') o.check = true;
+    else if (a === '-h' || a === '--help') { const src = fs.readFileSync(__filename, 'utf8').split('\n'); console.log(src.slice(0, src.findIndex(l => !l.startsWith('//'))).join('\n')); process.exit(0); }
     else throw new Error('unknown flag ' + a + ' (see --help)');
   }
   if (!(o.seeds[0] >= 1 && o.seeds[1] >= o.seeds[0])) throw new Error('--seeds A-B with 1 <= A <= B');
@@ -603,7 +610,7 @@ function report(S, o, plan, results, wallS) {
   const heat = plan.heat.map(s => parBy.get(s));
   const clean = r => isClean(r, r.black);
   const args = [];
-  for (let i = 2; i < process.argv.length; i++) { if (process.argv[i] === '--out') i++; else args.push(process.argv[i]); }
+  for (let i = 2; i < process.argv.length; i++) { if (process.argv[i] === '--out') i++; else if (process.argv[i] !== '--check') args.push(process.argv[i]); }
   const cmd = ['node tools/baseline-v4.js', ...args].join(' ');
 
   p('# GRIDWATCH v4 core baseline');
@@ -612,7 +619,7 @@ function report(S, o, plan, results, wallS) {
   p('');
   p('The SPEC.md §6 rows that the v4 core can measure before the desk exists (Exit Phase 0). Par is `sim/autopilot.js` (S-4) on the ' +
     'classic scenario, v4 physics, no rooftop PV yet. Sections 1–3 are deterministic for a build and its flags; section 3 rows depend ' +
-    'only on their seed (tests/baseline-v4.test.js re-runs a few and compares them with the golden). Section 4 varies by machine.');
+    'only on their seed (`npm run golden:v4 -- --check` re-runs them and compares them with the golden). Section 4 varies by machine.');
   p('');
 
   p('## 1. Fixed probes (independent of the seed range)');
@@ -806,6 +813,35 @@ function f3Row(parBy, proxyBy, s) {
   return {lens: traces.map(t => t.length), same, hash: h >>> 0};
 }
 
+// ---------------------------------------------------------------- --check (W7 Q15)
+/**
+ * The report `text` against the golden: [{at, got, golden}] for each line that differs. Section 1 line for line; each section 3
+ * table row by its table and first cell (the seed: a row depends only on it), a row missing from the golden included; with the
+ * golden's own command (-j aside), sections 1-3 line for line. Never the Build line or section 4.
+ */
+function goldenDiffs(text, golden) {
+  const lines = s => s.replace(/\r/g, '').split('\n');
+  const a = lines(text), b = lines(golden);
+  const cmd = ls => { const l = ls.find(x => x.startsWith('Build: ')) || '', m = /Command: `([^`]*)`/.exec(l); return m ? m[1].replace(/ (-j|--workers) \d+/g, '') : null; };
+  const part = (ls, from, to) => { const i = ls.findIndex(l => l.startsWith(from)), j = ls.findIndex((l, k) => k > i && l.startsWith(to)); return i < 0 ? [] : ls.slice(i, j < 0 ? ls.length : j); };
+  const out = [];
+  const lineByLine = (x, y, at) => { for (let i = 0; i < Math.max(x.length, y.length); i++) if (x[i] !== y[i]) out.push({at: at + ', line ' + (i + 1), got: x[i], golden: y[i]}); };
+  if (cmd(a) !== null && cmd(a) === cmd(b)) { lineByLine(part(a, '## 1.', '## 4.'), part(b, '## 1.', '## 4.'), 'sections 1-3'); return out; }
+  lineByLine(part(a, '## 1.', '## 2.'), part(b, '## 1.', '## 2.'), 'section 1');
+  const rows = ls => {
+    const m = new Map();
+    let table = '';
+    for (const l of part(ls, '## 3.', '## 4.')) {
+      if (l.startsWith('### ')) table = l.slice(4);
+      else if (table && l.startsWith('| ') && !l.startsWith('| seed |')) m.set(table + ' | ' + l.split('|')[1].trim(), l);
+    }
+    return m;
+  };
+  const gr = rows(b);
+  for (const [k, l] of rows(a)) if (gr.get(k) !== l) out.push({at: k.replace(/ \| (\S+)$/, ', seed $1'), got: l, golden: gr.get(k)});
+  return out;
+}
+
 // ---------------------------------------------------------------- main
 async function main() {
   const o = parseArgs(process.argv.slice(2));
@@ -815,6 +851,17 @@ async function main() {
   const t0 = Date.now();
   const results = o.workers > 1 ? await runWorkers(o, plan.jobs) : plan.jobs.map(j => runJob(S, j));
   const text = report(S, o, plan, results, (Date.now() - t0) / 1000);
+  if (o.check) {
+    const file = o.out || path.join(__dirname, 'baseline-v4.golden.md'), diffs = goldenDiffs(text, fs.readFileSync(file, 'utf8'));
+    const rel = path.relative(ROOT, file).replace(/\\/g, '/');
+    if (!diffs.length) { console.log('golden:v4 --check: the run matches ' + rel + ' (' + S.SIM_VERSION + ', ' + ((Date.now() - t0) / 1000).toFixed(0) + ' s).'); return; }
+    console.log('golden:v4 --check: ' + diffs.length + ' lines differ from ' + rel + ' (' + S.SIM_VERSION + '):');
+    for (const d of diffs.slice(0, 40)) console.log('  ' + d.at + '\n    now    ' + (d.got === undefined ? '(none)' : d.got) + '\n    golden ' + (d.golden === undefined ? '(none)' : d.golden));
+    if (diffs.length > 40) console.log('  ... and ' + (diffs.length - 40) + ' more');
+    console.log('If the change is intended, re-record it: npm run golden:v4 (about 5 min), with the reason in the commit message.');
+    process.exitCode = 1;
+    return;
+  }
   if (o.out) fs.writeFileSync(o.out, text, 'utf8');
   else process.stdout.write(text);
 }

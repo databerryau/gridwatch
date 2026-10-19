@@ -1,6 +1,6 @@
 // Stage B owner "integration": whole-sim acceptance through step() (F-2, F-3, F-4, F-6, F-7,
 // D-6, D-7, K-15, H-12). H-8 containment from SECURE states is checked on par's seed-4 day by
-// tests/baseline-v4.test.js (the golden row's probe columns) and measured over many par days by
+// tests/par-classic.test.js (the baseline tool's probes) and measured over many par days by
 // tools/baseline-v4.js (section 2), not here; the grid's own accepts through step() (K-15 in a
 // watch, F-4's ramps after a trip, H-1, K-2, K-10, S-1) are tests/integration-grid.test.js's.
 //
