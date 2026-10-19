@@ -20,6 +20,7 @@ import {SCENARIOS, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {LADDER} from '../content/ladder.js';
 import {TEXT} from '../content/text.js';
 import {openGame} from './lib/play.js';
+import {restampAdvice} from '../tools/verify.mjs';
 
 const DG = createRequire(import.meta.url)('../tools/daily-gen.js');
 const STAMP = G.dailyStamp(), DAYS = [20261214, 20270213, 20270525];
@@ -52,7 +53,7 @@ test('D-29: three dates in the calendar, each the variant of its desk scenario o
 });
 
 test('D-29: each variant is the one its date was gated under (GATED: the variant\'s scenarioHash, this build\'s stamp)', () => {
-  assert.equal(GATED.v, STAMP, 'gated under another build: run tools/daily-gen.js --dates');
+  assert.equal(GATED.v, STAMP, 'gated under another build: ' + restampAdvice(DAILIES.from, DAILIES.to));
   assert.deepEqual(Object.keys(GATED.hashes).map(Number), DAYS);
   for (const ymd of DAYS) {
     assert.equal(scenarioHash(SCENARIOS[dailyScenarioIdOf(ymd)]), GATED.hashes[ymd],

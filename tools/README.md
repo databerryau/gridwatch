@@ -38,6 +38,8 @@ node tools/follow.mjs --scenario desk-weekend --seeds 1-11 --lines      # the hi
 node tools/baseline-v4.js               # the SPEC §6 rows for the v4 core, ~5 min on 11 workers
 node tools/baseline-v4.js --quick       # section 1 plus par on seeds 1-2, ~10 s
 npm run golden:v4                       # re-record tools/baseline-v4.golden.md
+npm run golden:v4 -- --check            # compare with it instead (~5 min; add --quick for ~15 s)
+npm run verify                          # W7 Q15: after a SIM_VERSION change, replay par on every daily; restamp if nothing moved
 node tools/daily-gen.js --from 2026-10-12 --days 365 -j 8   # D-9: gate the dailies, write content/dailies.js
 node tools/daily-gen.js --check -j 8    # re-gate the shipped list under this build (no write)
 node tools/ladder.mjs -j 6              # W6 Y-11: the ladder (did nothing, lean, competent vs par) on every daily, after daily-gen (~20 min)
@@ -100,9 +102,46 @@ desk-lab midday case, STOP, the import step at 13:00 and 18:30, rate invariance 
 prices, battery, the lean, competent, planOnly and commitAll proxies graded against par, S-11,
 S-2's correlation, F-3), one row per seed
 (each row depends only on its seed and ends with the day's `hashState`), and machine-dependent
-lines. `tests/baseline-v4.test.js` plays par's day on seed 4 in-process and compares it with that
-seed's golden row, hash included. The whole report is run on demand (`npm run baseline:v4`); there
-is no slow test tier (SPEC Q-40). `--help` lists the flags.
+lines. The whole report is run on demand (`npm run baseline:v4`); there is no slow test tier (SPEC
+Q-40). `--help` lists the flags. Since W7 (Q15) the golden is a tool check, not a test: a SIM_VERSION
+change no longer needs it re-recorded. `npm run golden:v4 -- --check` runs the report and compares it
+with the golden instead of writing it (exit 1 on a difference): section 1 line for line, each
+section 3 row by its table and seed (so `--check --quick` compares par's rows on seeds 1-2), and
+with the golden's own flags sections 1-3 whole; never the Build line or section 4.
+`tests/par-classic.test.js` still plays par's day on seed 4 for what holds on any build (S-4's pace,
+D-9's runtime, H-8's containment, H-4's alarm agreement), and `tests/par-guard.test.js` plays a
+daily's par day against the selftest's golden hours, so the suite still catches a change to par's
+day made without a SIM_VERSION change.
+
+## Verify, then restamp (`verify.mjs`)
+
+```
+npm run verify                                 # replay and compare; restamp the four files when everything matches
+node tools/verify.mjs --check -j 4             # compare only (CI: .github/workflows/verify.yml)
+node tools/verify.mjs --dates 2026-10-16,2027-02-13   # these dates only (never writes)
+node tools/verify.mjs --players 1              # the scripted players on every date too (the whole ladder, ~4x the time)
+```
+
+W7 (Q15; decisions/2026-10-16-open-questions.md §15, option 2). A SIM_VERSION change (or a desk
+scenario's) makes the dailies' stamp (`app/game.js dailyStamp`) stale in content/dailies.js,
+content/ladder.js, content/anniversaries.js GATED and content/selftest.js, and the stale-stamp tests
+fail. Making the four again costs 25-40 minutes; most changes move nothing they store. The verify
+replays, under this build, on worker processes: par's day on every listed daily (its listed attempt,
+an anniversary under its variant) through `runPar`, the run the ladder and the page's stored par
+take, against the date's ladder row (ALL-IN total and shed MWh); D-9's gate along that same run
+(daily-gen's bound and gate each grid minute, the anniversary's incident, attempt k's class); the
+ladder's scripted players (the no-input day, lean, competent) on every 8th date, the anniversaries
+and the selftest's dates (`--players N`); every selftest case through the page's own runner (each
+hourly hash, the end, par's ALL-IN) and so the ladder's 14:00 check; and the anniversaries' variant
+hashes. When everything matches it rewrites only the stamps, each file through the writer that made
+it (the new text differs by the stamp alone; a file its writer would not give back is refused). When
+anything differs it writes nothing, prints each date and field that differs (and says so when only
+state hashes moved), and prints the full regeneration: `tools/daily-gen.js`, then `tools/ladder.mjs`,
+then `tools/selftest-gen.mjs`. Not checked: the attempts before a listed one (a regeneration may pick
+an earlier attempt that now passes; the listed one still passes D-9), the scripted players off the
+sample, daily-gen's D-10 and Hard-day pool, and the classic golden. CI runs `--check` on pushes that
+touch sim/, the scenarios, the dailies' files or app/system.js, in a workflow of its own, so the
+test job is not slowed.
 
 ## Play the real page, fast (`play.mjs`)
 
@@ -170,7 +209,8 @@ after `node --test` and prints a GitHub warning for each offender; it never fail
 | `par.js` | v4 par and the proxies over seeds (S-4, S-5, S-11, S-12, S-14) on any scenario; `-j N` forks workers. Exports `grade()`. |
 | `follow.mjs` | The hint-following player over seeds, against par (SPEC §9.1 Q-18; desk/README.md §21.4). An ES module. |
 | `perf.mjs`, `shot-receiver.mjs` | F-11 headless measurements; the PNG receiver for visual QA (SPEC §10). |
-| `baseline-v4.js` | The v4 baseline above; `baseline-v4.golden.md` is its committed output. |
+| `baseline-v4.js` | The v4 baseline above; `baseline-v4.golden.md` is its committed output (`--check` compares with it). |
+| `verify.mjs` | W7 Q15: replays par on every daily against the stored lists and restamps them when nothing moved (`npm run verify`). An ES module. |
 | `harness.js` | Loads the inline `<script>` of `index.html` with a stub page and a seeded `Math.random`. `load({seed, file})` returns a game instance `G`; `G.runToEnd(policy)` plays a whole shift and returns `{black, grade, money, cmp, unserved, co2, worstDev, maxPrice, outT, t, endClock}`. Also exports `gradeOf(S, black)` and `weatherClass(G)`. `node tools/harness.js` runs a 5-seed smoke test. |
 | `policies.js` | Scripted players: `doNothing`, `reactiveOnly`, `competent` (the best preset from the balance review, reading only what the screen shows; see `observe()`), `competentClassic` (the review's reference policy), and the configurable `ctl(cfg)`. |
 | `baseline.js` | Runs the policies over seeds and prints the report. |
