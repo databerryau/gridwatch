@@ -1,6 +1,6 @@
 // app/momentimage.js: W6 (Y-6, REVIEW-2026-10-14 opportunity 14): SAVE IMAGE, THE MOMENT as a 1200×630 PNG to share. Loaded
 // on demand when the end card's button is pressed (app/endcard.js, once YOUR CARD is made). On it: the daily's number and
-// date (a Hard day's name, else the seed), the score and its letter, the tags; the moment's frequency, its lowest second
+// date (a Hard day's name, else the seed), the score and its letter with its rank under it (W7, Q-118), the tags; the moment's frequency, its lowest second
 // marked and the NO GUARD and PAR lines as on the card (render/charts.js plotMoment); the extreme in big figures, the fall
 // with no GUARD under it (the end card offers the button once that is computed: verdict.js moment's pending), and the
 // day's low under it when the day went lower (as the share card's "low" says); what caught it, as a stack in the end
@@ -13,6 +13,7 @@
 import {COL, CAUGHT_STYLE, plotMoment} from '../render/charts.js';
 import {mw} from '../render/format.js';
 import {lintCard, SHARE_URL} from './share.js';
+import {rankOf} from './score.js';
 
 /** Y-6: the picture's size, a link preview's (og:image) shape. */
 export const IMAGE_W = 1200, IMAGE_H = 630;
@@ -38,7 +39,7 @@ export function catchRows(c) {
  * made from the day goes through the share card's lint, and one that fails is left off ('' and in `dropped`), so nothing
  * on the picture can spoil a day; the fixed words pass it (tests/momentimage.test.js lints every word drawn).
  * A low that is not the day's (a shed before a deeper trip) is "LOWEST HERE", with the day's low (the share card's) under it.
- * @returns {{title, day, score, tags, big, bigLabel, noGuard, note, dayLow, rows, closing, refs, rise, dropped}}
+ * @returns {{title, day, score, rank, tags, big, bigLabel, noGuard, note, dayLow, rows, closing, refs, rise, dropped}}
  */
 export function imageText(end) {
   const s = end.share, m = end.verdict.moment, g = end.grade, n = m.numbers, c = m.cont, rise = !!c && c.lostMW < 0, dropped = [];
@@ -49,7 +50,7 @@ export function imageText(end) {
   // (a shed with no trip: the city desk's, or the relays' own on frequency alone)
   const cut = !c && m.kind === 'shed' ? (m.spell && m.spell.by === 'ufls' ? 'Homes were cut off automatically to hold it.' : 'The city desk cut load to hold it.') : '';
   return {title: ok('GRIDWATCH' + (s.n ? ' #' + s.n : '')), day: ok(day), rise, dropped, rows: catchRows(c),
-    score: ok(g ? g.points + ' ' + g.letter + (g.star ? ' ★' : '') : 'no score'),
+    score: ok(g ? g.points + ' ' + g.letter + (g.star ? ' ★' : '') : 'no score'), rank: ok(rankOf(g)),   // (W7, Q-118: the rank under it)
     tags: ok([end.perfect && 'PERFECT', ...(s.tags || [])].filter(Boolean).join(' · ')),
     big: ok(margin ? mw(n.r5MW) + ' MW' : Number.isFinite(n.extremeHz) ? n.extremeHz.toFixed(2) + ' Hz' : ''),
     bigLabel: margin ? 'SPARE IN 5 MIN' : rise ? 'HIGHEST' : lower ? 'LOWEST HERE' : 'LOWEST',
@@ -75,11 +76,14 @@ export function drawImage(canvas, end) {
   };
   ctx.fillStyle = COL.bg; ctx.fillRect(0, 0, IMAGE_W, IMAGE_H);
   ctx.textBaseline = 'alphabetic';
-  // the head: the day on the left, the score on the right
+  // the head: the day on the left, the score on the right with its rank under it (the day's line keeps clear of the rank)
   put(t.title, PAD, 80, '700 44px ' + SANS, COL.bright);
-  const head = [t.day, t.tags].filter(Boolean).join(' · ');
-  put(head, PAD, 118, fitted(ctx, head, IMAGE_W - 2 * PAD, 24), COL.text);
+  const head = [t.day, t.tags].filter(Boolean).join(' · '), rankFont = '700 22px ' + SANS;
+  ctx.font = rankFont;
+  const rankW = t.rank ? ctx.measureText(t.rank).width + 24 : 0;
+  put(head, PAD, 118, fitted(ctx, head, IMAGE_W - 2 * PAD - rankW, 24), COL.text);
   put(t.score, IMAGE_W - PAD, 92, '700 64px ' + MONO, COL.bright, 'right');
+  put(t.rank, IMAGE_W - PAD, 124, rankFont, COL.amber, 'right');
   ctx.fillStyle = COL.grid; ctx.fillRect(PAD, 140, IMAGE_W - 2 * PAD, 2);
   put('THE MOMENT', PAD, 176, '700 20px ' + SANS, COL.axis);
   // the trace (render/charts.js: its own text in the middle baseline)

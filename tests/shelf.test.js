@@ -30,7 +30,8 @@ test('S-7, Y-2: the Hard days are SA 2016 (D-29, tests/sa2016.test.js), then att
 
 test('Y-2: the past dailies run back from yesterday to #1, each with this browser\'s official result', () => {
   const past = SF.pastDailies(20261016, {days: {20261015: {dnf: false, points: 1002, letter: 'A', star: true}, 20261013: {dnf: true}}});
-  assert.deepEqual(past.map(d => d.n + ' ' + d.label + ' ' + SF.resultText(d.entry)), ['4 Thu 15 Oct 1002 A ★', '3 Wed 14 Oct ', '2 Tue 13 Oct DNF', '1 Mon 12 Oct ']);
+  assert.deepEqual(past.map(d => d.n + ' ' + d.label + ' ' + SF.resultText(d.entry)), ['4 Thu 15 Oct 1002 A ★ MARG\'S CHAIR', '3 Wed 14 Oct ', '2 Tue 13 Oct DNF', '1 Mon 12 Oct ']);
+  assert.equal(SF.resultText({dnf: false, points: 820, letter: 'C', star: false}), '820 C SHIFT OPERATOR', 'W7 (Q-118): the rank beside the letter');
   assert.equal(SF.pastDailies(20261230, null).length, SF.SHELF_PAST);
   assert.equal(SF.isoOf(20261015), '2026-10-15');
 });

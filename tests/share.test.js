@@ -6,6 +6,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as SH from '../app/share.js';
 import {CLOSING} from '../content/closing.js';
+import {DAILIES} from '../content/dailies.js';
 import {MARG_LINES, MARG_WORDS} from '../app/marg.js';
 import {V} from '../sim/params.js';
 import {installGlobals} from './lib/dom.js';
@@ -56,14 +57,20 @@ const card = (o = {}) => SH.shareCard(Object.assign({ymd: 20261014, n: 3, seed: 
 
 test('Y-4: the card reads as §4.7 sets it out: 7 lines, the rows aligned, the link last; the lint passes it', () => {
   const c = card();
-  assert.deepEqual(c.lines, ['GRIDWATCH #3 · Wed 14 Oct · 975 A', '█▅██▅▇█▁▅▆██  low 49.41 Hz', 'Lights  ★ every light on', 'Cost    +5% vs par',
+  assert.deepEqual(c.lines, ['GRIDWATCH #3 · Wed 14 Oct · 975 A SHIFT SUPERVISOR', '█▅██▅▇█▁▅▆██  low 49.41 Hz', 'Lights  ★ every light on', 'Cost    +5% vs par',
     'Carbon  ★ level with par', '"Nobody noticed. That\'s the job."', 'databerryau.github.io/gridwatch']);
   assert.deepEqual(SH.lintCard(c.text), []);
-  assert.equal(card({grade: {points: 1002, letter: 'A', star: true}, perfect: true, tags: ['NO COACH']}).lines[0], 'GRIDWATCH #3 · Wed 14 Oct · 1002 A ★ · PERFECT · NO COACH');
-  assert.equal(card({ymd: null, n: null, seed: 7}).lines[0], 'GRIDWATCH · seed 7 · 975 A', 'off the calendar: the seed');
+  assert.equal(card({grade: {points: 1002, letter: 'A', star: true}, perfect: true, tags: ['NO COACH']}).lines[0], 'GRIDWATCH #3 · Wed 14 Oct · 1002 A ★ MARG\'S CHAIR · PERFECT · NO COACH');
+  assert.equal(card({ymd: null, n: null, seed: 7}).lines[0], 'GRIDWATCH · seed 7 · 975 A SHIFT SUPERVISOR', 'off the calendar: the seed');
   const black = card({black: true, grade: {points: 0, letter: 'F', star: false}, you: null, endS: 15.3 * 3600});
-  assert.deepEqual(black.lines.slice(0, 3), ['GRIDWATCH #3 · Wed 14 Oct · 0 F', '█▅██▅▇█▁····  low 49.41 Hz', 'Lights  the grid went black']);
+  assert.deepEqual(black.lines.slice(0, 3), ['GRIDWATCH #3 · Wed 14 Oct · 0 F BLACK START CREW', '█▅██▅▇█▁····  low 49.41 Hz', 'Lights  the grid went black']);
   assert.deepEqual(SH.lintCard(black.text), []);
+  // W7 (Q-118): every rank beside its letter, each lint-clean
+  for (const [g, rank] of [[{points: 640, letter: 'D'}, 'D TRAINEE'], [{points: 850, letter: 'C'}, 'C SHIFT OPERATOR'], [{points: 960, letter: 'B'}, 'B SENIOR OPERATOR']]) {
+    const x = card({grade: g});
+    assert.equal(x.lines[0], 'GRIDWATCH #3 · Wed 14 Oct · ' + g.points + ' ' + rank);
+    assert.deepEqual(SH.lintCard(x.text), [], rank);
+  }
 });
 
 test('Y-4: the longest card stays within 7 lines and 280 characters: it drops the closing line, then the last tags', () => {
@@ -73,10 +80,14 @@ test('Y-4: the longest card stays within 7 lines and 280 characters: it drops th
   assert.deepEqual(SH.lintCard(c.text), []);
   assert.ok(c.lines.length <= SH.MAX_LINES && [...c.text].length <= SH.MAX_CHARS, c.text);
   assert.ok(!c.text.includes('"'), 'the closing line goes first');
-  // a busy later shift (PRACTICE, HAND-FLOWN, GLASS BROKEN) keeps its closing line
-  const usual = card({n: 999, grade: {points: 1000, letter: 'A', star: true}, perfect: true, tags: ['PRACTICE', 'HAND-FLOWN', 'GLASS BROKEN'], closing: longest,
-    you: dark(1234), par: dark(1300)});
+  // a busy later shift (PRACTICE, HAND-FLOWN, GLASS BROKEN) keeps its closing line. W7 (Q-118): with the longest rank on the calendar's
+  // last daily and PERFECT (no load shed: every light on; the card was 9 characters over with 1,234 MWh dark beside PERFECT, which
+  // no day can have, and a numbered daily's par sheds nothing); a dark one has a lower rank
+  const last = SH.puzzleNumber(+DAILIES.to.replace(/-/g, ''));
+  const usual = card({n: last, grade: {points: 1099, letter: 'A', star: true}, perfect: true, tags: ['PRACTICE', 'HAND-FLOWN', 'GLASS BROKEN'], closing: longest});
   assert.equal(usual.lines.length, 7, usual.text);
+  const darkDay = card({n: last, grade: {points: 412, letter: 'D', star: false}, tags: ['PRACTICE', 'HAND-FLOWN', 'GLASS BROKEN'], closing: longest, you: dark(1234)});
+  assert.equal(darkDay.lines.length, 7, darkDay.text);
 });
 
 test('Y-4: the lint rejects clock times, event words, district ids, emoji, an eighth line and a 281st character', () => {
@@ -100,7 +111,9 @@ test('Y-7: at least 40 closing lines, at least 2 a bucket, every bucket reachabl
     for (const s of lines) {
       assert.deepEqual(SH.lintCard('"' + s + '"'), [], s);
       assert.ok(s.length <= 40, s + ' is ' + s.length + ' characters');
-      for (const g of [{points: 1000, letter: 'A'}, null]) {
+      // (W7, Q-118: every rank, the longest number of points; the chair's dry line too)
+      for (const g of [{points: 1000, letter: 'A', star: true}, {points: 1999, letter: 'A', star: true}, {points: 995, letter: 'A'}, {points: 960, letter: 'B'},
+        {points: 850, letter: 'C'}, {points: 640, letter: 'D'}, {points: 0, letter: 'F'}, null]) {
         const marg = MARG_LINES.verdict(g, s);
         assert.ok(words(marg) <= MARG_WORDS && marg.endsWith(s), marg);
       }
@@ -155,7 +168,7 @@ test('W6 on the page: the briefing names the daily; the day over, YOUR CARD is t
   const s = p.game.end.share;
   assert.equal(p.$('end-share-text').textContent, s.text);
   assert.deepEqual(SH.lintCard(s.text), []);
-  assert.match(s.lines[0], /^GRIDWATCH #5 · Fri 16 Oct · \d+ [A-D]( ★)?( · PERFECT)? · FIRST SHIFT · PRACTICE · GLASS BROKEN$/);
+  assert.match(s.lines[0], /^GRIDWATCH #5 · Fri 16 Oct · \d+ [A-D]( ★)? [A-Z' ]+[A-Z]( · PERFECT)? · FIRST SHIFT · PRACTICE · GLASS BROKEN$/);
   assert.ok(p.game.end.verdict.marg.endsWith(s.closing), 'her closing line is the card\'s quote');
   assert.ok(s.text.includes('"' + s.closing + '"'));
   // SHARE: the clipboard takes the card, the button says so

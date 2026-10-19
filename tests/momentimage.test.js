@@ -74,6 +74,9 @@ test('Y-6: the picture of a trip: 1200×630, the day and score, the fall marked,
     'CAUGHT BY', 'spin 300 MW', 'YOUR GUARD 400 MW', 'droop response 20 MW', 'governors 150 MW', 'load relief 10 MW', '"Nobody noticed. That\'s the job."',
     SH.SHARE_URL]) assert.ok(d.words.includes(w), w + ' in ' + JSON.stringify(d.words));
   assert.equal(d.t.dayLow, '', 'the day\'s low is this one: not said twice');
+  // W7 (Q-118): the rank under the score, right-aligned with it, above the rule under the head
+  const score = d.texts.find(x => x.s === '975 A'), rank = d.texts.find(x => x.s === 'SHIFT SUPERVISOR');
+  assert.ok(rank && rank.x === score.x && rank.y > score.y && rank.y < 140, JSON.stringify([score, rank]));
   // the fall is marked (a dot) at its lowest second, below its start, with the card's figure
   const mark = d.texts.filter(x => x.s === '49.10 Hz').find(x => x.x < MI.PLOT.x1);
   assert.ok(mark && d.calls.includes('arc'), 'the lowest second marked');
@@ -135,7 +138,7 @@ test('Y-6: a rise, the thinnest margin, the city desk\'s cut and the relays\' ea
     closing: 'The battery saved you at 19:05.'}, end: {black: true, seed: 7}}));
   publicOk(b, 'spoilers');
   assert.deepEqual(b.t.dropped, ['HAND-FLOWN · STORM DAY', '"The battery saved you at 19:05."']);
-  assert.ok(b.words.includes('GRIDWATCH') && b.words.includes('seed 7') && b.words.includes('0 F'), JSON.stringify(b.words));
+  assert.ok(b.words.includes('GRIDWATCH') && b.words.includes('seed 7') && b.words.includes('0 F') && b.words.includes('BLACK START CREW'), JSON.stringify(b.words));
 });
 
 test('Y-6: the file is named by the daily\'s number, else the seed, with no time of day', () => {
