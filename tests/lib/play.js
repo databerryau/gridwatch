@@ -634,7 +634,7 @@ export function openGame(o = {}) {
     const hid = id => { const e = $(id); return !e || isHidden(e); };
     const tx = (id, skip) => textOf($(id), skip);
     const obs = vm ? vm.obs : null;
-    const ck = tx('clock-text'), allIn = tx('chip-allin'), hand = tx('chip-hand'); // (the ALL-IN chip, Q-48, and HAND, D-7: empty while hidden)
+    const ck = tx('clock-text'), allIn = tx('chip-allin'), hand = tx('chip-hand'); // (the ALL-IN chip, Q-48: 'SCORE FROM 21:00' until 21:00, W7 Q-117; and HAND, D-7: empty while hidden)
     L.push('CLOCK ' + ck + (obs && /^\d\d:\d\d$/.test(ck) ? ':' + pad(Math.floor(obs.s) % 60) : '') + ' | ' + tx('rate-text') +
       ' | ' + ['chip-lights', 'chip-cost', 'chip-co2'].map(id => tx(id)).join(' | ') + (allIn ? ' | ' + allIn : '') + (hand ? ' | ' + hand : ''));
     if (!hid('briefing-card')) L.push('BRIEFING ' + tx('briefing-day') + ' ' + tx('briefing-watch'));

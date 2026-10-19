@@ -2007,7 +2007,12 @@ or "the price"; prices come from `V.VCR` and `V.VER`, never typed in.
   `chip-allin`) adds: "Customers pay the market price plus network and retail charges. Those
   charges, most of a bill, are the same whatever you do and are left out. VCR and VER are what
   regulators count an outage and a tonne as worth, not money anyone is paid." At 04:00 the chip
-  equals the end card's score (a test). Both COST and ALL-IN use "c/kWh".
+  equals the end card's score (a test). Both COST and ALL-IN use "c/kWh". **W7 (Q-117):** the number
+  shows only from 21:00 (`app/shell.js` scoreShown: the night shift's flag; on a day with none, its
+  clock; or the day over), moving with the night strip every `NIGHT_REDRAW_MS`. Before, the chip
+  keeps its place with its key over `FROM 21:00` in grey on two 10-px lines (`#chip-allin.later`)
+  and `SCORE_LATER_TIP` as its title and aria-label; `min-width: calc(10ch + 18px)` ("SCORE 1000")
+  holds one width all day, so nothing in the header moves at 21:00 (`tests/score-reveal.test.js`).
 - **Briefing** `#briefing-goals` (≤ 60 words): "Keep the lights on, cheaply and cleanly. Your day
   is scored as one total: the cost of supply, plus $30,000 for each MWh the city goes without (the
   AER's value of customer reliability), plus $80 a tonne of CO₂ (the interim value of emissions

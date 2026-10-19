@@ -49,6 +49,7 @@ before(() => {
     }
   };
   day(() => p.skipTo('20:30'));
+  S.clock2030 = lines(p.look({controls: false}), 'CLOCK')[0];   // (W7, Q-117: the SCORE chip before the night)
   day(() => p.to('21:00:01', {stop: [], line: 'near'}));
   S.t21 = p.now;
 });
@@ -63,6 +64,10 @@ test('Q-73 at 21:00: the plan bar is the night strip (the lock\'s words, the day
   const f = S.f21 = figures(look);
   assert.ok(f.SUPPLY > 0 && f.CARBON > 0 && f.SCORE > 0, JSON.stringify(f));
   assert.ok(Math.abs(f['ALL-IN'] - (f.SUPPLY + f.OUTAGES + f.CARBON)) <= 0.15, 'ALL-IN is the three parts: ' + JSON.stringify(f));
+  // W7 (Q-117): the header's SCORE chip had no number at 20:30; from the night shift's first frame it is the strip's score
+  assert.match(S.clock2030, /^CLOCK 20:\d\d:\d\d \| .* \| SCORE FROM 21:00$/, S.clock2030);
+  assert.ok(lines(look, 'CLOCK')[0].endsWith(' | SCORE ' + f.SCORE), lines(look, 'CLOCK')[0]);
+  assert.equal(p.$('chip-allin').className, 'chip', 'one line, as before the reveal\'s two');
   // nothing to press: no control in it, and a group with its name (ARIA names no plain div)
   assert.equal(p.$('night-strip').querySelectorAll('button').length, 0);
   assert.deepEqual([p.$('night-strip').getAttribute('role'), p.$('night-strip').getAttribute('aria-label')], ['group', "The night shift: your day's totals so far"]);
@@ -107,9 +112,10 @@ test('D-11 (Q-73): at 01:00 every figure has counted up and the windows are dark
   const p = S.p;
   const r = p.to('01:00', {stop: ['card']});
   assert.equal(r.why, 'target', 'no card in the night');
-  const f = figures(p.look({controls: false}));
+  const l01 = p.look({controls: false}), f = figures(l01);
   for (const k of ['SUPPLY', 'OUTAGES', 'CARBON', 'ALL-IN']) assert.ok(f[k] > S.f21[k], k + ' counts up: ' + S.f21[k] + ' -> ' + f[k]);
   assert.ok(f.SCORE > 0, JSON.stringify(f));
+  assert.ok(lines(l01, 'CLOCK')[0].endsWith(' | SCORE ' + f.SCORE), 'the chip moves with the strip (W7, Q-117): ' + lines(l01, 'CLOCK')[0]);
   const w = windows(p);
   assert.ok(w < S.w21 / 3, 'the windows go dark: ' + S.w21 + ' at 21:00, ' + w + ' at 01:00');
   const end = p.until('card');   // (its guard is the day's end: the jump says 'over' on the tick the day is over)

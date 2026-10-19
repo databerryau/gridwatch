@@ -44,6 +44,7 @@
 // puts the focus in its popover.
 
 import {V} from '../sim/params.js';
+import {NIGHT_S} from '../sim/clock.js';
 import * as G from './game.js';
 import {allIn, grade, parShedMWh} from './score.js';
 import {startRaf} from './loop.js';
@@ -216,6 +217,19 @@ export const HAND_CHIP = Object.freeze({
   day: ['HAND', 'Flown by hand: no AGC trim from 04:30 until 21:00, when the night shift takes the desk on AGC'],
   night: ['HAND-FLOWN · NIGHT SHIFT ON AGC', 'You flew the day by hand; the night shift has the desk on AGC until 04:00'],
 });
+/**
+ * W7 (Q-117): the SCORE chip keeps its place all day but shows no number before 21:00: its key over SCORE_LATER, in grey
+ * (next.html #chip-allin.later), and SCORE_LATER_TIP as its title (`allIn` with no par to compare: the chip then shows ALL-IN).
+ */
+export const SCORE_LATER = 'FROM 21:00';
+export const SCORE_LATER_TIP = Object.freeze({
+  score: 'Your score shows here from 21:00, when the night shift takes the desk, and moves with the night\'s totals to 04:00, ' +
+    'when your day is scored: 1000 × par\'s ALL-IN ÷ yours.',
+  allIn: 'Your ALL-IN shows here from 21:00, when the night shift takes the desk, and moves with the night\'s totals to 04:00. ' +
+    'There is no par to compare today.',
+});
+/** W7 (Q-117): the chip shows its number from 21:00 (the night shift's desk; on a day with no night shift, its clock) and once the day is over. */
+export const scoreShown = (obs, night = true) => !!(obs.over || obs.nightShift || (!night && obs.s >= NIGHT_S));
 /** Q-73: the night strip redraws its figures at most this often (real ms), so each can be read. */
 export const NIGHT_REDRAW_MS = 500;
 /** A toast lives max(TOAST_MS, TOAST_WORD_MS a word) (real ms), so it can be read (§32.11). */
@@ -832,6 +846,7 @@ export function bootGame(doc, deps) {
   }
 
   // Q-48: the chip: SCORE against par ('SCORE …' until par gets there); with no par to compare, ALL-IN in cents per kWh asked for.
+  // W7 (Q-117): only from 21:00 (scoreShown): before, nothing ranks the day against par: the key over FROM 21:00, no number.
   let allInTip = '';
   function drawAllIn(v) {
     const chip = $('chip-allin');
@@ -839,10 +854,11 @@ export function bootGame(doc, deps) {
     chip.hidden = v.phase !== 'play';
     // (Q-73: in the night roll it moves with the night strip, every NIGHT_REDRAW_MS, so the two say the same)
     if (chip.hidden || (v.obs.nightShift && !v.obs.over && v.frame.nowMs - nightMs < NIGHT_REDRAW_MS)) return;
-    const {you, p, off, g0, g} = scoreOf(v), c = allInCents(you);
+    const later = !scoreShown(v.obs, !!game.state.scn.night), {you, p, off, g0, g} = scoreOf(v), c = allInCents(you);
+    if (chip.classList.contains('later') !== later) chip.classList.toggle('later', later);
     setText('chip-allin-k', off && !g0 ? 'ALL-IN' : 'SCORE');
-    setText('chip-allin-v', off && !g0 ? c + 'c' : g ? String(g.points) : '…');
-    const tip = 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +
+    setText('chip-allin-v', later ? SCORE_LATER : off && !g0 ? c + 'c' : g ? String(g.points) : '…');
+    const tip = later ? SCORE_LATER_TIP[off ? 'allIn' : 'score'] : 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +
       ' min. The day\'s cost to the community per kWh the city asked for: supply + your MWh dark × ' + VCR_TEXT + ' (VCR; a feeder under ' +
       'repair is yours from its hand-back) + CO₂ × ' + VER_TEXT + ' (VER). Not a price or a bill.';
     if (tip !== allInTip) { allInTip = tip; chip.title = tip; chip.setAttribute('aria-label', tip); }

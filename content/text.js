@@ -670,7 +670,7 @@ const ABSTRACTIONS = [
       'yours, par being GRIDWATCH\'s own autopilot on the same day: 1000 is par, more beats it, and a black day scores 0 (F). ' +
       'The letter comes from how far your ALL-IN is behind par\'s, in MWh dark at VCR: ' +
       LETTERS.slice(0, -1).map(l => l[0] + ' within ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
-      ' beyond, so the same mistake earns the same letter on any day. Through the day the chip compares you with par at the same grid time. ALL-IN is the day\'s cost to the ' +
+      ' beyond, so the same mistake earns the same letter on any day. From 21:00, when the night shift takes the desk, the chip compares you with par at the same grid time; before then it shows no number. ALL-IN is the day\'s cost to the ' +
       'community, not a price or a bill.',
     why: 'One currency is how regulators trade the three goals off, so the score teaches the real trade: an MWh dark weighs ' +
       'as much as ' + num(V.VCR / V.VER) + ' priced tonnes of CO₂. Dividing par\'s total by yours is GRIDWATCH\'s own rule; it ' +
