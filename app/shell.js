@@ -115,6 +115,15 @@ const KIND_WORD = Object.freeze({
 export const CONSIDER_WORD = '? IF PRESSED';
 /** The words while a guard's cover is up (vm.armed), and for a unit on its way (level 'ok'). */
 export const ARMED_WORD = '● ARMED', UNDER_WAY_WORD = '✓ UNDER WAY';
+/**
+ * W7 Q4 (review): the GUARD ring's price once the move is made: the ring sends on release or key-up (desk/rotary.js), so
+ * a key step is made before its price is read, and a drag once let go; '? IF PRESSED' only while the ring is still turning.
+ */
+export const GUARD_SET_WORD = '✓ GUARD SET';
+/** The GUARD ring's price (vm.consider, target 'ring-guard') stands for a move the GUARD has made: it stands at the ring's MW. */
+export const guardSet = (c, obs) => !!c && c.target === 'ring-guard' && Number.isFinite(c.toMW) && !!obs.battery && obs.battery.guardMW === c.toMW;
+/** The word beside a consider line (C-10): ARMED while its cover is up, GUARD SET for a GUARD made, UNDER WAY for a unit on its way, else IF PRESSED. */
+export const considerWord = (c, obs, armed = false) => (armed ? ARMED_WORD : guardSet(c, obs) ? GUARD_SET_WORD : c.level === 'ok' ? UNDER_WAY_WORD : CONSIDER_WORD);
 
 /** The glyph and word shown beside an objective line {kind, level} (app/objective.js). */
 export function objectiveWord(o) {
@@ -238,7 +247,7 @@ export function bandOf(hz) {
 /** A new live-region model (pure; liveFrame feeds it a vm per frame). */
 export function createLive() {
   return {primed: false, lastMs: -Infinity, tick: -1, mode: '', seg: '', act: 0, band: '', bandSaid: '', level: '', levelSaid: '', tiles: {}, cards: new Set(),
-    respond: -1, line: '', lineSaid: '', heldSaid: false, q: {}};
+    respond: -1, line: '', lineSaid: '', guardSaid: '', heldSaid: false, q: {}};
 }
 
 /** The objective line is hidden (Q-73: the night strip has its place; Q-91: a card holds the clock, but for a ‼ URGENT line at a feeder card). */
@@ -309,9 +318,14 @@ export function liveFrame(L, vm, nowMs) {
   const o = vm.objective && vm.objective.text && !lineHidden(vm) ? vm.objective : null, line = o ? o.level + '|' + o.kind + '|' + (o.targets[0] || '') : '';
   if (line !== L.line) { L.line = line; if (first) L.lineSaid = line; else if (o) L.q.line = lineWords(o); else delete L.q.line; }
   // Q4 (W7): the GUARD ring turned down is priced in #objective; the ring's own value says only "GUARD n MW", so its
-  // price is said here, the newest replacing one not yet said (a turn of several steps says its last)
-  const gc = vm.consider && vm.consider.target === 'ring-guard' && !lineHidden(vm) ? vm.consider.text : '';
-  if (gc && gc !== L.guardSaid) { L.guardSaid = gc; L.q.guard = CONSIDER_WORD.slice(2) + ': ' + gc; }
+  // price is said here once the move is made (GUARD SET: a key step is sent on key-up, so a key reach is said once, never
+  // "if pressed" and then again as made), once a move (fromMW → toMW), the newest replacing one not yet said (a turn
+  // of several steps says its last; figures that move while it waits, their newest). A price gone from the screen (the
+  // ring turned back, the reach rested) before it was said is dropped; the next reach, the same move too, is said again.
+  // (guardSaid: the move queued last, said or waiting)
+  const g = vm.consider && !lineHidden(vm) && guardSet(vm.consider, obs) ? vm.consider : null, guard = g ? g.fromMW + '→' + g.toMW : '';
+  if (!g) { delete L.q.guard; L.guardSaid = ''; }
+  else if (L.q.guard || guard !== L.guardSaid) { L.guardSaid = guard; L.q.guard = GUARD_SET_WORD.slice(2) + ': ' + g.text; }
   if (nowMs - L.lastMs < LIVE_GAP_MS) return null;
   // A band, level or line that flapped back to what was last said has nothing to say.
   if (L.q.band && L.band === L.bandSaid) delete L.q.band;
@@ -774,7 +788,8 @@ export function bootGame(doc, deps) {
 
   // The standing objective (Q-18): one line, with the level as a glyph and a word. While the
   // player is hovering, focusing or has lifted a START / STOP guard, the line says what that press
-  // would do instead (C-10, vm.consider), under the word '? IF PRESSED' (ARMED: amber unless critical).
+  // would do instead (C-10, vm.consider), under the word '? IF PRESSED' (ARMED: amber unless critical);
+  // the GUARD ring turned down, its price (W7 Q4), under GUARD SET once the GUARD stands where it was turned to.
   function drawObjective(v) {
     const box = $('objective');
     if (!box) return;
@@ -787,7 +802,7 @@ export function bootGame(doc, deps) {
     const armed = !!c && v.armed === c.target;
     const cls = c ? (armed && c.level !== 'crit' ? 'act' : c.level) + ' consider' : o.level;
     if (box.className !== cls) box.className = cls;
-    setText('objective-level', !c ? objectiveWord(o) : armed ? ARMED_WORD : c.level === 'ok' ? UNDER_WAY_WORD : CONSIDER_WORD);
+    setText('objective-level', !c ? objectiveWord(o) : considerWord(c, v.obs, armed));
     setText('objective-text', c ? (armed ? 'Press again to confirm. ' : '') + c.text
       : (o.text || '') + (paused ? '  ·  ' + HELD_NOTE : ''));
   }

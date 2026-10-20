@@ -888,7 +888,8 @@ export const CONSIDER_REST_MS = 4000;
 
 /**
  * Q4 (W7): the GUARD move the "? IF PRESSED" line prices, {fromMW, toMW}: the ring turned down, while it turns and for
- * CONSIDER_REST_MS after its last turn (it is set on release); null otherwise, and null while the line itself asks for a
+ * CONSIDER_REST_MS after its last turn (it is set on release; the shell's word is GUARD SET once the GUARD stands at
+ * toMW: app/shell.js considerWord); null otherwise, and null while the line itself asks for a
  * GUARD at or below it (a desk short now wants those MW as power: app/objective.js shortNow, shortAhead, spare).
  */
 export function guardReach(game, nowMs) {

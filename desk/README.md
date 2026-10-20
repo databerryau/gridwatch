@@ -938,6 +938,9 @@ through `content/text.js` entries with `params` paths.
                                                 // long: {atS, endS, mw} | null, the spill ahead (PV.blueRuns(proj)[0])
   vm.objective.action += {type: 'stop', unit} | {type: 'battery', mode, mw} | {type: 'standDownRERT'}   (sim inputs; the game never sends them)
 * vm.consider = {target, text, level} | null    // C-10; level 'plan' | 'crit'; shown in #objective in place of the objective, word '? IF PRESSED'
+                                                // W7 (Q4): target 'ring-guard' (+ fromMW, toMW), the GUARD ring turned down, priced
+                                                //   (app/objective.js guardConsequence); word '✓ GUARD SET' once the GUARD stands at
+                                                //   toMW (the ring sends on release / key-up), and only then said by #aria-live
 * actions.ui({do: 'consider', target: 'guard-start-<unit>' | 'guard-stop-<unit>' | null})   -> game.ui.consider
 * vm.hist.rooftop                               // beside vm.hist.demand, the same column form (column mean of env.rooftopMW)
 * proj (app/planview.js project) += rooftop (Float64Array n), surplusMW (n); proj.blue[q] = surplusMW[q] > SURPLUS_MIN_MW ? 1 : 0

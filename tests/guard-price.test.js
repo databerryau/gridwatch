@@ -2,6 +2,8 @@
 // The GUARD ring turned down says what the freed battery MW could replace by 21:00 (gas and its carbon, the score's terms)
 // against what the largest loss would then shed, at the VCR per 10 minutes dark (app/objective.js guardConsequence; the
 // page: app/game.js guardReach, the live region: app/shell.js liveFrame). A STOP's line carries its saving: tests/objective.test.js.
+// The ring sends on release or key-up (desk/rotary.js), so its price stands under "? IF PRESSED" only while it turns, and
+// under GUARD SET once sent (the review: a key step is made before its price is read); the live region says it as made.
 // The arithmetic on a poked observation with a stand-in preview; the page at 04:30, held (no day walked, CLAUDE.md).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -10,6 +12,7 @@ import {createState, step, observe} from '../sim/step.js';
 import {DESK} from '../content/scenarios.js';
 import {guardConsequence, LINE_MAX_CHARS, RELAY_NEAR_HZ} from '../app/objective.js';
 import {CONSIDER_REST_MS, guardReach} from '../app/game.js';
+import {liveFrame, createLive} from '../app/shell.js';
 import {openGame} from './lib/play.js';
 
 const H = V.S_PER_H, at = h => (h - V.DAY_START_H) * H;
@@ -106,26 +109,75 @@ test('Q4 (review): the GUARD price is one line (LINE_MAX_CHARS) at its longest: 
   assert.ok(longest > 150, 'the sweep reached the long forms: ' + longest);
 });
 
-test('Q4 in the page: turning the GUARD ring down by keys says both sides under "? IF PRESSED", and the live region says it once; the plan\'s line returns after the rest; a line asking for that GUARD is not argued with', () => {
+test('Q4 (review), the live region: the GUARD price is said once a move, as made; one gone from the screen before it was said is dropped; the next reach, the same move too, is said again', () => {
+  const L = createLive(), out = [];
+  let tick = 100, ms = 0;
+  const price = (fromMW, toMW, usd = '24,000', level = 'plan') => ({target: 'ring-guard', level, fromMW, toMW,
+    text: 'GUARD ' + fromMW + ' → ' + toMW + ' MW: the battery could replace up to about $' + usd + ' more gas and carbon by 21:00. A COAL 1 trip would bottom at about 49.53 Hz: no relays, but not secure.'});
+  const vm = (consider, guardMW, level = 'SECURE') => ({phase: 'play', obs: {tick: tick++, f: {hz: 50}, sec: {level}, battery: {guardMW}, over: false, nightShift: false},
+    mode: {mode: 'PLAY', segment: 'DAWN', act: 1}, alarms: {tiles: []}, tray: {cards: []}, respond: null, feeder: null, objective: null, consider});
+  const step = (c, guardMW, level, dt = 250) => { const r = liveFrame(L, vm(c, guardMW, level), ms); if (r) out.push(r); ms += dt; return r; };
+  step(null, 400);   // (primed)
+  // turning, not yet sent: on the screen under "? IF PRESSED", never said
+  for (let i = 0; i < 12; i++) step(price(400, 350), 400);
+  assert.deepEqual(out, []);
+  // sent: said at once (nothing said in the last 2 s), once, though its figures move after
+  assert.equal(step(price(400, 350), 350), 'GUARD SET: ' + price(400, 350).text);
+  for (let i = 0; i < 12; i++) step(price(400, 350, '25,000'), 350);
+  assert.equal(out.length, 1, out.join(' | '));
+  // rested (the plan's line back), then the same move again: said again
+  for (let i = 0; i < 12; i++) step(null, 350);
+  step(price(350, 300), 350);   // (the next reach starts from where the GUARD stands: not yet sent)
+  for (let i = 0; i < 4; i++) step(null, 350);
+  out.length = 0;
+  step(price(400, 350), 350);
+  assert.deepEqual(out, ['GUARD SET: ' + price(400, 350).text], 'a second reach, the same move');
+  // a step made inside the 2-s gap waits; turned back before it is said (the reach ends: no price), it is dropped
+  out.length = 0;
+  step(price(400, 300, '34,000'), 300);
+  step(price(400, 350), 350, 'TIGHT');
+  step(null, 400, 'TIGHT');
+  for (let i = 0; i < 16; i++) step(null, 400, 'TIGHT');
+  assert.deepEqual(out, ['N-1 TIGHT'], 'the undone move is not said: ' + out.join(' | '));
+  // a turn of several steps inside the gap says its last, with its newest figures
+  out.length = 0;
+  for (let i = 0; i < 12; i++) step(null, 400, 'TIGHT');
+  step(price(400, 350), 350, 'TIGHT');
+  step(price(400, 300), 300, 'TIGHT');
+  step(price(400, 250), 250, 'TIGHT');
+  step(price(400, 250, '41,000'), 250, 'TIGHT');
+  for (let i = 0; i < 12; i++) step(price(400, 250, '41,000'), 250, 'TIGHT');
+  assert.deepEqual(out, ['GUARD SET: ' + price(400, 350).text, 'GUARD SET: ' + price(400, 250, '41,000').text]);
+});
+
+test('Q4 in the page: the GUARD ring turned down by keys says both sides, "? IF PRESSED" while the key is down and GUARD SET once the step is sent; the live region says it once, as made; the plan\'s line returns after the rest; a line asking for that GUARD is not argued with', () => {
   const p = openGame({seed: 20261014, run: false});
   assert.equal(p.send({type: 'guard', mw: 400}), '');
   p.frame();
   const ring = p.$('ring-guard');
   ring.focus();
-  p.key('ArrowDown');
-  p.key('ArrowDown');
   const line = () => p.$('objective-level').textContent + ' ' + p.$('objective-text').textContent;
-  assert.match(line(), /^\? IF PRESSED GUARD 400 → 300 MW: the battery could replace up to about \$[\d,]+ more gas and carbon by 21:00\. A [A-Z]+ \d trip would (bottom at about 4\d\.\d\d Hz: (still secure|no relays, but not secure)|then shed about [\d,]+ MW[:,] \$[\d.,]+M? per 10 min(utes)? dark)\.$/, line());
-  // (the clock is held: real seconds pass in a few long frames, as tests/card.test.js lets a rest pass)
-  p.real(0.35, 0.35);   // (each key sent its GUARD; the reach is from 400 until its rest)
+  const aria = [], hear = () => { const t = (/^ARIA (.*)$/m.exec(p.look({controls: false, aria: true})) || [])[1]; if (t && t !== aria[aria.length - 1]) aria.push(t); };
+  hear();
+  // the key down: the ring turns, nothing is sent yet (desk/rotary.js sends on key-up): what the press would do
+  p.keyDown('ArrowDown'); p.frame(); hear();
+  assert.equal(p.game.state.battery.guardMW, 400);
+  assert.match(line(), /^\? IF PRESSED GUARD 400 → 350 MW: the battery could replace up to about \$[\d,]+ more gas and carbon by 21:00\. /, line());
+  // (review) key-up sends it: the price stands for a move made, never "if pressed"
+  p.keyUp('ArrowDown'); p.frame(); hear();
+  assert.equal(p.game.state.battery.guardMW, 350);
+  assert.match(line(), /^✓ GUARD SET GUARD 400 → 350 MW: /, line());
+  p.key('ArrowDown'); hear();   // a second step: the reach goes on from 400
   assert.equal(p.game.state.battery.guardMW, 300);
-  assert.match(line(), /GUARD 400 → 300 MW/);
-  // the live region: the price as the ring turned (said at once: nothing was said in the last 2 s), then the newest, rate-limited
-  const said = [];
-  for (let i = 0; i < 2; i++) { p.real(1.4, 0.7); said.push((/^ARIA (.*)$/m.exec(p.look({controls: false, aria: true})) || [])[1]); }
-  assert.ok(said.some(t => /^IF PRESSED: GUARD 400 → 300 MW: the battery could replace/.test(t)), said.join(' | '));
+  assert.match(line(), /^✓ GUARD SET GUARD 400 → 300 MW: the battery could replace up to about \$[\d,]+ more gas and carbon by 21:00\. A [A-Z]+ \d trip would (bottom at about 4\d\.\d\d Hz: (still secure|no relays, but not secure|close to the relays)|then shed about [\d,]+ MW( \([\d,]+ MW now\))?[:,] \$[\d.,]+M? per 10 min(utes)? dark)\.$/, line());
+  // the live region: the move as made, its last step (rate-limited: the first step's may go first), never "if pressed"
+  // (the clock is held: real seconds pass in a few long frames, as tests/card.test.js lets a rest pass)
+  for (let i = 0; i < 4; i++) { p.real(0.7, 0.7); hear(); }
+  const priced = aria.filter(t => /GUARD 400 → /.test(t));
+  assert.ok(priced.length >= 1 && priced.every(t => /^GUARD SET: GUARD 400 → (350|300) MW: the battery could replace/.test(t)), aria.join(' | '));
+  assert.match(priced[priced.length - 1], /^GUARD SET: GUARD 400 → 300 MW: /);
   p.real(CONSIDER_REST_MS / 1000 + 1.4, 0.7);   // (the ring's ghost lingers 1.5 s, desk/rotary.js PREVIEW_LINGER_MS; then the rest)
-  assert.doesNotMatch(line(), /IF PRESSED/, 'the plan\'s line back: ' + line());
+  assert.doesNotMatch(line(), /IF PRESSED|GUARD SET/, 'the plan\'s line back: ' + line());
   // a line that asks for a GUARD at or below the ring's: the turn is the line's (a short desk wants the MW), no price; past it, priced
   const g = p.game, reach = {fromMW: 400, toMW: 200, ms: p.now};
   g.ui.guardReach = reach;
