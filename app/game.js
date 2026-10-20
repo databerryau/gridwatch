@@ -40,7 +40,7 @@ import * as S from './score.js';
 import * as VD from './verdict.js';
 import {createMarg, margSay, MARG_LINES, MARG_FROM} from './marg.js';
 import {plateGroup} from '../desk/desk.js';
-import {createParRunner, seriesAt, parMinute} from './par.js';
+import {createParRunner, seriesAt, parMinute, parHad} from './par.js';
 import * as SH from './share.js';
 import * as HI from './history.js';
 import {hardDayOf} from './shelf.js';
@@ -1153,24 +1153,31 @@ function margFrame(game, obs, mode) {
 
 /**
  * W3 (D-20, D-21, D-24, L-10, P-1, H-11): game.end.verdict, the day in words (app/verdict.js), rebuilt when par or
- * the no-GUARD twin arrives. The moment's twin (D-21) is made here once, when a GUARD was set at its trip, and played
- * by the shell's frames after the day (game.twin.step).
+ * the twin arrives. The moment's twin (D-21) is made here once, for a fall, when a GUARD was set at its trip (the fall
+ * with no GUARD) or, W7 (Q-119), par had a larger GUARD at that minute (par's GUARD tried on your trip: asked of the
+ * same twin once par has finished), and played by the shell's frames after the day (game.twin.step).
  */
 function verdictFor(game) {
   const end = game.end, st = game.state, par = game.par, mem = game.verdict;
   const nightS = st.scn.night ? NIGHT_S : Infinity, conts = st.conts.filter(c => c.startTick / TPS < nightS);
-  if (end.twinFor === undefined) {
+  const parScore = par && par.done && par.score && !par.black ? par.score : null;
+  if (end.twinKey !== !!parScore) {   // (at the day's end, and again when par finishes)
+    end.twinKey = !!parScore;
     const m = VD.moment(mem, conts, {nightS}), c = m && m.cont;
-    end.twinFor = c && c.lostMW > 0 && game.guardAt[c.n] > 0 ? c.n : -1;
-    if (end.twinFor > 0) game.twin = VD.createTwin(game.seed, game.scenario, st.log.slice(), c);
+    if (c && c.lostMW > 0) {
+      const yours = game.guardAt[c.n] || 0, had = parScore ? parHad(par, VD.diffMinute(m)) : null;
+      const want = (yours > 0 ? [0] : []).concat(had && had.guardMW > yours ? [had.guardMW] : []);
+      if (game.twin) for (const g of want) game.twin.want(g);
+      else if (want.length) game.twin = VD.createTwin(game.seed, game.scenario, st.log.slice(), c, want);
+    }
   }
-  const twin = game.twin, key = (par ? (par.done ? 'p' : 'c') : '-') + (twin ? (twin.done ? 't' : 'w') : '-');
+  const twin = game.twin, key = (par ? (par.done ? 'p' : 'c') : '-') + (twin ? (twin.done ? 't' + twin.rev : 'w') : '-');
   if (key === game.verdictKey && end.verdict) return;
   game.verdictKey = key;
-  const parScore = par && par.done && par.score && !par.black ? par.score : null;
   const pm = parScore && par.minutes && par.minutes.length ? s => parMinute(par, s) : null;
   const first = VD.moment(mem, conts, {nightS}), fc = first && first.cont;
-  const m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: fc ? game.guardAt[fc.n] : undefined, nightGuard: !!fc && !!game.guardNight[fc.n]});
+  const m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: fc ? game.guardAt[fc.n] : undefined, nightGuard: !!fc && !!game.guardNight[fc.n],
+    parHad: pm && (k => parHad(par, k)), parTrips: par && par.trips, parBlocks: par && par.blocks, blocks: st.levers.blocks, parTry: twin && (g => twin.tried(g))});   // (W7, Q-119)
   end.verdict = {
     lights: VD.lightsRow(mem, end.score, parScore).text,
     cost: VD.costRow(end.allIn, end.parAllIn), carbon: VD.carbonRow(end.allIn, end.parAllIn),
