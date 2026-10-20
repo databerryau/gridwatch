@@ -541,7 +541,8 @@ const ABSTRACTIONS = [
       'hot-water trial, and about 13% of thermostats are overridden in an air-con event, more as events run longer.',
     ours: 'Industrial DR: ' + num(V.DR_MW) + ' MW for ' + minutes(V.DR_DURATION_S) + ' min at ' + usd(V.DR_PRICE) + '/MWh, ' +
       num(V.DR_CALLS) + ' calls a day, shedding and returning at ' + num(V.DR_RAMP_MW_MIN) + ' MW/min. Each suburb\'s card ' +
-      '(click it, or H) books its HOT WATER SOAK (' + num(sumOf('soakMW')) + ' MW across the city, every day, no payment) and, ' +
+      '(click it, or H) books its HOT WATER SOAK (' + num(sumOf('soakMW')) + ' MW across the city, every day, no payment; SOAK THE ' +
+      'CITY books every free suburb\'s at once) and, ' +
       'on hot days, its AIR-CON CYCLE (' + num(sumOf('airconMW')) + ' MW, ' + usd(V.AIRCON_PRICE) + '/MWh relieved). A cycle ' +
       'costs the suburb ' + num(V.PATIENCE_AIRCON) + ' patience, ' + num(V.PATIENCE_REPEAT) + ' more for each cycle it has ' +
       'booked; a soak costs none. Below ' + num(V.PATIENCE_FULL) + ' a suburb responds less (at ' + num(V.PATIENCE_FULL - 10) +
@@ -556,7 +557,8 @@ const ABSTRACTIONS = [
     // 2b (Q-52): the card's "?" beside HOT WATER SOAK (app/suburbcard.js LEVERS.soak.row).
     id: 'hot-water-soak', row: 'A hot-water soak moves that night\'s heating to noon.', anchorId: 'hot-water-soak', ui: 'drawer',
     game: 'drawer',
-    real: 'Networks switch controlled-load hot water by relay. South Australia\'s solar sponge heated tanks 10:00–15:00 ' +
+    real: 'Networks switch controlled-load hot water by relay: a ripple-control signal sent down the network switches every ' +
+      'receiver on its channel at once. South Australia\'s solar sponge heated tanks 10:00–15:00 ' +
       '(09:30–16:30 from 1 July 2025), and Sydney\'s and western Victoria\'s networks moved controlled load into the day in ' +
       '2024–25. AEMO calls on controlled load at MSL3, and networks turn hot water on in minimum-demand events.',
     ours: 'One block a suburb a day: its soak MW (' + num(sumOf('soakMW')) + ' MW across the city) for ' + num(V.SOAK_S / V.S_PER_H) +
@@ -705,7 +707,9 @@ const ABSTRACTIONS = [
       'neighbour\'s; the end card also shows the tonnes your plants emitted.',
     why: 'Charging the tonnes emitted would make shedding and importing look clean (dark load and the neighbour\'s plants ' +
       'emit nothing here). Intensity × the energy asked for leaves a cleaner mix the only way down: shedding barely moves ' +
-      'it, and importing lowers it only through the mix you run.',
+      'it, and importing lowers it only through the mix you run. At ' + usd(V.VER) + ' a tonne coal and the CCGT cost about the ' +
+      'same, so carbon seldom flips a choice: taking coal off through noon saves its tonnes but buys gas for the evening, ' +
+      'and almost never pays. The line\'s STOP savings count the tonnes too.',
     params: ['VER'],
   },
   {

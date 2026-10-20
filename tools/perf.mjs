@@ -129,7 +129,7 @@ export async function simCost(seed, rate, frames) {
     const s = Math.floor(game.state.tick / V.TICKS_PER_S), a = v.objective && v.objective.action;
     if (a && !v.mode.locked && s - actedS >= V.S_PER_MIN) {
       actedS = s;
-      const why = a.redispatch ? G.redispatch(game) : G.sendInput(game, a);
+      const why = a.redispatch ? G.redispatch(game) : a.type === 'soakCity' ? G.soakCity(game, a.atS) : G.sendInput(game, a);
       if (!why) actions++;
     }
   }

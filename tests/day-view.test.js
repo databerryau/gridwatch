@@ -176,7 +176,7 @@ test('Q-69: a held task feeder\'s suburb: a blue label with its hand-back times,
   assert.equal(dark(), '2 DARK · BACK 06:45, 07:15');
   assert.equal(doc.getElementById('city-RED-restore'), null);
   card.focus();
-  assert.equal(doc.activeElement.id, 'city-RED-soak', 'the first row takes the focus');
+  assert.equal(doc.activeElement.id, 'city-soak-all', 'the first row takes the focus (W7 Q1: SOAK THE CITY, the soak\'s first)');
   const handed = structuredClone(obs);
   handed.s = red[0].clearS;
   card.update(vm(handed), 1);

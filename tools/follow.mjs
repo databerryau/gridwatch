@@ -25,7 +25,8 @@
 // end card's) beside par's, with the points 1000 x par's / yours (n/a when par's day went black;
 // a black day of the player's is 0, as the end card's F). For each STOP line the player followed (line.kind === 'stop' with
 // an accepted action): the saving the line quoted against the REALISED difference, which is the
-// same day with that one STOP skipped minus the day as played, on the accept's cost. Skipped
+// same day with that one STOP skipped minus the day as played, on the accept's cost plus the carbon the
+// score charges (W7 Q10: the quote counts it; carbonCost). Skipped
 // means: from the STOP's minute until the original day next started the unit, the line is asked
 // about an observation in which that unit is not free to stop (its stopBlock set), so the player
 // follows whatever the line says THEN (the battery and commit-later branches under the STOP
@@ -49,7 +50,7 @@ import {fork} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {readFileSync} from 'node:fs';
 import {followDay} from '../tests/lib/follow.js';
-import {objective as standingObjective} from '../app/objective.js';
+import {objective as standingObjective, inputsOf} from '../app/objective.js';
 import {runPar} from '../sim/autopilot.js';
 import {getScenario} from '../content/scenarios.js';
 import {V, SIM_VERSION} from '../sim/params.js';
@@ -200,10 +201,13 @@ export function stopLines(said) {
   });
 }
 
+/** Q10 (W7): a score's carbon at the VER, as app/score.js ALL-IN charges it (the intensity × every MWh asked for): the STOP quotes count it, so their realised side does too. */
+export const carbonCost = sc => V.VER * (sc.co2tPerMWh || 0) * ((sc.servedMWh || 0) + (sc.lightsMWh || 0));
+
 function summaryOf(r) {
   const sc = r.score;
   return {black: r.st.black, endsAt: hhmm(Math.floor(r.st.tick / V.TICKS_PER_S)), unservedMWh: sc.unservedMWh, uflsMWh: sc.uflsMWh, directedMWh: sc.directedMWh, cost: Object.fromEntries(COST_KEYS.map(k => [k, sc.cost[k] || 0])),
-    planCost: planCost(sc.cost), totalCost: totalCost(sc.cost), spillMWh: sc.spillMWh || 0};
+    planCost: planCost(sc.cost), totalCost: totalCost(sc.cost), carbon: carbonCost(sc), spillMWh: sc.spillMWh || 0};
 }
 
 /**
@@ -218,9 +222,9 @@ function summaryOf(r) {
 export function followSeed(scenario, seed, o) {
   const t0 = process.hrtime.bigint();
   let batt = null; // the battery at 16:30 (§21.4 accept: on hot days at or above par's level)
-  // the plan cost at a STOP quote's horizon: 21:00 on a night scenario, where the night shift takes the desk (Q-73), else the day's end
-  const cutS = scenario.night ? NIGHT_S : Infinity, cut = (r, score) => r.cutCost ?? planCost(score.cost);
-  const atCut = (r, st, obs) => { if (r.cutCost === undefined && obs.s >= cutS) r.cutCost = planCost(st.score.cost); };
+  // the plan cost and its carbon (Q10: the quote counts it) at a STOP quote's horizon: 21:00 on a night scenario, where the night shift takes the desk (Q-73), else the day's end
+  const cutS = scenario.night ? NIGHT_S : Infinity, cut = (r, score) => r.cutCost ?? planCost(score.cost) + carbonCost(score);
+  const atCut = (r, st, obs) => { if (r.cutCost === undefined && obs.s >= cutS) r.cutCost = planCost(st.score.cost) + carbonCost(obs.score); };
   const base = {};
   const day = followDay(seed, scenario, {follow: o.follow, untilH: o.untilH, objective: o.objective, coach: o.coach,
     onMinute: (st, obs) => { atCut(base, st, obs); if (batt === null && obs.s >= EVENING_S) batt = st.battery.socMWh; }});
@@ -240,7 +244,8 @@ export function followSeed(scenario, seed, o) {
   row.kinds = kinds;
   row.battAt1630 = batt;
   // the city levers booked (2b) and the day's ALL-IN (Q-48)
-  const flex = lever => day.said.filter(x => x.accepted && x.action.type === 'flex' && x.action.lever === lever).length;
+  // (the blocks booked: a SOAK THE CITY press, one of `actions`, books a soak a suburb, Q1)
+  const flex = lever => day.said.filter(x => x.accepted).flatMap(x => inputsOf(x.action)).filter(i => i.type === 'flex' && i.lever === lever).length;
   row.soaks = flex('soak'); row.aircons = flex('aircon');
   const hh = scenario.city.suburbs.reduce((a, x) => a + x.households, 0), you = allIn(day.score, hh);
   row.allIn = you.total;
@@ -250,8 +255,8 @@ export function followSeed(scenario, seed, o) {
     for (const {line, untilS} of stopLines(day.said)) {
       const alt = summaryOf(followDay(seed, scenario, {untilH: o.untilH, objective: skipping(line, untilS, o.objective)}));
       const one = {}, kept = followDay(seed, scenario, {untilH: o.untilH, objective: replaying(day.said, line, untilS), onMinute: (st, obs) => atCut(one, st, obs)});
-      row.stops.push({atS: line.s, at: hhmm(line.s), unit: line.action.unit, until: hhmm(untilS), quoted: quotedSaving(line), realised: alt.planCost - row.planCost,
-        realisedTotal: alt.totalCost - row.totalCost, unservedSkipped: alt.unservedMWh, blackSkipped: alt.black,
+      row.stops.push({atS: line.s, at: hhmm(line.s), unit: line.action.unit, until: hhmm(untilS), quoted: quotedSaving(line), realised: alt.planCost + alt.carbon - row.planCost - row.carbon,
+        realisedTotal: alt.totalCost + alt.carbon - row.totalCost - row.carbon, unservedSkipped: alt.unservedMWh, blackSkipped: alt.black,
         oneByOne: cut(one, kept.score) - cut(base, day.score)});
     }
   }
@@ -325,7 +330,7 @@ function report(o, scenario, rows, wallS) {
   const near = (q, r) => q !== null && Number.isFinite(r) && (Math.abs(q - r) <= 10000 || Math.abs(q - r) <= 0.3 * Math.abs(r));
   const within = s => near(s.quoted, s.realised), withinOne = s => near(s.quoted, s.oneByOne), to = scenario.night ? 'to 21:00' : 'to 04:00';
   table(stops, [['seed', s => s.seed], ['day', s => s.day], ['at', s => s.at], ['unit', s => s.unit], ['next start', s => s.until], ['quoted saving', s => usd(s.quoted)],
-    ['realised (plan cost)', s => usd(s.realised)], ['realised (total)', s => usd(s.realisedTotal)], ['within 30% or $10k', s => (s.quoted === null ? 'n/a' : within(s) ? 'yes' : 'NO')],
+    ['realised (plan cost + carbon)', s => usd(s.realised)], ['realised (total + carbon)', s => usd(s.realisedTotal)], ['within 30% or $10k', s => (s.quoted === null ? 'n/a' : within(s) ? 'yes' : 'NO')],
     ['skipped: unserved', s => f1(s.unservedSkipped) + (s.blackSkipped ? ' BLACK' : '')], ['one by one (' + to + ')', s => usd(s.oneByOne)], ['within', s => (s.quoted === null ? 'n/a' : withinOne(s) ? 'yes' : 'NO')]]);
   if (stops.length) {
     console.log('quoted within +-30% or $10,000 of realised: ' + stops.filter(within).length + ' of ' + stops.filter(s => s.quoted !== null).length + ' quoted (' + stops.filter(s => s.quoted === null).length + ' n/a)');

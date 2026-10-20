@@ -36,7 +36,8 @@
 //   send=JSON               a sim input through the page's actions, e.g. send={"type":"start","unit":"gta1"}
 //   suburb=ID               open a suburb's card as a map click does (SOL HAZ RED HAR TAL SAL; suburb= closes it),
 //                           then press its rows: press=city-HAZ-soak (BOOK), city-RED-aircon, city-HAZ-soak-earlier /
-//                           -later (◀ ▶), city-HAZ-soak-cancel-1030 (CANCEL the 10:30 block), city-HAZ-restore; look
+//                           -later (◀ ▶), city-HAZ-soak-cancel-1030 (CANCEL the 10:30 block), city-HAZ-restore,
+//                           city-soak-all (SOAK THE CITY: every free suburb's soak, one press, W7 Q1); look
 //                           shows it as a SUBURB line. Keys in the card: ←/→ suburb, ↑/↓ row, - = time, Enter
 //   timeline=FROM-TO/EVERY  look() every EVERY (30m) from FROM to TO, plus every event; prints the
 //                           changed lines (presses Enter at each card: the RESPOND card goes, a feeder

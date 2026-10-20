@@ -365,8 +365,8 @@ export function openGame(o = {}) {
     find(x).dispatch(type, Object.assign({clientX: cx, clientY: cy}, extra));
     return api;
   }
-  /** A sim input straight through the page's actions (bypasses the desk; refusals toast). */
-  function send(x) { const r = h.actions.input(x); frame(); return r; }
+  /** A sim input straight through the page's actions (bypasses the desk; refusals toast); a line's SOAK THE CITY action, its press (Q1). */
+  function send(x) { const r = x && x.type === 'soakCity' ? h.actions.soakCity(x.atS) : h.actions.input(x); frame(); return r; }
   /** Q-56: open a suburb's card as a map click does ({do: 'suburb', id}; null closes it); then one frame. Returns the answer. */
   function suburb(id) { const r = h.actions.ui({do: 'suburb', id}); frame(); return r; }
 

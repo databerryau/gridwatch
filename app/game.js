@@ -28,7 +28,7 @@ import {CLASSIC, SCENARIOS, SA2016_SCENARIO} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
 import {DAILIES, dailyScenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
 import {anniversaryOf, SA2016} from '../content/anniversaries.js';
-import {objective, consequence, steady} from './objective.js';
+import {objective, consequence, guardConsequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
 import {createRecorder, onTick, startTrace, traceOf, needleF, secondsWindow} from './record.js';
@@ -556,7 +556,7 @@ export function takeDesk(game) {
  * BRIEF_LOCK, NIGHT_LOCK. `shown`: the feeder card the press was made at (redispatch's), else now's;
  * a card PAUSE, ALARMS or a hidden tab hides is not shown, so an input made under them leaves it.
  */
-export function sendInput(game, x, shown) {
+export function sendInput(game, x, shown, batch = false) {
   const state = game.state, d = game.director;
   const lock = game.phase === 'briefing' ? (x && x.type === 'mode' ? '' : BRIEF_LOCK) : state.control.nightShift ? NIGHT_LOCK : '';
   if (lock) return lock;
@@ -573,9 +573,26 @@ export function sendInput(game, x, shown) {
     game.previewS = -1; game.restoreS = -1;
     if (x.type === 'restore') D.focusRestore(d, state);
     if (own) D.queueFeeders(d, mates); // D-27: the card's RESTORE queues the morning's other feeders (D-26: the rest of its group)
-    if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
+    if (REDISPATCH_AFTER.includes(x.type) && !batch) redispatchAfter(game);   // (batch: soakCity re-dispatches once, after them all)
   } else if (own) game.feederWhy = {id: fc, why: r.reason};
   return r.ok ? '' : r.reason;
+}
+
+/**
+ * Q1 (W7): SOAK THE CITY. One press books the HOT WATER SOAK of every suburb whose soak is free, at atS: a distributor's
+ * ripple control moves its controlled hot water with one signal. Each booking is the sim's own flex input (the log keeps
+ * each), in city order; the system re-dispatches once after them; the press counts once (makeActions, X-45, D-10).
+ * Returns '' when at least one was booked, else the first refusal.
+ */
+export function soakCity(game, atS, shown) {
+  const st = game.state, subs = st.scn.levers ? st.scn.levers.suburbs : [], lock = game.phase === 'briefing' ? BRIEF_LOCK : st.control.nightShift ? NIGHT_LOCK : '';
+  const why0 = subs.map((x, j) => grid.leverView(st, j, 'soak').block), ids = subs.filter((x, j) => why0[j] === '').map(x => x.id);
+  if (lock) return lock;
+  if (!ids.length) return !subs.length ? 'no city levers on this desk' : why0.find(w => !/already booked/.test(w)) || 'every suburb\'s soak is booked';
+  let why = '', n = 0;
+  for (const suburb of ids) { const r = sendInput(game, {type: 'flex', suburb, lever: 'soak', atS}, shown, true); if (r) why = why || r; else n++; }
+  if (n) redispatchAfter(game);
+  return n ? '' : why;
 }
 
 /** Q-91: the district id of the feeder card on the page now ('' unless the director's mode is FEEDER-CARD). */
@@ -680,7 +697,17 @@ export function ui(game, cmd) {
     case 'ackTile': return A.ackTile(game.alarms, cmd.id) ? '' : 'no such tile';
     case 'stackExpand': u.stackExpanded = !!cmd.on; return '';
     case 'preview': u.previewOn = !!cmd.on; return '';
-    case 'previewGuard': u.previewGuardMW = cmd.mw === null || cmd.mw === undefined ? null : cmd.mw; return '';
+    case 'previewGuard': {
+      u.previewGuardMW = cmd.mw === null || cmd.mw === undefined ? null : cmd.mw;
+      // Q4 (W7): a turn of the ring is a reach for the GUARD, from where it stood when the turn began (a turn within
+      // CONSIDER_REST_MS of the last goes on from there): the line prices the move down (guardReach, buildVm)
+      if (u.previewGuardMW !== null) {
+        const r = u.guardReach, on = !!r && game.lastFrameMs - r.ms <= CONSIDER_REST_MS;
+        u.guardReach = {fromMW: on ? r.fromMW : state.battery.guardMW, toMW: u.previewGuardMW, ms: game.lastFrameMs};
+        game.considerDirty = true;
+      }
+      return '';
+    }
     case 'offerTaken':
       if (!game.offered[cmd.unit]) return 'not offered';
       game.offered[cmd.unit].taken = true; return '';
@@ -859,6 +886,18 @@ export function alarmCtx(game, nowMs, realDtS) {
 /** X-42: a pointer resting on a guard (its cover down) shows "? IF PRESSED" this long, then the plan's line again. */
 export const CONSIDER_REST_MS = 4000;
 
+/**
+ * Q4 (W7): the GUARD move the "? IF PRESSED" line prices, {fromMW, toMW}: the ring turned down, while it turns and for
+ * CONSIDER_REST_MS after its last turn (it is set on release; the shell's word is GUARD SET once the GUARD stands at
+ * toMW: app/shell.js considerWord); null otherwise, and null while the line itself asks for a
+ * GUARD at or below it (a desk short now wants those MW as power: app/objective.js shortNow, shortAhead, spare).
+ */
+export function guardReach(game, nowMs) {
+  const u = game.ui, r = u.guardReach, a = game.objective && game.objective.action;
+  if (!r || !(r.toMW < r.fromMW) || (u.previewGuardMW === null && nowMs - r.ms > CONSIDER_REST_MS)) return null;
+  return a && a.type === 'guard' && a.mw <= r.toMW ? null : r;
+}
+
 export function buildVm(game, f) {
   const state = game.state, d = game.director;
   const obs = observe(state);
@@ -922,6 +961,7 @@ export function buildVm(game, f) {
         // projection once per line (F-11: the objective and its STOP saving read the same one).
         game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
         const proj = game.planview.project(obs);
+        game.lineProj = {s: obs.s, proj};   // (Q4: a STOP's "? IF PRESSED" quotes off the line's own projection)
         const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective, coach: coachOn(game)});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
@@ -941,21 +981,28 @@ export function buildVm(game, f) {
     // with its cover up too (a promise of "12 min from now" stays true while the clock runs on), and a
     // pointer resting on a guard gives the line back to the plan after CONSIDER_REST_MS.
     if (game.ui.consider && game.ui.considerMs === null) game.ui.considerMs = nowMs;
+    // Q4 (W7): the GUARD ring turned down (game.ui.guardReach), while it turns and CONSIDER_REST_MS after; a guard under the
+    // hand comes first, and a line that asks for this GUARD itself (a short desk wants the MW) is not argued with
+    const g = game.ui.consider ? null : guardReach(game, nowMs);
     if (game.considerDirty) {
       game.considerDirty = false;
       const t = game.ui.consider;
       game.consider = null;
       // (the night lock refuses the press: the line says so, never what it would do; Q-73)
-      if (t && !mode.locked && obs.nightShift) game.consider = {target: t, text: NIGHT_LOCK, level: 'plan'};
+      if ((t || g) && !mode.locked && obs.nightShift) game.consider = {target: t || 'ring-guard', text: NIGHT_LOCK, level: 'plan'};
       else if (t && !mode.locked) {
         try {
           if (!game.dayAhead) game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
-          game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview});
+          game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview, proj: game.lineProj && game.lineProj.s === obs.s ? game.lineProj.proj : undefined});
         } catch (e) { game.consider = null; game.objectiveError = 'consequence: ' + errText(e); }
+      } else if (g && !mode.locked) {
+        try {
+          game.consider = guardConsequence(obs, g.fromMW, g.toMW, mw => previewTrip(game, {kind: obs.sec.lKind === 'link' ? 'link' : 'unit', id: obs.sec.lId, guardMW: mw}));
+        } catch (e) { game.consider = null; game.objectiveError = 'guardConsequence: ' + errText(e); }
       }
     }
     const rested = game.ui.armed !== game.ui.consider && nowMs - game.ui.considerMs > CONSIDER_REST_MS;
-    if (!game.ui.consider || mode.locked || rested) game.consider = null;
+    if (mode.locked || (game.ui.consider ? rested : !g)) game.consider = null;
     if (game.objective && mode.mode !== 'WATCH') for (const g of game.objective.targets) glow.add(g);
   } else { game.objective = null; game.objectiveHeld = null; game.consider = null; }
   if (offers.length) glow.add('bay-sync');
@@ -1221,7 +1268,7 @@ function startOfficial(game) {
 // ------------------------------------------------------------------ W6: resume (F-7)
 //
 // The day is deterministic from its seed and what the player did, so a save is the player's actions, not the state: each
-// desk input with the feeder card it answered (sendInput's `shown`), each RE-DISPATCH, the presses that answer the cards
+// desk input with the feeder card it answered (sendInput's `shown`), each RE-DISPATCH and SOAK THE CITY (Q1), the presses that answer the cards
 // (dismissRespond, goOn, skipWatch) and TAKE THE DESK, each at its tick (game.acts). RESUME replays them through the same
 // functions, at the same ticks, with the system and the queued restores running as in play: the system's plans, the
 // director's memory of cards and feeders and the end card's counts all come back by themselves, and the state's hash at the
@@ -1315,6 +1362,7 @@ function replayAct(game, a) {
   if (kind === 't') takeDesk(game);
   else if (kind === 'i') { if (!sendInput(game, x, shown)) game.playerInputs++; }
   else if (kind === 'r') { if (!redispatch(game, shown)) game.playerInputs++; }
+  else if (kind === 'c') { if (!soakCity(game, x.atS, shown)) game.playerInputs++; }   // (Q1: SOAK THE CITY, one press)
   else if (kind === 'u' && REPLAY_UI.includes(x.do)) ui(game, x);
 }
 
@@ -1434,6 +1482,17 @@ export function makeActions(game) {
       const shown = shownFeeder(game);
       act(game, ['r', null, shown]);
       const r = redispatch(game, shown);
+      if (!r) game.playerInputs++;
+      saveResume(game);
+      return r;
+    },
+    // (Q1: SOAK THE CITY: one press, saved as one action and counted once, however many suburbs it books)
+    soakCity: atS => {
+      if (game.replay) return RESUMING;
+      if (game.resumeSaved) return RESUME_LOCK;
+      const shown = shownFeeder(game);
+      act(game, ['c', {atS}, shown]);
+      const r = soakCity(game, atS, shown);
       if (!r) game.playerInputs++;
       saveResume(game);
       return r;

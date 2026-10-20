@@ -500,8 +500,9 @@ test('MSL cards: MARKET NOTICE, the forecast minimum and its time and the one th
   // name the soak (MSL1 keeps its battery advice) and their one button opens the suburb card; MSL3 and the clear do not
   const early = (level, atS, minMW) => Object.assign(rec(level, atS, minMW), {tick: (9 - V.DAY_START_H) * V.S_PER_H * TPS});
   const s1 = T.cardOf(early(1, noonS)), s2 = T.cardOf(early(2, noonS, 1262)), s1now = T.cardOf(early(1, (10.5 - V.DAY_START_H) * V.S_PER_H));
-  assert.equal(s1.text, 'Lowest demand 1,540 MW at 12:40. A hot-water soak takes the spill: book one, and charge the battery on it.');
-  assert.equal(s2.text, 'Lowest demand 1,262 MW at 12:40. Make room: book a hot-water soak, charge the battery, and stop a gas unit if one is running.');
+  // (W7 Q1: the city's soak, one press, as the line asks for it)
+  assert.equal(s1.text, 'Lowest demand 1,540 MW at 12:40. A hot-water soak takes the spill: book the city\'s, and charge the battery on it.');
+  assert.equal(s2.text, 'Lowest demand 1,262 MW at 12:40. Make room: book the city\'s hot-water soak, charge the battery, and stop a gas unit if one is running.');
   assert.deepEqual([s1.button, s2.button], [{label: 'SUBURBS', target: 'suburb-card'}, {label: 'SUBURBS', target: 'suburb-card'}]);
   // a low that is now (a potline trip in the window): par's rule 1 and the line's trigger (a) book nothing for it, nor does the card (S2)
   const in10 = (10.5 - V.DAY_START_H) * V.S_PER_H, lowNow = T.cardOf(Object.assign(rec(1, in10), {tick: in10 * TPS}));

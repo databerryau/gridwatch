@@ -15,7 +15,7 @@ import {createState, step, observe, applyInput} from '../../sim/step.js';
 import {V} from '../../sim/params.js';
 import * as SYS from '../../app/system.js';
 import * as PV from '../../app/planview.js';
-import {objective as standingObjective} from '../../app/objective.js';
+import {objective as standingObjective, inputsOf} from '../../app/objective.js';
 
 const TPS = V.TICKS_PER_S;
 const tickAt = h => Math.round((h - V.DAY_START_H) * V.S_PER_H * TPS);
@@ -49,8 +49,10 @@ export function followDay(seed, scenario, o = {}) {
           let accepted = true;
           if (x.action.redispatch) redispatch();
           else {
-            accepted = applyInput(st, x.action, []).ok;
-            if (accepted && REDISPATCH_AFTER.has(x.action.type) && !SYS.heldByHand(sys, st)) redispatch();
+            // (Q1: SOAK THE CITY is one press, a flex input a suburb, then one re-dispatch, as app/game.js soakCity)
+            const xs = inputsOf(x.action);
+            accepted = xs.map(i => applyInput(st, i, []).ok).includes(true);
+            if (accepted && REDISPATCH_AFTER.has(xs[0].type) && !SYS.heldByHand(sys, st)) redispatch();
           }
           said.push({s: obs.s, kind: x.kind, level: x.level, text: x.text, action: x.action, accepted});
         }
