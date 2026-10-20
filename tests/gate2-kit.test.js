@@ -48,8 +48,9 @@ function tableAfter(md, marker) {
 test('Gate 2 kit: the words it quotes are the game\'s (the preview, the landing page, COPIED, the card\'s link)', () => {
   const tag = (page, p) => read(page).match(new RegExp('<meta property="' + p + '" content="([^"]*)"'))[1];
   const title = tag('index.html', 'og:title'), desc = tag('index.html', 'og:description');
-  assert.equal(tag('index.html', 'og:title'), title);
-  assert.equal(tag('index.html', 'og:description'), desc);
+  // R-2: next.html, the old links' address, carries the same preview
+  assert.equal(tag('next.html', 'og:title'), title);
+  assert.equal(tag('next.html', 'og:description'), desc);
   assert.ok(RC.includes('"' + title + '"') && LOG.includes('"' + title + '"'), 'R-2 and the log quote og:title');
   const quoted = flat(RC).match(/the description "([^"]*?) …"/);
   assert.ok(quoted && desc.startsWith(quoted[1]), 'R-2 quotes the start of og:description');
