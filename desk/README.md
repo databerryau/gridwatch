@@ -2013,6 +2013,8 @@ or "the price"; prices come from `V.VCR` and `V.VER`, never typed in.
   keeps its place with its key over `FROM 21:00` in grey on two 10-px lines (`#chip-allin.later`)
   and `SCORE_LATER_TIP` as its title and aria-label; `min-width: calc(10ch + 18px)` ("SCORE 1000")
   holds one width all day, so nothing in the header moves at 21:00 (`tests/score-reveal.test.js`).
+  With no par to compare the chip has its own, `#chip-allin.allin`'s `calc(13ch + 18px)`
+  ("ALL-IN 999.9c"), from its first frame.
 - **Briefing** `#briefing-goals` (≤ 60 words): "Keep the lights on, cheaply and cleanly. Your day
   is scored as one total: the cost of supply, plus $30,000 for each MWh the city goes without (the
   AER's value of customer reliability), plus $80 a tonne of CO₂ (the interim value of emissions

@@ -854,10 +854,11 @@ export function bootGame(doc, deps) {
     chip.hidden = v.phase !== 'play';
     // (Q-73: in the night roll it moves with the night strip, every NIGHT_REDRAW_MS, so the two say the same)
     if (chip.hidden || (v.obs.nightShift && !v.obs.over && v.frame.nowMs - nightMs < NIGHT_REDRAW_MS)) return;
-    const later = !scoreShown(v.obs, !!game.state.scn.night), {you, p, off, g0, g} = scoreOf(v), c = allInCents(you);
+    const later = !scoreShown(v.obs, !!game.state.scn.night), {you, p, off, g0, g} = scoreOf(v), c = allInCents(you), cents = off && !g0;
     if (chip.classList.contains('later') !== later) chip.classList.toggle('later', later);
-    setText('chip-allin-k', off && !g0 ? 'ALL-IN' : 'SCORE');
-    setText('chip-allin-v', later ? SCORE_LATER : off && !g0 ? c + 'c' : g ? String(g.points) : '…');
+    if (chip.classList.contains('allin') !== cents) chip.classList.toggle('allin', cents);   // (its own width: next.html #chip-allin.allin)
+    setText('chip-allin-k', cents ? 'ALL-IN' : 'SCORE');
+    setText('chip-allin-v', later ? SCORE_LATER : cents ? c + 'c' : g ? String(g.points) : '…');
     const tip = later ? SCORE_LATER_TIP[off ? 'allIn' : 'score'] : 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +
       ' min. The day\'s cost to the community per kWh the city asked for: supply + your MWh dark × ' + VCR_TEXT + ' (VCR; a feeder under ' +
       'repair is yours from its hand-back) + CO₂ × ' + VER_TEXT + ' (VER). Not a price or a bill.';

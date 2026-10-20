@@ -4,7 +4,8 @@
 // once the day is over it is Q-48's chip again, moving with the night strip (tests/night-strip.test.js plays that). The same
 // on every kind of day: a daily, a weekend, an anniversary, a Hard day, a HAND day, and with no par to compare (ALL-IN). A page
 // that opens past 21:00 (a resume) shows the number on its first frame. One width all day, so nothing in the header moves at
-// 21:00: the CSS is pinned and its sums done here (no layout in the stand-in DOM).
+// 21:00 (with no par to compare, its own: "ALL-IN 999.9c"): the sizes are read from next.html's CSS and held against the widest
+// text each key shows (no layout in the stand-in DOM; the integrator's browser pass sees it laid out).
 //
 // Headless (CLAUDE.md): the shell alone on next.html (no desk, map or stack), the clock held; the night is the sim's own flag
 // set on the state, never played to.
@@ -18,6 +19,7 @@ import {seriesAt, PAR_MARK_S} from '../app/par.js';
 import {NIGHT_S} from '../sim/clock.js';
 import {V} from '../sim/params.js';
 import {SA2016} from '../content/anniversaries.js';
+import {allInCents} from '../render/format.js';
 import {makeDocument} from './lib/dom.js';
 
 const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
@@ -80,18 +82,19 @@ test('Q-117: before 21:00 the chip\'s place reads SCORE FROM 21:00, in grey, wit
   assert.deepEqual(b.h.mods.errors, []);
 });
 
-/** Each day: SCORE FROM 21:00 (ALL-IN with no par) in grey until the night shift, then its number. */
+/** Each day: SCORE FROM 21:00 (ALL-IN with no par) in grey until the night shift, then its number; with no par the chip's
+ * own width (.allin, next.html: "ALL-IN 999.9c") from its first frame, so it too does not move at 21:00. */
 function sameOn(days) {
   for (const [what, seed, o] of days) {
-    const b = boot(seed, o), off = !!o && o.par === false;
+    const b = boot(seed, o), off = !!o && o.par === false, wide = off ? ' allin' : '';
     if (what === 'a Hard day') assert.ok(b.game.hard > 0, 'a Hard day: ' + seed);
     if (what === 'a HAND day') assert.equal(b.game.state.control.mode, 'HAND');
-    assert.deepEqual([b.words(), b.chip.className, b.chip.title], [(off ? 'ALL-IN ' : 'SCORE ') + SCORE_LATER, 'chip later',
+    assert.deepEqual([b.words(), b.chip.className, b.chip.title], [(off ? 'ALL-IN ' : 'SCORE ') + SCORE_LATER, 'chip later' + wide,
       SCORE_LATER_TIP[off ? 'allIn' : 'score']], what);
     b.night();
     if (off) assert.match(b.words(), /^ALL-IN [\d.]+c$/, what);
     else assert.equal(b.words(), 'SCORE ' + pointsNow(b), what);
-    assert.equal(b.chip.className, 'chip', what);
+    assert.equal(b.chip.className, 'chip' + wide, what);
     assert.deepEqual(b.h.mods.errors, [], what);
   }
 }
@@ -122,15 +125,26 @@ test('Q-117: a page that opens past 21:00 (a resume lands there) shows the score
   assert.deepEqual(h.mods.errors, []);
 });
 
-test('Q-117: one width all day, so the header does not move at 21:00: "SCORE 1000" wide; FROM 21:00 two lines at 10 px inside it (CSS pinned)', () => {
-  assert.match(ruleOf('#chip-allin'), /min-width: calc\(10ch \+ 18px\); text-align: center;/);
-  assert.match(ruleOf('\\.chip'), /font: 11px var\(--mono\); [^}]*padding: 2px 8px; border: 1px solid/, 'the chip\'s own font: its ch');
-  assert.match(ruleOf('#chip-allin\\.later'), /padding: 1px 8px;/, 'the same sides');
-  assert.match(NEXT, /#chip-allin\.later span, #chip-allin\.later b \{ display: block; font-size: 10px; line-height: 11px; \}/);
+test('Q-117: one width all day, so the header does not move at 21:00: each key\'s min-width holds the widest it shows; FROM 21:00 two lines inside it', () => {
+  // the sizes, read from next.html (no layout in the stand-in DOM): the chip's monospace (its ch), padding and border
+  const num = (re, s) => { const m = re.exec(s); assert.ok(m, String(re)); return m.slice(1).map(Number); };
+  const chip = ruleOf('\\.chip'), [font] = num(/font: (\d+)px var\(--mono\)/, chip), [, padX] = num(/padding: (\d+)px (\d+)px/, chip);
+  const [border] = num(/border: (\d+)px solid/, chip), [hdr] = num(/--hdr: (\d+)px/, NEXT), [hdrLine] = num(/^ {2}header \{[^}]*border-bottom: (\d+)px/m, NEXT);
+  assert.match(NEXT, /\* \{ box-sizing: border-box; \}/, 'a min-width counts the padding and the border');
+  /** A rule's min-width in the chip's ch, after its padding and border. */
+  const widthCh = sel => { const [ch, px] = num(/min-width: calc\((\d+)ch \+ (\d+)px\)/, ruleOf(sel)); assert.equal(px, 2 * padX + 2 * border, sel); return ch; };
+  const ch = {SCORE: widthCh('#chip-allin'), 'ALL-IN': widthCh('#chip-allin\\.allin')};
+  // the widest each key shows at night: SCORE and four digits (five would be a day ten times cheaper than par's); with no par,
+  // ALL-IN in the chip's own c/kWh to 999.9 (past it, a third of the day's energy dark at VCR)
+  const widest = {SCORE: 'SCORE ' + 9999, 'ALL-IN': 'ALL-IN ' + allInCents({askedMWh: 1, cents: 999.94}) + 'c'};
+  for (const k of ['SCORE', 'ALL-IN']) assert.ok(widest[k].length <= ch[k], widest[k] + ' in ' + ch[k] + 'ch');
+  assert.ok(ch['ALL-IN'] <= 13, 'no wider than it needs: ' + ch['ALL-IN'] + 'ch');
+  // before 21:00: the key over FROM 21:00 on two lines of a smaller font, grey, with the same sides, inside the same width and the header
+  const later = ruleOf('#chip-allin\\.later span, #chip-allin\\.later b'), [small] = num(/font-size: (\d+)px/, later), [lh] = num(/line-height: (\d+)px/, later);
+  assert.match(later, /display: block;/, 'two lines');
+  const [padY, padX2] = num(/padding: (\d+)px (\d+)px/, ruleOf('#chip-allin\\.later'));
+  assert.equal(padX2, padX, 'the same sides');
   assert.match(NEXT, /#chip-allin\.later b \{ color: var\(--dim\); font-weight: 400; \}/, 'grey, not a value');
-  // the sums: in the chip's 11 px monospace, 10ch holds "SCORE 1000"; at 10 px each line takes 10/11 of a ch a character
-  assert.ok('SCORE 1000'.length <= 10);
-  for (const s of ['SCORE', 'ALL-IN', SCORE_LATER]) assert.ok(s.length * 10 / 11 <= 10, s);
-  // two lines of 11 px and 1 + 1 px of padding and border, top and bottom, fit the 32-px header
-  assert.ok(2 * 11 + 2 + 2 <= 32);
+  for (const k of ['SCORE', 'ALL-IN']) for (const s of [k, SCORE_LATER]) assert.ok(s.length * small / font <= ch[k], s + ' under ' + k);
+  assert.ok(2 * lh + 2 * padY + 2 * border <= hdr - hdrLine, 'two lines in the ' + hdr + '-px header');
 });
