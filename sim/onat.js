@@ -10,9 +10,10 @@
 //   app/objective.js           the line: when a unit is on, when a start made now reaches the grid
 //   app/planview.js            the Live Stack: the earliest-start lines and ghosts, its projection's sync wait
 //   render/livestack.js        the Live Stack's booked START marks
-// Two copies keep rules of their own, named where they are: sim/grid.js startFreeAt (the executor knows why a unit is down, from
-// state, which no observe() row says) and sim/autopilot.js adequacySetup (rule 8's walk counts an off unit only free to start now
-// or back from an outage, with no minimum down time: unifying it would move par's day).
+// Three copies keep rules of their own, named where they are: sim/grid.js startFreeAt (the executor knows why a unit is down, from
+// state, which no observe() row says), sim/autopilot.js adequacySetup (rule 8's walk counts an off unit only free to start now
+// or back from an outage, with no minimum down time: unifying it would move par's day) and sim/market.js's offer stack (P-5:
+// "able to start within 10 min" counts the auto-sync wait for a starting unit in HAND too; unifying it would move HAND prices).
 //
 // What is short ahead stays three checks, each named for what it checks (they differ on purpose: a margin, a loading, the tie):
 //   the line's check        app/objective.js capacityGap: the plan's capacity against the forecast plus a margin, from these
