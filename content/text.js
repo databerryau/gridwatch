@@ -90,7 +90,7 @@ const ACT_NAMES = ['I', 'II', 'III'], MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr',
 const annivs = Object.entries(ANNIVERSARIES).map(([d, a]) => ({
   on: num(+d % 100) + ' ' + MONTH_NAMES[Math.floor(+d / 100) % 100 - 1] + ' (' + a.name + ', ' + a.year + ')', i: a.overrides.dayplan.incident}));
 const incidentText = i => (i.early ? 'the largest unit trips between ' + hhmm(i.early.windowH[0]) + ' and ' + hhmm(i.early.windowH[1])
-  : i.follow ? 'Act ' + ACT_NAMES[i.follow.act - 1] + '\'s unwarned trip takes the next largest unit with it ' + minutes(i.follow.afterS) + ' grid-minutes later'
+  : i.follow ? 'Act ' + ACT_NAMES[i.follow.act - 1] + '\'s trip takes the next largest unit with it ' + minutes(i.follow.afterS) + ' grid-minutes later'
     : 'in the storm the tie is limited to ' + num(i.towers.limitMW) + ' MW, unannounced, as the largest unit trips');
 const ANNIV_RULES = 'The anniversary dailies keep their real incident instead: ' + annivs.map(x => x.on + ', ' + incidentText(x.i)).join('; ') + '.';
 const towersOn = annivs.filter(x => x.i.towers).map(x => x.on);
@@ -141,7 +141,8 @@ const ABSTRACTIONS = [
       '% of those days), a trip of the largest unit (' + pct(a2.mix.unit) + '%), the smelter (' + pct(a2.mix.smelter) + '%) or the tie (' +
       pct(a2.mix.tie) + '%); under one, a unit, the smelter or the tie. Act III has one: a heatwave on ' + pct(DESK.weather.heatShare) +
       '% of days, a storm on ' + pct(DESK.weather.stormShare) + '%, a wind drought on ' + pct(DESK.weather.droughtShare) + '%, otherwise a ' +
-      'calm evening; most evenings without a storm also bring an unwarned trip of the largest unit, and a storm may trip the tie. ' +
+      'calm evening; every evening without a storm also brings a trip of the largest unit, announced in the briefing but never its ' +
+      'minute, and a storm may trip the tie. ' +
       'At most two unwarned trips a day, none before ' + hhmm(a2.windowH[0]) +
       ' or from ' + hhmm(NIGHT_H) + ', at least ' + num(V.SPACING_REAL_S) + ' real s and ' + minutes(V.SPACING_GRID_S) + ' grid-minutes ' +
       'apart. ' + ANNIV_RULES + ' A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min, then may hot-start at once: minimum down time (' + num(coal.minDownH) +
@@ -673,7 +674,7 @@ const ABSTRACTIONS = [
       'yours, par being GRIDWATCH\'s own autopilot on the same day: 1000 is par, more beats it, and a black day scores 0 (F). ' +
       'The letter comes from how far your ALL-IN is behind par\'s, in MWh dark at VCR: ' +
       LETTERS.slice(0, -1).map(l => l[0] + ' within ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
-      ' beyond, so the same mistake earns the same letter on any day. Through the day the chip compares you with par at the same grid time. ALL-IN is the day\'s cost to the ' +
+      ' beyond, so the same mistake earns the same letter on any day. From 21:00, when the night shift takes the desk, the chip compares you with par at the same grid time; before then it shows no number. ALL-IN is the day\'s cost to the ' +
       'community, not a price or a bill.',
     why: 'One currency is how regulators trade the three goals off, so the score teaches the real trade: an MWh dark weighs ' +
       'as much as ' + num(V.VCR / V.VER) + ' priced tonnes of CO₂. Dividing par\'s total by yours is GRIDWATCH\'s own rule; it ' +
@@ -793,7 +794,8 @@ const ABSTRACTIONS = [
     ours: 'A weather warning in play comes at the latest whole minute that leaves at least ' + num(V.LEAD_REAL_S) + ' real seconds ' +
       'before its onset on the clock you play: about ' + num(Math.min(...leads)) + '–' + num(Math.max(...leads)) + ' grid-minutes ' +
       'ahead. A pause or a watch only adds to it, and the warning ends FAST. The heatwave, the tie limit, a late return and the ' +
-      'feeders\' repair times are announced at ' + hhmm(V.DAY_START_H) + ', before the clock runs.' + ANNIV_TIE + ' Trips are never warned.',
+      'feeders\' repair times are announced at ' + hhmm(V.DAY_START_H) + ', before the clock runs.' + ANNIV_TIE + ' No trip\'s minute is ' +
+      'ever warned: the briefing says only whether the evening peak brings one.',
     why: 'Hours of grid time pass in seconds of yours: the lead is sized to the time you need to read the card and act, not to ' +
       'the Bureau\'s.',
     params: ['LEAD_REAL_S'],

@@ -70,6 +70,12 @@
   #chip-hand { color: var(--amber); border-color: var(--amber); font-weight: 700; }
   #chip-hand span { display: block; white-space: nowrap; }
   #chip-hand.night { font-size: 10px; line-height: 11px; padding: 1px 6px; text-align: center; border-radius: 6px; }
+  /* W7 (Q-117): the SCORE chip is "SCORE 1000" wide all day, so nothing moves at 21:00 (with no par, "ALL-IN 999.9c"); before 21:00 its key over FROM 21:00, in grey */
+  #chip-allin { min-width: calc(10ch + 18px); text-align: center; }
+  #chip-allin.allin { min-width: calc(13ch + 18px); }
+  #chip-allin.later { padding: 1px 8px; border-radius: 6px; }
+  #chip-allin.later span, #chip-allin.later b { display: block; font-size: 10px; line-height: 11px; }
+  #chip-allin.later b { color: var(--dim); font-weight: 400; }
   .grow { flex: 1; }
 
   #map { position: relative; min-height: 0; overflow: hidden; background: #0a0e14; }

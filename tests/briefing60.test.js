@@ -14,9 +14,12 @@ const textOf = id => new RegExp('<p id="' + id + '"[^>]*>([^<]*)</p>').exec(NEXT
 
 // Q-110 (the owner, 2026-10-16: the cap "doesn't matter really"): a storm or low-wind day's line says so ("Storms likely
 // later."), which takes 10 of the 365 dailies to 61-62 words. The cap here is a guard against unnoticed growth, not D-3's 60.
-const MOST_WORDS = 65;
+// W7 (Q-121): "Expect a trip during the evening peak." adds 7 words on every day whose plan has the evening trip (331 of the
+// 446 dailies, 2026-10-12 to 2027-12-31); over the whole calendar the most is 69 words, the day and Watch for 37 (five
+// wind-drought weekends with a tie derate and two feeders: measured 2026-10-20, on the listed seeds; 263 dates over D-3's 60).
+const MOST_WORDS = 69, DAY_WORDS = 37;
 
-test('D-3 (Q-110): the briefing is 65 words or fewer on every date of two months (the day and Watch for 30 or fewer); a gated daily', () => {
+test('D-3 (Q-110, Q-121): the briefing is 69 words or fewer on every date of two months (the day and Watch for 37 or fewer); a gated daily', () => {
   const fixed = words(textOf('briefing-goal')) + words(textOf('briefing-real'));
   assert.equal(textOf('briefing-goal'), 'Keep the lights on: start power stations before the city needs them. The line above the desk says what\'s next.');
   let most = 0, at = 0;
@@ -24,7 +27,7 @@ test('D-3 (Q-110): the briefing is 65 words or fewer on every date of two months
     const t = new Date(Date.UTC(2026, 9, 16 + k)), seed = t.getUTCFullYear() * 1e4 + (t.getUTCMonth() + 1) * 100 + t.getUTCDate();
     const st = createState(seed, G.scenarioForSeed(seed)), obs = observe(st), b = watchFor(obs, st.scn.commitment.battery.guardMW);
     const day = dayText(st.day, dayPlan(st, obs)) + (b.length ? ' Watch for: ' + b.join('; ') + '.' : '');
-    assert.ok(words(day) <= 30, seed + ': ' + day);
+    assert.ok(words(day) <= DAY_WORDS, seed + ': ' + day);
     const n = fixed + words(day) + words(dateText(seed));
     if (n > most) { most = n; at = seed; }
   }

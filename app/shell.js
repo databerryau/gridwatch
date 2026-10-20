@@ -44,6 +44,7 @@
 // puts the focus in its popover.
 
 import {V} from '../sim/params.js';
+import {NIGHT_S} from '../sim/clock.js';
 import * as G from './game.js';
 import {allIn, grade, parShedMWh} from './score.js';
 import {startRaf} from './loop.js';
@@ -59,7 +60,7 @@ import {n1Word} from '../desk/calc.js';
 import {puzzleNumber} from './share.js';
 import {localYmd} from './history.js';
 import {pastDailies, hardDays, resultText, isoOf} from './shelf.js';
-import {outlookWord} from './week.js';
+import {outlookWord, eveningTrip} from './week.js';
 
 /** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
 export function layoutSizes(width, height) {
@@ -138,19 +139,28 @@ export function objectiveWord(o) {
  * weekday, from the public obs.day only (a heatwave day reads HOT, C-2). plan: on a day the event
  * director planned, {heat: a heatwave announced at 04:00, word: the day's outlook word} (Q-80: a HOT
  * day without one has none coming; Q-110: a storm or low wind "likely later", as the week ahead said,
- * its time in the warning on the day); null on the classic day, whose heatwave is announced mid-morning.
+ * its time in the warning on the day; W7, Q-121: trip, the plan has the evening trip: TRIP_LINE, no minute); null on
+ * the classic day, whose heatwave is announced mid-morning.
  */
 export function dayText(day, plan) {
   if (!day) return '';
   const when = day.weekend ? 'weekend' : 'weekday';
-  const lean = day.weekend ? ', one coal unit off' : '', later = (plan && LATER[plan.word]) || '';
+  const lean = day.weekend ? ', one coal unit off' : '', later = ((plan && LATER[plan.word]) || '') + (plan && plan.trip ? TRIP_LINE : '');
   if (day.temp === 'MILD') return 'Today: a mild ' + when + lean + (day.weekend ? '.' : ': rooftop solar cuts midday demand.') + later;
   return 'Today: a hot ' + when + lean + (!plan ? '; any heatwave warning comes mid-morning.' : plan.heat ? ', heatwave this afternoon.' : ', no heatwave forecast.') + later;
 }
 /** Q-110: the day line's outlook sentence for a storm or a wind drought (app/week.js's words): no time, which the warning gives. */
 export const LATER = Object.freeze({storm: ' Storms likely later.', 'low wind': ' Low wind likely later.'});
+/**
+ * W7 (Q-121): the day line's sentence when the plan has the evening trip of the largest machine (app/week.js eveningTrip): no
+ * minute. A span, the game's own "evening peak" (the badge's PEAK and its alarm, 16:30-20:00, sim/clock.js PEAK, which holds
+ * the trip's 17:00-19:30), not "at the peak": Marg names the peak as a minute ("Peak about 6,500 MW at 19:34"), and the trip
+ * comes a median hour or so before it.
+ */
+export const TRIP_LINE = ' Expect a trip during the evening peak.';
 /** The day line's plan (dayText) from the state at 04:00 and its obs: null on the classic day (no director's plan). */
-export const dayPlan = (st, obs) => (st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0), word: outlookWord(st.seed, st.scn)} : null);
+export const dayPlan = (st, obs) => (st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0), word: outlookWord(st.seed, st.scn),
+  trip: eveningTrip(st.seed, st.scn)} : null);
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -222,6 +232,19 @@ export const HAND_CHIP = Object.freeze({
   day: ['HAND', 'Flown by hand: no AGC trim from 04:30 until 21:00, when the night shift takes the desk on AGC'],
   night: ['HAND-FLOWN · NIGHT SHIFT ON AGC', 'You flew the day by hand; the night shift has the desk on AGC until 04:00'],
 });
+/**
+ * W7 (Q-117): the SCORE chip keeps its place all day but shows no number before 21:00: its key over SCORE_LATER, in grey
+ * (next.html #chip-allin.later), and SCORE_LATER_TIP as its title (`allIn` with no par to compare: the chip then shows ALL-IN).
+ */
+export const SCORE_LATER = 'FROM 21:00';
+export const SCORE_LATER_TIP = Object.freeze({
+  score: 'Your score shows here from 21:00, when the night shift takes the desk, and moves with the night\'s totals to 04:00, ' +
+    'when your day is scored: 1000 × par\'s ALL-IN ÷ yours.',
+  allIn: 'Your ALL-IN shows here from 21:00, when the night shift takes the desk, and moves with the night\'s totals to 04:00. ' +
+    'There is no par to compare today.',
+});
+/** W7 (Q-117): the chip shows its number from 21:00 (the night shift's desk; on a day with no night shift, its clock) and once the day is over. */
+export const scoreShown = (obs, night = true) => !!(obs.over || obs.nightShift || (!night && obs.s >= NIGHT_S));
 /** Q-73: the night strip redraws its figures at most this often (real ms), so each can be read. */
 export const NIGHT_REDRAW_MS = 500;
 /** A toast lives max(TOAST_MS, TOAST_WORD_MS a word) (real ms), so it can be read (§32.11). */
@@ -849,6 +872,7 @@ export function bootGame(doc, deps) {
   }
 
   // Q-48: the chip: SCORE against par ('SCORE …' until par gets there); with no par to compare, ALL-IN in cents per kWh asked for.
+  // W7 (Q-117): only from 21:00 (scoreShown): before, nothing ranks the day against par: the key over FROM 21:00, no number.
   let allInTip = '';
   function drawAllIn(v) {
     const chip = $('chip-allin');
@@ -856,10 +880,12 @@ export function bootGame(doc, deps) {
     chip.hidden = v.phase !== 'play';
     // (Q-73: in the night roll it moves with the night strip, every NIGHT_REDRAW_MS, so the two say the same)
     if (chip.hidden || (v.obs.nightShift && !v.obs.over && v.frame.nowMs - nightMs < NIGHT_REDRAW_MS)) return;
-    const {you, p, off, g0, g} = scoreOf(v), c = allInCents(you);
-    setText('chip-allin-k', off && !g0 ? 'ALL-IN' : 'SCORE');
-    setText('chip-allin-v', off && !g0 ? c + 'c' : g ? String(g.points) : '…');
-    const tip = 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +
+    const later = !scoreShown(v.obs, !!game.state.scn.night), {you, p, off, g0, g} = scoreOf(v), c = allInCents(you), cents = off && !g0;
+    if (chip.classList.contains('later') !== later) chip.classList.toggle('later', later);
+    if (chip.classList.contains('allin') !== cents) chip.classList.toggle('allin', cents);   // (its own width: next.html #chip-allin.allin)
+    setText('chip-allin-k', cents ? 'ALL-IN' : 'SCORE');
+    setText('chip-allin-v', later ? SCORE_LATER : cents ? c + 'c' : g ? String(g.points) : '…');
+    const tip = later ? SCORE_LATER_TIP[off ? 'allIn' : 'score'] : 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +
       ' min. The day\'s cost to the community per kWh the city asked for: supply + your MWh dark × ' + VCR_TEXT + ' (VCR; a feeder under ' +
       'repair is yours from its hand-back) + CO₂ × ' + VER_TEXT + ' (VER). Not a price or a bill.';
     if (tip !== allInTip) { allInTip = tip; chip.title = tip; chip.setAttribute('aria-label', tip); }
