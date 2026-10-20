@@ -1,9 +1,11 @@
 # W7 (Q15): the verify run on pushes that can move par's day. It replays par on every listed daily (and the scripted players on
 # a sample, and the selftest's cases) and compares them with what content/dailies.js, content/ladder.js, content/anniversaries.js
-# and content/selftest.js store (tools/verify.mjs --check: it never writes). Under an unchanged stamp it catches a change to the
-# sim that should have bumped SIM_VERSION, on every daily; after a bump it says whether `npm run verify` can restamp or the lists
-# must be made again. A workflow of its own, with a paths filter, so the test job (test.yml) is not slowed; it only reports, as
-# the tests do (GitHub Pages deploys from main regardless, F-10).
+# and content/selftest.js store (tools/verify.mjs --check: it never writes). Under an unchanged stamp it catches a change that
+# should have bumped SIM_VERSION where it moves what it plays: par's day on every daily, the scripted players and the page's
+# no-input day on a sample, and the selftest's cases (par, no input, scripted logs). It plays no HAND day and none of a player's
+# own presses, so a change only those read passes it (tests/hand-guard.test.js holds one HAND day with a START in the suite).
+# After a bump it says whether `npm run verify` can restamp or the lists must be made again. A workflow of its own, with a paths
+# filter, so the test job (test.yml) is not slowed; it only reports, as the tests do (GitHub Pages deploys from main regardless, F-10).
 name: verify the dailies
 on:
   push:

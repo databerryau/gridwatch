@@ -21,8 +21,10 @@
 // through its own writer, which must give back the shipped file first; nothing else in the lists may change), unless --check.
 // When anything differs it writes nothing, prints each date and field that differs, and the full regeneration. Not checked: the
 // attempts before a listed one (a regeneration may pick an earlier attempt that passes now; the listed one still passes D-9), the
-// scripted players off the sample, daily-gen's D-10 and Hard-day pool report, and the classic golden (`npm run golden:v4 --
-// --check`; its hash column moves at every version bump).
+// scripted players off the sample, daily-gen's D-10 and Hard-day pool report, the classic golden (`npm run golden:v4 --
+// --check`; its hash column moves at every version bump), and any HAND day or player's press: the system's dispatch is played
+// only on the no-input days, so a change that only a HAND day or the player's inputs read passes (tests/hand-guard.test.js
+// holds one HAND day with a START in the suite).
 //
 //   npm run verify                         replay and compare; restamp when everything matches (-j: logical CPUs - 1)
 //   node tools/verify.mjs --check -j 4     compare only, never write (CI: .github/workflows/verify.yml)

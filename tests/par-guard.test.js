@@ -5,8 +5,10 @@
 // sim/autopilot.js runPar, as tools/ladder.mjs and the verify do, and holds it to that case's golden values (content/selftest.js:
 // the state's hash at every grid hour and at the end) and to the date's stored par (its ALL-IN total and shed MWh). Those are
 // the values `npm run verify` checks before it restamps, so this guard needs no golden of its own. The day is played in a
-// suite's before() hook (CLAUDE.md: a test's own checks <= 2.5 s). The no-input day (tests/ladder.test.js, to 14:00) and the
-// selftest's scripted logs and early hours (tests/selftest.test.js) guard the rest; CI's verify workflow plays every daily.
+// suite's before() hook (CLAUDE.md: a test's own checks <= 2.5 s). Beside it: the page's no-input day (tests/ladder.test.js, to
+// 14:00), the selftest's scripted logs and early hours (tests/selftest.test.js) and one HAND day with the player's START
+// (tests/hand-guard.test.js); CI's verify workflow plays par on every daily. Other HAND days and the player's other presses are
+// guarded only where they reach these.
 import {test, describe, before} from 'node:test';
 import assert from 'node:assert/strict';
 import {V} from '../sim/params.js';

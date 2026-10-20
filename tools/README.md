@@ -111,7 +111,9 @@ with the golden's own flags sections 1-3 whole; never the Build line or section 
 `tests/par-classic.test.js` still plays par's day on seed 4 for what holds on any build (S-4's pace,
 D-9's runtime, H-8's containment, H-4's alarm agreement), and `tests/par-guard.test.js` plays a
 daily's par day against the selftest's golden hours, so the suite still catches a change to par's
-day made without a SIM_VERSION change.
+day made without a SIM_VERSION change. `tests/hand-guard.test.js` (W7 Q6 review) plays one HAND
+day with the player's START and a close by hand on the page's path to 09:00 against hourly hashes
+recorded under their version: neither par, the no-input day nor the verify plays a HAND day.
 
 ## Verify, then restamp (`verify.mjs`)
 
@@ -142,7 +144,9 @@ anything differs it writes nothing, prints each date and field that differs (and
 state hashes moved), and prints the full regeneration: `tools/daily-gen.js`, then `tools/ladder.mjs`,
 then `tools/selftest-gen.mjs`. Not checked: the attempts before a listed one (a regeneration may pick
 an earlier attempt that now passes; the listed one still passes D-9), the scripted players off the
-sample, daily-gen's D-10 and Hard-day pool, and the classic golden. Measured (2026-10-20, the owner's
+sample, daily-gen's D-10 and Hard-day pool, the classic golden, and any HAND day or player's press
+(the system's dispatch is played only on the no-input days; `tests/hand-guard.test.js` holds one
+HAND day in the suite). Measured (2026-10-20, the owner's
 laptop with other agents' tests running): 446 dailies, the players on 62, the 5 selftest cases and the
 check on 11 workers in 577 s (v4-core-2d.0 before W7 Q6: MATCH, nothing written), 701 s (with Q6 and
 SIM_VERSION bumped by hand: MATCH, restamped; put back) and 722 s (bumped, and one stored par total
