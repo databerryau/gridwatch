@@ -215,11 +215,11 @@ const ABSTRACTIONS = [
     game: 'annunciator',
     real: 'A control room gives each alarm one priority; a value that keeps getting worse raises a second, more urgent ' +
       'alarm at a further limit.',
-    ours: 'UNDER FREQ and OVER FREQ are warnings with one chime, set outside the normal band (' + hz(V.NORMAL_LO_HZ) + '–' +
+    ours: 'LOW FREQ and HIGH FREQ are warnings with one chime, set outside the normal band (' + hz(V.NORMAL_LO_HZ) + '–' +
       hz(V.NORMAL_HI_HZ) + ' Hz). While frequency is outside the containment band (' + hz(V.CONTAIN_LO_HZ) + '–' +
       hz(V.CONTAIN_HI_HZ) + ' Hz) the same tile is escalated: it shows as top priority and sounds the horn every ' +
       num(HORN_REPEAT_S) + ' s until SILENCE or ACK. In the night roll (from ' + hhmm(NIGHT_H) + ') the horn and the chimes are quiet.',
-    why: 'One tile per quantity fits a twelve-tile panel, and the horn is kept for real trouble.',
+    why: 'One tile per quantity fits an eight-tile panel, and the horn is kept for real trouble.',
     params: ['NORMAL_LO_HZ', 'NORMAL_HI_HZ', 'CONTAIN_LO_HZ', 'CONTAIN_HI_HZ'],
   },
   {
@@ -345,7 +345,8 @@ const ABSTRACTIONS = [
       'biggest risk (L) and a TRIP PREVIEW nadir of at least ' + hz(V.SECURE_NADIR_HZ) + ' Hz plus a ' +
       num(V.PREVIEW_MARGIN_HZ) + ' Hz margin for losing L (plus ' + num(V.PREVIEW_AGE_MARGIN_HZ_S) + ' Hz for each grid-second ' +
       'of the preview\'s age; it is re-run at least every ' + num(V.PREVIEW_REFRESH_S) + ' grid-seconds and whenever frequency ' +
-      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L; SHORT is R5 < L; SHEDDING while UFLS or directed shedding has load ' +
+      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L, and the desk calls it TRIP SHEDS while the preview is below the ' +
+      'first UFLS stage (' + V.UFLS_FIRST_HZ.toFixed(1) + ' Hz): the spare is there but too slow; SHORT is R5 < L; SHEDDING while UFLS or directed shedding has load ' +
       'off: a feeder under repair, or handed back and not yet closed, is never SHEDDING. SECURE ' +
       'previews the loss of supply, not of load: losing the potline or the export at midday is not on this gauge.',
     why: 'One gauge. The margin covers what a preview with frozen schedules cannot see (demand wobble, AGC and ramps), ' +
@@ -353,7 +354,7 @@ const ABSTRACTIONS = [
       'preview runs for both credible contingencies, the largest unit and the tie import (N-1), and BIGGEST RISK names ' +
       'the one whose loss would dip deeper: a unit of nearly the tie\'s size also takes its inertia and governor with it.',
     params: ['R5_WINDOW_MIN', 'SECURE_RATIO', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ', 'PREVIEW_AGE_MARGIN_HZ_S', 'PREVIEW_REFRESH_S',
-      'PREVIEW_F_TOL_HZ'],
+      'PREVIEW_F_TOL_HZ', 'UFLS_FIRST_HZ'],
   },
   {
     id: 'ufls-blocks', row: 'UFLS: 8 × 6% blocks from 49.0 Hz in 0.125 Hz steps.', anchorId: 'ufls-strip', game: 'annunciator',
@@ -458,8 +459,8 @@ const ABSTRACTIONS = [
       'offers first. Rooftop solar is curtailed last, by the emergency backstop.',
     ours: 'When the units at minimum load plus wind and utility solar exceed demand, with the tie and the battery as you ' +
       'have set them, the dispatch holds back that much wind and utility solar every grid second, each in proportion to its ' +
-      'output. The Live Stack shows a spill ahead as SURPLUS from ' + num(V.SURPLUS_MIN_MW) + ' MW, and MIN GEN lights while ' +
-      'it lasts. Rooftop solar is never curtailed: the backstop is not on this desk yet.',
+      'output. The Live Stack shows a spill ahead as SURPLUS from ' + num(V.SURPLUS_MIN_MW) + ' MW (no alarm: the dispatch keeps ' +
+      'the grid safe by itself; shrinking the spill is a saving, not an emergency). Rooftop solar is never curtailed: the backstop is not on this desk yet.',
     why: 'Without it a sunny mild weekend ran away to 52 Hz. With it a surplus costs the energy spilled, and shrinking it ' +
       'is yours: charge the battery, export, or stop a unit.',
     params: ['SURPLUS_MIN_MW'],

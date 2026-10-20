@@ -25,10 +25,11 @@ export const REDISPATCH_AFTER = new Set(['start', 'stop', 'abortStop', 'battery'
 /**
  * @param {number} seed
  * @param {object} scenario e.g. DESK or DESK_WEEKEND
- * @param {{follow?:boolean, untilH?:number, objective?:function, onMinute?:function(object, object):void, coach?:boolean}} [o]
+ * @param {{follow?:boolean, untilH?:number, objective?:function, onMinute?:function(object, object):void, onStep?:function(object):void, coach?:boolean}} [o]
  *   follow: false = a day with no input at all; untilH: stop at this hour of the unwrapped day
  *   (4..28); objective: a replacement for app/objective.js's (e.g. with a branch switched off);
- *   onMinute(state, obs): called once a grid minute before the line is read (measurements).
+ *   onMinute(state, obs): called once a grid minute before the line is read (measurements);
+ *   onStep(state): called after every tick (tools/board.mjs: the annunciator's samples).
  * @returns {{st:object, sys:object, said:Array<{s:number, kind:string, level:string, text:string, action:object, accepted:boolean}>, score:object}}
  */
 export function followDay(seed, scenario, o = {}) {
@@ -59,6 +60,7 @@ export function followDay(seed, scenario, o = {}) {
       }
     }
     step(st, SYS.systemInputs(sys, st));
+    if (o.onStep) o.onStep(st);
   }
   return {st, sys, said, score: observe(st).score};
 }

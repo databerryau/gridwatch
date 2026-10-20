@@ -23,7 +23,7 @@ import * as fleet from '../sim/fleet.js';
 import * as weather from '../sim/weather.js';
 import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {restoreAllowedS, isPerfect} from '../sim/market.js';
-import {imbalanceSegments} from '../desk/calc.js';
+import {imbalanceSegments, tripSheds} from '../desk/calc.js';
 import {CLASSIC, SCENARIOS, SA2016_SCENARIO} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
 import {DAILIES, dailyScenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
@@ -803,6 +803,21 @@ export function previewTrip(game, opts) {
   return r;
 }
 
+/**
+ * W7 Q2 review: what TRIP SHEDS would cost by the sim's own relays (vm.sheds, for desk/calc.js shedsLine):
+ * {stages, operated}, the UFLS stages a TRIP PREVIEW of the risk the sim's cached preview names would
+ * operate (previewTrip above: once a grid second, 0.1-0.3 ms, the state restored) and the sim's spent
+ * stages (state.ufls.operated, which observe() does not carry). The relays wait UFLS_DELAY_S, so a nadir
+ * under a threshold does not mean that stage operates. Null unless the desk says TRIP SHEDS by the sim's
+ * preview (calc.js tripSheds).
+ */
+export function shedsOf(game, obs) {
+  const sec = obs.sec;
+  if (!tripSheds(sec)) return null;
+  const pv = previewTrip(game, sec.lKind === 'link' ? {kind: 'link'} : {kind: 'unit', id: sec.lId});
+  return {stages: pv ? pv.uflsStages : 0, operated: game.state.ufls.operated.slice()};
+}
+
 /** RESTORE PREVIEW for a district (K-13): '' (the restore would be accepted) or the refusal. */
 export function restorePreview(game, districtId) {
   const state = game.state;
@@ -913,6 +928,7 @@ export function buildVm(game, f) {
     if (r.newAlarm) D.endFast(d);
   }
   T.trayFrame(game.tray, obs.s);
+  const sheds = shedsOf(game, obs);   // W7 Q2 review: what TRIP SHEDS would cost, by the sim's own relays
 
   // The respond card (K-16): built once when it opens, dropped when it is dismissed.
   const c = obs.contingency;
@@ -929,7 +945,7 @@ export function buildVm(game, f) {
         glow = null;
       }
     }
-    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c), nightGuard: nightGuard(game.state)});
+    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c), nightGuard: nightGuard(game.state), sheds});
     game.respondGlow = game.respond.glow;
   }
   if (mode.mode !== 'RESPOND-CARD') game.respond = null;
@@ -1080,6 +1096,7 @@ export function buildVm(game, f) {
     alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
     plates: [...game.plates], firstShift: firstShift(game) && game.settings.plates,   // O-3, O-1
     suburb: game.ui.suburb, dayAhead: game.dayAhead,
+    sheds,   // W7 Q2 review: shedsOf, or null
   };
 }
 

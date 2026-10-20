@@ -55,6 +55,7 @@ import {BEATS, FEEDER_ON} from './watch.js';
 import {modeOf, feederCard} from './director.js';
 import {observe} from '../sim/step.js';
 import {unitLabel} from '../desk/util.js';
+import {n1Word} from '../desk/calc.js';
 import {puzzleNumber} from './share.js';
 import {localYmd} from './history.js';
 import {pastDailies, hardDays, resultText, isoOf} from './shelf.js';
@@ -292,7 +293,7 @@ export function liveFrame(L, vm, nowMs) {
   }
   const band = bandOf(obs.f.hz);
   if (band !== L.band) { L.band = band; if (first) L.bandSaid = band; else L.q.band = BAND_TEXT[band] + ', ' + obs.f.hz.toFixed(2) + ' Hz'; }
-  const level = obs.sec.level;
+  const level = n1Word(L.n1 || (L.n1 = {}), obs, nowMs);   // (W7 Q2: the desk's word, TRIP SHEDS held as the gauge holds it)
   if (level !== L.level) { L.level = level; if (first) L.levelSaid = level; else L.q.level = 'N-1 ' + level; }
   for (const t of vm.alarms.tiles) {
     const was = L.tiles[t.id], is = t.state + (t.escalated ? '!' : '');

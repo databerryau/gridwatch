@@ -210,6 +210,110 @@ export function nextShed(districts) {
   return best || any;
 }
 
+// ---------------------------------------------------------------- W7 Q2: TRIP SHEDS
+
+/**
+ * TRIP SHEDS, the desk's fifth N-1 word (the sim keeps its four: SECURE, TIGHT, SHORT, SHEDDING).
+ * True when the sim's level is TIGHT and its TRIP PREVIEW of the biggest risk (sec.previewNadirHz,
+ * the lower of the unit's and the tie's) falls below the first UFLS stage: the spare is there, but
+ * too slow to stop the relays. SHORT and SHEDDING keep their own words. The gauge, the respond card
+ * and the N-1 tile (app/alarms.js) all read it here.
+ * @param {{level:string, lKind:string, previewNadirHz:number}} sec obs.sec or state.sec
+ */
+export function tripSheds(sec) {
+  return !!sec && sec.level === 'TIGHT' && sec.lKind !== 'none' && fin(sec.previewNadirHz, V.F0_HZ) < V.UFLS_FIRST_HZ;
+}
+
+/**
+ * The least real time between two changes of the desk's word between TIGHT and TRIP SHEDS (W7 Q2
+ * review). At the 49.0 Hz edge the sim's cached preview is re-run every few grid seconds and lands
+ * either side, by up to about 0.13 Hz (2026-10-14: 49.05-49.13 Hz straight after 48.98), so a word
+ * read off it flips within a few frames at 150-540x; an Hz band does not hold it. So the hold is
+ * time, whatever the preview says: TRIP SHEDS stays until the preview has not said it for this long,
+ * and a TIGHT after it stays this long before TRIP SHEDS may come back. Real ms, because flicker is
+ * seen in real time: 1.5 s is 3.75 grid-min at 150x (the peak) and 13.5 at 540x (before 06:00).
+ */
+export const SHEDS_MIN_MS = 1500;
+
+/**
+ * The N-1 word the desk shows: the sim's level, or TRIP SHEDS (desk/calc.js tripSheds) with a
+ * minimum time on and off. While the sim says TIGHT: TRIP SHEDS shows when the preview says it
+ * (at once, unless TRIP SHEDS left less than SHEDS_MIN_MS real ms ago: then when that TIGHT has
+ * shown SHEDS_MIN_MS, if the preview still says it), and stays until the preview has not said it
+ * for SHEDS_MIN_MS real ms. SECURE, SHORT and SHEDDING are the sim's verdicts: they show at once
+ * and end a hold, as a day started again (obs.tick going back) does. mem ({}) keeps the hold; the
+ * gauge and the live region (app/shell.js liveFrame) each keep one.
+ * @param {object} mem
+ * @param {{tick:number, sec:object}} obs
+ * @param {number} nowMs the frame's real ms
+ * @returns {string} 'SECURE' | 'TIGHT' | 'TRIP SHEDS' | 'SHORT' | 'SHEDDING'
+ */
+export function n1Word(mem, obs, nowMs) {
+  const sec = obs.sec, tick = fin(obs.tick);
+  if (tick < fin(mem.tick, -1)) mem.shown = '';
+  mem.tick = tick;
+  if (sec.level !== 'TIGHT' || sec.lKind === 'none') return (mem.shown = sec.level);
+  const raw = tripSheds(sec);
+  if (raw) mem.lastMs = nowMs;
+  const want = raw || (mem.shown === 'TRIP SHEDS' && nowMs - fin(mem.lastMs, -Infinity) < SHEDS_MIN_MS) ? 'TRIP SHEDS' : 'TIGHT';
+  // a TIGHT that TRIP SHEDS left keeps SHEDS_MIN_MS before the word may come back
+  const dwell = mem.shown === 'TIGHT' && mem.afterSheds && nowMs - mem.atMs < SHEDS_MIN_MS;
+  if (want !== mem.shown && !(want === 'TRIP SHEDS' && dwell)) {
+    mem.afterSheds = mem.shown === 'TRIP SHEDS';
+    mem.shown = want;
+    mem.atMs = nowMs;
+  }
+  return mem.shown;
+}
+
+/**
+ * The districts the relays would shed: the lit districts of the UFLS stages that would operate.
+ * A stage that has operated is spent until every one of its districts is lit again (sim/fleet.js
+ * rearmUfls: one dark for any reason keeps it spent), and the relays skip it (sim/physics.js).
+ * o.operated: the sim's own flags (state.ufls.operated, from app/game.js shedsOf); without them a
+ * stage with a district dark for UFLS is spent, which is all obs can tell (a stage whose UFLS
+ * district was relit while its partner is dark for a repair stays spent in the sim).
+ * o.stages (W7 Q2 review): how many stages a TRIP PREVIEW's own run operated (physics.previewTrip
+ * uflsStages): then the first that many stages not spent, as frequency reaches them in order.
+ * Without it, or 0 (a run that shed nothing beside a cached figure below 49.0 Hz, which is up to a
+ * refresh older), every stage not spent whose threshold (V.UFLS_FIRST_HZ, then V.UFLS_STEP_HZ
+ * apart) is above nadirHz. That counts a stage too many where the nadir only crosses the last
+ * threshold while the stage above waits its V.UFLS_DELAY_S (2026-10-19 19:16 followed: 48.75 Hz is
+ * under three thresholds; the preview's run operates two).
+ * @param {Array} districts obs.districts
+ * @param {number} nadirHz
+ * @param {{stages?:number, operated?:boolean[]}} [o]
+ * @returns {number}
+ */
+export function shedDistricts(districts, nadirHz, o = {}) {
+  const runs = fin(o.stages) > 0 ? o.stages : 0, hz = fin(nadirHz, V.F0_HZ);
+  let n = 0, left = runs;
+  for (let k = 0; k < V.UFLS_STAGES; k++) {
+    if (runs ? left <= 0 : !(hz < V.UFLS_FIRST_HZ - k * V.UFLS_STEP_HZ)) break;
+    const stage = (districts || []).filter(d => d.uflsStage === k + 1);
+    if (o.operated ? o.operated[k] : stage.some(d => d.dark && d.shedBy === 'ufls')) continue;
+    left--;
+    n += stage.filter(d => !d.dark).length;
+  }
+  return n;
+}
+
+/**
+ * What TRIP SHEDS would cost, from the sim's preview (obs.sec.previewNadirHz) and the districts:
+ * 'would fall to 48.99 Hz: the relays would shed 2 districts'. Below 49.0 Hz the figure is rounded
+ * down (as the gauge's preview figure), so it never reads as the threshold itself. A word still
+ * held (n1Word) over a preview back at or above 49.0 Hz says so: 'above the relays now'. sheds:
+ * the sim's own relays (vm.sheds, app/game.js shedsOf: {stages, operated}; see shedDistricts).
+ * @param {{sec:object, districts:Array}} obs
+ * @param {{stages:number, operated:boolean[]}|null} [sheds]
+ */
+export function shedsLine(obs, sheds) {
+  const hz = fin(obs.sec.previewNadirHz, V.F0_HZ), at = x => 'would fall to ' + x.toFixed(2) + ' Hz: ';
+  if (!(hz < V.UFLS_FIRST_HZ)) return at(hz) + 'above the relays now';
+  const n = shedDistricts(obs.districts, hz, sheds || {});
+  return at(Math.floor(hz * 100) / 100) + (n ? 'the relays would shed ' + n + ' district' + (n > 1 ? 's' : '') : 'below the relays, with none left to shed');
+}
+
 // ---------------------------------------------------------------- rotary geometry
 
 /** Angle of a pointer about a centre, degrees clockwise from 12 o'clock, in (-180, 180]. */
