@@ -108,7 +108,9 @@ Q-40). `--help` lists the flags. Since W7 (Q15) the golden is a tool check, not 
 change no longer needs it re-recorded. `npm run golden:v4 -- --check` runs the report and compares it
 with the golden instead of writing it (exit 1 on a difference): section 1 line for line, each
 section 3 row by its table and seed (so `--check --quick` compares par's rows on seeds 1-2), and
-with the golden's own flags sections 1-3 whole; never the Build line or section 4.
+with the golden's own flags sections 1-3 whole; never the Build line or section 4. A state's hash
+covers `state.v`, so `--check` takes every hash with `state.v` set to the golden's own SIM_VERSION (its
+Build line), as `verify.mjs` does: after a bump that moves nothing it still matches.
 `tests/par-classic.test.js` still plays par's day on seed 4 for what holds on any build (S-4's pace,
 D-9's runtime, H-8's containment, H-4's alarm agreement), and `tests/par-guard.test.js` plays a
 daily's par day against the selftest's golden hours, so the suite still catches a change to par's

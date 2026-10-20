@@ -17,7 +17,8 @@
 // --check (write nothing: compare with --out FILE, else the golden; exit 1 on a difference).
 // --check compares section 1 and each section 3 row the run made with the golden's row of the same
 // table and seed; with the golden's own flags, sections 1-3 line for line. Never the Build line or
-// section 4.
+// section 4. Its hashes are taken with state.v set to the golden's SIM_VERSION (its Build line), as
+// tools/verify.mjs does: a hash covers state.v, so a bump that moves nothing still matches.
 //
 // Sections: 1 = fixed probes (independent of the seed range), 2 = statistics over the seed
 // range, 3 = one row per seed and proxy, 4 = build and machine-dependent lines. Everything
@@ -73,6 +74,7 @@ function parseArgs(argv) {
     else if (a === '--quick') Object.assign(o, {quick: true, seeds: [1, 2], heat: 0, graded: 0, f3: 0, workers: 1});
     else if (a === '--out') o.out = next();
     else if (a === '--worker') o.worker = true;
+    else if (a === '--hash-as') o.hashAs = next();   // (a worker's: --check's hashes under the golden's SIM_VERSION, sim())
     else if (a === '--check') o.check = true;
     else if (a === '-h' || a === '--help') { const src = fs.readFileSync(__filename, 'utf8').split('\n'); console.log(src.slice(0, src.findIndex(l => !l.startsWith('//'))).join('\n')); process.exit(0); }
     else throw new Error('unknown flag ' + a + ' (see --help)');
@@ -110,14 +112,21 @@ function fnv(str) {
 }
 
 // ---------------------------------------------------------------- the sim
-async function sim() {
+/**
+ * The sim's modules. hashAs (--check, W7 integration review): a state's hash covers state.v, the SIM_VERSION, so after a
+ * version bump every hash in the report moves though nothing else does; --check then takes each hash with state.v set to
+ * the golden's own version (as tools/verify.mjs does), and a bump that moves nothing still matches.
+ */
+async function sim(hashAs) {
   const [step, params, scen, autopilot, physics, grid, market, weather, events, fleet, helpers, loop, assist] = await Promise.all([
     load('sim/step.js'), load('sim/params.js'), load('content/scenarios.js'), load('sim/autopilot.js'), load('sim/physics.js'),
     load('sim/grid.js'), load('sim/market.js'), load('sim/weather.js'), load('sim/events.js'), load('sim/fleet.js'),
     load('tests/lib/sim-helpers.js'), load('app/loop.js'), load('app/assist.js')]);
   isClean = market.isClean;
-  return {step, V: params.V, SIM_VERSION: params.SIM_VERSION, CLASSIC: scen.CLASSIC, autopilot, physics, grid, market, weather, events,
-    fleet, H: helpers, loop, assist};
+  const raw = step.hashState, hashState = !hashAs || hashAs === params.SIM_VERSION ? raw
+    : s => { const v = s.v; s.v = hashAs; try { return raw(s); } finally { s.v = v; } };
+  return {step: Object.assign({}, step, {hashState}), V: params.V, SIM_VERSION: params.SIM_VERSION, CLASSIC: scen.CLASSIC, autopilot, physics, grid, market,
+    weather, events, fleet, H: helpers, loop, assist};
 }
 
 const hhmm = (V, s) => {
@@ -542,7 +551,7 @@ function runWorkers(o, jobs) {
   const results = [];
   let next = 0;
   return Promise.all(Array.from({length: n}, () => new Promise((resolve, reject) => {
-    const child = fork(__filename, ['--worker'], {stdio: ['ignore', 'inherit', 'inherit', 'ipc']});
+    const child = fork(__filename, ['--worker', ...(o.hashAs ? ['--hash-as', o.hashAs] : [])], {stdio: ['ignore', 'inherit', 'inherit', 'ipc']});
     let inFlight = 0;
     // Only the parent ends the conversation, once the worker has nothing in flight (the worker
     // then exits on its own), so nothing is ever sent down a closed channel.
@@ -560,8 +569,8 @@ function runWorkers(o, jobs) {
   }))).then(() => results);
 }
 
-async function workerMain() {
-  const S = await sim();
+async function workerMain(o) {
+  const S = await sim(o.hashAs);
   process.on('message', m => { setImmediate(() => process.send({result: runJob(S, m.job)})); });
   process.send({ready: true});
 }
@@ -845,17 +854,21 @@ function goldenDiffs(text, golden) {
 // ---------------------------------------------------------------- main
 async function main() {
   const o = parseArgs(process.argv.slice(2));
-  if (o.worker) return workerMain();
-  const S = await sim();
+  if (o.worker) return workerMain(o);
+  // (--check: the golden's own SIM_VERSION, from its Build line, for the hashes: sim())
+  const file = o.check ? o.out || path.join(__dirname, 'baseline-v4.golden.md') : null, golden = file ? fs.readFileSync(file, 'utf8') : '';
+  const gv = (/^Build: `([^`]+)`/m.exec(golden) || [])[1];
+  if (gv) o.hashAs = gv;
+  const S = await sim(o.hashAs);
   const plan = planJobs(S, o);
   const t0 = Date.now();
   const results = o.workers > 1 ? await runWorkers(o, plan.jobs) : plan.jobs.map(j => runJob(S, j));
   const text = report(S, o, plan, results, (Date.now() - t0) / 1000);
   if (o.check) {
-    const file = o.out || path.join(__dirname, 'baseline-v4.golden.md'), diffs = goldenDiffs(text, fs.readFileSync(file, 'utf8'));
-    const rel = path.relative(ROOT, file).replace(/\\/g, '/');
-    if (!diffs.length) { console.log('golden:v4 --check: the run matches ' + rel + ' (' + S.SIM_VERSION + ', ' + ((Date.now() - t0) / 1000).toFixed(0) + ' s).'); return; }
-    console.log('golden:v4 --check: ' + diffs.length + ' lines differ from ' + rel + ' (' + S.SIM_VERSION + '):');
+    const diffs = goldenDiffs(text, golden), rel = path.relative(ROOT, file).replace(/\\/g, '/');
+    const as = gv && gv !== S.SIM_VERSION ? S.SIM_VERSION + ', its hashes taken as ' + gv + '\'s' : S.SIM_VERSION;
+    if (!diffs.length) { console.log('golden:v4 --check: the run matches ' + rel + ' (' + as + ', ' + ((Date.now() - t0) / 1000).toFixed(0) + ' s).'); return; }
+    console.log('golden:v4 --check: ' + diffs.length + ' lines differ from ' + rel + ' (' + as + '):');
     for (const d of diffs.slice(0, 40)) console.log('  ' + d.at + '\n    now    ' + (d.got === undefined ? '(none)' : d.got) + '\n    golden ' + (d.golden === undefined ? '(none)' : d.golden));
     if (diffs.length > 40) console.log('  ... and ' + (diffs.length - 40) + ' more');
     console.log('If the change is intended, re-record it: npm run golden:v4 (about 5 min), with the reason in the commit message.');
