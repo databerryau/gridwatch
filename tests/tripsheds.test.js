@@ -108,11 +108,13 @@ test('W7 Q2 on the gauge: ▼ TRIP SHEDS in red, what it would cost in the caugh
   assert.deepEqual([word.textContent, row.hidden], ['! TIGHT', true]);
 });
 
-test('W7 Q2 on the RESPOND card: TRIP SHEDS says the spare is too slow and what the next trip would shed, never "covers the next trip"', () => {
+test('W7 Q2 on the RESPOND card: TRIP SHEDS says the spare is there but too slow, and what the next trip would shed; only TIGHT says the spare covers it', () => {
   const c = {n: 1, lostMW: 600, extremeHz: 49.41, startTick: 0, secureByTick: V.SECURE_AGAIN_S * V.TICKS_PER_S,
     caught: {inertiaMW: 0, batteryMW: 120, guardMW: 0, governorsMW: 300, loadReliefMW: 20, uflsMW: 0, inverterMW: 0}};
   const line = o => { o.tick = V.WATCH_S * V.TICKS_PER_S; return W.respondCard(o, c).lines[2]; };
-  assert.equal(line(obsAt('TIGHT', 48.97)), 'N-1 TRIP SHEDS: spare covers the next trip, but too slowly. Frequency would fall to 48.97 Hz: the relays would shed 2 districts.');
+  const sheds = line(obsAt('TIGHT', 48.97));
+  assert.equal(sheds, 'N-1 TRIP SHEDS: enough spare, but too slow to catch the next trip. Frequency would fall to 48.97 Hz: the relays would shed 2 districts.');
+  assert.ok(!/covers/.test(sheds), 'the brief: "spare covers the next trip" is false when it would shed');
   assert.equal(line(obsAt('TIGHT', 49.3)), 'N-1 TIGHT: spare covers the next trip, without SECURE\'s margin.');
   assert.match(line(obsAt('SHORT', 48.97, {r5MW: 500})), /^N-1 SHORT: 121 MW short: cover it within /);
 });

@@ -33,8 +33,9 @@
 // shortfall when R5 < L); "N-1 SHORT: n MW short: cover it within m:ss."; "N-1 TIGHT: spare
 // covers the next trip, without SECURE's margin." (TIGHT already covers: no countdown); SECURE as
 // before. W7 Q2: TIGHT with the sim's preview below 49.0 Hz (desk/calc.js tripSheds) is the desk's
-// TRIP SHEDS, and the spare does not cover it in time: "N-1 TRIP SHEDS: spare covers the next trip,
-// but too slowly. Frequency would fall to 48.99 Hz: the relays would shed 2 districts." (calc.js shedsLine).
+// TRIP SHEDS: the MW are there (R5 >= L) but arrive too late, so it never says the spare covers the trip:
+// "N-1 TRIP SHEDS: enough spare, but too slow to catch the next trip. Frequency would fall to 48.99 Hz: the
+// relays would shed 2 districts." (calc.js shedsLine).
 // fallbackGlow's tie test reads obs.tie.importLimitMW (a derate's limit, Q-68).
 // Q-91: feederCard(obs, id, suburbs, why, lamp) is the feeder card's model (the clock held at a hand-back):
 // the feeder, its suburb's name and its pickup with its cold load to the 10 MW ("SAL4's feeder in Saltbush
@@ -255,7 +256,7 @@ export function respondCard(obs, c, o) {
   if (sec.level === 'SECURE') problem = 'N-1 SECURE: the fleet can take the next trip.';
   else if (sec.level === 'SHEDDING') problem = 'SHEDDING: ' + ds + ': relight ' + (n > 1 ? 'them' : 'it') + (short > 0 ? ' and cover ' + mw(short) + ' MW' : '') + ' within ' + mmss(secureInS) + '.';
   else if (sec.level === 'SHORT' || short > 0) problem = 'N-1 SHORT: ' + mw(short) + ' MW short: cover it within ' + mmss(secureInS) + '.';
-  else if (tripSheds(sec)) problem = 'N-1 TRIP SHEDS: spare covers the next trip, but too slowly. Frequency ' + shedsLine(obs) + '.';   // (W7 Q2)
+  else if (tripSheds(sec)) problem = 'N-1 TRIP SHEDS: enough spare, but too slow to catch the next trip. Frequency ' + shedsLine(obs) + '.';   // (W7 Q2)
   else problem = 'N-1 TIGHT: spare covers the next trip, without SECURE\'s margin.';
   if (n && sec.level !== 'SHEDDING') problem += ' ' + ds + '.';
   const glow = new Set(o && o.glow ? o.glow : []);
