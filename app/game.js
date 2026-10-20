@@ -38,7 +38,7 @@ import * as W from './watch.js';
 import * as AM from '../audio/model.js';
 import * as S from './score.js';
 import * as VD from './verdict.js';
-import {createMarg, margSay, MARG_LINES, MARG_FROM} from './marg.js';
+import {createMarg, margSay, MARG_LINES, MARG_FROM, MARG_FIRST, MARG_LATER, MARG_FIRSTS, FIRST_TARGET, beatsAhead, firstsNow} from './marg.js';
 import {plateGroup} from '../desk/desk.js';
 import {createParRunner, seriesAt, parMinute} from './par.js';
 import * as SH from './share.js';
@@ -243,7 +243,8 @@ export function createGame(o) {
       alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
-    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, rocofMax: seen.rocofMax > 0 ? +seen.rocofMax : 0, shed: !!seen.shed, shifts: Number.isInteger(seen.shifts) && seen.shifts > 0 ? seen.shifts : 0}, // (D-7: shifts finished)
+    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, rocofMax: seen.rocofMax > 0 ? +seen.rocofMax : 0, shed: !!seen.shed, shifts: Number.isInteger(seen.shifts) && seen.shifts > 0 ? seen.shifts : 0, // (D-7: shifts finished)
+      marg: Object.fromEntries(MARG_FIRSTS.filter(k => seen.marg && seen.marg[k] === true).map(k => [k, true]))}, // (W7, Q-124: Marg's first-time lines said)
     cues: [], refusal: null, respond: null, respondGlow: [], feeder: null, feederWhy: null, offers: [], offered: {}, tally: null,
     previewCache: new Map(), previewS: -1, restoreCache: new Map(), restoreS: -1,
     hist: null, histView: null, histViewS: -1,
@@ -1062,10 +1063,10 @@ export function doneBefore(game) {
   return '';
 }
 
-/** O-6: Marg says the text at its key's beat (app/marg.js: once, within the day's limit), as a tray card. */
-export function margBeat(game, key, text, target) {
+/** O-6: Marg says the text at its key's beat (app/marg.js: once, within the day's limit less `reserve`), as a tray card. */
+export function margBeat(game, key, text, target, reserve = 0) {
   if (!game.marg) return null;
-  const line = margSay(game.marg, key, text, Math.floor(game.state.tick / TPS), target);
+  const line = margSay(game.marg, key, text, Math.floor(game.state.tick / TPS), target, reserve);
   if (line) for (const c of T.trayMarg(game.tray, line, MARG_FROM)) pushCue(game, c);
   return line;
 }
@@ -1083,6 +1084,26 @@ function margFrame(game, obs, mode) {
     margBeat(game, 'watch', MARG_LINES.watch(c), 'dial-freq');
   }
   if (obs.nightShift) margBeat(game, 'handover', MARG_LINES.handover());
+  // W7 (Q-124): a first-time line, kept in the seen memory once said (with storage blocked, in the page's memory: once a day at most)
+  for (const k of margFirsts(game, mode.mode)) {
+    if (!margBeat(game, 'first:' + k, MARG_LINES[k](obs, game.dayAhead, game.verdict), FIRST_TARGET[k], beatsAhead(game.marg, game.margAct, game.margWatched))) continue;
+    game.director.seen.marg = Object.assign({}, game.director.seen.marg, {[k]: true});
+    saveSeen(game);
+  }
+}
+/**
+ * W7 (Q-124): the first-time lines Marg would say now (app/marg.js firstsNow's keys this browser has not met yet, not said
+ * today): none in a watch, once the night shift has the desk, while the tray shows MAX_CARDS warnings (it would log her
+ * card at once: app/tray.js trayMarg), or with no room left beside the fixed beats to come. Cheap: tests/lib/play.js asks
+ * it between frames, so a jump draws the frame that says one.
+ */
+export function margFirsts(game, mode) {
+  const m = game.marg, st = game.state;
+  if (!m || game.phase !== 'play' || st.over || mode === 'WATCH' || mode === 'SHED-WATCH' || st.control.nightShift) return [];
+  if (game.tray.cards.filter(c => c.sev !== 'info').length >= T.MAX_CARDS) return [];
+  if (m.said.length + beatsAhead(m, game.margAct, game.margWatched) >= (m.first ? MARG_FIRST : MARG_LATER)) return [];
+  const seen = game.director.seen.marg || {};
+  return firstsNow(st, game.verdict).filter(k => !seen[k] && !m.beats['first:' + k]);
 }
 
 // ------------------------------------------------------------------ W3: the verdict
