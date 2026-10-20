@@ -37,6 +37,8 @@ import {SEC_WINDOW_S, LEVELS} from './record.js';
 import {unitsOn} from './par.js';
 import {clockText, mw} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
+import {shedDistricts} from '../desk/calc.js';
+import {RELAY_NEAR_HZ} from './objective.js';
 import {CARDS} from '../content/cards.js';
 import {NIGHT_GUARD} from './watch.js';
 
@@ -306,8 +308,19 @@ const GUARD_LIVE_S = V.GUARD_SUSTAIN_S + V.GUARD_RAMP_OFF_S;
 const guardHeld = (mem, s) => { for (let t = Math.max(0, s - GUARD_LIVE_S); t <= s && t < DAY_S; t++) if (mem.fLo[t] < V.GUARD_TRIGGER_HZ) return false; return true; };
 /** Q-119: the grid minute (0: 04:00-04:01) both sides are read at for moment m: the one before its trip or shed began, or the thinnest margin's own. */
 export const diffMinute = m => (m.kind === 'margin' ? m.minute : Math.floor(m.s / MIN) - 1);
-/** Q-119: a preview of a trip in words: "49.31 Hz, no relays". */
-const previewText = r => (r.black ? 'the grid would go black' : r.nadirHz.toFixed(2) + ' Hz' + (r.uflsStages ? ', and the relays would shed ' + stages(r.uflsStages) : ', no relays'));
+/**
+ * Q-119: a preview of a trip in words, as the desk says one (W7 integration review: the end card teaches what the desk said
+ * all day): "49.31 Hz, no relays"; under RELAY_NEAR_HZ, where the preview's own error could reach them (Q-114's price),
+ * "close to the relays"; under 49.0 Hz, rounded down as the N-1 gauge shows it, the relays shed (TRIP SHEDS: any preview
+ * under the first stage), counted in districts as the gauge counts them (desk/calc.js shedDistricts; the twin's count).
+ */
+const previewText = r => {
+  if (r.black) return 'the grid would go black';
+  const hz = r.nadirHz, n = r.districts;
+  if (!(hz < V.UFLS_FIRST_HZ)) return hz.toFixed(2) + ' Hz, ' + (hz >= RELAY_NEAR_HZ ? 'no relays' : 'close to the relays');
+  return (Math.floor(hz * 100) / 100).toFixed(2) + ' Hz, ' + (!Number.isFinite(n) ? 'and the relays would shed' + (r.uflsStages ? ' ' + stages(r.uflsStages) : '')
+    : n > 0 ? 'and the relays would shed ' + n + ' district' + (n > 1 ? 's' : '') : 'below the relays, with none left to shed');
+};
 
 /**
  * W7 (Q-119): what par did that you didn't, at the moment m (moment()'s): at most DIFF_MAX facts, each in par's favour
@@ -331,7 +344,7 @@ const previewText = r => (r.black ? 'the grid would go black' : r.nadirHz.toFixe
  *   A rise: none. The soak is not compared: before 21:00 it only adds load (at noon), never helps a short minute.
  * o: moment()'s, with parHad(k) (app/par.js parHad), parTrips (par's [{tick, cause, id, mw}], null for a par kept
  * before W7), parBlocks and blocks (par's and your city bookings), parTry(guardMW): undefined (not asked), null
- * (computing) or the twin's preview {nadirHz (NaN: it failed), uflsStages, black}.
+ * (computing) or the twin's preview {nadirHz (NaN: it failed), uflsStages, black, districts}.
  * @returns {{lines: string[], pending: boolean (par's GUARD on your trip still computing), tryHz: number}}
  */
 export function parLines(m, mem, o) {
@@ -392,7 +405,7 @@ export function parLines(m, mem, o) {
  * GUARD asked for later (want) is one more preview on it, at once.
  * step(maxTicks, budgetMs): plays up to maxTicks, stopping after the 1,000-tick chunk that passes budgetMs of real
  * time; done, then nadirHz (the GUARD-0 preview's, NaN if not asked or the replay failed) and tried(g): undefined if g
- * was not asked, null while computing, else {nadirHz (NaN if it failed), uflsStages, black}. rev counts the previews made.
+ * was not asked, null while computing, else {nadirHz (NaN if it failed), uflsStages, black, districts: the gauge's count}. rev counts the previews made.
  */
 export function createTwin(seed, scenario, log, cont, guards = [0]) {
   const st = createState(seed >>> 0, scenario), batch = [], until = cont.startTick, want = [...guards], tries = new Map();
@@ -403,7 +416,13 @@ export function createTwin(seed, scenario, log, cont, guards = [0]) {
   const preview = g => {
     if (tries.has(g)) return;
     let r = FAILED;
-    if (!failed) try { const x = previewTrip(st, target, {guardMW: g}); r = {nadirHz: x.nadirHz, uflsStages: x.uflsStages, black: x.black}; } catch (e) { r = FAILED; }
+    if (!failed) {
+      try {
+        const x = previewTrip(st, target, {guardMW: g});
+        r = {nadirHz: x.nadirHz, uflsStages: x.uflsStages, black: x.black,
+          districts: shedDistricts(st.city.districts, x.nadirHz, {stages: x.uflsStages, operated: st.ufls.operated})};   // (as the gauge counts them)
+      } catch (e) { r = FAILED; }
+    }
     tries.set(g, r); t.rev++;
     if (g === 0) t.nadirHz = r.nadirHz;
   };

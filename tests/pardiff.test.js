@@ -18,6 +18,8 @@ import {flexAt} from '../sim/weather.js';
 import {runPar} from '../sim/autopilot.js';
 import {DESK} from '../content/scenarios.js';
 import {unitLabel} from '../desk/util.js';
+import {RELAY_NEAR_HZ} from '../app/objective.js';
+import {shedDistricts} from '../desk/calc.js';
 import {openGame} from './lib/play.js';
 import {injectTrip} from './lib/sim-helpers.js';
 
@@ -48,8 +50,15 @@ test('Q-119: a fall: par\'s GUARD with par\'s GUARD tried on your trip, then par
   assert.deepEqual(m.text.slice(-4), ['Your GUARD was at 0 MW: this was the fall with no GUARD.', 'Par at 20:49: lowest 49.62 Hz, 900 MW spare in 5 min.', ...m.parLines]);
   assert.equal(m.numbers.parGuardHz, 49.31);
   for (const l of m.parLines) assert.ok(/^Par/.test(l) && !/because|should|fail|mistake|you forgot/i.test(l), l);
-  // the relays in the preview; the grid black in it
-  assert.match(lines({}, parOf({guardMW: 300}, {parTry: () => ({nadirHz: 48.97, uflsStages: 2, black: false})}))[0], /: 48\.97 Hz, and the relays would shed 2 stages\.$/);
+  // the relays in the preview, in districts as the gauge counts them; the grid black in it
+  assert.match(lines({}, parOf({guardMW: 300}, {parTry: () => ({nadirHz: 48.97, uflsStages: 2, black: false, districts: 4})}))[0], /: 48\.97 Hz, and the relays would shed 4 districts\.$/);
+  // (W7 integration review) as the desk says a preview: under 49.0 Hz the relays shed (TRIP SHEDS), its run's own stages or
+  // not, the figure rounded down; "no relays" only from RELAY_NEAR_HZ (the preview's own error), "close to the relays" under it
+  const said = r => lines({}, parOf({guardMW: 300}, {parTry: () => Object.assign({uflsStages: 0, black: false}, r)}))[0].replace(/^.*With it on your trip: /, '');
+  assert.equal(said({nadirHz: 48.996, districts: 2}), '48.99 Hz, and the relays would shed 2 districts.');
+  assert.equal(said({nadirHz: 48.99, districts: 0}), '48.99 Hz, below the relays, with none left to shed.');
+  assert.equal(said({nadirHz: 49.05, districts: 0}), '49.05 Hz, close to the relays.');
+  assert.equal(said({nadirHz: RELAY_NEAR_HZ, districts: 0}), '49.11 Hz, no relays.');
   assert.match(lines({}, parOf({guardMW: 300}, {parTry: () => ({nadirHz: 47, uflsStages: 8, black: true})}))[0], /With it on your trip: the grid would go black\.$/);
   // computing: said so, and the moment says it waits (SAVE IMAGE waits only for the fall with no GUARD: none here)
   const w = VD.moment(memOf(), [cont()], Object.assign({guardMW: 0}, parOf({guardMW: 300}, {parTry: () => null})));
@@ -154,7 +163,10 @@ test('Q-119: the twin replays once and previews each GUARD asked on the pre-trip
   tw.step(Infinity);
   const st = createState(20261007, DESK);
   while (st.tick < T) step(st, st.tick === g ? [{type: 'guard', mw: 100}] : []);
-  const by = mw => { const x = previewTrip(st, {kind: 'unit', id: 'coal1'}, {guardMW: mw}); return {nadirHz: x.nadirHz, uflsStages: x.uflsStages, black: x.black}; };
+  const by = mw => {
+    const x = previewTrip(st, {kind: 'unit', id: 'coal1'}, {guardMW: mw});
+    return {nadirHz: x.nadirHz, uflsStages: x.uflsStages, black: x.black, districts: shedDistricts(st.city.districts, x.nadirHz, {stages: x.uflsStages, operated: st.ufls.operated})};
+  };
   assert.deepEqual([tw.done, tw.tried(0), tw.tried(300), tw.nadirHz, tw.rev], [true, by(0), by(300), by(0).nadirHz, 2]);
   assert.ok(by(300).nadirHz > by(100).nadirHz && by(100).nadirHz > by(0).nadirHz, 'more GUARD, a shallower fall');
   tw.want(150);
@@ -223,7 +235,7 @@ test('Q-119 on the page: your GUARD at 0, par\'s at 300 MW, par finishing after 
   g.twin.step(Infinity);
   p.frames(1);
   const line = momentText(p).find(l => /^Par had a GUARD/.test(l)), hz = Number(/: (\d\d\.\d\d) Hz/.exec(line || '')[1]);
-  assert.match(line, /^Par had a GUARD of 300 MW\. With it on your trip: \d\d\.\d\d Hz, (no relays|and the relays would shed \d stages?)\.$/);
+  assert.match(line, /^Par had a GUARD of 300 MW\. With it on your trip: \d\d\.\d\d Hz, (no relays|close to the relays|and the relays would shed \d+ districts?|below the relays, with none left to shed)\.$/);
   assert.ok(hz > g.end.verdict.moment.cont.extremeHz, 'with par\'s GUARD the fall is shallower: ' + hz + ' > ' + g.end.verdict.moment.cont.extremeHz);
   assert.deepEqual(p.h.mods.errors, []);
 });
@@ -253,7 +265,10 @@ test('Q-119 on the page: your GUARD at 100, par\'s at 300, par finishing after t
   finish(p);
   const t = momentText(p), line = t.find(l => /^Par had a GUARD/.test(l)), r = twin.tried(300);
   assert.ok(g.twin === twin && r && Number.isFinite(r.nadirHz), 'asked of the replayed twin, made at once');
-  assert.equal(line, 'Par had a GUARD of 300 MW. With it on your trip: ' + r.nadirHz.toFixed(2) + ' Hz' + (r.uflsStages ? ', and the relays would shed ' + r.uflsStages + ' stage' + (r.uflsStages > 1 ? 's' : '') : ', no relays') + '.');
+  const hz = r.nadirHz < V.UFLS_FIRST_HZ ? Math.floor(r.nadirHz * 100) / 100 : r.nadirHz;
+  assert.equal(line, 'Par had a GUARD of 300 MW. With it on your trip: ' + hz.toFixed(2) + ' Hz, ' + (r.nadirHz >= RELAY_NEAR_HZ ? 'no relays'
+    : r.nadirHz >= V.UFLS_FIRST_HZ ? 'close to the relays' : r.districts ? 'and the relays would shed ' + r.districts + ' district' + (r.districts > 1 ? 's' : '') : 'below the relays, with none left to shed') + '.');
+  assert.ok(Number.isInteger(r.districts), 'the twin counts the districts as the gauge does');
   assert.ok(r.nadirHz > g.end.verdict.moment.numbers.noGuardHz, 'par\'s GUARD on your trip holds it higher than none: ' + r.nadirHz + ' > ' + g.end.verdict.moment.numbers.noGuardHz);
   assert.deepEqual([p.$('btn-save-moment').disabled, p.h.mods.errors], [false, []]);
 });
