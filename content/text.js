@@ -459,8 +459,8 @@ const ABSTRACTIONS = [
       'offers first. Rooftop solar is curtailed last, by the emergency backstop.',
     ours: 'When the units at minimum load plus wind and utility solar exceed demand, with the tie and the battery as you ' +
       'have set them, the dispatch holds back that much wind and utility solar every grid second, each in proportion to its ' +
-      'output. The Live Stack shows a spill ahead as SURPLUS from ' + num(V.SURPLUS_MIN_MW) + ' MW (no alarm: the spill needs ' +
-      'nobody). Rooftop solar is never curtailed: the backstop is not on this desk yet.',
+      'output. The Live Stack shows a spill ahead as SURPLUS from ' + num(V.SURPLUS_MIN_MW) + ' MW (no alarm: the dispatch keeps ' +
+      'the grid safe by itself; shrinking the spill is a saving, not an emergency). Rooftop solar is never curtailed: the backstop is not on this desk yet.',
     why: 'Without it a sunny mild weekend ran away to 52 Hz. With it a surplus costs the energy spilled, and shrinking it ' +
       'is yours: charge the battery, export, or stop a unit.',
     params: ['SURPLUS_MIN_MW'],

@@ -363,7 +363,7 @@ test('W7 Q3 on a real belly: observe() and state give the same snapshot; a mild 
   assert.ok(checked > 400);
   assert.equal(day.st.black, false);
   assert.ok(spillS >= 1800, 'the do-nothing weekend spills for ' + spillS / 60 + ' min by 13:00 (both CCGTs at minimum under the belly)');
-  assert.deepEqual([...litWhileSpilling], [], 'MIN GEN lit here from about 08:00 until W7; the spill needs nobody');
+  assert.deepEqual([...litWhileSpilling], [], 'MIN GEN lit here from about 08:00 until W7; the dispatch keeps the grid safe by itself');
 });
 
 /** Count the competent proxy's audible alarms over a day; the operator ACKs 3 real s after each sound. */
