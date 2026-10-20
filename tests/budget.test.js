@@ -9,7 +9,7 @@ import {readFileSync, existsSync} from 'node:fs';
 import {gzipSync} from 'node:zlib';
 import {dirname, join, relative, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {firstVisit, moduleClosure} from '../tools/perf.mjs';
+import {firstVisit, moduleClosure, gamePage} from '../tools/perf.mjs';
 import {tokenize, jsFiles} from './lib/js-tokens.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -26,6 +26,14 @@ test('F-11 (Q-84): the first visit to index.html is the whole game; its size is 
     'desk/desk.js', 'render/map.js', 'render/livestack.js', 'audio/audio.js', 'content/anchors.js']) {
     assert.ok(paths.includes(p), p + ' is part of the first visit');
   }
+});
+
+test('Q-126: --sizes --base measures the game at a ref from before the switch-over, when index.html only sent the player to next.html', () => {
+  assert.equal(gamePage(), 'index.html');
+  // a tree laid out as before Q-126: index.html a redirect with no module script (as next.html is now), the game at next.html
+  const before = key => readFileSync(join(ROOT, key === 'index.html' ? 'next.html' : key === 'next.html' ? 'index.html' : key));
+  assert.equal(gamePage(before), 'next.html');
+  assert.equal(firstVisit(gamePage(before), before).length, firstVisit('index.html').length);
 });
 
 test('F-11: index.html loads nothing the legacy game or the tools need (no tools/, tests/ or classic.html code)', () => {

@@ -4,7 +4,8 @@
 //   node tools/perf.mjs --sizes [--json]    the first visit alone, each file in bytes; no frame run
 //   node tools/perf.mjs --sizes --base the-day [--head 2c-a2-base-sim]
 //                                           the same against a git ref, per file and in total,
-//                                           read with `git show` (no checkout); head: the working tree
+//                                           read with `git show` (no checkout); head: the working tree.
+//                                           At a ref from before Q-126 the game's page is next.html (gamePage)
 //
 // 1. First visit: every file index.html loads (its stylesheet, its module script and everything
 //    that imports), raw and gzip-compressed, against the 400 KB budget.
@@ -144,16 +145,26 @@ const simBudget = rate => (rate <= 150 ? BUDGET.simMsAt150 : BUDGET.simMsAt2100)
 export const gitRead = ref => key => execFileSync('git', ['show', ref + ':' + key], {cwd: ROOT, maxBuffer: 1 << 26});
 
 /**
+ * The game's page at a root (a directory or gitRead): index.html since the switch-over (Q-126). Before it,
+ * index.html only sent the player on, with no module script, and the game was next.html; so --base and
+ * --head measure the game at any ref.
+ */
+export function gamePage(root = ROOT) {
+  const html = String(typeof root === 'function' ? root('index.html') : readFileSync(join(root, 'index.html')));
+  return /<script[^>]+type="module"/.test(html) ? 'index.html' : 'next.html';
+}
+
+/**
  * --sizes (Q-61, desk/README.md §32.3): the file count, each file's raw and gzip bytes, the totals;
  * with `base` (another first visit, --base) also its gzip bytes and the delta, per file and in total.
  */
-function sizes(files, json, base) {
+function sizes(files, json, base, pages) {
   const sum = (fs, k) => fs.reduce((a, f) => a + f[k], 0), bytes = sum(files, 'bytes'), gz = sum(files, 'gzip');
   const was = base ? {count: base.length, bytes: sum(base, 'bytes'), gzip: sum(base, 'gzip'), files: base} : null;
   if (json) return console.log(JSON.stringify({count: files.length, bytes, gzip: gz, files, ...(was ? {base: was, deltaGzip: gz - was.gzip} : {})}, null, 1));
   const signed = n => (n > 0 ? '+' : '') + n;
-  console.log('First visit (index.html): ' + files.length + ' files, ' + bytes + ' B raw, ' + gz + ' B gzip (' + (gz / 1024).toFixed(2) + ' KB)' +
-    (was ? '\nBase: ' + was.count + ' files, ' + was.bytes + ' B raw, ' + was.gzip + ' B gzip; delta ' + signed(gz - was.gzip) + ' B gzip (' +
+  console.log('First visit (' + pages.head + '): ' + files.length + ' files, ' + bytes + ' B raw, ' + gz + ' B gzip (' + (gz / 1024).toFixed(2) + ' KB)' +
+    (was ? '\nBase (' + pages.base + '): ' + was.count + ' files, ' + was.bytes + ' B raw, ' + was.gzip + ' B gzip; delta ' + signed(gz - was.gzip) + ' B gzip (' +
       signed(Number(((gz - was.gzip) / 1024).toFixed(2))) + ' KB)' : '') + '\n');
   if (!was) {
     console.log('| File | Raw B | Gzip B |\n|---|---|---|');
@@ -176,8 +187,9 @@ async function main() {
   // CRUISE is 120x; 2,100x stands in for the fastest the director runs (D-2's night roll)
   const rates = opt('--rates', '120,2100').split(',').map(Number);
   if (args.includes('--sizes')) {
-    const head = opt('--head'), base = opt('--base');
-    return sizes(firstVisit('index.html', head ? gitRead(head) : ROOT), args.includes('--json'), base ? firstVisit('index.html', gitRead(base)) : null);
+    const head = opt('--head') ? gitRead(opt('--head')) : ROOT, base = opt('--base') ? gitRead(opt('--base')) : null;
+    const pages = {head: gamePage(head), base: base && gamePage(base)};
+    return sizes(firstVisit(pages.head, head), args.includes('--json'), base ? firstVisit(pages.base, base) : null, pages);
   }
   const files = firstVisit();
   const bytes = files.reduce((a, f) => a + f.bytes, 0), gz = files.reduce((a, f) => a + f.gzip, 0);
