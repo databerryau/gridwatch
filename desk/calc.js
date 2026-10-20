@@ -210,6 +210,82 @@ export function nextShed(districts) {
   return best || any;
 }
 
+// ---------------------------------------------------------------- W7 Q2: TRIP SHEDS
+
+/**
+ * TRIP SHEDS, the desk's fifth N-1 word (the sim keeps its four: SECURE, TIGHT, SHORT, SHEDDING).
+ * True when the sim's level is TIGHT and its TRIP PREVIEW of the biggest risk (sec.previewNadirHz,
+ * the lower of the unit's and the tie's) falls below the first UFLS stage: the spare is there, but
+ * too slow to stop the relays. SHORT and SHEDDING keep their own words. The gauge, the respond card
+ * and the N-1 tile (app/alarms.js) all read it here.
+ * @param {{level:string, lKind:string, previewNadirHz:number}} sec obs.sec or state.sec
+ */
+export function tripSheds(sec) {
+  return !!sec && sec.level === 'TIGHT' && sec.lKind !== 'none' && fin(sec.previewNadirHz, V.F0_HZ) < V.UFLS_FIRST_HZ;
+}
+
+/**
+ * TRIP SHEDS stays on the desk SHEDS_MIN_MS real ms after the preview last said it, while the preview
+ * is still within SHEDS_HOLD_HZ of the relays: it hovers at the 49.0 Hz edge for grid minutes, and is
+ * about this much optimistic itself (sim/params.js PREVIEW_MARGIN_HZ). A preview clearly above drops it at once.
+ */
+export const SHEDS_MIN_MS = 3000, SHEDS_HOLD_HZ = V.PREVIEW_MARGIN_HZ;
+
+/**
+ * The N-1 word the desk shows: the sim's level, or TRIP SHEDS while tripSheds() holds, and for
+ * SHEDS_MIN_MS real ms after while the preview stays under V.UFLS_FIRST_HZ + SHEDS_HOLD_HZ (only
+ * while the sim still says TIGHT: SECURE, SHORT and SHEDDING are the sim's verdicts and show at
+ * once). mem ({}) keeps the hold; a day started again (obs.tick going back) drops it. The gauge and
+ * the live region (app/shell.js liveFrame) each keep one.
+ * @param {object} mem
+ * @param {{tick:number, sec:object}} obs
+ * @param {number} nowMs the frame's real ms
+ * @returns {string} 'SECURE' | 'TIGHT' | 'TRIP SHEDS' | 'SHORT' | 'SHEDDING'
+ */
+export function n1Word(mem, obs, nowMs) {
+  const sec = obs.sec, tick = fin(obs.tick);
+  if (tick < fin(mem.tick, -1)) mem.untilMs = -Infinity;
+  mem.tick = tick;
+  if (tripSheds(sec)) { mem.untilMs = nowMs + SHEDS_MIN_MS; return 'TRIP SHEDS'; }
+  const held = sec.level === 'TIGHT' && sec.lKind !== 'none' && fin(sec.previewNadirHz, V.F0_HZ) < V.UFLS_FIRST_HZ + SHEDS_HOLD_HZ;
+  return held && nowMs < fin(mem.untilMs, -Infinity) ? 'TRIP SHEDS' : sec.level;
+}
+
+/**
+ * The districts the relays would shed if frequency fell to nadirHz: the lit districts of every
+ * UFLS stage whose threshold (V.UFLS_FIRST_HZ, then V.UFLS_STEP_HZ apart) is above it. A stage
+ * that has operated is spent until all its districts are back (sim/fleet.js rearmUfls), so a
+ * stage with a district dark for UFLS counts none. An estimate: the preview's nadir is the
+ * fall with the relays acting, and a relay needs V.UFLS_DELAY_S below its threshold to trip.
+ * @param {Array} districts obs.districts
+ * @param {number} nadirHz
+ * @returns {number}
+ */
+export function shedDistricts(districts, nadirHz) {
+  let n = 0;
+  for (let k = 0; k < V.UFLS_STAGES; k++) {
+    if (!(fin(nadirHz, V.F0_HZ) < V.UFLS_FIRST_HZ - k * V.UFLS_STEP_HZ)) break;
+    const stage = (districts || []).filter(d => d.uflsStage === k + 1);
+    if (stage.some(d => d.dark && d.shedBy === 'ufls')) continue;
+    n += stage.filter(d => !d.dark).length;
+  }
+  return n;
+}
+
+/**
+ * What TRIP SHEDS would cost, from the sim's preview (obs.sec.previewNadirHz) and the districts:
+ * 'would fall to 48.99 Hz: the relays would shed 2 districts'. Below 49.0 Hz the figure is rounded
+ * down (as the gauge's preview figure), so it never reads as the threshold itself. A word still
+ * held (n1Word) over a preview back within SHEDS_HOLD_HZ above 49.0 Hz says 'just above the relays'.
+ * @param {{sec:object, districts:Array}} obs
+ */
+export function shedsLine(obs) {
+  const hz = fin(obs.sec.previewNadirHz, V.F0_HZ), at = x => 'would fall to ' + x.toFixed(2) + ' Hz: ';
+  if (!(hz < V.UFLS_FIRST_HZ)) return at(hz) + 'just above the relays';
+  const n = shedDistricts(obs.districts, hz);
+  return at(Math.floor(hz * 100) / 100) + (n ? 'the relays would shed ' + n + ' district' + (n > 1 ? 's' : '') : 'below the relays, with none left to shed');
+}
+
 // ---------------------------------------------------------------- rotary geometry
 
 /** Angle of a pointer about a centre, degrees clockwise from 12 o'clock, in (-180, 180]. */

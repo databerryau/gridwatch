@@ -345,7 +345,8 @@ const ABSTRACTIONS = [
       'biggest risk (L) and a TRIP PREVIEW nadir of at least ' + hz(V.SECURE_NADIR_HZ) + ' Hz plus a ' +
       num(V.PREVIEW_MARGIN_HZ) + ' Hz margin for losing L (plus ' + num(V.PREVIEW_AGE_MARGIN_HZ_S) + ' Hz for each grid-second ' +
       'of the preview\'s age; it is re-run at least every ' + num(V.PREVIEW_REFRESH_S) + ' grid-seconds and whenever frequency ' +
-      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L; SHORT is R5 < L; SHEDDING while UFLS or directed shedding has load ' +
+      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L, and the desk calls it TRIP SHEDS while the preview is below the ' +
+      'first UFLS stage (' + V.UFLS_FIRST_HZ.toFixed(1) + ' Hz): the spare is there but too slow; SHORT is R5 < L; SHEDDING while UFLS or directed shedding has load ' +
       'off: a feeder under repair, or handed back and not yet closed, is never SHEDDING. SECURE ' +
       'previews the loss of supply, not of load: losing the potline or the export at midday is not on this gauge.',
     why: 'One gauge. The margin covers what a preview with frozen schedules cannot see (demand wobble, AGC and ramps), ' +
@@ -353,7 +354,7 @@ const ABSTRACTIONS = [
       'preview runs for both credible contingencies, the largest unit and the tie import (N-1), and BIGGEST RISK names ' +
       'the one whose loss would dip deeper: a unit of nearly the tie\'s size also takes its inertia and governor with it.',
     params: ['R5_WINDOW_MIN', 'SECURE_RATIO', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ', 'PREVIEW_AGE_MARGIN_HZ_S', 'PREVIEW_REFRESH_S',
-      'PREVIEW_F_TOL_HZ'],
+      'PREVIEW_F_TOL_HZ', 'UFLS_FIRST_HZ'],
   },
   {
     id: 'ufls-blocks', row: 'UFLS: 8 × 6% blocks from 49.0 Hz in 0.125 Hz steps.', anchorId: 'ufls-strip', game: 'annunciator',

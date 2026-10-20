@@ -116,7 +116,7 @@
 .dk-gauge-head { display: flex; align-items: center; justify-content: space-between; height: 24px; flex: none; }
 .dk-level { font: 700 calc(12 * var(--u)) var(--dk-mono); letter-spacing: 0.05em; }
 .dk-level.lv-SECURE { color: var(--dk-green); } .dk-level.lv-TIGHT { color: var(--dk-amber); }
-.dk-level.lv-SHORT, .dk-level.lv-SHEDDING { color: var(--dk-red); }
+.dk-level.lv-SHORT, .dk-level.lv-SHEDDING, .dk-level.lv-TRIP-SHEDS { color: var(--dk-red); }
 .dk-gbar { display: grid; grid-template-columns: 88px 1fr 34px; align-items: center; gap: 4px; height: 12px; font-size: calc(8.5 * var(--u)); }
 .dk-gbar-label { color: var(--dk-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dk-gbar-track { position: relative; height: 8px; background: var(--dk-panel2); border-radius: 2px; }
@@ -131,6 +131,9 @@
 .dk-ptext { font: calc(9 * var(--u)) var(--dk-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dk-caught { font: calc(8 * var(--u)) var(--dk-mono); color: var(--dk-violet); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dk-caught[hidden] { display: none; }
+/* W7 Q2: what TRIP SHEDS would cost, in the caught line's place */
+.dk-sheds { font: calc(8 * var(--u)) var(--dk-mono); color: var(--dk-red); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dk-sheds[hidden] { display: none; }
 /* Q-74 */
 .dk-gbar.dk-cover { grid-template-columns: auto 1fr 0; font-family: var(--dk-mono); }
 .dk-cover[hidden] { display: none; }
