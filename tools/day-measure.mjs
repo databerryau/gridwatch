@@ -29,7 +29,8 @@
 // (K-12) when a stack column of app/planview.js project(obs) at the offer, in [close, close +
 // AUTO_SYNC_S], is red or amber and the MW the clean close gains there over the auto-synchroniser's
 // close (the sync block, then the T2 ramp toward MIN) covers its gap (P50 for red, P90 for amber,
-// minus supply). The weaker count only asks that a red or amber column falls in that window.
+// minus supply). The weaker count only asks that a red or amber column falls in that window. (W7, Q-115: the game
+// offers on HAND days only, so this proxy, which plays AGC days, is offered nothing now: offers 0, matters 0.)
 import {fork} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {readFileSync} from 'node:fs';

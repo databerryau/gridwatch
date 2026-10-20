@@ -455,6 +455,15 @@ function closeQueued(game) {
   }
 }
 
+// W7 (Q-115): the player's restore's FOCUS, its end found tick by tick (D.restoreFocusTick, so a resume's replay finds the
+// same one), and then its one caption: a CITY DESK card in the tray, its button to the frequency dial
+function restoreFocusEnd(game) {
+  const rf = D.restoreFocusTick(game.director, game.state);
+  if (!rf) return;
+  const line = {text: D.restoreCaption(rf), target: 'dial-freq', atS: Math.floor(game.state.tick / TPS)};
+  for (const c of T.trayMarg(game.tray, line, T.SENDERS.city, 'TO THE DIAL')) pushCue(game, c);
+}
+
 // D-27: the feeders a RESTORE of `id` at the card would queue, each at the second it may close: the
 // later of its hand-back and RESTORE_INTERVAL_S after the one before (the card's own now). D-26: a shed
 // card's queue is the rest of its group (D.queueMates).
@@ -486,6 +495,7 @@ export function tickOnce(game) {
   }
   const recs = step(state, ins);
   if (recs.length) handleRecords(game, recs, ins.length ? 'system' : '');
+  restoreFocusEnd(game);
   onTick(game.rec, state);
   A.sampleTick(game.alarms, state);
   if (state.tick % TPS === 0) {
@@ -571,7 +581,7 @@ export function sendInput(game, x, shown, batch = false) {
     game.objectiveS = -1e9; game.lineFresh = true;
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
-    if (x.type === 'restore') D.focusRestore(d, state);
+    if (x.type === 'restore') { const rr = out.find(o => o.kind === 'restore'); D.focusRestore(d, state, rr ? rr.mw : 0, x.district); } // (W7, Q-115: its pickup, for the caption)
     if (own) D.queueFeeders(d, mates); // D-27: the card's RESTORE queues the morning's other feeders (D-26: the rest of its group)
     if (REDISPATCH_AFTER.includes(x.type) && !batch) redispatchAfter(game);   // (batch: soakCity re-dispatches once, after them all)
   } else if (own) game.feederWhy = {id: fc, why: r.reason};
@@ -832,9 +842,12 @@ export function restorePreview(game, districtId) {
 
 // ------------------------------------------------------------------ the view model (desk/README.md §5)
 
-/** K-12, Q-78 (§32.4.8; the tally: §32.12 app/game.js): why the bay offers a unit reaching full speed now, or ''. */
+/**
+ * K-12, Q-78 (§32.4.8; the tally: §32.12 app/game.js): why the bay offers a unit reaching full speed now, or ''. W7 (Q-115):
+ * on HAND days only; on an AGC day the auto-synchroniser closes it and nothing is offered (START on it still opens its scope).
+ */
 export function offerWhy(obs, tally) {
-  if (tally.n >= MAX_OFFERS || obs.s >= NIGHT_S) return '';
+  if (tally.n >= MAX_OFFERS || obs.s >= NIGHT_S || (obs.mode !== 'HAND' && !obs.handFlown)) return '';
   if (obs.inRespond && obs.contingency.n !== tally.contN) return 'respond';
   return tally.extra ? '' : obs.sec.level !== 'SECURE' ? 'tight' : obs.s >= PEAK[0] && obs.s < PEAK[1] ? 'peak' : '';
 }
@@ -1424,6 +1437,9 @@ export function resumeStep(game, budgetMs = Infinity, now = () => Date.now()) {
   if (s.marg && game.marg) { game.marg.said = s.marg.said || []; game.marg.beats = s.marg.beats || {}; game.margWatched = !!s.marg.watched; }
   if (s.tally) game.tally = s.tally;
   if (s.offered) game.offered = s.offered;
+  // (W7: and each offer's OFFER window, as play left it; only those: a page frame during the replay, its tally fresh, may have offered a unit play never did)
+  game.director.offers = {};
+  for (const [id, o] of Object.entries(game.offered)) if (o && Number.isFinite(o.tick)) D.offerPace(game.director, game.state, id, o.tick);
   game.margAct = -1;
   // a new lease on the run: an older copy of it still open in another tab now finds the date's entry not its own (yieldTo)
   const old = game.run.id, ymd = dailyYmd(game);

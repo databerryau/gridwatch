@@ -54,8 +54,9 @@ test('F-5: precedence PAUSE > WATCH > RESPOND-CARD > FOCUS > RESPOND > FAST > CR
   assert.deepEqual([D.modeOf(d, s).mode, D.rateOf(d, s)], ['FAST', D.FAST_FACTOR * cruise]);
   D.focusRestore(d, s);
   assert.deepEqual([D.modeOf(d, s).mode, D.rateOf(d, s)], ['FOCUS', 1], 'a restore close plays at 1x');
-  for (let i = 0; i < D.RESTORE_FOCUS_S * TPS; i++) step(s);
-  assert.equal(D.modeOf(d, s).mode, 'FAST', 'FOCUS lasts 2 grid-s');
+  // (W7, Q-115: frequency in band all along here, so the shortest FOCUS; tests/restore-focus.test.js has the dip)
+  for (let i = 0; i < D.RESTORE_FOCUS_S * TPS; i++) { step(s); D.restoreFocusTick(d, s); }
+  assert.equal(D.modeOf(d, s).mode, 'FAST', 'FOCUS lasts 2 grid-s at the least');
   s.scope = {unit: 'gta1', open: true}; // the sim's Phase 1a field (test poke)
   assert.deepEqual([D.modeOf(d, s).mode, D.rateOf(d, s)], ['FOCUS', 1], 'an open synchroscope plays at 1x');
   s.scope = {unit: '', open: false};

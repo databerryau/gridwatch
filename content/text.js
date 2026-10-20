@@ -22,7 +22,7 @@ import {P, V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from './scenarios.js';
 import {ANNIVERSARIES} from './anniversaries.js';
 import {SEGMENTS, gridBefore} from '../sim/clock.js';
-import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE} from '../app/director.js';
+import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE, FOCUS_RATE, RESTORE_FOCUS_S, RESTORE_FOCUS_MAX_S} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
 import {HORN_REPEAT_S} from '../app/alarms.js';
 import {LETTERS} from '../app/score.js';
@@ -126,7 +126,9 @@ const ABSTRACTIONS = [
       ' in HAND, which multiplies the profile\'s speeds before ' + hhmm(NIGHT_H) + ' by ' + num(V.HAND_RATE_FACTOR) + ', CRUISE and FAST with ' +
       'them; the watch, RESPOND and SYNC keep their speeds). The first ' + num(V.WATCH_S) +
       ' grid-seconds after a trip play live at ' + rates.join(' → ') + ' (the watch); its card holds the clock, as a repaired feeder\'s does; RESPOND runs ' +
-      num(RESPOND_RATE) + '× until frequency is back in band, for at most ' + minutes(RESPOND_MAX_S) + ' grid-minutes; FAST runs ' +
+      num(RESPOND_RATE) + '× until frequency is back in band, for at most ' + minutes(RESPOND_MAX_S) + ' grid-minutes; a feeder you close ' +
+      'plays ' + num(FOCUS_RATE) + '× until its pickup\'s dip is back in band, for ' + num(RESTORE_FOCUS_S) + ' to ' + num(RESTORE_FOCUS_MAX_S) +
+      ' grid-seconds; FAST runs ' +
       num(FAST_FACTOR) + ' × the profile. The bench cruises at a flat ' + num(FLAT_RATE) + '×. Pause is free.',
     why: 'A day in minutes with honest physics: slowest at the peak, where the decisions are, fastest in the night, where none are asked.',
     params: ['PHYS_DT', 'REF_PROFILE', 'CLOCK_SEGMENT_NAMES', 'CLOCK_EASE_REAL_S', 'PLAYER_START_H', 'HAND_RATE_FACTOR', 'WATCH_S'],
@@ -834,10 +836,12 @@ const ABSTRACTIONS = [
   {
     id: 'offer-pace', row: 'An offered SYNC runs at 30×.', anchorId: 'offer-pace', ui: 'drawer', game: 'bay-sync',
     real: 'Synchronising is mostly automatic, at the power station: nobody slows the grid to watch a breaker close.',
-    ours: 'When the desk offers you a unit\'s synchroscope (after a trip, while spare is tight or in the evening peak; a few a day, ' +
-      'none from ' + hhmm(NIGHT_H) + ') the clock plays at ' + num(OFFER_RATE) + '× while the unit waits at full speed, for at most ' +
-      'the ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes our auto-synchroniser takes (' + num(V.AUTO_SYNC_S / OFFER_RATE) +
-      ' real s): the badge reads SYNC. O opens the scope; the breaker closing ends it. FAST waits for it.',
+    ours: 'On a HAND day, when the desk offers you a unit\'s synchroscope (after a trip, while spare is tight or in the evening ' +
+      'peak; a few a day, none from ' + hhmm(NIGHT_H) + ') the clock plays at ' + num(OFFER_RATE) + '× while the unit waits at full ' +
+      'speed, for at most the ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes our auto-synchroniser would take (' + num(V.AUTO_SYNC_S / OFFER_RATE) +
+      ' real s): the badge reads SYNC. O opens the scope; the breaker closing ends it. FAST waits for it. On an AGC day nothing is ' +
+      'offered: the auto-synchroniser closes the breaker, and while a unit waits at full speed O or its station\'s START ' +
+      'still opens its scope.',
     why: 'At the profile\'s speeds an offer lived under half a real second: the synchroscope moment needs time to be seen and taken.',
     params: ['AUTO_SYNC_S'],
   },
