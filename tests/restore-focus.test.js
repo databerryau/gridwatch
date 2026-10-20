@@ -119,3 +119,29 @@ test('Q-115, F-7: a HAND day saved mid-offer resumes to the same offers, tally a
   q.key(' ');                                                            // (the resumed desk opens held)
   assert.deepEqual([q.mode(), q.game.director.offers], ['OFFER', p.game.director.offers], 'SYNC 30× for the rest of its window, as in play');
 });
+
+test('Q-115, F-7 (review): an offer a replay frame makes, that play never made, does not come back with the resume', () => {
+  const mem = new Map([[G.SEEN_KEY, JSON.stringify({shifts: 3})]]), date = new Date(2026, 9, 2);
+  const storage = {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k)};
+  const p = openGame({seed: 20261002, agc: false, storage, date}), ready = id => ({state}) => state.units.find(u => u.id === id).mode === 'ready';
+  // GT·A offered at TIGHT (the day's one 'tight' offer, Q-78); cancelled; GT·B at full speed is not offered (the tally's extra is used)
+  p.send({type: 'start', unit: 'gta1'}); p.until(ready('gta1'), {max: '+30m'});
+  assert.deepEqual([p.vm().offers, p.game.tally], [[{unit: 'gta1', why: 'tight'}], {n: 1, extra: 1, contN: -1}]);
+  p.send({type: 'stop', unit: 'gta1'}); p.send({type: 'start', unit: 'gtb1'}); p.until(ready('gtb1'), {max: '+30m'});
+  const tb = p.game.state.tick;
+  p.until(({state}) => state.tick >= tb + 60 * TPS, {max: '+5m'});
+  assert.deepEqual([p.vm().offers, p.mode()], [[], 'CRUISE']);
+  assert.ok(G.saveResume(p.game));
+  // the resume's replay, with one page frame (shell.js onFrame builds the vm every frame) landing while GT·B waits: the
+  // replay's own tally is fresh there, so that frame offers GT·B, which play never did
+  const q = openGame({seed: 20261002, storage, date, take: false}), g = q.game, at = Math.ceil((tb + 1) / 256) * 256;
+  assert.ok(G.resumeBegin(g));
+  G.resumeStep(g, 0, () => (g.state.tick >= at ? 1 : 0));
+  assert.equal(g.state.units.find(u => u.id === 'gtb1').mode, 'ready');
+  G.buildVm(g, {nowMs: 1, dtS: 1 / 60});
+  assert.ok(Object.keys(g.director.offers).length, 'the replay frame offered GT·B');
+  assert.equal(G.resumeStep(g), 1);
+  assert.deepEqual([g.resumeFailed, g.state.tick, g.offered, g.tally], ['', p.game.state.tick, p.game.offered, p.game.tally]);
+  g.director.paused = false;
+  assert.deepEqual([D.modeOf(g.director, g.state).mode, g.director.offers], ['CRUISE', p.game.director.offers], 'no SYNC 30× play never had');
+});
