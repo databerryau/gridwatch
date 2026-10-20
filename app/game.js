@@ -38,7 +38,7 @@ import * as W from './watch.js';
 import * as AM from '../audio/model.js';
 import * as S from './score.js';
 import * as VD from './verdict.js';
-import {createMarg, margSay, MARG_LINES, MARG_FROM} from './marg.js';
+import {createMarg, margSay, MARG_LINES, MARG_FROM, MARG_FIRST, MARG_LATER, MARG_FIRSTS, FIRST_TARGET, beatsAhead, firstsNow} from './marg.js';
 import {plateGroup} from '../desk/desk.js';
 import {createParRunner, seriesAt, parMinute, parHad} from './par.js';
 import * as SH from './share.js';
@@ -243,7 +243,8 @@ export function createGame(o) {
       alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
-    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, rocofMax: seen.rocofMax > 0 ? +seen.rocofMax : 0, shed: !!seen.shed, shifts: Number.isInteger(seen.shifts) && seen.shifts > 0 ? seen.shifts : 0}, // (D-7: shifts finished)
+    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, rocofMax: seen.rocofMax > 0 ? +seen.rocofMax : 0, shed: !!seen.shed, shifts: Number.isInteger(seen.shifts) && seen.shifts > 0 ? seen.shifts : 0, // (D-7: shifts finished)
+      marg: Object.fromEntries(MARG_FIRSTS.filter(k => seen.marg && seen.marg[k] === true).map(k => [k, true]))}, // (W7, Q-124: Marg's first-time lines said)
     cues: [], refusal: null, respond: null, respondGlow: [], feeder: null, feederWhy: null, offers: [], offered: {}, tally: null,
     previewCache: new Map(), previewS: -1, restoreCache: new Map(), restoreS: -1,
     hist: null, histView: null, histViewS: -1,
@@ -1139,16 +1140,17 @@ export function doneBefore(game) {
   return '';
 }
 
-/** O-6: Marg says the text at its key's beat (app/marg.js: once, within the day's limit), as a tray card. */
-export function margBeat(game, key, text, target) {
+/** O-6: Marg says the text at its key's beat (app/marg.js: once, within the day's limit less `reserve`), as a tray card. */
+export function margBeat(game, key, text, target, reserve = 0) {
   if (!game.marg) return null;
-  const line = margSay(game.marg, key, text, Math.floor(game.state.tick / TPS), target);
+  const line = margSay(game.marg, key, text, Math.floor(game.state.tick / TPS), target, reserve);
   if (line) for (const c of T.trayMarg(game.tray, line, MARG_FROM)) pushCue(game, c);
   return line;
 }
-// Once a frame in play: the act changes, the first watch's settle (a first shift's), the 21:00 handover.
+// Once a frame in play: the act changes, the first watch's settle (a first shift's), the 21:00 handover. Never in a resume's
+// replay (F-7: it is silent; her day comes back from the save, and a first-time line said there would be kept as seen).
 function margFrame(game, obs, mode) {
-  if (!game.marg || game.phase !== 'play' || obs.over) return;
+  if (!game.marg || game.replay || game.phase !== 'play' || obs.over) return;
   if (mode.act !== game.margAct) {
     const was = game.margAct;
     game.margAct = mode.act;
@@ -1160,6 +1162,49 @@ function margFrame(game, obs, mode) {
     margBeat(game, 'watch', MARG_LINES.watch(c), 'dial-freq');
   }
   if (obs.nightShift) margBeat(game, 'handover', MARG_LINES.handover());
+  // W7 (Q-124): a first-time line, kept in the seen memory once said (with storage blocked, in the page's memory: once a day
+  // at most). One a frame: the next waits for room on the tray, so she never sends her own card to the LOG unseen.
+  for (const k of margFirsts(game, mode.mode)) {
+    const text = MARG_LINES[k](obs, game.dayAhead, game.verdict), room = text && lessonRoom(game, k);
+    if (!room) continue;
+    if (room !== true) T.dismissCard(game.tray, room.id);   // (a shed's warning, to the LOG: her relays line is in its place)
+    if (!margBeat(game, 'first:' + k, text, FIRST_TARGET[k], beatsAhead(game.marg, game.margAct, game.margWatched))) continue;
+    game.director.seen.marg = Object.assign({}, game.director.seen.marg, {[k]: true});
+    saveSeen(game);
+    break;
+  }
+}
+// W7 (Q-124 review): a city desk's warning, which is always a shed (app/tray.js cardOf: the relays' 'ufls', a directed
+// 'shed', DIRECTED_SHED)
+const shedCard = c => c.sev === 'warn' && c.from === T.SENDERS.city;
+/**
+ * W7 (Q-124 review): where first-time line `k` would show on the tray now: true for a free place, or when the information
+ * card that gives way to hers (app/tray.js trayMarg: the oldest) is not one of her own (another lesson, or a fixed beat
+ * said this frame or just before: she never talks over herself). With MAX_CARDS warnings hers would go straight to the
+ * LOG, so it waits; but the relays' line takes the place of the city desk's oldest warning, a shed (the relays' or a
+ * directed one: the districts her line is about), which goes to the LOG: that card. Else null (it waits). The sheds' own
+ * warnings keep the tray full while the city sheds: they held her line back for hours of grid time, past the next trip.
+ */
+function lessonRoom(game, k) {
+  const cards = game.tray.cards;
+  if (cards.length < T.MAX_CARDS) return true;
+  const out = cards.find(c => c.sev === 'info');
+  if (out) return out.from === MARG_FROM ? null : true;
+  return (k === 'relays' && cards.find(shedCard)) || null;
+}
+/**
+ * W7 (Q-124): the first-time lines Marg would say now (app/marg.js firstsNow's keys this browser has not met yet, not said
+ * today): none in a resume's replay (F-7), in a watch, once the night shift has the desk, without room on the tray
+ * (lessonRoom: three warnings, bar the relays' line and a shed's warning; or a card of hers that would give way), or with
+ * no room left beside the fixed beats to come. Cheap: tests/lib/play.js asks it between frames, so a jump draws the frame
+ * that says one.
+ */
+export function margFirsts(game, mode) {
+  const m = game.marg, st = game.state;
+  if (!m || game.replay || game.phase !== 'play' || st.over || mode === 'WATCH' || mode === 'SHED-WATCH' || st.control.nightShift) return [];
+  if (m.said.length + beatsAhead(m, game.margAct, game.margWatched) >= (m.first ? MARG_FIRST : MARG_LATER)) return [];
+  const seen = game.director.seen.marg || {};
+  return firstsNow(st, game.verdict).filter(k => !seen[k] && !m.beats['first:' + k] && lessonRoom(game, k));
 }
 
 // ------------------------------------------------------------------ W3: the verdict

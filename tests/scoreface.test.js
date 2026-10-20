@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {bootGame, GOALS_TEXT, NIGHT_REDRAW_MS} from '../app/shell.js';
 import * as endCard from '../app/endcard.js';
-import {allIn, grade} from '../app/score.js';
+import {allIn, grade, RANKS} from '../app/score.js';
 import {seriesAt, PAR_MARK_S} from '../app/par.js';
 import {dollars} from '../render/format.js';
 import {V} from '../sim/params.js';
@@ -52,7 +52,8 @@ function boot(o = {}) {
     rows: () => $('end-card').querySelectorAll('tr').map(r => r.children.map(c => squash(c.textContent))),
     lines: () => $('end-card').querySelectorAll('p').map(p => squash(p.textContent))};
 }
-const scoreText = (g, perfect) => 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + (perfect ? ' · PERFECT' : ''); // (S-6)
+const scoreText = (g, perfect) => 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + ' ' + RANKS[g.letter === 'A' && g.star ? 'A★' : g.letter] +
+  (perfect ? ' · PERFECT' : ''); // (S-6; W7, Q-118: the rank beside the letter)
 
 test('Q-48: the chip: hidden at the briefing; from 21:00 (W7, Q-117: SCORE FROM 21:00 before), SCORE against par at the same grid time ("SCORE …" until par is there); its title', () => {
   const run = runner({progress: 0.2}), clock = {t: 0};
@@ -106,6 +107,8 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.equal(card.firstElementChild.tagName, 'H2');
   assert.equal(card.firstElementChild.textContent, 'Day over: 04:00.', 'the h2 first and unchanged');
   assert.equal(b.$('end-score').textContent, scoreText(g, b.game.end.perfect));
+  // (W7, Q-118: the letter's rule under it names every rank, so the player finds their own and the next one up)
+  assert.ok(Object.values(RANKS).every(r => b.$('end-letter').textContent.includes(r)), b.$('end-letter').textContent);
   assert.equal(b.chip(), 'SCORE ' + g.points, 'the chip at 04:00 is the card\'s score');
   const rows = b.rows();
   assert.deepEqual(rows[0], ['', 'YOU', 'PAR', 'Δ']);
@@ -179,7 +182,7 @@ test('Q-48: par off, a black day, and a par that went black', () => {
   black.take();
   black.over(true);
   assert.equal(black.$('end-card').firstElementChild.textContent, 'The grid went black.');
-  assert.equal(black.$('end-score').textContent, 'SCORE 0 · F');
+  assert.equal(black.$('end-score').textContent, 'SCORE 0 · F BLACK START CREW');
   assert.equal(black.chip(), 'SCORE 0');
   assert.ok(black.lines().includes('The grid went black at 04:30: the day was cut short, so it has no YOU column.'), black.lines().join('\n'));
   const rows = black.rows(), par = allIn(PAR, black.game.households);
@@ -214,7 +217,7 @@ test('Q-48: the card\'s arithmetic: SAIDI\'s worth at VCR, the biggest gap named
   assert.ok(dark.lines.includes('SAIDI 2.5 min · SAIFI 0.12 · MAIFI 0.00 per household today (par: SAIDI 0.0 min)'));
   // cheaper and cleaner than par: ★ and no gap
   const win = mount(Object.assign({}, base, {costDollars: 3.5e6, co2tPerMWh: 0.5}), base, 0);
-  assert.ok(win.lines[0].startsWith('SCORE ') && win.lines[0].endsWith(' · A ★'), win.lines[0]);
+  assert.ok(win.lines[0].startsWith('SCORE ') && win.lines[0].endsWith(' · A ★ MARG\'S CHAIR'), win.lines[0]);
   assert.ok(win.lines.includes('You beat par on all three.'));
   // the prices are the params', never typed into the face's code
   for (const f of ['../app/endcard.js', '../app/shell.js', '../render/format.js']) {

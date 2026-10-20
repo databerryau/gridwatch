@@ -8,8 +8,19 @@ import {V} from '../sim/params.js';
  * added mistake earns the same letter on any day, whatever par's total. F is a black grid.
  */
 export const LETTERS = Object.freeze([['A', 10], ['B', 150], ['C', 600], ['D', Infinity]].map(l => Object.freeze(l)));
-/** The card's one line on the letter (S-5). */
-export const LETTER_RULE = 'Letter: how far behind par, in MWh dark at VCR: A within 10, B within 150, C within 600, D beyond; F if the grid goes black.';
+/**
+ * W7 (Q-118): the rank beside each letter, everywhere the letter shows. 'A★' is an A at par or better (the ★): Marg's own
+ * chair. (Measured once, tools/follow.mjs on 41 dailies: following the coach's line reaches it on about half of them, so
+ * it does not mean the player outplayed the coach.) F, a black grid, is the crew that restarts it.
+ */
+export const RANKS = Object.freeze({D: 'TRAINEE', C: 'SHIFT OPERATOR', B: 'SENIOR OPERATOR', A: 'SHIFT SUPERVISOR', 'A★': 'MARG\'S CHAIR', F: 'BLACK START CREW'});
+/** The card's one line on the letter (S-5), each letter with its rank as the SCORE line shows it (Q-118). */
+export const LETTER_RULE = 'Letter: how far behind par, in MWh dark at VCR: A ★ ' + RANKS['A★'] + ' at par or better, ' +
+  LETTERS.map(([l, mwh]) => l + ' ' + RANKS[l] + (mwh < Infinity ? ' within ' + mwh : ' beyond')).join(', ') + '; F ' + RANKS.F + ' if the grid goes black.';
+/** Q-118: a grade's rank (grade's {letter, star}, or a history entry's), '' with no letter. */
+export const rankOf = g => (g && g.letter ? RANKS[g.letter === 'A' && g.star ? 'A★' : g.letter] || '' : '');
+/** Q-118: the letter, its ★ and its rank, as every face shows them: 'A ★ MARG\'S CHAIR', 'C SHIFT OPERATOR', 'F BLACK START CREW'. */
+export const letterText = g => (g && g.letter ? g.letter + (g.star ? ' ★' : '') + (rankOf(g) ? ' ' + rankOf(g) : '') : '');
 
 /** X-45: dark energy under this is a moment's dip (a few kWh), not an outage: the OUTAGES row is $0. */
 export const OUTAGE_MIN_MWH = 0.05;

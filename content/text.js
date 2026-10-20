@@ -25,7 +25,7 @@ import {SEGMENTS, gridBefore} from '../sim/clock.js';
 import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE, FOCUS_RATE, RESTORE_FOCUS_S, RESTORE_FOCUS_MAX_S} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
 import {HORN_REPEAT_S} from '../app/alarms.js';
-import {LETTERS} from '../app/score.js';
+import {LETTERS, RANKS} from '../app/score.js';
 
 // ------------------------------------------------------------------ formatting
 
@@ -676,7 +676,9 @@ const ABSTRACTIONS = [
       'yours, par being GRIDWATCH\'s own autopilot on the same day: 1000 is par, more beats it, and a black day scores 0 (F). ' +
       'The letter comes from how far your ALL-IN is behind par\'s, in MWh dark at VCR: ' +
       LETTERS.slice(0, -1).map(l => l[0] + ' within ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
-      ' beyond, so the same mistake earns the same letter on any day. From 21:00, when the night shift takes the desk, the chip compares you with par at the same grid time; before then it shows no number. ALL-IN is the day\'s cost to the ' +
+      ' beyond, so the same mistake earns the same letter on any day. Each letter has its rank: ' +
+      ['D', 'C', 'B', 'A'].map(l => l + ' ' + RANKS[l]).join(', ') + ', and A ★ (par or better) ' + RANKS['A★'] + '; a black grid\'s F is ' +
+      RANKS.F + '. From 21:00, when the night shift takes the desk, the chip compares you with par at the same grid time; before then it shows no number. ALL-IN is the day\'s cost to the ' +
       'community, not a price or a bill.',
     why: 'One currency is how regulators trade the three goals off, so the score teaches the real trade: an MWh dark weighs ' +
       'as much as ' + num(V.VCR / V.VER) + ' priced tonnes of CO₂. Dividing par\'s total by yours is GRIDWATCH\'s own rule; it ' +

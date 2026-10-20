@@ -8,6 +8,7 @@
 //   p.to('15:40');            // jump the sim to 15:40 without drawing frames, then draw one frame
 //   p.until('trip');          // jump to the tick the next trip begins, then draw one frame
 //   p.skipTo('17:30');        // to('17:30', {stop: []}) at ~0.6x the cost (no 60-fps virtual frames): stops at a card, one frame
+//   p.skipTo('14:00', {stop: ({state, game}) => ...});   // the same, stopping at the first grid second the predicate holds
 //   p.real(5); p.look();      // five real seconds of frames (the watch), then what the player sees
 //   p.realJump(5);            // five real seconds as a jump (sampled, not streamed), then one frame
 //   p.click('guard-start-gta1'); p.key('Enter');
@@ -400,10 +401,11 @@ export function openGame(o = {}) {
     game.director.seenDirty = false;
   }
   // buildVm recomputes the objective line this frame (its own test, G.objectiveDue), or a unit is
-  // READY (the offers): then the virtual frame runs buildVm itself.
+  // READY (the offers), or Marg has a first-time line to say (W7, Q-124: G.margFirsts): then the virtual frame runs buildVm itself.
   function vmDue(lineFrom) {
     const s = game.state;
     if (s.units.some(u => u.mode === 'ready')) return true;
+    if (G.margFirsts(game, modeNow()).length) return true;
     if (s.tick < lineFrom) return false;
     if (game.phase !== 'play' || game.commit !== 'player' || !game.planview) return false;
     return game.considerDirty || !!G.objectiveDue(game, Math.floor(s.tick / TPS), modeNow());
@@ -548,7 +550,7 @@ export function openGame(o = {}) {
    * s in CRUISE; a grid second at least, where a page frame is a sliver of one: the watch, FOCUS) and at each step of the
    * director's rate: the director's frame, then the annunciator and the tray (lightFrame), or the whole view model
    * (buildVm, as a jump's frame runs it) while a unit is READY (the offers: OFFER's pace and their tally), when an act
-   * begins and when the night shift takes the desk (Marg's beats); then one drawn frame, as a jump's. The page's clock
+   * begins, when the night shift takes the desk and when a first-time line is due (Marg's beats); then one drawn frame, as a jump's. The page's clock
    * moves on as its pacer charges each tick (the D-2 profile's real s in CRUISE and NIGHT, realBetween; off it the
    * director's rate tick by tick: the watch's slow motion, RESPOND, FOCUS, OFFER), recorded for clockReport frame by
    * frame, so the annunciator's real-second timers and D-2's clock see play's real seconds. It stops where the page holds
@@ -562,10 +564,11 @@ export function openGame(o = {}) {
    * so a press after a skip may land a frame's ticks away from the same press after a jump. Checked against page jumps
    * over whole days (W6 review, seeds 20261007, 20261014, 20261016, 20261017, 20261202, answering every card): the same
    * holds and hashes, annunciator tiles, soundings and tray, the page clock within 0.1 real s. Returns {why, at, ticks,
-   * ms}, as to().
+   * ms}, as to(). W7: opts.stop, a function ({state, game, tick}) asked at each grid second's first tick, stops the skip
+   * there when truthy (why 'pred'; then the drawn frame), as until()'s predicate does a jump.
    */
-  function skipTo(when) {
-    const t0 = performance.now(), state = game.state, tick0 = state.tick, d = game.director;
+  function skipTo(when, opts = {}) {
+    const t0 = performance.now(), state = game.state, tick0 = state.tick, d = game.director, stop = opts.stop || null;
     const toTick = Math.min(Math.round(parseTime(when, state.tick / TPS) * TPS), V.DAY_TICKS);
     if (game.phase !== 'play') return finish('held:BRIEFING', t0, tick0, false, null);
     if (D.directorFrame(d, state)) saveSeen();
@@ -583,6 +586,7 @@ export function openGame(o = {}) {
       if (state.tick >= toTick) { why = 'target'; break; }
       const sB = gridS();
       G.tickOnce(game);
+      if (stop && state.tick % TPS === 0 && stop({state, game, tick: state.tick})) { why = 'pred'; break; }   // (W7: opts.stop)
       if (on && state.tick % TPS > 1 && state.conts.length === conts && state.tick !== end && d.shedW === shed && D.handAt(state) === hand) continue;
       if (on) { dt += realBetween(from, sB, hand); rate = rateAt(sB, hand); }
       const last = D.rateOfLastTick(d, state), r = rateNow();
