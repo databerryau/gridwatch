@@ -82,3 +82,26 @@ test('Q-124: a browser that has met them never hears them again; with storage bl
   g.state = at;
   assert.deepEqual(G.margFirsts(g, 'CRUISE'), ['coal']);
 });
+
+test('Q-124 review: two lessons due in one frame beside two warnings: one is said, the other waits for room, and neither goes to the LOG unseen', () => {
+  // a new browser at that moment (the price below zero and coal at its minimum both new), the tray holding two warnings
+  const g = G.createGame({seed: SEED, storage: null}), frame = n => G.buildVm(g, {nowMs: n * 16, dtS: 1 / 60});
+  G.takeDesk(g);
+  g.state = S.p.game.state;
+  const warn = n => ({id: 'w' + n, from: 'MARKET NOTICE', atS: 0, text: 'warning ' + n, sev: 'warn', button: {label: 'TO THE GAUGE', target: 'gauge-n1'}, untilS: 1e9});
+  g.tray.cards = [warn(1), warn(2)];
+  const firsts = () => g.marg.said.filter(l => l.key.startsWith('first:')).map(l => l.key), mine = list => list.filter(c => c.from === MARG_FROM).map(c => c.text.split(':')[0]);
+  frame(1);
+  assert.deepEqual(firsts(), ['first:price'], 'one a frame');
+  assert.deepEqual(mine(g.tray.cards), ['Price below zero']);
+  frame(2);
+  assert.deepEqual(firsts(), ['first:price'], 'coal waits: hers would send the price\'s card to the LOG');
+  assert.deepEqual(g.director.seen.marg, {price: true}, 'and is not kept as met');
+  // the price's card has had its life (TRAY_LIFE_REAL_S): the frame moves it to the LOG, and coal has its turn
+  g.tray.cards.find(c => c.from === MARG_FROM).untilS = g.state.tick / TPS;
+  frame(3);
+  assert.deepEqual(mine(g.tray.log), ['Price below zero']);
+  assert.deepEqual(firsts(), ['first:price', 'first:coal']);
+  assert.deepEqual(mine(g.tray.cards), ['Coal\'s at its minimum']);
+  assert.deepEqual(g.director.seen.marg, {price: true, coal: true});
+});

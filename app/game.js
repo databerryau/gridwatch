@@ -1085,23 +1085,38 @@ function margFrame(game, obs, mode) {
     margBeat(game, 'watch', MARG_LINES.watch(c), 'dial-freq');
   }
   if (obs.nightShift) margBeat(game, 'handover', MARG_LINES.handover());
-  // W7 (Q-124): a first-time line, kept in the seen memory once said (with storage blocked, in the page's memory: once a day at most)
+  // W7 (Q-124): a first-time line, kept in the seen memory once said (with storage blocked, in the page's memory: once a day
+  // at most). One a frame: the next waits for room on the tray, so one lesson never sends another to the LOG.
   for (const k of margFirsts(game, mode.mode)) {
     if (!margBeat(game, 'first:' + k, MARG_LINES[k](obs, game.dayAhead, game.verdict), FIRST_TARGET[k], beatsAhead(game.marg, game.margAct, game.margWatched))) continue;
     game.director.seen.marg = Object.assign({}, game.director.seen.marg, {[k]: true});
     saveSeen(game);
+    break;
   }
+}
+// W7 (Q-124 review): a tray card that is one of today's first-time lines (hers, by its text)
+const lessonCard = (game, c) => c.from === MARG_FROM && game.marg.said.some(l => l.key.startsWith('first:') && l.text === c.text);
+/**
+ * W7 (Q-124 review): whether a first-time line would show on the tray now: a free place, or the information card that gives
+ * way to hers (app/tray.js trayMarg: the oldest) is not another first-time line. With MAX_CARDS warnings it would go
+ * straight to the LOG, and over a lesson it would send that one there: it waits.
+ */
+function lessonRoom(game) {
+  const cards = game.tray.cards;
+  if (cards.length < T.MAX_CARDS) return true;
+  const out = cards.find(c => c.sev === 'info');
+  return !!out && !lessonCard(game, out);
 }
 /**
  * W7 (Q-124): the first-time lines Marg would say now (app/marg.js firstsNow's keys this browser has not met yet, not said
- * today): none in a resume's replay (F-7), in a watch, once the night shift has the desk, while the tray shows MAX_CARDS
- * warnings (it would log her card at once: app/tray.js trayMarg), or with no room left beside the fixed beats to come.
+ * today): none in a resume's replay (F-7), in a watch, once the night shift has the desk, without room on the tray
+ * (lessonRoom: three warnings, or another lesson that would give way), or with no room left beside the fixed beats to come.
  * Cheap: tests/lib/play.js asks it between frames, so a jump draws the frame that says one.
  */
 export function margFirsts(game, mode) {
   const m = game.marg, st = game.state;
   if (!m || game.replay || game.phase !== 'play' || st.over || mode === 'WATCH' || mode === 'SHED-WATCH' || st.control.nightShift) return [];
-  if (game.tray.cards.filter(c => c.sev !== 'info').length >= T.MAX_CARDS) return [];
+  if (!lessonRoom(game)) return [];
   if (m.said.length + beatsAhead(m, game.margAct, game.margWatched) >= (m.first ? MARG_FIRST : MARG_LATER)) return [];
   const seen = game.director.seen.marg || {};
   return firstsNow(st, game.verdict).filter(k => !seen[k] && !m.beats['first:' + k]);

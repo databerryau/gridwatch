@@ -13,7 +13,8 @@
 //   first:<k> W7 (Q-124, in place of O-4's concept cards and O-5's "why?"): the first time this browser's player meets a
 //             negative price, coal held at its minimum while solar spills, or the relays shedding (MARG_FIRSTS): what it
 //             means, once (app/game.js keeps it in the seen memory); never in a watch, nor once the night shift has the desk,
-//             nor while the tray is full of warnings (it would go straight to the LOG): it waits for room, still true
+//             nor while the tray is full of warnings (it would go straight to the LOG), nor over another one on the tray
+//             (one a frame; app/game.js lessonRoom): it waits for room, still true
 // A day holds at most MARG_FIRST lines on a first shift and MARG_LATER on later days; a beat speaks once. A first-time
 // line keeps room for the fixed beats still to come (beatsAhead): on a later day that leaves it one line, and one that
 // cannot speak waits for another day.

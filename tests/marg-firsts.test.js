@@ -6,7 +6,7 @@
 // are tests/marg-firsts-day.test.js's, a day of their own).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {createMarg, margSay, beatsAhead, firstsNow, MARG_LINES, MARG_WORDS, MARG_FIRST, MARG_LATER, MARG_FIRSTS, AT_MIN_MW} from '../app/marg.js';
+import {createMarg, margSay, beatsAhead, firstsNow, MARG_LINES, MARG_WORDS, MARG_FIRST, MARG_LATER, MARG_FIRSTS, AT_MIN_MW, MARG_FROM} from '../app/marg.js';
 import * as G from '../app/game.js';
 import {V} from '../sim/params.js';
 import {openGame} from './lib/play.js';
@@ -106,6 +106,21 @@ test('Q-124: margFirsts (the page\'s and the driver\'s test): not once seen, not
   const full = gameOf({first: false, game: {margAct: 1}});
   for (const k of ['take', 'x']) margSay(full.marg, k, k, 0);
   assert.deepEqual(G.margFirsts(full, 'CRUISE'), [], 'a later day with its one free line used');
+});
+
+test('Q-124 review: one lesson never sends another to the LOG: with the tray full, hers waits while the card that would give way is a lesson', () => {
+  // the price's line said (a first shift), and now coal at its minimum with solar spilling too
+  const atMin = stateOf().units.map(u => (V.MACHINES[u.k].id === 'coal3' ? Object.assign({}, u, {schedMW: V.MACHINES[u.k].minMW}) : u));
+  const withPrice = cards => {
+    const g = gameOf({cards, state: {units: atMin, ren: {solarMW: 800}}});
+    margSay(g.marg, 'first:price', MARG_LINES.price(obsAt(7 * H)), 2000, 'stack');
+    return g;
+  };
+  const lesson = {sev: 'info', from: MARG_FROM, text: MARG_LINES.price(obsAt(7 * H))}, other = {sev: 'info', from: 'STATION', text: 'Mt Hazel coal 2: START.'};
+  assert.deepEqual(G.margFirsts(withPrice([card('warn'), card('warn'), lesson]), 'CRUISE'), [], 'the price\'s card would give way: coal waits');
+  assert.deepEqual(G.margFirsts(withPrice([card('warn'), lesson]), 'CRUISE'), ['coal'], 'a free place: both show');
+  assert.deepEqual(G.margFirsts(withPrice([other, card('warn'), lesson]), 'CRUISE'), ['coal'], 'an older information card gives way instead');
+  assert.deepEqual(G.margFirsts(withPrice([card('warn'), card('warn'), Object.assign({}, lesson, {from: 'STATION'})]), 'CRUISE'), ['coal'], 'only her own card is a lesson');
 });
 
 test('Q-124 on the page: the first relay shed is said after its watch, once the tray can show it, with the districts the relays shed; with storage blocked the page remembers', () => {
