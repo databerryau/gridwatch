@@ -18,7 +18,7 @@ the frequency band, mean unserved energy, blackout times, how many days are shor
 an optimistic supply bound, a reference contingency (one coal machine trips at 04:00), how
 often the grade is already settled at 21:00, a determinism check and the sim cost per tick.
 
-To measure a patched copy instead of `index.html`:
+To measure a patched copy instead of `classic.html` (the v2 game the harness loads):
 
 ```
 GRIDWATCH_HTML=path/to/copy.html node tools/baseline.js
@@ -223,7 +223,7 @@ after `node --test` and prints a GitHub warning for each offender; it never fail
 | `perf.mjs`, `shot-receiver.mjs` | F-11 headless measurements; the PNG receiver for visual QA (SPEC §10). |
 | `baseline-v4.js` | The v4 baseline above; `baseline-v4.golden.md` is its committed output (`--check` compares with it). |
 | `verify.mjs` | W7 Q15: replays par on every daily against the stored lists and restamps them when nothing moved (`npm run verify`). An ES module. |
-| `harness.js` | Loads the inline `<script>` of `index.html` with a stub page and a seeded `Math.random`. `load({seed, file})` returns a game instance `G`; `G.runToEnd(policy)` plays a whole shift and returns `{black, grade, money, cmp, unserved, co2, worstDev, maxPrice, outT, t, endClock}`. Also exports `gradeOf(S, black)` and `weatherClass(G)`. `node tools/harness.js` runs a 5-seed smoke test. |
+| `harness.js` | Loads the inline `<script>` of `classic.html` (the v2 game) with a stub page and a seeded `Math.random`. `load({seed, file})` returns a game instance `G`; `G.runToEnd(policy)` plays a whole shift and returns `{black, grade, money, cmp, unserved, co2, worstDev, maxPrice, outT, t, endClock}`. Also exports `gradeOf(S, black)` and `weatherClass(G)`. `node tools/harness.js` runs a 5-seed smoke test. |
 | `policies.js` | Scripted players: `doNothing`, `reactiveOnly`, `competent` (the best preset from the balance review, reading only what the screen shows; see `observe()`), `competentClassic` (the review's reference policy), and the configurable `ctl(cfg)`. |
 | `baseline.js` | Runs the policies over seeds and prints the report. |
 | `package.json` | Pins `tools/` to CommonJS so these scripts keep working if the repo root later adds `"type": "module"` for the v4 ES-module sim. No dependencies. |
