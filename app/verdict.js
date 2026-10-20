@@ -295,6 +295,15 @@ const tripName = t => (t.cause === 'link' ? 'the tie line' : t.cause === 'load' 
 /** Q-119 review: a trip's MW in the game's words, never a minus sign: the tie's flow and which way (a tie exporting when it tripped was a rise), a potline's load. */
 const tripSize = (cause, x) => (cause === 'link' ? tieText(x) : mw(Math.abs(x)) + ' MW' + (x < 0 ? ' of load' : ''));
 const stages = k => k + ' stage' + (k > 1 ? 's' : '');
+/** Q-119 review: how long a GUARD that fired delivers its MW (sim/physics.js: sustained, then ramped off). */
+const GUARD_LIVE_S = V.GUARD_SUSTAIN_S + V.GUARD_RAMP_OFF_S;
+/**
+ * Q-119 review: your GUARD was holding its MW back from the battery's dispatch at grid second s (a shed's start): it had
+ * not fired in the GUARD_LIVE_S before (frequency at or above GUARD_TRIGGER_HZ each second of them, to s). One that fired
+ * then was delivering them; one that fired earlier is spent and holds them back again. The relays cut below 49 Hz, so
+ * frequency crossed the trigger on its way down: the GUARD had fired, and a GUARD par let go is never said for them.
+ */
+const guardHeld = (mem, s) => { for (let t = Math.max(0, s - GUARD_LIVE_S); t <= s && t < DAY_S; t++) if (mem.fLo[t] < V.GUARD_TRIGGER_HZ) return false; return true; };
 /** Q-119: the grid minute (0: 04:00-04:01) both sides are read at for moment m: the one before its trip or shed began, or the thinnest margin's own. */
 export const diffMinute = m => (m.kind === 'margin' ? m.minute : Math.floor(m.s / MIN) - 1);
 /** Q-119: a preview of a trip in words: "49.31 Hz, no relays". */
@@ -315,7 +324,8 @@ const previewText = r => (r.black ? 'the grid would go black' : r.nadirHz.toFixe
  *   A shed with no trip before it (the city desk's, or the relays' on frequency alone), the most MW first: par's
  *     machines (their rated MW over yours); par importing DIFF_MW more over the tie; par's air-con cycles taking
  *     DIFF_FLEX_MW more off demand; par's GUARD DIFF_MW or more below yours (a GUARD holds the battery's power back from
- *     the energy it would supply).
+ *     the energy it would supply), only while yours held it back at the shed (guardHeld: not fired, or spent; never for
+ *     the relays, whose fall fired it).
  *   The thinnest margin, only when par's spare in 5 min was DIFF_MW more: par's machines and its air-con cycles, the
  *     most MW first.
  *   A rise: none. The soak is not compared: before 21:00 it only adds load (at noon), never helps a short minute.
@@ -362,7 +372,7 @@ export function parLines(m, mem, o) {
     const t = p.tieMW - you.tieMW;
     if (t >= DIFF_MW) fact(t, 'Par was ' + tieText(p.tieMW) + ' over the tie; you were ' + tieText(you.tieMW) + '.');
     cycles();
-    if (you.guardMW - p.guardMW >= DIFF_MW) fact(you.guardMW - p.guardMW, guardLine());
+    if (you.guardMW - p.guardMW >= DIFF_MW && guardHeld(mem, m.s)) fact(you.guardMW - p.guardMW, guardLine());
     facts.sort((a, b) => b[0] - a[0]);   // (each is MW par could serve load with that you could not: the most first)
   } else {
     const pm = o.parMinute && o.parMinute(m.s);

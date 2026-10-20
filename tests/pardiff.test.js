@@ -108,6 +108,19 @@ test('Q-119: a shed with no trip says par\'s machines, tie, air-con cycles and a
   assert.equal(VD.moment(mem, [], parOf({tieMW: 300}, {parBlocks: []})).parLines[0], 'Par was importing 300 MW over the tie; you were importing 200 MW.');
   mem.tie[K] = -120;
   assert.equal(VD.moment(mem, [], parOf({tieMW: 0})).parLines[0], 'Par was not importing over the tie; you were exporting 120 MW.');
+  // a GUARD par let go, only while yours held its MW back at the shed: not fired (frequency at or above GUARD_TRIGGER_HZ for
+  // GUARD_SUSTAIN_S + GUARD_RAMP_OFF_S before it), or fired before that and spent. A fired GUARD is delivering them; the
+  // relays cut below 49 Hz, so frequency crossed the trigger on its way down and the GUARD had fired: never for the relays.
+  const held = (by, dipS) => {
+    const x = memOf({spells: [Object.assign({}, sp, {by})]});
+    x.guard[K] = 300; x.fLo.fill(49.8, S - 900, S + 60);
+    if (dipS !== undefined) x.fLo[S - dipS] = V.GUARD_TRIGGER_HZ - 0.01;
+    if (by === 'ufls') x.fLo.fill(48.9, S - 4, S + 1);
+    return VD.moment(x, [], parOf()).parLines;
+  };
+  const GUARD = ['Par had a GUARD of 0 MW; yours was 300.'], LIVE_S = V.GUARD_SUSTAIN_S + V.GUARD_RAMP_OFF_S;
+  assert.deepEqual([held('directed'), held('directed', 120), held('directed', LIVE_S), held('directed', LIVE_S + 1), held('ufls'), held('ufls', LIVE_S + 60)],
+    [GUARD, [], [], GUARD, [], []], 'held back / delivering / still ramping off / spent / the relays');
   // the thinnest margin: par's machines, only when par's spare in 5 min was 50 MW more
   const g = memOf();
   g.r5.fill(5000); g.L.fill(600); g.r5[K] = 700;
