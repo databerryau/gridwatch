@@ -20,15 +20,17 @@
   GitHub Pages caches each file for 10 minutes, so for a while after the deploy a browser may still hold the old root,
   which sent everyone here: going back to './' would bounce between the two. So after two hops in a tab this page goes
   to index.html by name, an address the old root was almost never cached under, and the game (app/start.js) clears the
-  count when it starts. With no session storage it goes there at once.
+  count when it starts. With no session storage it goes there at once. If index.html too is the old root, after four
+  hops it stops here, on its own words, with the link keeping the address.
 -->
+<noscript><meta http-equiv="refresh" content="0; url=index.html"></noscript>
+<style>body{margin:0;padding:24px 16px;background:#0d1117;color:#c9d1d9;font:16px/1.5 system-ui,sans-serif}a{color:#58a6ff}</style>
+<p>GRIDWATCH has moved to <a id="moved" href="./">databerryau.github.io/gridwatch</a>. The original game is at <a href="classic.html">classic.html</a>.</p>
 <script>
   (function () {
     var rest = location.search + location.hash, n = 0;
     try { n = +sessionStorage.getItem('gridwatch:hop') || 0; sessionStorage.setItem('gridwatch:hop', String(n + 1)); } catch (e) { n = 2; }
+    if (n >= 4) { document.getElementById('moved').href = './' + rest; return; }
     location.replace((n < 2 ? './' : 'index.html') + rest);
   })();
 </script>
-<noscript><meta http-equiv="refresh" content="0; url=index.html"></noscript>
-<style>body{margin:0;padding:24px 16px;background:#0d1117;color:#c9d1d9;font:16px/1.5 system-ui,sans-serif}a{color:#58a6ff}</style>
-<p>GRIDWATCH has moved to <a href="./">databerryau.github.io/gridwatch</a>. The original game is at <a href="classic.html">classic.html</a>.</p>
