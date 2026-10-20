@@ -96,13 +96,15 @@ test('F-7 (review): a feeder queued at its card still closes itself after the re
   p.key('Enter');
   const queued = D.queuedFeeders(p.game.director);
   assert.ok(queued.length >= 1, 'a feeder is queued');
+  G.runTo(p.game, p.game.state.tick + TPS);   // (W7, Q-115: a grid second into its FOCUS, frequency out of band)
+  const rf = p.game.director.rfs;
+  assert.deepEqual([rf.length, rf[0].out, rf[0].back, rf[0].end], [1, true, -1, -1], 'saved mid-FOCUS, in the dip');
   assert.ok(G.saveResume(p.game));
   const q = resume(open(s, {seed: 20261007, take: false, date: new Date(2026, 9, 7)}));
   assert.equal(hashState(q.game.state), hashState(p.game.state));
   assert.deepEqual(D.queuedFeeders(q.game.director), queued);
-  // W7 (Q-115): the close's FOCUS, saved before its dip recovered, comes back with it (the replay finds it tick by tick)
+  // W7 (Q-115): the close's FOCUS comes back with it (the replay follows the dip tick by tick, as play did)
   assert.deepEqual([q.game.director.rfs, q.game.director.focusUntilTick], [p.game.director.rfs, p.game.director.focusUntilTick]);
-  assert.equal(p.game.director.rfs.length === 1 && p.game.director.rfs[0].end, -1, 'saved mid-FOCUS');
   // and both close it at its second
   for (const g of [p.game, q.game]) G.runTo(g, g.state.tick + 40 * 60 * TPS);
   assert.equal(hashState(q.game.state), hashState(p.game.state), 'the same day on from there');
