@@ -215,11 +215,11 @@ const ABSTRACTIONS = [
     game: 'annunciator',
     real: 'A control room gives each alarm one priority; a value that keeps getting worse raises a second, more urgent ' +
       'alarm at a further limit.',
-    ours: 'UNDER FREQ and OVER FREQ are warnings with one chime, set outside the normal band (' + hz(V.NORMAL_LO_HZ) + '–' +
+    ours: 'LOW FREQ and HIGH FREQ are warnings with one chime, set outside the normal band (' + hz(V.NORMAL_LO_HZ) + '–' +
       hz(V.NORMAL_HI_HZ) + ' Hz). While frequency is outside the containment band (' + hz(V.CONTAIN_LO_HZ) + '–' +
       hz(V.CONTAIN_HI_HZ) + ' Hz) the same tile is escalated: it shows as top priority and sounds the horn every ' +
       num(HORN_REPEAT_S) + ' s until SILENCE or ACK. In the night roll (from ' + hhmm(NIGHT_H) + ') the horn and the chimes are quiet.',
-    why: 'One tile per quantity fits a twelve-tile panel, and the horn is kept for real trouble.',
+    why: 'One tile per quantity fits an eight-tile panel, and the horn is kept for real trouble.',
     params: ['NORMAL_LO_HZ', 'NORMAL_HI_HZ', 'CONTAIN_LO_HZ', 'CONTAIN_HI_HZ'],
   },
   {
@@ -459,8 +459,8 @@ const ABSTRACTIONS = [
       'offers first. Rooftop solar is curtailed last, by the emergency backstop.',
     ours: 'When the units at minimum load plus wind and utility solar exceed demand, with the tie and the battery as you ' +
       'have set them, the dispatch holds back that much wind and utility solar every grid second, each in proportion to its ' +
-      'output. The Live Stack shows a spill ahead as SURPLUS from ' + num(V.SURPLUS_MIN_MW) + ' MW, and MIN GEN lights while ' +
-      'it lasts. Rooftop solar is never curtailed: the backstop is not on this desk yet.',
+      'output. The Live Stack shows a spill ahead as SURPLUS from ' + num(V.SURPLUS_MIN_MW) + ' MW (no alarm: the spill needs ' +
+      'nobody). Rooftop solar is never curtailed: the backstop is not on this desk yet.',
     why: 'Without it a sunny mild weekend ran away to 52 Hz. With it a surplus costs the energy spilled, and shrinking it ' +
       'is yours: charge the battery, export, or stop a unit.',
     params: ['SURPLUS_MIN_MW'],

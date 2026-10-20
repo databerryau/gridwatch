@@ -29,7 +29,7 @@ test('Q-46: W holds the clock and closing returns to exactly CRUISE or PAUSE; th
   assert.equal(p.game.state.tick, tick, 'the clock is held');
   const l = p.look();
   assert.match(l, /^CLOCK \S+ \| HELD 0× · Esc \|/m);
-  assert.match(l, /^ALARMS open: UNDER FREQ · /m, 'no pick and nothing in: UNDER FREQ (W3 adds what it means)');
+  assert.match(l, /^ALARMS open: LOW FREQ · /m, 'no pick and nothing in: LOW FREQ (W3 adds what it means)');
   assert.match(l, /btn-pause "PLAY"/);
   assert.equal(p.$('rate-badge').className, 'ALARMS');
   assert.equal(p.doc.activeElement.id, 'btn-alarms-close', 'the panel took the focus on the frame it first showed');
@@ -94,18 +94,18 @@ test('Q-46: GO TO leaves the clock paused and focuses its target (also when vm.f
   assert.equal(p.vm().focus, 'bay-restore');
   // the selection, and a tile pressed while closed (W opens on it for its note's life, then not)
   assert.equal(p.h.actions.ui({do: 'alarmsSel', id: 'nope'}), 'no such tile');
-  assert.equal(p.h.actions.ui({do: 'alarmsPick', id: 'peak'}), '');
+  assert.equal(p.h.actions.ui({do: 'alarmsPick', id: 'storageLow'}), '');
   p.key('w');
-  assert.equal(p.vm().alarmsSel, 'peak');
+  assert.equal(p.vm().alarmsSel, 'storageLow');
   assert.equal(p.h.actions.ui({do: 'alarmsSel', id: 'n1'}), '');
   p.frame();
   assert.equal(p.vm().alarmsSel, 'n1');
-  assert.match(p.look(), /^ALARMS open: N-1 INSECURE · /m);
+  assert.match(p.look(), /^ALARMS open: LIGHTS AT RISK · /m);
   p.key('w');
   assert.equal(p.vm().alarmsSel, null, 'nothing selected while closed');
   p.real(G.ALARMS_PICK_MS / 1000 + 0.5, 0.5); // (paused: half-second frames are enough)
   p.key('w');
-  assert.notEqual(p.vm().alarmsSel, 'peak', 'the pick lapsed with its note');
+  assert.notEqual(p.vm().alarmsSel, 'storageLow', 'the pick lapsed with its note');
 });
 
 test('Q-46: a held watch keeps its tick and resumes there; the RESPOND card hides while the panel is open and returns on close', () => {

@@ -186,7 +186,7 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   for (const k of VM_KEYS) assert.ok(k in vm, 'vm.' + k);
   assert.deepEqual(Object.keys(vm.mode).sort(), ['act', 'canSkip', 'locked', 'mode', 'night', 'rate', 'segment', 'watchS', 'watchVersion']);
   assert.ok(vm.glow instanceof Set);
-  assert.equal(vm.alarms.tiles.length, 12);
+  assert.equal(vm.alarms.tiles.length, 8, 'W7 Q3: eight tiles');
   assert.equal(vm.hist.freq.length, G.HIST_FREQ_S);
   assert.deepEqual(Object.keys(vm.hist.stations), [...V.STATION_IDS, 'wind', 'solar', 'tie', 'battery', 'rert', 'dr']);
   assert.equal(mods.seen.desk.at(-1), mods.seen.map.at(-1), 'every module reads the same vm');
@@ -1222,7 +1222,7 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   h.game.state.hydro.storageMWh = 0.2 * V.HYDRO_ALLOCATION_MWH;
   advance(2500);
   frames(2, g2);
-  assert.equal($('aria-live').textContent, 'Alarm: STORAGE LOW, P2');
+  assert.equal($('aria-live').textContent, 'Alarm: LOW STORAGE, P2');
   // The header's own controls say what they are and which key reaches them.
   for (const [id, keys] of [['btn-pause', 'Space'], ['btn-mute', 'Shift+M'], ['btn-settings', ','], ['btn-help', '?']]) {
     assert.equal($(id).getAttribute('aria-keyshortcuts'), keys, '#' + id);

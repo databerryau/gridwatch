@@ -135,23 +135,20 @@ test('Q-73: from the night shift\'s record on, the tray\'s cards are quiet; the 
   assert.equal(A.alarmInputFromState(createState(8, DESK)).night, false);
 });
 
-test('Q-78, Q-82: no explainer prints an hour as "16.5:00"; PEAK names 16:30; WEATHER counts weather only (0 on a derate-and-feeders morning)', () => {
+test('Q-78, Q-82, W7 Q3: no explainer prints an hour as "16.5:00"; a weather warning lights no tile (its card is the weather bureau\'s)', () => {
   const texts = [];
   const walk = x => { if (typeof x === 'string') texts.push(x); else if (x && typeof x === 'object') Object.values(x).forEach(walk); };
   walk(ALARM_HELP);
   for (const t of texts) assert.doesNotMatch(t, /\d\.\d+:00/, t);
-  assert.match(ALARM_HELP.peak.trigger, /^Sets from 16:30 to 20:00 /);
-  const morning = observe(createState(20261003, DESK_WEEKEND));
-  assert.deepEqual(morning.news.map(n => n.kind), ['network', 'tie']);
-  assert.equal(ALARM_HELP.weather.reading(morning), 'warnings today: 0');
-  assert.ok(ALARM_HELP.weather.reading(observe(createState(20261007, DESK))).startsWith('warnings today: 1 · 04:00 Heatwave'));
-  // the alarms read every item of a batch: the 04:00 heat lights WEATHER though the feeders' news came after it
+  assert.ok(!('peak' in ALARM_HELP) && !('weather' in ALARM_HELP), 'PEAK and WEATHER are retired (W7 Q3)');
+  // the 04:00 heatwave warning lit WEATHER for the whole day until W7 Q3: now the board stays dark, and the tray's card says it
+  const heat = createState(20261007, DESK);
+  assert.ok(heat.news.some(n => n.kind === 'heat'));
   const a = A.createAlarms();
-  A.updateAlarms(a, A.alarmInputFromState(createState(20261007, DESK)), {nowMs: 0, realDtS: 0});
-  assert.equal(A.alarmsView(a).tiles.find(t => t.id === 'weather').state, 'alarm');
-  const b = A.createAlarms();
-  A.updateAlarms(b, A.alarmInputFromState(createState(20261003, DESK_WEEKEND)), {nowMs: 0, realDtS: 0});
-  assert.equal(A.alarmsView(b).tiles.find(t => t.id === 'weather').state, 'normal', 'a derate and feeders are not weather');
+  A.updateAlarms(a, A.alarmInputFromState(heat), {nowMs: 0, realDtS: 0});
+  assert.deepEqual(A.alarmsView(a).tiles.filter(t => t.state !== 'normal').map(t => t.id), []);
+  // Q-82's one predicate still names the tray's sender: weather is the bureau's, a derate and feeders are not
+  assert.deepEqual(['heat', 'storm', 'cloud', 'drought', 'network', 'tie'].map(A.isWeather), [true, true, true, true, false, false]);
 });
 
 /** The end card mounted on a game's end (app/game.js buildVm). */

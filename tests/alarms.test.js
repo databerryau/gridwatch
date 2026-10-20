@@ -31,9 +31,9 @@ const snap = over => Object.assign({s: 10000, h: 10, fHz: 50, rocof: 0, level: '
   inWatch: false, contCount: 0, cont: null, newsCount: 0, news: null}, over);
 const tile = (a, id) => A.alarmsView(a).tiles.find(t => t.id === id);
 
-test('K-21: every tile has exactly one base priority and a target control id; 12 tiles (4 x 3), each with a glyph per state', () => {
+test('K-21: every tile has exactly one base priority and a target control id; 8 tiles (4 x 2, W7 Q3), each with a glyph per state', () => {
   const ids = contractIds();
-  assert.equal(A.TILES.length, 12);
+  assert.equal(A.TILES.length, 8);
   const seen = new Set();
   for (const t of A.TILES) {
     assert.ok(['P1', 'P2', 'P3'].includes(t.prio), t.id + ' ' + t.prio);
@@ -42,14 +42,17 @@ test('K-21: every tile has exactly one base priority and a target control id; 12
     assert.ok(!seen.has(t.id));
     seen.add(t.id);
   }
-  for (const label of ['UNDER FREQ', 'OVER FREQ', 'N-1 INSECURE', 'HIGH RoCoF', 'UNIT TRIP', 'LINK TRIP', 'UFLS OPERATED', 'AGC LIMIT',
-    'STORAGE LOW', 'MIN GEN', 'WEATHER', 'PEAK']) assert.ok(A.TILES.some(t => t.label === label), label);
-  // K-21 P1: UFLS, unit trip, N-1 insecure at the peak. Frequency outside 49.5-50.5 Hz is the
-  // UNDER / OVER FREQ tiles ESCALATED (B-1): their base priority is P2, and only they escalate.
-  for (const id of ['ufls', 'unitTrip', 'linkTrip', 'peak']) assert.equal(A.TILES.find(t => t.id === id).prio, 'P1', id);
+  // W7 Q3: plain words (the ids are the old ones); PEAK, HIGH RoCoF, MIN GEN and WEATHER are retired
+  assert.deepEqual(A.TILES.map(t => t.id + ' ' + t.label), ['underFreq LOW FREQ', 'overFreq HIGH FREQ', 'n1 LIGHTS AT RISK', 'unitTrip UNIT TRIP',
+    'linkTrip TIE TRIP', 'ufls RELAYS SHED', 'agcLimit UNITS AT LIMIT', 'storageLow LOW STORAGE']);
+  for (const t of A.TILES) assert.doesNotMatch(t.label, /RoCoF|UFLS|AGC|N-1|INSECURE|[a-z]/, 'no jargon on a face: ' + t.label);
+  // K-21 P1: the relays, a unit trip, a tie trip. Frequency outside 49.5-50.5 Hz is the LOW / HIGH
+  // FREQ tiles ESCALATED (B-1): their base priority is P2, and only they escalate. Nothing is P3 now:
+  // WEATHER was the one P3 tile, and its warning card in the tray still ticks.
+  assert.deepEqual(A.TILES.filter(t => t.prio === 'P1').map(t => t.id), ['unitTrip', 'linkTrip', 'ufls']);
   assert.deepEqual(A.TILES.filter(t => t.escalates).map(t => t.id), ['underFreq', 'overFreq']);
   for (const t of A.TILES.filter(x => x.escalates)) assert.equal(t.prio, 'P2', t.id);
-  assert.equal(A.TILES.find(t => t.id === 'weather').prio, 'P3');
+  assert.equal(A.TILES.filter(t => t.prio === 'P3').length, 0);
   const glyphs = new Set(Object.values(A.GLYPH));
   assert.equal(glyphs.size, 4, 'status is never colour-only (K-22)');
   assert.equal(A.GLYPH.cleared, '◇', 'B-2: the ring-back glyph');
@@ -61,7 +64,7 @@ test('K-21: every tile has exactly one base priority and a target control id; 12
   }
 });
 
-test('B-1: UNDER / OVER FREQ chime at the normal band and escalate to the horn outside 49.5-50.5 Hz', () => {
+test('B-1: LOW / HIGH FREQ chime at the normal band and escalate to the horn outside 49.5-50.5 Hz', () => {
   const a = A.createAlarms();
   let ms = 0, s = 10000;
   const up = f => A.updateAlarms(a, snap({fHz: f, s: s++}), {nowMs: (ms += 100), realDtS: 0.1});
@@ -147,7 +150,7 @@ test('K-8 accept: across a scripted storm no tile starts a new sounding within 3
     const inWatch = i >= 2000 && i < 2040;
     if (i === 2000) cont.watchEndS = s + 40 * 12;
     const f = [50, 49.8, 49.4, 49.95, 50.2, 50.7, 49.86][Math.floor(rnd() * 7)];
-    const x = snap({s, fHz: f, rocof: rnd() < 0.1 ? 1.4 : 0.1, level: rnd() < 0.5 ? 'TIGHT' : 'SECURE', h: 18, hydroFrac: rnd() < 0.3 ? 0.2 : 0.5,
+    const x = snap({s, fHz: f, sheds: rnd() < 0.1, level: rnd() < 0.5 ? 'SHORT' : 'SECURE', hydroFrac: rnd() < 0.3 ? 0.2 : 0.5,
       agcAtLimitS: rnd() < 0.5 ? 10 : 0, inWatch, contCount: i >= 2000 ? 1 : 0, cont: i >= 2000 ? cont : null});
     const r = A.updateAlarms(a, x, {nowMs: ms, realDtS: 0.3, stationOf: () => 'coal'});
     cues += r.cues.length;
@@ -180,7 +183,7 @@ test('K-8 accept: across a scripted storm no tile starts a new sounding within 3
   assert.equal(b.audible, 2);
 });
 
-test('K-8: UNDER FREQ sets below 49.85 Hz and clears above 49.90 Hz (hysteresis); extremes inside a frame count', () => {
+test('K-8: LOW FREQ sets below 49.85 Hz and clears above 49.90 Hz (hysteresis); extremes inside a frame count', () => {
   const a = A.createAlarms();
   const up = (f, ms = 0) => A.updateAlarms(a, snap({fHz: f}), {nowMs: ms, realDtS: 0.016});
   up(49.86);
@@ -203,7 +206,7 @@ test('K-8: UNDER FREQ sets below 49.85 Hz and clears above 49.90 Hz (hysteresis)
   s.phys.fHz = 49.99;
   A.updateAlarms(a, A.alarmInputFromState(s), {nowMs: 60000, realDtS: 0.016});
   assert.equal(tile(a, 'underFreq').state, 'alarm');
-  // OVER FREQ: > 50.15 sets, < 50.10 clears.
+  // HIGH FREQ: > 50.15 sets, < 50.10 clears.
   const b = A.createAlarms();
   A.updateAlarms(b, snap({fHz: 50.16}), {nowMs: 0});
   assert.equal(tile(b, 'overFreq').state, 'alarm');
@@ -217,7 +220,7 @@ test('K-8: UNDER FREQ sets below 49.85 Hz and clears above 49.90 Hz (hysteresis)
 });
 
 test('K-8: SILENCE stops the sound only; the horn repeats every 4 s until then; no tile sounds twice within 30 s', () => {
-  // 49.4 Hz: UNDER FREQ escalated (B-1), a P1 horn.
+  // 49.4 Hz: LOW FREQ escalated (B-1), a P1 horn.
   const a = A.createAlarms();
   let r = A.updateAlarms(a, snap({fHz: 49.4}), {nowMs: 0});
   assert.deepEqual(r.cues, ['horn']);
@@ -249,9 +252,10 @@ test('K-8: SILENCE stops the sound only; the horn repeats every 4 s until then; 
   assert.equal(A.ackTile(a, 'nope'), false);
 });
 
-test('K-21: during the watch sounds are held; still unacknowledged, they sound once after it; P3 is silent; P2 chimes once', () => {
+test('K-21: during the watch sounds are held; still unacknowledged, they sound once after it; P2 chimes once', () => {
   const a = A.createAlarms();
   const cont = {n: 0, cause: 'unit', id: 'coal2', uflsStages: 0, watchEndS: 10030};
+  // (a fall at 1.3 Hz/s lit HIGH RoCoF here until W7 Q3: nothing to do in the watch, so no tile)
   let r = A.updateAlarms(a, snap({inWatch: true, contCount: 1, cont, fHz: 49.6, rocof: 1.3}), {nowMs: 0, stationOf: () => 'coal'});
   assert.deepEqual(r.cues, [], 'held in the watch');
   assert.equal(r.newAlarm, true);
@@ -260,7 +264,7 @@ test('K-21: during the watch sounds are held; still unacknowledged, they sound o
   r = A.updateAlarms(a, snap({s: 10031, inWatch: false, contCount: 1, cont, fHz: 49.8}), {nowMs: 29000});
   assert.deepEqual(r.cues, ['horn'], 'one sound after the watch');
   assert.equal(a.audible, 1);
-  assert.deepEqual(a.sounds[0].tiles.sort(), ['rocof', 'underFreq', 'unitTrip'].sort());
+  assert.deepEqual(a.sounds[0].tiles.sort(), ['underFreq', 'unitTrip'].sort());
   // Acknowledged during the watch: silent afterwards.
   const b = A.createAlarms();
   A.updateAlarms(b, snap({inWatch: true, contCount: 1, cont, fHz: 49.6}), {nowMs: 0});
@@ -268,44 +272,64 @@ test('K-21: during the watch sounds are held; still unacknowledged, they sound o
   r = A.updateAlarms(b, snap({s: 10031, inWatch: false, contCount: 1, cont, fHz: 49.8}), {nowMs: 29000});
   assert.deepEqual(r.cues, []);
   assert.equal(b.audible, 0);
-  // WEATHER (P3) sets silently; STORAGE LOW (P2) chimes once and does not keep sounding.
+  // LOW STORAGE (P2) chimes once and does not keep sounding.
   const c = A.createAlarms();
-  r = A.updateAlarms(c, snap({newsCount: 1, news: [{atS: 9000, fromS: 12000, toS: null, kind: 'storm'}]}), {nowMs: 0}); // (2c: every item, Q-82)
-  assert.equal(tile(c, 'weather').state, 'alarm');
-  assert.deepEqual(r.cues, []);
   r = A.updateAlarms(c, snap({s: 10001, hydroFrac: 0.29}), {nowMs: 1000});
   assert.deepEqual(r.cues, ['chime']);
   assert.equal(A.alarmsView(c).sounding, false, 'a chime is one sound');
   assert.equal(tile(c, 'storageLow').target, 'wheel-hydro');
 });
 
-test('K-8: N-1 INSECURE after 10 grid-s not SECURE; it clears after a 30-min secure window; AGC LIMIT after 5 real s; PEAK', () => {
+test('W7 Q3: LIGHTS AT RISK only while the gauge is red (SHORT, SHEDDING, TRIP SHEDS), 10 grid-s on; it clears 5 grid-min after; TIGHT lights nothing; UNITS AT LIMIT after 5 real s', () => {
   const a = A.createAlarms();
   let s = 20000;
-  const up = (level, h = 10, agc = 0, dt = 0.016) => A.updateAlarms(a, snap({s: s++, h, level, agcAtLimitS: agc}), {nowMs: s * 10, realDtS: dt});
-  up('SECURE');
-  for (let i = 0; i < A.N1_SET_S; i++) up('TIGHT');
+  const up = (level, sheds = false, agc = 0, dt = 0.016) => A.updateAlarms(a, snap({s: s++, level, sheds, agcAtLimitS: agc}), {nowMs: s * 10, realDtS: dt});
+  // TIGHT a whole day long: the next trip is caught above the relays, and the board stays dark (it lit for that until W7)
+  for (let i = 0; i < 3 * 3600; i++) up('TIGHT');
   assert.equal(tile(a, 'n1').state, 'normal');
-  up('TIGHT');
+  assert.equal(a.audible, 0);
+  for (const [level, sheds] of [['SHORT', false], ['SHEDDING', false], ['TIGHT', true]]) {
+    const b = A.createAlarms();
+    for (let i = 0; i < A.N1_SET_S; i++) A.updateAlarms(b, snap({s: 100 + i, level, sheds}), {nowMs: i});
+    assert.equal(tile(b, 'n1').state, 'normal', level + (sheds ? ' (TRIP SHEDS)' : '') + ': not before 10 grid-s');
+    A.updateAlarms(b, snap({s: 100 + A.N1_SET_S, level, sheds}), {nowMs: 99});
+    assert.equal(tile(b, 'n1').state, 'alarm', level + (sheds ? ' (TRIP SHEDS)' : ''));
+  }
+  for (let i = 0; i <= A.N1_SET_S; i++) up('SHORT');
   assert.equal(tile(a, 'n1').state, 'alarm');
   A.ackAll(a);
-  for (let i = 0; i < A.N1_CLEAR_S - 1; i++) { up('SECURE'); if (i === 100) up('TIGHT'); }
-  assert.equal(tile(a, 'n1').state, 'ackd', 'a brief TIGHT restarts the secure window');
-  for (let i = 0; i < 200; i++) up('SECURE');
-  assert.equal(tile(a, 'n1').state, 'normal');
-  // AGC LIMIT: real seconds, not grid seconds.
-  for (let i = 0; i < 300; i++) up('SECURE', 10, i + 1, 0.016);
+  // the preview hovering at 49.0 Hz: a second of TRIP SHEDS every 200 grid-s keeps it in (no chime each time)
+  for (let i = 0; i < 1000; i++) up('TIGHT', i % 200 === 100);
+  assert.equal(tile(a, 'n1').state, 'ackd', 'a brief TRIP SHEDS restarts the clear window');
+  assert.equal(a.audible, 1);
+  // the last at i = 900: 99 grid-s since; TIGHT and SECURE both count toward the clear
+  for (let i = 0; i < A.N1_CLEAR_S - 99; i++) up(i < 50 ? 'TIGHT' : 'SECURE');
+  assert.equal(tile(a, 'n1').state, 'ackd', 'one grid-s short');
+  up('TIGHT');
+  assert.equal(tile(a, 'n1').state, 'normal', 'dark ' + A.N1_CLEAR_S + ' grid-s after the gauge left red');
+  assert.equal(A.N1_CLEAR_S, 5 * V.S_PER_MIN);
+  // UNITS AT LIMIT: real seconds, not grid seconds.
+  for (let i = 0; i < 300; i++) up('SECURE', false, i + 1, 0.016);
   assert.equal(tile(a, 'agcLimit').state, 'normal', '300 updates of 0.016 real s are 4.8 real s');
-  for (let i = 0; i < 20; i++) up('SECURE', 10, 400 + i, 0.016);
+  for (let i = 0; i < 20; i++) up('SECURE', false, 400 + i, 0.016);
   assert.equal(tile(a, 'agcLimit').state, 'alarm');
-  // PEAK: D-2's Peak, 16:30-20:00 (2c, Q-78), and not SECURE.
-  assert.deepEqual(A.PEAK_H, [16.5, 20]);
-  const b = A.createAlarms();
-  for (let i = 0; i < 12; i++) A.updateAlarms(b, snap({s: 50000 + i, h: 16.4, level: 'TIGHT'}), {nowMs: i});
-  assert.equal(tile(b, 'peak').state, 'normal');
-  A.updateAlarms(b, snap({s: 50020, h: 17.1, level: 'TIGHT'}), {nowMs: 100});
-  assert.equal(tile(b, 'peak').state, 'alarm');
-  assert.equal(tile(b, 'peak').prio, 'P1');
+  // the snapshot's sheds is the desk's TRIP SHEDS: TIGHT with the sim's preview below the first UFLS stage
+  const st = createState(1, CLASSIC);
+  for (const [level, hz, want] of [['TIGHT', 48.99, true], ['TIGHT', 49.0, false], ['SHORT', 48.5, false], ['TIGHT', 49.3, false]]) {
+    Object.assign(st.sec, {level, previewNadirHz: hz, lKind: 'unit'});
+    assert.equal(A.alarmInputFromState(st).sheds, want, level + ' at ' + hz + ' Hz');
+    assert.equal(A.atRisk(A.alarmInputFromState(st)), want || level === 'SHORT');
+  }
+});
+
+test('W7 Q3: the retired tiles light nothing: a noon spill, a storm warning, a fast fall, the evening peak', () => {
+  const a = A.createAlarms();
+  // (the old inputs, passed as they were: MIN GEN's spillMW, WEATHER's news, HIGH RoCoF's rocof, PEAK's hour)
+  const x = snap({s: 45000, h: 17.5, level: 'TIGHT', spillMW: 400, rocof: 1.6, newsCount: 1, news: [{atS: 44000, fromS: 45000, toS: 60000, kind: 'storm'}]});
+  for (let i = 0; i < 4000; i++) A.updateAlarms(a, Object.assign({}, x, {s: x.s + i}), {nowMs: i * 100, realDtS: 0.1});
+  assert.deepEqual(A.alarmsView(a).tiles.filter(t => t.state !== 'normal').map(t => t.id), []);
+  assert.equal(a.audible, 0);
+  for (const id of ['peak', 'rocof', 'minGen', 'weather']) assert.ok(!A.TILES.some(t => t.id === id), id);
 });
 
 test('the alarm snapshot from observe() equals the one read straight from state', () => {
@@ -317,66 +341,29 @@ test('the alarm snapshot from observe() equals the one read straight from state'
     if (typeof a[k] === 'number') assert.ok(Math.abs(a[k] - b[k]) < 1e-9, k + ' ' + a[k] + ' vs ' + b[k]);
     else assert.deepEqual(a[k], b[k], k);
   }
-  assert.equal(a.spillMW, 0, 'the classic day never spills (no rooftop: C-1)');
+  assert.equal(typeof a.sheds, 'boolean', 'the desk\'s TRIP SHEDS (W7 Q2)');
 });
 
-// ------------------------------------------------------------------ MIN GEN (Phase 2a, desk/README.md C-9, §21.4)
+// ------------------------------------------------------------------ the belly without MIN GEN (W7 Q3)
 
-test('MIN GEN: sets after 60 grid-s of more than 50 MW spilled, clears only after 1,800 grid-s under 10 MW; a snapshot without spillMW never sets it', () => {
-  assert.deepEqual([A.MINGEN_SET_MW, A.MINGEN_SET_S, A.MINGEN_CLEAR_MW, A.MINGEN_CLEAR_S], [V.SURPLUS_MIN_MW, 60, 10, 1800]);
-  const t = A.TILES.find(x => x.id === 'minGen');
-  assert.deepEqual([t.prio, t.target], ['P2', 'stack']);
+test('W7 Q3 on a real belly: observe() and state give the same snapshot; a mild weekend noon spills for hours and the board stays dark for it', () => {
   const a = A.createAlarms();
-  let s = 30000;
-  const up = spillMW => A.updateAlarms(a, snap(spillMW === undefined ? {s: s++} : {s: s++, spillMW}), {nowMs: s * 10, realDtS: 0.016});
-  for (let i = 0; i < 300; i++) up(undefined);
-  assert.equal(tile(a, 'minGen').state, 'normal', 'a CLASSIC fixture has no spillMW');
-  for (let i = 0; i < 300; i++) up(A.MINGEN_SET_MW);
-  assert.equal(tile(a, 'minGen').state, 'normal', 'exactly 50 MW is not more than 50 MW');
-  // above the level, but not for 60 s on end
-  for (let i = 0; i < A.MINGEN_SET_S; i++) up(120);
-  assert.equal(tile(a, 'minGen').state, 'normal');
-  up(40);
-  for (let i = 0; i < A.MINGEN_SET_S; i++) up(120);
-  assert.equal(tile(a, 'minGen').state, 'normal', 'a dip under the level restarts the 60 s');
-  const r = up(120);
-  assert.equal(tile(a, 'minGen').state, 'alarm');
-  assert.deepEqual(r.cues, ['chime'], 'P2: one chime');
-  A.ackAll(a);
-  // between the two levels it holds; under 10 MW it clears only after 1,800 s on end
-  for (let i = 0; i < 3000; i++) up(30);
-  assert.equal(tile(a, 'minGen').state, 'ackd', '30 MW is under the set level and over the clear level: held');
-  for (let i = 0; i < A.MINGEN_CLEAR_S - 1; i++) { up(0); if (i === 900) up(15); }
-  assert.equal(tile(a, 'minGen').state, 'ackd', 'a cloud passing: 15 MW for a second restarts the clear window');
-  for (let i = 0; i < 1000; i++) up(0);
-  assert.equal(tile(a, 'minGen').state, 'normal');
-  // and it does not chime again for a cloud over the belly: spilling again within the clear window was never cleared
-  // (the operator ACKs each sound, so B-3's one repeat of an unacknowledged chime is not counted)
-  const b = A.createAlarms();
-  let n = 0, s2 = 40000;
-  const up2 = spillMW => { const x = A.updateAlarms(b, snap({s: s2++, spillMW}), {nowMs: s2 * 1000, realDtS: 1}); n += x.cues.length; if (x.cues.length) A.ackAll(b); };
-  for (let k = 0; k < 6; k++) { for (let i = 0; i < 600; i++) up2(200); for (let i = 0; i < 600; i++) up2(0); }
-  assert.equal(n, 1, 'six ten-minute clouds: one chime');
-});
-
-test('MIN GEN on a real belly: observe() and state give the same spillMW; the tile lights on a mild weekend noon and not before sunrise', () => {
-  const a = A.createAlarms();
-  let spillS = 0, setS = -1, checked = 0;
+  let spillS = 0, checked = 0;
+  const litWhileSpilling = new Set();
   const day = followDay(5, DESK_WEEKEND, {follow: false, untilH: 13, onMinute: (st, obs) => {
     const x = A.alarmInput(obs), y = A.alarmInputFromState(st);
-    assert.deepEqual(Object.keys(x), Object.keys(y));
-    assert.ok(Math.abs(x.spillMW - y.spillMW) < 1e-9, 'spillMW ' + x.spillMW + ' vs ' + y.spillMW);
-    assert.equal(x.spillMW, obs.wind.autoMW + obs.solar.autoMW);
+    assert.deepEqual(x, y);
     checked++;
-    if (x.spillMW > A.MINGEN_SET_MW) spillS += 60;
     A.updateAlarms(a, x, {nowMs: obs.s * 10, realDtS: 0.5});
-    if (setS < 0 && tile(a, 'minGen').state !== 'normal') setS = obs.s;
-    if (obs.s < (7 - V.DAY_START_H) * V.S_PER_H) assert.equal(tile(a, 'minGen').state, 'normal', 'before the sun is up nothing is spilled');
+    if (obs.wind.autoMW + obs.solar.autoMW > V.SURPLUS_MIN_MW) {
+      spillS += 60;
+      for (const t of A.alarmsView(a).tiles) if (a.tiles[t.id].cond) litWhileSpilling.add(t.id);
+    }
   }});
   assert.ok(checked > 400);
   assert.equal(day.st.black, false);
   assert.ok(spillS >= 1800, 'the do-nothing weekend spills for ' + spillS / 60 + ' min by 13:00 (both CCGTs at minimum under the belly)');
-  assert.ok(setS > (8 - V.DAY_START_H) * V.S_PER_H && setS < (13 - V.DAY_START_H) * V.S_PER_H, 'MIN GEN set at ' + setS);
+  assert.deepEqual([...litWhileSpilling], [], 'MIN GEN lit here from about 08:00 until W7; the spill needs nobody');
 });
 
 /** Count the competent proxy's audible alarms over a day; the operator ACKs 3 real s after each sound. */
@@ -403,7 +390,7 @@ test('K-8 accept: the competent proxy triggers <= 8 audible alarms in a day', ()
   // "Per daily": a daily is a seed that passes D-9's gate, so par must shed nothing on it. Seeds par
   // cannot solve (practice "Hard days" at most) are not held to it (stage C: classic seed 4, where par
   // sheds 559 MWh, sounds 10). One whole day, the player's (2c, Q-82): a desk date with its designed
-  // events, the 16:30 PEAK and the quiet night roll (Q-73: nothing sounds from 21:00).
+  // events, the evening trip and the quiet night roll (Q-73: nothing sounds from 21:00).
   const seeds = [20261008];
   const counts = seeds.map(seed => {
     const a = competentDay(seed, DESK);

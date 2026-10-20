@@ -64,8 +64,11 @@ test('Q-46: every tile has an explainer; its facts and abstractions are SPEC §8
     if (r.abstraction) assert.ok(ABSTRACTIONS.has(r.abstraction), at + 'no §8.2 row "' + r.abstraction + '"');
     if (r.own) assert.match(r.own, /GRIDWATCH's own rule/);
   }
-  // WEATHER, STORAGE LOW and LINK TRIP have no §8.1 row (§30.6)
-  for (const id of ['weather', 'storageLow', 'linkTrip']) assert.ok(!ALARM_HELP[id].real.facts, id);
+  // LOW STORAGE and TIE TRIP have no §8.1 row (§30.6)
+  for (const id of ['storageLow', 'linkTrip']) assert.ok(!ALARM_HELP[id].real.facts, id);
+  // W7 Q3: every tile asks for an action, and WHAT TO DO names one; the N-1 tile says when it lights, and TIGHT is not it
+  for (const t of A.TILES) assert.match(ALARM_HELP[t.id].todo.text, /\b(start|raise|replace|close|charge|discharge|stop|import|turn)\b/i, t.id);
+  assert.match(ALARM_HELP.n1.trigger, /SHORT, SHEDDING or TRIP SHEDS.*TIGHT alone lights nothing/);
 });
 
 test('Q-46: every number in an explainer is a constant (sim/params.js, app/alarms.js) or the cited row\'s; nothing unverified is stated as fact', () => {
@@ -86,27 +89,27 @@ test('Q-46: every number in an explainer is a constant (sim/params.js, app/alarm
   // the trigger lines are built from the constants: one spot check each way
   assert.match(ALARM_HELP.underFreq.trigger, new RegExp('below ' + A.UNDER_SET_HZ.toFixed(2) + ' Hz, clears above ' + A.UNDER_CLEAR_HZ.toFixed(2) + ' Hz'));
   assert.match(ALARM_HELP.agcLimit.trigger, new RegExp('over ' + V.AGC_LIMIT_ALARM_REAL_S + ' real s'));
-  assert.equal(A.AGC_LIMIT_REAL_S, V.AGC_LIMIT_ALARM_REAL_S, 'one constant for AGC LIMIT');
+  assert.equal(A.AGC_LIMIT_REAL_S, V.AGC_LIMIT_ALARM_REAL_S, 'one constant for UNITS AT LIMIT');
 });
 
 test('Q-46 (§30.3.3, §30.6): the default selection, the board\'s order, the plan line\'s GO TO and the names GO TO says', () => {
   const T = (id, state, o = {}) => Object.assign({id, state, prio: A.TILES.find(t => t.id === id).prio, escalated: false, setAtS: -1}, o);
   const quiet = A.TILES.map(t => T(t.id, 'normal'));
   const view = tiles => ({tiles: quiet.map(q => tiles.find(t => t.id === q.id) || q)});
-  assert.equal(A.defaultSel(view([]), null, 0), 'underFreq', 'nothing in: UNDER FREQ');
+  assert.equal(A.defaultSel(view([]), null, 0), 'underFreq', 'nothing in: LOW FREQ');
   // a live pick wins; a lapsed one does not
   const trip = view([T('n1', 'alarm', {setAtS: 100}), T('unitTrip', 'alarm', {setAtS: 50}), T('underFreq', 'alarm', {setAtS: 60})]);
-  assert.equal(A.defaultSel(trip, {id: 'peak', untilMs: 5000}, 4000), 'peak');
-  assert.equal(A.defaultSel(trip, {id: 'peak', untilMs: 5000}, 5000), 'unitTrip', 'the highest effective priority, before the newest');
+  assert.equal(A.defaultSel(trip, {id: 'storageLow', untilMs: 5000}, 4000), 'storageLow');
+  assert.equal(A.defaultSel(trip, {id: 'storageLow', untilMs: 5000}, 5000), 'unitTrip', 'the highest effective priority, before the newest');
   // an escalated tile is P1: then the newest P1; a cleared tile is unacknowledged too
   assert.equal(A.defaultSel(view([T('unitTrip', 'cleared', {setAtS: 50}), T('underFreq', 'alarm', {prio: 'P1', escalated: true, setAtS: 60})]), null, 0), 'underFreq');
-  assert.equal(A.defaultSel(view([T('n1', 'alarm', {setAtS: 70}), T('rocof', 'cleared', {setAtS: 90})]), null, 0), 'rocof');
+  assert.equal(A.defaultSel(view([T('n1', 'alarm', {setAtS: 70}), T('agcLimit', 'cleared', {setAtS: 90})]), null, 0), 'agcLimit');
   // with nothing unacknowledged, the newest acknowledged standing tile
-  assert.equal(A.defaultSel(view([T('n1', 'ackd', {setAtS: 10}), T('minGen', 'ackd', {setAtS: 20})]), null, 0), 'minGen');
+  assert.equal(A.defaultSel(view([T('n1', 'ackd', {setAtS: 10}), T('storageLow', 'ackd', {setAtS: 20})]), null, 0), 'storageLow');
   // the board: alarm, cleared, acknowledged, quiet; escalated first, then the newest; then annunciator order
-  const board = panelOrder(view([T('n1', 'ackd', {setAtS: 300}), T('rocof', 'cleared', {setAtS: 400}), T('unitTrip', 'alarm', {setAtS: 100}),
-    T('weather', 'alarm', {setAtS: 200}), T('underFreq', 'alarm', {prio: 'P1', escalated: true, setAtS: 50})]).tiles);
-  assert.deepEqual(board.slice(0, 5), ['underFreq', 'weather', 'unitTrip', 'rocof', 'n1']);
+  const board = panelOrder(view([T('n1', 'ackd', {setAtS: 300}), T('agcLimit', 'cleared', {setAtS: 400}), T('unitTrip', 'alarm', {setAtS: 100}),
+    T('storageLow', 'alarm', {setAtS: 200}), T('underFreq', 'alarm', {prio: 'P1', escalated: true, setAtS: 50})]).tiles);
+  assert.deepEqual(board.slice(0, 5), ['underFreq', 'storageLow', 'unitTrip', 'agcLimit', 'n1']);
   assert.deepEqual(board.slice(5), A.TILES.map(t => t.id).filter(id => !board.slice(0, 5).includes(id)));
   // GO TO: the plan line's first control while it asks to act now, never a readout or a battery or watch line
   assert.equal(planTarget({level: 'act', kind: 'spare', targets: ['gauge-n1', 'ring-guard']}), 'ring-guard');
@@ -118,25 +121,30 @@ test('Q-46 (§30.3.3, §30.6): the default selection, the board\'s order, the pl
 });
 
 test('Q-46: with the panel open its tiles select and keep the focus in it; arrows, Home and End move; Tab wraps; the board sorts once per opening', () => {
-  const p = openGame({seed: 20261007});
-  p.to('04:31', {stop: []}); // (N-1 INSECURE is in from 04:30:10)
+  const p = openGame({seed: 20261014});
+  p.skipTo('05:30'); // (LIGHTS AT RISK is in: TRIP SHEDS, the preview below 49.0 Hz on a no-input morning)
+  // W7 Q2 on the real page: the gauge's word, red, and what the next trip would cost; the tile lit for it
+  assert.match(p.look(), /^N-1 ▼ TRIP SHEDS SPARE IN 5 MIN .* ✕ (48\.\d\d) Hz · U \1 L \1 \1 Hz: the relays would shed 2 districts$/m);
+  assert.equal(p.game.alarms.tiles.n1.cond, true);
   p.key('w');
   const box = p.$('alarm-panel'), inBox = () => box.contains(p.doc.activeElement);
   const order = () => p.$('alarm-panel').querySelector('.ap-board').children.map(b => b.id.slice(3));
   assert.match(p.look(), /^ALARMS open: \S.* · .+\.$/m, 'the look line has the explainer\'s first sentence');
   const first = order();
-  assert.equal(first.length, 12);
+  assert.equal(first.length, 8);
   assert.deepEqual([first[0], p.vm().alarmsSel], ['n1', 'n1'], 'it opens on the one alarm in, first on the board');
+  assert.match(p.$('ap-now').textContent, /^TRIP SHEDS: would fall to 48\.\d\d Hz: the relays would shed \d+ districts? · spare [\d,]+ vs [\d,]+ MW/,
+    'NOW says the gauge\'s word and what it would cost');
   // a press on a tile selects it: the explainer follows, the focus stays in the panel, the clock stays held
-  const s = p.press('ap-peak');
-  assert.equal(p.vm().alarmsSel, 'peak');
+  const s = p.press('ap-storageLow');
+  assert.equal(p.vm().alarmsSel, 'storageLow');
   assert.ok(inBox(), 'the focus stays in the panel');
   assert.equal(p.mode(), 'ALARMS');
-  assert.match(s.diff, /^ALARMS open: PEAK · It is the evening peak/m);
+  assert.match(s.diff, /^ALARMS open: LOW STORAGE · An energy store is nearly spent/m);
   assert.match(p.$('ap-now').textContent, /\d/, 'NOW shows a live number');
-  assert.equal(p.$('ap-peak').getAttribute('aria-selected'), 'true');
+  assert.equal(p.$('ap-storageLow').getAttribute('aria-selected'), 'true');
   // arrows move in board order (4 to a row), Home and End jump, the selection following the focus
-  const i = first.indexOf('peak');
+  const i = first.indexOf('storageLow');
   p.key('ArrowLeft');
   assert.equal(p.vm().alarmsSel, first[i - 1]);
   assert.equal(p.doc.activeElement.id, 'ap-' + first[i - 1]);
@@ -145,13 +153,13 @@ test('Q-46: with the panel open its tiles select and keep the focus in it; arrow
   p.key('ArrowDown');
   assert.equal(p.vm().alarmsSel, first[4]);
   p.key('End');
-  assert.equal(p.vm().alarmsSel, first[11]);
+  assert.equal(p.vm().alarmsSel, first[7]);
   p.key('ArrowRight');
-  assert.equal(p.vm().alarmsSel, first[11], 'the end stays the end');
+  assert.equal(p.vm().alarmsSel, first[7], 'the end stays the end');
   // Enter on a tile is its press; from CLOSE the arrows still move the selection
-  p.$('ap-rocof').focus();
+  p.$('ap-agcLimit').focus();
   p.key('Enter');
-  assert.equal(p.vm().alarmsSel, 'rocof');
+  assert.equal(p.vm().alarmsSel, 'agcLimit');
   p.$('btn-alarms-close').focus();
   p.key('Home');
   assert.equal(p.doc.activeElement.id, 'ap-' + first[0]);
@@ -167,28 +175,28 @@ test('Q-46: with the panel open its tiles select and keep the focus in it; arrow
   p.click('ap-ack-one');
   assert.equal(p.vm().alarms.tiles.find(t => t.id === 'n1').state, 'ackd');
   assert.match(p.$('ap-n1').className, /\bs-ackd\b/);
-  Object.assign(p.game.alarms.tiles.weather, {state: 'alarm', cond: true, setAtS: Math.floor(p.game.state.tick / TPS)}); // (a test poke)
+  Object.assign(p.game.alarms.tiles.storageLow, {state: 'alarm', cond: true, setAtS: Math.floor(p.game.state.tick / TPS)}); // (a test poke)
   p.frame();
   assert.deepEqual(order(), first, 'the board did not move');
   p.key('Escape');
   p.key('w');
-  assert.deepEqual(order().slice(0, 2), ['weather', 'n1'], 're-sorted on opening: the alarm, then the acknowledged');
-  assert.equal(p.vm().alarmsSel, 'weather');
+  assert.deepEqual(order().slice(0, 2), ['storageLow', 'n1'], 're-sorted on opening: the alarm, then the acknowledged');
+  assert.equal(p.vm().alarmsSel, 'storageLow');
 });
 
 test('Q-46: every panel control answers: GO TO, ACK, ACK ALL, HORN OFF and CLOSE; the plan line\'s control first', () => {
-  const p = openGame({seed: 20261007});
-  p.to('04:31', {stop: []});
+  const p = openGame({seed: 20261014});
+  p.skipTo('05:30');
   p.key('w');
-  // the plan line asks to raise the GUARD now (▶ ACT NOW): WHAT TO DO offers its control first
+  // the plan line asks to start a unit now (▶ ACT NOW): WHAT TO DO offers its control first
   const plan = planTarget(p.vm().objective);
-  assert.ok(plan, 'the 04:30 line acts now: ' + JSON.stringify(p.vm().objective && p.vm().objective.text));
+  assert.ok(plan, 'the 05:30 line acts now: ' + JSON.stringify(p.vm().objective && p.vm().objective.text));
   assert.match(p.$('ap-todo').textContent, /^The plan line above says act now: GO TO /);
   assert.equal(p.$('ap-goto').textContent, 'GO TO ' + controlName(plan));
   // nothing to acknowledge on a quiet tile, nothing sounding: blue notes, never red (Q-41)
-  p.click('ap-rocof');
+  p.click('ap-ufls');
   let s = p.press('ap-ack-one');
-  assert.match(s.during, /^NOTE blue ap-ft: Nothing to acknowledge on HIGH RoCoF: it is quiet\.$/m);
+  assert.match(s.during, /^NOTE blue ap-ft: Nothing to acknowledge on RELAYS SHED: it is quiet\.$/m);
   s = p.press('btn-ap-sil');
   assert.match(s.during, /^NOTE blue ap-ft: Nothing sounding: HORN OFF stops the horn/m);
   p.real(4.5, 0.5);
@@ -202,7 +210,7 @@ test('Q-46: every panel control answers: GO TO, ACK, ACK ALL, HORN OFF and CLOSE
   // GO TO: the panel closes, the clock stays paused, the focus is on the control
   p.click('ap-goto');
   assert.deepEqual([p.game.ui.alarmsOpen, p.mode(), p.doc.activeElement.id], [false, 'PAUSE', plan]);
-  // with no act-now line, a tile's own GO TO: AGC LIMIT's is the battery (K-24: the AGC desk has no RE-DISPATCH)
+  // with no act-now line, a tile's own GO TO: UNITS AT LIMIT's is the battery (K-24: the AGC desk has no RE-DISPATCH)
   p.key('w');
   p.game.objective = null;
   p.click('ap-agcLimit');
@@ -220,11 +228,11 @@ test('Q-46: W after a trip opens on UNIT TRIP, not a lapsed pick (a live pick wi
   const p = openGame({seed: 20261007});
   p.key(' ');
   // a tile pressed while closed is W's pick for its note's life
-  p.h.actions.ui({do: 'alarmsPick', id: 'peak'});
+  p.h.actions.ui({do: 'alarmsPick', id: 'storageLow'});
   p.key('w');
-  assert.equal(p.vm().alarmsSel, 'peak');
+  assert.equal(p.vm().alarmsSel, 'storageLow');
   p.key('w');
-  p.h.actions.ui({do: 'alarmsPick', id: 'peak'});
+  p.h.actions.ui({do: 'alarmsPick', id: 'storageLow'});
   p.real(G.ALARMS_PICK_MS / 1000 + 0.5, 0.5); // (paused: half-second frames are enough)
   p.key(' ');
   injectTrip(p.game.state, Math.floor(p.game.state.tick / TPS) + 60);
@@ -246,8 +254,8 @@ test('Q-46: W after a trip opens on UNIT TRIP, not a lapsed pick (a live pick wi
 test('Q-46: while the panel is open nothing sounds or repeats; on close what is still unacknowledged sounds once', () => {
   // the model: a fresh alarm under the hold is held, and sounds on release (one sounding)
   const a = A.createAlarms();
-  const x = over => Object.assign({s: 10000, h: 10, fHz: 50, rocof: 0, level: 'SECURE', agcAtLimitS: 0, hydroFrac: 0.8, battFrac: 0.5,
-    inWatch: false, contCount: 0, cont: null, newsCount: 0, news: null}, over);
+  const x = over => Object.assign({s: 10000, fHz: 50, level: 'SECURE', sheds: false, agcAtLimitS: 0, hydroFrac: 0.8, battFrac: 0.5,
+    inWatch: false, contCount: 0, cont: null}, over);
   A.updateAlarms(a, x({}), {nowMs: 0, realDtS: 0});
   let r = A.updateAlarms(a, x({fHz: 49.8}), {nowMs: 100, realDtS: 0, hold: true});
   assert.deepEqual([r.cues, a.tiles.underFreq.state, a.tiles.underFreq.held, a.audible], [[], 'alarm', true, 0]);
@@ -255,19 +263,20 @@ test('Q-46: while the panel is open nothing sounds or repeats; on close what is 
   assert.deepEqual(r.cues, []);
   r = A.updateAlarms(a, x({fHz: 49.8, s: 10002}), {nowMs: 300, realDtS: 0});
   assert.deepEqual([r.cues, a.audible], [['chime'], 1], 'on release: one sounding');
-  // on the page: N-1 INSECURE chimed at 04:30; its single repeat (60 real s on) waits for the panel
-  const p = openGame({seed: 20261007});
-  p.to('04:31', {stop: []});
+  // on the page: LIGHTS AT RISK chimed at 05:11 (TRIP SHEDS) and set again at 05:29 inside its re-sound hold-off: held, it waits
+  const p = openGame({seed: 20261014});
+  p.skipTo('05:30');
   const al = p.game.alarms;
   assert.equal(al.sounds.length, 1, 'one chime so far: ' + JSON.stringify(al.sounds));
+  assert.deepEqual([al.tiles.n1.state, al.tiles.n1.held], ['alarm', true]);
   p.key('w');
   const n = [al.audible, al.repeats];
   let heard = [];
   for (let k = 0; k < 140; k++) { p.frame(0.5); heard = heard.concat(p.vm().cues.filter(c => c === 'horn' || c === 'chime')); }
   assert.deepEqual([heard, al.audible, al.repeats], [[], ...n], 'quiet for 70 real s while open');
   p.key('w');
-  assert.deepEqual(p.vm().cues.filter(c => c === 'horn' || c === 'chime'), ['chime'], 'the repeat sounds once, on close');
-  assert.equal(al.repeats, n[1] + 1);
+  assert.deepEqual(p.vm().cues.filter(c => c === 'horn' || c === 'chime'), ['chime'], 'it sounds once, on close');
+  assert.equal(al.audible + al.repeats, n[0] + n[1] + 1, 'and counts once');
   p.frame(0.5);
   assert.deepEqual(p.vm().cues.filter(c => c === 'horn' || c === 'chime'), [], 'and only once');
 });

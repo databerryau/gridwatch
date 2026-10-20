@@ -607,7 +607,7 @@ test('K-9: tray shows at most 3 cards and its buttons only focus (never an input
 });
 
 test('K-8: an annunciator tile focuses its target; ACK and SILENCE work, even in the watch', () => {
-  const tiles = ['UNDER FREQ', 'N-1 INSECURE', 'UNIT TRIP'].map((l, i) => ({id: 't' + i, label: l, prio: 'P' + (i + 1), state: i ? 'ackd' : 'alarm',
+  const tiles = ['LOW FREQ', 'LIGHTS AT RISK', 'UNIT TRIP'].map((l, i) => ({id: 't' + i, label: l, prio: 'P' + (i + 1), state: i ? 'ackd' : 'alarm',
     flash: i ? null : 'fast', glyph: '◆', target: ['dial-freq', 'gauge-n1', 'bay-sync'][i]}));
   const vm = baseVm(clone(TRIP.obs), {mode: {mode: 'WATCH', rate: 0.15, watchS: 2, locked: true, watchVersion: 'compact'},
     alarms: {tiles, sounding: true}});
@@ -619,7 +619,7 @@ test('K-8: an annunciator tile focuses its target; ACK and SILENCE work, even in
   $('btn-ack').click();
   $('btn-silence').click();
   assert.deepEqual(uiOf(a).slice(-2), [{do: 'ack'}, {do: 'silence'}]);
-  assert.equal($('annunciator').querySelectorAll('.dk-tile').length, 12);
+  assert.equal($('annunciator').querySelectorAll('.dk-tile').length, 8, 'the board\'s 4 × 2 slots (W7 Q3), three of them in use here');
 });
 
 test('K-15: during the watch the desk is locked (only ACK / SILENCE act)', () => {

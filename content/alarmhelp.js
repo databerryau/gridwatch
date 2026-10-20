@@ -1,11 +1,12 @@
 // content/alarmhelp.js: the alarm panel's explainers, one per tile, on demand (Q-44, Q-46). The
-// shape and the rules they keep: app/alarmpanel.js.
+// shape and the rules they keep: app/alarmpanel.js. W7 Q3: every tile asks for an action, and
+// WHAT TO DO names it (EEMUA 191); the four retired tiles (PEAK, HIGH RoCoF, MIN GEN, WEATHER) have none.
 
 import {V} from '../sim/params.js';
 import * as A from '../app/alarms.js';
 import {unitLabel, clockOf, mmss} from '../desk/util.js';
-import {mw, hz as hz3, priceText} from '../render/format.js';
-import {PEAK, hhmm} from '../sim/clock.js';
+import {tripSheds, shedsLine} from '../desk/calc.js';
+import {mw, hz as hz3} from '../render/format.js';
 
 const hz = x => x.toFixed(2), min = s => s / V.S_PER_MIN, pct = f => Math.round(f * V.PCT);
 const watch = 'lit through the ' + V.WATCH_S + '-s watch, then it flashes slowly until ACK.';
@@ -14,9 +15,9 @@ const LOR = 'AEMO\'s reserve levels: LOR1 is reserve below the two largest risks
 const BAND = hz(V.NORMAL_LO_HZ) + '–' + hz(V.NORMAL_HI_HZ) + ' Hz';
 const esc = (w, x) => '; ' + w + ' ' + hz(x) + ' Hz it escalates to P1, the horn.';
 const fNow = o => hz3(o.f.hz) + ' Hz' + (o.fos.outsideS > 0 ? ' · ' + mmss(o.fos.outsideS) + ' outside ' + BAND : '');
-const spare = o => 'spare ' + mw(o.sec.r5MW) + ' vs ' + mw(o.sec.lMW) + ' MW · biggest risk ' + unitLabel(o.sec.lId) + ' · ' + o.sec.level;
-const INSECURE = A.N1_SET_S + ' grid-s not SECURE; clears ';
-const [PK0, PK1] = PEAK.map(hhmm);
+// the gauge's word (W7 Q2: TRIP SHEDS with what it would cost), then the spare against the risk
+const atRisk = o => (tripSheds(o.sec) ? 'TRIP SHEDS: ' + shedsLine(o) : 'N-1 ' + o.sec.level) + ' · spare ' + mw(o.sec.r5MW) + ' vs ' +
+  mw(o.sec.lMW) + ' MW · biggest risk ' + unitLabel(o.sec.lId);
 
 export const ALARM_HELP = {
   underFreq: {
@@ -26,7 +27,7 @@ export const ALARM_HELP = {
       'and AGC restores ' + V.F0_HZ + ' Hz. Out of the band ' + min(V.FOS_RECOVER_S) + ' min (under ' + hz(V.CONTAIN_LO_HZ) + ' Hz: ' +
       min(V.DIRECTED_BELOW_CONTAIN_S) + ' min), districts are shed (GRIDWATCH\'s own rule: a stand-in for AEMO directing the networks); at ' +
       hz(V.UFLS_FIRST_HZ) + ' Hz relays shed at once.',
-    todo: {text: 'More supply: discharge the battery, start a unit (S S), import on the TIE, hold D for demand response, or RE-DISPATCH (N).',
+    todo: {text: 'More supply: discharge the battery, start a unit (S S), import on the TIE, or hold D for demand response (on a HAND day, RE-DISPATCH: N).',
       target: 'dial-battery'},
     real: {text: FOS + '(2023): ' + BAND + ', at most ' + min(V.FOS_RECOVER_S) + ' min outside; a credible trip within ' + V.CONTAIN_LO_HZ +
       '–' + V.CONTAIN_HI_HZ + ' Hz. AEMO (2023): load shedding from ' + V.UFLS_FIRST_HZ.toFixed(1) +
@@ -38,35 +39,26 @@ export const ALARM_HELP = {
     trigger: 'Sets above ' + hz(A.OVER_SET_HZ) + ' Hz, clears below ' + hz(A.OVER_CLEAR_HZ) + ' Hz' + esc('above', A.ESC_HI_HZ),
     means: 'The machines make more power than the city is using, so they speed up.',
     why: 'The surplus goes into spin; governors, the battery, wind and solar back off. From ' + V.OFGS_STAGES_HZ[0] + ' Hz wind farms ' +
-      'trip in stages; at ' + V.BLACK_HI_HZ + ' Hz the grid goes black. Usually a load lost at noon: the export (LINK TRIP) or the smelter (no trip tile).',
-    todo: {text: 'Less supply: charge the battery, stop a unit (X X), lower a lever, or export on the TIE.', target: 'dial-battery'},
+      'trip in stages; at ' + V.BLACK_HI_HZ + ' Hz the grid goes black. Usually a load lost at noon: the export (TIE TRIP) or the smelter (no trip tile).',
+    todo: {text: 'Less supply: charge the battery, stop a unit (X X) or export on the TIE (on a HAND day, lower a lever).', target: 'dial-battery'},
     real: {text: FOS + 'sets extreme limits of ' + V.BLACK_LO_HZ + '–' + V.BLACK_HI_HZ + ' Hz' + WE + ' AEMO\'s 2025 review: wind trips in ' +
       'stages from ' + V.OFGS_STAGES_HZ[0] + ' to ' + V.BLACK_HI_HZ + ' Hz (likely); South Australia peaked at 51.11 Hz on 31 Jan 2020' + WE,
     facts: ['Extreme limits', 'Over-frequency generation shedding']},
     reading: o => fNow(o) + (o.wind.ofgsTrippedFrac > 0 ? ' · ' + pct(o.wind.ofgsTrippedFrac) + '% of wind tripped' : ''),
   },
   n1: {
-    trigger: 'Sets after ' + INSECURE + 'after ' + min(A.N1_CLEAR_S) + ' grid-min SECURE.',
-    means: 'If your biggest risk tripped now, the grid might not hold it above ' + V.CONTAIN_LO_HZ + ' Hz.',
+    trigger: 'Sets after ' + A.N1_SET_S + ' grid-s with the N-1 gauge red (SHORT, SHEDDING or TRIP SHEDS); clears after ' +
+      min(A.N1_CLEAR_S) + ' grid-min without. TIGHT alone lights nothing.',
+    means: 'If your biggest risk tripped now, the city would lose load: the spare is short of it, or too slow to stop the relays at ' +
+      V.UFLS_FIRST_HZ.toFixed(1) + ' Hz, or districts are dark already.',
     why: 'SECURE needs spare that arrives within ' + V.R5_WINDOW_MIN + ' min of ' + V.SECURE_RATIO + ' × the biggest risk (the biggest unit ' +
-      'or the tie import), and a TRIP PREVIEW above ' + V.SECURE_NADIR_HZ + ' Hz with a margin.',
-    todo: {text: 'More spare: raise the GUARD (G), start a gas turbine or hydro machine, or import less than your ' +
+      'or the tie import), and a TRIP PREVIEW above ' + V.SECURE_NADIR_HZ + ' Hz with a margin. TIGHT misses that margin but still ' +
+      'catches the trip above the relays. With fewer machines spinning, frequency falls faster, so plenty of spare can arrive too late.',
+    todo: {text: 'Faster or more spare: raise the GUARD (G), start a gas turbine or hydro machine, or import less than your ' +
       'biggest unit (T previews a trip).', target: 'ring-guard'},
     real: {text: 'NER cl. 4.2.6: secure again within ' + min(V.SECURE_AGAIN_S) + ' minutes (likely). ' + LOR,
       facts: ['Secure again within 30 min', 'LOR levels']},
-    reading: spare,
-  },
-  rocof: {
-    trigger: 'Sets above ' + A.ROCOF_SET_HZ_S + ' Hz/s over ' + V.ROCOF_WINDOW_S + ' s; clears below ' + A.ROCOF_CLEAR_HZ_S + ' Hz/s.',
-    means: 'Frequency is moving fast: a big imbalance against little stored spin.',
-    why: 'The first fall after a trip is the MW lost against the energy in spinning machines (SPIN on the dial). Less spin: a steeper ' +
-      'fall and less time for the battery and governors.',
-    todo: {text: 'Plan ahead: at a sunny noon keep big machines spinning, the GUARD up and the biggest risk small.',
-      target: 'ring-guard'},
-    real: {text: FOS + 'allows ' + V.ROCOF_LIMIT_HZ_S + ' Hz/s after a credible event, over any ' + V.ROCOF_WINDOW_S + ' s. AEMO\'s ' +
-      '2025 review: mainland inertia averages about 84,000 MW·s. Both well established.',
-    facts: ['RoCoF limits', 'NEM inertia']},
-    reading: o => Math.abs(o.f.rocofHzS).toFixed(2) + ' Hz/s · SPIN ' + o.f.ekGWs.toFixed(1) + ' GW·s',
+    reading: atRisk,
   },
   unitTrip: {
     trigger: 'Sets when protection trips a machine carrying over ' + V.EVENT_THRESHOLD_MW + ' MW; ' + watch,
@@ -121,36 +113,11 @@ export const ALARM_HELP = {
     trigger: 'Sets with hydro under ' + pct(A.HYDRO_LOW) + '% of today\'s water or the battery under ' + pct(A.BATT_LOW) + '%; clears at ' +
       pct(A.HYDRO_OK) + '% and ' + pct(A.BATT_OK) + '%.',
     means: 'An energy store is nearly spent: do not count on it for the evening.',
-    why: 'Hydro and the battery are fast, but only while their energy lasts; an empty battery catches no trip.',
-    todo: {text: 'Turn the HYDRO wheel down so the water lasts the peak; charge the battery on spill or at a price at or below zero.', target: null},
+    why: 'Hydro and the battery are fast, but only while their energy lasts; an empty battery catches no trip, whatever its GUARD.',
+    todo: {text: 'Start a unit, so the dispatch need not spend the water before the peak (on a HAND day, turn the HYDRO wheel down); ' +
+      'charge the battery on spill or at a price at or below zero.', target: null},
     real: {text: 'Real storages are seasonal; GRIDWATCH gives the hydro ' + mw(V.HYDRO_ALLOCATION_MWH) + ' MWh a day.',
       abstraction: 'Daily hydro allocation'},
     reading: o => 'HYDRO ' + pct(o.hydro.frac) + '% · BATTERY ' + pct(o.battery.socMWh / o.battery.capMWh) + '%',
-  },
-  minGen: {
-    trigger: 'Sets after ' + A.MINGEN_SET_S + ' grid-s with over ' + A.MINGEN_SET_MW + ' MW of wind and solar held back; clears after ' +
-      min(A.MINGEN_CLEAR_S) + ' grid-min under ' + A.MINGEN_CLEAR_MW + ' MW.',
-    means: 'Units are at their minimum and power is left over: the dispatch spills wind and solar.',
-    why: 'Rooftop solar empties midday; coal and gas cannot go below their minimum. Spill is counted, never charged for.',
-    todo: {text: 'Stop a gas unit (the plan line says which), charge the battery, or export on the TIE.', target: 'stack'},
-    real: {text: 'AEMO, Q4 2025: 31.0% of NEM intervals had negative prices; price-driven offloading took 18% of grid solar, 15% of wind. ' +
-      'Both well established.', facts: ['Negative prices', 'Economic offloading and curtailment']},
-    reading: o => 'spilling ' + mw(o.wind.autoMW + o.solar.autoMW) + ' MW · price ' + priceText(o.price.mwh) + '/MWh',
-  },
-  weather: {
-    trigger: 'Sets with a warning and stays until it ends, or ' + A.WEATHER_HOLD_S / V.S_PER_H + ' h if it names no end. Silent: its card ticks.',
-    means: 'Weather ahead will move demand, wind or solar.',
-    why: 'Heat raises demand; a storm can cut out wind and trip the tie; cloud dims solar; a still spell takes the wind.',
-    todo: {text: 'Read its card in the MESSAGES tray (M), then plan on the LIVE STACK (L).', target: 'tray'},
-    real: {own: 'GRIDWATCH\'s own rule: no real-world source is quoted for it.'},
-    reading: o => { const w = o.news.filter(n => A.isWeather(n.kind)); return 'warnings today: ' + w.length + w.slice(-1).map(n => ' · ' + clockOf(n.atS) + ' ' + n.text).join(''); },
-  },
-  peak: {
-    trigger: 'Sets from ' + PK0 + ' to ' + PK1 + ' after ' + INSECURE + 'at ' + PK1 + ' or after ' + min(A.N1_CLEAR_S) + ' grid-min SECURE.',
-    means: 'It is the evening peak and the grid could not hold its biggest trip.',
-    why: 'Demand peaks as rooftop solar fades: a trip finds the least spare. P1 (the horn) is GRIDWATCH\'s choice.',
-    todo: {text: 'Every spare unit on, the GUARD up and the import below your biggest unit; T previews the trip.', target: 'stack'},
-    real: {text: LOR, facts: ['LOR levels']},
-    reading: spare,
   },
 };

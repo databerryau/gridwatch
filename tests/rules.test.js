@@ -30,7 +30,7 @@ test('H-18: on the desk days no unit trips for running hot (the classic day keep
   assert.equal(classic.c1.mode, 'tripped', 'classic still draws its 3.5%/h risk');
 });
 
-test('H-18: the UNDER FREQ explainer and the directed-shedding row tag the timers as GRIDWATCH\'s own rule', () => {
+test('H-18: the LOW FREQ explainer and the directed-shedding row tag the timers as GRIDWATCH\'s own rule', () => {
   assert.match(ALARM_HELP.underFreq.why, /GRIDWATCH's own rule: a stand-in for AEMO directing the networks/);
   const row = TEXT.abstractions.find(e => e.id === 'directed-shedding');
   assert.match(row.ours, /GRIDWATCH's own rule, not the frequency standard's: a stand-in for AEMO directing the networks/);

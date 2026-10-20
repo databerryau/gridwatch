@@ -40,7 +40,7 @@
 // advance it by their frame time; a jump advances it 1/60 s per virtual frame, i.e. by the real
 // time a player at 60 fps would have watched at the director's rates (the D-2 profile at CRUISE,
 // 1 real s per 540 grid s before 06:00 and 150 in the peak; the watch's slow motion at its own).
-// So line holds (4 real s), the annunciator's real-time timers (AGC LIMIT 5 real s, re-sound
+// So line holds (4 real s), the annunciator's real-time timers (UNITS AT LIMIT 5 real s, re-sound
 // hold-offs), guard covers, notes and the toast age across a jump exactly as in play.
 // clockReport() splits the real seconds since Space into D-2's terms (tools/play.mjs `clock`).
 //

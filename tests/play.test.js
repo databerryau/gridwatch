@@ -83,7 +83,7 @@ test('play driver: skipTo() holds where a jump holds (RED7\'s card at 06:45) and
   const ck = skip.clockReport(), pk = page.clockReport(), parts = c => Object.entries(c.parts).map(([k, x]) => [k, x.n, Math.round(x.realS * 10) / 10]);
   assert.ok(Math.abs(ck.sinceS - (skip.now - skip.spaceMs) / 1000) < 1e-6 && Math.abs(ck.offS - pk.offS) < 0.05, JSON.stringify([ck, pk]));
   assert.deepEqual(parts(ck), parts(pk));
-  // the annunciator: the 06:55 dip set UNDER FREQ and cleared it inside the skip (the ring-back, ◇), and sounded once
+  // the annunciator: the 06:55 dip set LOW FREQ and cleared it inside the skip (the ring-back, ◇), and sounded once
   const panel = p => [A.TILES.map(x => x.id + ':' + p.game.alarms.tiles[x.id].state).join(' '), p.game.alarms.audible];
   assert.match(panel(page)[0], /underFreq:cleared/);
   assert.deepEqual(panel(skip), panel(page));

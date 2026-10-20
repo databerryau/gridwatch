@@ -1,6 +1,6 @@
 // app/alarmpanel.js: the alarm panel (SPEC §9.1 Q-46, desk/README.md §30.6). EXPLAIN (or W, or a
 // second press on a tile) pops the alarms out over the desk while the clock is held. On the left
-// the 12 tiles as a 4 × 3 board (glyph, label, state word, a short live reading), sorted once each
+// the tiles (eight since W7 Q3) 4 to a row (glyph, label, state word, a short live reading), sorted once each
 // time the panel opens (an ACK changes a face in place, never moves it): alarm, then cleared but
 // not acknowledged, then acknowledged, then quiet (a darker face and a plain label, never faded: W6 a11y,
 // its words keep 4.5:1); within a group escalated first, then
@@ -13,7 +13,7 @@
 //
 // content/alarmhelp.js ALARM_HELP[tileId] = {means, why, todo: {text, target}, real, trigger, reading(obs, tile)}:
 //   todo.target  the control GO TO focuses: one the player acts on, never a readout (READOUT); null
-//                for the tile's own (STORAGE LOW's moves between the hydro wheel and the battery).
+//                for the tile's own (LOW STORAGE's moves between the hydro wheel and the battery).
 //                While the plan line says ▶ ACT NOW or ‼ URGENT and names a control, GO TO offers it.
 //   real         ON THE REAL GRID, naming its source: {text, facts: [SPEC §8.1 Fact titles]} says only
 //                what those rows' Value cells say, with each row's confidence as a word (H well

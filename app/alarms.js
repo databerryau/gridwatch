@@ -2,12 +2,24 @@
 // desk/README.md §11 B-1, B-2, B-3). Pure and DOM-free; desk/annunciator.js draws
 // `alarmsView()` (vm.alarms).
 //
-// Twelve tiles (4 x 3). Phase 2a (desk/README.md C-9): MIN GEN is real (the dispatch is spilling
-// wind and sun now); the MSL levels are tray cards (app/tray.js), not a thirteenth tile. Each has one BASE priority and a
-// target control id (a click or Enter focuses it). Analogue tiles have separate set and clear
-// thresholds (K-8), event tiles are set by what happened (a contingency, a UFLS stage, news).
+// W7 Q3 (decisions/2026-10-16-open-questions.md §3, option C): eight tiles in plain words, and a
+// board that lights only when the player has something to do (EEMUA 191: every alarm needs an
+// operator action; SPEC §0: at the peak "the alarms stay dark"). Of the twelve before it:
+//   kept, reworded  UNDER FREQ -> LOW FREQ, OVER FREQ -> HIGH FREQ, LINK TRIP -> TIE TRIP (the desk's
+//                   word), UFLS OPERATED -> RELAYS SHED, AGC LIMIT -> UNITS AT LIMIT, STORAGE LOW ->
+//                   LOW STORAGE; UNIT TRIP as it was
+//   a new rule      N-1 INSECURE -> LIGHTS AT RISK: lit only while the gauge's word is red (SHORT,
+//                   SHEDDING, or the desk's TRIP SHEDS: desk/calc.js tripSheds), not for TIGHT
+//   retired         PEAK (the hour is no alarm: LIGHTS AT RISK covers the peak as any hour), HIGH RoCoF
+//                   (it lit only inside a trip's watch, with nothing to do then: the dial's CHANGE
+//                   marks it), MIN GEN (the dispatch spills by itself, lit for hours on a followed
+//                   day: the Live Stack's SURPLUS, the line and the MSL cards carry it), WEATHER
+//                   (lit for whole days: the warning's own card in the tray carries it)
+// Each has one BASE priority and a target control id (a click or Enter focuses it). Analogue tiles
+// have separate set and clear thresholds (K-8), event tiles are set by what happened (a
+// contingency, a UFLS stage). desk/annunciator.js draws them 4 × 2, the alarm panel 4 to a row.
 //
-// Escalation (B-1): UNDER FREQ and OVER FREQ are P2 tiles (`escalates: true`). While the
+// Escalation (B-1): LOW FREQ and HIGH FREQ are P2 tiles (`escalates: true`). While the
 // frequency is outside the containment band (49.5-50.5 Hz) the tile is escalated: the view
 // gives it `prio: 'P1'` and `escalated: true`, and it sounds the horn. An acknowledged tile
 // that escalates flashes again (it is worse news than the one acknowledged).
@@ -35,19 +47,14 @@
 // Inputs: updateAlarms(a, x, ctx) reads a small snapshot `x` built by alarmInput(obs) in the
 // game, or alarmInputFromState(state) in headless runs (tests; they must agree). Frequency
 // extremes between two updates come from sampleTick() (called after every tick): a frame at
-// 120x spans ~100 ticks, and a dip below 49.85 Hz inside it must still set UNDER FREQ.
+// 120x spans ~100 ticks, and a dip below 49.85 Hz inside it must still set LOW FREQ.
 //
-// 2c (desk/README.md §32.7.3): `x.news` is every news item ({atS, fromS, toS, kind}), so a batch
-// (the briefing's three at 04:00) is read whole, and WEATHER sets only for `isWeather(kind)` (heat,
-// storm, cloud, drought: Q-82's one predicate), until the latest end among them. `x.night`
-// (obs.nightShift) makes the night roll quiet as the watch is (Q-73): tiles still flash, nothing
-// sounds. PEAK_H is D-2's Peak segment in hours, from `clock.PEAK` ([16.5, 20], Q-78). K-8's
-// accept counts real time on `clock.stepReal` (the profile par paces on), 1x in the watch, over a
-// desk date (DESK 20261008: 5 audible, the PEAK horn at 16:30, none from 21:00).
+// `x.night` (obs.nightShift) makes the night roll quiet as the watch is (Q-73): tiles still flash,
+// nothing sounds. K-8's accept counts real time on `clock.stepReal` (the profile par paces on), 1x
+// in the watch, over a desk date (DESK 20261008: none from 21:00).
 
 import {V} from '../sim/params.js';
-import {hourOfDay} from '../sim/weather.js';
-import {PEAK} from '../sim/clock.js';
+import {tripSheds} from '../desk/calc.js';
 
 const TPS = V.TICKS_PER_S;
 
@@ -55,33 +62,21 @@ const TPS = V.TICKS_PER_S;
 export const UNDER_SET_HZ = V.NORMAL_LO_HZ, UNDER_CLEAR_HZ = V.NORMAL_LO_HZ + 0.05;
 export const OVER_SET_HZ = V.NORMAL_HI_HZ, OVER_CLEAR_HZ = V.NORMAL_HI_HZ - 0.05;
 /**
- * N-1 INSECURE sets after N1_SET_S grid-s not SECURE and clears only after N1_CLEAR_S grid-s
- * SECURE: the operator has 30 minutes to return the system to a secure state (NER 4.2.6), and
- * the tile stays in until it has held for such a window. Measured on the competent proxy
- * (seeds 1, 3, 5, 8): a 10-s clear chimed 9-14 times a day as TIGHT came and went; this
- * clear gives 4-6 audible alarms a day (K-8 accept: <= 8).
+ * LIGHTS AT RISK (W7 Q3) sets after N1_SET_S grid-s with the gauge's word red (atRisk: SHORT,
+ * SHEDDING or TRIP SHEDS) and clears after N1_CLEAR_S grid-s without it: the preview hovers at
+ * the relays' 49.0 Hz for grid minutes, refreshed at most every PREVIEW_REFRESH_S, so a shorter
+ * clear would chime the tile again each time it crossed. TIGHT alone lights nothing: the next
+ * trip is caught above the relays.
  */
-export const N1_SET_S = 10, N1_CLEAR_S = 1800;
-/** HIGH RoCoF: |df/dt| over the FOS 500-ms window above this (Hz/s) sets; below CLEAR clears. */
-export const ROCOF_SET_HZ_S = 1, ROCOF_CLEAR_HZ_S = 0.5;
-/** AGC LIMIT: AGC at its limit for more than this many REAL seconds (K-2). */
+export const N1_SET_S = 10, N1_CLEAR_S = 300;
+/** The N-1 tile's condition from a snapshot: the gauge's word is red. */
+export const atRisk = x => x.level === 'SHORT' || x.level === 'SHEDDING' || !!x.sheds;
+/** UNITS AT LIMIT: AGC at its limit for more than this many REAL seconds (K-2). */
 export const AGC_LIMIT_REAL_S = V.AGC_LIMIT_ALARM_REAL_S;
-/** STORAGE LOW: hydro below 30% of its allocation or the battery below 10%; clears at 35% / 20%. */
+/** LOW STORAGE: hydro below 30% of its allocation or the battery below 10%; clears at 35% / 20%. */
 export const HYDRO_LOW = 0.30, HYDRO_OK = 0.35, BATT_LOW = 0.10, BATT_OK = 0.20;
-/** PEAK: inside D-2's Peak (hours of day) and not SECURE (with the N-1 hold). */
-export const PEAK_H = Object.freeze(PEAK.map(s => V.DAY_START_H + s / V.S_PER_H));
-/** Q-82 */
+/** Q-82: the news kinds that are the weather bureau's (app/tray.js names the sender by it). */
 export const isWeather = kind => ['heat', 'storm', 'cloud', 'drought'].includes(kind);
-/**
- * MIN GEN (Phase 2a, desk/README.md §21.4): sets when the dispatch has been holding back more than
- * MINGEN_SET_MW of wind and utility solar for MINGEN_SET_S grid-s (spillMW: obs.wind.autoMW +
- * obs.solar.autoMW, exactly 0 outside a floor surplus), and clears only after it has been under
- * MINGEN_CLEAR_MW for MINGEN_CLEAR_S grid-s (the N-1 tile's clear window: a cloud over the belly
- * must not chime the tile again; K-8 allows 8 audible alarms a day).
- */
-export const MINGEN_SET_MW = V.SURPLUS_MIN_MW, MINGEN_SET_S = 60, MINGEN_CLEAR_MW = 10, MINGEN_CLEAR_S = 1800;
-/** WEATHER stays set this long after the news if it names no end (grid-s). */
-export const WEATHER_HOLD_S = 3600;
 /** Real seconds: no tile sounds twice within this (K-8). */
 export const RESOUND_HOLDOFF_S = 30;
 /** Real seconds between horn repeats while a P1 alarm sounds unacknowledged (K-21). */
@@ -95,23 +90,20 @@ export const P2_REPEAT_S = 60;
 export const ESC_LO_HZ = V.CONTAIN_LO_HZ, ESC_HI_HZ = V.CONTAIN_HI_HZ, ESC_HYST_HZ = 0.05;
 
 /**
- * The tiles, in annunciator order (4 columns x 3 rows). prio: the K-21 BASE priority (one per
+ * The tiles, in annunciator order (4 columns x 2 rows). prio: the K-21 BASE priority (one per
  * tile); escalates: B-1 (the view's `prio` is the effective one). target: the control id a
- * click focuses (desk/README.md §5); a trip tile retargets to the tripped unit's lever.
+ * click focuses (desk/README.md §5); a trip tile retargets to the tripped unit's lever. The ids
+ * are the old ones (the panel's help, the tests), the labels W7 Q3's plain words.
  */
 export const TILES = Object.freeze([
-  {id: 'underFreq', label: 'UNDER FREQ', prio: 'P2', escalates: true, target: 'dial-freq'},
-  {id: 'overFreq', label: 'OVER FREQ', prio: 'P2', escalates: true, target: 'dial-freq'},
-  {id: 'n1', label: 'N-1 INSECURE', prio: 'P2', target: 'gauge-n1'},
-  {id: 'rocof', label: 'HIGH RoCoF', prio: 'P2', target: 'dial-freq'},
+  {id: 'underFreq', label: 'LOW FREQ', prio: 'P2', escalates: true, target: 'dial-freq'},
+  {id: 'overFreq', label: 'HIGH FREQ', prio: 'P2', escalates: true, target: 'dial-freq'},
+  {id: 'n1', label: 'LIGHTS AT RISK', prio: 'P2', target: 'gauge-n1'},
   {id: 'unitTrip', label: 'UNIT TRIP', prio: 'P1', target: 'stack'},
-  {id: 'linkTrip', label: 'LINK TRIP', prio: 'P1', target: 'knob-tie'},
-  {id: 'ufls', label: 'UFLS OPERATED', prio: 'P1', target: 'bay-restore'},
-  {id: 'agcLimit', label: 'AGC LIMIT', prio: 'P2', target: 'bar-imbalance'},
-  {id: 'storageLow', label: 'STORAGE LOW', prio: 'P2', target: 'wheel-hydro'},
-  {id: 'minGen', label: 'MIN GEN', prio: 'P2', target: 'stack'},
-  {id: 'weather', label: 'WEATHER', prio: 'P3', target: 'tray'},
-  {id: 'peak', label: 'PEAK', prio: 'P1', target: 'gauge-n1'},
+  {id: 'linkTrip', label: 'TIE TRIP', prio: 'P1', target: 'knob-tie'},
+  {id: 'ufls', label: 'RELAYS SHED', prio: 'P1', target: 'bay-restore'},
+  {id: 'agcLimit', label: 'UNITS AT LIMIT', prio: 'P2', target: 'bar-imbalance'},
+  {id: 'storageLow', label: 'LOW STORAGE', prio: 'P2', target: 'wheel-hydro'},
 ].map(t => Object.freeze(Object.assign({escalates: false}, t))));
 
 const PRIO_RANK = {P1: 3, P2: 2, P3: 1};
@@ -136,11 +128,10 @@ export function createAlarms() {
     repeats: 0,                   // re-sounds: horn repeats, the P2 repeat, an escalation inside the hold-off (B-3)
     sounds: [],                   // every sounding, {atS, atMs, prio, tiles} (tests, debrief)
     // trackers
-    samp: {fMin: Infinity, fMax: -Infinity, rocofMax: 0, n: 0},
-    notSecureSinceS: -1, secureSinceS: 0, agcRealS: 0,
-    spillSinceS: -1, drySinceS: -1,   // MIN GEN: since when spillMW has been above the set level / under the clear level
-    contSeen: 0, uflsSeen: 0, newsSeen: 0,
-    eventUntilS: {unitTrip: -1, linkTrip: -1, ufls: -1, weather: -1},
+    samp: {fMin: Infinity, fMax: -Infinity, n: 0},
+    riskSinceS: -1, safeSinceS: 0, agcRealS: 0,   // LIGHTS AT RISK: since when the gauge's word has been red / not red
+    contSeen: 0, uflsSeen: 0,
+    eventUntilS: {unitTrip: -1, linkTrip: -1, ufls: -1},
     prevInWatch: false,
     lastS: -1,
   };
@@ -148,47 +139,41 @@ export function createAlarms() {
 
 /** After every tick (cheap, reads state directly): extremes since the last update. */
 export function sampleTick(a, state) {
-  const sp = a.samp, f = state.phys.fHz, r = Math.abs(state.phys.rocofHzS);
+  const sp = a.samp, f = state.phys.fHz;
   if (f < sp.fMin) sp.fMin = f;
   if (f > sp.fMax) sp.fMax = f;
-  if (r > sp.rocofMax) sp.rocofMax = r;
   sp.n++;
 }
 
 /**
  * The alarm snapshot from observe() (the game, once per frame). Escalation (B-1) reads the same
- * frequency as the UNDER / OVER tiles: `fHz` here plus the extremes sampleTick() kept.
+ * frequency as the LOW / HIGH FREQ tiles: `fHz` here plus the extremes sampleTick() kept. sheds:
+ * the desk's TRIP SHEDS (desk/calc.js tripSheds, the sim's preview without the gauge's display hold).
  */
 export function alarmInput(obs) {
   const c = obs.contingency;
   return {
-    s: obs.s, h: obs.clock.h, fHz: obs.f.hz, rocof: Math.abs(obs.f.rocofHzS), level: obs.sec.level,
+    s: obs.s, fHz: obs.f.hz, level: obs.sec.level, sheds: tripSheds(obs.sec),
     agcAtLimitS: obs.agc.atLimitS, hydroFrac: obs.hydro.frac, battFrac: obs.battery.socMWh / obs.battery.capMWh,
     inWatch: obs.inWatch,
     contCount: obs.contingencies.length,
     cont: c ? {n: c.n, cause: c.cause, id: c.id, uflsStages: c.uflsStages, watchEndS: Math.floor(c.watchEndTick / TPS)} : null,
-    newsCount: obs.news.length, news: obs.news.map(newsOf), night: obs.nightShift,
-    // Phase 2a (C-9): MW of wind and utility solar the dispatch is holding back now (MIN GEN)
-    spillMW: obs.wind.autoMW + obs.solar.autoMW,
+    night: obs.nightShift,
   };
 }
-
-const newsOf = n => ({atS: n.atS, fromS: n.fromS, toS: n.toS, kind: n.kind});
 
 /** The same snapshot straight from state (headless runs; tests check it equals alarmInput(observe(state))). */
 export function alarmInputFromState(state) {
   const s = Math.floor(state.tick / TPS);
   const c = state.contIdx >= 0 ? state.conts[state.contIdx] : null;
-  const h = hourOfDay(state.scn, s);
   return {
-    s, h, fHz: state.phys.fHz, rocof: Math.abs(state.phys.rocofHzS), level: state.sec.level,
+    s, fHz: state.phys.fHz, level: state.sec.level, sheds: tripSheds(state.sec),
     agcAtLimitS: state.agc.atLimitS, hydroFrac: state.hydro.storageMWh / V.HYDRO_ALLOCATION_MWH,
     battFrac: state.battery.socMWh / V.BATT_MWH,
     inWatch: c !== null && state.tick < c.watchEndTick,
     contCount: state.conts.length,
     cont: c ? {n: c.n, cause: c.cause, id: c.id, uflsStages: c.uflsStages, watchEndS: Math.floor(c.watchEndTick / TPS)} : null,
-    newsCount: state.news.length, news: state.news.map(newsOf), night: state.control.nightShift,
-    spillMW: state.ren.windAutoMW + state.ren.solarAutoMW,
+    night: state.control.nightShift,
   };
 }
 
@@ -201,7 +186,7 @@ const hyst = (was, setNow, clearNow) => (was ? !clearNow : setNow);
  * @param {object} x alarmInput(obs) or alarmInputFromState(state)
  * @param {{nowMs:number, realDtS:number, stationOf?:function(string):string, hold?:boolean}} ctx
  *   nowMs: a real-time clock (ms) for the re-sound hold-off and horn repeats; realDtS: real
- *   seconds since the last update (AGC LIMIT's 5 real s); stationOf(unitId): station id (targets);
+ *   seconds since the last update (UNITS AT LIMIT's 5 real s); stationOf(unitId): station id (targets);
  *   hold: the alarm panel is open (sounds wait, as in the watch).
  * @returns {{cues:string[], newAlarm:boolean}} cues: 'horn' | 'chime' to play now (a sounding
  *   or a re-sound); newAlarm: a P1/P2 tile went into alarm or escalated (ends FAST).
@@ -209,8 +194,7 @@ const hyst = (was, setNow, clearNow) => (was ? !clearNow : setNow);
 export function updateAlarms(a, x, ctx) {
   const sp = a.samp, T = a.tiles, s = x.s;
   const fMin = sp.n ? Math.min(sp.fMin, x.fHz) : x.fHz, fMax = sp.n ? Math.max(sp.fMax, x.fHz) : x.fHz;
-  const rocof = Math.max(sp.rocofMax, x.rocof);
-  sp.fMin = Infinity; sp.fMax = -Infinity; sp.rocofMax = 0; sp.n = 0;
+  sp.fMin = Infinity; sp.fMax = -Infinity; sp.n = 0;
 
   // Events since the last update.
   if (x.contCount > a.contSeen) {
@@ -228,38 +212,23 @@ export function updateAlarms(a, x, ctx) {
     a.uflsSeen = (x.cont.n + 1) * 100 + x.cont.uflsStages;
     a.eventUntilS.ufls = Math.max(s, x.cont.watchEndS);
   }
-  for (; a.newsSeen < x.newsCount; a.newsSeen++) {
-    const nw = x.news[a.newsSeen];
-    if (isWeather(nw.kind)) a.eventUntilS.weather = Math.max(a.eventUntilS.weather, nw.toS ?? Math.max(nw.fromS, nw.atS) + WEATHER_HOLD_S);
-  }
-
-  // N-1 hold timers (grid seconds).
-  const secure = x.level === 'SECURE';
-  if (secure) { if (a.secureSinceS < 0) a.secureSinceS = s; a.notSecureSinceS = -1; }
-  else { if (a.notSecureSinceS < 0) a.notSecureSinceS = s; a.secureSinceS = -1; }
-  const insecureLong = !secure && s - a.notSecureSinceS >= N1_SET_S;
-  const secureLong = secure && s - a.secureSinceS >= N1_CLEAR_S;
+  // LIGHTS AT RISK hold timers (grid seconds).
+  const risk = atRisk(x);
+  if (risk) { if (a.riskSinceS < 0) a.riskSinceS = s; a.safeSinceS = -1; }
+  else { if (a.safeSinceS < 0) a.safeSinceS = s; a.riskSinceS = -1; }
+  const riskLong = risk && s - a.riskSinceS >= N1_SET_S;
+  const safeLong = !risk && s - a.safeSinceS >= N1_CLEAR_S;
   a.agcRealS = x.agcAtLimitS > 0 ? a.agcRealS + Math.max(0, ctx.realDtS || 0) : 0;
-  // MIN GEN timers (grid seconds; a snapshot without spillMW, e.g. a CLASSIC fixture, never spills).
-  const spill = x.spillMW > 0 ? x.spillMW : 0;
-  if (spill > MINGEN_SET_MW) { if (a.spillSinceS < 0) a.spillSinceS = s; } else a.spillSinceS = -1;
-  if (spill < MINGEN_CLEAR_MW) { if (a.drySinceS < 0) a.drySinceS = s; } else a.drySinceS = -1;
-  const spilling = a.spillSinceS >= 0 && s - a.spillSinceS >= MINGEN_SET_S;
-  const dry = a.drySinceS >= 0 && s - a.drySinceS >= MINGEN_CLEAR_S;
 
   const cond = {
     underFreq: hyst(T.underFreq.cond, fMin < UNDER_SET_HZ, fMin > UNDER_CLEAR_HZ),
     overFreq: hyst(T.overFreq.cond, fMax > OVER_SET_HZ, fMax < OVER_CLEAR_HZ),
-    n1: hyst(T.n1.cond, insecureLong, secureLong),
-    rocof: hyst(T.rocof.cond, rocof > ROCOF_SET_HZ_S, rocof < ROCOF_CLEAR_HZ_S),
+    n1: hyst(T.n1.cond, riskLong, safeLong),
     unitTrip: s < a.eventUntilS.unitTrip,
     linkTrip: s < a.eventUntilS.linkTrip,
     ufls: s < a.eventUntilS.ufls,
     agcLimit: a.agcRealS > AGC_LIMIT_REAL_S,
     storageLow: hyst(T.storageLow.cond, x.hydroFrac < HYDRO_LOW || x.battFrac < BATT_LOW, x.hydroFrac >= HYDRO_OK && x.battFrac >= BATT_OK),
-    minGen: hyst(T.minGen.cond, spilling, dry),
-    weather: s < a.eventUntilS.weather,
-    peak: x.h >= PEAK_H[0] && x.h < PEAK_H[1] && hyst(T.peak.cond, insecureLong, secureLong),
   };
   T.storageLow.target = x.hydroFrac < HYDRO_LOW || (T.storageLow.cond && x.battFrac >= BATT_OK) ? 'wheel-hydro' : 'dial-battery';
 
@@ -405,7 +374,7 @@ export function alarmsView(a) {
 /**
  * The tile the alarm panel opens on when none is named (Q-46, §30.3.3), from alarmsView(), the
  * pick ({id, untilMs}) and the page's ms: a live pick; else the unacknowledged tile with the
- * highest effective priority, newest setAtS first; else the newest acknowledged; else UNDER FREQ.
+ * highest effective priority, newest setAtS first; else the newest acknowledged; else LOW FREQ.
  */
 export function defaultSel(view, pick, nowMs) {
   if (pick && pick.id && nowMs < pick.untilMs) return pick.id;

@@ -369,7 +369,7 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   tap(' ');
   // An alarm tile says what it means when pressed; ACK with nothing flashing says so.
   $('tile-n1').click();
-  assert.match($('annunciator').textContent, /N-1 INSECURE: losing your biggest unit/);
+  assert.match($('annunciator').textContent, /LIGHTS AT RISK: if your biggest risk tripped now/);
   // A map click selects the plant's control.
   assert.deepEqual(h.mods.errors, []);
   const r = replay(7, DESK, h.game.state.log, {untilTick: h.game.state.tick});
