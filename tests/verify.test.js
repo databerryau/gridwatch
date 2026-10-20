@@ -1,18 +1,22 @@
 // W7 (Q15): tools/verify.mjs, the verify run that restamps the dailies' four files when a build moves nothing they store. Its pure
 // parts: what it counts as a difference (a date's par, D-9 gate, D-29 incident, class and scripted players against the stored
-// ladder row; a selftest case against its golden values) and the restamp, through each file's own writer, which must give back the
-// shipped file byte for byte and then change nothing but the stamp. No day is played here (the run itself is a tool: npm run verify).
+// ladder row; a selftest case against its golden values, its hashes taken under the version they were made with: state.v is in
+// every hash) and the restamp, through each file's own writer, which must give back the shipped file byte for byte and then change
+// only the stamp and the version's hashes. No day is played here (the run itself is a tool: npm run verify).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
+import {createState, hashState} from '../sim/step.js';
+import {SIM_VERSION} from '../sim/params.js';
+import {DESK} from '../content/scenarios.js';
 import {DAILIES} from '../content/dailies.js';
 import {LADDER} from '../content/ladder.js';
 import {SELFTEST} from '../content/selftest.js';
 import {GATED} from '../content/anniversaries.js';
 import {ladderText} from '../tools/ladder.mjs';
 import {selftestText} from '../tools/selftest-gen.mjs';
-import {dateDiffs, caseDiffs, restamped, regeneration, restampAdvice, datesOf} from '../tools/verify.mjs';
+import {dateDiffs, caseDiffs, restamped, regeneration, restampAdvice, datesOf, hashBoth} from '../tools/verify.mjs';
 
 const DG = createRequire(import.meta.url)('../tools/daily-gen.js');
 const read = p => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
@@ -37,15 +41,27 @@ test('Q15: a replayed date matches its stored row; each field that moved is name
   assert.deepEqual(dateDiffs(got(), undefined).map(d => d.field), ['ladder row'], 'a date with no row');
 });
 
-test('Q15: a selftest case matches its golden values; a moved hash names the first hour, a moved par its ALL-IN', () => {
-  const [par] = SELFTEST.cases, same = {tick: par.tick, hash: par.hash, hashes: par.hashes.slice(), total: par.total};
-  assert.deepEqual(caseDiffs(par, same, 'p'), []);
-  const moved = Object.assign({}, same, {hashes: same.hashes.map((h, i) => (i >= 9 ? h ^ 1 : h)), hash: same.hash ^ 1, total: same.total + 5});
-  assert.deepEqual(caseDiffs(par, moved, 'p').map(d => d.field), ['hash at 14:00 (the first hour that differs)', 'hash at the end', 'par ALL-IN $']);
-  assert.deepEqual(caseDiffs(par, Object.assign({}, same, {tick: 100, hashes: same.hashes.slice(0, 3)}), 'p').map(d => d.field), ['tick', 'hourly hashes']);
+test('Q15: a state\'s hash covers SIM_VERSION (state.v): hashBoth takes it as this build makes it and under the golden\'s version', () => {
+  const st = createState(20261016, DESK), now = hashState(st) >>> 0;
+  assert.deepEqual(hashBoth(hashState, st, SIM_VERSION), [now, now], 'the same version: one hash');
+  const [a, b] = hashBoth(hashState, st, 'v4-core-older');
+  assert.equal(a, now);
+  assert.notEqual(b, now, 'another version, another hash');
+  assert.equal(st.v, SIM_VERSION, 'the state is given back as it was');
+  st.v = 'v4-core-older';
+  assert.equal(hashState(st) >>> 0, b, 'the older build\'s hash of the same state');
 });
 
-test('Q15: the restamp goes through each file\'s own writer, which gives back the shipped file; the new text differs by the stamp alone', () => {
+test('Q15: a selftest case matches its golden values under their version; a moved hash names the first hour, a moved par its ALL-IN', () => {
+  const [par] = SELFTEST.cases, was = {hash: par.hash, hashes: par.hashes.slice()};
+  const same = {tick: par.tick, hash: 1, hashes: par.hashes.map(() => 1), was, total: par.total};
+  assert.deepEqual(caseDiffs(par, same, 'p'), [], 'this build\'s own hashes are not compared: those under the golden\'s version are');
+  const moved = Object.assign({}, same, {was: {hashes: was.hashes.map((h, i) => (i >= 9 ? h ^ 1 : h)), hash: was.hash ^ 1}, total: same.total + 5});
+  assert.deepEqual(caseDiffs(par, moved, 'p').map(d => d.field), ['hash at 14:00 (the first hour that differs)', 'hash at the end', 'par ALL-IN $']);
+  assert.deepEqual(caseDiffs(par, Object.assign({}, same, {tick: 100, was: {hash: was.hash, hashes: was.hashes.slice(0, 3)}}), 'p').map(d => d.field), ['tick', 'hourly hashes']);
+});
+
+test('Q15: the restamp goes through each file\'s own writer, which gives back the shipped file; only the stamp and the version\'s hashes change', () => {
   assert.deepEqual(restamped(LISTS, DAILIES.v, read, WRITERS), [], 'nothing to write under the stamp the files carry');
   const stamp = 'v4-core-test|1|2', out = restamped(LISTS, stamp, read, WRITERS);
   assert.deepEqual(out.map(f => f.path), ['content/dailies.js', 'content/ladder.js', 'content/anniversaries.js', 'content/selftest.js']);
@@ -54,6 +70,12 @@ test('Q15: the restamp goes through each file\'s own writer, which gives back th
     assert.equal(f.text.split(stamp).length - 1, 1, f.path + ': the stamp once');
     assert.equal(f.text.replace(stamp, f.v), f.was, f.path + ': nothing but the stamp');
   }
+  // a new SIM_VERSION: the selftest's hashes and the ladder's check are this build's (verified under the old version by the run)
+  const fresh = {cases: SELFTEST.cases.map((c, i) => ({hash: i + 1, hashes: c.hashes.map(() => 7)})), check: 99};
+  const v2 = restamped(LISTS, stamp, read, WRITERS, fresh), text = p => v2.find(f => f.path === p).text;
+  assert.match(text('content/ladder.js'), /check: \{"ymd":\d+,"tick":\d+,"hash":99\}/);
+  assert.equal(text('content/ladder.js').replace(stamp, LADDER.v).replace('"hash":99}', '"hash":' + LADDER.check.hash + '}'), read('content/ladder.js'));
+  assert.match(text('content/selftest.js'), /^ {2}\{"kind":"par","ymd":\d+,"seed":\d+,"scenarioId":"desk","tick":\d+,"hash":1,"hashes":\[7,7,/m);
   // a file edited by hand (here a stored par) is refused: the verify never writes over what its writer would not have written
   const edited = p => (p === 'content/ladder.js' ? read(p).replace('20261016: [14749198', '20261016: [14749199') : read(p));
   assert.throws(() => restamped(LISTS, stamp, edited, WRITERS), /content\/ladder\.js is not as its writer writes it/);

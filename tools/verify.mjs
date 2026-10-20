@@ -10,14 +10,19 @@
 //                optimistic bound and market.isClean; an anniversary's incident in its plan; attempt k > 0 of attempt 0's class
 //   a sample of the dailies (every Nth date from `from`, --players N, default 8; with the anniversaries and the selftest's dates)
 //     the ladder's own players: the page's no-input day (tools/ladder.mjs nothingTotal) and the lean and competent proxies
-//   the selftest goldens (content/selftest.js): every case through the page's own runner (app/selftest.js measure), each hourly
-//     hash, the end's hash and tick and par's ALL-IN; and the ladder's check (the no-input case's hash at 14:00)
+//   the selftest goldens (content/selftest.js): every case played as the page's runner plays it (app/selftest.js: par's day,
+//     the page's no-input day, a scripted log's replay), each hourly hash, the end's hash and tick and par's ALL-IN; and the
+//     ladder's check (the no-input case's hash at 14:00)
 //   the anniversaries: content/anniversaries.js GATED and content/ladder.js anniv against each variant's scenarioHash
-// When everything matches it rewrites the stamps and nothing else (each file through its own writer; the new text differs from the
-// old by the stamp alone), unless --check. When anything differs it writes nothing, prints each date and field that differs, and
-// the full regeneration. Not checked: the attempts before a listed one (a regeneration may pick an earlier attempt that passes
-// now; the listed one still passes D-9), the scripted players off the sample, daily-gen's D-10 and Hard-day pool report, and the
-// classic golden (`npm run golden:v4 -- --check`).
+// A state's hash (sim/step.js hashState) covers state.v, the SIM_VERSION it was made under, so every hash moves at a version bump
+// even when nothing else does. Each hash is therefore taken twice: as this build makes it, and with state.v set back to the
+// version the golden was made under (its stamp's first part); the second is compared with the stored one. When everything matches
+// it rewrites the four stamps and, where SIM_VERSION moved, the selftest's hashes and the ladder's check to this build's (each file
+// through its own writer, which must give back the shipped file first; nothing else in the lists may change), unless --check.
+// When anything differs it writes nothing, prints each date and field that differs, and the full regeneration. Not checked: the
+// attempts before a listed one (a regeneration may pick an earlier attempt that passes now; the listed one still passes D-9), the
+// scripted players off the sample, daily-gen's D-10 and Hard-day pool report, and the classic golden (`npm run golden:v4 --
+// --check`; its hash column moves at every version bump).
 //
 //   npm run verify                         replay and compare; restamp when everything matches (-j: logical CPUs - 1)
 //   node tools/verify.mjs --check -j 4     compare only, never write (CI: .github/workflows/verify.yml)
@@ -85,11 +90,52 @@ export async function verifyDate(ymd, players) {
   return out;
 }
 
-/** Selftest case i of content/selftest.js, measured by the page's own runner (app/selftest.js measure): {i, tick, hash, hashes, total}. */
-export async function verifyCase(i) {
-  const [{SELFTEST}, ST] = await Promise.all([imp('content/selftest.js'), imp('app/selftest.js')]);
-  const got = await ST.measure(SELFTEST.cases[i]);
-  return {i, tick: got.tick, hash: got.hash, hashes: got.hashes, total: got.total};
+/** [this build's hash, the hash with state.v set to `was`] of a state (unsigned): state.v is the SIM_VERSION, which hashState covers. */
+export function hashBoth(hashState, st, was) {
+  const now = hashState(st) >>> 0, v = st.v;
+  if (v === was) return [now, now];
+  st.v = was;
+  try { return [now, hashState(st) >>> 0]; } finally { st.v = v; }
+}
+
+/**
+ * Selftest case i of content/selftest.js, played as the page's runner plays it (app/selftest.js measure: par's day through runPar,
+ * the page's no-input day through app/game.js, a log through sim/step.js replay), each hash taken both ways (hashBoth: `was` is
+ * the version the golden was made under): {i, tick, hashes, hash, was: {hashes, hash}, total (par)}.
+ */
+export async function verifyCase(i, was) {
+  const [{V}, {hashState, replay}, AP, G, system, S, {SELFTEST}, {dailyFor}, {SCENARIOS}] = await Promise.all([imp('sim/params.js'),
+    imp('sim/step.js'), imp('sim/autopilot.js'), imp('app/game.js'), imp('app/system.js'), imp('app/score.js'), imp('content/selftest.js'),
+    imp('content/dailies.js'), imp('content/scenarios.js')]);
+  const c = SELFTEST.cases[i], HOUR = V.S_PER_H * V.TICKS_PER_S, hours = [];
+  let st, total;
+  if (c.kind === 'par') {
+    const scn = G.scenarioForSeed(c.seed);
+    const r = AP.runPar(c.seed, scn, {hashEveryS: V.DAY_S + 1, onStep: x => { if (x.tick % HOUR === 0) hours.push(hashBoth(hashState, x, was)); }});
+    st = r.state;
+    total = Math.round(S.allIn(r.score, scn.city.suburbs.reduce((a, s) => a + s.households, 0)).total);
+  } else if (c.kind === 'nothing') {
+    const game = G.createGame({daily: dailyFor(c.ymd, G.dailyStamp()), scenario: G.scenarioForSeed, system, commit: 'player', startPaused: true,
+      storage: null, par: false});
+    G.takeDesk(game);
+    for (let t = HOUR; t <= c.tick && !game.state.over; t += HOUR) { G.runTo(game, t); if (game.state.tick === t) hours.push(hashBoth(hashState, game.state, was)); }
+    G.runTo(game, c.tick);
+    st = game.state;
+  } else st = replay(c.seed, SCENARIOS[c.scenarioId], c.log, {untilTick: c.tick});
+  const end = hashBoth(hashState, st, was);
+  return {i, tick: st.tick, hashes: hours.map(h => h[0]), hash: end[0], was: {hashes: hours.map(h => h[1]), hash: end[1]}, total};
+}
+
+/** The ladder's check (tools/ladder.mjs nothingCheck: the first daily's no-input day at CHECK_H), its hash both ways: {ymd, tick, hash, was}. */
+export async function verifyCheck(was) {
+  const [{V}, {hashState}, G, system, {DAILIES, dailyFor}, {CHECK_H}] = await Promise.all([imp('sim/params.js'), imp('sim/step.js'), imp('app/game.js'),
+    imp('app/system.js'), imp('content/dailies.js'), imp('tools/ladder.mjs')]);
+  const ymd = ymdIn(DAILIES.from), tick = (CHECK_H - V.DAY_START_H) * V.S_PER_H * V.TICKS_PER_S;
+  const game = G.createGame({daily: dailyFor(ymd, G.dailyStamp()), scenario: G.scenarioForSeed, system, commit: 'player', startPaused: true, storage: null, par: false});
+  G.takeDesk(game);
+  G.runTo(game, tick);
+  const [hash, w] = hashBoth(hashState, game.state, was);
+  return {ymd, tick: game.state.tick, hash, was: w};
 }
 
 // ---------------------------------------------------------------- comparing (pure: tests/verify.test.js)
@@ -113,40 +159,46 @@ export function dateDiffs(got, row) {
   return out;
 }
 
-/** The differences of a selftest case `c` (stored) against what this build measured. */
+/** The differences of a selftest case `c` (stored) against what this build measured (its hashes as made under c's version: got.was). */
 export function caseDiffs(c, got, name) {
-  const out = [], d = (field, stored, now) => out.push({at: name, field, stored, got: now});
+  const out = [], d = (field, stored, now) => out.push({at: name, field, stored, got: now}), was = got.was;
   if (got.tick !== c.tick) d('tick', c.tick, got.tick);
   // (the hourly hashes are from 05:00: hashes[k] is at (5 + k):00)
-  const k = c.hashes.findIndex((h, j) => j < got.hashes.length && got.hashes[j] !== h);
-  if (k >= 0) d('hash at ' + String((5 + k) % 24).padStart(2, '0') + ':00 (the first hour that differs)', c.hashes[k], got.hashes[k]);
-  else if (got.hashes.length !== c.hashes.length) d('hourly hashes', c.hashes.length, got.hashes.length);
-  if (got.hash !== c.hash) d('hash at the end', c.hash, got.hash);
+  const k = c.hashes.findIndex((h, j) => j < was.hashes.length && was.hashes[j] !== h);
+  if (k >= 0) d('hash at ' + String((5 + k) % 24).padStart(2, '0') + ':00 (the first hour that differs)', c.hashes[k], was.hashes[k]);
+  else if (was.hashes.length !== c.hashes.length) d('hourly hashes', c.hashes.length, was.hashes.length);
+  if (was.hash !== c.hash) d('hash at the end', c.hash, was.hash);
   if (c.kind === 'par' && got.total !== c.total) d('par ALL-IN $', c.total, got.total);
   return out;
 }
 
 /**
- * The four files' new texts under `stamp`, each through the writer that wrote it: [{path, text, was, v}] for the stale ones. Throws
- * when a writer does not give back the shipped file (an edit by hand: regenerate) or the new text differs by more than the stamp.
+ * The stale files' new texts under `stamp`, each through the writer that wrote it: [{path, text, was, v}]. fresh: this build's
+ * hashes for the selftest's cases ([{hash, hashes}], by index) and the ladder's check (a hash), each verified equal to the stored
+ * one under the version it was made with (they move with SIM_VERSION, which hashState covers). Throws when a writer does not give
+ * back the shipped file (an edit by hand: regenerate it) or when anything but the stamp and those hashes would change.
  * lists: {DAILIES, LADDER, GATED, SELFTEST}; read: path => the file's text; writers: {writeList, writeGated, ladderText, selftestText}.
  */
-export function restamped(lists, stamp, read, writers) {
+export function restamped(lists, stamp, read, writers, fresh = {}) {
   const {DAILIES, LADDER, GATED, SELFTEST} = lists, W = writers;
+  const cases = SELFTEST.cases.map((c, i) => (fresh.cases && fresh.cases[i] ? Object.assign({}, c, {hash: fresh.cases[i].hash, hashes: fresh.cases[i].hashes.slice()}) : c));
+  const check = fresh.check === undefined ? LADDER.check : Object.assign({}, LADDER.check, {hash: fresh.check});
+  // (what may change: the stamp, and these hashes; everything else in the lists must be as shipped)
+  const blank = L => JSON.stringify(Object.assign({}, L, {v: '', check: L.check && Object.assign({}, L.check, {hash: 0}),
+    cases: L.cases && L.cases.map(c => Object.assign({}, c, {hash: 0, hashes: c.hashes.map(() => 0)}))}));
   const files = [
-    ['content/dailies.js', DAILIES.v, src => W.writeList(src, DAILIES), src => W.writeList(src, Object.assign({}, DAILIES, {v: stamp}))],
-    ['content/ladder.js', LADDER.v, () => W.ladderText(LADDER), () => W.ladderText(Object.assign({}, LADDER, {v: stamp}))],
-    ['content/anniversaries.js', GATED.v, src => W.writeGated(src, GATED), src => W.writeGated(src, Object.assign({}, GATED, {v: stamp}))],
-    ['content/selftest.js', SELFTEST.v, () => W.selftestText(SELFTEST), () => W.selftestText(Object.assign({}, SELFTEST, {v: stamp}))],
+    ['content/dailies.js', DAILIES, Object.assign({}, DAILIES, {v: stamp}), (src, L) => W.writeList(src, L)],
+    ['content/ladder.js', LADDER, Object.assign({}, LADDER, {v: stamp, check}), (src, L) => W.ladderText(L)],
+    ['content/anniversaries.js', GATED, Object.assign({}, GATED, {v: stamp}), (src, L) => W.writeGated(src, L)],
+    ['content/selftest.js', SELFTEST, Object.assign({}, SELFTEST, {v: stamp, cases}), (src, L) => W.selftestText(L)],
   ];
   const out = [];
-  for (const [path, v, again, stamped] of files) {
-    if (v === stamp) continue;
+  for (const [path, old, now, write] of files) {
+    if (old.v === stamp && same(old, now)) continue;
     const was = read(path);
-    if (again(was) !== was) throw new Error(path + ' is not as its writer writes it (edited by hand?): regenerate it');
-    const text = stamped(was);
-    if (text.split(stamp).join(v) !== was || text === was) throw new Error(path + ': the restamp would change more than the stamp');
-    out.push({path, text, was, v});
+    if (write(was, old) !== was) throw new Error(path + ' is not as its writer writes it (edited by hand?): regenerate it');
+    if (blank(now) !== blank(old)) throw new Error(path + ': the restamp would change more than the stamp and the version\'s hashes');
+    out.push({path, text: write(was, now), was, v: old.v});
   }
   return out;
 }
@@ -212,7 +264,8 @@ async function main() {
   const caseYmds = new Set(SELFTEST.cases.map(c => c.ymd)), annivs = Object.keys(ANNIVERSARY_KEYS).map(Number).filter(d => all.includes(d));
   const sampled = ymd => o.players > 0 && (all.indexOf(ymd) % o.players === 0 || annivs.includes(ymd) || caseYmds.has(ymd));
   // the longest jobs first (a selftest par day or a sampled date is 2-4 par days), so no worker is left with one at the end
-  const jobs = [...(whole ? SELFTEST.cases.map((c, i) => ({kind: 'case', i})) : []),
+  const versionOf = v => String(v).split('|')[0];   // (a golden's hashes were made with state.v this: its stamp's SIM_VERSION)
+  const jobs = [...(whole ? [...SELFTEST.cases.map((c, i) => ({kind: 'case', i, was: versionOf(SELFTEST.v)})), {kind: 'check', was: versionOf(LADDER.v)}] : []),
     ...dates.filter(sampled).map(ymd => ({kind: 'date', ymd, players: true})), ...dates.filter(d => !sampled(d)).map(ymd => ({kind: 'date', ymd, players: false}))];
   const n = Math.min(o.workers, jobs.length);
   console.log('verify: ' + dates.length + ' dailies (' + iso(dates[0]) + ' to ' + iso(dates[dates.length - 1]) + ') under ' + stamp + ', the stored lists ' +
@@ -221,7 +274,7 @@ async function main() {
   const results = await runWorkers(n, jobs, k => { if (k % 25 === 0 || k === jobs.length) console.log(k + '/' + jobs.length + ' jobs, ' + Math.round((Date.now() - t0) / 1000) + ' s'); });
 
   // compare
-  const diffs = [], byYmd = new Map(results.filter(r => r.job.kind === 'date').map(r => [r.out.ymd, r.out]));
+  const diffs = [], fresh = {cases: []}, byYmd = new Map(results.filter(r => r.job.kind === 'date').map(r => [r.out.ymd, r.out]));
   for (const ymd of dates) diffs.push(...dateDiffs(byYmd.get(ymd), Object.hasOwn(LADDER.rows, ymd) ? LADDER.rows[ymd] : undefined));
   if (whole) {
     const extra = Object.keys(LADDER.rows).map(Number).filter(d => !all.includes(d));
@@ -229,13 +282,12 @@ async function main() {
     for (const r of results.filter(x => x.job.kind === 'case')) {
       const c = SELFTEST.cases[r.out.i];
       diffs.push(...caseDiffs(c, r.out, 'selftest ' + caseName(c)));
-      if (c.kind === 'nothing' && LADDER.check.ymd === c.ymd && LADDER.check.tick === c.tick && LADDER.check.hash !== r.out.hash) {
-        diffs.push({at: 'content/ladder.js', field: 'check (the no-input day at 14:00)', stored: LADDER.check.hash, got: r.out.hash});
-      }
+      fresh.cases[r.out.i] = {hash: r.out.hash, hashes: r.out.hashes};
     }
-    if (!SELFTEST.cases.some(c => c.kind === 'nothing' && c.ymd === LADDER.check.ymd && c.tick === LADDER.check.tick)) {
-      diffs.push({at: 'content/ladder.js', field: 'check', stored: show(LADDER.check), got: 'no selftest case replays it'});
-    }
+    const ck = results.find(x => x.job.kind === 'check').out;
+    if (ck.ymd !== LADDER.check.ymd || ck.tick !== LADDER.check.tick) diffs.push({at: 'content/ladder.js', field: 'check', stored: show(LADDER.check), got: show({ymd: ck.ymd, tick: ck.tick})});
+    else if (ck.was !== LADDER.check.hash) diffs.push({at: 'content/ladder.js', field: 'check (the no-input day at 14:00)', stored: LADDER.check.hash, got: ck.was});
+    fresh.check = ck.hash;
   }
   for (const ymd of annivs.filter(d => dates.includes(d))) {
     const h = scenarioHash(SCENARIOS[dailyScenarioIdOf(ymd)]), a = G.anniversaryStamp(ymd);
@@ -264,20 +316,25 @@ async function main() {
     console.log('\nMATCH on what was replayed' + (stale ? '; the stamps stay as they are (a restamp needs the whole list and the players\' sample)' : '') + '.');
     return;
   }
-  if (!stale) { console.log('\nMATCH: every stored value holds, and the four files carry this build\'s stamp. Nothing to write.'); return; }
   const writers = {writeList: DG.writeList, writeGated: DG.writeGated, ladderText, selftestText};
-  const out = restamped({DAILIES, LADDER, GATED, SELFTEST}, stamp, p => readFileSync(file(p), 'utf8'), writers);
+  const out = restamped({DAILIES, LADDER, GATED, SELFTEST}, stamp, p => readFileSync(file(p), 'utf8'), writers, fresh);
+  if (!out.length) { console.log('\nMATCH: every stored value holds, and the four files carry this build\'s stamp. Nothing to write.'); return; }
+  const moved = versionOf(SELFTEST.v) !== SIM_VERSION ? ' (with SIM_VERSION, which every state hash covers, the selftest\'s hashes and the ladder\'s check: each held under ' +
+    versionOf(SELFTEST.v) + ')' : '';
   if (o.check) {
-    console.log('\nMATCH: every stored value holds under ' + stamp + '. --check: nothing written; `npm run verify` restamps ' + out.map(f => f.path).join(', ') + '.');
+    console.log('\nMATCH: every stored value holds under ' + stamp + '. --check: nothing written; `npm run verify` restamps ' + out.map(f => f.path).join(', ') + moved + '.');
     return;
   }
   for (const f of out) writeFileSync(file(f.path), f.text);
-  console.log('\nMATCH: every stored value holds. Restamped ' + out.map(f => f.path + ' (' + f.v + ')').join(', ') + ' to ' + stamp + '.');
+  console.log('\nMATCH: every stored value holds. Restamped ' + out.map(f => f.path + ' (' + f.v + ')').join(', ') + ' to ' + stamp + moved + '.');
 }
 
 if (process.argv.includes('--verify-worker')) {
   process.on('message', async job => {
-    try { process.send({job, out: job.kind === 'case' ? await verifyCase(job.i) : await verifyDate(job.ymd, job.players)}); }
+    try {
+      const out = job.kind === 'case' ? await verifyCase(job.i, job.was) : job.kind === 'check' ? await verifyCheck(job.was) : await verifyDate(job.ymd, job.players);
+      process.send({job, out});
+    }
     catch (e) { process.send({job, error: String(e && e.stack || e)}); }
   });
 } else if (fileURLToPath(import.meta.url) === process.argv[1]) {

@@ -131,10 +131,13 @@ an anniversary under its variant) through `runPar`, the run the ladder and the p
 take, against the date's ladder row (ALL-IN total and shed MWh); D-9's gate along that same run
 (daily-gen's bound and gate each grid minute, the anniversary's incident, attempt k's class); the
 ladder's scripted players (the no-input day, lean, competent) on every 8th date, the anniversaries
-and the selftest's dates (`--players N`); every selftest case through the page's own runner (each
-hourly hash, the end, par's ALL-IN) and so the ladder's 14:00 check; and the anniversaries' variant
-hashes. When everything matches it rewrites only the stamps, each file through the writer that made
-it (the new text differs by the stamp alone; a file its writer would not give back is refused). When
+and the selftest's dates (`--players N`); every selftest case played as the page's runner plays it
+(each hourly hash, the end, par's ALL-IN) and the ladder's 14:00 check; and the anniversaries' variant
+hashes. A state's hash covers `state.v`, the SIM_VERSION, so every hash moves at a version bump: each
+is taken twice, as this build makes it and with `state.v` set back to the golden's version, and the
+second is compared. When everything matches it rewrites the stamps and, after a version bump, the
+selftest's hashes and the ladder's check to this build's, each file through the writer that made it
+(a file its writer would not give back is refused, and nothing else in the lists may change). When
 anything differs it writes nothing, prints each date and field that differs (and says so when only
 state hashes moved), and prints the full regeneration: `tools/daily-gen.js`, then `tools/ladder.mjs`,
 then `tools/selftest-gen.mjs`. Not checked: the attempts before a listed one (a regeneration may pick

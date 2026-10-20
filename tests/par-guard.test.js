@@ -21,7 +21,9 @@ import {restampAdvice} from '../tools/verify.mjs';
 
 const CASE = SELFTEST.cases.find(c => c.kind === 'par');
 const clock = k => String((5 + k) % 24).padStart(2, '0') + ':00';
-const MOVED = 'par\'s day moved under the stamp: a sim behaviour change needs a SIM_VERSION change (sim/params.js), then ' +
+// (a state's hash covers SIM_VERSION: after a version bump the golden is another build's until the verify restamps it)
+const MOVED = SELFTEST.v !== G.dailyStamp() ? 'content/selftest.js is another build\'s: ' + restampAdvice(DAILIES.from, DAILIES.to)
+  : 'par\'s day moved under the stamp: a sim behaviour change needs a SIM_VERSION change (sim/params.js), then ' +
   restampAdvice(DAILIES.from, DAILIES.to) + ' (it refuses when par moved, as here)';
 
 describe('par\'s day on the selftest\'s first par case, to its end', () => {
