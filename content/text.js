@@ -22,7 +22,7 @@ import {P, V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from './scenarios.js';
 import {ANNIVERSARIES} from './anniversaries.js';
 import {SEGMENTS, gridBefore} from '../sim/clock.js';
-import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE} from '../app/director.js';
+import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE, FOCUS_RATE, RESTORE_FOCUS_S, RESTORE_FOCUS_MAX_S} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
 import {HORN_REPEAT_S} from '../app/alarms.js';
 import {LETTERS} from '../app/score.js';
@@ -126,7 +126,9 @@ const ABSTRACTIONS = [
       ' in HAND, which multiplies the profile\'s speeds before ' + hhmm(NIGHT_H) + ' by ' + num(V.HAND_RATE_FACTOR) + ', CRUISE and FAST with ' +
       'them; the watch, RESPOND and SYNC keep their speeds). The first ' + num(V.WATCH_S) +
       ' grid-seconds after a trip play live at ' + rates.join(' → ') + ' (the watch); its card holds the clock, as a repaired feeder\'s does; RESPOND runs ' +
-      num(RESPOND_RATE) + '× until frequency is back in band, for at most ' + minutes(RESPOND_MAX_S) + ' grid-minutes; FAST runs ' +
+      num(RESPOND_RATE) + '× until frequency is back in band, for at most ' + minutes(RESPOND_MAX_S) + ' grid-minutes; a feeder you close ' +
+      'plays ' + num(FOCUS_RATE) + '× until its pickup\'s dip is back in band, for ' + num(RESTORE_FOCUS_S) + ' to ' + num(RESTORE_FOCUS_MAX_S) +
+      ' grid-seconds; FAST runs ' +
       num(FAST_FACTOR) + ' × the profile. The bench cruises at a flat ' + num(FLAT_RATE) + '×. Pause is free.',
     why: 'A day in minutes with honest physics: slowest at the peak, where the decisions are, fastest in the night, where none are asked.',
     params: ['PHYS_DT', 'REF_PROFILE', 'CLOCK_SEGMENT_NAMES', 'CLOCK_EASE_REAL_S', 'PLAYER_START_H', 'HAND_RATE_FACTOR', 'WATCH_S'],

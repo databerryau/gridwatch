@@ -77,7 +77,7 @@ Cross-module rules outside `sim/` (checked by tests):
 | WATCH | full 0.15×/1×/10× over 0–3/3–10/10–30 s; compact 0.5×/2×/20× | a contingency record | watch end (sim `watchEndTick`) |
 | RESPOND-CARD | 0 (clock held) | watch end | Enter, or any desk input (the card's dismiss) |
 | RESPOND | 30× | card dismissed | frequency back in 49.85–50.15 Hz (`contingency.backInBandTick >= 0`) or 5 grid-min after the card, then CRUISE |
-| FOCUS | 1× | a synchroscope opened (sim `scope.unit !== ''`), or a restore breaker being closed (2 grid-s after a `restore` input) | scope closed / unit synced; the restore's 2 grid-s |
+| FOCUS | 1× | a synchroscope opened (sim `scope.unit !== ''`), or the player's restore breaker being closed (a `restore` input; W7, Q-115) | scope closed / unit synced; the restore's dip back in the normal band for a whole grid second (at least 2 grid-s, at most 6; `restoreFocusTick`), then its caption in the tray |
 | PAUSE | 0 | Space, hidden tab, day over | Space |
 
 Precedence: PAUSE > WATCH > RESPOND-CARD > FOCUS > RESPOND > FAST > CRUISE. Debug speeds stay
