@@ -1365,6 +1365,7 @@ export function resumeStep(game, budgetMs = Infinity, now = () => Date.now()) {
   if (s.marg && game.marg) { game.marg.said = s.marg.said || []; game.marg.beats = s.marg.beats || {}; game.margWatched = !!s.marg.watched; }
   if (s.tally) game.tally = s.tally;
   if (s.offered) game.offered = s.offered;
+  for (const [id, o] of Object.entries(game.offered)) if (o && Number.isFinite(o.tick)) D.offerPace(game.director, game.state, id, o.tick);   // (W7: and each offer's OFFER window, as play left it)
   game.margAct = -1;
   // a new lease on the run: an older copy of it still open in another tab now finds the date's entry not its own (yieldTo)
   const old = game.run.id, ymd = dailyYmd(game);

@@ -313,10 +313,13 @@ function offering(d, state) {
   for (const i in d.offers) if (state.tick < d.offers[i] && state.units[i].mode === 'ready') on = true; else delete d.offers[i];
   return on;
 }
-/** The game offers unit `id` (app/game.js updateOffers): OFFER while it or another offered unit waits, up to AUTO_SYNC_S each. */
-export function offerPace(d, state, id) {
+/**
+ * The game offers unit `id` (app/game.js updateOffers): OFFER while it or another offered unit waits, up to AUTO_SYNC_S each.
+ * `atTick`: the tick it was offered (W7: an F-7 resume puts back the windows of the offers it saved).
+ */
+export function offerPace(d, state, id, atTick = state.tick) {
   const i = state.units.findIndex(u => u.id === id);
-  if (i >= 0) d.offers[i] = state.tick + V.AUTO_SYNC_S * TPS;
+  if (i >= 0) d.offers[i] = atTick + V.AUTO_SYNC_S * TPS;
 }
 function contCount(state) {
   return state.contIdx < 0 ? 0 : state.conts[state.contIdx].n + 1;

@@ -103,3 +103,19 @@ test('Q-115 on the page: an AGC morning offers nothing when a unit reaches full 
   assert.match(s.during, / \| FOCUS 1× \| /);
   assert.deepEqual(p.h.mods.errors, []);
 });
+
+test('Q-115, F-7: a HAND day saved mid-offer resumes to the same offers, tally and SYNC 30× (the offer\'s window comes back with it)', () => {
+  const mem = new Map([[G.SEEN_KEY, JSON.stringify({shifts: 3})]]), date = new Date(2026, 9, 2);
+  const storage = {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k)};
+  const p = openGame({seed: 20261002, agc: false, storage, date});
+  assert.equal(p.send({type: 'start', unit: 'gta1'}), '');
+  p.until(({state}) => state.units.find(u => u.id === 'gta1').mode === 'ready', {max: '+30m'});
+  assert.deepEqual([p.game.state.control.mode, p.mode(), p.vm().offers], ['HAND', 'OFFER', [{unit: 'gta1', why: 'tight'}]]);
+  assert.ok(G.saveResume(p.game));
+  const q = openGame({seed: 20261002, storage, date, take: false});
+  q.click('btn-take');
+  for (let k = 0; k < 400 && q.game.replay; k++) q.frame();
+  assert.deepEqual([q.game.resumeFailed, q.game.state.tick, q.game.offered, q.game.tally], ['', p.game.state.tick, p.game.offered, p.game.tally]);
+  q.key(' ');                                                            // (the resumed desk opens held)
+  assert.deepEqual([q.mode(), q.game.director.offers], ['OFFER', p.game.director.offers], 'SYNC 30× for the rest of its window, as in play');
+});
