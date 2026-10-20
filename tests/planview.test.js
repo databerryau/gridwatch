@@ -635,8 +635,8 @@ test('C-11 with a soak booked (2b, Q-50; desk/README §28 and §31): the flex is
   assert.ok(blue(P) < blue(PV.project(dry)), 'blue columns in the hour: ' + blue(P) + ' with the soaks, ' + blue(PV.project(dry)) + ' without');
 });
 
-test('planview imports only sim/params.js and sim/dark.js (2c: lit demand, as par\'s) and uses no Math.random', () => {
+test('planview imports only sim/params.js, sim/dark.js (2c: lit demand, as par\'s) and sim/onat.js (W7 Q6: when a unit is on) and uses no Math.random', () => {
   const src = readFileSync(new URL('../app/planview.js', import.meta.url), 'utf8');
-  assert.deepEqual(importSpecifiers(tokenize(src)), ['../sim/params.js', '../sim/dark.js']);
+  assert.deepEqual(importSpecifiers(tokenize(src)), ['../sim/params.js', '../sim/dark.js', '../sim/onat.js']);
   assert.ok(!/Math\.random/.test(src));
 });
