@@ -16,7 +16,7 @@ import {SELFTEST} from '../content/selftest.js';
 import {GATED} from '../content/anniversaries.js';
 import {ladderText} from '../tools/ladder.mjs';
 import {selftestText} from '../tools/selftest-gen.mjs';
-import {dateDiffs, caseDiffs, restamped, regeneration, restampAdvice, datesOf, hashBoth} from '../tools/verify.mjs';
+import {dateDiffs, caseDiffs, restamped, regeneration, restampAdvice, movedAdvice, datesOf, hashBoth} from '../tools/verify.mjs';
 
 const DG = createRequire(import.meta.url)('../tools/daily-gen.js');
 const read = p => readFileSync(new URL('../' + p, import.meta.url), 'utf8');
@@ -76,16 +76,24 @@ test('Q15: the restamp goes through each file\'s own writer, which gives back th
   assert.match(text('content/ladder.js'), /check: \{"ymd":\d+,"tick":\d+,"hash":99\}/);
   assert.equal(text('content/ladder.js').replace(stamp, LADDER.v).replace('"hash":99}', '"hash":' + LADDER.check.hash + '}'), read('content/ladder.js'));
   assert.match(text('content/selftest.js'), /^ {2}\{"kind":"par","ymd":\d+,"seed":\d+,"scenarioId":"desk","tick":\d+,"hash":1,"hashes":\[7,7,/m);
-  // a file edited by hand (here a stored par) is refused: the verify never writes over what its writer would not have written
-  const edited = p => (p === 'content/ladder.js' ? read(p).replace('20261016: [14749198', '20261016: [14749199') : read(p));
+  // a file edited by hand (here a stored par, whatever the shipped one is) is refused: the verify never writes over what its
+  // writer would not have written
+  const was = '20261016: [' + ROW[0] + ',', edited = p => (p === 'content/ladder.js' ? read(p).replace(was, '20261016: [' + (ROW[0] + 1) + ',') : read(p));
+  assert.notEqual(edited('content/ladder.js'), read('content/ladder.js'), 'the edit took: ' + was);
   assert.throws(() => restamped(LISTS, stamp, edited, WRITERS), /content\/ladder\.js is not as its writer writes it/);
 });
 
-test('Q15: the advice names the verify first and the full regeneration second, over the shipped calendar', () => {
+test('Q15: the advice names the verify first and the full regeneration second, over the shipped calendar; a hash guard\'s says which', () => {
   assert.equal(datesOf(DAILIES.from, DAILIES.to).length, Math.round((Date.parse(DAILIES.to) - Date.parse(DAILIES.from)) / 864e5) + 1);
   assert.deepEqual(datesOf('2026-12-30', '2027-01-02'), [20261230, 20261231, 20270101, 20270102]);
   const days = datesOf(DAILIES.from, DAILIES.to).length;
   assert.match(regeneration(DAILIES.from, DAILIES.to)[0], new RegExp('^node tools/daily-gen\\.js --from ' + DAILIES.from + ' --days ' + days + ' -j 8 '));
   const a = restampAdvice(DAILIES.from, DAILIES.to);
   assert.ok(a.indexOf('npm run verify') < a.indexOf('daily-gen.js') && a.indexOf('daily-gen.js') < a.indexOf('ladder.mjs') && a.indexOf('ladder.mjs') < a.indexOf('selftest-gen.mjs'), a);
+  // a hash guard (par's day, the ladder's check): under this build's stamp the day moved, so SIM_VERSION first; else the file is
+  // another build's (every hash moved with the version) and the verify restamps it
+  const moved = movedAdvice(true, 'content/ladder.js', 'the page\'s no-input day', DAILIES.from, DAILIES.to);
+  assert.ok(moved.startsWith('the page\'s no-input day moved under the stamp: ') && moved.indexOf('SIM_VERSION change') < moved.indexOf(a), moved);
+  assert.equal(movedAdvice(false, 'content/ladder.js', 'the page\'s no-input day', DAILIES.from, DAILIES.to),
+    'content/ladder.js is another build\'s (a state\'s hash covers SIM_VERSION): ' + a);
 });

@@ -52,6 +52,16 @@ export function regeneration(from, to) {
 export const restampAdvice = (from, to) => 'run `npm run verify` first (it replays par on every daily and restamps the four files when nothing moved, ' +
   'about 10-12 min on 11 workers); if it refuses, the full regeneration: ' + regeneration(from, to).map(c => c.replace(/\s+#.*$/, '')).join(', then ');
 
+/**
+ * A hash guard's advice when a stored hash no longer matches (tests/par-guard.test.js, tests/ladder.test.js's check): with the
+ * file on this build's stamp (`current`), `what` moved under it, which needs a SIM_VERSION change first; else the file is another
+ * build's, and a state's hash covers SIM_VERSION, so every hash in it moved with the version: the verify, then the regeneration.
+ */
+export const movedAdvice = (current, file, what, from, to) => (current
+  ? what + ' moved under the stamp: a change to the sim or the system\'s dispatch needs a SIM_VERSION change (sim/params.js), then ' +
+    restampAdvice(from, to) + ' (it refuses when a graded value moved)'
+  : file + ' is another build\'s (a state\'s hash covers SIM_VERSION): ' + restampAdvice(from, to));
+
 const iso = ymd => String(ymd).replace(/^(\d{4})(\d\d)(\d\d)$/, '$1-$2-$3');
 const ymdIn = s => +String(s).replace(/-/g, '');
 /** Every YYYYMMDD from `from` to `to` (ISO dates), inclusive. */
