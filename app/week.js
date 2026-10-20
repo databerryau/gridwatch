@@ -1,8 +1,9 @@
 // app/week.js: W6, D-28 (Q-103; Q-109: on the end card, not the briefing): THE WEEK AHEAD, the next seven dailies' day types,
 // read from each date's seed alone (sim/weather.js prerollRegime: the regime is drawn before anything else). It is an outlook,
 // as a 7-day forecast is: that day's briefing says the same word (a HEATWAVE this afternoon; a storm or low wind "likely
-// later", warned hours before it comes, on the day: Q-110), and nothing else of a day's events is said. A reason to come back
-// tomorrow. DOM-free.
+// later", warned hours before it comes, on the day: Q-110), and nothing else of a day's events is said here. A reason to come
+// back tomorrow. DOM-free. W7 (Q-121): eveningTrip, from the seed too, is the briefing's own, on the day: whether its evening
+// brings the largest machine's trip, never its minute.
 import {prerollRegime} from '../sim/weather.js';
 import {preroll} from '../sim/dayplan.js';
 import {dailyFor} from '../content/dailies.js';
@@ -30,7 +31,7 @@ export const outlookWord = (seed, scn) => dayWord(prerollRegime(seed, scn));
 /**
  * W7 (Q-121): whether the day's plan has Act III's evening trip of the largest machine (sim/dayplan.js: a heatwave, wind
  * drought or calm evening, 17:00-19:30, when a minute is free), from the seed alone, as the sim plans it: the briefing's
- * "Expect a trip at the peak." Never a storm day's (its tie trip is a chance, not a plan), nor an anniversary's incident.
+ * "Expect a trip during the evening peak." Never a storm day's (its tie trip is a chance, not a plan), nor an anniversary's incident.
  */
 export function eveningTrip(seed, scn) {
   return !!scn.dayplan && preroll(seed, scn, prerollRegime(seed, scn)).some(e => e.act === 3 && e.type === 'unitTrip' && !e.incident);

@@ -141,8 +141,13 @@ export function dayText(day, plan) {
 }
 /** Q-110: the day line's outlook sentence for a storm or a wind drought (app/week.js's words): no time, which the warning gives. */
 export const LATER = Object.freeze({storm: ' Storms likely later.', 'low wind': ' Low wind likely later.'});
-/** W7 (Q-121): the day line's sentence when the plan has the evening trip of the largest machine (app/week.js eveningTrip): no minute. */
-export const TRIP_LINE = ' Expect a trip at the peak.';
+/**
+ * W7 (Q-121): the day line's sentence when the plan has the evening trip of the largest machine (app/week.js eveningTrip): no
+ * minute. A span, the game's own "evening peak" (the badge's PEAK and its alarm, 16:30-20:00, sim/clock.js PEAK, which holds
+ * the trip's 17:00-19:30), not "at the peak": Marg names the peak as a minute ("Peak about 6,500 MW at 19:34"), and the trip
+ * comes a median hour or so before it.
+ */
+export const TRIP_LINE = ' Expect a trip during the evening peak.';
 /** The day line's plan (dayText) from the state at 04:00 and its obs: null on the classic day (no director's plan). */
 export const dayPlan = (st, obs) => (st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0), word: outlookWord(st.seed, st.scn),
   trip: eveningTrip(st.seed, st.scn)} : null);

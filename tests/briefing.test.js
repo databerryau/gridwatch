@@ -63,7 +63,7 @@ test('Q-81: a heat + tie derate + feeder date (20261005): Watch for names all th
   assert.match(NEXT, /#briefing-watch \.gate \{ display: block; \}/);
   assert.equal(b.$('briefing-date').textContent, 'Monday 5 October 2026', 'D-3: the date, not the seed');
   // Q-80: the heat is news at 04:00, so the day's line can say it (W7, Q-121: and the evening trip a heatwave keeps)
-  assert.equal(b.$('briefing-day').textContent, 'Today: a hot weekday, heatwave this afternoon. Expect a trip at the peak.');
+  assert.equal(b.$('briefing-day').textContent, 'Today: a hot weekday, heatwave this afternoon. Expect a trip during the evening peak.');
   assert.deepEqual(b.h.mods.errors, []);
 });
 
@@ -101,7 +101,7 @@ test('Q-80: the day\'s line reads the 04:00 news on a planned day, and keeps the
   // on the page: 20261019 is a wind-drought daily (its warning at 16:23), as the week ahead from the 16th says
   const lw = boot(20261019), st = lw.game.state;
   assert.equal(st.ext.regime.cls, 'drought');
-  assert.equal(lw.$('briefing-day').textContent, 'Today: a mild weekday: rooftop solar cuts midday demand. Low wind likely later. Expect a trip at the peak.');
+  assert.equal(lw.$('briefing-day').textContent, 'Today: a mild weekday: rooftop solar cuts midday demand. Low wind likely later. Expect a trip during the evening peak.');
   assert.deepEqual(dayPlan(st, observe(st)), {heat: false, word: 'low wind', trip: true});   // (W7, Q-121: a wind drought keeps the evening trip)
 });
 

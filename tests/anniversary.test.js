@@ -120,9 +120,9 @@ test('D-29: the help behind the tray\'s "?" says where each anniversary breaks t
   assert.ok(dense.includes('At most two unwarned trips a day, none before 09:00 or from 21:00, at least 90 real s and 60 grid-minutes apart. ' +
     'The anniversary dailies keep their real incident instead: 14 Dec (Loy Yang A3, 2017), the largest unit trips between 05:15 and 06:00; ' +
     '13 Feb (Moorabool towers, 2024), in the storm the tie is limited to 400 MW, unannounced, as the largest unit trips; ' +
-    '25 May (Callide C, 2021), Act III\'s unwarned trip takes the next largest unit with it 5 grid-minutes later.'), dense);
+    '25 May (Callide C, 2021), Act III\'s trip takes the next largest unit with it 5 grid-minutes later.'), dense);   // (W7, Q-121: the briefing announces that trip)
   assert.ok(ours('warning-leads').includes('announced at 04:00, before the clock runs. On 13 Feb (Moorabool towers, 2024), the storm limits ' +
-    'the tie with no notice (Event-dense day). Trips are never warned.'), ours('warning-leads'));
+    'the tie with no notice (Event-dense day). No trip\'s minute is ever warned'), ours('warning-leads'));
 });
 
 test('D-29: the incident draws from its own slot: the rest of the plan is the date\'s own (the late return aside: it keeps one action from it)', () => {
