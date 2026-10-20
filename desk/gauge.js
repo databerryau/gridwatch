@@ -8,8 +8,8 @@
 //
 // W7 Q2, TRIP SHEDS: the desk's fifth word (desk/calc.js n1Word; the sim keeps its four). While the sim
 // says TIGHT and its preview is below the first UFLS stage (49.0 Hz) the head reads ▼ TRIP SHEDS in red,
-// held SHEDS_MIN_MS real ms after the preview last said so while it stays within SHEDS_HOLD_HZ of the edge
-// (it hovers there for grid minutes), and the caught line's place says what it would cost ("48.99 Hz: the
+// with a minimum time on and off (SHEDS_MIN_MS real ms, whatever the preview says: it lands either side of
+// the edge from one refresh to the next for grid minutes), and the caught line's place says what it would cost ("48.99 Hz: the
 // relays would shed 2 districts", calc.js shedsLine; the title and the aria label say it whole, with "would
 // fall to"). Below 49.0 Hz the preview's figures are rounded down, as under the SECURE line. The live
 // preview's caught line and the COVER row win the caught line's place.

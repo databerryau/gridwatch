@@ -225,18 +225,24 @@ export function tripSheds(sec) {
 }
 
 /**
- * TRIP SHEDS stays on the desk SHEDS_MIN_MS real ms after the preview last said it, while the preview
- * is still within SHEDS_HOLD_HZ of the relays: it hovers at the 49.0 Hz edge for grid minutes, and is
- * about this much optimistic itself (sim/params.js PREVIEW_MARGIN_HZ). A preview clearly above drops it at once.
+ * The least real time between two changes of the desk's word between TIGHT and TRIP SHEDS (W7 Q2
+ * review). At the 49.0 Hz edge the sim's cached preview is re-run every few grid seconds and lands
+ * either side, by up to about 0.13 Hz (2026-10-14: 49.05-49.13 Hz straight after 48.98), so a word
+ * read off it flips within a few frames at 150-540x; an Hz band does not hold it. So the hold is
+ * time, whatever the preview says: TRIP SHEDS stays until the preview has not said it for this long,
+ * and a TIGHT after it stays this long before TRIP SHEDS may come back. Real ms, because flicker is
+ * seen in real time: 1.5 s is 3.75 grid-min at 150x (the peak) and 13.5 at 540x (before 06:00).
  */
-export const SHEDS_MIN_MS = 3000, SHEDS_HOLD_HZ = V.PREVIEW_MARGIN_HZ;
+export const SHEDS_MIN_MS = 1500;
 
 /**
- * The N-1 word the desk shows: the sim's level, or TRIP SHEDS while tripSheds() holds, and for
- * SHEDS_MIN_MS real ms after while the preview stays under V.UFLS_FIRST_HZ + SHEDS_HOLD_HZ (only
- * while the sim still says TIGHT: SECURE, SHORT and SHEDDING are the sim's verdicts and show at
- * once). mem ({}) keeps the hold; a day started again (obs.tick going back) drops it. The gauge and
- * the live region (app/shell.js liveFrame) each keep one.
+ * The N-1 word the desk shows: the sim's level, or TRIP SHEDS (desk/calc.js tripSheds) with a
+ * minimum time on and off. While the sim says TIGHT: TRIP SHEDS shows when the preview says it
+ * (at once, unless TRIP SHEDS left less than SHEDS_MIN_MS real ms ago: then when that TIGHT has
+ * shown SHEDS_MIN_MS, if the preview still says it), and stays until the preview has not said it
+ * for SHEDS_MIN_MS real ms. SECURE, SHORT and SHEDDING are the sim's verdicts: they show at once
+ * and end a hold, as a day started again (obs.tick going back) does. mem ({}) keeps the hold; the
+ * gauge and the live region (app/shell.js liveFrame) each keep one.
  * @param {object} mem
  * @param {{tick:number, sec:object}} obs
  * @param {number} nowMs the frame's real ms
@@ -244,11 +250,20 @@ export const SHEDS_MIN_MS = 3000, SHEDS_HOLD_HZ = V.PREVIEW_MARGIN_HZ;
  */
 export function n1Word(mem, obs, nowMs) {
   const sec = obs.sec, tick = fin(obs.tick);
-  if (tick < fin(mem.tick, -1)) mem.untilMs = -Infinity;
+  if (tick < fin(mem.tick, -1)) mem.shown = '';
   mem.tick = tick;
-  if (tripSheds(sec)) { mem.untilMs = nowMs + SHEDS_MIN_MS; return 'TRIP SHEDS'; }
-  const held = sec.level === 'TIGHT' && sec.lKind !== 'none' && fin(sec.previewNadirHz, V.F0_HZ) < V.UFLS_FIRST_HZ + SHEDS_HOLD_HZ;
-  return held && nowMs < fin(mem.untilMs, -Infinity) ? 'TRIP SHEDS' : sec.level;
+  if (sec.level !== 'TIGHT' || sec.lKind === 'none') return (mem.shown = sec.level);
+  const raw = tripSheds(sec);
+  if (raw) mem.lastMs = nowMs;
+  const want = raw || (mem.shown === 'TRIP SHEDS' && nowMs - fin(mem.lastMs, -Infinity) < SHEDS_MIN_MS) ? 'TRIP SHEDS' : 'TIGHT';
+  // a TIGHT that TRIP SHEDS left keeps SHEDS_MIN_MS before the word may come back
+  const dwell = mem.shown === 'TIGHT' && mem.afterSheds && nowMs - mem.atMs < SHEDS_MIN_MS;
+  if (want !== mem.shown && !(want === 'TRIP SHEDS' && dwell)) {
+    mem.afterSheds = mem.shown === 'TRIP SHEDS';
+    mem.shown = want;
+    mem.atMs = nowMs;
+  }
+  return mem.shown;
 }
 
 /**
@@ -276,12 +291,12 @@ export function shedDistricts(districts, nadirHz) {
  * What TRIP SHEDS would cost, from the sim's preview (obs.sec.previewNadirHz) and the districts:
  * 'would fall to 48.99 Hz: the relays would shed 2 districts'. Below 49.0 Hz the figure is rounded
  * down (as the gauge's preview figure), so it never reads as the threshold itself. A word still
- * held (n1Word) over a preview back within SHEDS_HOLD_HZ above 49.0 Hz says 'just above the relays'.
+ * held (n1Word) over a preview back at or above 49.0 Hz says so: 'above the relays now'.
  * @param {{sec:object, districts:Array}} obs
  */
 export function shedsLine(obs) {
   const hz = fin(obs.sec.previewNadirHz, V.F0_HZ), at = x => 'would fall to ' + x.toFixed(2) + ' Hz: ';
-  if (!(hz < V.UFLS_FIRST_HZ)) return at(hz) + 'just above the relays';
+  if (!(hz < V.UFLS_FIRST_HZ)) return at(hz) + 'above the relays now';
   const n = shedDistricts(obs.districts, hz);
   return at(Math.floor(hz * 100) / 100) + (n ? 'the relays would shed ' + n + ' district' + (n > 1 ? 's' : '') : 'below the relays, with none left to shed');
 }

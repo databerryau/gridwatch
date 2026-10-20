@@ -2,16 +2,20 @@
 // keeps its four (SECURE, TIGHT, SHORT, SHEDDING); the desk calls TIGHT with the sim's TRIP PREVIEW below the
 // first UFLS stage TRIP SHEDS (desk/calc.js), red, with what it would cost, held against flicker at the edge. The
 // gauge, the RESPOND card and the live region say it; app/alarms.js lights LIGHTS AT RISK on it (tests/alarms.test.js).
-// Fixtures are views of a real 04:00 observation with the level and the preview poked in: no frames, no sim run.
+// Fixtures are views of a real 04:00 observation with the level and the preview poked in: no frames, no sim run,
+// except the hold's own test, which reads the sim's preview at the edge on a real dawn (headless, once a grid second).
 // (The real page at a real TRIP SHEDS, 2026-10-14 at 05:30 with no input: tests/alarmpanel.test.js.)
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {makeDocument} from './lib/dom.js';
 import {baseVm} from './lib/vm-fixture.js';
+import {followDay} from './lib/follow.js';
 import {V} from '../sim/params.js';
 import {createState, observe} from '../sim/step.js';
-import {DESK} from '../content/scenarios.js';
-import {tripSheds, shedDistricts, shedsLine, n1Word, SHEDS_MIN_MS, SHEDS_HOLD_HZ} from '../desk/calc.js';
+import {stepReal} from '../sim/clock.js';
+import {DESK, getScenario} from '../content/scenarios.js';
+import {dailyFor} from '../content/dailies.js';
+import {tripSheds, shedDistricts, shedsLine, n1Word, SHEDS_MIN_MS} from '../desk/calc.js';
 import {createGauge, LEVEL_GLYPH} from '../desk/gauge.js';
 import {createLive, liveFrame, LIVE_GAP_MS} from '../app/shell.js';
 import * as W from '../app/watch.js';
@@ -54,32 +58,81 @@ test('W7 Q2: the districts it would shed: the lit ones of each stage whose thres
   assert.equal(shedDistricts(ds, 48.80), 1);
 });
 
-test('W7 Q2: what it would cost, in words: "would", rounded down below 49.0 Hz; a held word over a preview back at the edge says so', () => {
+test('W7 Q2: what it would cost, in words: "would", rounded down below 49.0 Hz; a held word over a preview back above the relays says so', () => {
   assert.equal(shedsLine(obsAt('TIGHT', 48.996)), 'would fall to 48.99 Hz: the relays would shed 2 districts', 'never "49.00" below the relays');
   assert.equal(shedsLine(obsAt('TIGHT', 48.86)), 'would fall to 48.86 Hz: the relays would shed 4 districts');
   const one = obsAt('TIGHT', 48.95);
   Object.assign(stage(one.districts, 1)[0], {dark: true, shedBy: 'task'});
   assert.equal(shedsLine(one), 'would fall to 48.95 Hz: the relays would shed 1 district');
-  assert.equal(shedsLine(obsAt('TIGHT', 49.02)), 'would fall to 49.02 Hz: just above the relays');
+  assert.equal(shedsLine(obsAt('TIGHT', 49.02)), 'would fall to 49.02 Hz: above the relays now');
+  assert.equal(shedsLine(obsAt('TIGHT', 49.3)), 'would fall to 49.30 Hz: above the relays now', 'held over any preview: never "just above" 0.3 Hz up');
 });
 
-test('W7 Q2: the word holds 3 real s while the preview stays within 0.05 Hz of the relays; a clear rise, the sim\'s other words or a new day end it at once', () => {
+test('W7 Q2 review: TRIP SHEDS holds SHEDS_MIN_MS real ms after the preview last said it, whatever the Hz, and a TIGHT after it as long; the sim\'s other words and a new day end it at once', () => {
   const mem = {};
   const at = (level, hz, ms, tick = 1000) => { const o = obsAt(level, hz); o.tick = tick; return n1Word(mem, o, ms); };
+  assert.ok(SHEDS_MIN_MS >= 1000 && SHEDS_MIN_MS <= 2000, 'about 1-2 real s: 2.5-18 grid-min at 150-540x');
   assert.equal(at('TIGHT', 49.3, 0), 'TIGHT');
-  assert.equal(at('TIGHT', 48.99, 100), 'TRIP SHEDS');
-  assert.equal(at('TIGHT', 49.02, 200), 'TRIP SHEDS', 'held: the preview hovers at the edge for grid minutes');
-  assert.equal(at('TIGHT', 49.02, 100 + SHEDS_MIN_MS - 1), 'TRIP SHEDS');
-  assert.equal(at('TIGHT', 49.02, 100 + SHEDS_MIN_MS), 'TIGHT', 'after 3 real s');
-  at('TIGHT', 48.99, 5000);
-  assert.equal(at('TIGHT', V.UFLS_FIRST_HZ + SHEDS_HOLD_HZ, 5100), 'TIGHT', 'a preview clearly above ends it at once');
-  assert.equal(SHEDS_HOLD_HZ, V.PREVIEW_MARGIN_HZ, 'the preview\'s own allowance');
-  at('TIGHT', 48.99, 6000);
-  assert.equal(at('SECURE', 49.6, 6100), 'SECURE');
-  at('TIGHT', 48.99, 7000);
-  assert.equal(at('SHORT', 48.99, 7100), 'SHORT');
-  at('TIGHT', 48.99, 8000, 5000);
-  assert.equal(at('TIGHT', 49.02, 8100, 100), 'TIGHT', 'a day started again (PLAY THIS DAY AGAIN, the shelf)');
+  assert.equal(at('TIGHT', 48.99, 100), 'TRIP SHEDS', 'at once from a TIGHT that TRIP SHEDS did not leave');
+  // the preview's next refresh lands straight at 49.09 Hz (2026-10-14: 49.05-49.13 Hz after 48.98): held
+  assert.equal(at('TIGHT', 49.09, 200), 'TRIP SHEDS');
+  assert.equal(at('TIGHT', 49.3, 100 + SHEDS_MIN_MS - 1), 'TRIP SHEDS', 'whatever the Hz');
+  assert.equal(at('TIGHT', 49.3, 100 + SHEDS_MIN_MS), 'TIGHT', 'SHEDS_MIN_MS after the preview last said it');
+  // back under 49.0 at once: the TIGHT stays its SHEDS_MIN_MS first, then TRIP SHEDS if the preview still says it
+  const off = 100 + SHEDS_MIN_MS;
+  assert.equal(at('TIGHT', 48.98, off + 10), 'TIGHT', 'no 10-ms TIGHT between two TRIP SHEDS');
+  assert.equal(at('TIGHT', 48.98, off + SHEDS_MIN_MS - 1), 'TIGHT');
+  // a dip into the old 49.0-49.05 Hz band never lights it again: only the preview below 49.0 does
+  assert.equal(at('TIGHT', 49.03, off + SHEDS_MIN_MS), 'TIGHT');
+  assert.equal(at('TIGHT', 49.03, off + SHEDS_MIN_MS + 500), 'TIGHT');
+  assert.equal(at('TIGHT', 48.98, off + SHEDS_MIN_MS + 600), 'TRIP SHEDS');
+  // each time the preview says it again, the hold runs from then
+  const on = off + SHEDS_MIN_MS + 600;
+  assert.equal(at('TIGHT', 48.99, on + 1000), 'TRIP SHEDS');
+  assert.equal(at('TIGHT', 49.2, on + 1000 + SHEDS_MIN_MS - 1), 'TRIP SHEDS');
+  assert.equal(at('TIGHT', 49.2, on + 1000 + SHEDS_MIN_MS), 'TIGHT');
+  // the sim's own words show at once and end the hold; from them TRIP SHEDS comes at once
+  at('TIGHT', 48.99, 20000);
+  assert.equal(at('SECURE', 49.6, 20100), 'SECURE');
+  assert.equal(at('TIGHT', 49.1, 20200), 'TIGHT');
+  at('TIGHT', 48.99, 30000);
+  assert.equal(at('SHORT', 48.99, 30100), 'SHORT');
+  assert.equal(at('TIGHT', 48.99, 30200), 'TRIP SHEDS', 'SHORT to TRIP SHEDS: no wait');
+  at('TIGHT', 48.99, 40000, 5000);
+  assert.equal(at('TIGHT', 49.02, 40100, 100), 'TIGHT', 'a day started again (PLAY THIS DAY AGAIN, the shelf)');
+});
+
+test('W7 Q2 review: on a real dawn, where the preview lands either side of 49.0 Hz refresh after refresh, the word changes no faster than SHEDS_MIN_MS', () => {
+  // 2026-10-14 with no input, 05:00-07:15 (540x, then 270x): the sim's preview read once a grid second, real time from the
+  // D-2 profile (sim/clock.js stepReal; a watch at 1x), as the gauge would read it at CRUISE. Before this hold the word
+  // changed every 2-500 real ms here (05:15, 05:30-05:34, 06:41-07:13).
+  const d = dailyFor(20261014), TPS = V.TICKS_PER_S, from = (5 - V.DAY_START_H) * 3600;
+  const mem = {}, spells = [];
+  let realMs = 0, lastS = -1, raw = null, flips = 0, word = '', since = 0;
+  followDay(d.seed, getScenario(d.scenarioId), {follow: false, untilH: 7.25, onStep: st => {
+    if (st.tick % TPS !== 0) return;
+    const s = st.tick / TPS;
+    if (s < from) return;
+    const watch = st.contIdx >= 0 && st.tick < st.conts[st.contIdx].watchEndTick;
+    realMs += lastS < 0 ? 0 : (watch ? s - lastS : stepReal(lastS, s)) * 1000;
+    lastS = s;
+    const r = tripSheds(st.sec);
+    if (raw !== null && r !== raw) flips++;
+    raw = r;
+    const w = n1Word(mem, {tick: st.tick, sec: st.sec}, realMs);
+    if (w !== word) { if (word) spells.push({w: word, ms: realMs - since, s, to: w}); word = w; since = realMs; }
+  }});
+  assert.ok(flips >= 20, 'the preview crosses 49.0 Hz ' + flips + ' times here: the edge this test is about');
+  const sheds = spells.filter(p => p.w === 'TRIP SHEDS');
+  // (with the hold, 32 crossings make three spells: 05:10, 06:36 and 07:10)
+  assert.ok(sheds.length >= 2 && spells.some((p, i) => p.w === 'TIGHT' && i > 0 && spells[i - 1].w === 'TRIP SHEDS'), JSON.stringify(spells));
+  // every TRIP SHEDS spell, and every TIGHT between two, lasts SHEDS_MIN_MS (the sim's own words may cut one short)
+  for (let i = 0; i < spells.length; i++) {
+    const p = spells[i], between = p.w === 'TIGHT' && i > 0 && spells[i - 1].w === 'TRIP SHEDS' && p.to === 'TRIP SHEDS';
+    if ((p.w === 'TRIP SHEDS' && p.to === 'TIGHT') || between) {
+      assert.ok(p.ms >= SHEDS_MIN_MS - 1e-6, p.w + ' for ' + p.ms.toFixed(0) + ' real ms, to ' + p.to + ' at grid s ' + p.s);
+    }
+  }
 });
 
 test('W7 Q2 on the gauge: ▼ TRIP SHEDS in red, what it would cost in the caught line\'s place, whole in its title and the label; held, then TIGHT', () => {
@@ -101,11 +154,16 @@ test('W7 Q2 on the gauge: ▼ TRIP SHEDS in red, what it would cost in the caugh
   // the live preview (T, the ring turning) has the place for what it caught
   up(48.987, 1100, {nadirHz: 49.1, caught: {inertiaMW: 100, batteryMW: 40, guardMW: 200, governorsMW: 260, loadReliefMW: 10, uflsMW: 0}, guardMW: 200});
   assert.deepEqual([row.hidden, caught.hidden], [true, false]);
-  // held over a preview back at the edge, with what is true of it; then TIGHT
-  up(49.02, 2000);
-  assert.deepEqual([word.textContent, row.textContent], ['▼ TRIP SHEDS', '49.02 Hz: just above the relays']);
-  up(49.02, 1100 + SHEDS_MIN_MS);
+  // held over a preview back above the relays, with what is true of it; then TIGHT
+  up(49.09, 2000);
+  assert.deepEqual([word.textContent, row.textContent], ['▼ TRIP SHEDS', '49.09 Hz: above the relays now']);
+  up(49.09, 1100 + SHEDS_MIN_MS);
   assert.deepEqual([word.textContent, row.hidden], ['! TIGHT', true]);
+  // and stays TIGHT its SHEDS_MIN_MS though the preview is back under 49.0 Hz: no flicker
+  up(48.987, 1100 + SHEDS_MIN_MS + 20);
+  assert.deepEqual([word.textContent, row.hidden], ['! TIGHT', true]);
+  up(48.987, 1100 + 2 * SHEDS_MIN_MS);
+  assert.equal(word.textContent, '▼ TRIP SHEDS');
 });
 
 test('W7 Q2 on the RESPOND card: TRIP SHEDS says the spare is there but too slow, and what the next trip would shed; only TIGHT says the spare covers it', () => {
@@ -125,6 +183,8 @@ test('W7 Q2 in the live region: the N-1 word is the desk\'s, TRIP SHEDS included
   const L = createLive();
   assert.equal(liveFrame(L, mk('TIGHT', 49.3), 0), null, 'the first frame only takes note');
   assert.equal(liveFrame(L, mk('TIGHT', 48.99), 5000), 'N-1 TRIP SHEDS');
-  assert.equal(liveFrame(L, mk('TIGHT', 49.02), 5000 + LIVE_GAP_MS), null, 'held: still TRIP SHEDS');
-  assert.equal(liveFrame(L, mk('TIGHT', 49.3), 5000 + 2 * LIVE_GAP_MS), 'N-1 TIGHT');
+  assert.equal(liveFrame(L, mk('TIGHT', 49.09), 5000 + SHEDS_MIN_MS - 1), null);
+  assert.equal(L.level, 'TRIP SHEDS', 'held: the preview back at 49.09 Hz is no change to say');
+  assert.ok(SHEDS_MIN_MS < LIVE_GAP_MS);
+  assert.equal(liveFrame(L, mk('TIGHT', 49.3), 5000 + LIVE_GAP_MS), 'N-1 TIGHT');
 });
