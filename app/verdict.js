@@ -292,6 +292,8 @@ const andList = xs => (xs.length < 2 ? xs.join('') : xs.length <= 3 ? xs.slice(0
 const aircon = (blocks, s) => (blocks ? Math.max(0, -flexAt(blocks, s, '', '', 'aircon')) : NaN);   // (MW off demand: the core's)
 const tieText = x => (x >= 0.5 ? 'importing ' + mw(x) + ' MW' : x <= -0.5 ? 'exporting ' + mw(-x) + ' MW' : 'not importing');
 const tripName = t => (t.cause === 'link' ? 'the tie line' : t.cause === 'load' ? 'a smelter potline' : unitLabel(t.id));
+/** Q-119 review: a trip's MW in the game's words, never a minus sign: the tie's flow and which way (a tie exporting when it tripped was a rise), a potline's load. */
+const tripSize = (cause, x) => (cause === 'link' ? tieText(x) : mw(Math.abs(x)) + ' MW' + (x < 0 ? ' of load' : ''));
 const stages = k => k + ' stage' + (k > 1 ? 's' : '');
 /** Q-119: the grid minute (0: 04:00-04:01) both sides are read at for moment m: the one before its trip or shed began, or the thinnest margin's own. */
 export const diffMinute = m => (m.kind === 'margin' ? m.minute : Math.floor(m.s / MIN) - 1);
@@ -304,7 +306,8 @@ const previewText = r => (r.black ? 'the grid would go black' : r.nadirHz.toFixe
  * end of the minute before a trip or a shed began (diffMinute; the minute itself for the thinnest margin).
  *   A fall (a trip that fell, or the relays just after one), in this order (what catches a fall in its seconds first):
  *     par's trip, when it was another machine, none, or the same one 50 MW or more heavier or lighter: par's numbers
- *       above are its own trip's, and the twin tries par's GUARD on yours (first: it says what the rest compare);
+ *       above are its own trip's, and the twin tries par's GUARD on yours (first: it says what the rest compare); a
+ *       trip's MW in the game's words (tripSize: the tie importing or exporting, a potline's load), never a minus sign;
  *     par's GUARD, DIFF_MW or more above yours, with par's GUARD tried on your trip (o.parTry: the twin's preview,
  *       "computing…" until it is in);
  *     par's machines running that yours were not, when par's rated plant running was DIFF_PLANT_MW above yours; not
@@ -340,8 +343,11 @@ export function parLines(m, mem, o) {
   if (fall) {
     const pt = o.parTrips ? o.parTrips.find(t => Math.abs(t.tick - c.startTick) <= TPS) : undefined, mine = tripName(c);
     if (o.parTrips && !pt) fact(Infinity, 'Par had no trip over ' + mw(V.EVENT_THRESHOLD_MW) + ' MW at ' + at(m.s) + '.');
-    else if (pt && (pt.cause !== c.cause || pt.id !== c.id)) fact(Infinity, 'Par\'s trip took ' + tripName(pt) + ' (' + mw(pt.mw) + ' MW); yours took ' + mine + ' (' + mw(c.lostMW) + ' MW).');
-    else if (pt && Math.abs(pt.mw - c.lostMW) >= DIFF_MW) fact(Infinity, 'Par\'s ' + mine.replace(/^the /, '') + ' was at ' + mw(pt.mw) + ' MW when it tripped; yours was at ' + mw(c.lostMW) + '.');
+    else if (pt && (pt.cause !== c.cause || pt.id !== c.id)) fact(Infinity, 'Par\'s trip took ' + tripName(pt) + ' (' + tripSize(pt.cause, pt.mw) + '); yours took ' + mine + ' (' + tripSize(c.cause, c.lostMW) + ').');
+    else if (pt && Math.abs(pt.mw - c.lostMW) >= DIFF_MW) {
+      fact(Infinity, 'Par\'s ' + mine.replace(/^the /, '') + (c.cause === 'link' ? ' was ' + tieText(pt.mw) + ' when it tripped; yours was ' + tieText(c.lostMW) + '.'
+        : ' was at ' + mw(pt.mw) + ' MW when it tripped; yours was at ' + mw(c.lostMW) + '.'));
+    }
     const g = p.guardMW - you.guardMW, lows = [o.parMinute && o.parMinute(m.s), o.parMinute && o.parMinute(m.s + MIN)].filter(Boolean).map(x => x.lowHz);
     const deeper = !lows.length || Math.min(...lows) > c.extremeHz + DEEPER_HZ;   // (yours went deeper than par's)
     if (g >= DIFF_MW) {

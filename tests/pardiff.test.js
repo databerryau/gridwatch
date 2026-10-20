@@ -69,8 +69,13 @@ test('Q-119: a fall: par\'s trip first when it was another machine, none, or the
   assert.equal(lines({}, parOf(both, {parTrips: []}))[0], 'Par had no trip over 50 MW at 20:49.');
   assert.equal(lines({}, parOf({}, {parTrips: [{tick: S * TPS + 7, cause: 'unit', id: 'coal2', mw: 480}]}))[0], 'Par\'s ' + unitLabel('coal2') + ' was at 480 MW when it tripped; yours was at 560.');
   assert.deepEqual(lines({}, parOf({}, {parTrips: [{tick: S * TPS + 7, cause: 'unit', id: 'coal2', mw: 530}]})), [], 'within 50 MW: the same trip');
-  assert.equal(lines({conts: [cont({cause: 'link', id: 'tie', lostMW: 600})]}, parOf({}, {parTrips: [{tick: S * TPS + 7, cause: 'link', id: 'tie', mw: 300}]}))[0],
-    'Par\'s tie line was at 300 MW when it tripped; yours was at 600.');
+  // the tie in the game's words, which way it flowed: par's exporting when it tripped (a rise for par) is never a minus sign
+  const tie = x => lines({conts: [cont({cause: 'link', id: 'tie', lostMW: 600})]}, parOf({}, {parTrips: [{tick: S * TPS + 7, cause: 'link', id: 'tie', mw: x}]}))[0];
+  assert.equal(tie(300), 'Par\'s tie line was importing 300 MW when it tripped; yours was importing 600 MW.');
+  assert.equal(tie(-300), 'Par\'s tie line was exporting 300 MW when it tripped; yours was importing 600 MW.');
+  const rose = t => lines({}, parOf({}, {parTrips: [Object.assign({tick: S * TPS + 7}, t)]}))[0];
+  assert.equal(rose({cause: 'link', id: 'tie', mw: -200}), 'Par\'s trip took the tie line (exporting 200 MW); yours took ' + unitLabel('coal2') + ' (560 MW).');
+  assert.equal(rose({cause: 'load', id: 'smelter', mw: -300}), 'Par\'s trip took a smelter potline (300 MW of load); yours took ' + unitLabel('coal2') + ' (560 MW).');
   assert.deepEqual(lines({}, parOf({}, {parTrips: null})), [], 'a par kept before W7 has no trips: nothing said of them');
   // more machines par had, three named and the rest counted
   assert.deepEqual(lines({}, parOf({on: MINE | bit('gta1', 'gtb1', 'gtb2', 'gtc1', 'gtc2')})),
