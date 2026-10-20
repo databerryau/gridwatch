@@ -1,5 +1,5 @@
 // app/assist.js: the bench's ASSIST selector. It lets par's code drive the levers so the
-// owner can watch a whole day and take over at any time (Exit Phase 0: "index.html plays a
+// owner can watch a whole day and take over at any time (Exit Phase 0: "next.html plays a
 // whole day through the bench"; Phase 1a keeps it for bench.html).
 //
 //   OFF   every input is yours.

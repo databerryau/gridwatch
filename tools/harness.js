@@ -1,7 +1,7 @@
 // GRIDWATCH headless harness (Node, CommonJS). Not loaded by the game.
 //
 // Loads the inline <script> of classic.html (the v2 game, index.html until the site root began
-// redirecting to index.html) with a stub DOM and a seeded Math.random, and exposes the sim so
+// redirecting to next.html) with a stub DOM and a seeded Math.random, and exposes the sim so
 // scripted policies can drive tick() directly.
 //
 //   const {load} = require('./harness.js');

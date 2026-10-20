@@ -1,5 +1,5 @@
 // F-1 / F-5 / Exit Phase 0: the bench page (bench.html + app/bench-boot.js + render/bench.js; it was
-// index.html until Phase 1a, desk/README.md A-5) without a browser.
+// next.html until Phase 1a, desk/README.md A-5) without a browser.
 //  - static: charset first, one ES-module entry, zero requests to other origins, relative
 //    imports only, no Math.random outside render/ and audio/ (F-3);
 //  - live: bench.html's body is loaded into a small stand-in DOM (below; enough for the bench,
