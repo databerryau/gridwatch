@@ -1,4 +1,4 @@
-// render/bench.js: the bench's DOM view (next.html). It reads an observe() snapshot, the
+// render/bench.js: the bench's DOM view (index.html). It reads an observe() snapshot, the
 // recorder and the director's mode, and turns clicks into `actions` (app/boot.js). It never
 // steps the sim and never touches state: every change is an input through the actions.
 // DOM work happens only inside createBench() and the functions it returns.

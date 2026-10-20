@@ -2138,8 +2138,8 @@ What changed, with the measured effect (`tools/par.js`; SPEC S-12 has the table)
 
 ### Bench (wave 2: `next.html`, `app/`, `render/`, `content/text.js`)
 
-* `next.html` plays a whole day through the bench (Exit Phase 0): serve the repo root
-  (`py -m http.server 8642`) and open `http://localhost:8642/next.html`; options
+* `next.html` (the game, at the root as `index.html` since W7, Q-126) plays a whole day through the bench (Exit Phase 0): serve the repo root
+  (`py -m http.server 8642`) and open `http://localhost:8642/`; options
   `?seed=N&assist=off|plan|par&speed=0.25|1|60|120|240|2100&play=1`. Every module loads from
   the same origin. The rate badge is always visible; a contingency plays the K-15 watch
   (0.15x -> 1x -> 10x over 30 grid-s, ~29 real s) with the desk locked; SKIP plays the rest at

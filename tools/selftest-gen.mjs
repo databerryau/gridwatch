@@ -1,4 +1,4 @@
-// tools/selftest-gen.mjs: writes content/selftest.js (W6, risk 5), the golden values next.html?selftest (app/selftest.js) checks
+// tools/selftest-gen.mjs: writes content/selftest.js (W6, risk 5), the golden values index.html?selftest (app/selftest.js) checks
 // each browser against before a release, measured here in Node with the page's own runner (app/selftest.js measure):
 //   par      par's day to its end on two dailies, a weekday's and a weekend's; its ALL-IN must be the stored par
 //            (content/ladder.js, F-8), so run tools/ladder.mjs first when the stamp moves
@@ -86,7 +86,7 @@ export function selftestText(S) {
     const {log, ...rest} = c, s = JSON.stringify(rest);
     return log ? s.slice(0, -1) + ',"log":[\n    ' + log.map(r => JSON.stringify(r)).join(',\n    ') + ']}' : s;
   }).join(',\n  ');
-  return '// content/selftest.js: W6 (risk 5): the golden values next.html?selftest (app/selftest.js) checks a browser against,\n' +
+  return '// content/selftest.js: W6 (risk 5): the golden values index.html?selftest (app/selftest.js) checks a browser against,\n' +
     '// measured in Node with the page\'s own runner. par: par\'s day to its end (the hash each grid hour from 05:00 and at its end,\n' +
     '// and its ALL-IN, which is content/ladder.js\'s stored par); nothing: the page\'s no-input day to 14:00 (the ladder\'s check);\n' +
     '// replay: a scripted player\'s input log (sim/autopilot.js fuzz) and the hash at its checkpoint. Hashes: hashState, unsigned.\n' +

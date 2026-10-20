@@ -8,8 +8,8 @@
 //   anchorId  the id of the bench element the "?" sits next to (bench.html); entries whose
 //             element the bench does not have carry ui: 'drawer' and show only in the bench's
 //             abstractions drawer (H-14: "the same text is in the manual drawer")
-//   game      the id of the game element the "?" sits next to (next.html): a desk/stack/map
-//             control id from desk/README.md §5, or a next.html element; 'drawer' = drawer only
+//   game      the id of the game element the "?" sits next to (index.html): a desk/stack/map
+//             control id from desk/README.md §5, or an index.html element; 'drawer' = drawer only
 //   real      what the real world does
 //   ours      what GRIDWATCH does, BUILT from sim/params.js (and the scenario / director)
 //             values, never a copied number, so tuning a value retunes the text

@@ -1,4 +1,4 @@
-// tests/lib/play.js: a FAST headless play driver for the real page (next.html booted through
+// tests/lib/play.js: a FAST headless play driver for the real page (index.html booted through
 // app/shell.js with every real module, in the stand-in DOM of tests/lib/dom.js). For tests and
 // tools (tools/play.mjs is its command line). No product hooks: it drives the page the way
 // tests/day.test.js does, and reads the game object the boot handle returns.
@@ -86,7 +86,7 @@ import * as endCard from '../../app/endcard.js';
 import * as perf from '../../app/perf.js';
 import * as suburbCard from '../../app/suburbcard.js';
 
-const NEXT = readFileSync(new URL('../../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S, TICK_S = 1 / TPS, DAY_S = V.DAY_S;
 
 /** The page's frame time (s): frames(), real() and the virtual frames of a jump. */
@@ -241,7 +241,7 @@ export function feederHeldAt(state) {
 // ------------------------------------------------------------------ the driver
 
 /**
- * Boot next.html headless and return the driver.
+ * Boot index.html headless and return the driver.
  * @param {{seed?:number, scenario?:string|object|function, commit?:'player'|'system', agc?:boolean, take?:boolean,
  *   run?:boolean, storage?:object|null, shifts?:number, startPaused?:boolean, par?:boolean|object, date?:Date}} [o]
  *   seed (default 20261007); scenario: a name in content/scenarios.js, a scenario, or a function

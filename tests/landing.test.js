@@ -19,7 +19,7 @@ const read = f => readFileSync(join(ROOT, f), 'utf8');
 function win(w, h, {coarse = false, fine = true, scale, search = '', clip = null, screen} = {}) {
   const q = {'(pointer: coarse)': coarse, '(any-pointer: fine)': fine}, on = {resize: []};
   return {innerWidth: w, innerHeight: h, screen, matchMedia: s => ({matches: !!q[s]}), location: {href: 'https://databerryau.github.io/gridwatch/' + search, search},
-    navigator: {clipboard: clip}, document: makeDocument(read('next.html')), on, ...(scale ? {visualViewport: {scale}} : {}),
+    navigator: {clipboard: clip}, document: makeDocument(read('index.html')), on, ...(scale ? {visualViewport: {scale}} : {}),
     addEventListener: (t, f) => (on[t] ||= []).push(f), removeEventListener: (t, f) => { on[t] = (on[t] || []).filter(g => g !== f); }};
 }
 // Chrome and Edge: the keyboard can be locked, so Esc stays the page's in full screen
@@ -189,7 +189,7 @@ test('Y-8: a tablet with a pen or a trackpad is not a computer: widened to the d
 });
 
 test('Y-8: every page carries og: tags (an absolute og.png on the canonical host) and a favicon; og.png is 1200x630', () => {
-  for (const page of ['next.html', 'index.html']) {
+  for (const page of ['index.html', 'next.html']) {
     const html = read(page), meta = p => (html.match(new RegExp('<meta property="' + p + '" content="([^"]*)"')) || [])[1];
     assert.ok(meta('og:title'), page + ' og:title');
     assert.ok(meta('og:description') && meta('og:description').length > 40, page + ' og:description');

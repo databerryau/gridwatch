@@ -1,5 +1,5 @@
 // The page's accessibility (K-22, K-23; the 2026-10-17 audit's page items), headless (CLAUDE.md): the colours that carry
-// words read at 4.5:1 (WCAG 1.4.3), computed from next.html's tokens; the briefing's AGC/HAND is a radio group the keyboard
+// words read at 4.5:1 (WCAG 1.4.3), computed from index.html's tokens; the briefing's AGC/HAND is a radio group the keyboard
 // can pick from (WCAG 2.1.1), and Enter anywhere else still takes the desk (D-3).
 //
 // The stand-in DOM (tests/lib/dom.js) runs no browser default: a key on a focused button never clicks it here, so a key the
@@ -15,7 +15,7 @@ import * as G from '../app/game.js';
 import {V} from '../sim/params.js';
 import {TEXT} from '../content/text.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const TODAY = new Date(2026, 9, 16), PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh: 0.56, centsPerKWh: 4}, series: []};
 
 /** A localStorage stand-in holding `init` (each value as JSON). */
@@ -23,7 +23,7 @@ function store(init = {}) {
   const mem = new Map(Object.entries(init).map(([k, v]) => [k, JSON.stringify(v)]));
   return {getItem: k => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: k => mem.delete(k)};
 }
-/** The shell alone on next.html at the briefing (no desk, map or stack); shifts: the shifts this browser has finished (D-7: HAND from 1). */
+/** The shell alone on index.html at the briefing (no desk, map or stack); shifts: the shifts this browser has finished (D-7: HAND from 1). */
 function briefing(shifts = 2) {
   const doc = makeDocument(NEXT), clock = {t: 1000};
   const h = bootGame(doc, {search: '?seed=20261007', scenario: G.scenarioForSeed, storage: shifts ? store({[G.SEEN_KEY]: {shifts}}) : null,
@@ -37,7 +37,7 @@ function briefing(shifts = 2) {
 
 // ------------------------------------------------------------------ contrast (K-22, WCAG 1.4.3)
 
-/** next.html's :root tokens: {name: '#rrggbb'}. */
+/** index.html's :root tokens: {name: '#rrggbb'}. */
 const TOKENS = Object.fromEntries([.../:root \{([^}]*)\}/.exec(NEXT)[1].matchAll(/--([\w-]+):\s*(#[0-9a-f]{6})\b/gi)].map(m => [m[1], m[2]]));
 const lum = hex => {
   const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(v => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
@@ -46,7 +46,7 @@ const lum = hex => {
 /** WCAG's contrast ratio of two #rrggbb colours. */
 const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
 
-test('K-22: every colour next.html sets on words reads at 4.5:1 or more on each panel (--faint too); the URGENT badge\'s white on red as well', () => {
+test('K-22: every colour index.html sets on words reads at 4.5:1 or more on each panel (--faint too); the URGENT badge\'s white on red as well', () => {
   const used = new Set([...NEXT.matchAll(/[^-]color:\s*var\(--([\w-]+)\)/g)].map(m => m[1]));
   assert.ok(used.has('faint') && used.has('dim') && used.has('red'), [...used].join(' '));
   for (const name of used) {

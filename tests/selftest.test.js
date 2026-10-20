@@ -1,4 +1,4 @@
-// W6 (risk 5): next.html?selftest, the golden-run check each browser passes before a release. content/selftest.js
+// W6 (risk 5): index.html?selftest, the golden-run check each browser passes before a release. content/selftest.js
 // (tools/selftest-gen.mjs) holds what Node worked out for this build: par's day on two dailies to its end (the hash each hour,
 // and its ALL-IN, which must be the stored par of content/ladder.js), the page's no-input day to 14:00 (the ladder's check)
 // and two scripted players' input logs to a checkpoint. The file carries the dailies' build stamp, so a stale one cannot
@@ -24,11 +24,11 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const HOUR = V.S_PER_H * V.TICKS_PER_S, AT_06 = 2 * HOUR;
 const FIREFOX = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0';
 const kind = k => SELFTEST.cases.filter(c => c.kind === k);
-// A stand-in window on next.html: its viewport, address, user agent and clipboard
+// A stand-in window on index.html: its viewport, address, user agent and clipboard
 function win({w = 1920, h = 1080, coarse = false, search = '?selftest', clip = null} = {}) {
   const q = {'(pointer: coarse)': coarse, '(any-pointer: fine)': !coarse};
   return {innerWidth: w, innerHeight: h, matchMedia: s => ({matches: !!q[s]}), location: {search}, navigator: {userAgent: FIREFOX, clipboard: clip},
-    performance, setTimeout, MessageChannel, document: makeDocument(readFileSync(join(ROOT, 'next.html'), 'utf8'))};
+    performance, setTimeout, MessageChannel, document: makeDocument(readFileSync(join(ROOT, 'index.html'), 'utf8'))};
 }
 
 test('risk 5: the golden file is this build\'s; par\'s totals are the stored par; the no-input day is the ladder\'s check', () => {

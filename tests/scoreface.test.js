@@ -5,7 +5,7 @@
 // reliability readouts and their "?". Prices come from V.VCR and V.VER, never typed in. The wording
 // never calls ALL-IN or SUPPLY "what customers pay", "your bill" or "the price".
 //
-// Headless (CLAUDE.md): the shell alone on next.html (no desk, map or stack) for the chip and the
+// Headless (CLAUDE.md): the shell alone on index.html (no desk, map or stack) for the chip and the
 // card; end-card tests set state.over and inject par ({score, series?, black?} or a runner with a
 // step()), never playing to 04:00. One sampled play through tests/lib/play.js at the end.
 import {test} from 'node:test';
@@ -22,7 +22,7 @@ import {makeDocument} from './lib/dom.js';
 import {openGame} from './lib/play.js';
 
 const read = rel => readFileSync(new URL(rel, import.meta.url), 'utf8');
-const NEXT = read('../next.html');
+const NEXT = read('../index.html');
 const usd = x => '$' + x.toLocaleString('en-US');
 const VCR = usd(V.VCR), VER = usd(V.VER);
 const FORBIDDEN = /what customers pay|your bill|the price\b/i;
@@ -38,7 +38,7 @@ function parSeries(f = 1) {
 const runner = o => Object.assign({step() { return this.done; }, done: false, score: null, series: [], progress: 0, black: false,
   at(s) { return seriesAt(this.series, s); }}, o);
 
-// The shell alone on next.html, the texts and the end card passed in (the page loads them on demand).
+// The shell alone on index.html, the texts and the end card passed in (the page loads them on demand).
 function boot(o = {}) {
   const doc = makeDocument(NEXT);
   const h = bootGame(doc, Object.assign({search: '?seed=20261008', storage: null, audioWin: {}, raf: false, now: () => 0,

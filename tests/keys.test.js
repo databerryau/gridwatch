@@ -15,7 +15,7 @@ import * as system from '../app/system.js';
 import * as planview from '../app/planview.js';
 import * as fleet from '../sim/fleet.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S;
 
 /** Stand-in modules whose key(ev) logs the call and takes the keys listed in `takes[name]`. */

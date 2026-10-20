@@ -8,7 +8,7 @@ import * as G from '../app/game.js';
 import {createState, observe} from '../sim/step.js';
 import {openGame} from './lib/play.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const words = s => s.trim().split(/\s+/).filter(Boolean).length;
 const textOf = id => new RegExp('<p id="' + id + '"[^>]*>([^<]*)</p>').exec(NEXT)[1];
 

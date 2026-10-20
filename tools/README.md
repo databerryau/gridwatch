@@ -169,7 +169,7 @@ shows it as a `SUBURB` line and its presses as CTRL lines: `city-<ID>-soak` and
 `city-<ID>-aircon` (BOOK), `-earlier` / `-later` (◀ ▶), `-cancel-HHMM` (CANCEL a block),
 `city-<ID>-restore`. Book ahead at 04:30 rather than jumping to the window (desk/README §31.9.12).
 
-`tools/play.mjs` is the command line of `tests/lib/play.js` (`openGame()`): next.html booted with
+`tools/play.mjs` is the command line of `tests/lib/play.js` (`openGame()`): index.html (the game page) booted with
 every real module in the stand-in DOM, driven by jumps (`to`, `until`) that play the page's
 frames without drawing them (~0.3 s per grid hour, stopping AT the tick a trip, the card, a mode
 change, a notice or a new line begins), drawn frames where they matter (`real=5` in the watch),
@@ -214,7 +214,7 @@ after `node --test` and prints a GitHub warning for each offender; it never fail
 
 | File | What it is |
 |---|---|
-| `play.mjs` | Plays next.html headless and fast; prints what the player sees (`tests/lib/play.js`). An ES module. |
+| `play.mjs` | Plays the game page (index.html) headless and fast; prints what the player sees (`tests/lib/play.js`). An ES module. |
 | `d6.mjs` | D-6's whole-day replay through the real page: one input log at 1x, F held and 50 pauses, one hash (2c). An ES module. |
 | `changed-tests.mjs` | Runs only the test files a change can affect (`npm run test:changed`). An ES module. |
 | `slow-tests.mjs` | Times each test file alone against CLAUDE.md's budget; warns in CI (`npm run test:slow`). An ES module. |

@@ -474,4 +474,4 @@ export function createDesk(doc, root, actions, opts = {}) {
 
   return {el: desk, update, key, focus, closeHelp, slots: {stack}, ids: DESK_IDS};
 }
-export const BUILD = '2026-10-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-10-20';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

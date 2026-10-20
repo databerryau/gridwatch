@@ -6,7 +6,7 @@
 // reads (dotted for nested ones, e.g. 'FLEET.coal.rampMWMin'). `anchorId` is the id of the
 // element the bench's "?" sits beside in bench.html (ui: 'drawer' = only in the bench's
 // drawer); `game` is the element the game's "?" sits beside: a desk/README.md §5 control id or
-// a next.html element ('drawer' = only in the game's drawer).
+// a index.html element ('drawer' = only in the game's drawer).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -97,12 +97,12 @@ test('H-14: every anchor the bench shows exists in bench.html; drawer-only entri
   }
 });
 
-test('H-14: every game anchor is a §5 control id or a next.html element (or the drawer)', async () => {
+test('H-14: every game anchor is a §5 control id or a index.html element (or the drawer)', async () => {
   const {TEXT} = await import('../content/text.js');
-  const html = read('../next.html'), ids = contractIds();
+  const html = read('../index.html'), ids = contractIds();
   for (const e of TEXT.abstractions) {
     if (e.game === 'drawer') continue;
-    assert.ok(ids.has(e.game) || html.includes('id="' + e.game + '"'), e.id + ': no #' + e.game + ' in §5 or next.html');
+    assert.ok(ids.has(e.game) || html.includes('id="' + e.game + '"'), e.id + ': no #' + e.game + ' in §5 or index.html');
   }
   // The new desk elements are labelled: the scope, the restore bay, the levers, RE-DISPATCH, the gauge, the dial, the hum.
   for (const g of ['bay-sync', 'bay-restore', 'lever-coal', 'btn-redispatch', 'gauge-n1', 'dial-freq', 'btn-mute', 'wheel-hydro']) {

@@ -13,7 +13,7 @@
 const VOID = new Set(['meta', 'link', 'input', 'br', 'img', 'hr']);
 
 // The links back up the tree are not enumerable: a failed assert prints an element's own fields and children (assert
-// ignores custom inspectors), and through enumerable back links it printed the whole parsed next.html until Node ran out of
+// ignores custom inspectors), and through enumerable back links it printed the whole parsed index.html until Node ran out of
 // memory (152 s, the W6 batch's landing tests)
 const backLink = (o, k, v) => Object.defineProperty(o, k, {value: v, writable: true, configurable: true, enumerable: false});
 

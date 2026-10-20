@@ -21,7 +21,7 @@ import {layoutSizes} from '../app/shell.js';
 import {createDesk} from '../desk/desk.js';
 import {AGAIN, TILE_HELP, TILE_SLOTS} from '../desk/annunciator.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const CSS = readFileSync(new URL('../desk/desk.css', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S;
 /** The body of the first rule whose selector list is exactly `sel` (a regexp source). */

@@ -1,4 +1,4 @@
-// app/selftest.js: W6 (risk 5): next.html?selftest, the check each browser passes before a release ("?selftest passes in
+// app/selftest.js: W6 (risk 5): index.html?selftest, the check each browser passes before a release ("?selftest passes in
 // Chrome, Edge and Firefox"). In place of the game, a plain page that plays a few golden runs in this browser and checks each
 // against the values Node worked out for this build (content/selftest.js, which tools/selftest-gen.mjs writes with this
 // file's own runner):
@@ -222,7 +222,7 @@ export function showSelftest(doc, win, o = {}) {
   line.id = 'selftest-line'; btn.id = 'selftest-copy'; copied.id = 'selftest-said';
   btn.title = 'Copy the line, to keep with the release checks';
   const back = el('a', 'Back to the game', el('p', '', box, 'dim'));
-  back.href = 'next.html';
+  back.href = './';   // (the game, at the site's root since W7, Q-126)
   if (doc.body.classList) doc.body.classList.add('selftest');
 
   const t0 = now(), n = golden.cases.length;

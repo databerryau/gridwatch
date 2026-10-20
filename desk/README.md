@@ -1,5 +1,7 @@
 # Phase 1a: the greybox desk (contract)
 
+*Since W7 (SPEC Q-126) the game page is `index.html`, at the site's root; `next.html` only sends its old links there. Where this record says `next.html`, read the game page.*
+
 This is the contract for SPEC.md §5 Phase 1a ("1a — Greybox"): `next.html` plays a full day at a
 flat 120× with the desk, the Live Stack, the watch and the map, in plain shapes and colours.
 `sim/README.md` stays the contract for `sim/`; this file adds what Phase 1a changes there

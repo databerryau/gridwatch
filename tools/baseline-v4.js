@@ -582,9 +582,9 @@ function sourceHash() {
   return h.digest('hex').slice(0, 10);
 }
 
-/** next.html plus every module it loads (static imports, followed from app/boot.js): bytes raw and gzipped. */
+/** index.html plus every module it loads (static imports, followed from app/boot.js): bytes raw and gzipped. */
 function transferSize() {
-  const seen = new Set(), files = ['next.html'];
+  const seen = new Set(), files = ['index.html'];
   const walk = rel => {
     if (seen.has(rel)) return;
     seen.add(rel);
@@ -792,7 +792,7 @@ function report(S, o, plan, results, wallS) {
   p('- Par day runtime (D-9 budget 1.6 s): median ' + fix(median(secs), 2) + ' s, max ' + fix(Math.max(...secs), 2) + ' s over ' + secs.length + ' raw seeds (' +
     (o.workers > 1 ? o.workers + ' worker processes sharing the machine' : 'one process') + '; includes the H-8 probes and per-tick checks).');
   const tr = transferSize();
-  p('- First-visit transfer (F-11 target ≤ 400 KB compressed): next.html and the ' + (tr.n - 1) + ' modules it loads, ' + fix(tr.raw / 1024, 1) + ' KB raw, ' +
+  p('- First-visit transfer (F-11 target ≤ 400 KB compressed): index.html and the ' + (tr.n - 1) + ' modules it loads, ' + fix(tr.raw / 1024, 1) + ' KB raw, ' +
     fix(tr.gz / 1024, 1) + ' KB gzip -9 (per file, as a static host serves them).');
   p('- Wall time ' + fix(wallS, 0) + ' s. Node ' + process.version + ', ' + os.cpus().length + ' logical CPUs.');
   p('- Not measurable on the v4 core yet: frame rate (F-11, browser), audible alarms (K-8), session length and decision gaps (D-2, D-10), ' +

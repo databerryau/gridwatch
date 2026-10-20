@@ -20,7 +20,7 @@ import {makeDocument} from './lib/dom.js';
 import {openGame} from './lib/play.js';
 import {injectTrip, withoutTask} from './lib/sim-helpers.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S, HOT = 20261007, MILD = 20261014; // DESK weekdays: a heatwave day, a calm mild day
 // HOT's day without the Act I restore task (Q-68), for the tests that read Redgum Flats' card at 04:30: on HOT the task's
 // two feeders are Redgum Flats', held dark from 04:00, and these tests are about the card's face and a dark suburb it pokes.

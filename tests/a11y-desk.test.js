@@ -26,7 +26,7 @@ import {allIn} from '../app/score.js';
 
 const read = f => readFileSync(new URL(f, import.meta.url), 'utf8');
 const CSS = read('../desk/desk.css').replace(/\/\*[\s\S]*?\*\//g, '');
-const NEXT = read('../next.html');
+const NEXT = read('../index.html');
 /** The body of the first rule whose selector list is exactly `sel` (a regexp source; a rule starts a line or follows another). */
 const ruleOf = (css, sel) => { const m = new RegExp('(?:^|[\\n}])\\s*' + sel + '\\s*\\{([^}]*)\\}').exec(css); assert.ok(m, 'no rule ' + sel); return m[1]; };
 const pxOf = (body, prop) => { const m = new RegExp('(?:^|[;\\s])' + prop + ':\\s*(?:\\d{3} )?(?:calc\\(([\\d.]+) \\* var\\(--u\\)\\)|([\\d.]+)px)').exec(body); assert.ok(m, prop + ' in ' + body); return Number(m[1] ?? m[2]); };
@@ -188,7 +188,7 @@ test('W6 a11y: the floor holds the raised words: three two-row tray cards, the s
 });
 
 test('W7 Q3: every alarm tile\'s plain words fit its tile: two lines, the glyph first, at the floor (8.5 px) and from 1600 px (10 px); an escalated one inside its double border', t => {
-  // the plan bar's slot (next.html: 432 px; clamp(432px, 30vw, 600px) from 1600 px) less the panel's edge, ACK over HORN OFF, EXPLAIN
+  // the plan bar's slot (index.html: 432 px; clamp(432px, 30vw, 600px) from 1600 px) less the panel's edge, ACK over HORN OFF, EXPLAIN
   const pad = 1 + pxOf(ruleOf(CSS, '\\.dk-panel'), 'padding');
   const [, side, key, gap] = /grid-template-columns: 1fr (\d+)px (\d+)px; gap: (\d+)px;/.exec(ruleOf(CSS, '\\.dk-annun')).map(Number);
   const grid = ruleOf(CSS, '\\.dk-tiles'), cols = Number(/grid-template-columns: repeat\((\d+), 1fr\)/.exec(grid)[1]), tg = pxOf(grid, 'gap');

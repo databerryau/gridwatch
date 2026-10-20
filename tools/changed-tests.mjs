@@ -10,8 +10,8 @@
 // untracked files, or the files named on the command line. A test file is picked when it
 // changed itself or when something it depends on changed. Its dependencies are found by
 // reading the source: static and dynamic imports, followed through tests/lib and the game's
-// modules, plus repo paths written as string literals (next.html, desk/desk.css, '../sim/'
-// for a whole folder); next.html brings in what it links. A test that walks folders
+// modules, plus repo paths written as string literals (index.html, desk/desk.css, '../sim/'
+// for a whole folder); index.html brings in what it links. A test that walks folders
 // (readdirSync, or tests/lib/js-tokens.js) depends on everything.
 //
 // The full suite (`node --test`) still runs once before a merge and in CI.

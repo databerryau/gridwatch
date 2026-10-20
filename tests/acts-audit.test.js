@@ -3,7 +3,7 @@
 // sim input lives under the desk (the Live Stack is in it, or over the map while expanded), the map or the
 // suburb card; the briefing sends only `mode` inputs (the card's AGC/HAND, the desk's AGC key, Q-64).
 //
-// Two halves. The source: the modules of next.html (its first visit and the on-demand ones, found from its
+// Two halves. The source: the modules of index.html (its first visit and the on-demand ones, found from its
 // import() calls) that call actions.input(, actions.redispatch( or actions.soakCity( (W7 Q1: SOAK THE CITY, one
 // press that books every free suburb) are exactly the desk's, the stack's, the suburb card's and the shell's, and
 // the shell's are the briefing's mode and the keys' runner (which carries a desk control's key); SOAK THE CITY is
@@ -50,7 +50,7 @@ function sendsIn(src) {
 }
 
 test('D-1, the source: only the desk, the stack, the suburb card and the shell call the page\'s actions; the shell sends the briefing\'s mode and the keys\' inputs', () => {
-  const first = firstVisit('next.html').map(f => f.path).filter(p => p.endsWith('.js')), later = onDemand(first), files = [...first, ...later];
+  const first = firstVisit('index.html').map(f => f.path).filter(p => p.endsWith('.js')), later = onDemand(first), files = [...first, ...later];
   // (the on-demand list is the page's own, so a module 2d or 2e loads later is audited too)
   for (const m of ['app/endcard.js', 'app/suburbcard.js', 'content/text.js']) assert.ok(later.includes(m), m + ' is found on demand: ' + later);
   const by = {}, views = /^(desk|render|audio|content)\/|^app\/(shell|boot|keys|suburbcard|alarmpanel|endcard|watch|tray)\.js$/;

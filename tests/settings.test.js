@@ -11,7 +11,7 @@ import {injectTrip} from './lib/sim-helpers.js';
 import * as G from '../app/game.js';
 import {bootGame, CRT_OFF} from '../app/shell.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S;
 
 /** A localStorage stand-in. */

@@ -1,5 +1,5 @@
 // GRIDWATCH: play the real page headless, fast (tests/lib/play.js on the command line). It boots
-// next.html with every real module in the stand-in DOM, takes the desk (AGC) and presses Space,
+// index.html with every real module in the stand-in DOM, takes the desk (AGC) and presses Space,
 // then runs the steps in order and prints what the player sees. Not loaded by the game; no
 // browser, no server. An ES module (.mjs: tools/package.json pins the .js tools to CommonJS).
 //

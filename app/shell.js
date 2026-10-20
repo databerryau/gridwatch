@@ -1,4 +1,4 @@
-// app/shell.js: the game page (next.html) around app/game.js. It mounts the map, the desk and
+// app/shell.js: the game page (index.html) around app/game.js. It mounts the map, the desk and
 // the Live Stack (whichever modules boot.js passes in), draws the header and the overlays
 // (briefing, watch, respond card, end card, drawer, "?" labels, toast, ?perf), runs the frame
 // loop (ticks, then the view model, then every module draws: never inside step(), X-26),
@@ -62,7 +62,7 @@ import {localYmd} from './history.js';
 import {pastDailies, hardDays, resultText, isoOf} from './shelf.js';
 import {outlookWord, eveningTrip} from './week.js';
 
-/** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
+/** K-17: header, map and desk heights (px) for a viewport; the CSS in index.html does the same. */
 export function layoutSizes(width, height) {
   const header = width >= 1600 ? 40 : 32;
   const desk = Math.max(300, Math.floor((height - header) / 2));
@@ -211,7 +211,7 @@ export const NO_DAILY = 'No daily today · PRACTICE';
 /** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
 export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
 /**
- * The briefing's "Watch for" into `w` (next.html #briefing-watch, in the card's own colour): a bold head and the
+ * The briefing's "Watch for" into `w` (index.html #briefing-watch, in the card's own colour): a bold head and the
  * day's briefs (<= 30 words, D-3; guardMW: watchFor's), then NOT_GATED on its own line when `gated` is false; hidden with neither.
  */
 export function watchForInto(doc, w, obs, gated, guardMW = 0) {
@@ -234,7 +234,7 @@ export const HAND_CHIP = Object.freeze({
 });
 /**
  * W7 (Q-117): the SCORE chip keeps its place all day but shows no number before 21:00: its key over SCORE_LATER, in grey
- * (next.html #chip-allin.later), and SCORE_LATER_TIP as its title (`allIn` with no par to compare: the chip then shows ALL-IN).
+ * (index.html #chip-allin.later), and SCORE_LATER_TIP as its title (`allIn` with no par to compare: the chip then shows ALL-IN).
  */
 export const SCORE_LATER = 'FROM 21:00';
 export const SCORE_LATER_TIP = Object.freeze({
@@ -370,7 +370,7 @@ export function liveFrame(L, vm, nowMs) {
   return null;
 }
 
-// vm.settings key -> the popover's control id (next.html #settings).
+// vm.settings key -> the popover's control id (index.html #settings).
 const SET_RANGES = {volume: 'set-volume', hum: 'set-hum', fx: 'set-fx', alarms: 'set-alarms'};
 const SET_CHECKS = {reducedMotion: 'set-rm', reducedEffects: 'set-fxlow', crt: 'set-crt'};
 
@@ -858,7 +858,7 @@ export function bootGame(doc, deps) {
     if (chip.hidden !== !k) chip.hidden = !k;
     if (!k || chip.className === 'chip ' + k) return;
     chip.className = 'chip ' + k; chip.title = HAND_CHIP[k][1];
-    // (the night's words on two lines, broken only at the '·': next.html #chip-hand span)
+    // (the night's words on two lines, broken only at the '·': index.html #chip-hand span)
     chip.replaceChildren(...HAND_CHIP[k][0].split(' · ').flatMap((s, i, a) => {
       const e = doc.createElement('span'); e.textContent = s + (i < a.length - 1 ? ' ·' : ''); return i ? [' ', e] : [e];
     }));
@@ -882,7 +882,7 @@ export function bootGame(doc, deps) {
     if (chip.hidden || (v.obs.nightShift && !v.obs.over && v.frame.nowMs - nightMs < NIGHT_REDRAW_MS)) return;
     const later = !scoreShown(v.obs, !!game.state.scn.night), {you, p, off, g0, g} = scoreOf(v), c = allInCents(you), cents = off && !g0;
     if (chip.classList.contains('later') !== later) chip.classList.toggle('later', later);
-    if (chip.classList.contains('allin') !== cents) chip.classList.toggle('allin', cents);   // (its own width: next.html #chip-allin.allin)
+    if (chip.classList.contains('allin') !== cents) chip.classList.toggle('allin', cents);   // (its own width: index.html #chip-allin.allin)
     setText('chip-allin-k', cents ? 'ALL-IN' : 'SCORE');
     setText('chip-allin-v', later ? SCORE_LATER : cents ? c + 'c' : g ? String(g.points) : '…');
     const tip = later ? SCORE_LATER_TIP[off ? 'allIn' : 'score'] : 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +

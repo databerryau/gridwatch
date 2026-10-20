@@ -106,17 +106,17 @@ test('Y-2 (review): TODAY leaves the bare address; a first visit by a link has n
   p.game.todayOf = () => 20261016;
   p.click('btn-shelf-brief');
   let addr = '';
-  const restore = installGlobals({location: {href: 'https://databerryau.github.io/gridwatch/next.html?debug&date=2026-10-14'}, history: {replaceState: (a, b, u) => { addr = u; }}});
+  const restore = installGlobals({location: {href: 'https://databerryau.github.io/gridwatch/index.html?debug&date=2026-10-14'}, history: {replaceState: (a, b, u) => { addr = u; }}});
   try {
     p.click('shelf-today');
-    assert.equal(addr, '/gridwatch/next.html?debug=', 'today\'s daily is the bare address');
+    assert.equal(addr, '/gridwatch/index.html?debug=', 'today\'s daily is the bare address');
     assert.equal(p.$('btn-shelf-brief').hidden, true, 'today\'s official briefing keeps its one click');
     p.click('btn-take');
     p.game.state.over = true;
     p.frames(2);
     p.click('btn-shelf');
     button(p, '#4 Thu 15 Oct').click();
-    assert.equal(addr, '/gridwatch/next.html?debug=&date=2026-10-15');
+    assert.equal(addr, '/gridwatch/index.html?debug=&date=2026-10-15');
   } finally { restore(); }
   assert.equal(p.$('toast').textContent, RESUME_LOST, 'a save from another build is dropped, said so');
   // a first visit by a past daily's link: one click (no MORE DAYS)

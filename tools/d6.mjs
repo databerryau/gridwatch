@@ -1,6 +1,6 @@
 // GRIDWATCH: D-6's whole-day replay (SPEC D-6; desk/README.md §32.2 D-6 and §32.10, "D-6's whole-day
 // replay once (1x, FAST, 50 pauses: one hash)"). One desk date through the real page model
-// (tests/lib/play.js openGame: next.html booted with every real module, the page's system in
+// (tests/lib/play.js openGame: index.html booted with every real module, the page's system in
 // 'player' mode, the director, the objective line, the tray and the annunciator), one input log
 // played three ways, and the three end-of-day hashState values compared:
 //   cruise   the clock at 1x: the D-2 profile as the director plays it (watches, cards, feeder cards...)

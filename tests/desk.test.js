@@ -2225,7 +2225,7 @@ test('K-3 / K-23 (playtest): each guard\'s tooltip says how to press it, each le
   LEVER_STATIONS.forEach((sid, i) => assert.equal(slotOf($, sid).querySelector('.dk-kcap').textContent, String(i + 1), sid));
   assert.equal(slotOf($, 'ccgt').querySelector('.dk-lever-foot').title, 'SET (white): where the lever is ▸ OUT (orange): what CCGT makes now, MW');
   // the armed face: amber across its row (the other guard folds to no width, still drawn: the next test), a bar that
-  // drains (5 s; 2 s by key), held still under reduced motion. '.dk ' outranks next.html's button:hover border.
+  // drains (5 s; 2 s by key), held still under reduced motion. '.dk ' outranks index.html's button:hover border.
   assert.match(CSS, /\.dk \.dk-guard\.lifted \{ flex: 1 1 auto; position: relative; background: #d2992244; border-color: var\(--dk-amber\);/);
   assert.match(CSS, /\.dk-mach\.armed \{ gap: 0; \}/);
   assert.match(CSS, /\.dk \.dk-mach\.armed > \.dk-guard:not\(\.lifted\) \{ width: 0; min-width: 0; border-width: 0; overflow: hidden; \}/);

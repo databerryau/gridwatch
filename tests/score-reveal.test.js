@@ -1,13 +1,13 @@
 // W7, Q-117 (decisions/2026-10-16-open-questions.md §7): the header's SCORE chip shows no number before 21:00. It keeps its
-// place from TAKE THE DESK with its key over FROM 21:00, in grey, on two lines (next.html #chip-allin.later), and a title that
+// place from TAKE THE DESK with its key over FROM 21:00, in grey, on two lines (index.html #chip-allin.later), and a title that
 // says when the score shows; from the night shift's first frame (on a day with no night shift, from its clock's 21:00) and
 // once the day is over it is Q-48's chip again, moving with the night strip (tests/night-strip.test.js plays that). The same
 // on every kind of day: a daily, a weekend, an anniversary, a Hard day, a HAND day, and with no par to compare (ALL-IN). A page
 // that opens past 21:00 (a resume) shows the number on its first frame. One width all day, so nothing in the header moves at
-// 21:00 (with no par to compare, its own: "ALL-IN 999.9c"): the sizes are read from next.html's CSS and held against the widest
+// 21:00 (with no par to compare, its own: "ALL-IN 999.9c"): the sizes are read from index.html's CSS and held against the widest
 // text each key shows (no layout in the stand-in DOM; the integrator's browser pass sees it laid out).
 //
-// Headless (CLAUDE.md): the shell alone on next.html (no desk, map or stack), the clock held; the night is the sim's own flag
+// Headless (CLAUDE.md): the shell alone on index.html (no desk, map or stack), the clock held; the night is the sim's own flag
 // set on the state, never played to.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,7 +22,7 @@ import {SA2016} from '../content/anniversaries.js';
 import {allInCents} from '../render/format.js';
 import {makeDocument} from './lib/dom.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const ruleOf = sel => { const m = new RegExp('(?:^|[\\s}])' + sel + '\\s*\\{([^}]*)\\}').exec(NEXT); assert.ok(m, 'no rule ' + sel); return m[1]; };
 // par's running totals at its 5-minute marks, a steady day's: a running score exists from 04:00
 const row = s => ({costDollars: 40.5 * s, servedMWh: 1.3 * s, lightsMWh: 0, co2tPerMWh: 0.6, saidiMin: 0, saifi: 0, maifi: 0});
@@ -83,7 +83,7 @@ test('Q-117: before 21:00 the chip\'s place reads SCORE FROM 21:00, in grey, wit
 });
 
 /** Each day: SCORE FROM 21:00 (ALL-IN with no par) in grey until the night shift, then its number; with no par the chip's
- * own width (.allin, next.html: "ALL-IN 999.9c") from its first frame, so it too does not move at 21:00. */
+ * own width (.allin, index.html: "ALL-IN 999.9c") from its first frame, so it too does not move at 21:00. */
 function sameOn(days) {
   for (const [what, seed, o] of days) {
     const b = boot(seed, o), off = !!o && o.par === false, wide = off ? ' allin' : '';
@@ -126,7 +126,7 @@ test('Q-117: a page that opens past 21:00 (a resume lands there) shows the score
 });
 
 test('Q-117: one width all day, so the header does not move at 21:00: each key\'s min-width holds the widest it shows; FROM 21:00 two lines inside it', () => {
-  // the sizes, read from next.html (no layout in the stand-in DOM): the chip's monospace (its ch), padding and border
+  // the sizes, read from index.html (no layout in the stand-in DOM): the chip's monospace (its ch), padding and border
   const num = (re, s) => { const m = re.exec(s); assert.ok(m, String(re)); return m.slice(1).map(Number); };
   const chip = ruleOf('\\.chip'), [font] = num(/font: (\d+)px var\(--mono\)/, chip), [, padX] = num(/padding: (\d+)px (\d+)px/, chip);
   const [border] = num(/border: (\d+)px solid/, chip), [hdr] = num(/--hdr: (\d+)px/, NEXT), [hdrLine] = num(/^ {2}header \{[^}]*border-bottom: (\d+)px/m, NEXT);

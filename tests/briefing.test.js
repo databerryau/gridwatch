@@ -9,7 +9,7 @@
 // max(3 s, 0.3 s a word); the night strip's redraw cadence; the end card fetched when the night shift takes
 // the desk (Q-73).
 //
-// Headless (CLAUDE.md): the shell alone on next.html (no desk, map or stack), booted at 04:00; the chip's
+// Headless (CLAUDE.md): the shell alone on index.html (no desk, map or stack), booted at 04:00; the chip's
 // states are set on the state (the sim's own flags), never played to.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,11 +26,11 @@ import {clockText, badgeText, NIGHT_LOCK} from '../render/format.js';
 import {TEXT} from '../content/text.js';
 import {makeDocument} from './lib/dom.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const words = s => s.trim().split(/\s+/).length;
 const hm = s => clockText(s, false);
 
-/** The shell alone on next.html, a date's seed through the page's own daily and scenario (Q-75); `clock.t` is its page time. */
+/** The shell alone on index.html, a date's seed through the page's own daily and scenario (Q-75); `clock.t` is its page time. */
 function boot(seed, clock = {t: 0}) {
   const doc = makeDocument(NEXT);
   const h = bootGame(doc, {search: '?seed=' + seed, scenario: G.scenarioForSeed, storage: null, audioWin: {}, raf: false, now: () => clock.t});

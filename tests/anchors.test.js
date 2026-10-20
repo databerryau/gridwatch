@@ -13,7 +13,7 @@ import * as alarmPanel from '../app/alarmpanel.js';
 import {bootGame} from '../app/shell.js';
 import {makeDocument} from './lib/dom.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const tick = () => new Promise(r => setTimeout(r, 0));
 
 test('Q-44: content/anchors.js equals the game anchors and row titles of TEXT.abstractions, in order', () => {
@@ -32,7 +32,7 @@ test('Q-44: content/anchors.js equals the game anchors and row titles of TEXT.ab
   assert.ok(Object.isFrozen(ANCHORS) && ANCHORS.every(a => Object.isFrozen(a) && Object.isFrozen(a.rows)), 'frozen');
 });
 
-// The shell alone on next.html (no desk, map or stack: the header's own badges), with loaders.
+// The shell alone on index.html (no desk, map or stack: the header's own badges), with loaders.
 function boot(o) {
   const doc = makeDocument(NEXT);
   const h = bootGame(doc, Object.assign({search: '?seed=7', storage: null, audioWin: {}, raf: false, now: () => 0}, o));

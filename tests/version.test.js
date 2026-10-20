@@ -21,7 +21,7 @@ import {scaleFor, PLANTS, SUBURBS} from '../render/mapdata.js';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = f => readFileSync(join(ROOT, f), 'utf8');
 const rel = p => relative(ROOT, p).split(sep).join('/');
-const NEXT = read('next.html');
+const NEXT = read('index.html');
 const SITE = 'https://databerryau.github.io/gridwatch/';
 const settle = () => new Promise(r => setImmediate(r));
 const answer = body => () => Promise.resolve({ok: true, json: async () => body});
@@ -34,7 +34,7 @@ const LINK = new SyntaxError('The requested module \'./week.js\' does not provid
 function win({fetch = null, entries = []} = {}) {
   const w = {document: makeDocument(NEXT), innerWidth: 1280, innerHeight: 720, matchMedia: q => ({matches: q === '(any-pointer: fine)'}),
     performance: {getEntriesByType: t => (t === 'resource' ? entries.map(name => ({name})) : [])}, calls: [], reloads: 0};
-  w.location = {href: SITE + 'next.html?date=2026-10-16#top', search: '?date=2026-10-16', reload: () => { w.reloads++; }};
+  w.location = {href: SITE + 'index.html?date=2026-10-16#top', search: '?date=2026-10-16', reload: () => { w.reloads++; }};
   w.fetch = (u, o) => { w.calls.push([String(u), o && o.cache]); return fetch ? fetch(u, o) : Promise.reject(new TypeError('Failed to fetch')); };
   return w;
 }
@@ -80,11 +80,11 @@ test('F-9 accept: a forced mismatch shows "GRIDWATCH was updated — refresh to 
     assert.equal(b.querySelector('p').textContent, UPDATED_WHY);
     assert.equal(b.getAttribute('role'), 'alert');
     assert.match(b.title, /sim\/step\.js/, 'its title names the file');
-    assert.ok(w.document.getElementById('build-css'), 'it brings its own style (next.html has none for it)');
+    assert.ok(w.document.getElementById('build-css'), 'it brings its own style (index.html has none for it)');
     gate(w, Object.assign({}, CARRIED, {'sim/step.js': odd}), () => {});
     assert.equal(w.document.querySelectorAll('#updated').length, 1, 'once');
     await settle();
-    assert.deepEqual(w.calls.slice(0, 4), [[SITE + 'next.html?date=2026-10-16', 'reload'], [SITE + 'app/start.js', 'reload'], [SITE + 'sim/step.js', 'reload'],
+    assert.deepEqual(w.calls.slice(0, 4), [[SITE + 'index.html?date=2026-10-16', 'reload'], [SITE + 'app/start.js', 'reload'], [SITE + 'sim/step.js', 'reload'],
       [SITE + 'desk/desk.css', 'reload']], 'the page and its files, not version.json or another site\'s');
     assert.equal(w.reloads, 0, 'the player refreshes (C-3)');
   }
@@ -149,7 +149,7 @@ test('F-9: while it plays, a live build that moved on shows a quiet note, once; 
   t += 1;
   await back('hidden');
   assert.equal(w.calls.length, 1, 'a tab going away asks nothing');
-  live = '2026-10-20';
+  live = BUILD + '.2';   // (a later release: a second that day)
   await back('visible');
   assert.deepEqual(w.calls[1], [VERSION_FILE, 'no-store']);
   // the site moved on: the note, quietly, and the files fetched again for the refresh
@@ -157,7 +157,7 @@ test('F-9: while it plays, a live build that moved on shows a quiet note, once; 
   assert.equal(n.querySelector('span').textContent, LATER);
   assert.equal(n.getAttribute('role'), 'status', 'polite, never an alert');
   assert.equal(doc.activeElement, focus, 'it takes no focus');
-  assert.deepEqual(w.calls.slice(2, 4), [[SITE + 'next.html?date=2026-10-16', 'reload'], [SITE + 'app/boot.js', 'reload']]);
+  assert.deepEqual(w.calls.slice(2, 4), [[SITE + 'index.html?date=2026-10-16', 'reload'], [SITE + 'app/boot.js', 'reload']]);
   assert.deepEqual(w.calls.slice(4), lateUrls().map(u => [u, 'reload']), 'and every module the page loads on demand, loaded yet or not');
   t += CHECK_MS;
   await back('visible');
@@ -170,7 +170,7 @@ test('F-9: while it plays, a live build that moved on shows a quiet note, once; 
 test('F-9: the real page boots on one release, and told the live site moved on, shows the note and plays on', async () => {
   const doc = makeDocument(NEXT), calls = [];
   let raf = null;
-  const restore = installGlobals({document: doc, location: {search: '?seed=7', href: SITE + 'next.html?seed=7'}, requestAnimationFrame: cb => { raf = cb; return 1; },
+  const restore = installGlobals({document: doc, location: {search: '?seed=7', href: SITE + 'index.html?seed=7'}, requestAnimationFrame: cb => { raf = cb; return 1; },
     devicePixelRatio: 1, localStorage: null, fetch: (u, o) => { calls.push([String(u), o && o.cache]); return answer({build: BUILD + '.2'})(); }});
   try {
     const {handle} = await import(pathToFileURL(join(ROOT, 'app/boot.js')).href + '?f9');   // (a second boot.js: this one boots)
@@ -205,7 +205,7 @@ test('F-9 review: app/boot.js boots through the gate: a carrier from another rel
 });
 
 test('F-9 review: LATE is every module the page loads on demand, and app/boot.js hands app/shell.js each through late (a refresh refetches them with the rest)', async () => {
-  const first = new Set(firstVisit('next.html').map(f => f.path)), found = new Set(), seen = new Set();
+  const first = new Set(firstVisit('index.html').map(f => f.path)), found = new Set(), seen = new Set();
   for (const dir of ['app', 'desk', 'render', 'content', 'audio']) {
     for (const f of jsFiles(join(ROOT, dir))) {
       const toks = tokenize(readFileSync(f, 'utf8'));
@@ -235,9 +235,9 @@ test('F-9 review: a module loaded on demand that cannot link (another release\'s
   assert.equal(n.querySelector('span').textContent, UPDATED);
   assert.equal(w.document.getElementById('updated'), null, 'no game stopped');
   await settle();
-  assert.equal(w.calls[0][0], SITE + 'next.html?date=2026-10-16');
+  assert.equal(w.calls[0][0], SITE + 'index.html?date=2026-10-16');
   assert.deepEqual(w.calls.slice(1).map(c => c[0]), lateUrls(), 'the page, then every module loaded on demand, past the cache');
-  watchLive(Object.assign(w, {fetch: answer({build: '2026-10-20'})}));
+  watchLive(Object.assign(w, {fetch: answer({build: BUILD + '.2'})}));
   await settle();
   assert.equal(n.querySelector('span').textContent, UPDATED, 'a later LATER never softens it');
   // the network, or a module that loads: nothing drawn or fetched
@@ -263,7 +263,7 @@ test('F-9 review: a module loaded on demand that cannot link (another release\'s
 test('F-9 review: the real page loads its end card at boot, and one from another release stops the game there, under UPDATED', async () => {
   const doc = makeDocument(NEXT);
   let raf = null, asked = 0;
-  const restore = installGlobals({document: doc, location: {search: '?seed=7', href: SITE + 'next.html?seed=7'}, requestAnimationFrame: cb => { raf = cb; return 1; },
+  const restore = installGlobals({document: doc, location: {search: '?seed=7', href: SITE + 'index.html?seed=7'}, requestAnimationFrame: cb => { raf = cb; return 1; },
     devicePixelRatio: 1, localStorage: null, fetch: () => answer({build: BUILD})()});
   try {
     const {boot, LOAD} = await import('../app/boot.js');
@@ -290,14 +290,14 @@ test('F-9 review: the real page loads its end card at boot, and one from another
 });
 
 test('F-9 review: the note is one line at the top centre of the map, clear of every plant\'s and suburb\'s label (an alarm\'s too) at every desk size', async () => {
-  const w = win({fetch: answer({build: '2026-10-20'})});
+  const w = win({fetch: answer({build: BUILD + '.2'})});
   watchLive(w);
   await settle();
   assert.ok(w.document.getElementById('build-note'));
   const css = w.document.getElementById('build-css').textContent;
   const rule = sel => { const m = new RegExp(sel + '\\{([^}]*)\\}').exec(css); assert.ok(m, sel); return m[1]; };
   const note = rule('#build-note'), x = rule('#build-note button');
-  // its height: one line, unless the ✕ keeps next.html's button height
+  // its height: one line, unless the ✕ keeps index.html's button height
   assert.match(NEXT, /button \{[^}]*min-height: 24px/);
   const h = Math.max(+(/font:[^;]*\/(\d+)px/.exec(note) || [0, 20])[1], /min-height:0\b/.test(x) ? 0 : 24) + 2;
   assert.ok(h <= 18, 'one line: ' + h + ' px');
@@ -308,7 +308,7 @@ test('F-9 review: the note is one line at the top centre of the map, clear of ev
   assert.ok(centred || right, 'placed');
   for (const W of [1280, 1366, 1440, 1536, 1600, 1680, 1920, 2560]) {
     for (const H of [600, 608, 625, 656, 680, 720, 768, 800, 900, 1080, 1440]) {
-      // next.html: the header, the map (the rest) and the desk, max(300 px, half of what is below the header)
+      // index.html: the header, the map (the rest) and the desk, max(300 px, half of what is below the header)
       const hdr = W >= 1600 ? 40 : 32, L = scaleFor(W, H - hdr - Math.max(300, (H - hdr) / 2));
       const x0 = centred ? W / 2 - width / 2 : W - +right[1] - width, box = [x0, hdr + top, x0 + width, hdr + top + h];
       // render/map.js draws a label 14 px tall, its bottom at max(16, the box's top), its middle over the box, inside the map

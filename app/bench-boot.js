@@ -1,4 +1,4 @@
-// app/bench-boot.js: starts the bench (bench.html; next.html and app/boot.js until Phase 1a,
+// app/bench-boot.js: starts the bench (bench.html; index.html and app/boot.js until Phase 1a,
 // desk/README.md A-5). Wires the session (the sim, director, loop,
 // recorder, assist) to the DOM view and the frame loop. Nothing here steps the sim except
 // through app/session.js, and drawing happens after each frame's ticks, never inside step()

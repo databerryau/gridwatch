@@ -1,4 +1,4 @@
-// The greybox game page (next.html, app/shell.js, app/game.js, app/watch.js, app/keys.js,
+// The greybox game page (index.html, app/shell.js, app/game.js, app/watch.js, app/keys.js,
 // app/perf.js) without a browser: static rules (C-1, C-2, K-17, K-18), then the shell booted in
 // the stand-in DOM (tests/lib/dom.js) with stand-in desk / map / stack / system modules that
 // use only `actions` and `vm` as desk/README.md §4-§5 state them. The real modules arrive in
@@ -35,16 +35,16 @@ import * as suburbCard from '../app/suburbcard.js';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const TPS = V.TICKS_PER_S;
 // What #objective shows (a line of LINE_MAX_CHARS with the paused note or the ARMED prompt) wraps to
-// at most two rows at 1280 px: the expanded Live Stack ends above two (next.html, C18). Measured in
+// at most two rows at 1280 px: the expanded Live Stack ends above two (index.html, C18). Measured in
 // the browser at 1280x768: 300 characters of capitals take two rows (385 of the line's own words).
 const SHOWN_MAX_CHARS = 300;
-const NEXT = readFileSync(join(ROOT, 'next.html'), 'utf8');
+const NEXT = readFileSync(join(ROOT, 'index.html'), 'utf8');
 const BENCH = readFileSync(join(ROOT, 'bench.html'), 'utf8');
 
 // ------------------------------------------------------------------ static
 
 test('C-2 / C-1: both pages start with the charset meta, load one ES module each, and name no other origin', () => {
-  for (const [name, html, entry] of [['next.html', NEXT, 'app/start.js'], ['bench.html', BENCH, 'app/bench-boot.js']]) {   // (W6, Y-8: next.html's entry loads app/boot.js, or the landing page)
+  for (const [name, html, entry] of [['index.html', NEXT, 'app/start.js'], ['bench.html', BENCH, 'app/bench-boot.js']]) {   // (W6, Y-8: index.html's entry loads app/boot.js, or the landing page)
     assert.match(html, /^<!doctype html>\s*<meta charset="utf-8">/i, name);
     const scripts = [...html.matchAll(/<script\b([^>]*)>/g)].map(m => m[1].trim());
     assert.deepEqual(scripts, ['type="module" src="' + entry + '"'], name);
@@ -53,16 +53,16 @@ test('C-2 / C-1: both pages start with the charset meta, load one ES module each
     }
     assert.ok(!/@import|url\(\s*['"]?https?:/i.test(html), name + ': no remote CSS');
   }
-  assert.match(NEXT, /<link rel="stylesheet" href="desk\/desk.css">/, 'next.html links the desk styles');
+  assert.match(NEXT, /<link rel="stylesheet" href="desk\/desk.css">/, 'index.html links the desk styles');
 });
 
-test('K-18: none of the removed elements\' ids remain in next.html', () => {
+test('K-18: none of the removed elements\' ids remain in index.html', () => {
   const removed = ['selP', 'strip', 'hPnl', 'hPrice', 'hRes', 'hIn', 'cvD', 'cvF', 'cvG', 'cvM', 'mkt', 'mPrice', 'log', 'logP', 'crt', 'dock',
     // the bench's charts and panels (A-5: they stay on bench.html)
     'c-live', 'c-fday', 'c-demand', 'c-price', 'freq-live-wrap', 'freq-day-wrap', 'demand-chart', 'price-chart', 'event-log', 'log-list',
     'stations-panel', 'security-panel', 'news-panel', 'cont-panel', 'scorecard', 'fos-panel', 'speed', 'assist-select'];
   const ids = [...NEXT.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
-  for (const id of removed) assert.ok(!ids.includes(id), 'next.html still has #' + id);
+  for (const id of removed) assert.ok(!ids.includes(id), 'index.html still has #' + id);
   for (const id of ['clock', 'rate-badge', 'chip-lights', 'chip-cost', 'chip-co2', 'btn-pause', 'btn-help', 'map', 'desk', 'respond-card',
     'watch-vignette', 'stopwatch', 'end-card', 'drawer', 'perf', 'stack-overlay', 'briefing-card',
     // Phase 1b (desk/README.md §14.4): the settings popover and the live region
@@ -1239,7 +1239,7 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   assert.equal($('rate-badge').getAttribute('role'), null, 'the badge is mirrored by #aria-live, not announced every frame');
 });
 
-test('app/boot.js boots next.html with the real stage B modules', async () => {
+test('app/boot.js boots index.html with the real stage B modules', async () => {
   for (const f of ['desk/desk.js', 'render/livestack.js', 'render/map.js', 'app/system.js', 'app/planview.js']) {
     assert.ok(existsSync(join(ROOT, f)), f + ' is not merged yet');
   }

@@ -1,4 +1,4 @@
-// app/game.js: one game session (next.html), DOM-free. It mirrors app/session.js (which the
+// app/game.js: one game session (index.html), DOM-free. It mirrors app/session.js (which the
 // bench keeps) for the game: the sim state, the director (game modes), the loop's pacer, the
 // system operator (app/system.js: the 04:30 pre-dispatch, the dark-city reflow, RE-DISPATCH),
 // the annunciator, the tray, the recorder (watch traces), history rings for the Live Stack's

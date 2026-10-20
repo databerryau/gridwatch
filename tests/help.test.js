@@ -5,7 +5,7 @@
 // (q-dial, q-imb, q-gauge) and the annunciator's tiles show a note on their panel. Esc closes
 // the top-most first (the shell's closeTop, then the desk's closeHelp).
 //
-// Headless (CLAUDE.md): the shell alone on next.html for the badges and the drawer (the stand-in
+// Headless (CLAUDE.md): the shell alone on index.html for the badges and the drawer (the stand-in
 // DOM has no layout: the tests set the rects and sizes that matter), a desk alone with a clock
 // the test moves for the notes, and one sampled game (tests/lib/play.js) for Esc in play.
 import {test} from 'node:test';
@@ -20,7 +20,7 @@ import {createState, observe} from '../sim/step.js';
 import {CLASSIC} from '../content/scenarios.js';
 import {TEXT} from '../content/text.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 
 // The shell alone (the header's badges, and #map's floating one); `prep(doc)` runs before the
 // first frame. frame(): one frame 0.6 s on (the badges are placed every 0.5 s).

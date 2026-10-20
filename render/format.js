@@ -139,7 +139,7 @@ export function badgeText(m) {
 // The act of the day in words (D-1, Q-78), by modeOf().act (1-4; 0 before 04:30); the night shift's only with modeOf().night.
 const ACT_TITLES = ['', 'Act I, the morning ramp: the city wakes and demand climbs', 'Act II, the belly: rooftop solar floods in',
   'Act III, neck and peak: the sun sets as demand peaks', 'The night roll: the clock runs on to 04:00'];
-/** What the badge is (next.html's title before the first frame). */
+/** What the badge is (index.html's title before the first frame). */
 export const BADGE_HELP = 'Mode and playback rate (grid seconds per real second). Click or Space: pause / run';
 /** The badge's title: the act, then BADGE_HELP. */
 export const badgeTitle = m => {
