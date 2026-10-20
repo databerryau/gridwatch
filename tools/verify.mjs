@@ -50,7 +50,7 @@ export function regeneration(from, to) {
 
 /** The stale-stamp tests' advice for the list from..to: the verify first (minutes; it writes only when nothing moved), then the full regeneration. */
 export const restampAdvice = (from, to) => 'run `npm run verify` first (it replays par on every daily and restamps the four files when nothing moved, ' +
-  'about 3 min); if it refuses, the full regeneration: ' + regeneration(from, to).map(c => c.replace(/\s+#.*$/, '')).join(', then ');
+  'about 10-12 min on 11 workers); if it refuses, the full regeneration: ' + regeneration(from, to).map(c => c.replace(/\s+#.*$/, '')).join(', then ');
 
 const iso = ymd => String(ymd).replace(/^(\d{4})(\d\d)(\d\d)$/, '$1-$2-$3');
 const ymdIn = s => +String(s).replace(/-/g, '');
