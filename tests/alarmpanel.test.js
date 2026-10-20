@@ -186,11 +186,11 @@ test('Q-46: with the panel open its tiles select and keep the focus in it; arrow
 
 test('Q-46: every panel control answers: GO TO, ACK, ACK ALL, HORN OFF and CLOSE; the plan line\'s control first', () => {
   const p = openGame({seed: 20261014});
-  p.skipTo('05:30');
+  p.skipTo('05:12'); // (LIGHTS AT RISK in since 05:11)
   p.key('w');
   // the plan line asks to start a unit now (▶ ACT NOW): WHAT TO DO offers its control first
   const plan = planTarget(p.vm().objective);
-  assert.ok(plan, 'the 05:30 line acts now: ' + JSON.stringify(p.vm().objective && p.vm().objective.text));
+  assert.ok(plan, 'the 05:12 line acts now: ' + JSON.stringify(p.vm().objective && p.vm().objective.text));
   assert.match(p.$('ap-todo').textContent, /^The plan line above says act now: GO TO /);
   assert.equal(p.$('ap-goto').textContent, 'GO TO ' + controlName(plan));
   // nothing to acknowledge on a quiet tile, nothing sounding: blue notes, never red (Q-41)
@@ -263,20 +263,20 @@ test('Q-46: while the panel is open nothing sounds or repeats; on close what is 
   assert.deepEqual(r.cues, []);
   r = A.updateAlarms(a, x({fHz: 49.8, s: 10002}), {nowMs: 300, realDtS: 0});
   assert.deepEqual([r.cues, a.audible], [['chime'], 1], 'on release: one sounding');
-  // on the page: LIGHTS AT RISK chimed at 05:11 (TRIP SHEDS) and set again at 05:29 inside its re-sound hold-off: held, it waits
+  // on the page: LIGHTS AT RISK chimed at 05:11 (TRIP SHEDS); its single repeat (60 real s on) waits for the panel
   const p = openGame({seed: 20261014});
-  p.skipTo('05:30');
+  p.skipTo('05:12');
   const al = p.game.alarms;
   assert.equal(al.sounds.length, 1, 'one chime so far: ' + JSON.stringify(al.sounds));
-  assert.deepEqual([al.tiles.n1.state, al.tiles.n1.held], ['alarm', true]);
+  assert.deepEqual([al.sounds[0].tiles, al.tiles.n1.state, al.tiles.n1.held], [['n1'], 'alarm', false]);
   p.key('w');
   const n = [al.audible, al.repeats];
   let heard = [];
   for (let k = 0; k < 140; k++) { p.frame(0.5); heard = heard.concat(p.vm().cues.filter(c => c === 'horn' || c === 'chime')); }
   assert.deepEqual([heard, al.audible, al.repeats], [[], ...n], 'quiet for 70 real s while open');
   p.key('w');
-  assert.deepEqual(p.vm().cues.filter(c => c === 'horn' || c === 'chime'), ['chime'], 'it sounds once, on close');
-  assert.equal(al.audible + al.repeats, n[0] + n[1] + 1, 'and counts once');
+  assert.deepEqual(p.vm().cues.filter(c => c === 'horn' || c === 'chime'), ['chime'], 'the repeat sounds once, on close');
+  assert.equal(al.repeats, n[1] + 1);
   p.frame(0.5);
   assert.deepEqual(p.vm().cues.filter(c => c === 'horn' || c === 'chime'), [], 'and only once');
 });
