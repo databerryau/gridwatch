@@ -14,7 +14,8 @@
 //             negative price, coal held at its minimum while solar spills, or the relays shedding (MARG_FIRSTS): what it
 //             means, once (app/game.js keeps it in the seen memory); never in a watch, nor once the night shift has the desk,
 //             nor while the tray is full of warnings (it would go straight to the LOG), nor over another one on the tray
-//             (one a frame; app/game.js lessonRoom): it waits for room, still true
+//             (one a frame; app/game.js lessonRoom): it waits for room, still true. The relays' line does not wait for
+//             the sheds' own warnings: it takes the place of the city desk's oldest (to the LOG)
 // A day holds at most MARG_FIRST lines on a first shift and MARG_LATER on later days; a beat speaks once. A first-time
 // line keeps room for the fixed beats still to come (beatsAhead): on a later day that leaves it one line, and one that
 // cannot speak waits for another day.

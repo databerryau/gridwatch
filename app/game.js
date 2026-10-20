@@ -1088,24 +1088,33 @@ function margFrame(game, obs, mode) {
   // W7 (Q-124): a first-time line, kept in the seen memory once said (with storage blocked, in the page's memory: once a day
   // at most). One a frame: the next waits for room on the tray, so one lesson never sends another to the LOG.
   for (const k of margFirsts(game, mode.mode)) {
-    if (!margBeat(game, 'first:' + k, MARG_LINES[k](obs, game.dayAhead, game.verdict), FIRST_TARGET[k], beatsAhead(game.marg, game.margAct, game.margWatched))) continue;
+    const text = MARG_LINES[k](obs, game.dayAhead, game.verdict), room = text && lessonRoom(game, k);
+    if (!room) continue;
+    if (room !== true) T.dismissCard(game.tray, room.id);   // (a shed's warning, to the LOG: her relays line is in its place)
+    if (!margBeat(game, 'first:' + k, text, FIRST_TARGET[k], beatsAhead(game.marg, game.margAct, game.margWatched))) continue;
     game.director.seen.marg = Object.assign({}, game.director.seen.marg, {[k]: true});
     saveSeen(game);
     break;
   }
 }
-// W7 (Q-124 review): a tray card that is one of today's first-time lines (hers, by its text)
+// W7 (Q-124 review): a tray card that is one of today's first-time lines (hers, by its text); a city desk's warning, which
+// is always a shed (app/tray.js cardOf: the relays' 'ufls', a directed 'shed', DIRECTED_SHED)
 const lessonCard = (game, c) => c.from === MARG_FROM && game.marg.said.some(l => l.key.startsWith('first:') && l.text === c.text);
+const shedCard = c => c.sev === 'warn' && c.from === T.SENDERS.city;
 /**
- * W7 (Q-124 review): whether a first-time line would show on the tray now: a free place, or the information card that gives
- * way to hers (app/tray.js trayMarg: the oldest) is not another first-time line. With MAX_CARDS warnings it would go
- * straight to the LOG, and over a lesson it would send that one there: it waits.
+ * W7 (Q-124 review): where first-time line `k` would show on the tray now: true for a free place, or when the information
+ * card that gives way to hers (app/tray.js trayMarg: the oldest) is not another first-time line. With MAX_CARDS warnings
+ * hers would go straight to the LOG, so it waits; but the relays' line takes the place of the city desk's oldest warning,
+ * a shed (the relays' or a directed one: the districts her line is about), which goes to the LOG: that card. Else null
+ * (it waits). The sheds' own warnings keep the tray full while the city sheds: they held her line back for hours of grid
+ * time, past the next trip.
  */
-function lessonRoom(game) {
+function lessonRoom(game, k) {
   const cards = game.tray.cards;
   if (cards.length < T.MAX_CARDS) return true;
   const out = cards.find(c => c.sev === 'info');
-  return !!out && !lessonCard(game, out);
+  if (out) return lessonCard(game, out) ? null : true;
+  return (k === 'relays' && cards.find(shedCard)) || null;
 }
 /**
  * W7 (Q-124): the first-time lines Marg would say now (app/marg.js firstsNow's keys this browser has not met yet, not said
@@ -1116,10 +1125,9 @@ function lessonRoom(game) {
 export function margFirsts(game, mode) {
   const m = game.marg, st = game.state;
   if (!m || game.replay || game.phase !== 'play' || st.over || mode === 'WATCH' || mode === 'SHED-WATCH' || st.control.nightShift) return [];
-  if (!lessonRoom(game)) return [];
   if (m.said.length + beatsAhead(m, game.margAct, game.margWatched) >= (m.first ? MARG_FIRST : MARG_LATER)) return [];
   const seen = game.director.seen.marg || {};
-  return firstsNow(st, game.verdict).filter(k => !seen[k] && !m.beats['first:' + k]);
+  return firstsNow(st, game.verdict).filter(k => !seen[k] && !m.beats['first:' + k] && lessonRoom(game, k));
 }
 
 // ------------------------------------------------------------------ W3: the verdict

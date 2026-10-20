@@ -123,7 +123,16 @@ test('Q-124 review: one lesson never sends another to the LOG: with the tray ful
   assert.deepEqual(G.margFirsts(withPrice([card('warn'), card('warn'), Object.assign({}, lesson, {from: 'STATION'})]), 'CRUISE'), ['coal'], 'only her own card is a lesson');
 });
 
-test('Q-124 on the page: the first relay shed is said after its watch, once the tray can show it, with the districts the relays shed; with storage blocked the page remembers', () => {
+test('Q-124 review: with warnings filling the tray, the relays\' line takes the place of the city desk\'s oldest warning (a shed); the others wait', () => {
+  const city = {sev: 'warn', from: 'CITY DESK', text: 'Relays shed RED1 and SAL1 (UFLS stage 1, 431 MW). Restore when the permissive allows.'};
+  const market = {sev: 'warn', from: 'MARKET NOTICE', text: 'Load is off supply: the system is SHEDDING.'};
+  const relays = cards => G.margFirsts(gameOf({cards, game: {verdict: MEM}}), 'CRUISE');
+  assert.deepEqual(relays([market, city, city]), ['relays'], 'a shed\'s warning gives way to hers');
+  assert.deepEqual(relays([market, market, market]), [], 'no shed on the tray: it waits');
+  assert.deepEqual(G.margFirsts(gameOf({cards: [city, city, city]}), 'CRUISE'), [], 'the price\'s line does not take a shed\'s place');
+});
+
+test('Q-124 on the page: the first relay shed is said as its watch ends, in the place of a shed\'s warning when warnings fill the tray, with the districts the relays shed; with storage blocked the page remembers', () => {
   // DESK 20261016, a first shift with storage blocked; the two coal units on line trip a second apart at 04:31 (a double
   // trip, as Callide C's in 2021): too much for spin, the battery and the governors in the small hours, so the relays shed
   const p = openGame({seed: 20261016}), st = p.game.state, said = () => p.game.marg.said.filter(l => l.key === 'first:relays');
@@ -134,29 +143,25 @@ test('Q-124 on the page: the first relay shed is said after its watch, once the 
   assert.equal(p.skipTo('+5m', {stop: ({state, game}) => firstsNow(state, game.verdict).includes('relays')}).why, 'pred');
   assert.equal(p.h.vm().mode.mode, 'WATCH');
   assert.deepEqual(said(), [], 'not over the watch');
-  // the watch ends at its RESPOND card, the tray full of the city desk's and the market's warnings: her card would go
-  // straight to the LOG, so it waits (her settle line, a fixed beat, is said there as before)
+  const sheds = p.game.tray.cards.filter(c => c.sev === 'warn' && c.from === 'CITY DESK').map(c => c.id);
+  assert.ok(sheds.length, 'the relays\' own warnings on the tray');
+  // the watch ends at its RESPOND card, three warnings on the tray (the relays' and the market's SHEDDING). Hers would go
+  // straight to the LOG, so it takes the place of the city desk's oldest warning, a shed it says again in words
   assert.equal(p.skipTo('+5m').why, 'held:RESPOND-CARD');
-  assert.equal(p.game.tray.cards.filter(c => c.sev === 'warn').length, 3);
-  assert.deepEqual(said(), [], 'not while the tray is full of warnings');
-  const shed = p.h.vm().obs.districts.filter(d => d.dark && d.shedBy === 'ufls').length;   // (all the relays shed, as the card says)
+  const line = said()[0], shed = p.h.vm().obs.districts.filter(d => d.dark && d.shedBy === 'ufls').length;   // (all the relays shed, as the card says)
+  assert.ok(line, 'said at the RESPOND card');
+  assert.ok(st.tick >= st.conts[0].watchEndTick && line.atS === Math.floor(st.tick / TPS), 'as the watch ends: ' + line.atS + ', ' + st.conts[0].watchEndTick / TPS);
   assert.match(p.look({controls: false}), new RegExp('^CARD .*SHEDDING: ' + shed + ' districts dark', 'm'));
-  // Enter takes the desk (each restore's card that holds the clock is answered LEAVE: the districts stay dark); she says it
-  // once the warnings have left the tray, still true then
-  p.key('Enter');
-  let r = null;
-  for (let n = 0; n < 8; n++) {
-    r = p.skipTo('+3h', {stop: ({game}) => !!game.marg.beats['first:relays']});
-    if (r.why === 'held:FEEDER-CARD') p.click('feeder-leave'); else break;
-  }
-  assert.equal(r.why, 'pred');
-  const line = said()[0];
-  assert.ok(shed >= 2 && line.atS > Math.floor(st.conts[0].watchEndTick / TPS), shed + ' at ' + line.atS);
   assert.equal(line.text, 'The relays shed ' + shed + ' districts on their own: frequency fell below 49 Hz. Last net before a blackout.');
-  assert.ok(st.score.minHz < V.UFLS_FIRST_HZ, 'true: frequency fell below ' + V.UFLS_FIRST_HZ + ' Hz (' + st.score.minHz.toFixed(2) + ')');
+  assert.ok(shed >= 2 && st.score.minHz < V.UFLS_FIRST_HZ, 'true: frequency fell below ' + V.UFLS_FIRST_HZ + ' Hz (' + st.score.minHz.toFixed(2) + ')');
+  const tray = p.game.tray.cards, gone = sheds.filter(id => !tray.some(c => c.id === id));
+  assert.equal(tray.length, 3);
+  assert.equal(tray.filter(c => c.sev === 'warn').length, 2);
+  assert.ok(gone.length && gone.every(id => p.game.tray.log.some(c => c.id === id)), 'the shed\'s warning she replaced is in the LOG');
   assert.match(p.look({controls: false}), /^TRAY .*i MARG, SUPERVISOR \d\d:\d\d The relays shed \d+ districts on their own: /m, 'on the tray, not the LOG');
   // storage blocked: the page's memory (the next day in this page does not say it again), and once today
   assert.deepEqual(p.game.director.seen.marg, {relays: true});
+  p.key('Enter');
   p.realJump(2);
   assert.equal(said().length, 1, 'once');
 });
