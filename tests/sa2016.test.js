@@ -111,7 +111,7 @@ test('D-29, S-7 on the page: Hard day 1 from the shelf opens on THIS REALLY HAPP
   p.game.state.over = true;
   p.frames(2);
   const s = p.game.end.share;
-  assert.match(s.lines[0], /^GRIDWATCH · Hard day 1 · \d+ [A-F]( ★)?( · PERFECT)? · PRACTICE · HARD DAY$/, 'HARD DAY, no ANNIVERSARY: played on any date');
+  assert.match(s.lines[0], /^GRIDWATCH · Hard day 1 · \d+ [A-F]( ★)? [A-Z' ]+[A-Z]( · PERFECT)? · PRACTICE · HARD DAY$/, 'HARD DAY, no ANNIVERSARY: played on any date');   // (W7, Q-118: the rank)
   assert.deepEqual(SH.lintCard(s.text), [], 'no event words, no place, no time');
   assert.doesNotMatch(s.text, /SA|2016|black/i);
   // (review) a Hard day can be beaten (content/anniversaries.js SA2016): beside PERFECT, the card says that par shed, never
