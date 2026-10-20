@@ -23,7 +23,7 @@ import * as fleet from '../sim/fleet.js';
 import * as weather from '../sim/weather.js';
 import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {restoreAllowedS, isPerfect} from '../sim/market.js';
-import {imbalanceSegments, tripSheds} from '../desk/calc.js';
+import {imbalanceSegments, tripSheds, n1Word} from '../desk/calc.js';
 import {CLASSIC, SCENARIOS, SA2016_SCENARIO} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
 import {DAILIES, dailyScenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
@@ -280,6 +280,7 @@ export function resetDay(game, seed) {
   game.suburbs = null;
   game.objective = null; game.objectiveS = -1e9; game.objectiveMode = ''; game.objectiveHeld = null; game.consider = null;
   game.objectiveError = ''; game.dayAhead = null; game.considerDirty = false; game.lineMs = 0; game.lineFresh = false;
+  game.n1Mem = {}; game.n1 = ''; game.n1News = false;   // (the N-1 gauge's word as the gauge holds it: n1Frame)
   game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
   game.director = D.createDirector({game: true, paused: true, seen, accepts: restoreAccepted});
@@ -901,6 +902,19 @@ export function objectiveDue(game, s, mode) {
   return s - game.objectiveS >= Math.max(OBJECTIVE_EVERY_S, rateAt(s, D.handAt(game.state)) * V.OBJ_EVERY_REAL_S) || s < game.objectiveS;
 }
 
+/**
+ * W7 integration review: the N-1 gauge's word as the gauge holds it (desk/calc.js n1Word: the same reading, on every frame,
+ * gives the same word), in game.n1, for the line's GUARD ask (app/objective.js spare) and the GUARD's price (guardConsequence),
+ * so neither says other than the gauge; a change into or out of TRIP SHEDS sets game.n1News (buildVm makes the line at once).
+ * Every frame: buildVm, and the frames tests/lib/play.js runs without a view.
+ */
+export function n1Frame(game, nowMs) {
+  const was = game.n1, st = game.state;
+  game.n1 = n1Word(game.n1Mem, {tick: st.tick, sec: st.sec}, nowMs);
+  if (was !== game.n1 && (was === 'TRIP SHEDS' || game.n1 === 'TRIP SHEDS')) game.n1News = true;
+  return game.n1;
+}
+
 /** The annunciator's context (§30.3.5; buildVm and tests/lib/play.js): no real time while the clock is held. */
 export function alarmCtx(game, nowMs, realDtS) {
   return {nowMs, realDtS: D.rateOf(game.director, game.state) > 0 ? realDtS : 0, stationOf: stationOfUnit, hold: !!game.ui.alarmsOpen};
@@ -978,10 +992,14 @@ export function buildVm(game, f) {
   // blanks only its line; it is kept in objectiveError (vm.objectiveError; the ?debug handle shows
   // it) as the system operator's is in sysError.
   // (X-46: the night roll has no line, so no forecast or projection is made for one)
+  // (W7 integration review: the line says what the N-1 gauge says, made again at once when TRIP SHEDS comes or goes: n1Frame)
+  n1Frame(game, nowMs);
+  const shedsNews = game.n1News;
+  game.n1News = false;
   if (game.phase === 'play' && game.commit === 'player' && game.planview && !obs.nightShift) {
-    const due = objectiveDue(game, obs.s, mode.mode);
+    const due = objectiveDue(game, obs.s, mode.mode) || shedsNews;
     if (due) {
-      let fresh = game.lineFresh || due === 'news';
+      let fresh = game.lineFresh || due === 'news' || shedsNews;
       game.objectiveS = obs.s; game.objectiveMode = mode.mode; game.lineFresh = false;
       game.objectiveError = '';
       let stage = 'objective';
@@ -992,7 +1010,7 @@ export function buildVm(game, f) {
         game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
         const proj = game.planview.project(obs);
         game.lineProj = {s: obs.s, proj};   // (Q4: a STOP's "? IF PRESSED" quotes off the line's own projection)
-        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective, coach: coachOn(game)});
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective, coach: coachOn(game), n1: game.n1});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s, D.handAt(state));
@@ -1014,7 +1032,10 @@ export function buildVm(game, f) {
     // Q4 (W7): the GUARD ring turned down (game.ui.guardReach), while it turns and CONSIDER_REST_MS after; a guard under the
     // hand comes first, and a line that asks for this GUARD itself (a short desk wants the MW) is not argued with
     const g = game.ui.consider ? null : guardReach(game, nowMs);
-    if (game.considerDirty) {
+    // (W7 integration review: the GUARD's price every frame while it shows, so its figures are the gauge's own: the gauge's live
+    // preview at the ring's MW is preview(toMW) this second, from the same cache, and once the GUARD stands at toMW with the sim's
+    // preview made since, the price reads the gauge's word and figure; on the line's cadence it said "no relays" beside TRIP SHEDS)
+    if (game.considerDirty || g) {
       game.considerDirty = false;
       const t = game.ui.consider;
       game.consider = null;
@@ -1027,7 +1048,9 @@ export function buildVm(game, f) {
         } catch (e) { game.consider = null; game.objectiveError = 'consequence: ' + errText(e); }
       } else if (g && !mode.locked) {
         try {
-          game.consider = guardConsequence(obs, g.fromMW, g.toMW, mw => previewTrip(game, {kind: obs.sec.lKind === 'link' ? 'link' : 'unit', id: obs.sec.lId, guardMW: mw}));
+          const live = game.ui.previewOn || game.ui.previewGuardMW !== null;
+          const gauge = state.battery.guardMW === g.toMW && !obs.sec.dirty ? {word: game.n1, hz: live ? undefined : obs.sec.previewNadirHz} : null;
+          game.consider = guardConsequence(obs, g.fromMW, g.toMW, mw => previewTrip(game, {kind: obs.sec.lKind === 'link' ? 'link' : 'unit', id: obs.sec.lId, guardMW: mw}), gauge);
         } catch (e) { game.consider = null; game.objectiveError = 'guardConsequence: ' + errText(e); }
       }
     }

@@ -25,10 +25,10 @@
 //   G.tickOnce, the function the page's loop calls, and lands in the same frame as in play),
 //   then the frame's model work: D.directorFrame, and G.buildVm itself whenever it would
 //   recompute the objective line (G.objectiveDue: every max(30 grid s, 0.4 real s of the profile),
-//   a watch/card/RESPOND/NIGHT change; a guard under the hand) or a unit is READY (the offers).
-//   Its other frames skip buildVm's view building and run
+//   a watch/card/RESPOND/NIGHT change; TRIP SHEDS coming or going, G.n1Frame; a guard under the hand)
+//   or a unit is READY (the offers). Its other frames skip buildVm's view building and run
 //   only the parts with memory: the annunciator (A.updateAlarms on A.alarmInputFromState, which
-//   tests keep equal to buildVm's input) and the tray's ageing. Only the drawing is skipped
+//   tests keep equal to buildVm's input), the tray's ageing and the N-1 word's hold. Only the drawing is skipped
 //   (map, desk, Live Stack, shell overlays, sound: ~95% of a frame's cost).
 //   Per tick it runs cheap event checks and stops AT the tick an event begins (mid-frame).
 //   Then ONE frame is drawn (handle.frame): the frame that held the stop tick, at the same page
@@ -408,7 +408,7 @@ export function openGame(o = {}) {
     if (G.margFirsts(game, modeNow()).length) return true;
     if (s.tick < lineFrom) return false;
     if (game.phase !== 'play' || game.commit !== 'player' || !game.planview) return false;
-    return game.considerDirty || !!G.objectiveDue(game, Math.floor(s.tick / TPS), modeNow());
+    return game.considerDirty || game.n1News || !!G.objectiveDue(game, Math.floor(s.tick / TPS), modeNow());
   }
   // The rest of buildVm's per-frame work that has memory: the annunciator (on
   // alarmInputFromState, which tests keep equal to alarmInput(observe), and the page's own
@@ -422,6 +422,7 @@ export function openGame(o = {}) {
       if (r.newAlarm) D.endFast(game.director);
     }
     T.trayFrame(game.tray, Math.floor(s.tick / TPS));
+    G.n1Frame(game, nowMs);   // (the N-1 word's hold, which the line reads: W7 integration review)
     game.cues = []; // the frame's sounds: no audio here
   }
 

@@ -795,6 +795,29 @@ test('spare: the GUARD for the first second, asked once for all the battery can 
   assert.notDeepEqual(lineOf(armed).action, {type: 'standDownRERT'}, 'not twice');
 });
 
+test('W7 integration review: the GUARD ask says what the N-1 gauge says: under TRIP SHEDS the relays would shed, other words than "too low to be secure", so a line kept for its figure gives way at once', () => {
+  const {keep} = morning(), at = (hz, n1) => {
+    const o = copy(keep.guard);
+    Object.assign(o.sec, {level: 'TIGHT', previewNadirHz: hz});
+    return objective(o, {edited: false, planview: PV, dayAhead: o.dayAhead, n1});
+  };
+  const ask = / Raise the battery GUARD to \d+ MW: it catches the fall in the first second\.$/;
+  const was = at(49.22), now = at(48.974);
+  assert.match(was.text, /would fall to 49\.22 Hz: too low to be secure\./);
+  assert.match(was.text, ask);
+  // under 49.0 Hz, rounded down as the gauge shows it (desk/gauge.js): without the gauge's word, the sim's (desk/calc.js tripSheds)
+  assert.match(now.text, /^If (your biggest unit|the tie line) tripped now, frequency would fall to 48\.97 Hz: the relays would shed districts\./);
+  assert.match(now.text, ask);
+  assert.deepEqual(now.action, was.action);
+  // the gauge's own word, held by time (n1Word): TIGHT through its dwell under 49.0 Hz, TRIP SHEDS over a preview back above it
+  assert.match(at(48.974, 'TIGHT').text, /would fall to 48\.97 Hz: too low to be secure\./);
+  assert.match(at(49.01, 'TRIP SHEDS').text, /would fall to 49\.01 Hz: above the relays now\./);
+  // the review's case: a line kept for its figure (steady) beside the gauge's TRIP SHEDS; the relays' words are news, shown at once
+  const held = steady(null, was, keep.guard.s);
+  assert.equal(steady(held, at(49.05), keep.guard.s + 60).line.text, was.text, 'a figure: kept');
+  assert.equal(steady(held, now, keep.guard.s + 60).line.text, now.text, 'the relays: at once');
+});
+
 test('spare after a trip: a fired GUARD still giving while frequency is high is turned down; a fired GUARD is never raised; once re-armed it goes back up', () => {
   const {keep} = morning();
   // a belly trip smaller than the ring: the GUARD gives its 400 MW for its whole sustain whatever the frequency does

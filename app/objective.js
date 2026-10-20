@@ -197,7 +197,7 @@ import {V} from '../sim/params.js';
 import {SCENARIOS} from '../content/scenarios.js';
 import {clockText, priceText} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
-import {imbalanceSegments} from '../desk/calc.js';
+import {imbalanceSegments, tripSheds} from '../desk/calc.js';
 import {aimFlex} from '../sim/autopilot.js';
 import {gridAfter, NIGHT_S} from '../sim/clock.js';
 import {darkShareAt, litMW} from '../sim/dark.js';
@@ -264,6 +264,8 @@ const SECURE_HZ = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ;
 // (W7 Q4 review) a TRIP PREVIEW nadir under this is never said to miss the relays: the preview can be optimistic by up
 // to 0.105 Hz (sim/params.js PREVIEW_MARGIN_HZ's note, its worst measured), so the first UFLS stage plus that, rounded up
 export const RELAY_NEAR_HZ = V.UFLS_FIRST_HZ + 0.11;
+// A TRIP PREVIEW's Hz as the N-1 gauge shows it: rounded down under the first UFLS stage, so it never reads as 49.00 (desk/gauge.js)
+const relayHz = x => (x < V.UFLS_FIRST_HZ ? Math.floor(x * 100) / 100 : x).toFixed(2);
 const GAS = new Set(['ccgt', 'ocgt']);
 
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
@@ -568,11 +570,12 @@ function tripped(c) {
 
 /**
  * @param {object} obs observe(state)
- * @param {{edited?:boolean, planview:object, proj?:object, dayAhead?:object|null, leadS?:number, held?:object}} ctx edited: the
+ * @param {{edited?:boolean, planview:object, proj?:object, dayAhead?:object|null, leadS?:number, held?:object, n1?:string}} ctx edited: the
  *   player holds levers by hand (app/system.js sys.edited); planview: app/planview.js; proj: its
  *   project(obs) if the caller already has it; dayAhead: observe(state, {dayAhead: true}).dayAhead,
  *   the forecast to 04:00 (without it the line looks 4.5 h ahead only); leadS: grid seconds more
- *   to a START's ACT_WITHIN_S (the game's reading time; default 0); held: the shown line (S1)
+ *   to a START's ACT_WITHIN_S (the game's reading time; default 0); held: the shown line (S1); n1: the
+ *   N-1 gauge's word (desk/calc.js n1Word, TRIP SHEDS held by time; default the sim's level, or TRIP SHEDS by tripSheds)
  * @returns {object|null} the line; null in the night roll (Q-73: the night shift has the desk, and the night strip replaces the line)
  */
 export function objective(obs, ctx) {
@@ -590,7 +593,8 @@ export function objective(obs, ctx) {
   const hand = handOf(obs), endS = nightOf(obs) ? NIGHT_S : Infinity, nowS = spanAt(s, NOW_S, hand, endS), actS = spanAt(s, ACT_WITHIN_S, hand, endS);
   const X = {obs, s, proj, day, long, thin: capacityShort(obs), edited: !!ctx.edited, PV, nowS, actS, instS: Math.max(ACT_WITHIN_S + NOW_S, nowS),
     act: actWithin(s, ctx.leadS || 0, hand, endS), endS, held: ctx.held || null,
-    coach: ctx.coach !== false};   // O-8 (Q-92): false, problem mode
+    coach: ctx.coach !== false,   // O-8 (Q-92): false, problem mode
+    n1: ctx.n1 || (tripSheds(obs.sec) ? 'TRIP SHEDS' : obs.sec.level)};
   // the plan's largest deficit in the columns within nowS (never a later column of the same red run)
   X.redNowMW = 0;
   for (let k = 0; k < proj.n && proj.times[k] - s <= nowS; k++) if (proj.gap[k] === 'red' && proj.deficit[k] > X.redNowMW) X.redNowMW = proj.deficit[k];
@@ -1159,11 +1163,14 @@ function spare(X, line) {
   const what = sec.lKind === 'link' ? 'the tie line' : 'your biggest unit';
   // Seconds: the trip preview dips under the secure line. The GUARD is the answer, as far as the
   // battery can sustain it: one line, for the most it can hold (each step is worth less than the one
-  // before, so a line sized on one step's worth asks again a minute later).
+  // before, so a line sized on one step's worth asks again a minute later). In the gauge's words (W7
+  // integration review): under TRIP SHEDS the relays would shed, which are other words, not a figure,
+  // so steady() shows them at once rather than keep "too low to be secure" beside the red gauge.
   if (sec.previewNadirHz < SECURE_HZ) {
-    const mw = guardTo();
+    const mw = guardTo(), hz = sec.previewNadirHz;
     if (mw > 0) {
-      return line({level: 'act', kind: 'spare', text: 'If ' + what + ' tripped now, frequency would fall to ' + sec.previewNadirHz.toFixed(2) + ' Hz: too low to be secure. Raise the battery GUARD to ' + mw +
+      const v = X.n1 !== 'TRIP SHEDS' ? 'too low to be secure' : hz < V.UFLS_FIRST_HZ ? 'the relays would shed districts' : 'above the relays now';
+      return line({level: 'act', kind: 'spare', text: 'If ' + what + ' tripped now, frequency would fall to ' + relayHz(hz) + ' Hz: ' + v + '. Raise the battery GUARD to ' + mw +
         ' MW: it catches the fall in the first second.', targets: ['gauge-n1', 'ring-guard'], action: {type: 'guard', mw}, startBy: s});
     }
   }
@@ -1586,14 +1593,20 @@ export function consequence(obs, target, ctx = {}) {
  *   risked: preview(mw), the TRIP PREVIEW of the largest loss at that GUARD ({nadirHz, caught: {uflsMW}}: app/game.js
  *     previewTrip): the MW the relays would shed at toMW (against fromMW's), at the VCR the score charges, per 10 minutes dark;
  *     with none more, where it would bottom and whether that is still secure (SECURE_HZ, the N-1 gauge's line).
+ *   gauge (W7 integration review): once the GUARD stands at toMW (GUARD SET) the N-1 gauge shows that GUARD's risk, so the
+ *     risk side says what the gauge says, at the gauge's figure: the relays shed while its word is TRIP SHEDS, and never
+ *     while it is TIGHT or SECURE (before, the price said "no relays" on the frame the gauge said TRIP SHEDS: the two read
+ *     different runs of a preview that swings ±0.1 Hz about 49.0, and the gauge holds its word, desk/calc.js n1Word).
  * @param {object} obs observe(state)
  * @param {number} fromMW the GUARD when the turn began
  * @param {number} toMW where the ring is now
  * @param {function(number):object|null} preview
+ * @param {{word:string, hz?:number}|null} [gauge] given only while the GUARD stands at toMW: the gauge's word (n1Word) and
+ *   the figure it shows (its live preview, which is preview(toMW) this second, or the sim's cached one; none: preview's)
  * @returns {{target:'ring-guard', text:string, level:'plan'|'crit', fromMW:number, toMW:number}|null} null unless turned down
  *   (fromMW, toMW: the move priced; the shell says it as made once the GUARD stands at toMW)
  */
-export function guardConsequence(obs, fromMW, toMW, preview) {
+export function guardConsequence(obs, fromMW, toMW, preview, gauge = null) {
   if (!(toMW < fromMW) || obs.over || obs.inWatch) return null;
   // (the evening window's end, or the night shift's 21:00 on a night scenario: its own rules set the GUARD from then)
   const endS = nightOf(obs) ? Math.min(DIS_TO_S, NIGHT_S) : DIS_TO_S;
@@ -1611,11 +1624,18 @@ export function guardConsequence(obs, fromMW, toMW, preview) {
   const p1 = sec.lKind === 'none' ? null : preview(toMW), p0 = p1 ? preview(fromMW) : null;
   if (!p1 || !Number.isFinite(p1.nadirHz)) return {target: 'ring-guard', text: fit(''), level: 'plan', fromMW, toMW};
   const who = sec.lKind === 'link' ? 'A tie trip' : 'A ' + unitName(sec.lId) + ' trip', shed = Math.max(0, p1.caught ? p1.caught.uflsMW : 0), was = Math.max(0, p0 && p0.caught ? p0.caught.uflsMW : 0);
-  // (no more shed: where it would bottom, and whether that is still secure, the N-1 gauge's word: SECURE_HZ, as spare() reads
-  // the preview; close to the first stage the preview's own error could reach the relays, so "no relays" only above RELAY_NEAR_HZ)
-  if (shed < BATT_MIN_MW / 5 || shed <= was) {
-    return {target: 'ring-guard', level: 'plan', fromMW, toMW, text: fit(' ' + who + ' would bottom at about ' + p1.nadirHz.toFixed(2) + ' Hz: ' +
-      (was >= BATT_MIN_MW / 5 ? 'it sheds no more.' : p1.nadirHz >= SECURE_HZ ? 'still secure.' : p1.nadirHz >= RELAY_NEAR_HZ ? 'no relays, but not secure.' : 'close to the relays.'))};
+  const word = gauge ? gauge.word : '', hz = gauge && Number.isFinite(gauge.hz) ? gauge.hz : p1.nadirHz, before = was >= BATT_MIN_MW / 5;
+  const more = shed >= BATT_MIN_MW / 5 && shed > was, calm = word === 'TIGHT' || word === 'SECURE';
+  const bottom = (level, v) => ({target: 'ring-guard', level, fromMW, toMW, text: fit(' ' + who + ' would bottom at about ' + relayHz(hz) + ' Hz: ' + v)});
+  // (the gauge says TRIP SHEDS: the relays shed, never "no relays"; a word it holds over a preview back above 49.0 Hz, as it says)
+  if (word === 'TRIP SHEDS' && !more) {
+    return bottom(before ? 'plan' : 'crit', before ? 'it sheds no more.' : hz < V.UFLS_FIRST_HZ ? 'the relays would shed districts.' : 'above the relays now.');
+  }
+  // (no more shed, or the gauge says the relays would not: where it would bottom, and whether that is still secure, the N-1
+  // gauge's line: SECURE_HZ, as spare() reads the preview; close to the first stage the preview's own error could reach the
+  // relays, so "no relays" only above RELAY_NEAR_HZ)
+  if (!more || calm) {
+    return bottom('plan', before && !calm ? 'it sheds no more.' : hz >= SECURE_HZ ? 'still secure.' : hz >= RELAY_NEAR_HZ ? 'no relays, but not secure.' : 'close to the relays.');
   }
   const cost = shed * V.VCR / 6, big = cost >= 1e6 ? '$' + (cost / 1e6).toFixed(1) + 'M' : usdText(cost);
   const tail = ' ' + who + ' would then shed about ' + mwText(shed) + (was >= BATT_MIN_MW / 5 ? ' (' + mwText(was) + ' now)' : '');

@@ -11,7 +11,7 @@ import {V} from '../sim/params.js';
 import {createState, step, observe} from '../sim/step.js';
 import {DESK} from '../content/scenarios.js';
 import {guardConsequence, LINE_MAX_CHARS, RELAY_NEAR_HZ} from '../app/objective.js';
-import {CONSIDER_REST_MS, guardReach} from '../app/game.js';
+import {CONSIDER_REST_MS, guardReach, tickOnce} from '../app/game.js';
 import {liveFrame, createLive} from '../app/shell.js';
 import {openGame} from './lib/play.js';
 
@@ -79,6 +79,28 @@ test('Q4: the GUARD turned down prices both sides: the gas and carbon the freed 
   const none = evening(800);
   none.sec.lKind = 'none';
   assert.equal(guardConsequence(none, 400, 200, () => assert.fail('no preview')).text, 'GUARD 400 → 200 MW: the battery could replace up to about $27,000 more gas and carbon by 21:00.');
+});
+
+test('W7 integration review: once the GUARD stands at the move (GUARD SET) the price says what the N-1 gauge says: the relays shed under TRIP SHEDS, never under TIGHT, at the gauge\'s figure', () => {
+  const o = evening(800), quiet = () => ({nadirHz: 49.14, caught: {uflsMW: 0}});
+  const tail = c => c.text.slice(c.text.indexOf(' A COAL 1 trip'));
+  // the review's frame: the price's own run says 49.14 Hz, no relays; the gauge says TRIP SHEDS at 48.99 Hz (rounded down, as it shows it)
+  assert.equal(tail(guardConsequence(o, 150, 100, quiet)), ' A COAL 1 trip would bottom at about 49.14 Hz: no relays, but not secure.', 'turning, not yet sent: its own run');
+  let c = guardConsequence(o, 150, 100, quiet, {word: 'TRIP SHEDS', hz: 48.996});
+  assert.equal(tail(c), ' A COAL 1 trip would bottom at about 48.99 Hz: the relays would shed districts.');
+  assert.equal(c.level, 'crit');
+  // a word the gauge holds over a preview back above 49.0 Hz: as the gauge says it; and its live figure, the price's own run
+  assert.match(guardConsequence(o, 150, 100, quiet, {word: 'TRIP SHEDS', hz: 49.02}).text, / 49\.02 Hz: above the relays now\.$/);
+  assert.match(guardConsequence(o, 150, 100, quiet, {word: 'TRIP SHEDS'}).text, / 49\.14 Hz: above the relays now\.$/);
+  // shedding at both GUARDs: no more, as before
+  assert.match(guardConsequence(o, 150, 100, () => ({nadirHz: 48.97, caught: {uflsMW: 294}}), {word: 'TRIP SHEDS', hz: 48.97}).text, / 48\.97 Hz: it sheds no more\.$/);
+  // the gauge says TIGHT (its preview at or above 49.0 Hz) while the price's own run sheds: no shed is said, at the gauge's figure
+  c = guardConsequence(o, 150, 100, g => ({nadirHz: g >= 150 ? 49.2 : 48.98, caught: {uflsMW: g >= 150 ? 0 : 294}}), {word: 'TIGHT', hz: 49.05});
+  assert.equal(tail(c), ' A COAL 1 trip would bottom at about 49.05 Hz: close to the relays.');
+  assert.equal(c.level, 'plan');
+  assert.match(guardConsequence(o, 150, 100, () => ({nadirHz: 48.97, caught: {uflsMW: 294}}), {word: 'TIGHT', hz: 49.2}).text, / 49\.20 Hz: no relays, but not secure\.$/);
+  // SHORT and SHEDDING say nothing of the relays: the price's own run, as before
+  assert.match(guardConsequence(o, 150, 100, g => ({nadirHz: 48.9, caught: {uflsMW: g >= 150 ? 0 : 294}}), {word: 'SHORT', hz: 48.9}).text, / would then shed about 290 MW: /);
 });
 
 test('Q4 (review): the GUARD price is one line (LINE_MAX_CHARS) at its longest: a four-figure shed with some shed now, behind a six-figure gain or none, every largest loss; its figures all said', () => {
@@ -188,5 +210,40 @@ test('Q4 in the page: the GUARD ring turned down by keys says both sides, "? IF 
   assert.equal(guardReach(g, p.now), reach);
   assert.equal(g.ui.previewGuardMW, null, 'the ring\'s ghost is gone');
   assert.equal(guardReach(g, p.now + CONSIDER_REST_MS + 1), null, 'rested');
+  assert.deepEqual(p.h.mods.errors, []);
+});
+
+test('W7 integration review, in the page: under GUARD SET the price is made every frame and says what the N-1 gauge beside it says, its live figure while the ring\'s ghost lingers, then its word and figure', () => {
+  const p = openGame({seed: 20261014, run: false}), g = p.game, st = g.state;
+  assert.equal(p.send({type: 'guard', mw: 400}), '');
+  p.frame();
+  p.$('ring-guard').focus();
+  p.keyDown('ArrowDown'); p.frame(); p.keyUp('ArrowDown'); p.frame();
+  assert.equal(st.battery.guardMW, 350);
+  // (the clock is held: one tick by hand, so the desk asks for its live preview again, then the sim's preview and this second's
+  // preview runs are set by hand)
+  const poke = (sec, at350, at400) => {
+    tickOnce(g);
+    Object.assign(st.sec, {level: 'TIGHT', lKind: 'unit', lId: 'coal1', dirty: false}, sec);
+    g.previewS = Math.floor(st.tick / V.TICKS_PER_S);
+    g.previewCache.set('unit|coal1|350', at350);
+    g.previewCache.set('unit|coal1|400', at400);
+    p.frame();
+  };
+  const gauge = () => p.$('gauge-n1').getAttribute('aria-label'), line = () => p.$('objective-level').textContent + ' ' + p.$('objective-text').textContent;
+  // the gauge says TIGHT at 49.20 Hz; this second's run at 350 MW (the ghost's, the gauge's live figure) sheds
+  poke({previewNadirHz: 49.2}, {nadirHz: 48.98, caught: {uflsMW: 294}}, {nadirHz: 49.3, caught: {uflsMW: 0}});
+  assert.match(gauge(), /^N-1 gauge: TIGHT\. .*Trip preview 48\.98 Hz/, gauge());
+  assert.match(line(), /^✓ GUARD SET GUARD 400 → 350 MW: .* A COAL 1 trip would bottom at about 48\.98 Hz: close to the relays\.$/, line());
+  // the ghost gone (desk/rotary.js PREVIEW_LINGER_MS): the gauge's own figure and word
+  p.real(1.6, 0.4); p.frame();
+  assert.equal(g.ui.previewGuardMW, null);
+  assert.match(gauge(), /^N-1 gauge: TIGHT\. .*Trip preview 49\.20 Hz/, gauge());
+  assert.match(line(), /^✓ GUARD SET GUARD 400 → 350 MW: .* A COAL 1 trip would bottom at about 49\.20 Hz: no relays, but not secure\.$/, line());
+  // the sim's preview falls under 49.0 Hz: TRIP SHEDS on the gauge, and on the same frame in the price, though this second's run
+  // at 350 MW, which the line's cadence would still be reading, says 49.14 Hz and no relays
+  poke({previewNadirHz: 48.996}, {nadirHz: 49.14, caught: {uflsMW: 0}}, {nadirHz: 49.3, caught: {uflsMW: 0}});
+  assert.match(gauge(), /^N-1 gauge: TRIP SHEDS: would fall to 48\.99 Hz: the relays would shed \d districts?\./, gauge());
+  assert.match(line(), /^✓ GUARD SET GUARD 400 → 350 MW: .* A COAL 1 trip would bottom at about 48\.99 Hz: the relays would shed districts\.$/, line());
   assert.deepEqual(p.h.mods.errors, []);
 });
