@@ -147,8 +147,9 @@ test('Q-124 on the page: the first relay shed is said as its watch ends, in the 
   assert.deepEqual(said(), [], 'not over the watch');
   const sheds = p.game.tray.cards.filter(c => c.sev === 'warn' && c.from === 'CITY DESK').map(c => c.id);
   assert.ok(sheds.length, 'the relays\' own warnings on the tray');
-  // the watch ends at its RESPOND card, three warnings on the tray (the relays' and the market's SHEDDING). Hers would go
-  // straight to the LOG, so it takes the place of the city desk's oldest warning, a shed it says again in words
+  // the watch ends at its RESPOND card. Her watch line (a first shift's) comes in the same frame and keeps its place on the
+  // tray (Q-115 review: a new card is never pushed to the LOG), beside a shed's warning and the market's SHEDDING; so the
+  // relays' line takes the place of the city desk's oldest warning, a shed it says again in words
   assert.equal(p.skipTo('+5m').why, 'held:RESPOND-CARD');
   const line = said()[0], shed = p.h.vm().obs.districts.filter(d => d.dark && d.shedBy === 'ufls').length;   // (all the relays shed, as the card says)
   assert.ok(line, 'said at the RESPOND card');
@@ -158,7 +159,8 @@ test('Q-124 on the page: the first relay shed is said as its watch ends, in the 
   assert.ok(shed >= 2 && st.score.minHz < V.UFLS_FIRST_HZ, 'true: frequency fell below ' + V.UFLS_FIRST_HZ + ' Hz (' + st.score.minHz.toFixed(2) + ')');
   const tray = p.game.tray.cards, gone = sheds.filter(id => !tray.some(c => c.id === id));
   assert.equal(tray.length, 3);
-  assert.equal(tray.filter(c => c.sev === 'warn').length, 2);
+  assert.deepEqual(tray.map(c => c.sev + ' ' + c.from), ['warn MARKET NOTICE', 'info ' + MARG_FROM, 'info ' + MARG_FROM], 'the SHEDDING notice, her watch line and her relays line');
+  assert.match(tray[1].text, /^Stopped at /, 'her watch line stays on the tray beside it');
   assert.ok(gone.length && gone.every(id => p.game.tray.log.some(c => c.id === id)), 'the shed\'s warning she replaced is in the LOG');
   assert.match(p.look({controls: false}), /^TRAY .*i MARG, SUPERVISOR \d\d:\d\d The relays shed \d+ districts on their own: /m, 'on the tray, not the LOG');
   // storage blocked: the page's memory (the next day in this page does not say it again), and once today

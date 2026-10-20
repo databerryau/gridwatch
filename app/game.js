@@ -1179,17 +1179,19 @@ function margFrame(game, obs, mode) {
 const shedCard = c => c.sev === 'warn' && c.from === T.SENDERS.city;
 /**
  * W7 (Q-124 review): where first-time line `k` would show on the tray now: true for a free place, or when the information
- * card that gives way to hers (app/tray.js trayMarg: the oldest) is not one of her own (another lesson, or a fixed beat
- * said this frame or just before: she never talks over herself). With MAX_CARDS warnings hers would go straight to the
- * LOG, so it waits; but the relays' line takes the place of the city desk's oldest warning, a shed (the relays' or a
- * directed one: the districts her line is about), which goes to the LOG: that card. Else null (it waits). The sheds' own
- * warnings keep the tray full while the city sheds: they held her line back for hours of grid time, past the next trip.
+ * card that gives way to hers (app/tray.js trayMarg: the oldest, K-9) is not one of her own (another lesson, or a fixed
+ * beat said this frame or just before: she never talks over herself). Otherwise a lesson waits, because it never pushes a
+ * warning to the LOG; but the relays' line takes the place of the city desk's oldest warning, a shed (the relays' or a
+ * directed one: the districts her line is about), which goes to the LOG: that card. It does so beside a card of her own
+ * too, because on a first shift her watch line arrives in the same frame as the RESPOND card and holds the tray's third
+ * place (trayMarg keeps a new card and lets an older one go, Q-115 review). Else null (it waits). The sheds' own warnings
+ * keep the tray full while the city sheds: they held her relays line back for hours of grid time, past the next trip.
  */
 function lessonRoom(game, k) {
   const cards = game.tray.cards;
   if (cards.length < T.MAX_CARDS) return true;
   const out = cards.find(c => c.sev === 'info');
-  if (out) return out.from === MARG_FROM ? null : true;
+  if (out && out.from !== MARG_FROM) return true;
   return (k === 'relays' && cards.find(shedCard)) || null;
 }
 /**
