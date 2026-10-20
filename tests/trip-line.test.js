@@ -25,6 +25,8 @@ const hm = s => String(Math.floor(s / 3600 + 4) % 24).padStart(2, '0') + ':' + S
 const ymdOf = t => t.getUTCFullYear() * 1e4 + (t.getUTCMonth() + 1) * 100 + t.getUTCDate();
 /** The plan's evening trip: Act III's trip of the largest machine, not an anniversary's incident; its second of the day, or -1. */
 const planTrip = st => (st.ext.events.find(e => e.act === 3 && e.type === 'unitTrip' && e.args.rule === 'largest' && !e.incident) || {atS: -1}).atS;
+/** The line's span holds the plan's trip (and an incident's that follows it): during the evening peak, the badge's PEAK. */
+const inPeak = (s, why) => assert.ok(s >= PEAK[0] && s < PEAK[1], why + ': during the evening peak, not ' + hm(s));
 /** A seed's day as its briefing reads it: the state at 04:00, the day line, the plan's evening trip and whether the line says it. */
 function day(seed) {
   const st = createState(seed, G.scenarioForSeed(seed)), text = dayText(st.day, dayPlan(st, observe(st)));
@@ -40,7 +42,7 @@ test('Q-121: "Expect a trip during the evening peak." exactly when the plan has 
     const x = day(dailyFor(ymdOf(t), stamp).seed);
     assert.equal(x.says, x.at >= 0, x.why + (x.at >= 0 ? ' (the plan trips at ' + hm(x.at) + ')' : ' (no evening trip in the plan)'));
     if (x.at >= 0) assert.ok(x.at >= EVE[0] && x.at <= EVE[1], x.why + ': the plan\'s window, not ' + hm(x.at));
-    if (x.at >= 0) assert.ok(x.at >= PEAK[0] && x.at < PEAK[1], x.why + ': during the evening peak, not ' + hm(x.at));
+    if (x.at >= 0) inPeak(x.at, x.why);
     assert.equal(x.text.endsWith(TRIP_LINE), x.says, x.why + ': its last sentence');
     assert.doesNotMatch(x.text, /\d:\d\d/, x.why + ': no minute');
     const k = x.st.ext.regime.cls + (x.says ? ' + trip' : '');
@@ -57,17 +59,19 @@ test('Q-121: "Expect a trip during the evening peak." exactly when the plan has 
   assert.doesNotMatch(TEXT.abstractions.map(e => e.ours).join(' '), /Trips are never warned|most evenings without a storm|III's unwarned trip/);
 });
 
-test('Q-121: the anniversaries and the Hard days say it as their plans do; an incident\'s trip is the account\'s, never the line\'s', () => {
+test('Q-121: the anniversaries and the Hard days say it as their plans do, each trip during the evening peak; an incident\'s trip is the account\'s, never the line\'s', () => {
   const stamp = G.dailyStamp(), of = ymd => day(dailyFor(ymd, stamp).seed);
   const incident = (x, act) => x.st.ext.events.filter(e => e.incident && e.type === 'unitTrip' && e.act === act).map(e => e.atS);
   // Loy Yang A3: a settled day keeps its evening trip (the line), and its largest machine trips before dawn too (the account says so)
   const ly = of(20261214);
   assert.equal(ly.text, 'Today: a hot weekday, no heatwave forecast. Expect a trip during the evening peak.', ly.why);
   assert.equal(incident(ly, 1).length, 1, 'the dawn trip is the incident\'s');
+  inPeak(ly.at, ly.why);
   // Callide C: the evening trip (the line) takes the next largest with it five grid minutes later: the account's "trips across the state"
   const cc = of(20270525);
   assert.equal(cc.text, 'Today: a mild weekday: rooftop solar cuts midday demand. Expect a trip during the evening peak.', cc.why);
   assert.deepEqual(incident(cc, 3), [cc.at + 300], 'the second trip is the incident\'s, after the line\'s');
+  inPeak(cc.at, cc.why); inPeak(cc.at + 300, cc.why + ' (the second trip)');
   // the Moorabool towers: a storm day; its unit trip comes in the storm, as the account tells it: no line
   const tw = of(20270213);
   assert.equal(tw.text, 'Today: a hot weekend, one coal unit off, no heatwave forecast. Storms likely later.', tw.why);
@@ -79,6 +83,7 @@ test('Q-121: the anniversaries and the Hard days say it as their plans do; an in
     const x = day(h.seed);
     assert.equal(x.says, x.at >= 0, 'Hard day ' + h.n + ': ' + x.why);
     assert.equal(eveningTrip(h.seed, G.scenarioForSeed(h.seed)), x.at >= 0, 'Hard day ' + h.n + ': the seed\'s plan is the state\'s');
+    if (x.at >= 0) inPeak(x.at, 'Hard day ' + h.n + ': ' + x.why);
   }
   const sa = day(SA2016.seed);
   assert.equal(hard[0].seed, SA2016.seed);
