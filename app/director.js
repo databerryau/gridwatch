@@ -130,6 +130,11 @@ export const RESTORE_FOCUS_S = 2;
  * own, so a crossing by 5.0 s has its whole second in band by 6: six seconds shows every measured morning recovery whole and the
  * fall and turn of nearly every evening one. Played through (a line-following player, 2026-10-22 to 10-24 to 21:00): 7
  * FOCUSes of 3.0-6.0 grid s, two of them evening closes ended at the cap, out of band; the 2 s it was is the floor.
+ * So on a shed evening the recovery is mostly told, not shown: its fall and turn play at 1x, and the caption says
+ * "still out of band after 6 s" (true: the slow crawl back is the short spare's). By design (W7 review): a cap of 10, tried
+ * once on 2026-10-23 (Enter at every card, 9 restores, 8 of them after 17:00), showed 4 more of the 7 capped closes cross
+ * back into band (at 6.0-8.8 s; 6 of 9 in all, and 3 still out at 10), for 73 grid s of FOCUS against 49: 24 more real s
+ * of 1x in the evening's 150x, the day's busiest stretch, mostly frequency creeping up from 49.68-49.85 Hz.
  */
 export const RESTORE_FOCUS_MAX_S = 6;
 /** Debug speeds offered by the bench (grid seconds per real second); 2100x is D-2's fastest. */
