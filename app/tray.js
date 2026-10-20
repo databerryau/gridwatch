@@ -91,9 +91,10 @@ function mslCard(r) {
   const stack = {label: 'SEE THE STACK', target: 'stack'}, sub = {label: 'SUBURBS', target: 'suburb-card'};
   const soak = !now && r.atS >= V.SOAK_FROM_S && r.atS <= V.SOAK_TO_S && nowS <= V.SOAK_TO_S - V.SOAK_S;
   switch (r.level) {
-    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (soak ? ' A hot-water soak takes the spill: book one, and charge the battery on it.'
+    // (W7 Q1: the soak is booked for the city in one press, SOAK THE CITY, as the line asks for it)
+    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (soak ? ' A hot-water soak takes the spill: book the city\'s, and charge the battery on it.'
       : now ? ' Charge the battery if it has room.' : ' Power spilled then can go into the battery: charge it on the spill.'), button: soak ? sub : {label: 'TO THE BATTERY', target: 'dial-battery'}};
-    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + (soak ? ' Make room: book a hot-water soak, charge the battery, and stop a gas unit if one is running.'
+    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + (soak ? ' Make room: book the city\'s hot-water soak, charge the battery, and stop a gas unit if one is running.'
       : ' Make room: charge the battery, and stop a gas unit if one is running.'), button: soak ? sub : stack};
     case 3: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Units at minimum make more than the city uses: stop one, or frequency climbs until rooftop solar cuts back.', button: stack};
     default: return {key, from: SENDERS.market, sev: 'info', text: 'Low-demand notice cancelled: ' + (now ? 'demand is ' + mwc(r.minMW) + ' MW now, and the forecast does not go lower.'
