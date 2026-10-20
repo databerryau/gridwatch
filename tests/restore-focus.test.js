@@ -118,6 +118,18 @@ test('Q-115 on the page: an AGC morning offers nothing when a unit reaches full 
   const s = p.press('station-start-gta');
   assert.deepEqual([st.scope.unit, p.mode()], ['gta1', 'FOCUS'], 'START on the unit at full speed opened its scope');
   assert.match(s.during, / \| FOCUS 1× \| /);
+  // (review) GT·B's two machines: START opens the READY one's scope before it would start the other; once that scope is
+  // open, the next START goes on to the other machine, guarded, so a second start is never kept from the player
+  assert.equal(p.send({type: 'scope', unit: ''}), '');                   // (GT·A's scope left: its auto-synchroniser goes on)
+  assert.equal(p.send({type: 'start', unit: 'gtb1'}), '');
+  assert.equal(p.until(({state}) => state.units.find(u => u.id === 'gtb1').mode === 'ready', {max: '+30m'}).why, 'pred');
+  assert.deepEqual([['gtb1', 'gtb2'].map(id => st.units.find(u => u.id === id).mode), p.mode()], [['ready', 'off'], 'CRUISE']);
+  assert.match(p.$('station-start-gtb').getAttribute('title'), /^SYNC GT·B 1: open the synchroscope \(auto-sync in /);
+  p.press('station-start-gtb');
+  assert.deepEqual([st.scope.unit, p.mode()], ['gtb1', 'FOCUS'], 'GT·B\'s START opened GT·B 1\'s scope, not a start of GT·B 2');
+  const s2 = p.press('station-start-gtb');
+  assert.match(s2.during, /station-start-gtb "START\?" \[pressed,ARMED/, 'with the scope open, START arms GT·B 2');
+  assert.deepEqual([st.scope.unit, st.log.filter(x => x.type === 'start').map(x => x.args.unit)], ['gtb1', ['gta1', 'gtb1']], 'and starts nothing yet');
   assert.deepEqual(p.h.mods.errors, []);
 });
 

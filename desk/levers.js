@@ -225,9 +225,11 @@ export function nothingTo(ctx, host, machines, k) {
 /**
  * K-24 (Q-93): a station's two word buttons on an AGC day, START and STOP, beside its lamps. Each presses one
  * machine's guard (the guard sequence, the two-press rule and the "? IF PRESSED" line unchanged): the machine
- * whose cover is up, else the one the line points at, else the first that can start (a READY one opens its
- * scope) or the last that can stop. Labels: START? / STOP? (CANCEL?) armed; "◔ 4:59" while the only machine left
- * is starting; "✕ 12:00" while it is locked out. Ids station-start-<sid>, station-stop-<sid>.
+ * whose cover is up, else the one the line points at, else a READY one whose scope is not open yet (START opens
+ * it: W7, Q-115, with no offers on an AGC day START is how a spun-up unit's synchroscope is met; once it is
+ * open, START goes on to the next), else the first that can start, or the last that can stop. Labels: START? /
+ * STOP? (CANCEL?) armed; "◔ 4:59" while the only machine left is starting; "✕ 12:00" while it is locked out. Ids
+ * station-start-<sid>, station-stop-<sid>.
  */
 export function stationButtons(ctx, sid, machines, pan) {
   const doc = ctx.doc, S = STATION_SHORT[sid];
@@ -239,7 +241,9 @@ export function stationButtons(ctx, sid, machines, pan) {
   row.append(bs, bx);
   let on = false;
   const lifted = g => ctx.guards.lifted(g.id);
+  const onScope = m => { const v = ctx.vm(); return !!(v && v.obs.scope) && v.obs.scope.unit === m.id; };
   const forStart = () => machines.find(m => lifted(m.start)) || machines.find(m => m.glowS() && m.startAction()) ||
+    machines.find(m => m.startAction() === 'scope' && !onScope(m)) ||
     machines.find(m => m.startAction() === 'start') || machines.find(m => m.startAction() === 'scope') ||
     machines.find(m => ctx.guards.locked(m.id)) || machines.find(m => m.mode() === 'off') || null;   // (one resting after its press, or an OFF one that cannot start, says why)
   const forStop = () => {
