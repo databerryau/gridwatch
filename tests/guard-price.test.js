@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import {V} from '../sim/params.js';
 import {createState, step, observe} from '../sim/step.js';
 import {DESK} from '../content/scenarios.js';
-import {guardConsequence, LINE_MAX_CHARS} from '../app/objective.js';
+import {guardConsequence, LINE_MAX_CHARS, RELAY_NEAR_HZ} from '../app/objective.js';
 import {CONSIDER_REST_MS, guardReach} from '../app/game.js';
 import {openGame} from './lib/play.js';
 
@@ -38,19 +38,28 @@ test('Q4: the GUARD turned down prices both sides: the gas and carbon the freed 
   const v = 250 * (74 + V.VER * ccgt.co2);
   assert.equal(Math.round(v / 1000), 27);
   const c = guardConsequence(o, 400, 200, sheds(332));
-  assert.deepEqual(c, {target: 'ring-guard', level: 'crit',
+  assert.deepEqual(c, {target: 'ring-guard', level: 'crit', fromMW: 400, toMW: 200,
     text: 'GUARD 400 → 200 MW: the battery could replace up to about $27,000 more gas and carbon by 21:00. A COAL 1 trip would then shed about 330 MW: $1.7M per 10 minutes dark.'});
   assert.ok(c.text.length <= LINE_MAX_CHARS, c.text.length);
   assert.equal(Math.round(332 * V.VCR / 6 / 1e5) / 10, 1.7, 'the VCR the score charges, for 10 minutes');
   // nothing shed: where it would bottom, and whether that is still secure (the N-1 gauge's line, 49.55 Hz)
   // (150 MW free gives 525 MWh: 175 more)
-  assert.deepEqual(guardConsequence(o, 400, 350, () => ({nadirHz: 49.213, caught: {uflsMW: 0}})), {target: 'ring-guard', level: 'plan',
+  assert.deepEqual(guardConsequence(o, 400, 350, () => ({nadirHz: 49.213, caught: {uflsMW: 0}})), {target: 'ring-guard', level: 'plan', fromMW: 400, toMW: 350,
     text: 'GUARD 400 → 350 MW: the battery could replace up to about $19,000 more gas and carbon by 21:00. A COAL 1 trip would bottom at about 49.21 Hz: no relays, but not secure.'});
   assert.match(guardConsequence(o, 400, 350, () => ({nadirHz: V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ, caught: {uflsMW: 0}})).text, / A COAL 1 trip would bottom at about 49\.55 Hz: still secure\.$/);
-  // shedding already at 400: the more, and the tie as the largest loss
+  // (review) close to the first stage the preview's own error (up to 0.105 Hz optimistic, sim/params.js) could reach the
+  // relays: "no relays" only from RELAY_NEAR_HZ up
+  const edge = hz => guardConsequence(o, 400, 350, () => ({nadirHz: hz, caught: {uflsMW: 0}})).text;
+  assert.ok(RELAY_NEAR_HZ >= V.UFLS_FIRST_HZ + 0.105 && RELAY_NEAR_HZ < V.UFLS_FIRST_HZ + 0.12, RELAY_NEAR_HZ);
+  assert.match(edge(49.02), / A COAL 1 trip would bottom at about 49\.02 Hz: close to the relays\.$/);
+  assert.match(edge(RELAY_NEAR_HZ - 0.001), /: close to the relays\.$/);
+  assert.match(edge(RELAY_NEAR_HZ), / would bottom at about 49\.11 Hz: no relays, but not secure\.$/);
+  // shedding already at 400: the more, and the tie as the largest loss; past LINE_MAX_CHARS (172 as the long head said it)
+  // the short head says the same: what is saved, by when, and what the trip would shed, and is shedding now
   const tie = evening(800);
   Object.assign(tie.sec, {lKind: 'link', lId: 'tie'});
-  assert.match(guardConsequence(tie, 400, 200, g => ({nadirHz: 48.9, caught: {uflsMW: g >= 400 ? 120 : 332}})).text, / A tie trip would then shed about 330 MW \(120 MW now\)[:,] /);
+  assert.equal(guardConsequence(tie, 400, 200, g => ({nadirHz: 48.9, caught: {uflsMW: g >= 400 ? 120 : 332}})).text,
+    'GUARD 400 → 200 MW: up to about $27,000 of gas and carbon saved by 21:00. A tie trip would then shed about 330 MW (120 MW now): $1.7M per 10 minutes dark.');
   assert.match(guardConsequence(tie, 400, 300, g => ({nadirHz: 48.9, caught: {uflsMW: 120}})).text, / A tie trip would bottom at about 48\.90 Hz: it sheds no more\.$/);
   // the charge runs out first either way: no energy to price
   assert.match(guardConsequence(evening(500), 400, 200, sheds(332)).text, /^GUARD 400 → 200 MW: no more energy by 21:00: the battery's charge runs out first either way\. A COAL 1 trip/);
@@ -67,6 +76,34 @@ test('Q4: the GUARD turned down prices both sides: the gas and carbon the freed 
   const none = evening(800);
   none.sec.lKind = 'none';
   assert.equal(guardConsequence(none, 400, 200, () => assert.fail('no preview')).text, 'GUARD 400 → 200 MW: the battery could replace up to about $27,000 more gas and carbon by 21:00.');
+});
+
+test('Q4 (review): the GUARD price is one line (LINE_MAX_CHARS) at its longest: a four-figure shed with some shed now, behind a six-figure gain or none, every largest loss; its figures all said', () => {
+  // (a hot evening: a UFLS stage is two districts of about 3% of demand each, so two stages more at the lower GUARD reach four figures)
+  const hot = (soc, lKind, lId) => {
+    const o = evening(soc);
+    Object.assign(o, {s: at(17)});
+    Object.assign(o.battery, {guardMW: 500, socMWh: soc});
+    Object.assign(o.price, {mwh: 300, marginalId: 'gtc1'});
+    Object.assign(o.sec, {lKind, lId});
+    return o;
+  };
+  // the review's case: 176 characters before
+  const r = guardConsequence(hot(1000, 'unit', 'coal1'), 500, 0, g => ({nadirHz: 48.6, caught: {uflsMW: g >= 500 ? 120 : 1234}}));
+  assert.equal(r.text, 'GUARD 500 → 0 MW: up to about $280,000 of gas and carbon saved by 21:00. A COAL 1 trip would then shed about 1,230 MW (120 MW now): $6.2M per 10 minutes dark.');
+  let longest = 0;
+  const mw = x => (Math.round(x / 10) * 10).toLocaleString('en') + ' MW';
+  for (const [lKind, lId, who] of [['unit', 'hydro1', 'HYDRO 1'], ['unit', 'gtc2', 'GT·C 2'], ['link', 'tie', 'tie']]) for (const soc of [1000, 300]) {
+    for (const [shed, now] of [[1680, 1560], [1234, 120], [1680, 0], [330, 120]]) for (const [f, t] of [[500, 0], [500, 450], [450, 0]]) {
+      const c = guardConsequence(hot(soc, lKind, lId), f, t, g => ({nadirHz: 48.6, caught: {uflsMW: g >= f ? now : shed}}));
+      longest = Math.max(longest, c.text.length);
+      assert.ok(c.text.length <= LINE_MAX_CHARS, c.text.length + ': ' + c.text);
+      assert.match(c.text, new RegExp('^GUARD ' + f + ' → ' + t + ' MW: (.*\\$[\\d,]+ .*gas and carbon|no .* the .*charge runs out first either way)'), c.text);
+      assert.ok(c.text.includes('A ' + who + ' trip would then shed about ' + mw(shed)) && (!now || c.text.includes('(' + mw(now) + ' now)')) &&
+        / per 10 min(utes)? dark\.$/.test(c.text), c.text);
+    }
+  }
+  assert.ok(longest > 150, 'the sweep reached the long forms: ' + longest);
 });
 
 test('Q4 in the page: turning the GUARD ring down by keys says both sides under "? IF PRESSED", and the live region says it once; the plan\'s line returns after the rest; a line asking for that GUARD is not argued with', () => {

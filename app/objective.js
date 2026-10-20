@@ -131,7 +131,7 @@
 //     what a guarded press would do, said before it is made (C-10): target is
 //     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
 //     A STOP that opens no shortfall, of a unit at its floor, says what it saves (stopQuote, the line's own; Q4, W7).
-//   guardConsequence(obs, fromMW, toMW, preview) -> {target: 'ring-guard', text, level} | null
+//   guardConsequence(obs, fromMW, toMW, preview) -> {target: 'ring-guard', text, level, fromMW, toMW} | null
 //     the GUARD ring turned down, priced on both sides (Q4, W7): the gas and carbon the freed MW
 //     could replace by the evening's end, against what the largest loss would then shed at the VCR.
 //   stopQuote(obs, u, day, proj, planview, endS?) -> {need, backS, saving}: a STOP's quote; the
@@ -260,6 +260,9 @@ const CHARGE_TO_MWH = V.PAR_BATT_CHARGE_TO * V.BATT_MWH, RESERVE_MWH = V.PAR_BAT
 const DERATE_KEEP = 1 - V.HEAT_THERMAL_DERATE;
 const GUARD_SUSTAIN_H = V.GUARD_SUSTAIN_S / S_PER_H;
 const SECURE_HZ = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ;
+// (W7 Q4 review) a TRIP PREVIEW nadir under this is never said to miss the relays: the preview can be optimistic by up
+// to 0.105 Hz (sim/params.js PREVIEW_MARGIN_HZ's note, its worst measured), so the first UFLS stage plus that, rounded up
+export const RELAY_NEAR_HZ = V.UFLS_FIRST_HZ + 0.11;
 const GAS = new Set(['ccgt', 'ocgt']);
 
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
@@ -1594,7 +1597,8 @@ export function consequence(obs, target, ctx = {}) {
  * @param {number} fromMW the GUARD when the turn began
  * @param {number} toMW where the ring is now
  * @param {function(number):object|null} preview
- * @returns {{target:'ring-guard', text:string, level:'plan'|'crit'}|null} null unless turned down
+ * @returns {{target:'ring-guard', text:string, level:'plan'|'crit', fromMW:number, toMW:number}|null} null unless turned down
+ *   (fromMW, toMW: the move priced; the shell says it as made once the GUARD stands at toMW)
  */
 export function guardConsequence(obs, fromMW, toMW, preview) {
   if (!(toMW < fromMW) || obs.over || obs.inWatch) return null;
@@ -1605,20 +1609,24 @@ export function guardConsequence(obs, fromMW, toMW, preview) {
   const give = mw => Math.min(held, Math.max(0, b.ratedMW - mw) * h), mwh = give(toMW) - give(fromMW);
   const mu = gasSetsPrice(obs) ? obs.units.find(x => x.id === obs.price.marginalId) : null, mm = mu && M.find(x => x.id === mu.id);
   const perMWh = mm ? obs.price.mwh - obs.price.adder + V.VER * mm.co2 : V.STATIONS.ccgt.offer + V.VER * V.STATIONS.ccgt.co2;
-  const head = 'GUARD ' + fromMW + ' → ' + toMW + ' MW: ' + (mwh >= 1 ? 'the battery could replace up to about ' + usdText(mwh * perMWh) + ' more gas and carbon by ' + at(endS) + '.'
-    : 'no more energy by ' + at(endS) + ': the battery\'s charge runs out first either way.');
+  // (one line, LINE_MAX_CHARS: each side has a long and a short form, the long head tried first; the short ones at their
+  // longest, a four-figure shed with four figures shed now behind a six-figure gain, take 160: tests/guard-price.test.js)
+  const lead = 'GUARD ' + fromMW + ' → ' + toMW + ' MW: ', gain = mwh >= 1 ? usdText(mwh * perMWh) : '', by = ' by ' + at(endS);
+  const heads = gain ? ['the battery could replace up to about ' + gain + ' more gas and carbon' + by + '.', 'up to about ' + gain + ' of gas and carbon saved' + by + '.']
+    : ['no more energy' + by + ': the battery\'s charge runs out first either way.', 'no gain' + by + ': the charge runs out first either way.'];
+  const fit = (...tails) => { for (const h of heads) for (const t of tails) if ((lead + h + t).length <= LINE_MAX_CHARS) return lead + h + t; return lead + heads[1] + tails[tails.length - 1]; };
   const p1 = sec.lKind === 'none' ? null : preview(toMW), p0 = p1 ? preview(fromMW) : null;
-  if (!p1 || !Number.isFinite(p1.nadirHz)) return {target: 'ring-guard', text: head, level: 'plan'};
+  if (!p1 || !Number.isFinite(p1.nadirHz)) return {target: 'ring-guard', text: fit(''), level: 'plan', fromMW, toMW};
   const who = sec.lKind === 'link' ? 'A tie trip' : 'A ' + unitName(sec.lId) + ' trip', shed = Math.max(0, p1.caught ? p1.caught.uflsMW : 0), was = Math.max(0, p0 && p0.caught ? p0.caught.uflsMW : 0);
-  // (no more shed: where it would bottom, and whether that is still secure, the N-1 gauge's word: SECURE_HZ, as spare() reads the preview)
+  // (no more shed: where it would bottom, and whether that is still secure, the N-1 gauge's word: SECURE_HZ, as spare() reads
+  // the preview; close to the first stage the preview's own error could reach the relays, so "no relays" only above RELAY_NEAR_HZ)
   if (shed < BATT_MIN_MW / 5 || shed <= was) {
-    return {target: 'ring-guard', level: 'plan', text: head + ' ' + who + ' would bottom at about ' + p1.nadirHz.toFixed(2) + ' Hz: ' +
-      (was >= BATT_MIN_MW / 5 ? 'it sheds no more.' : p1.nadirHz >= SECURE_HZ ? 'still secure.' : 'no relays, but not secure.')};
+    return {target: 'ring-guard', level: 'plan', fromMW, toMW, text: fit(' ' + who + ' would bottom at about ' + p1.nadirHz.toFixed(2) + ' Hz: ' +
+      (was >= BATT_MIN_MW / 5 ? 'it sheds no more.' : p1.nadirHz >= SECURE_HZ ? 'still secure.' : p1.nadirHz >= RELAY_NEAR_HZ ? 'no relays, but not secure.' : 'close to the relays.'))};
   }
   const cost = shed * V.VCR / 6, big = cost >= 1e6 ? '$' + (cost / 1e6).toFixed(1) + 'M' : usdText(cost);
-  const tail = ' would then shed about ' + mwText(shed) + (was >= BATT_MIN_MW / 5 ? ' (' + mwText(was) + ' now)' : '');
-  const fit = [head + ' ' + who + tail + ': ' + big + ' per 10 minutes dark.', head + ' ' + who + tail + ', ' + big + ' per 10 min dark.'];
-  return {target: 'ring-guard', level: 'crit', text: fit.find(t => t.length <= LINE_MAX_CHARS) || fit[1]};
+  const tail = ' ' + who + ' would then shed about ' + mwText(shed) + (was >= BATT_MIN_MW / 5 ? ' (' + mwText(was) + ' now)' : '');
+  return {target: 'ring-guard', level: 'crit', fromMW, toMW, text: fit(tail + ': ' + big + ' per 10 minutes dark.', tail + ', ' + big + ' per 10 min dark.')};
 }
 
 const cap = t => (t === 'tonight' ? 'Tonight' : t === 'the evening' ? 'Tonight\'s peak' : t.charAt(0).toUpperCase() + t.slice(1));
