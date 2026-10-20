@@ -9,6 +9,7 @@ import {V} from '../sim/params.js';
 import * as fleet from '../sim/fleet.js';
 import * as D from '../app/director.js';
 import * as G from '../app/game.js';
+import * as T from '../app/tray.js';
 import {openGame} from './lib/play.js';
 
 const TPS = V.TICKS_PER_S, H = 3600, LO = V.NORMAL_LO_HZ;
@@ -88,6 +89,22 @@ test('Q-115 on the page: HAR4\'s hand-back at 06:40 (2026-10-22) dips out of ban
   const f = p.clockReport().parts.FOCUS;
   assert.ok(f.n === 1 && Math.abs(f.realS - focusS) < 0.1 && Math.abs(f.overS - focusS) < 0.1, JSON.stringify(f));
   assert.deepEqual(p.h.mods.errors, []);
+});
+
+test('Q-115 (review), K-9: the caption is never pushed out by its own arrival: with three warnings up (a shed evening\'s), the oldest of them goes to the LOG; an older information card would go first', () => {
+  const tr = T.createTray(), ufls = (s, stage, d) => ({tick: s * TPS, kind: 'ufls', stage, districts: d, mw: 424});
+  const caption = atS => ({text: 'Cold load picked up: 251 MW, still out of band after 6 s.', target: 'dial-freq', atS});
+  T.trayRecords(tr, [{tick: 200 * TPS, kind: 'contingency', cause: 'unit', id: 'coal3', lostMW: 612}, ufls(201, 1, ['RED1', 'SAL1']), ufls(202, 2, ['HAR1', 'SAL2'])]);
+  assert.deepEqual(tr.cards.map(c => c.sev), ['warn', 'warn', 'warn']);
+  assert.deepEqual(T.trayMarg(tr, caption(210), T.SENDERS.city, 'TO THE DIAL'), ['tick']);
+  assert.deepEqual(tr.cards.map(c => c.sev + ' ' + c.text.split(' ').slice(0, 5).join(' ')), ['warn Relays shed RED1 and SAL1', 'warn Relays shed HAR1 and SAL2', 'info Cold load picked up: 251']);
+  assert.deepEqual([tr.log.length, tr.log[0].text.includes('tripped'), tr.cards[2].button], [1, true, {label: 'TO THE DIAL', target: 'dial-freq'}]);
+  // with an older information card up, that one goes, and the warnings stay
+  const tr2 = T.createTray();
+  T.trayRecords(tr2, [ufls(201, 1, ['RED1', 'SAL1']), {tick: 202 * TPS, kind: 'log', sev: 'info', code: 'UNIT_READY', msg: 'GT·A at full speed: auto-sync in 4 min.'}, ufls(203, 2, ['HAR1', 'SAL2'])]);
+  assert.deepEqual(tr2.cards.map(c => c.sev), ['warn', 'info', 'warn']);
+  T.trayMarg(tr2, caption(230), T.SENDERS.city, 'TO THE DIAL');
+  assert.deepEqual([tr2.cards.map(c => c.sev + ' ' + c.atS), tr2.log.map(c => c.atS)], [['warn 201', 'warn 203', 'info 230'], [202]]);
 });
 
 test('Q-115 on the page: an AGC morning offers nothing when a unit reaches full speed at TIGHT (a HAND day would), and START on it still opens its synchroscope', () => {

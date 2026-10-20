@@ -217,10 +217,12 @@ export function trayRecords(tr, recs) {
 /**
  * O-6: one of Marg's lines (app/marg.js) as an information card; its button goes to the control it is about. ['tick'], or [] at night.
  * W7 (Q-115): the game's own lines too ({text, target, atS}, from a sender, with its button's `label`): a restore's caption.
+ * Over three cards, an older one goes to the LOG, information first (K-9, as trayRecords): never the new line itself, which
+ * three warnings (a shed evening's) used to push straight to the LOG under its own tick.
  */
 export function trayMarg(tr, line, from, label = 'SHOW ME') {
   if (!add(tr, {key: null, from, sev: 'info', text: line.text, button: {label, target: line.target}}, line.atS)) return [];
-  while (tr.cards.length > MAX_CARDS) { const i = tr.cards.findIndex(c => c.sev === 'info'); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
+  while (tr.cards.length > MAX_CARDS) { const n = tr.cards.length - 1, i = tr.cards.findIndex((c, j) => c.sev === 'info' && j < n); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
   tr.rev++;
   return tr.night ? [] : ['tick'];
 }
