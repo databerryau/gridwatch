@@ -6,7 +6,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as W from '../app/week.js';
 import * as G from '../app/game.js';
-import {dayText, dayPlan, LATER} from '../app/shell.js';
+import {dayText, dayPlan, LATER, TRIP_LINE} from '../app/shell.js';
 import {createState, observe} from '../sim/step.js';
 import {DAILIES, dailyFor} from '../content/dailies.js';
 import {openGame} from './lib/play.js';
@@ -52,7 +52,8 @@ test('D-28 (Q-110): each word is what that day plays and its briefing says: a st
   const from = ymdOf(DAILIES.from), seen = new Set(), WARN = {storm: 'stormWarn', 'low wind': 'droughtWarn'};
   for (const x of W.weekAhead(from - 1, G.dailyStamp(), 30)) {
     const d = dailyFor(x.ymd, G.dailyStamp()), st = createState(d.seed, G.scenarioForSeed(d.seed)), obs = observe(st);
-    const text = dayText(st.day, dayPlan(st, obs)), why = x.ymd + ' ' + x.word + ': ' + text;
+    // (W7, Q-121: the evening trip's sentence, last, is tests/trip-line.test.js's; the outlook's words come before it)
+    const full = dayText(st.day, dayPlan(st, obs)), text = full.endsWith(TRIP_LINE) ? full.slice(0, -TRIP_LINE.length) : full, why = x.ymd + ' ' + x.word + ': ' + full;
     seen.add(x.word);
     assert.equal(x.word === 'HEATWAVE', /heatwave this afternoon/.test(text), why);
     if (x.word === 'mild') assert.match(text, /^Today: a mild [^.]*\.$/, why);

@@ -9,7 +9,7 @@
 // max(3 s, 0.3 s a word); the night strip's redraw cadence; the end card fetched when the night shift takes
 // the desk (Q-73).
 //
-// Headless (CLAUDE.md): the shell alone on next.html (no desk, map or stack), booted at 04:00; the chip's
+// Headless (CLAUDE.md): the shell alone on index.html (no desk, map or stack), booted at 04:00; the chip's
 // states are set on the state (the sim's own flags), never played to.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,11 +26,11 @@ import {clockText, badgeText, NIGHT_LOCK} from '../render/format.js';
 import {TEXT} from '../content/text.js';
 import {makeDocument} from './lib/dom.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const words = s => s.trim().split(/\s+/).length;
 const hm = s => clockText(s, false);
 
-/** The shell alone on next.html, a date's seed through the page's own daily and scenario (Q-75); `clock.t` is its page time. */
+/** The shell alone on index.html, a date's seed through the page's own daily and scenario (Q-75); `clock.t` is its page time. */
 function boot(seed, clock = {t: 0}) {
   const doc = makeDocument(NEXT);
   const h = bootGame(doc, {search: '?seed=' + seed, scenario: G.scenarioForSeed, storage: null, audioWin: {}, raf: false, now: () => clock.t});
@@ -62,8 +62,8 @@ test('Q-81: a heat + tie derate + feeder date (20261005): Watch for names all th
   assert.match(NEXT, /<p id="briefing-watch"><\/p>\s*<p id="briefing-real" class="dim">[^<]+<\/p>\s*<p id="briefing-date" class="dim"><\/p>/);
   assert.match(NEXT, /#briefing-watch \.gate \{ display: block; \}/);
   assert.equal(b.$('briefing-date').textContent, 'Monday 5 October 2026', 'D-3: the date, not the seed');
-  // Q-80: the heat is news at 04:00, so the day's line can say it
-  assert.equal(b.$('briefing-day').textContent, 'Today: a hot weekday, heatwave this afternoon.');
+  // Q-80: the heat is news at 04:00, so the day's line can say it (W7, Q-121: and the evening trip a heatwave keeps)
+  assert.equal(b.$('briefing-day').textContent, 'Today: a hot weekday, heatwave this afternoon. Expect a trip during the evening peak.');
   assert.deepEqual(b.h.mods.errors, []);
 });
 
@@ -101,8 +101,8 @@ test('Q-80: the day\'s line reads the 04:00 news on a planned day, and keeps the
   // on the page: 20261019 is a wind-drought daily (its warning at 16:23), as the week ahead from the 16th says
   const lw = boot(20261019), st = lw.game.state;
   assert.equal(st.ext.regime.cls, 'drought');
-  assert.equal(lw.$('briefing-day').textContent, 'Today: a mild weekday: rooftop solar cuts midday demand. Low wind likely later.');
-  assert.deepEqual(dayPlan(st, observe(st)), {heat: false, word: 'low wind'});
+  assert.equal(lw.$('briefing-day').textContent, 'Today: a mild weekday: rooftop solar cuts midday demand. Low wind likely later. Expect a trip during the evening peak.');
+  assert.deepEqual(dayPlan(st, observe(st)), {heat: false, word: 'low wind', trip: true});   // (W7, Q-121: a wind drought keeps the evening trip)
 });
 
 test('D-7 / Q-64: the header\'s HAND chip: HAND (amber, with the word) from obs.mode until the night shift, then HAND-FLOWN · NIGHT SHIFT ON AGC from obs.handFlown; none on an AGC day', () => {

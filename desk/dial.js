@@ -314,16 +314,16 @@ export function createImbalanceBar(ctx, parent) {
   const segEls = SEGS.map(([, cls, letter]) => { const s = el(doc, 'i', 'dk-seg ' + cls); s.appendChild(el(doc, 'b', '', letter)); return s; });
   track.append(trend, zero, ...segEls);
   const foot = el(doc, 'div', 'dk-imb-foot');
-  // most important first; the AGC note gives way (desk.css)
-  const shed = el(doc, 'span', 'dk-imb-shed'), who = el(doc, 'span', 'dk-imb-who'), agcEl = el(doc, 'span', 'dk-imb-agc', '! AGC limit');
+  // most important first; the AGC note gives way (desk.css). W7 Q3: in the UNITS AT LIMIT tile's words (its GO TO lands here)
+  const shed = el(doc, 'span', 'dk-imb-shed'), who = el(doc, 'span', 'dk-imb-who'), agcEl = el(doc, 'span', 'dk-imb-agc', '! AT LIMIT');
   const line = el(doc, 'span', 'dk-imb-l');
   line.append(shed, who);
   foot.append(line, agcEl);
   const q = el(doc, 'button', 'dk-q', '?');
   q.type = 'button'; q.id = 'q-imb';
   q.title = 'Supply minus demand, averaged over about a second. BALANCED: within 25 MW. SHORT: spin, the battery and ' +
-    'governors are filling a hole, and they are what catches the next trip, so start a unit or raise a lever. AGC limit: the ' +
-    'running units have no room left. Between trips, one column per grid minute, the newest on the right: ' +
+    'governors are filling a hole, and they are what catches the next trip, so start a unit or raise a lever. AT LIMIT: the ' +
+    'running units have no room left (the UNITS AT LIMIT alarm). Between trips, one column per grid minute, the newest on the right: ' +
     'red below the middle line is short, blue above it is surplus. After a trip: who caught the loss.';
   q.setAttribute('aria-label', 'What the balance bar means');
   q.setAttribute('aria-expanded', 'false');

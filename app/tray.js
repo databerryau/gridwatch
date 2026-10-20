@@ -91,9 +91,10 @@ function mslCard(r) {
   const stack = {label: 'SEE THE STACK', target: 'stack'}, sub = {label: 'SUBURBS', target: 'suburb-card'};
   const soak = !now && r.atS >= V.SOAK_FROM_S && r.atS <= V.SOAK_TO_S && nowS <= V.SOAK_TO_S - V.SOAK_S;
   switch (r.level) {
-    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (soak ? ' A hot-water soak takes the spill: book one, and charge the battery on it.'
+    // (W7 Q1: the soak is booked for the city in one press, SOAK THE CITY, as the line asks for it)
+    case 1: return {key, from: SENDERS.market, sev: 'info', text: low + (soak ? ' A hot-water soak takes the spill: book the city\'s, and charge the battery on it.'
       : now ? ' Charge the battery if it has room.' : ' Power spilled then can go into the battery: charge it on the spill.'), button: soak ? sub : {label: 'TO THE BATTERY', target: 'dial-battery'}};
-    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + (soak ? ' Make room: book a hot-water soak, charge the battery, and stop a gas unit if one is running.'
+    case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + (soak ? ' Make room: book the city\'s hot-water soak, charge the battery, and stop a gas unit if one is running.'
       : ' Make room: charge the battery, and stop a gas unit if one is running.'), button: soak ? sub : stack};
     case 3: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Units at minimum make more than the city uses: stop one, or frequency climbs until rooftop solar cuts back.', button: stack};
     default: return {key, from: SENDERS.market, sev: 'info', text: 'Low-demand notice cancelled: ' + (now ? 'demand is ' + mwc(r.minMW) + ' MW now, and the forecast does not go lower.'
@@ -185,8 +186,22 @@ function add(tr, c, atS) {
   const card = {id: 'card' + tr.nextId++, from: c.from, atS, text: words(c.text), button: c.button, sev: c.sev,
     untilS: Math.max(stepAfter(Math.max(atS, V.PLAYER_START_S), V.TRAY_LIFE_REAL_S), c.holdS || 0)};
   if (c.done) card.done = c.done;
+  if (c.keep) card.keep = true;
   tr.cards.push(card);
   return card;
+}
+
+/**
+ * K-9: past MAX_CARDS the oldest card from before the newest `n` goes to the LOG (`n` < 1: any), information first. W7
+ * integration review: a card marked keep (Marg's once-only lines: a first-time line, a first shift's watch line) is passed
+ * over for its life, as a warning is, and goes only when every other card is one too; before, a restore's caption or the
+ * next shed's warning sent her once-a-browser relays line to the LOG seconds after it came, already kept as said.
+ */
+function evict(tr, n) {
+  const cs = tr.cards, old = j => j < n || n < 1;
+  let i = cs.findIndex((c, j) => old(j) && c.sev === 'info' && !c.keep);
+  if (i < 0) i = cs.findIndex((c, j) => old(j) && !c.keep);
+  toLog(tr, cs.splice(Math.max(0, i), 1)[0]);
 }
 
 /**
@@ -209,15 +224,21 @@ export function trayRecords(tr, recs) {
     if (c.sev === 'warn') { cues.push('ring2'); tr.rings++; } else cues.push('tick');
   }
   // the oldest goes, information first; the n from before this call before any new
-  while (tr.cards.length > MAX_CARDS) { const n = tr.cards.length - made, i = tr.cards.findIndex((c, j) => c.sev === 'info' && (j < n || n < 1)); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
+  while (tr.cards.length > MAX_CARDS) evict(tr, tr.cards.length - made);
   if (made) tr.rev++;
   return cues;
 }
 
-/** O-6: one of Marg's lines (app/marg.js) as an information card; its button goes to the control it is about. ['tick'], or [] at night. */
-export function trayMarg(tr, line, from) {
-  if (!add(tr, {key: null, from, sev: 'info', text: line.text, button: {label: 'SHOW ME', target: line.target}}, line.atS)) return [];
-  while (tr.cards.length > MAX_CARDS) { const i = tr.cards.findIndex(c => c.sev === 'info'); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
+/**
+ * O-6: one of Marg's lines (app/marg.js) as an information card; its button goes to the control it is about. ['tick'], or [] at night.
+ * W7 (Q-115): the game's own lines too ({text, target, atS}, from a sender, with its button's `label`): a restore's caption.
+ * Over three cards, an older one goes to the LOG, information first (K-9, as trayRecords): never the new line itself, which
+ * three warnings (a shed evening's) used to push straight to the LOG under its own tick. line.keep: one of Marg's once-only
+ * lines, passed over by K-9 for its life (evict).
+ */
+export function trayMarg(tr, line, from, label = 'SHOW ME') {
+  if (!add(tr, {key: null, from, sev: 'info', text: line.text, button: {label, target: line.target}, keep: !!line.keep}, line.atS)) return [];
+  while (tr.cards.length > MAX_CARDS) evict(tr, tr.cards.length - 1);
   tr.rev++;
   return tr.night ? [] : ['tick'];
 }

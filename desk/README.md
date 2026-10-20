@@ -1,5 +1,7 @@
 # Phase 1a: the greybox desk (contract)
 
+*Since W7 (SPEC Q-126) the game page is `index.html`, at the site's root; `next.html` only sends its old links there. Where this record says `next.html`, read the game page.*
+
 This is the contract for SPEC.md §5 Phase 1a ("1a — Greybox"): `next.html` plays a full day at a
 flat 120× with the desk, the Live Stack, the watch and the map, in plain shapes and colours.
 `sim/README.md` stays the contract for `sim/`; this file adds what Phase 1a changes there
@@ -77,7 +79,7 @@ Cross-module rules outside `sim/` (checked by tests):
 | WATCH | full 0.15×/1×/10× over 0–3/3–10/10–30 s; compact 0.5×/2×/20× | a contingency record | watch end (sim `watchEndTick`) |
 | RESPOND-CARD | 0 (clock held) | watch end | Enter, or any desk input (the card's dismiss) |
 | RESPOND | 30× | card dismissed | frequency back in 49.85–50.15 Hz (`contingency.backInBandTick >= 0`) or 5 grid-min after the card, then CRUISE |
-| FOCUS | 1× | a synchroscope opened (sim `scope.unit !== ''`), or a restore breaker being closed (2 grid-s after a `restore` input) | scope closed / unit synced; the restore's 2 grid-s |
+| FOCUS | 1× | a synchroscope opened (sim `scope.unit !== ''`), or the player's restore breaker being closed (a `restore` input; W7, Q-115) | scope closed / unit synced; the restore's dip back in the normal band for a whole grid second (at least 2 grid-s, at most 6; `restoreFocusTick`), then its caption in the tray |
 | PAUSE | 0 | Space, hidden tab, day over | Space |
 
 Precedence: PAUSE > WATCH > RESPOND-CARD > FOCUS > RESPOND > FAST > CRUISE. Debug speeds stay
@@ -242,6 +244,8 @@ actions.previewTrip(opts)  // {kind:'unit'|'link', id?, guardMW?} -> {nadirHz, c
                            // physics.previewTrip on the live state via app/game.js, cached per
                            // grid second and guard value; the ONLY way UI reaches the engine)
 actions.restorePreview(districtId) // -> '' or refusal (grid.restorePermissive with preview)
+actions.soakCity(atS)      // W7 (Q1): SOAK THE CITY, one press: a flex input per suburb whose soak is free, at
+                           // atS, then one re-dispatch; saved and counted as one action -> '' or refusal
 ```
 
 Controls send the **applied** values back through the next frame's view model; a control
@@ -275,11 +279,12 @@ Control and target ids (stable; tiles, tray buttons and glow sets use them):
 `lever-coal lever-ccgt lever-gta lever-gtb lever-gtc wheel-hydro dial-battery ring-guard
 knob-tie key-rert btn-dr key-shed key-agc btn-redispatch guard-start-<unit>
 guard-stop-<unit> bay-sync bay-restore gauge-n1 dial-freq bar-imbalance annunciator tray
-stack map suburb-<ID> suburb-card btn-suburb-close city-<ID>-soak city-<ID>-aircon`.
+stack map suburb-<ID> suburb-card btn-suburb-close city-<ID>-soak city-<ID>-aircon city-soak-all`.
 
 2b (§31.3.8): `suburb-<ID>` is a suburb on the map and its card (bare id `HAZ` in `vm.suburb`),
 `suburb-card` the card itself, `btn-suburb-close` its ✕ (wave 2 keeps it: tests/cardshell.test.js
-presses it), `city-<ID>-soak` and `city-<ID>-aircon` the card's presses.
+presses it), `city-<ID>-soak` and `city-<ID>-aircon` the card's presses. W7 (Q1): `city-soak-all`
+is SOAK THE CITY on any card (`actions.soakCity(atS)`: one press books every free suburb's soak).
 
 ---
 
@@ -935,6 +940,9 @@ through `content/text.js` entries with `params` paths.
                                                 // long: {atS, endS, mw} | null, the spill ahead (PV.blueRuns(proj)[0])
   vm.objective.action += {type: 'stop', unit} | {type: 'battery', mode, mw} | {type: 'standDownRERT'}   (sim inputs; the game never sends them)
 * vm.consider = {target, text, level} | null    // C-10; level 'plan' | 'crit'; shown in #objective in place of the objective, word '? IF PRESSED'
+                                                // W7 (Q4): target 'ring-guard' (+ fromMW, toMW), the GUARD ring turned down, priced
+                                                //   (app/objective.js guardConsequence); word '✓ GUARD SET' once the GUARD stands at
+                                                //   toMW (the ring sends on release / key-up), and only then said by #aria-live
 * actions.ui({do: 'consider', target: 'guard-start-<unit>' | 'guard-stop-<unit>' | null})   -> game.ui.consider
 * vm.hist.rooftop                               // beside vm.hist.demand, the same column form (column mean of env.rooftopMW)
 * proj (app/planview.js project) += rooftop (Float64Array n), surplusMW (n); proj.blue[q] = surplusMW[q] > SURPLUS_MIN_MW ? 1 : 0
@@ -2007,7 +2015,14 @@ or "the price"; prices come from `V.VCR` and `V.VER`, never typed in.
   `chip-allin`) adds: "Customers pay the market price plus network and retail charges. Those
   charges, most of a bill, are the same whatever you do and are left out. VCR and VER are what
   regulators count an outage and a tonne as worth, not money anyone is paid." At 04:00 the chip
-  equals the end card's score (a test). Both COST and ALL-IN use "c/kWh".
+  equals the end card's score (a test). Both COST and ALL-IN use "c/kWh". **W7 (Q-117):** the number
+  shows only from 21:00 (`app/shell.js` scoreShown: the night shift's flag; on a day with none, its
+  clock; or the day over), moving with the night strip every `NIGHT_REDRAW_MS`. Before, the chip
+  keeps its place with its key over `FROM 21:00` in grey on two 10-px lines (`#chip-allin.later`)
+  and `SCORE_LATER_TIP` as its title and aria-label; `min-width: calc(10ch + 18px)` ("SCORE 1000")
+  holds one width all day, so nothing in the header moves at 21:00 (`tests/score-reveal.test.js`).
+  With no par to compare the chip has its own, `#chip-allin.allin`'s `calc(13ch + 18px)`
+  ("ALL-IN 999.9c"), from its first frame.
 - **Briefing** `#briefing-goals` (≤ 60 words): "Keep the lights on, cheaply and cleanly. Your day
   is scored as one total: the cost of supply, plus $30,000 for each MWh the city goes without (the
   AER's value of customer reliability), plus $80 a tonne of CO₂ (the interim value of emissions
@@ -2636,7 +2651,9 @@ words). Otherwise the cards stay as today. Both checks use the record and params
   the earliest blue column until its room `(capMWh − socMWh) / BATT_CHARGE_EFF` is used); the line
   shows while the largest excess column is above `SURPLUS_MIN_MW`, naming the free suburb with the
   largest effective soak MW ≤ that excess (else the smallest). It always carries the full `flex`
-  action. The text says it takes the noon power the battery cannot.
+  action. The text says it takes the noon power the battery cannot. *W7 (Q1): the line asks for
+  the city's soak instead, every free suburb in one booking (`soakCity` action, SOAK THE CITY on
+  the card); the last free suburb by name with its `flex` action; app/objective.js's header.*
 - **Air-con branch:** its own branch right after `shortAhead` (unchanged: the next hour belongs to
   the battery and DR), only when `lookAhead` names no unit for the gap (a start beats air-con),
   and only for a run of the real gap at or after the suburb's `fromS` where the aimed block's

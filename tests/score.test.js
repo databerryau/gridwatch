@@ -116,7 +116,9 @@ test('Q-48: ALL-IN on seed 20261008: par $9.124M (supply 4.331 + carbon 4.793); 
 test('S-5 (Q-98): the letter comes from the gap to par in MWh-equivalents: A within 10, B 150, C 600, D beyond; the same added mistake earns the same letter on any day; the card says the rule', () => {
   assert.deepEqual(LETTERS.map(l => l[0]), ['A', 'B', 'C', 'D']);
   assert.deepEqual(LETTERS.map(l => l[1]), [10, 150, 600, Infinity]);
-  assert.match(LETTER_RULE, /^Letter: how far behind par, in MWh dark at VCR: A within 10, B within 150, C within 600, D beyond; F if the grid goes black\.$/);
+  // (W7, Q-118: each letter with its rank, as the SCORE line above it shows them)
+  assert.equal(LETTER_RULE, 'Letter: how far behind par, in MWh dark at VCR: A ★ MARG\'S CHAIR at par or better, A SHIFT SUPERVISOR within 10, ' +
+    'B SENIOR OPERATOR within 150, C SHIFT OPERATOR within 600, D TRAINEE beyond; F BLACK START CREW if the grid goes black.');
   // the same mistake (MWh dark added to par's own day) on a cheap day (20261008) and the median one (DESK seed 55)
   for (const day of [ROWS.par, MEDIAN_PAR]) {
     const par = allIn(day, 0), letter = mwh => grade(allIn(parDark(day, mwh), 0), par, false);
@@ -180,7 +182,8 @@ test('Q-48: a finished par is kept under gridwatch:v4:par and a runner for the s
   assert.equal(r.step(3000), true);
   assert.deepEqual([r.done, r.black, r.progress, r.series.length], [true, true, 1, 1]);
   const kept = st.read(PAR_KEY);
-  assert.deepEqual(Object.keys(kept), ['v', 'seed', 'scenarioId', 'score', 'series', 'black', 'log', 'minutes']); // (W3: its input log and its minutes, for D-21)
+  // (W3: its input log and its minutes, for D-21; W7, Q-119: what it had a minute each, its trips and its city bookings)
+  assert.deepEqual(Object.keys(kept), ['v', 'seed', 'scenarioId', 'score', 'series', 'black', 'log', 'minutes', 'had', 'trips', 'blocks']);
   assert.deepEqual([kept.v, kept.seed, kept.scenarioId, kept.black], [SIM_VERSION, 7, 'desk', true]);
   assert.deepEqual(kept.score, r.score);
   assert.equal(r.step(3000), true, 'a finished runner plays nothing more');

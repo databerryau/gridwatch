@@ -108,6 +108,30 @@ test('Q-18 in the game: an accepted input, or a mode change that is news (the wa
   assert.equal(game.objectiveMode, 'PAUSE');
 });
 
+test('W7 integration review: TRIP SHEDS coming or going on the N-1 gauge is news: the line is made again at once and shown inside the dwell (its GUARD ask says what the gauge says)', () => {
+  const game = game04();
+  game.phase = 'play';
+  const fresh = G.buildVm(game, {nowMs: 1000}).objective;
+  assert.notEqual(game.n1, 'TRIP SHEDS');
+  const shown = Object.assign({}, fresh, {text: 'An older line.', targets: ['knob-tie']});
+  const look = (nowMs, hz) => {
+    game.objective = shown; game.lineMs = nowMs - 100;
+    Object.assign(game.state.sec, {level: 'TIGHT', lKind: 'unit', lId: 'coal1', previewNadirHz: hz});
+    return G.buildVm(game, {nowMs});
+  };
+  // (the clock is held: the line's cadence is not due, and the line shown went up 0.1 s ago)
+  let vm = look(20000, 49.3);
+  assert.equal(vm.objective, shown, 'TIGHT: nothing new');
+  vm = look(20100, 48.9);
+  assert.equal(game.n1, 'TRIP SHEDS');
+  assert.ok(vm.objective !== shown && vm.objective === game.objectiveHeld.line, 'TRIP SHEDS: at once');
+  vm = look(20200, 49.3);
+  assert.equal(vm.objective, shown, 'the word held (desk/calc.js SHEDS_MIN_MS): nothing new');
+  vm = look(21800, 49.3);
+  assert.equal(game.n1, 'TIGHT');
+  assert.ok(vm.objective !== shown && vm.objective === game.objectiveHeld.line, 'TRIP SHEDS gone: at once');
+});
+
 test('Q-18 at FAST: a new ask to act (newAsk) ends FAST and is shown at once (one look of the line and a frame past it at most), so a "Start CCGT 2 now" runs out its deadline at CRUISE', () => {
   const guard = {kind: 'spare', level: 'act', text: 'Raise the battery GUARD to 400 MW.', action: {type: 'guard', mw: 400}};
   const start = {kind: 'commit', level: 'act', text: 'Start CCGT 2 now.', action: {type: 'start', unit: 'ccgt2'}};

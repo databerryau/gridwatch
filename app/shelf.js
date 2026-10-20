@@ -11,6 +11,7 @@
 import {DAILIES} from '../content/dailies.js';
 import {SA2016} from '../content/anniversaries.js';
 import {puzzleNumber, shortDate, LAUNCH_YMD} from './share.js';
+import {letterText} from './score.js';
 
 /** Y-2: past dailies on the shelf. */
 export const SHELF_PAST = 14;
@@ -43,9 +44,9 @@ export function hardDayOf(seed, list = DAILIES) {
   return h ? h.n : 0;
 }
 
-/** A past daily's result in a few characters: '1002 A ★', 'DNF', '' (not played). */
+/** A past daily's result in a few words: '1002 A ★ MARG'S CHAIR' (W7, Q-118: the rank), 'DNF', '' (not played). */
 export function resultText(e) {
   if (!e) return '';
   if (e.dnf) return 'DNF';
-  return e.letter ? (e.points != null ? e.points + ' ' : '') + e.letter + (e.star ? ' ★' : '') : 'played';
+  return e.letter ? (e.points != null ? e.points + ' ' : '') + letterText(e) : 'played';
 }

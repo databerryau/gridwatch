@@ -47,9 +47,10 @@ function tableAfter(md, marker) {
 
 test('Gate 2 kit: the words it quotes are the game\'s (the preview, the landing page, COPIED, the card\'s link)', () => {
   const tag = (page, p) => read(page).match(new RegExp('<meta property="' + p + '" content="([^"]*)"'))[1];
-  const title = tag('next.html', 'og:title'), desc = tag('next.html', 'og:description');
-  assert.equal(tag('index.html', 'og:title'), title);
-  assert.equal(tag('index.html', 'og:description'), desc);
+  const title = tag('index.html', 'og:title'), desc = tag('index.html', 'og:description');
+  // R-2: next.html, the old links' address, carries the same preview
+  assert.equal(tag('next.html', 'og:title'), title);
+  assert.equal(tag('next.html', 'og:description'), desc);
   assert.ok(RC.includes('"' + title + '"') && LOG.includes('"' + title + '"'), 'R-2 and the log quote og:title');
   const quoted = flat(RC).match(/the description "([^"]*?) …"/);
   assert.ok(quoted && desc.startsWith(quoted[1]), 'R-2 quotes the start of og:description');
@@ -103,8 +104,8 @@ test('Gate 2 kit: a window that grows from the landing page starts the game by i
   // app/landing.js listens for resize while it is up, and not once the game is: a game shrunk after it opened keeps the desk
   const heard = {resize: []};
   const win = (w, h) => ({innerWidth: w, innerHeight: h, matchMedia: q => ({matches: q === '(any-pointer: fine)'}),
-    location: {href: 'https://databerryau.github.io/gridwatch/next.html', search: ''}, navigator: {},
-    document: makeDocument(read('next.html')), addEventListener: (t, f) => (heard[t] ||= []).push(f),
+    location: {href: 'https://databerryau.github.io/gridwatch/index.html', search: ''}, navigator: {},
+    document: makeDocument(read('index.html')), addEventListener: (t, f) => (heard[t] ||= []).push(f),
     removeEventListener: (t, f) => { heard[t] = heard[t].filter(g => g !== f); }});
   let loads = 0;
   assert.equal(start(win(1600, 900), () => { loads++; }), 'game');

@@ -20,6 +20,7 @@ import {SCENARIOS, DESK, DESK_WEEKEND} from '../content/scenarios.js';
 import {LADDER} from '../content/ladder.js';
 import {TEXT} from '../content/text.js';
 import {openGame} from './lib/play.js';
+import {restampAdvice} from '../tools/verify.mjs';
 
 const DG = createRequire(import.meta.url)('../tools/daily-gen.js');
 const STAMP = G.dailyStamp(), DAYS = [20261214, 20270213, 20270525];
@@ -52,7 +53,7 @@ test('D-29: three dates in the calendar, each the variant of its desk scenario o
 });
 
 test('D-29: each variant is the one its date was gated under (GATED: the variant\'s scenarioHash, this build\'s stamp)', () => {
-  assert.equal(GATED.v, STAMP, 'gated under another build: run tools/daily-gen.js --dates');
+  assert.equal(GATED.v, STAMP, 'gated under another build: ' + restampAdvice(DAILIES.from, DAILIES.to));
   assert.deepEqual(Object.keys(GATED.hashes).map(Number), DAYS);
   for (const ymd of DAYS) {
     assert.equal(scenarioHash(SCENARIOS[dailyScenarioIdOf(ymd)]), GATED.hashes[ymd],
@@ -120,9 +121,9 @@ test('D-29: the help behind the tray\'s "?" says where each anniversary breaks t
   assert.ok(dense.includes('At most two unwarned trips a day, none before 09:00 or from 21:00, at least 90 real s and 60 grid-minutes apart. ' +
     'The anniversary dailies keep their real incident instead: 14 Dec (Loy Yang A3, 2017), the largest unit trips between 05:15 and 06:00; ' +
     '13 Feb (Moorabool towers, 2024), in the storm the tie is limited to 400 MW, unannounced, as the largest unit trips; ' +
-    '25 May (Callide C, 2021), Act III\'s unwarned trip takes the next largest unit with it 5 grid-minutes later.'), dense);
+    '25 May (Callide C, 2021), Act III\'s trip takes the next largest unit with it 5 grid-minutes later.'), dense);   // (W7, Q-121: the briefing announces that trip)
   assert.ok(ours('warning-leads').includes('announced at 04:00, before the clock runs. On 13 Feb (Moorabool towers, 2024), the storm limits ' +
-    'the tie with no notice (Event-dense day). Trips are never warned.'), ours('warning-leads'));
+    'the tie with no notice (Event-dense day). No trip\'s minute is ever warned'), ours('warning-leads'));
 });
 
 test('D-29: the incident draws from its own slot: the rest of the plan is the date\'s own (the late return aside: it keeps one action from it)', () => {
@@ -208,7 +209,7 @@ test('D-29: the share card carries ANNIVERSARY (the lint allows it), first of th
   p.game.state.over = true;
   p.frames(2);
   const s = p.game.end.share;
-  assert.match(s.lines[0], /^GRIDWATCH #226 · Tue 25 May · \d+ [A-F]( ★)?( · PERFECT)? · ANNIVERSARY · FIRST SHIFT · PRACTICE$/);
+  assert.match(s.lines[0], /^GRIDWATCH #226 · Tue 25 May · \d+ [A-F]( ★)? [A-Z' ]+[A-Z]( · PERFECT)? · ANNIVERSARY · FIRST SHIFT · PRACTICE$/);   // (W7, Q-118: the rank)
   assert.deepEqual(SH.lintCard(s.text), []);
   assert.equal(G.anniversaryFor(G.createGame({seed: 20270525, scenario: DESK, storage: null})), null, 'the date on another scenario is no anniversary');
   assert.equal(G.anniversaryFor(G.createGame({seed: 20261016, scenario: G.scenarioForSeed, storage: null})), null);

@@ -1,4 +1,4 @@
-// The greybox game page (next.html, app/shell.js, app/game.js, app/watch.js, app/keys.js,
+// The greybox game page (index.html, app/shell.js, app/game.js, app/watch.js, app/keys.js,
 // app/perf.js) without a browser: static rules (C-1, C-2, K-17, K-18), then the shell booted in
 // the stand-in DOM (tests/lib/dom.js) with stand-in desk / map / stack / system modules that
 // use only `actions` and `vm` as desk/README.md §4-§5 state them. The real modules arrive in
@@ -35,16 +35,16 @@ import * as suburbCard from '../app/suburbcard.js';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const TPS = V.TICKS_PER_S;
 // What #objective shows (a line of LINE_MAX_CHARS with the paused note or the ARMED prompt) wraps to
-// at most two rows at 1280 px: the expanded Live Stack ends above two (next.html, C18). Measured in
+// at most two rows at 1280 px: the expanded Live Stack ends above two (index.html, C18). Measured in
 // the browser at 1280x768: 300 characters of capitals take two rows (385 of the line's own words).
 const SHOWN_MAX_CHARS = 300;
-const NEXT = readFileSync(join(ROOT, 'next.html'), 'utf8');
+const NEXT = readFileSync(join(ROOT, 'index.html'), 'utf8');
 const BENCH = readFileSync(join(ROOT, 'bench.html'), 'utf8');
 
 // ------------------------------------------------------------------ static
 
 test('C-2 / C-1: both pages start with the charset meta, load one ES module each, and name no other origin', () => {
-  for (const [name, html, entry] of [['next.html', NEXT, 'app/start.js'], ['bench.html', BENCH, 'app/bench-boot.js']]) {   // (W6, Y-8: next.html's entry loads app/boot.js, or the landing page)
+  for (const [name, html, entry] of [['index.html', NEXT, 'app/start.js'], ['bench.html', BENCH, 'app/bench-boot.js']]) {   // (W6, Y-8: index.html's entry loads app/boot.js, or the landing page)
     assert.match(html, /^<!doctype html>\s*<meta charset="utf-8">/i, name);
     const scripts = [...html.matchAll(/<script\b([^>]*)>/g)].map(m => m[1].trim());
     assert.deepEqual(scripts, ['type="module" src="' + entry + '"'], name);
@@ -53,16 +53,16 @@ test('C-2 / C-1: both pages start with the charset meta, load one ES module each
     }
     assert.ok(!/@import|url\(\s*['"]?https?:/i.test(html), name + ': no remote CSS');
   }
-  assert.match(NEXT, /<link rel="stylesheet" href="desk\/desk.css">/, 'next.html links the desk styles');
+  assert.match(NEXT, /<link rel="stylesheet" href="desk\/desk.css">/, 'index.html links the desk styles');
 });
 
-test('K-18: none of the removed elements\' ids remain in next.html', () => {
+test('K-18: none of the removed elements\' ids remain in index.html', () => {
   const removed = ['selP', 'strip', 'hPnl', 'hPrice', 'hRes', 'hIn', 'cvD', 'cvF', 'cvG', 'cvM', 'mkt', 'mPrice', 'log', 'logP', 'crt', 'dock',
     // the bench's charts and panels (A-5: they stay on bench.html)
     'c-live', 'c-fday', 'c-demand', 'c-price', 'freq-live-wrap', 'freq-day-wrap', 'demand-chart', 'price-chart', 'event-log', 'log-list',
     'stations-panel', 'security-panel', 'news-panel', 'cont-panel', 'scorecard', 'fos-panel', 'speed', 'assist-select'];
   const ids = [...NEXT.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
-  for (const id of removed) assert.ok(!ids.includes(id), 'next.html still has #' + id);
+  for (const id of removed) assert.ok(!ids.includes(id), 'index.html still has #' + id);
   for (const id of ['clock', 'rate-badge', 'chip-lights', 'chip-cost', 'chip-co2', 'btn-pause', 'btn-help', 'map', 'desk', 'respond-card',
     'watch-vignette', 'stopwatch', 'end-card', 'drawer', 'perf', 'stack-overlay', 'briefing-card',
     // Phase 1b (desk/README.md §14.4): the settings popover and the live region
@@ -177,7 +177,7 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   assert.equal(h.game.state.tick, 0, 'paused behind the briefing');
   for (const name of ['map', 'desk', 'stack']) {
     const a = mods.seen[name + 'Actions'];
-    assert.deepEqual(Object.keys(a).sort(), ['input', 'previewTrip', 'redispatch', 'restorePreview', 'ui'], name);
+    assert.deepEqual(Object.keys(a).sort(), ['input', 'previewTrip', 'redispatch', 'restorePreview', 'soakCity', 'ui'], name);   // (W7 Q1: SOAK THE CITY)
     assert.ok(mods.seen[name].length >= 2, name + ' updated each frame');
   }
   assert.equal(mods.seen.stack.length, mods.seen.desk.length);
@@ -186,7 +186,7 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   for (const k of VM_KEYS) assert.ok(k in vm, 'vm.' + k);
   assert.deepEqual(Object.keys(vm.mode).sort(), ['act', 'canSkip', 'locked', 'mode', 'night', 'rate', 'segment', 'watchS', 'watchVersion']);
   assert.ok(vm.glow instanceof Set);
-  assert.equal(vm.alarms.tiles.length, 12);
+  assert.equal(vm.alarms.tiles.length, 8, 'W7 Q3: eight tiles');
   assert.equal(vm.hist.freq.length, G.HIST_FREQ_S);
   assert.deepEqual(Object.keys(vm.hist.stations), [...V.STATION_IDS, 'wind', 'solar', 'tie', 'battery', 'rert', 'dr']);
   assert.equal(mods.seen.desk.at(-1), mods.seen.map.at(-1), 'every module reads the same vm');
@@ -579,8 +579,16 @@ test('F-6 / C-3 via the shell: the day ends with the end card; its replay log re
   assert.equal($('briefing-card').hidden, false);
 });
 
-test('K-12 offers (A-4, Q-78): offered only in D-5\'s window, at TIGHT or worse, or in the Peak; tight and peak share one a day', () => {
+test('K-12 offers (A-4, Q-78): offered only in D-5\'s window, at TIGHT or worse, or in the Peak; tight and peak share one a day; W7 (Q-115): on HAND days only', () => {
+  // an AGC day: units at full speed at TIGHT are offered nothing (the auto-synchroniser closes them)
+  const agc = G.createGame({seed: 7, storage: null});
+  G.takeDesk(agc);
+  for (const u of agc.state.units.filter(x => x.mode === 'off').slice(0, 5)) u.mode = 'ready';
+  agc.state.sec.level = 'TIGHT';
+  const va = G.buildVm(agc, {nowMs: 1});
+  assert.deepEqual([va.offers, agc.tally.n, va.glow.has('bay-sync')], [[], 0, false], 'AGC: nothing offered');
   const game = G.createGame({seed: 7, storage: null});
+  assert.equal(G.sendInput(game, {type: 'mode', agc: false}), '');   // HAND (the briefing's choice)
   G.takeDesk(game);
   const vm0 = G.buildVm(game, {nowMs: 0});
   assert.deepEqual(vm0.offers, []);
@@ -1006,7 +1014,7 @@ test('C-2 at boot: a seed that reads as a Saturday or Sunday plays desk-weekend;
   const d = boot('?seed=7', {scenario: G.scenarioForSeed});
   d.frames(2);
   assert.equal(d.h.game.scenario.id, 'desk');
-  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday, no heatwave forecast.'); // (2c, Q-80: a planned day's heat is news at 04:00, and seed 7 has none)
+  assert.equal(d.$('briefing-day').textContent, 'Today: a hot weekday, no heatwave forecast. Expect a trip during the evening peak.'); // (2c, Q-80: a planned day's heat is news at 04:00, and seed 7 has none; W7, Q-121: its plan has the evening trip)
   assert.equal(dayText({temp: 'HOT', weekend: false}, {heat: true}), 'Today: a hot weekday, heatwave this afternoon.');
   // PLAY AGAIN asks the function again (the same seed: the same scenario)
   G.resetDay(w.h.game);
@@ -1222,7 +1230,7 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   h.game.state.hydro.storageMWh = 0.2 * V.HYDRO_ALLOCATION_MWH;
   advance(2500);
   frames(2, g2);
-  assert.equal($('aria-live').textContent, 'Alarm: STORAGE LOW, P2');
+  assert.equal($('aria-live').textContent, 'Alarm: LOW STORAGE, P2');
   // The header's own controls say what they are and which key reaches them.
   for (const [id, keys] of [['btn-pause', 'Space'], ['btn-mute', 'Shift+M'], ['btn-settings', ','], ['btn-help', '?']]) {
     assert.equal($(id).getAttribute('aria-keyshortcuts'), keys, '#' + id);
@@ -1231,7 +1239,7 @@ test('K-23 live region (shell): #aria-live is a polite status region that mirror
   assert.equal($('rate-badge').getAttribute('role'), null, 'the badge is mirrored by #aria-live, not announced every frame');
 });
 
-test('app/boot.js boots next.html with the real stage B modules', async () => {
+test('app/boot.js boots index.html with the real stage B modules', async () => {
   for (const f of ['desk/desk.js', 'render/livestack.js', 'render/map.js', 'app/system.js', 'app/planview.js']) {
     assert.ok(existsSync(join(ROOT, f)), f + ' is not merged yet');
   }

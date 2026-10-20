@@ -8,8 +8,8 @@
 //   anchorId  the id of the bench element the "?" sits next to (bench.html); entries whose
 //             element the bench does not have carry ui: 'drawer' and show only in the bench's
 //             abstractions drawer (H-14: "the same text is in the manual drawer")
-//   game      the id of the game element the "?" sits next to (next.html): a desk/stack/map
-//             control id from desk/README.md §5, or a next.html element; 'drawer' = drawer only
+//   game      the id of the game element the "?" sits next to (index.html): a desk/stack/map
+//             control id from desk/README.md §5, or an index.html element; 'drawer' = drawer only
 //   real      what the real world does
 //   ours      what GRIDWATCH does, BUILT from sim/params.js (and the scenario / director)
 //             values, never a copied number, so tuning a value retunes the text
@@ -22,10 +22,10 @@ import {P, V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from './scenarios.js';
 import {ANNIVERSARIES} from './anniversaries.js';
 import {SEGMENTS, gridBefore} from '../sim/clock.js';
-import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE} from '../app/director.js';
+import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE, FOCUS_RATE, RESTORE_FOCUS_S, RESTORE_FOCUS_MAX_S} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
 import {HORN_REPEAT_S} from '../app/alarms.js';
-import {LETTERS} from '../app/score.js';
+import {LETTERS, RANKS} from '../app/score.js';
 
 // ------------------------------------------------------------------ formatting
 
@@ -90,7 +90,7 @@ const ACT_NAMES = ['I', 'II', 'III'], MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr',
 const annivs = Object.entries(ANNIVERSARIES).map(([d, a]) => ({
   on: num(+d % 100) + ' ' + MONTH_NAMES[Math.floor(+d / 100) % 100 - 1] + ' (' + a.name + ', ' + a.year + ')', i: a.overrides.dayplan.incident}));
 const incidentText = i => (i.early ? 'the largest unit trips between ' + hhmm(i.early.windowH[0]) + ' and ' + hhmm(i.early.windowH[1])
-  : i.follow ? 'Act ' + ACT_NAMES[i.follow.act - 1] + '\'s unwarned trip takes the next largest unit with it ' + minutes(i.follow.afterS) + ' grid-minutes later'
+  : i.follow ? 'Act ' + ACT_NAMES[i.follow.act - 1] + '\'s trip takes the next largest unit with it ' + minutes(i.follow.afterS) + ' grid-minutes later'
     : 'in the storm the tie is limited to ' + num(i.towers.limitMW) + ' MW, unannounced, as the largest unit trips');
 const ANNIV_RULES = 'The anniversary dailies keep their real incident instead: ' + annivs.map(x => x.on + ', ' + incidentText(x.i)).join('; ') + '.';
 const towersOn = annivs.filter(x => x.i.towers).map(x => x.on);
@@ -126,7 +126,9 @@ const ABSTRACTIONS = [
       ' in HAND, which multiplies the profile\'s speeds before ' + hhmm(NIGHT_H) + ' by ' + num(V.HAND_RATE_FACTOR) + ', CRUISE and FAST with ' +
       'them; the watch, RESPOND and SYNC keep their speeds). The first ' + num(V.WATCH_S) +
       ' grid-seconds after a trip play live at ' + rates.join(' → ') + ' (the watch); its card holds the clock, as a repaired feeder\'s does; RESPOND runs ' +
-      num(RESPOND_RATE) + '× until frequency is back in band, for at most ' + minutes(RESPOND_MAX_S) + ' grid-minutes; FAST runs ' +
+      num(RESPOND_RATE) + '× until frequency is back in band, for at most ' + minutes(RESPOND_MAX_S) + ' grid-minutes; a feeder you close ' +
+      'plays ' + num(FOCUS_RATE) + '× until its pickup\'s dip is back in band, for ' + num(RESTORE_FOCUS_S) + ' to ' + num(RESTORE_FOCUS_MAX_S) +
+      ' grid-seconds; FAST runs ' +
       num(FAST_FACTOR) + ' × the profile. The bench cruises at a flat ' + num(FLAT_RATE) + '×. Pause is free.',
     why: 'A day in minutes with honest physics: slowest at the peak, where the decisions are, fastest in the night, where none are asked.',
     params: ['PHYS_DT', 'REF_PROFILE', 'CLOCK_SEGMENT_NAMES', 'CLOCK_EASE_REAL_S', 'PLAYER_START_H', 'HAND_RATE_FACTOR', 'WATCH_S'],
@@ -141,7 +143,8 @@ const ABSTRACTIONS = [
       '% of those days), a trip of the largest unit (' + pct(a2.mix.unit) + '%), the smelter (' + pct(a2.mix.smelter) + '%) or the tie (' +
       pct(a2.mix.tie) + '%); under one, a unit, the smelter or the tie. Act III has one: a heatwave on ' + pct(DESK.weather.heatShare) +
       '% of days, a storm on ' + pct(DESK.weather.stormShare) + '%, a wind drought on ' + pct(DESK.weather.droughtShare) + '%, otherwise a ' +
-      'calm evening; most evenings without a storm also bring an unwarned trip of the largest unit, and a storm may trip the tie. ' +
+      'calm evening; every evening without a storm also brings a trip of the largest unit, announced in the briefing but never its ' +
+      'minute, and a storm may trip the tie. ' +
       'At most two unwarned trips a day, none before ' + hhmm(a2.windowH[0]) +
       ' or from ' + hhmm(NIGHT_H) + ', at least ' + num(V.SPACING_REAL_S) + ' real s and ' + minutes(V.SPACING_GRID_S) + ' grid-minutes ' +
       'apart. ' + ANNIV_RULES + ' A tripped machine is locked out for ' + num(a3.trip.lockoutMin[0]) + '–' + num(a3.trip.lockoutMin[1]) + ' min, then may hot-start at once: minimum down time (' + num(coal.minDownH) +
@@ -215,11 +218,11 @@ const ABSTRACTIONS = [
     game: 'annunciator',
     real: 'A control room gives each alarm one priority; a value that keeps getting worse raises a second, more urgent ' +
       'alarm at a further limit.',
-    ours: 'UNDER FREQ and OVER FREQ are warnings with one chime, set outside the normal band (' + hz(V.NORMAL_LO_HZ) + '–' +
+    ours: 'LOW FREQ and HIGH FREQ are warnings with one chime, set outside the normal band (' + hz(V.NORMAL_LO_HZ) + '–' +
       hz(V.NORMAL_HI_HZ) + ' Hz). While frequency is outside the containment band (' + hz(V.CONTAIN_LO_HZ) + '–' +
       hz(V.CONTAIN_HI_HZ) + ' Hz) the same tile is escalated: it shows as top priority and sounds the horn every ' +
       num(HORN_REPEAT_S) + ' s until SILENCE or ACK. In the night roll (from ' + hhmm(NIGHT_H) + ') the horn and the chimes are quiet.',
-    why: 'One tile per quantity fits a twelve-tile panel, and the horn is kept for real trouble.',
+    why: 'One tile per quantity fits an eight-tile panel, and the horn is kept for real trouble.',
     params: ['NORMAL_LO_HZ', 'NORMAL_HI_HZ', 'CONTAIN_LO_HZ', 'CONTAIN_HI_HZ'],
   },
   {
@@ -345,7 +348,8 @@ const ABSTRACTIONS = [
       'biggest risk (L) and a TRIP PREVIEW nadir of at least ' + hz(V.SECURE_NADIR_HZ) + ' Hz plus a ' +
       num(V.PREVIEW_MARGIN_HZ) + ' Hz margin for losing L (plus ' + num(V.PREVIEW_AGE_MARGIN_HZ_S) + ' Hz for each grid-second ' +
       'of the preview\'s age; it is re-run at least every ' + num(V.PREVIEW_REFRESH_S) + ' grid-seconds and whenever frequency ' +
-      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L; SHORT is R5 < L; SHEDDING while UFLS or directed shedding has load ' +
+      'moves ' + num(V.PREVIEW_F_TOL_HZ) + ' Hz); TIGHT is R5 ≥ L, and the desk calls it TRIP SHEDS while the preview is below the ' +
+      'first UFLS stage (' + V.UFLS_FIRST_HZ.toFixed(1) + ' Hz): the spare is there but too slow; SHORT is R5 < L; SHEDDING while UFLS or directed shedding has load ' +
       'off: a feeder under repair, or handed back and not yet closed, is never SHEDDING. SECURE ' +
       'previews the loss of supply, not of load: losing the potline or the export at midday is not on this gauge.',
     why: 'One gauge. The margin covers what a preview with frozen schedules cannot see (demand wobble, AGC and ramps), ' +
@@ -353,7 +357,7 @@ const ABSTRACTIONS = [
       'preview runs for both credible contingencies, the largest unit and the tie import (N-1), and BIGGEST RISK names ' +
       'the one whose loss would dip deeper: a unit of nearly the tie\'s size also takes its inertia and governor with it.',
     params: ['R5_WINDOW_MIN', 'SECURE_RATIO', 'SECURE_NADIR_HZ', 'PREVIEW_MARGIN_HZ', 'PREVIEW_AGE_MARGIN_HZ_S', 'PREVIEW_REFRESH_S',
-      'PREVIEW_F_TOL_HZ'],
+      'PREVIEW_F_TOL_HZ', 'UFLS_FIRST_HZ'],
   },
   {
     id: 'ufls-blocks', row: 'UFLS: 8 × 6% blocks from 49.0 Hz in 0.125 Hz steps.', anchorId: 'ufls-strip', game: 'annunciator',
@@ -458,8 +462,8 @@ const ABSTRACTIONS = [
       'offers first. Rooftop solar is curtailed last, by the emergency backstop.',
     ours: 'When the units at minimum load plus wind and utility solar exceed demand, with the tie and the battery as you ' +
       'have set them, the dispatch holds back that much wind and utility solar every grid second, each in proportion to its ' +
-      'output. The Live Stack shows a spill ahead as SURPLUS from ' + num(V.SURPLUS_MIN_MW) + ' MW, and MIN GEN lights while ' +
-      'it lasts. Rooftop solar is never curtailed: the backstop is not on this desk yet.',
+      'output. The Live Stack shows a spill ahead as SURPLUS from ' + num(V.SURPLUS_MIN_MW) + ' MW (no alarm: the dispatch keeps ' +
+      'the grid safe by itself; shrinking the spill is a saving, not an emergency). Rooftop solar is never curtailed: the backstop is not on this desk yet.',
     why: 'Without it a sunny mild weekend ran away to 52 Hz. With it a surplus costs the energy spilled, and shrinking it ' +
       'is yours: charge the battery, export, or stop a unit.',
     params: ['SURPLUS_MIN_MW'],
@@ -541,7 +545,8 @@ const ABSTRACTIONS = [
       'hot-water trial, and about 13% of thermostats are overridden in an air-con event, more as events run longer.',
     ours: 'Industrial DR: ' + num(V.DR_MW) + ' MW for ' + minutes(V.DR_DURATION_S) + ' min at ' + usd(V.DR_PRICE) + '/MWh, ' +
       num(V.DR_CALLS) + ' calls a day, shedding and returning at ' + num(V.DR_RAMP_MW_MIN) + ' MW/min. Each suburb\'s card ' +
-      '(click it, or H) books its HOT WATER SOAK (' + num(sumOf('soakMW')) + ' MW across the city, every day, no payment) and, ' +
+      '(click it, or H) books its HOT WATER SOAK (' + num(sumOf('soakMW')) + ' MW across the city, every day, no payment; SOAK THE ' +
+      'CITY books every free suburb\'s at once) and, ' +
       'on hot days, its AIR-CON CYCLE (' + num(sumOf('airconMW')) + ' MW, ' + usd(V.AIRCON_PRICE) + '/MWh relieved). A cycle ' +
       'costs the suburb ' + num(V.PATIENCE_AIRCON) + ' patience, ' + num(V.PATIENCE_REPEAT) + ' more for each cycle it has ' +
       'booked; a soak costs none. Below ' + num(V.PATIENCE_FULL) + ' a suburb responds less (at ' + num(V.PATIENCE_FULL - 10) +
@@ -556,7 +561,8 @@ const ABSTRACTIONS = [
     // 2b (Q-52): the card's "?" beside HOT WATER SOAK (app/suburbcard.js LEVERS.soak.row).
     id: 'hot-water-soak', row: 'A hot-water soak moves that night\'s heating to noon.', anchorId: 'hot-water-soak', ui: 'drawer',
     game: 'drawer',
-    real: 'Networks switch controlled-load hot water by relay. South Australia\'s solar sponge heated tanks 10:00–15:00 ' +
+    real: 'Networks switch controlled-load hot water by relay: a ripple-control signal sent down the network switches every ' +
+      'receiver on its channel at once. South Australia\'s solar sponge heated tanks 10:00–15:00 ' +
       '(09:30–16:30 from 1 July 2025), and Sydney\'s and western Victoria\'s networks moved controlled load into the day in ' +
       '2024–25. AEMO calls on controlled load at MSL3, and networks turn hot water on in minimum-demand events.',
     ours: 'One block a suburb a day: its soak MW (' + num(sumOf('soakMW')) + ' MW across the city) for ' + num(V.SOAK_S / V.S_PER_H) +
@@ -670,7 +676,9 @@ const ABSTRACTIONS = [
       'yours, par being GRIDWATCH\'s own autopilot on the same day: 1000 is par, more beats it, and a black day scores 0 (F). ' +
       'The letter comes from how far your ALL-IN is behind par\'s, in MWh dark at VCR: ' +
       LETTERS.slice(0, -1).map(l => l[0] + ' within ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
-      ' beyond, so the same mistake earns the same letter on any day. Through the day the chip compares you with par at the same grid time. ALL-IN is the day\'s cost to the ' +
+      ' beyond, so the same mistake earns the same letter on any day. Each letter has its rank: ' +
+      ['D', 'C', 'B', 'A'].map(l => l + ' ' + RANKS[l]).join(', ') + ', and A ★ (par or better) ' + RANKS['A★'] + '; a black grid\'s F is ' +
+      RANKS.F + '. From 21:00, when the night shift takes the desk, the chip compares you with par at the same grid time; before then it shows no number. ALL-IN is the day\'s cost to the ' +
       'community, not a price or a bill.',
     why: 'One currency is how regulators trade the three goals off, so the score teaches the real trade: an MWh dark weighs ' +
       'as much as ' + num(V.VCR / V.VER) + ' priced tonnes of CO₂. Dividing par\'s total by yours is GRIDWATCH\'s own rule; it ' +
@@ -705,7 +713,9 @@ const ABSTRACTIONS = [
       'neighbour\'s; the end card also shows the tonnes your plants emitted.',
     why: 'Charging the tonnes emitted would make shedding and importing look clean (dark load and the neighbour\'s plants ' +
       'emit nothing here). Intensity × the energy asked for leaves a cleaner mix the only way down: shedding barely moves ' +
-      'it, and importing lowers it only through the mix you run.',
+      'it, and importing lowers it only through the mix you run. At ' + usd(V.VER) + ' a tonne coal and the CCGT cost about the ' +
+      'same, so carbon seldom flips a choice: taking coal off through noon saves its tonnes but buys gas for the evening, ' +
+      'and almost never pays. The line\'s STOP savings count the tonnes too.',
     params: ['VER'],
   },
   {
@@ -788,7 +798,8 @@ const ABSTRACTIONS = [
     ours: 'A weather warning in play comes at the latest whole minute that leaves at least ' + num(V.LEAD_REAL_S) + ' real seconds ' +
       'before its onset on the clock you play: about ' + num(Math.min(...leads)) + '–' + num(Math.max(...leads)) + ' grid-minutes ' +
       'ahead. A pause or a watch only adds to it, and the warning ends FAST. The heatwave, the tie limit, a late return and the ' +
-      'feeders\' repair times are announced at ' + hhmm(V.DAY_START_H) + ', before the clock runs.' + ANNIV_TIE + ' Trips are never warned.',
+      'feeders\' repair times are announced at ' + hhmm(V.DAY_START_H) + ', before the clock runs.' + ANNIV_TIE + ' No trip\'s minute is ' +
+      'ever warned: the briefing says only whether the evening peak brings one.',
     why: 'Hours of grid time pass in seconds of yours: the lead is sized to the time you need to read the card and act, not to ' +
       'the Bureau\'s.',
     params: ['LEAD_REAL_S'],
@@ -827,10 +838,12 @@ const ABSTRACTIONS = [
   {
     id: 'offer-pace', row: 'An offered SYNC runs at 30×.', anchorId: 'offer-pace', ui: 'drawer', game: 'bay-sync',
     real: 'Synchronising is mostly automatic, at the power station: nobody slows the grid to watch a breaker close.',
-    ours: 'When the desk offers you a unit\'s synchroscope (after a trip, while spare is tight or in the evening peak; a few a day, ' +
-      'none from ' + hhmm(NIGHT_H) + ') the clock plays at ' + num(OFFER_RATE) + '× while the unit waits at full speed, for at most ' +
-      'the ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes our auto-synchroniser takes (' + num(V.AUTO_SYNC_S / OFFER_RATE) +
-      ' real s): the badge reads SYNC. O opens the scope; the breaker closing ends it. FAST waits for it.',
+    ours: 'On a HAND day, when the desk offers you a unit\'s synchroscope (after a trip, while spare is tight or in the evening ' +
+      'peak; a few a day, none from ' + hhmm(NIGHT_H) + ') the clock plays at ' + num(OFFER_RATE) + '× while the unit waits at full ' +
+      'speed, for at most the ' + minutes(V.AUTO_SYNC_S) + ' grid-minutes our auto-synchroniser would take (' + num(V.AUTO_SYNC_S / OFFER_RATE) +
+      ' real s): the badge reads SYNC. O opens the scope; the breaker closing ends it. FAST waits for it. On an AGC day nothing is ' +
+      'offered: the auto-synchroniser closes the breaker, and while a unit waits at full speed O or its station\'s START ' +
+      'still opens its scope.',
     why: 'At the profile\'s speeds an offer lived under half a real second: the synchroscope moment needs time to be seen and taken.',
     params: ['AUTO_SYNC_S'],
   },

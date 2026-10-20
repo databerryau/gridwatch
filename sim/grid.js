@@ -43,6 +43,7 @@ import * as fleet from './fleet.js';
 import {previewTrip} from './physics.js';
 import {STREAM, uniform} from './rng.js';
 import {hhmm} from './clock.js';
+import * as onat from './onat.js';
 
 // ------------------------------------------------------------------ constants (hoisted)
 
@@ -211,7 +212,7 @@ function stepUnit(state, i, out) {
       if (u.timerS <= 0) {
         u.mode = 'ready';
         const auto = state.control.mode === 'AGC';
-        u.timerS = auto ? AUTO_SYNC_S : 0;
+        u.timerS = onat.syncWaitS(state.control.mode);
         seedSlip(state, i);
         log(state, out, 'info', 'UNIT_READY', nameOf(i) + ' at full speed: ' +
           (auto ? 'auto-sync in ' + minutes(AUTO_SYNC_S) + ' min (or SYNC now).' : 'ready to synchronise (HAND: manual SYNC).'));
@@ -1430,25 +1431,22 @@ const bookingOf = (list, unit) => { for (const b of list) if (b.unit === unit) r
 /** The second a booked START runs: its atS, or its unit's return from an outage (Q-68). */
 const startDueS = (state, b) => Math.max(b.atS, state.units[fleet.unitIndex(b.unit)].outUntilS);
 
-/** Seconds from START to MIN for machine i now (auto-sync counted in AGC mode only; HAND closes by hand). */
-const startToMinS = (state, i) => M[i].t1S + (state.control.mode === 'AGC' ? AUTO_SYNC_S : 0) + M[i].t2S;
+/** Seconds from START to MIN for machine i now (W7 Q6: sim/onat.js, auto-sync counted in AGC mode only; HAND closes by hand). */
+const startToMinS = (state, i) => onat.startToMinS(M[i], state.control.mode);
 
-/** The grid second machine i is (or will be) 'on', from its mode and its booked start; -1 if not coming. */
+/** The grid second machine i is (or will be) 'on', from its mode (sim/onat.js, the scope's unit closed by hand) and its booked start; -1 if not coming. */
 function onAtS(state, i, s) {
-  const u = state.units[i], m = M[i], auto = state.control.mode === 'AGC';
-  switch (u.mode) {
-    case 'on': return s;
-    case 'loading': return s + u.timerS;
-    case 'ready': return s + (auto && state.scope.unit !== u.id ? u.timerS : 0) + m.t2S;
-    case 'starting': return s + u.timerS + (auto ? AUTO_SYNC_S : 0) + m.t2S;
-    default: {
-      const b = bookingOf(state.plan.starts, u.id);
-      return b ? startDueS(state, b) + startToMinS(state, i) : -1;
-    }
-  }
+  const u = state.units[i], d = onat.onInS(u, M[i], state.control.mode, state.scope.unit === u.id);
+  if (d >= 0) return s + d;
+  const b = bookingOf(state.plan.starts, u.id);
+  return b ? startDueS(state, b) + startToMinS(state, i) : -1;
 }
 
-/** The earliest grid second >= s machine i (off or tripped) could START, or -1 (no water). */
+/**
+ * The earliest grid second >= s machine i (off or tripped) could START, or -1 (no water). W7 Q6: its own rule, not sim/onat.js
+ * startFromS: it reads why the unit is down from state (downWhy: a trip has no minimum down time), which an observe() row does
+ * not say (startFromS counts the minimum down time under an outage either way).
+ */
 function startFreeAt(state, i, s) {
   const u = state.units[i], m = M[i];
   if (m.station === 'hydro' && state.hydro.storageMWh <= HYDRO_STOP_MWH) return -1;
@@ -1779,7 +1777,7 @@ function reverseTrip(state, i, out) {
   u.schedMW = 0; u.agcTrimMW = 0; u.hotS = 0; u.revTripS = 0; u.kickMW = 0;
   fleet.setBasePoint(state, i, 0); // not 'on': 0, and the lever loses it if it had reached 'on' (hydro)
   fleet.setSync(state, i, false, 'trip');
-  u.timerS = state.control.mode === 'AGC' ? AUTO_SYNC_S : 0;
+  u.timerS = onat.syncWaitS(state.control.mode);
   seedSlip(state, i);
   out.push({tick: state.tick, kind: 'breaker', unit: u.id, closed: false, why: 'trip', cue: 'breaker'});
   log(state, out, 'warn', 'SYNC_REVERSE_TRIP', nameOf(i) + ': reverse-power trip. Back at full speed, ready to synchronise again.');

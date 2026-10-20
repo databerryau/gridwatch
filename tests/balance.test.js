@@ -18,6 +18,7 @@ import {DESK} from '../content/scenarios.js';
 import {withoutTask} from './lib/sim-helpers.js';
 import {imbalanceSegments} from '../desk/calc.js';
 import * as D from '../desk/dial.js';
+import {TILES} from '../app/alarms.js';
 
 const CSS = readFileSync(new URL('../desk/desk.css', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S;
@@ -409,7 +410,11 @@ test('a new day starts the bar afresh (BB-2): its word, its held scale and its t
 
 // ---------------------------------------------------------------- the foot: SHED, who, AGC
 
-test('the foot: SHED, then who carries the gap (one beside SHED), then "! AGC limit" in words, at the word\'s thresholds and never for a few MW (BB-3, BB-4, BB-5)', () => {
+test('the foot: SHED, then who carries the gap (one beside SHED), then "! AT LIMIT" in words, at the word\'s thresholds and never for a few MW (BB-3, BB-4, BB-5)', () => {
+  // W7 Q3 review: the UNITS AT LIMIT tile's GO TO lands on this bar, so its flag says the tile's words, not "AGC limit"
+  const tile = TILES.find(t => t.id === 'agcLimit');
+  assert.equal(tile.target, 'bar-imbalance');
+  assert.ok(tile.label.endsWith('AT LIMIT'), tile.label);
   const at = (i, unmetMW, shortMW = 0, over) => Object.assign(shortAt(i, shortMW), {agc: {unmetMW}}, over);
   const note = m => m.$('.dk-imb-agc');
   // a weekend noon: AGC's lowering flickers a few MW at its limit (−5 … −13): no note under BALANCED
@@ -428,7 +433,7 @@ test('the foot: SHED, then who carries the gap (one beside SHED), then "! AGC li
   const seen = [];
   for (let i = 300; i < 480; i++) { m.frame(vmOf(at(i, i % 3 ? 60 : 0, 60))); seen.push(note(m).hidden); }
   assert.equal(m.head(), 'SHORT 60 MW');
-  assert.equal(note(m).textContent, '! AGC limit');
+  assert.equal(note(m).textContent, '! AT LIMIT');
   const from = seen.indexOf(false);
   assert.ok(from >= 0 && from < 60 && seen.slice(from).every(h => !h), 'shown from frame ' + from + ', then held');
   // gone within about a second once AGC has room again
@@ -439,7 +444,7 @@ test('the foot: SHED, then who carries the gap (one beside SHED), then "! AGC li
   const s = mountBar();
   for (let i = 0; i < 300; i++) s.frame(vmOf(at(i, 260, 100, {demand: Object.assign({}, FIX.cruise[0].demand, {unservedMW: 495})})));
   assert.equal(s.head(), 'SHORT 100 MW');
-  assert.deepEqual(s.foot(), ['✕ SHED 495 MW', 'held up by governors 90', '! AGC limit']);
+  assert.deepEqual(s.foot(), ['✕ SHED 495 MW', 'held up by governors 90', '! AT LIMIT']);
   assert.deepEqual(s.$('.dk-imb-foot').querySelectorAll('span').map(e => e.className), ['dk-imb-l', 'dk-imb-shed', 'dk-imb-who', 'dk-imb-agc']);
   assert.ok(!s.$('.dk-imb-foot').textContent.includes('+'));
   // what does not fit drops whole to a hidden second line, the AGC note first (the carriers give way only beside SHED)
@@ -591,7 +596,7 @@ test('the bar\'s \'?\' (q-imb) explains it as help (an info note), the trend and
   assert.equal(q.getAttribute('aria-label'), 'What the balance bar means');
   assert.match(q.title, /^Supply minus demand, averaged over about a second\. BALANCED: within 25 MW\. SHORT: /);
   // the trend in two plain sentences: one column a grid minute, now at the right, red below the middle line short, blue above surplus
-  assert.match(q.title, /AGC limit: the running units have no room left\. Between trips, one column per grid minute, the newest on the right: red below the middle line is short, blue above it is surplus\./);
+  assert.match(q.title, /AT LIMIT: the running units have no room left \(the UNITS AT LIMIT alarm\)\. Between trips, one column per grid minute, the newest on the right: red below the middle line is short, blue above it is surplus\./);
   // ... and the middle line is drawn: across the trend, at half its height
   assert.match(CSS, /\.dk-imb-trend \{[^}]*background: linear-gradient\(var\(--dk-dim\), var\(--dk-dim\)\) 0 50% \/ 100% 1px no-repeat; \}/);
   q.click();

@@ -97,8 +97,8 @@ test('C: LEAVE RED7 DARK leaves it dark, never held again; RED5 brings its own c
   assert.deepEqual(p.h.mods.errors, []);
 });
 
-test('the card\'s face: blue (the refusal alone red, the lamp amber), over the map, off the stack when it is out (next.html)', () => {
-  const css = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+test('the card\'s face: blue (the refusal alone red, the lamp amber), over the map, off the stack when it is out (index.html)', () => {
+  const css = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(css, /#feeder-card \{ top: calc\(var\(--hdr\) \+ 60px\); width: 560px; border-color: var\(--blue\);/);
   assert.match(css, /body\.stack-out #feeder-card \{ top: auto; bottom: 8px; left: 8px; transform: none; \}/);
   assert.match(css, /#feeder-card p\.hint \{[^}]*color: var\(--blue\)/);

@@ -10,6 +10,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {V} from '../sim/params.js';
+import {startToMinS} from '../sim/onat.js';
 import * as PV from '../app/planview.js';
 import {makeDocument} from './lib/dom.js';
 import {dayVm, baseVm} from './lib/vm-fixture.js';
@@ -117,7 +118,9 @@ test('L-4: an infeasible drop shows the earliest-arrival ghost, is not sent, and
   stack.update(vm);
   const gh = stack.debug.ghosts.find(g => g.station === 'gtb');
   assert.ok(gh, 'GT·B off: its ghost sits at its earliest-start line');
-  assert.ok(gh.atS >= vm.obs.s + 720);
+  // (W7 Q6: START to MIN on this HAND morning, 8 min: no auto-sync wait in HAND, sim/onat.js)
+  const lead = startToMinS(V.MACHINES.find(m => m.id === gh.unit), vm.obs.mode);
+  assert.ok(gh.atS >= vm.obs.s + lead);
   // grab GT·B's ghost and drop its START before the line
   at(cv, 'pointerdown', gh.x + 2, gh.y + gh.h / 2);
   at(cv, 'pointermove', stack.debug.geom.x(vm.obs.s) + 1, gh.y + gh.h / 2);
@@ -130,7 +133,7 @@ test('L-4: an infeasible drop shows the earliest-arrival ghost, is not sent, and
   const g = stack.debug.lastDrop;
   assert.deepEqual(sent, g.ghost.inputs);
   assert.equal(sent[0].type, 'planStart');
-  assert.ok(sent[0].atS + 720 >= gh.atS - 1, 'START booked no earlier than the line allows');
+  assert.ok(sent[0].atS + lead >= gh.atS - 1, 'START booked no earlier than the line allows');
 });
 
 test('L-4: keyboard route: a number selects a layer, arrows move one snap step, Enter drops', async () => {

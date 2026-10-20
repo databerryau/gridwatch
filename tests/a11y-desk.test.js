@@ -21,11 +21,12 @@ import {SYNC_BLOCKED} from '../sim/grid.js';
 import {createLiveStack, screenScale, EXPAND_NAME} from '../render/livestack.js';
 import {createEndCard, stripText, STRIP_WORDS} from '../app/endcard.js';
 import {createAlarmPanel} from '../app/alarmpanel.js';
+import {TILES} from '../app/alarms.js';
 import {allIn} from '../app/score.js';
 
 const read = f => readFileSync(new URL(f, import.meta.url), 'utf8');
 const CSS = read('../desk/desk.css').replace(/\/\*[\s\S]*?\*\//g, '');
-const NEXT = read('../next.html');
+const NEXT = read('../index.html');
 /** The body of the first rule whose selector list is exactly `sel` (a regexp source; a rule starts a line or follows another). */
 const ruleOf = (css, sel) => { const m = new RegExp('(?:^|[\\n}])\\s*' + sel + '\\s*\\{([^}]*)\\}').exec(css); assert.ok(m, 'no rule ' + sel); return m[1]; };
 const pxOf = (body, prop) => { const m = new RegExp('(?:^|[;\\s])' + prop + ':\\s*(?:\\d{3} )?(?:calc\\(([\\d.]+) \\* var\\(--u\\)\\)|([\\d.]+)px)').exec(body); assert.ok(m, prop + ' in ' + body); return Number(m[1] ?? m[2]); };
@@ -183,6 +184,41 @@ test('W6 a11y: the floor holds the raised words: three two-row tray cards, the s
     const h = linesOf(faceText, face * 1.12, w) * face * 1.2 + 2 + linesOf(text, hpx, w) * hpx * 1.1 + more * (9 * 1.2 + 2);
     assert.ok(text.length > 15 && h <= H, id + ': "' + text + '" ' + h.toFixed(1) + ' of ' + H + ' px');
     t.diagnostic(id + ' (DIRECT SHED shown): "' + text + '" ' + linesOf(text, hpx, w) + ' lines at ' + hpx + ' px in ' + w.toFixed(0) + ' px, ' + h.toFixed(0) + ' of ' + H + ' px tall');
+  }
+});
+
+test('W7 Q3: every alarm tile\'s plain words fit its tile: two lines, the glyph first, at the floor (8.5 px) and from 1600 px (10 px); an escalated one inside its double border', t => {
+  // the plan bar's slot (index.html: 432 px; clamp(432px, 30vw, 600px) from 1600 px) less the panel's edge, ACK over HORN OFF, EXPLAIN
+  const pad = 1 + pxOf(ruleOf(CSS, '\\.dk-panel'), 'padding');
+  const [, side, key, gap] = /grid-template-columns: 1fr (\d+)px (\d+)px; gap: (\d+)px;/.exec(ruleOf(CSS, '\\.dk-annun')).map(Number);
+  const grid = ruleOf(CSS, '\\.dk-tiles'), cols = Number(/grid-template-columns: repeat\((\d+), 1fr\)/.exec(grid)[1]), tg = pxOf(grid, 'gap');
+  assert.equal(cols * 2, TILES.length, 'two rows');
+  const tileW = slot => (slot - 2 * pad - side - key - 2 * gap - (cols - 1) * tg) / cols;
+  // a face: 1 px of padding a side inside a 1-px border (3 px escalated); the state's glyph (■ and ◇ the widest, ‼ before it
+  // when escalated) and its 2-px margin, then the words, breaking only at their spaces (overflow: hidden cuts a longer word)
+  assert.match(ruleOf(CSS, '\\.dk-tile'), /padding: 0 1px;/);
+  assert.match(ruleOf(CSS, '\\.dk-btn, \\.dk-q, \\.dk-tab, \\.dk-key, \\.dk-guard, \\.dk-man, \\.dk-tile, \\.dk-hold, \\.dk-feeder-brk, \\.dk-ready-btn, \\.dk-card-btn'), /border: 1px solid/);
+  const esc = pxOf(ruleOf(CSS, '\\.dk-tile\\.esc'), 'border-width'), margin = pxOf(ruleOf(CSS, '\\.dk-tile-glyph'), 'margin-right');
+  const tileLines = (label, px, width, escalated) => {
+    let n = 1, w = textW(escalated ? '‼■' : '■', px) + margin, first = true;
+    for (const word of label.split(' ')) {
+      const ww = textW(word, px), sp = textW(' ', px);
+      if (!first && w + sp + ww > width) { n++; w = ww; } else w += (first ? 0 : sp) + ww;
+      first = false;
+      if (w > width) return Infinity;
+    }
+    return n;
+  };
+  for (const [name, slot, px] of [['the floor', 432, 8.5], ['1600 px', 480, 10], ['1920 px', Math.min(600, 0.3 * 1920), 10]]) {
+    const w = tileW(slot), seen = [];
+    for (const x of TILES) {
+      const n = tileLines(x.label, px, w - 2 * 1 - 2 * 1, false);
+      assert.ok(n <= 2, name + ': "' + x.label + '" takes ' + n + ' lines of ' + px + ' px in ' + (w - 4).toFixed(1) + ' px');
+      seen.push(x.label + ' ' + n);
+      // escalated: two lines at the floor (the planbar sums: 2 × 8.5 px and the double border fit the tile); one from 1600 px (nowrap)
+      if (x.escalates) assert.ok(tileLines(x.label, px, w - 2 * 1 - 2 * esc, true) <= (px === 8.5 ? 2 : 1), name + ': "' + x.label + '" escalated');
+    }
+    t.diagnostic(name + ': tiles ' + w.toFixed(1) + ' px at ' + px + ' px: ' + seen.join(', '));
   }
 });
 

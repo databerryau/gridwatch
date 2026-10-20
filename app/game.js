@@ -1,4 +1,4 @@
-// app/game.js: one game session (next.html), DOM-free. It mirrors app/session.js (which the
+// app/game.js: one game session (index.html), DOM-free. It mirrors app/session.js (which the
 // bench keeps) for the game: the sim state, the director (game modes), the loop's pacer, the
 // system operator (app/system.js: the 04:30 pre-dispatch, the dark-city reflow, RE-DISPATCH),
 // the annunciator, the tray, the recorder (watch traces), history rings for the Live Stack's
@@ -23,12 +23,12 @@ import * as fleet from '../sim/fleet.js';
 import * as weather from '../sim/weather.js';
 import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {restoreAllowedS, isPerfect} from '../sim/market.js';
-import {imbalanceSegments} from '../desk/calc.js';
+import {imbalanceSegments, tripSheds, n1Word} from '../desk/calc.js';
 import {CLASSIC, SCENARIOS, SA2016_SCENARIO} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
 import {DAILIES, dailyScenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
 import {anniversaryOf, SA2016} from '../content/anniversaries.js';
-import {objective, consequence, steady} from './objective.js';
+import {objective, consequence, guardConsequence, steady} from './objective.js';
 import {createPacer, runFrame} from './loop.js';
 import * as D from './director.js';
 import {createRecorder, onTick, startTrace, traceOf, needleF, secondsWindow} from './record.js';
@@ -38,9 +38,9 @@ import * as W from './watch.js';
 import * as AM from '../audio/model.js';
 import * as S from './score.js';
 import * as VD from './verdict.js';
-import {createMarg, margSay, MARG_LINES, MARG_FROM} from './marg.js';
+import {createMarg, margSay, MARG_LINES, MARG_FROM, MARG_FIRST, MARG_LATER, MARG_FIRSTS, FIRST_TARGET, beatsAhead, firstsNow} from './marg.js';
 import {plateGroup} from '../desk/desk.js';
-import {createParRunner, seriesAt, parMinute} from './par.js';
+import {createParRunner, seriesAt, parMinute, parHad} from './par.js';
 import * as SH from './share.js';
 import * as HI from './history.js';
 import {hardDayOf} from './shelf.js';
@@ -243,7 +243,8 @@ export function createGame(o) {
       alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
-    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, rocofMax: seen.rocofMax > 0 ? +seen.rocofMax : 0, shed: !!seen.shed, shifts: Number.isInteger(seen.shifts) && seen.shifts > 0 ? seen.shifts : 0}, // (D-7: shifts finished)
+    seenInit: {watch: !!seen.watch, ufls: !!seen.ufls, rocof: !!seen.rocof, rocofMax: seen.rocofMax > 0 ? +seen.rocofMax : 0, shed: !!seen.shed, shifts: Number.isInteger(seen.shifts) && seen.shifts > 0 ? seen.shifts : 0, // (D-7: shifts finished)
+      marg: Object.fromEntries(MARG_FIRSTS.filter(k => seen.marg && seen.marg[k] === true).map(k => [k, true]))}, // (W7, Q-124: Marg's first-time lines said)
     cues: [], refusal: null, respond: null, respondGlow: [], feeder: null, feederWhy: null, offers: [], offered: {}, tally: null,
     previewCache: new Map(), previewS: -1, restoreCache: new Map(), restoreS: -1,
     hist: null, histView: null, histViewS: -1,
@@ -279,6 +280,7 @@ export function resetDay(game, seed) {
   game.suburbs = null;
   game.objective = null; game.objectiveS = -1e9; game.objectiveMode = ''; game.objectiveHeld = null; game.consider = null;
   game.objectiveError = ''; game.dayAhead = null; game.considerDirty = false; game.lineMs = 0; game.lineFresh = false;
+  game.n1Mem = {}; game.n1 = ''; game.n1News = false;   // (the N-1 gauge's word as the gauge holds it: n1Frame)
   game.unitModes = null;
   const seen = game.director ? game.director.seen : game.seenInit;
   game.director = D.createDirector({game: true, paused: true, seen, accepts: restoreAccepted});
@@ -455,6 +457,15 @@ function closeQueued(game) {
   }
 }
 
+// W7 (Q-115): the player's restore's FOCUS, its end found tick by tick (D.restoreFocusTick, so a resume's replay finds the
+// same one), and then its one caption: a CITY DESK card in the tray, its button to the frequency dial
+function restoreFocusEnd(game) {
+  const rf = D.restoreFocusTick(game.director, game.state);
+  if (!rf) return;
+  const line = {text: D.restoreCaption(rf), target: 'dial-freq', atS: Math.floor(game.state.tick / TPS)};
+  for (const c of T.trayMarg(game.tray, line, T.SENDERS.city, 'TO THE DIAL')) pushCue(game, c);
+}
+
 // D-27: the feeders a RESTORE of `id` at the card would queue, each at the second it may close: the
 // later of its hand-back and RESTORE_INTERVAL_S after the one before (the card's own now). D-26: a shed
 // card's queue is the rest of its group (D.queueMates).
@@ -486,6 +497,7 @@ export function tickOnce(game) {
   }
   const recs = step(state, ins);
   if (recs.length) handleRecords(game, recs, ins.length ? 'system' : '');
+  restoreFocusEnd(game);
   onTick(game.rec, state);
   A.sampleTick(game.alarms, state);
   if (state.tick % TPS === 0) {
@@ -556,7 +568,7 @@ export function takeDesk(game) {
  * BRIEF_LOCK, NIGHT_LOCK. `shown`: the feeder card the press was made at (redispatch's), else now's;
  * a card PAUSE, ALARMS or a hidden tab hides is not shown, so an input made under them leaves it.
  */
-export function sendInput(game, x, shown) {
+export function sendInput(game, x, shown, batch = false) {
   const state = game.state, d = game.director;
   const lock = game.phase === 'briefing' ? (x && x.type === 'mode' ? '' : BRIEF_LOCK) : state.control.nightShift ? NIGHT_LOCK : '';
   if (lock) return lock;
@@ -571,11 +583,28 @@ export function sendInput(game, x, shown) {
     game.objectiveS = -1e9; game.lineFresh = true;
     game.refusal = null;
     game.previewS = -1; game.restoreS = -1;
-    if (x.type === 'restore') D.focusRestore(d, state);
+    if (x.type === 'restore') { const rr = out.find(o => o.kind === 'restore'); D.focusRestore(d, state, rr ? rr.mw : 0, x.district); } // (W7, Q-115: its pickup, for the caption)
     if (own) D.queueFeeders(d, mates); // D-27: the card's RESTORE queues the morning's other feeders (D-26: the rest of its group)
-    if (REDISPATCH_AFTER.includes(x.type)) redispatchAfter(game);
+    if (REDISPATCH_AFTER.includes(x.type) && !batch) redispatchAfter(game);   // (batch: soakCity re-dispatches once, after them all)
   } else if (own) game.feederWhy = {id: fc, why: r.reason};
   return r.ok ? '' : r.reason;
+}
+
+/**
+ * Q1 (W7): SOAK THE CITY. One press books the HOT WATER SOAK of every suburb whose soak is free, at atS: a distributor's
+ * ripple control moves its controlled hot water with one signal. Each booking is the sim's own flex input (the log keeps
+ * each), in city order; the system re-dispatches once after them; the press counts once (makeActions, X-45, D-10).
+ * Returns '' when at least one was booked, else the first refusal.
+ */
+export function soakCity(game, atS, shown) {
+  const st = game.state, subs = st.scn.levers ? st.scn.levers.suburbs : [], lock = game.phase === 'briefing' ? BRIEF_LOCK : st.control.nightShift ? NIGHT_LOCK : '';
+  const why0 = subs.map((x, j) => grid.leverView(st, j, 'soak').block), ids = subs.filter((x, j) => why0[j] === '').map(x => x.id);
+  if (lock) return lock;
+  if (!ids.length) return !subs.length ? 'no city levers on this desk' : why0.find(w => !/already booked/.test(w)) || 'every suburb\'s soak is booked';
+  let why = '', n = 0;
+  for (const suburb of ids) { const r = sendInput(game, {type: 'flex', suburb, lever: 'soak', atS}, shown, true); if (r) why = why || r; else n++; }
+  if (n) redispatchAfter(game);
+  return n ? '' : why;
 }
 
 /** Q-91: the district id of the feeder card on the page now ('' unless the director's mode is FEEDER-CARD). */
@@ -680,7 +709,17 @@ export function ui(game, cmd) {
     case 'ackTile': return A.ackTile(game.alarms, cmd.id) ? '' : 'no such tile';
     case 'stackExpand': u.stackExpanded = !!cmd.on; return '';
     case 'preview': u.previewOn = !!cmd.on; return '';
-    case 'previewGuard': u.previewGuardMW = cmd.mw === null || cmd.mw === undefined ? null : cmd.mw; return '';
+    case 'previewGuard': {
+      u.previewGuardMW = cmd.mw === null || cmd.mw === undefined ? null : cmd.mw;
+      // Q4 (W7): a turn of the ring is a reach for the GUARD, from where it stood when the turn began (a turn within
+      // CONSIDER_REST_MS of the last goes on from there): the line prices the move down (guardReach, buildVm)
+      if (u.previewGuardMW !== null) {
+        const r = u.guardReach, on = !!r && game.lastFrameMs - r.ms <= CONSIDER_REST_MS;
+        u.guardReach = {fromMW: on ? r.fromMW : state.battery.guardMW, toMW: u.previewGuardMW, ms: game.lastFrameMs};
+        game.considerDirty = true;
+      }
+      return '';
+    }
     case 'offerTaken':
       if (!game.offered[cmd.unit]) return 'not offered';
       game.offered[cmd.unit].taken = true; return '';
@@ -776,6 +815,21 @@ export function previewTrip(game, opts) {
   return r;
 }
 
+/**
+ * W7 Q2 review: what TRIP SHEDS would cost by the sim's own relays (vm.sheds, for desk/calc.js shedsLine):
+ * {stages, operated}, the UFLS stages a TRIP PREVIEW of the risk the sim's cached preview names would
+ * operate (previewTrip above: once a grid second, 0.1-0.3 ms, the state restored) and the sim's spent
+ * stages (state.ufls.operated, which observe() does not carry). The relays wait UFLS_DELAY_S, so a nadir
+ * under a threshold does not mean that stage operates. Null unless the desk says TRIP SHEDS by the sim's
+ * preview (calc.js tripSheds).
+ */
+export function shedsOf(game, obs) {
+  const sec = obs.sec;
+  if (!tripSheds(sec)) return null;
+  const pv = previewTrip(game, sec.lKind === 'link' ? {kind: 'link'} : {kind: 'unit', id: sec.lId});
+  return {stages: pv ? pv.uflsStages : 0, operated: game.state.ufls.operated.slice()};
+}
+
 /** RESTORE PREVIEW for a district (K-13): '' (the restore would be accepted) or the refusal. */
 export function restorePreview(game, districtId) {
   const state = game.state;
@@ -790,9 +844,12 @@ export function restorePreview(game, districtId) {
 
 // ------------------------------------------------------------------ the view model (desk/README.md §5)
 
-/** K-12, Q-78 (§32.4.8; the tally: §32.12 app/game.js): why the bay offers a unit reaching full speed now, or ''. */
+/**
+ * K-12, Q-78 (§32.4.8; the tally: §32.12 app/game.js): why the bay offers a unit reaching full speed now, or ''. W7 (Q-115):
+ * on HAND days only; on an AGC day the auto-synchroniser closes it and nothing is offered (START on it still opens its scope).
+ */
 export function offerWhy(obs, tally) {
-  if (tally.n >= MAX_OFFERS || obs.s >= NIGHT_S) return '';
+  if (tally.n >= MAX_OFFERS || obs.s >= NIGHT_S || (obs.mode !== 'HAND' && !obs.handFlown)) return '';
   if (obs.inRespond && obs.contingency.n !== tally.contN) return 'respond';
   return tally.extra ? '' : obs.sec.level !== 'SECURE' ? 'tight' : obs.s >= PEAK[0] && obs.s < PEAK[1] ? 'peak' : '';
 }
@@ -845,6 +902,19 @@ export function objectiveDue(game, s, mode) {
   return s - game.objectiveS >= Math.max(OBJECTIVE_EVERY_S, rateAt(s, D.handAt(game.state)) * V.OBJ_EVERY_REAL_S) || s < game.objectiveS;
 }
 
+/**
+ * W7 integration review: the N-1 gauge's word as the gauge holds it (desk/calc.js n1Word: the same reading, on every frame,
+ * gives the same word), in game.n1, for the line's GUARD ask (app/objective.js spare) and the GUARD's price (guardConsequence),
+ * so neither says other than the gauge; a change into or out of TRIP SHEDS sets game.n1News (buildVm makes the line at once).
+ * Every frame: buildVm, and the frames tests/lib/play.js runs without a view.
+ */
+export function n1Frame(game, nowMs) {
+  const was = game.n1, st = game.state;
+  game.n1 = n1Word(game.n1Mem, {tick: st.tick, sec: st.sec}, nowMs);
+  if (was !== game.n1 && (was === 'TRIP SHEDS' || game.n1 === 'TRIP SHEDS')) game.n1News = true;
+  return game.n1;
+}
+
 /** The annunciator's context (§30.3.5; buildVm and tests/lib/play.js): no real time while the clock is held. */
 export function alarmCtx(game, nowMs, realDtS) {
   return {nowMs, realDtS: D.rateOf(game.director, game.state) > 0 ? realDtS : 0, stationOf: stationOfUnit, hold: !!game.ui.alarmsOpen};
@@ -858,6 +928,18 @@ export function alarmCtx(game, nowMs, realDtS) {
  */
 /** X-42: a pointer resting on a guard (its cover down) shows "? IF PRESSED" this long, then the plan's line again. */
 export const CONSIDER_REST_MS = 4000;
+
+/**
+ * Q4 (W7): the GUARD move the "? IF PRESSED" line prices, {fromMW, toMW}: the ring turned down, while it turns and for
+ * CONSIDER_REST_MS after its last turn (it is set on release; the shell's word is GUARD SET once the GUARD stands at
+ * toMW: app/shell.js considerWord); null otherwise, and null while the line itself asks for a
+ * GUARD at or below it (a desk short now wants those MW as power: app/objective.js shortNow, shortAhead, spare).
+ */
+export function guardReach(game, nowMs) {
+  const u = game.ui, r = u.guardReach, a = game.objective && game.objective.action;
+  if (!r || !(r.toMW < r.fromMW) || (u.previewGuardMW === null && nowMs - r.ms > CONSIDER_REST_MS)) return null;
+  return a && a.type === 'guard' && a.mw <= r.toMW ? null : r;
+}
 
 export function buildVm(game, f) {
   const state = game.state, d = game.director;
@@ -874,6 +956,7 @@ export function buildVm(game, f) {
     if (r.newAlarm) D.endFast(d);
   }
   T.trayFrame(game.tray, obs.s);
+  const sheds = shedsOf(game, obs);   // W7 Q2 review: what TRIP SHEDS would cost, by the sim's own relays
 
   // The respond card (K-16): built once when it opens, dropped when it is dismissed.
   const c = obs.contingency;
@@ -890,7 +973,7 @@ export function buildVm(game, f) {
         glow = null;
       }
     }
-    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c), nightGuard: nightGuard(game.state)});
+    game.respond = W.respondCard(obs, c, {glow: glow || W.fallbackGlow(obs, c), nightGuard: nightGuard(game.state), sheds});
     game.respondGlow = game.respond.glow;
   }
   if (mode.mode !== 'RESPOND-CARD') game.respond = null;
@@ -909,10 +992,14 @@ export function buildVm(game, f) {
   // blanks only its line; it is kept in objectiveError (vm.objectiveError; the ?debug handle shows
   // it) as the system operator's is in sysError.
   // (X-46: the night roll has no line, so no forecast or projection is made for one)
+  // (W7 integration review: the line says what the N-1 gauge says, made again at once when TRIP SHEDS comes or goes: n1Frame)
+  n1Frame(game, nowMs);
+  const shedsNews = game.n1News;
+  game.n1News = false;
   if (game.phase === 'play' && game.commit === 'player' && game.planview && !obs.nightShift) {
-    const due = objectiveDue(game, obs.s, mode.mode);
+    const due = objectiveDue(game, obs.s, mode.mode) || shedsNews;
     if (due) {
-      let fresh = game.lineFresh || due === 'news';
+      let fresh = game.lineFresh || due === 'news' || shedsNews;
       game.objectiveS = obs.s; game.objectiveMode = mode.mode; game.lineFresh = false;
       game.objectiveError = '';
       let stage = 'objective';
@@ -922,7 +1009,8 @@ export function buildVm(game, f) {
         // projection once per line (F-11: the objective and its STOP saving read the same one).
         game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
         const proj = game.planview.project(obs);
-        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective, coach: coachOn(game)});
+        game.lineProj = {s: obs.s, proj};   // (Q4: a STOP's "? IF PRESSED" quotes off the line's own projection)
+        const next = objective(obs, {edited: heldByHand(game), planview: game.planview, proj, dayAhead: game.dayAhead, leadS: readingLeadS(obs.s, D.handAt(state), state.scn.night), held: game.objective, coach: coachOn(game), n1: game.n1});
         // (steady: a waiting line whose deadline flips between two 5-minute marks is kept as it was said)
         stage = 'steady';
         game.objectiveHeld = steady(game.objectiveHeld, next, obs.s, D.handAt(state));
@@ -941,21 +1029,33 @@ export function buildVm(game, f) {
     // with its cover up too (a promise of "12 min from now" stays true while the clock runs on), and a
     // pointer resting on a guard gives the line back to the plan after CONSIDER_REST_MS.
     if (game.ui.consider && game.ui.considerMs === null) game.ui.considerMs = nowMs;
-    if (game.considerDirty) {
+    // Q4 (W7): the GUARD ring turned down (game.ui.guardReach), while it turns and CONSIDER_REST_MS after; a guard under the
+    // hand comes first, and a line that asks for this GUARD itself (a short desk wants the MW) is not argued with
+    const g = game.ui.consider ? null : guardReach(game, nowMs);
+    // (W7 integration review: the GUARD's price every frame while it shows, so its figures are the gauge's own: the gauge's live
+    // preview at the ring's MW is preview(toMW) this second, from the same cache, and once the GUARD stands at toMW with the sim's
+    // preview made since, the price reads the gauge's word and figure; on the line's cadence it said "no relays" beside TRIP SHEDS)
+    if (game.considerDirty || g) {
       game.considerDirty = false;
       const t = game.ui.consider;
       game.consider = null;
       // (the night lock refuses the press: the line says so, never what it would do; Q-73)
-      if (t && !mode.locked && obs.nightShift) game.consider = {target: t, text: NIGHT_LOCK, level: 'plan'};
+      if ((t || g) && !mode.locked && obs.nightShift) game.consider = {target: t || 'ring-guard', text: NIGHT_LOCK, level: 'plan'};
       else if (t && !mode.locked) {
         try {
           if (!game.dayAhead) game.dayAhead = weather.forecast(state, V.DAY_S - obs.s, V.FC_STEP_S);
-          game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview});
+          game.consider = consequence(obs, t, {dayAhead: game.dayAhead, planview: game.planview, proj: game.lineProj && game.lineProj.s === obs.s ? game.lineProj.proj : undefined});
         } catch (e) { game.consider = null; game.objectiveError = 'consequence: ' + errText(e); }
+      } else if (g && !mode.locked) {
+        try {
+          const live = game.ui.previewOn || game.ui.previewGuardMW !== null;
+          const gauge = state.battery.guardMW === g.toMW && !obs.sec.dirty ? {word: game.n1, hz: live ? undefined : obs.sec.previewNadirHz} : null;
+          game.consider = guardConsequence(obs, g.fromMW, g.toMW, mw => previewTrip(game, {kind: obs.sec.lKind === 'link' ? 'link' : 'unit', id: obs.sec.lId, guardMW: mw}), gauge);
+        } catch (e) { game.consider = null; game.objectiveError = 'guardConsequence: ' + errText(e); }
       }
     }
     const rested = game.ui.armed !== game.ui.consider && nowMs - game.ui.considerMs > CONSIDER_REST_MS;
-    if (!game.ui.consider || mode.locked || rested) game.consider = null;
+    if (mode.locked || (game.ui.consider ? rested : !g)) game.consider = null;
     if (game.objective && mode.mode !== 'WATCH') for (const g of game.objective.targets) glow.add(g);
   } else { game.objective = null; game.objectiveHeld = null; game.consider = null; }
   if (offers.length) glow.add('bay-sync');
@@ -1033,6 +1133,7 @@ export function buildVm(game, f) {
     alarmsOpen: game.ui.alarmsOpen, alarmsSel: game.ui.alarmsSel, // Q-46 (alarmsSel: null while closed)
     plates: [...game.plates], firstShift: firstShift(game) && game.settings.plates,   // O-3, O-1
     suburb: game.ui.suburb, dayAhead: game.dayAhead,
+    sheds,   // W7 Q2 review: shedsOf, or null
   };
 }
 
@@ -1062,16 +1163,19 @@ export function doneBefore(game) {
   return '';
 }
 
-/** O-6: Marg says the text at its key's beat (app/marg.js: once, within the day's limit), as a tray card. */
-export function margBeat(game, key, text, target) {
+/** O-6: Marg says the text at its key's beat (app/marg.js: once, within the day's limit less `reserve`), as a tray card. */
+export function margBeat(game, key, text, target, reserve = 0) {
   if (!game.marg) return null;
-  const line = margSay(game.marg, key, text, Math.floor(game.state.tick / TPS), target);
-  if (line) for (const c of T.trayMarg(game.tray, line, MARG_FROM)) pushCue(game, c);
+  const line = margSay(game.marg, key, text, Math.floor(game.state.tick / TPS), target, reserve);
+  // (W7 integration review: her once-only lines, a first-time line and a first shift's watch line, are kept on the tray for
+  // their life: app/tray.js evict; a restore's caption sent the relays line to the LOG 6 real s after it came)
+  if (line) for (const c of T.trayMarg(game.tray, /^first:|^watch$/.test(key) ? Object.assign({}, line, {keep: true}) : line, MARG_FROM)) pushCue(game, c);
   return line;
 }
-// Once a frame in play: the act changes, the first watch's settle (a first shift's), the 21:00 handover.
+// Once a frame in play: the act changes, the first watch's settle (a first shift's), the 21:00 handover. Never in a resume's
+// replay (F-7: it is silent; her day comes back from the save, and a first-time line said there would be kept as seen).
 function margFrame(game, obs, mode) {
-  if (!game.marg || game.phase !== 'play' || obs.over) return;
+  if (!game.marg || game.replay || game.phase !== 'play' || obs.over) return;
   if (mode.act !== game.margAct) {
     const was = game.margAct;
     game.margAct = mode.act;
@@ -1083,30 +1187,82 @@ function margFrame(game, obs, mode) {
     margBeat(game, 'watch', MARG_LINES.watch(c), 'dial-freq');
   }
   if (obs.nightShift) margBeat(game, 'handover', MARG_LINES.handover());
+  // W7 (Q-124): a first-time line, kept in the seen memory once said (with storage blocked, in the page's memory: once a day
+  // at most). One a frame: the next waits for room on the tray, so she never sends her own card to the LOG unseen.
+  for (const k of margFirsts(game, mode.mode)) {
+    const text = MARG_LINES[k](obs, game.dayAhead, game.verdict), room = text && lessonRoom(game, k);
+    if (!room) continue;
+    if (room !== true) T.dismissCard(game.tray, room.id);   // (a shed's warning, to the LOG: her relays line is in its place)
+    if (!margBeat(game, 'first:' + k, text, FIRST_TARGET[k], beatsAhead(game.marg, game.margAct, game.margWatched))) continue;
+    game.director.seen.marg = Object.assign({}, game.director.seen.marg, {[k]: true});
+    saveSeen(game);
+    break;
+  }
+}
+// W7 (Q-124 review): a city desk's warning, which is always a shed (app/tray.js cardOf: the relays' 'ufls', a directed
+// 'shed', DIRECTED_SHED)
+const shedCard = c => c.sev === 'warn' && c.from === T.SENDERS.city;
+/**
+ * W7 (Q-124 review): where first-time line `k` would show on the tray now: true for a free place, or when the information
+ * card that gives way to hers (app/tray.js trayMarg: the oldest, K-9) is not one of her own (another lesson, or a fixed
+ * beat said this frame or just before: she never talks over herself). Otherwise a lesson waits, because it never pushes a
+ * warning to the LOG; but the relays' line takes the place of the city desk's oldest warning, a shed (the relays' or a
+ * directed one: the districts her line is about), which goes to the LOG: that card. It does so beside a card of her own
+ * too, because on a first shift her watch line arrives in the same frame as the RESPOND card and holds the tray's third
+ * place (trayMarg keeps a new card and lets an older one go, Q-115 review). Else null (it waits). The sheds' own warnings
+ * keep the tray full while the city sheds: they held her relays line back for hours of grid time, past the next trip.
+ */
+function lessonRoom(game, k) {
+  const cards = game.tray.cards;
+  if (cards.length < T.MAX_CARDS) return true;
+  const out = cards.find(c => c.sev === 'info' && !c.keep);   // (the card K-9 would send: app/tray.js evict)
+  if (out && out.from !== MARG_FROM) return true;
+  return (k === 'relays' && cards.find(shedCard)) || null;
+}
+/**
+ * W7 (Q-124): the first-time lines Marg would say now (app/marg.js firstsNow's keys this browser has not met yet, not said
+ * today): none in a resume's replay (F-7), in a watch, once the night shift has the desk, without room on the tray
+ * (lessonRoom: three warnings, bar the relays' line and a shed's warning; or a card of hers that would give way), or with
+ * no room left beside the fixed beats to come. Cheap: tests/lib/play.js asks it between frames, so a jump draws the frame
+ * that says one.
+ */
+export function margFirsts(game, mode) {
+  const m = game.marg, st = game.state;
+  if (!m || game.replay || game.phase !== 'play' || st.over || mode === 'WATCH' || mode === 'SHED-WATCH' || st.control.nightShift) return [];
+  if (m.said.length + beatsAhead(m, game.margAct, game.margWatched) >= (m.first ? MARG_FIRST : MARG_LATER)) return [];
+  const seen = game.director.seen.marg || {};
+  return firstsNow(st, game.verdict).filter(k => !seen[k] && !m.beats['first:' + k] && lessonRoom(game, k));
 }
 
 // ------------------------------------------------------------------ W3: the verdict
 
 /**
  * W3 (D-20, D-21, D-24, L-10, P-1, H-11): game.end.verdict, the day in words (app/verdict.js), rebuilt when par or
- * the no-GUARD twin arrives. The moment's twin (D-21) is made here once, when a GUARD was set at its trip, and played
- * by the shell's frames after the day (game.twin.step).
+ * the twin arrives. The moment's twin (D-21) is made here once, for a fall, when a GUARD was set at its trip (the fall
+ * with no GUARD) or, W7 (Q-119), par had a larger GUARD at that minute (par's GUARD tried on your trip: asked of the
+ * same twin once par has finished), and played by the shell's frames after the day (game.twin.step).
  */
 function verdictFor(game) {
   const end = game.end, st = game.state, par = game.par, mem = game.verdict;
   const nightS = st.scn.night ? NIGHT_S : Infinity, conts = st.conts.filter(c => c.startTick / TPS < nightS);
-  if (end.twinFor === undefined) {
+  const parScore = par && par.done && par.score && !par.black ? par.score : null;
+  if (end.twinKey !== !!parScore) {   // (at the day's end, and again when par finishes)
+    end.twinKey = !!parScore;
     const m = VD.moment(mem, conts, {nightS}), c = m && m.cont;
-    end.twinFor = c && c.lostMW > 0 && game.guardAt[c.n] > 0 ? c.n : -1;
-    if (end.twinFor > 0) game.twin = VD.createTwin(game.seed, game.scenario, st.log.slice(), c);
+    if (c && c.lostMW > 0) {
+      const yours = game.guardAt[c.n] || 0, had = parScore ? parHad(par, VD.diffMinute(m)) : null;
+      const want = (yours > 0 ? [0] : []).concat(had && had.guardMW > yours ? [had.guardMW] : []);
+      if (game.twin) for (const g of want) game.twin.want(g);
+      else if (want.length) game.twin = VD.createTwin(game.seed, game.scenario, st.log.slice(), c, want);
+    }
   }
-  const twin = game.twin, key = (par ? (par.done ? 'p' : 'c') : '-') + (twin ? (twin.done ? 't' : 'w') : '-');
+  const twin = game.twin, key = (par ? (par.done ? 'p' : 'c') : '-') + (twin ? (twin.done ? 't' + twin.rev : 'w') : '-');
   if (key === game.verdictKey && end.verdict) return;
   game.verdictKey = key;
-  const parScore = par && par.done && par.score && !par.black ? par.score : null;
   const pm = parScore && par.minutes && par.minutes.length ? s => parMinute(par, s) : null;
   const first = VD.moment(mem, conts, {nightS}), fc = first && first.cont;
-  const m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: fc ? game.guardAt[fc.n] : undefined, nightGuard: !!fc && !!game.guardNight[fc.n]});
+  const m = first && VD.moment(mem, conts, {nightS, parMinute: pm, twin, guardMW: fc ? game.guardAt[fc.n] : undefined, nightGuard: !!fc && !!game.guardNight[fc.n],
+    parHad: pm && (k => parHad(par, k)), parTrips: par && par.trips, parBlocks: par && par.blocks, blocks: st.levers.blocks, parTry: twin && (g => twin.tried(g))});   // (W7, Q-119)
   end.verdict = {
     lights: VD.lightsRow(mem, end.score, parScore).text,
     cost: VD.costRow(end.allIn, end.parAllIn), carbon: VD.carbonRow(end.allIn, end.parAllIn),
@@ -1221,7 +1377,7 @@ function startOfficial(game) {
 // ------------------------------------------------------------------ W6: resume (F-7)
 //
 // The day is deterministic from its seed and what the player did, so a save is the player's actions, not the state: each
-// desk input with the feeder card it answered (sendInput's `shown`), each RE-DISPATCH, the presses that answer the cards
+// desk input with the feeder card it answered (sendInput's `shown`), each RE-DISPATCH and SOAK THE CITY (Q1), the presses that answer the cards
 // (dismissRespond, goOn, skipWatch) and TAKE THE DESK, each at its tick (game.acts). RESUME replays them through the same
 // functions, at the same ticks, with the system and the queued restores running as in play: the system's plans, the
 // director's memory of cards and feeders and the end card's counts all come back by themselves, and the state's hash at the
@@ -1315,6 +1471,7 @@ function replayAct(game, a) {
   if (kind === 't') takeDesk(game);
   else if (kind === 'i') { if (!sendInput(game, x, shown)) game.playerInputs++; }
   else if (kind === 'r') { if (!redispatch(game, shown)) game.playerInputs++; }
+  else if (kind === 'c') { if (!soakCity(game, x.atS, shown)) game.playerInputs++; }   // (Q1: SOAK THE CITY, one press)
   else if (kind === 'u' && REPLAY_UI.includes(x.do)) ui(game, x);
 }
 
@@ -1352,6 +1509,9 @@ export function resumeStep(game, budgetMs = Infinity, now = () => Date.now()) {
   if (s.marg && game.marg) { game.marg.said = s.marg.said || []; game.marg.beats = s.marg.beats || {}; game.margWatched = !!s.marg.watched; }
   if (s.tally) game.tally = s.tally;
   if (s.offered) game.offered = s.offered;
+  // (W7: and each offer's OFFER window, as play left it; only those: a page frame during the replay, its tally fresh, may have offered a unit play never did)
+  game.director.offers = {};
+  for (const [id, o] of Object.entries(game.offered)) if (o && Number.isFinite(o.tick)) D.offerPace(game.director, game.state, id, o.tick);
   game.margAct = -1;
   // a new lease on the run: an older copy of it still open in another tab now finds the date's entry not its own (yieldTo)
   const old = game.run.id, ymd = dailyYmd(game);
@@ -1434,6 +1594,17 @@ export function makeActions(game) {
       const shown = shownFeeder(game);
       act(game, ['r', null, shown]);
       const r = redispatch(game, shown);
+      if (!r) game.playerInputs++;
+      saveResume(game);
+      return r;
+    },
+    // (Q1: SOAK THE CITY: one press, saved as one action and counted once, however many suburbs it books)
+    soakCity: atS => {
+      if (game.replay) return RESUMING;
+      if (game.resumeSaved) return RESUME_LOCK;
+      const shown = shownFeeder(game);
+      act(game, ['c', {atS}, shown]);
+      const r = soakCity(game, atS, shown);
       if (!r) game.playerInputs++;
       saveResume(game);
       return r;

@@ -5,7 +5,7 @@
 // (q-dial, q-imb, q-gauge) and the annunciator's tiles show a note on their panel. Esc closes
 // the top-most first (the shell's closeTop, then the desk's closeHelp).
 //
-// Headless (CLAUDE.md): the shell alone on next.html for the badges and the drawer (the stand-in
+// Headless (CLAUDE.md): the shell alone on index.html for the badges and the drawer (the stand-in
 // DOM has no layout: the tests set the rects and sizes that matter), a desk alone with a clock
 // the test moves for the notes, and one sampled game (tests/lib/play.js) for Esc in play.
 import {test} from 'node:test';
@@ -20,7 +20,7 @@ import {createState, observe} from '../sim/step.js';
 import {CLASSIC} from '../content/scenarios.js';
 import {TEXT} from '../content/text.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 
 // The shell alone (the header's badges, and #map's floating one); `prep(doc)` runs before the
 // first frame. frame(): one frame 0.6 s on (the badges are placed every 0.5 s).
@@ -207,17 +207,17 @@ test('Q-47 in play (sampled): a tile\'s second press hides its note; a header "?
   const p = openGame({seed: 20261007});
   const lite = {after: 1 / 60, look: {controls: false}};
   let r = p.press('tile-n1', {after: 1 / 60});
-  assert.match(r.after, /^NOTE blue annunciator: N-1 INSECURE/m);
+  assert.match(r.after, /^NOTE blue annunciator: LIGHTS AT RISK/m);
   assert.match(r.after, /tile-n1 "[^"]*" \[open/, 'the driver reads the tile as open');
   r = p.press('tile-n1', {after: 1 / 60});
-  assert.doesNotMatch(r.after, /^NOTE blue annunciator: N-1/m, 'the second press hides it');
+  assert.doesNotMatch(r.after, /^NOTE blue annunciator: LIGHTS AT RISK/m, 'the second press hides it');
   assert.match(r.diff, /tile-n1 "[^"]*"(?! \[open)/, 'and that is no silent press');
-  assert.match(r.after, /^ALARMS open: N-1 INSECURE/m, 'and opens the alarm panel at that tile (§30.4)');
+  assert.match(r.after, /^ALARMS open: LIGHTS AT RISK/m, 'and opens the alarm panel at that tile (§30.4)');
   p.key('w');
   p.click('tile-n1');
-  p.click('tile-rocof');
-  assert.deepEqual(['tile-n1', 'tile-rocof'].map(id => p.$(id).getAttribute('aria-expanded')), ['false', 'true'], 'another tile\'s note takes the note\'s place');
-  p.click('tile-rocof');
+  p.click('tile-agcLimit');
+  assert.deepEqual(['tile-n1', 'tile-agcLimit'].map(id => p.$(id).getAttribute('aria-expanded')), ['false', 'true'], 'another tile\'s note takes the note\'s place');
+  p.click('tile-agcLimit');
   p.key('w');
   const clock = p.doc.querySelector('button.q[data-anchor="clock"]');
   p.press(clock, lite);

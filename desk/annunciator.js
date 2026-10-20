@@ -1,5 +1,6 @@
-// desk/annunciator.js: the K-8 annunciator view (desk/README.md §6, §30.4). 6×2 tiles from
-// vm.alarms.tiles (app/alarms.js owns the model: states, flash, priorities); ACK, HORN OFF, EXPLAIN;
+// desk/annunciator.js: the K-8 annunciator view (desk/README.md §6, §30.4). 4×2 tiles from
+// vm.alarms.tiles (app/alarms.js owns the model: states, flash, priorities; W7 Q3: eight tiles in
+// plain words, each asking for an action, which its note names); ACK, HORN OFF, EXPLAIN;
 // in the plan bar (Q-45). A tile press (Q-46): closed, it focuses its control, says what it means and
 // is W's pick; again while that note shows, the alarm panel opens there; open, it selects. Never a
 // sim input; it all works during the watch (K-15).
@@ -9,23 +10,20 @@
 // steady (desk.css). Each state has its own glyph (◆ ■ ◇), so the flash and the colour are never
 // the only sign (K-22); an escalated tile (B-1: a P2 tile showing as P1) adds ‼ and a double border.
 
+import {V} from '../sim/params.js';
 import {el, setText, setAttr, setCls, PAN} from './util.js';
 
-export const TILE_SLOTS = 12;
-/** What each tile means and what answers it, shown when the tile is pressed (one sentence each). */
+export const TILE_SLOTS = 8;
+/** What each tile means and the action it asks for, shown when the tile is pressed (one or two short sentences each). */
 export const TILE_HELP = Object.freeze({
-  underFreq: 'UNDER FREQ: demand is beating supply and the grid is slowing. More power: start a unit, or call DR.',
-  overFreq: 'OVER FREQ: supply is beating demand. Less power: stop a unit, or charge the battery.',
-  n1: 'N-1 INSECURE: losing your biggest unit would not be caught. More spare: start a gas turbine or raise the battery GUARD.',
-  rocof: 'HIGH RoCoF: frequency is moving fast because little heavy plant is spinning. Keep more big machines on.',
+  underFreq: 'LOW FREQ: demand is beating supply and the grid is slowing. More power: discharge the battery, start a unit, or call DR.',
+  overFreq: 'HIGH FREQ: supply is beating demand. Less power: charge the battery, or stop a unit.',
+  n1: 'LIGHTS AT RISK: if your biggest risk tripped now, load would be lost (the N-1 gauge says how). Raise the battery GUARD or start a gas turbine.',
   unitTrip: 'UNIT TRIP: a machine has dropped off. Replace its output: the objective line names the quickest unit.',
-  linkTrip: 'LINK TRIP: the tie line to the neighbour is out. Replace its import with your own plant.',
-  ufls: 'UFLS OPERATED: relays cut districts to save the grid. Restore them from the bay (R) once there is spare.',
-  agcLimit: 'AGC LIMIT: the running units have no room left to follow demand. Commit another unit.',
-  storageLow: 'STORAGE LOW: the hydro water or the battery is nearly spent. Do not count on it for the peak.',
-  minGen: 'MIN GEN: running units cannot go low enough. Stop one, or charge the battery.',
-  weather: 'WEATHER: the bureau has issued a warning. Read the message tray (M).',
-  peak: 'PEAK: it is the evening peak and you are not secure. Every spare unit should be on.',
+  linkTrip: 'TIE TRIP: the tie line to the neighbour is out. Replace its import with your own plant.',
+  ufls: 'RELAYS SHED: frequency fell through ' + V.UFLS_FIRST_HZ.toFixed(1) + ' Hz and relays cut districts. Restore them from the bay (R) once there is spare.',
+  agcLimit: 'UNITS AT LIMIT: AGC has moved the running units as far as it can. Short: start a unit or discharge the battery; long: stop one or charge it.',
+  storageLow: 'LOW STORAGE: the hydro water or the battery is nearly spent. Start a unit to spare the water; charge the battery when power is spare.',
 });
 export const AGAIN = ' Press again to explain (W).';   // a tile note's end (Q-46)
 const STATE_GLYPH = {normal: '', alarm: '◆', ackd: '■', cleared: '◇'};

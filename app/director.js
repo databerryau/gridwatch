@@ -45,13 +45,23 @@
 //                 feederHeldAt whether one holds at this tick, for D-2's E.
 //   RESPOND       30x from the card's dismissal until frequency is back in 49.85-50.15 Hz
 //                 (contingency.backInBandTick >= 0) or 5 grid-min after the card, then the profile
-//   FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or for 2 grid-s after
-//                 a restore input (the breaker being closed, K-13; focusRestore)
+//   FOCUS         1x while a synchroscope is open (sim scope.unit !== '') or after the player's restore
+//                 input (the breaker being closed, K-13; focusRestore) until frequency is back in the
+//                 normal band (V.NORMAL_LO_HZ-NORMAL_HI_HZ for a whole grid second, as a contingency's
+//                 backInBandTick reads it), at least RESTORE_FOCUS_S (2 grid-s) and at most
+//                 RESTORE_FOCUS_MAX_S (6 grid-s), so the cold-load dip's recovery is seen, not only its
+//                 fall (W7, Q-115). The end is found tick by tick from the sim's frequency in app/game.js
+//                 tickOnce (restoreFocusTick: so a resume's replay finds the same one), which then puts
+//                 one caption in the tray (restoreCaption). A trip during it ends it, with no caption
+//                 (the watch tells that story). A slower clock, never a hold (Q-101). Only the player's
+//                 own restore input: D-27's queued closes, the night shift's and par's never focus.
 //   OFFER         K-12 (wave 2's fix pass, an owner-delegated call for the integrator to number):
 //                 OFFER_RATE 30x from the frame the game offers a unit (app/game.js updateOffers ->
 //                 offerPace) while it waits at full speed, for at most AUTO_SYNC_S (240 grid-s, so 8
 //                 real s; at 540x the offer lived 0.44 real s), no FAST. Badge "SYNC 30×". Taking it
 //                 opens the scope (FOCUS, above); the breaker closing (by hand or auto-sync) ends it.
+//                 On HAND days only (W7, Q-115: app/game.js offerWhy); on an AGC day nothing is offered,
+//                 and START on a unit at full speed still opens its scope (FOCUS).
 //                 Each offered unit keeps its own window (d.offers: unit index -> the tick it ends;
 //                 a window ends when its unit leaves full speed), so two offers at once (a 'respond'
 //                 and a 'tight') play OFFER until the last of them ends. None once the night shift
@@ -110,8 +120,23 @@ export const OFFER_RATE = 30;
 export const RESPOND_MAX_S = 5 * V.S_PER_MIN;
 /** FOCUS: the synchroscope and a restore close play at 1x. */
 export const FOCUS_RATE = 1;
-/** FOCUS after a restore input lasts this many grid seconds. */
+/** FOCUS after a restore input lasts at least this many grid seconds (a close that hardly dips is still seen). */
 export const RESTORE_FOCUS_S = 2;
+/**
+ * W7 (Q-115): ... and at most this many, if frequency is not back in the normal band by then. Measured (the play driver,
+ * 1x from each close at a card, 2026-10-07 and 10-14 to 10-31): the morning's hand-backs were back in band 0.9-5.0 grid s
+ * after the close (11 of 11 within 5.0), their nadir at 1.0-1.9 s; the evening's closes after a shed, 0.2-17 s (36% within
+ * 6, 76% within 10), their nadir within 4.8 s on all but 2 of 76. A close at a card comes on the tick after a grid second's
+ * own, so a crossing by 5.0 s has its whole second in band by 6: six seconds shows every measured morning recovery whole and the
+ * fall and turn of nearly every evening one. Played through (a line-following player, 2026-10-22 to 10-24 to 21:00): 7
+ * FOCUSes of 3.0-6.0 grid s, two of them evening closes ended at the cap, out of band; the 2 s it was is the floor.
+ * So on a shed evening the recovery is mostly told, not shown: its fall and turn play at 1x, and the caption says
+ * "still out of band after 6 s" (true: the slow crawl back is the short spare's). By design (W7 review): a cap of 10, tried
+ * once on 2026-10-23 (Enter at every card, 9 restores, 8 of them after 17:00), showed 4 more of the 7 capped closes cross
+ * back into band (at 6.0-8.8 s; 6 of 9 in all, and 3 still out at 10), for 73 grid s of FOCUS against 49: 24 more real s
+ * of 1x in the evening's 150x, the day's busiest stretch, mostly frequency creeping up from 49.68-49.85 Hz.
+ */
+export const RESTORE_FOCUS_MAX_S = 6;
 /** Debug speeds offered by the bench (grid seconds per real second); 2100x is D-2's fastest. */
 export const DEBUG_RATES = Object.freeze([0.25, 1, 60, FLAT_RATE, 240, 2100]);
 
@@ -177,6 +202,7 @@ export function createDirector(opts) {
     cardDoneN: -1,             // latest contingency n whose respond card was dismissed
     cardAtTick: -1,            // tick the latest card was dismissed (RESPOND runs from it)
     focusUntilTick: -1,        // FOCUS after a restore input until this tick
+    rfs: [],                   // W7 (Q-115): each restore's FOCUS {tick, mw, district, out, back, end, quiet} (rf: the latest)
     offers: {},                // OFFER: {an offered unit's index: the tick its window ends}
     rw: null,                  // the dark task feeders' allowed seconds (windows)
     fc: {},                    // FEEDER-CARD: {district id: the allowed second its card was answered at; Infinity once left dark}
@@ -294,10 +320,13 @@ function offering(d, state) {
   for (const i in d.offers) if (state.tick < d.offers[i] && state.units[i].mode === 'ready') on = true; else delete d.offers[i];
   return on;
 }
-/** The game offers unit `id` (app/game.js updateOffers): OFFER while it or another offered unit waits, up to AUTO_SYNC_S each. */
-export function offerPace(d, state, id) {
+/**
+ * The game offers unit `id` (app/game.js updateOffers): OFFER while it or another offered unit waits, up to AUTO_SYNC_S each.
+ * `atTick`: the tick it was offered (W7: an F-7 resume puts back the windows of the offers it saved).
+ */
+export function offerPace(d, state, id, atTick = state.tick) {
   const i = state.units.findIndex(u => u.id === id);
-  if (i >= 0) d.offers[i] = state.tick + V.AUTO_SYNC_S * TPS;
+  if (i >= 0) d.offers[i] = atTick + V.AUTO_SYNC_S * TPS;
 }
 function contCount(state) {
   return state.contIdx < 0 ? 0 : state.conts[state.contIdx].n + 1;
@@ -478,9 +507,51 @@ export function dismissCard(d, state) {
   return true;
 }
 
-/** A restore input was accepted: FOCUS (1x) for RESTORE_FOCUS_S grid s. */
-export function focusRestore(d, state) {
-  d.focusUntilTick = state.tick + RESTORE_FOCUS_S * TPS;
+/**
+ * The player's restore input was accepted (app/game.js sendInput): FOCUS (1x) from now until frequency is back in the
+ * normal band, at least RESTORE_FOCUS_S and at most RESTORE_FOCUS_MAX_S grid s; restoreFocusTick finds the end. `mw`: the
+ * district's cold-load pickup (the sim's restore record: fleet.districtColdLoadMW at the close), for the caption.
+ */
+export function focusRestore(d, state, mw = 0, district = '') {
+  d.focusUntilTick = state.tick + RESTORE_FOCUS_MAX_S * TPS;
+  d.rfs.push({tick: state.tick, mw, district, out: false, back: -1, end: -1, quiet: false});
+}
+
+const inBand = hz => hz >= V.NORMAL_LO_HZ && hz <= V.NORMAL_HI_HZ;
+/**
+ * W7 (Q-115): once a tick, after its step (app/game.js tickOnce: the page's loop, the play driver's jumps and a resume's
+ * replay alike, so the end never depends on how often the rate is asked). The latest restore's FOCUS ends, from
+ * RESTORE_FOCUS_S on, once frequency is back in the normal band as the sim reads it for a contingency (grid.js
+ * backInBandTick): the last whole grid second in band (state.last.fMinHz and fMaxHz), and the tick's own frequency too;
+ * so at speed the dial, which then shows each second's mean, reads in band from the first frame. Else it ends at
+ * RESTORE_FOCUS_MAX_S. A contingency begun since the close ends it at once and quietly (no caption). Its record keeps
+ * whether frequency left the band at any tick (`out`) and the tick it last came back (`back`, -1 while out: the crossing,
+ * which the caption counts to). Returns the record when it ends with a caption due, else null.
+ */
+export function restoreFocusTick(d, state) {
+  const rf = d.rfs.length ? d.rfs[d.rfs.length - 1] : null;
+  if (!rf || rf.end >= 0 || state.tick <= rf.tick) return null;
+  const t = state.tick, c = state.contIdx < 0 ? null : state.conts[state.contIdx];
+  if (c && c.startTick > rf.tick) { rf.end = t; rf.quiet = true; d.focusUntilTick = Math.min(d.focusUntilTick, t); return null; }
+  const ok = inBand(state.phys.fHz), last = state.last;
+  if (!ok) { rf.out = true; rf.back = -1; } else if (rf.out && rf.back < 0) rf.back = t;
+  // (from RESTORE_FOCUS_S on, the second state.last holds began at or after the close)
+  const held = ok && last.fMinHz >= V.NORMAL_LO_HZ && last.fMaxHz <= V.NORMAL_HI_HZ;
+  if (t < rf.tick + (held ? RESTORE_FOCUS_S : RESTORE_FOCUS_MAX_S) * TPS) return null;
+  rf.end = t;
+  d.focusUntilTick = t;
+  return rf;
+}
+
+/**
+ * W7 (Q-115): the one caption for a restore's FOCUS that has ended (restoreFocusTick's record), the seconds measured from
+ * the close as it happened: "Cold load picked up: 243 MW, back in band in 4 s." / "..., still out of band after 6 s." /
+ * "..., frequency stayed in band."
+ */
+export function restoreCaption(rf) {
+  const s = ((rf.back >= 0 ? rf.back : rf.end) - rf.tick) / TPS, secs = s < 1 ? 'under a second' : Math.round(s) + ' s';
+  return 'Cold load picked up: ' + Math.round(rf.mw).toLocaleString('en-AU') + ' MW, ' +
+    (rf.back >= 0 ? 'back in band in ' + secs : rf.out ? 'still out of band after ' + secs : 'frequency stayed in band') + '.';
 }
 
 /**
@@ -523,4 +594,4 @@ export function answerFeeder(d, state, id, leave) {
   for (let j = 0; j < at.length; j += 4) { const x = ds[at[j]]; if (x.id === id || (g && cardGroup(x) === g)) d.fc[x.id] = leave ? Infinity : at[j + 2]; }
   return true;
 }
-export const BUILD = '2026-10-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-10-20';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

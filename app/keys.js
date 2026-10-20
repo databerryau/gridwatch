@@ -1,4 +1,4 @@
-// app/keys.js: the K-23 key map for the game (next.html). app/input.js stays the bench's.
+// app/keys.js: the K-23 key map for the game (index.html). app/input.js stays the bench's.
 //
 // createKeys() is a small state machine (S S / X X within 2 s, D / E / F holds); keyDown,
 // keyUp and poll return ACTIONS, never touching the DOM or the sim:

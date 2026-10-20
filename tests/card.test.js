@@ -20,7 +20,7 @@ import {makeDocument} from './lib/dom.js';
 import {openGame} from './lib/play.js';
 import {injectTrip, withoutTask} from './lib/sim-helpers.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S, HOT = 20261007, MILD = 20261014; // DESK weekdays: a heatwave day, a calm mild day
 // HOT's day without the Act I restore task (Q-68), for the tests that read Redgum Flats' card at 04:30: on HOT the task's
 // two feeders are Redgum Flats', held dark from 04:00, and these tests are about the card's face and a dark suburb it pokes.
@@ -72,10 +72,10 @@ test('Q-56 at 04:30 on a hot day: name, homes, wit, patience with what it does, 
   const w = verdict(fc, v.obs.levers, 'RED', aim, 45);
   assert.match(w, /^✓ relief .* covers the 19:30 peak; snapback after it$/, 'the default aim is right on this day');
   assert.equal(card(p), 'REDGUM FLATS 420k homes “' + WIT.RED + '” patience 60: all respond · draws ' + /draws ([\d,]+) MW/.exec(card(p))[1] +
-    ' MW · roofs 0 MW HOT WATER SOAK +110 MW ' + span(soak, V.SOAK_S) + ' takes 413 MWh at noon; tonight\'s heating −413 MWh · no payment ' +
+    ' MW · roofs 0 MW THE CITY +480 MW ' + span(soak, V.SOAK_S) + ' HOT WATER SOAK +110 MW ' + span(soak, V.SOAK_S) + ' takes 413 MWh at noon; tonight\'s heating −413 MWh · no payment ' +
     'AIR-CON CYCLE −45 MW ' + span(aim, V.AIRCON_S) + ' ' + w + ' pre-cool from ' + hm(aim - V.PRECOOL_S) + ' · snapback to ' + hm(aim + V.AIRCON_S + V.SNAPBACK_S) +
-    ' · $22.5k · patience 60 → 50', 'the verdict right under its aim (P6: what scrolls at the floor is the words)');
-  assert.equal(p.doc.activeElement.id, 'city-RED-soak', 'opened: the first row takes the focus');
+    ' · $22.5k · patience 60 → 50', 'the verdict right under its aim (P6: what scrolls at the floor is the words); Q1: THE CITY first in the soak\'s rows');
+  assert.equal(p.doc.activeElement.id, 'city-soak-all', 'opened: the first row takes the focus (Q1: SOAK THE CITY)');
   // ▶ steps 15 min (the verdict follows), ◀ back; at the ends they answer in blue and stay
   p.click('city-RED-aircon-later');
   assert.ok(card(p).includes('−45 MW ' + span(aim + 900, V.AIRCON_S) + ' ' + verdict(p.vm().dayAhead, p.vm().obs.levers, 'RED', aim + 900, 45) + ' pre-cool'));
@@ -92,7 +92,7 @@ test('Q-56 at 04:30 on a hot day: name, homes, wit, patience with what it does, 
   p.key('=');
   assert.equal(toast(p), 'blue latest 11:00');
   p.key('-');
-  assert.ok(card(p).includes('+110 MW 10:45–14:45 '));
+  assert.ok(card(p).includes('THE CITY +480 MW 10:45–14:45 HOT WATER SOAK +110 MW 10:45–14:45 '), 'Q1: the city\'s time is the open suburb\'s aim');
   // ↑/↓ move between the rows' presses; ←/→ switch suburb, and the new card takes the focus
   p.key('ArrowDown');
   assert.equal(p.doc.activeElement.id, 'city-RED-aircon');
@@ -100,8 +100,10 @@ test('Q-56 at 04:30 on a hot day: name, homes, wit, patience with what it does, 
   assert.equal(p.doc.activeElement.id, 'city-RED-aircon', 'the last row stays');
   p.key('ArrowUp');
   assert.equal(p.doc.activeElement.id, 'city-RED-soak');
+  p.key('ArrowUp');
+  assert.equal(p.doc.activeElement.id, 'city-soak-all');
   p.key('ArrowRight');
-  assert.deepEqual([p.vm().suburb, p.doc.activeElement.id], ['HAR', 'city-HAR-soak']);
+  assert.deepEqual([p.vm().suburb, p.doc.activeElement.id], ['HAR', 'city-soak-all']);
   assert.match(card(p), /^HARBOURSIDE 250k homes .* patience 50: all respond · /);
   for (let i = 0; i < 4; i++) p.key('ArrowLeft');
   assert.equal(p.vm().suburb, 'SAL', 'wrapping in city order');

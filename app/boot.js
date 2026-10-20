@@ -1,4 +1,4 @@
-// app/boot.js: starts the greybox game (next.html, Phase 1a). The page's one module script.
+// app/boot.js: starts the greybox game (index.html; next.html from Phase 1a until W7, SPEC Q-126). The page's one module script.
 // It imports the stage B modules by their contract paths (desk/README.md §1) and hands them to
 // app/shell.js, which mounts them, draws the overlays and runs the frame loop. The Phase 0.2
 // bench's boot is app/bench-boot.js (bench.html).

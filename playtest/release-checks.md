@@ -15,8 +15,8 @@ keep them off the repo (it is public) and write only the file name.
 
 - **After a push, wait 10 minutes.** GitHub Pages serves cached files for 10 minutes (F-9), so a quick look can get a
   mix of old and new files. Ctrl+F5 reloads the page itself.
-- **The site is up.** Open <https://databerryau.github.io/gridwatch/> on the computer. It should move to `next.html`
-  and show the briefing, titled "Daily #N · …". From a terminal, if you like:
+- **The site is up.** Open <https://databerryau.github.io/gridwatch/> on the computer. It should stay at that
+  address (the game is the root since W7) and show the briefing, titled "Daily #N · …". From a terminal, if you like:
   - `curl -sI https://databerryau.github.io/gridwatch/` → `HTTP/2 200`
   - `curl -sI https://databerryau.github.io/gridwatch/og.png` → `HTTP/2 200` and `content-type: image/png`
 - **The build** is on the end card's Seed line after a day: "Seed 20261016 · v4-core-2d.0 · …". Write it in the record.
@@ -46,8 +46,8 @@ tappable.
 1. In the R-1 messages, look at the link's preview: the picture (GRIDWATCH over a frequency line that falls and is
    caught), the title "GRIDWATCH: the daily power-grid puzzle", and the description "Keep a city's lights on for one
    day: start power stations before the city needs them, and catch the trips. …".
-2. Check the second address too: the one the landing page copies, `https://databerryau.github.io/gridwatch/next.html`
-   (send it alone). Both pages carry the preview.
+2. Check the old address too: `https://databerryau.github.io/gridwatch/next.html` (send it alone). It carries the same
+   preview, and opened on the computer it goes to the root, keeping anything after the address.
 3. On the computer, the browser tab shows a small icon: a yellow lightning bolt on a dark square.
 
 Gate 2's check 4 scores a tester's preview by the same rule, so a preview that passes here can't fail there:
@@ -90,7 +90,7 @@ the new one.
    There is no PLAY ANYWAY on a phone (it is only for a small window with a mouse), and the desk never appears.
 3. Nothing scrolls sideways, and the text reads without zooming. Turn the phone sideways: still the landing page.
 4. Press COPY LINK. It reads COPIED, and the line under it says "Copied: paste it into a message to yourself." Paste
-   it into a note: the whole address, ending `next.html`. Send it to yourself and open it on the computer: the game.
+   it into a note: the whole address, `https://databerryau.github.io/gridwatch/`. Send it to yourself and open it on the computer: the game.
 
 **Pass:** steps 2–4 in Safari on an iPhone and Chrome on an Android phone.
 
@@ -114,7 +114,7 @@ does: it plays a few recorded days through the game's sim in this browser and ch
 state as when it was recorded. The state is compared by its **hash**, a fingerprint of every number in the grid,
 written like `0x1a2b3c4d`.
 
-1. On the computer, in each browser, open <https://databerryau.github.io/gridwatch/next.html?selftest>. Keep the tab
+1. On the computer, in each browser, open <https://databerryau.github.io/gridwatch/?selftest>. Keep the tab
    in front while it runs (a background tab runs slowly). `?selftest` skips the landing page, so any window will do.
 2. Wait until it says it is finished.
 
@@ -158,7 +158,7 @@ Copy this table for each release, newest first. Result: PASS, FAIL or SKIP (and 
 | R-2 Preview of the card's link, app 1 (shows descriptions? Y / N) | | | | |
 | R-2 Preview of the card's link, app 2 (shows descriptions? Y / N) | | | | |
 | R-2 Preview, app 3 (if app 1 or 2 shows no descriptions) | | | | |
-| R-2 Preview of the `next.html` link | | | | |
+| R-2 Preview of the old `next.html` link | | | | |
 | R-2 Icon in the browser tab | | | | |
 | R-3 Landing page, iPhone Safari | | | | |
 | R-3 Landing page, Android Chrome | | | | |

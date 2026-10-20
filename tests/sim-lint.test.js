@@ -90,10 +90,14 @@ test('sim/ imports are relative .js paths inside sim/ or content/', () => {
   assert.deepEqual(bad, []);
 });
 
-test('S-4: autopilot.js imports only params.js, step.js, clock.js and dark.js (the information barrier)', () => {
+test('S-4: autopilot.js imports only params.js, step.js, clock.js, dark.js and onat.js (the information barrier); onat.js only params.js', () => {
   const ap = files.find(x => rel(x.f) === 'sim/autopilot.js');
   assert.ok(ap, 'sim/autopilot.js missing');
-  for (const s of importSpecifiers(ap.toks)) assert.ok(['./params.js', './step.js', './clock.js', './dark.js'].includes(s), 'autopilot imports ' + s);
+  for (const s of importSpecifiers(ap.toks)) assert.ok(['./params.js', './step.js', './clock.js', './dark.js', './onat.js'].includes(s), 'autopilot imports ' + s);
+  // W7 Q6: "when is this unit on" reads a unit row and the mode, never state (so par may share it with the executor)
+  const on = files.find(x => rel(x.f) === 'sim/onat.js');
+  assert.ok(on, 'sim/onat.js missing');
+  assert.deepEqual(importSpecifiers(on.toks), ['./params.js'], 'onat imports');
 });
 
 test('sim/ and content/ use LF line endings', () => {

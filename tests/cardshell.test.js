@@ -16,7 +16,7 @@ import {openGame} from './lib/play.js';
 import {injectTrip} from './lib/sim-helpers.js';
 
 const TPS = V.TICKS_PER_S;
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const CITY = DESK.city.suburbs.map(s => s.id); // SOL HAZ RED HAR TAL SAL
 const card = p => p.$('suburb-card');
 const inCard = p => card(p).contains(p.doc.activeElement);
@@ -24,7 +24,7 @@ const toast = p => (p.$('toast').hidden ? '' : (p.$('toast').classList.contains(
 
 test('§31.9.1: #suburb-card is a hidden dialog left of the map, z 11 under the respond card, not a .card, 8 px over #planbar', () => {
   const tag = /<div id="suburb-card"([^>]*)><\/div>/.exec(NEXT);
-  assert.ok(tag, 'next.html has the container');
+  assert.ok(tag, 'index.html has the container');
   assert.match(tag[1], /role="dialog"/);
   assert.match(tag[1], /\bhidden\b/);
   assert.doesNotMatch(tag[1], /class=/, 'not class card: placeQs would put "?" inside it');

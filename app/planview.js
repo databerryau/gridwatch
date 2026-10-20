@@ -51,6 +51,7 @@
 
 import {V} from '../sim/params.js';
 import {darkShareAt, litMW} from '../sim/dark.js';
+import {onInS, startFromS, startToMinS, syncWaitS} from '../sim/onat.js';
 
 const M = V.MACHINES, SIDS = V.STATION_IDS;
 export const COL_S = V.FC_STEP_S;
@@ -61,7 +62,6 @@ export const SNAP_MW = 50;
 /** L-5: red / amber from this many MW under P50 / P90, as blue is from SURPLUS_MIN_MW. */
 export const GAP_MIN_MW = 50;
 const DT = 10; // executor step (s): key application and transitions land within one step of the sim's
-const AUTO = V.AUTO_SYNC_S;
 const S_PER_H = V.S_PER_H, EPS = 1e-6;
 const TIE_RATE = V.TIE_RAMP_MW_MIN / V.S_PER_MIN;
 const RERT_RATE = V.RERT_RAMP_MW_MIN / V.S_PER_MIN;
@@ -79,7 +79,8 @@ export const OTHER_CONTROL = Object.freeze({
 
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
 const machinesOf = id => M.filter(m => m.station === id);
-const startToMin = m => m.t1S + AUTO + m.t2S;
+/** Seconds from START to MIN for machine m under obs's mode (W7 Q6: sim/onat.js; no auto-sync wait in HAND). */
+export const startToMin = (m, obs) => startToMinS(m, obs.mode);
 const snapT = t => Math.round(t / SNAP_S) * SNAP_S;
 const ceilT = t => Math.ceil(t / SNAP_S - EPS) * SNAP_S;
 const snapMW = x => Math.round(x / SNAP_MW) * SNAP_MW;
@@ -100,25 +101,17 @@ export function waterValue(frac) {
   return T[T.length - 1][1];
 }
 
-/** Grid second at which unit u (an obs.units row) could first be 'on' at MIN if started now; Infinity if never. */
+/**
+ * Grid second at which unit u (an obs.units row) could first be 'on' at MIN if started now; Infinity if never (unloading or in
+ * shutdown: it must finish stopping, then its minimum down time). W7 Q6: sim/onat.js, the executor's and the line's answer: a
+ * unit on its way by its mode (onInS: in HAND, or on the synchroscope, no auto-sync wait); an off or tripped one from when it
+ * could START (startFromS: its lockout, a minimum down time, its return from an outage, §31.8) plus START to MIN in this mode.
+ */
 function earliestOnAt(obs, u, m) {
-  const s = obs.s;
-  switch (u.mode) {
-    case 'on': return s;
-    case 'loading': return s + u.timerS;
-    case 'ready': return s + u.timerS + m.t2S;
-    case 'starting': return s + u.timerS + AUTO + m.t2S;
-    case 'tripped': return s + u.timerS + startToMin(m);
-    case 'off': {
-      const b = u.startBlock || '';
-      let wait = 0;
-      if (/water/.test(b)) return Infinity;
-      // (an outage hides a minimum down time: §31.8)
-      if (/down/.test(b) || (u.outUntilS > s && u.downForS >= 0)) wait = Math.max(0, m.minDownS - (u.downForS || 0));
-      return Math.max(s + wait, u.outUntilS ?? -1) + startToMin(m);
-    }
-    default: return Infinity; // unloading / shutdown: must finish stopping, then min down
-  }
+  const s = obs.s, d = onInS(u, m, obs.mode, !!obs.scope && obs.scope.unit === u.id);
+  if (d >= 0) return s + d;
+  const from = startFromS(u, m, s);
+  return from < 0 ? Infinity : from + startToMin(m, obs);
 }
 
 /** The earliest-start line of each unit (L-4): {unit: grid second the unit could be on at MIN}. */
@@ -144,6 +137,7 @@ function simInit(obs) {
     if (u.mode === 'on') x.out = clamp(u.schedMW - (u.agcTrimMW || 0), 0, x.avail);
     else if (u.sync) x.out = u.schedMW;
     if (u.mode === 'loading') { x.from = u.schedMW; x.t0 = s; }
+    if (u.mode === 'ready') x.tEnd = s + onInS(u, m, obs.mode, !!obs.scope && obs.scope.unit === u.id) - m.t2S; // (sim/onat.js: the sync wait left; none in HAND or on the scope)
     if (u.mode === 'shutdown') { x.from = u.schedMW; x.t0 = s; }
     return x;
   });
@@ -169,7 +163,7 @@ function simInit(obs) {
   const rert = {armed: r.armed, arriveAt: s + (r.leadS || 0), down: r.standingDown, out: r.outMW};
   const dr = {until: s + (obs.dr.activeS || 0), mw: obs.dr.mw};
   const hydro = {store: obs.hydro.storageMWh};
-  return {mach, sts, starts, stops, tie, batt, rert, dr, hydro, man: obs.mode === 'HAND'};
+  return {mach, sts, starts, stops, tie, batt, rert, dr, hydro, man: obs.mode === 'HAND', mode: obs.mode};
 }
 
 function applyKey(S, st, mw, atS) {
@@ -227,7 +221,7 @@ function stepMachine(S, x, t) {
   const m = x.m;
   switch (x.mode) {
     case 'tripped': if (t >= x.tEnd) { x.mode = 'off'; x.block = ''; x.downSince = -Infinity; } break;
-    case 'starting': if (t >= x.tEnd) { x.mode = 'ready'; x.tEnd = t + AUTO; } break;
+    case 'starting': if (t >= x.tEnd) { x.mode = 'ready'; x.tEnd = t + syncWaitS(S.mode); } break; // (sim/onat.js: none in HAND)
     case 'ready':
       if (t >= x.tEnd) {
         x.mode = 'loading'; x.out = V.SYNC_BLOCK_FRAC * m.ratingMW; x.from = x.out; x.t0 = t; x.tEnd = t + m.t2S; x.upSince = t;
@@ -267,6 +261,8 @@ function colTimes(fc) {
 }
 
 /**
+ * What is short ahead, THE LIVE STACK'S CHECK (W7 Q6: one of three, each for what it checks; sim/onat.js lists them): the
+ * plan as the executor will play it.
  * Project the plan (L-1..L-5). Future column k is the 5-min interval ending at
  * `times[k] = forecast.fromS + (k + 1) x 300` and holds the value at that time (the forecast's
  * own convention); past column p (0..5) ends at `pastTimes[p]` and is filled from `opts.hist`
@@ -505,7 +501,7 @@ export function earliestArrival(obs, station, mw) {
     if (u.mode === 'on') continue;
     const i = obs.units.indexOf(u), m = M[i];
     let at;
-    if (booked.has(u.id) && u.mode === 'off') at = Math.max(booked.get(u.id) + startToMin(m), earliestOnAt(obs, u, m));
+    if (booked.has(u.id) && u.mode === 'off') at = Math.max(booked.get(u.id) + startToMin(m, obs), earliestOnAt(obs, u, m));
     else at = earliestOnAt(obs, u, m);
     if (!Number.isFinite(at)) continue;
     cands.push({u, m, at, needBook: (u.mode === 'off' || u.mode === 'tripped') && !booked.has(u.id)});
@@ -664,7 +660,7 @@ function dropInputs(obs, station, atS, mw, arr) {
     const tOn = atS - Math.ceil(Math.max(0, arr.mw - leverAt) / Rall);
     for (const c of arr.starts) {
       const m = M[obs.units.findIndex(u => u.id === c.unit)];
-      const at = Math.max(c.onAtS, tOn) - startToMin(m);
+      const at = Math.max(c.onAtS, tOn) - startToMin(m, obs);
       out.push({type: 'planStart', unit: c.unit, atS: Math.max(obs.s, Math.round(at))});
     }
   }
@@ -684,7 +680,7 @@ export function snapStart(obs, unit, onAtS) {
   const earliest = earliestOnAt(obs, u, m);
   let t = snapT(onAtS);
   if (t < obs.s) t = ceilT(obs.s);
-  const mk = at => [{type: 'planStart', unit, atS: at - startToMin(m)}];
+  const mk = at => [{type: 'planStart', unit, atS: at - startToMin(m, obs)}];
   if (!Number.isFinite(earliest)) return {unit, onAtS: t, earliestS: Infinity, infeasible: true, ghost: null};
   if (t >= earliest) return {unit, onAtS: t, earliestS: earliest, inputs: mk(t)};
   const g = ceilT(earliest);
@@ -695,7 +691,7 @@ export function snapStart(obs, unit, onAtS) {
 export function layerFacts(obs, id) {
   if (V.STATIONS[id]) {
     const st = V.STATIONS[id], on = obs.units.filter(u => u.station === id && u.sync).length;
-    return {id, name: st.name, machines: st.machines, on, rampMWMin: st.rampMWMin * Math.max(1, on), startMin: (startToMin(machinesOf(id)[0])) / V.S_PER_MIN,
+    return {id, name: st.name, machines: st.machines, on, rampMWMin: st.rampMWMin * Math.max(1, on), startMin: (startToMin(machinesOf(id)[0], obs)) / V.S_PER_MIN,
       offer: id === 'hydro' ? waterValue(obs.hydro.frac) : st.offer};
   }
   const other = {

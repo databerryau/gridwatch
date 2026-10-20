@@ -1,4 +1,4 @@
-// content/selftest.js: W6 (risk 5): the golden values next.html?selftest (app/selftest.js) checks a browser against,
+// content/selftest.js: W6 (risk 5): the golden values index.html?selftest (app/selftest.js) checks a browser against,
 // measured in Node with the page's own runner. par: par's day to its end (the hash each grid hour from 05:00 and at its end,
 // and its ALL-IN, which is content/ladder.js's stored par); nothing: the page's no-input day to 14:00 (the ladder's check);
 // replay: a scripted player's input log (sim/autopilot.js fuzz) and the hash at its checkpoint. Hashes: hashState, unsigned.

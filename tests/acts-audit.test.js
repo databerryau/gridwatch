@@ -3,10 +3,11 @@
 // sim input lives under the desk (the Live Stack is in it, or over the map while expanded), the map or the
 // suburb card; the briefing sends only `mode` inputs (the card's AGC/HAND, the desk's AGC key, Q-64).
 //
-// Two halves. The source: the modules of next.html (its first visit and the on-demand ones, found from its
-// import() calls) that call actions.input( or actions.redispatch( are exactly the desk's, the stack's, the
-// suburb card's and the shell's, and the shell's are the briefing's mode and the keys' runner (which carries
-// a desk control's key). The page, headless (tests/lib/play.js), sampled: the briefing and then the quiet desk at 04:30,
+// Two halves. The source: the modules of index.html (its first visit and the on-demand ones, found from its
+// import() calls) that call actions.input(, actions.redispatch( or actions.soakCity( (W7 Q1: SOAK THE CITY, one
+// press that books every free suburb) are exactly the desk's, the stack's, the suburb card's and the shell's, and
+// the shell's are the briefing's mode and the keys' runner (which carries a desk control's key); SOAK THE CITY is
+// the suburb card's alone. The page, headless (tests/lib/play.js), sampled: the briefing and then the quiet desk at 04:30,
 // every visible control clicked twice (a guard's lift and its confirm), the sends seen at the page's
 // actions and each laid at the control that made it.
 import {test} from 'node:test';
@@ -36,11 +37,11 @@ function onDemand(first) {
 // The regions D-1 allows, by the root each module is mounted on (app/shell.js bootGame).
 const REGIONS = ['desk', 'stack-overlay', 'map', 'suburb-card'];
 
-/** Each call `actions.input(` / `actions.redispatch(` in a source: {line, what, arg: its first four tokens, to the call's ')'}. */
+/** Each call `actions.input(` / `actions.redispatch(` / `actions.soakCity(` in a source: {line, what, arg: its first four tokens, to the call's ')'}. */
 function sendsIn(src) {
   const t = tokenize(src), out = [];
   for (let k = 0; k + 3 < t.length; k++) {
-    if (t[k].text === 'actions' && t[k + 1].text === '.' && /^(input|redispatch)$/.test(t[k + 2].text) && t[k + 3].text === '(') {
+    if (t[k].text === 'actions' && t[k + 1].text === '.' && /^(input|redispatch|soakCity)$/.test(t[k + 2].text) && t[k + 3].text === '(') {
       const a = t.slice(k + 4, k + 8), end = a.findIndex(x => x.text === ')');
       out.push({line: t[k].line, what: t[k + 2].text, arg: (end < 0 ? a : a.slice(0, end + 1)).map(x => x.text).join(' ')});
     }
@@ -49,7 +50,7 @@ function sendsIn(src) {
 }
 
 test('D-1, the source: only the desk, the stack, the suburb card and the shell call the page\'s actions; the shell sends the briefing\'s mode and the keys\' inputs', () => {
-  const first = firstVisit('next.html').map(f => f.path).filter(p => p.endsWith('.js')), later = onDemand(first), files = [...first, ...later];
+  const first = firstVisit('index.html').map(f => f.path).filter(p => p.endsWith('.js')), later = onDemand(first), files = [...first, ...later];
   // (the on-demand list is the page's own, so a module 2d or 2e loads later is audited too)
   for (const m of ['app/endcard.js', 'app/suburbcard.js', 'content/text.js']) assert.ok(later.includes(m), m + ' is found on demand: ' + later);
   const by = {}, views = /^(desk|render|audio|content)\/|^app\/(shell|boot|keys|suburbcard|alarmpanel|endcard|watch|tray)\.js$/;
@@ -64,6 +65,8 @@ test('D-1, the source: only the desk, the stack, the suburb card and the shell c
   // and a feeder card's RESTORE button and its R or Enter (Q-91: the restore of the feeder it names)
   assert.deepEqual(by['app/shell.js'].map(x => x.what + ': ' + x.arg), ['input: { type : \'mode\'', 'input: { type : \'restore\'', 'input: a . input )', 'redispatch: )',
     'input: { type : \'restore\'']);
+  // SOAK THE CITY (W7 Q1): pressed on the suburb card, and only there
+  assert.deepEqual(files.filter(f => (by[f] || []).some(x => x.what === 'soakCity')), ['app/suburbcard.js']);
   // and where the others are mounted: the desk at #desk, the stack in the desk's slot (#stack-overlay while expanded), the map at #map, the card at #suburb-card
   const shell = readFileSync(ROOT + 'app/shell.js', 'utf8');
   for (const m of [/mount\('map', o\.createMap, \$\('map'\)\)/, /mount\('desk', o\.createDesk, \$\('desk'\)/, /mount\('stack', o\.createLiveStack, slot\)/,
@@ -83,12 +86,13 @@ function controls(p) {
 const regionOf = (p, e) => REGIONS.find(id => p.$(id) && p.$(id).contains(e)) || '';
 const name = e => e.id || (e.dataset.anchor ? 'q:' + e.dataset.anchor : e.tagName + '.' + e.className);
 
-/** The page's actions, watched: every sim input and RE-DISPATCH, with the control being pressed (and its region, as pressed) and the answer. */
+/** The page's actions, watched: every sim input, RE-DISPATCH and SOAK THE CITY, with the control being pressed (and its region, as pressed) and the answer. */
 function watch(p) {
-  const a = p.h.actions, input = a.input, redispatch = a.redispatch, sent = [];
+  const a = p.h.actions, input = a.input, redispatch = a.redispatch, soakCity = a.soakCity, sent = [];
   const w = {at: null, region: '', sent};
   a.input = x => { const r = input(x); sent.push({type: x.type, r, at: w.at, region: w.region}); return r; };
   a.redispatch = () => { const r = redispatch(); sent.push({type: 'redispatch', r, at: w.at, region: w.region}); return r; };
+  a.soakCity = atS => { const r = soakCity(atS); sent.push({type: 'soakCity', r, at: w.at, region: w.region}); return r; };
   return w;
 }
 /**
@@ -130,5 +134,6 @@ test('D-1 on the page: the briefing sends only mode inputs; from 04:30 every con
   assert.deepEqual(stray, [], 'sim inputs from outside the desk, the stack, the map and the suburb card');
   assert.deepEqual([...from].sort(), ['desk', 'suburb-card'], 'the audit pressed controls that send (the stack\'s canvas is the source half\'s)');
   assert.ok(w.sent.some(s => s.r === '' && s.type === 'start') && w.sent.some(s => s.type === 'flex'), 'START and a suburb\'s lever reached the sim: ' + [...new Set(w.sent.map(s => s.type))]);
+  assert.ok(w.sent.some(s => s.r === '' && s.type === 'soakCity' && s.region === 'suburb-card'), 'SOAK THE CITY reached the sim, from the suburb card: ' + [...new Set(w.sent.map(s => s.type))]);
   assert.deepEqual(p.h.mods.errors, []);
 });

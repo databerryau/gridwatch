@@ -1,4 +1,4 @@
-// tests/lib/play.js: a FAST headless play driver for the real page (next.html booted through
+// tests/lib/play.js: a FAST headless play driver for the real page (index.html booted through
 // app/shell.js with every real module, in the stand-in DOM of tests/lib/dom.js). For tests and
 // tools (tools/play.mjs is its command line). No product hooks: it drives the page the way
 // tests/day.test.js does, and reads the game object the boot handle returns.
@@ -8,6 +8,7 @@
 //   p.to('15:40');            // jump the sim to 15:40 without drawing frames, then draw one frame
 //   p.until('trip');          // jump to the tick the next trip begins, then draw one frame
 //   p.skipTo('17:30');        // to('17:30', {stop: []}) at ~0.6x the cost (no 60-fps virtual frames): stops at a card, one frame
+//   p.skipTo('14:00', {stop: ({state, game}) => ...});   // the same, stopping at the first grid second the predicate holds
 //   p.real(5); p.look();      // five real seconds of frames (the watch), then what the player sees
 //   p.realJump(5);            // five real seconds as a jump (sampled, not streamed), then one frame
 //   p.click('guard-start-gta1'); p.key('Enter');
@@ -24,10 +25,10 @@
 //   G.tickOnce, the function the page's loop calls, and lands in the same frame as in play),
 //   then the frame's model work: D.directorFrame, and G.buildVm itself whenever it would
 //   recompute the objective line (G.objectiveDue: every max(30 grid s, 0.4 real s of the profile),
-//   a watch/card/RESPOND/NIGHT change; a guard under the hand) or a unit is READY (the offers).
-//   Its other frames skip buildVm's view building and run
+//   a watch/card/RESPOND/NIGHT change; TRIP SHEDS coming or going, G.n1Frame; a guard under the hand)
+//   or a unit is READY (the offers). Its other frames skip buildVm's view building and run
 //   only the parts with memory: the annunciator (A.updateAlarms on A.alarmInputFromState, which
-//   tests keep equal to buildVm's input) and the tray's ageing. Only the drawing is skipped
+//   tests keep equal to buildVm's input), the tray's ageing and the N-1 word's hold. Only the drawing is skipped
 //   (map, desk, Live Stack, shell overlays, sound: ~95% of a frame's cost).
 //   Per tick it runs cheap event checks and stops AT the tick an event begins (mid-frame).
 //   Then ONE frame is drawn (handle.frame): the frame that held the stop tick, at the same page
@@ -40,7 +41,7 @@
 // advance it by their frame time; a jump advances it 1/60 s per virtual frame, i.e. by the real
 // time a player at 60 fps would have watched at the director's rates (the D-2 profile at CRUISE,
 // 1 real s per 540 grid s before 06:00 and 150 in the peak; the watch's slow motion at its own).
-// So line holds (4 real s), the annunciator's real-time timers (AGC LIMIT 5 real s, re-sound
+// So line holds (4 real s), the annunciator's real-time timers (UNITS AT LIMIT 5 real s, re-sound
 // hold-offs), guard covers, notes and the toast age across a jump exactly as in play.
 // clockReport() splits the real seconds since Space into D-2's terms (tools/play.mjs `clock`).
 //
@@ -85,7 +86,7 @@ import * as endCard from '../../app/endcard.js';
 import * as perf from '../../app/perf.js';
 import * as suburbCard from '../../app/suburbcard.js';
 
-const NEXT = readFileSync(new URL('../../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S, TICK_S = 1 / TPS, DAY_S = V.DAY_S;
 
 /** The page's frame time (s): frames(), real() and the virtual frames of a jump. */
@@ -240,7 +241,7 @@ export function feederHeldAt(state) {
 // ------------------------------------------------------------------ the driver
 
 /**
- * Boot next.html headless and return the driver.
+ * Boot index.html headless and return the driver.
  * @param {{seed?:number, scenario?:string|object|function, commit?:'player'|'system', agc?:boolean, take?:boolean,
  *   run?:boolean, storage?:object|null, shifts?:number, startPaused?:boolean, par?:boolean|object, date?:Date}} [o]
  *   seed (default 20261007); scenario: a name in content/scenarios.js, a scenario, or a function
@@ -365,8 +366,8 @@ export function openGame(o = {}) {
     find(x).dispatch(type, Object.assign({clientX: cx, clientY: cy}, extra));
     return api;
   }
-  /** A sim input straight through the page's actions (bypasses the desk; refusals toast). */
-  function send(x) { const r = h.actions.input(x); frame(); return r; }
+  /** A sim input straight through the page's actions (bypasses the desk; refusals toast); a line's SOAK THE CITY action, its press (Q1). */
+  function send(x) { const r = x && x.type === 'soakCity' ? h.actions.soakCity(x.atS) : h.actions.input(x); frame(); return r; }
   /** Q-56: open a suburb's card as a map click does ({do: 'suburb', id}; null closes it); then one frame. Returns the answer. */
   function suburb(id) { const r = h.actions.ui({do: 'suburb', id}); frame(); return r; }
 
@@ -400,13 +401,14 @@ export function openGame(o = {}) {
     game.director.seenDirty = false;
   }
   // buildVm recomputes the objective line this frame (its own test, G.objectiveDue), or a unit is
-  // READY (the offers): then the virtual frame runs buildVm itself.
+  // READY (the offers), or Marg has a first-time line to say (W7, Q-124: G.margFirsts): then the virtual frame runs buildVm itself.
   function vmDue(lineFrom) {
     const s = game.state;
     if (s.units.some(u => u.mode === 'ready')) return true;
+    if (G.margFirsts(game, modeNow()).length) return true;
     if (s.tick < lineFrom) return false;
     if (game.phase !== 'play' || game.commit !== 'player' || !game.planview) return false;
-    return game.considerDirty || !!G.objectiveDue(game, Math.floor(s.tick / TPS), modeNow());
+    return game.considerDirty || game.n1News || !!G.objectiveDue(game, Math.floor(s.tick / TPS), modeNow());
   }
   // The rest of buildVm's per-frame work that has memory: the annunciator (on
   // alarmInputFromState, which tests keep equal to alarmInput(observe), and the page's own
@@ -420,6 +422,7 @@ export function openGame(o = {}) {
       if (r.newAlarm) D.endFast(game.director);
     }
     T.trayFrame(game.tray, Math.floor(s.tick / TPS));
+    G.n1Frame(game, nowMs);   // (the N-1 word's hold, which the line reads: W7 integration review)
     game.cues = []; // the frame's sounds: no audio here
   }
 
@@ -548,7 +551,7 @@ export function openGame(o = {}) {
    * s in CRUISE; a grid second at least, where a page frame is a sliver of one: the watch, FOCUS) and at each step of the
    * director's rate: the director's frame, then the annunciator and the tray (lightFrame), or the whole view model
    * (buildVm, as a jump's frame runs it) while a unit is READY (the offers: OFFER's pace and their tally), when an act
-   * begins and when the night shift takes the desk (Marg's beats); then one drawn frame, as a jump's. The page's clock
+   * begins, when the night shift takes the desk and when a first-time line is due (Marg's beats); then one drawn frame, as a jump's. The page's clock
    * moves on as its pacer charges each tick (the D-2 profile's real s in CRUISE and NIGHT, realBetween; off it the
    * director's rate tick by tick: the watch's slow motion, RESPOND, FOCUS, OFFER), recorded for clockReport frame by
    * frame, so the annunciator's real-second timers and D-2's clock see play's real seconds. It stops where the page holds
@@ -562,10 +565,11 @@ export function openGame(o = {}) {
    * so a press after a skip may land a frame's ticks away from the same press after a jump. Checked against page jumps
    * over whole days (W6 review, seeds 20261007, 20261014, 20261016, 20261017, 20261202, answering every card): the same
    * holds and hashes, annunciator tiles, soundings and tray, the page clock within 0.1 real s. Returns {why, at, ticks,
-   * ms}, as to().
+   * ms}, as to(). W7: opts.stop, a function ({state, game, tick}) asked at each grid second's first tick, stops the skip
+   * there when truthy (why 'pred'; then the drawn frame), as until()'s predicate does a jump.
    */
-  function skipTo(when) {
-    const t0 = performance.now(), state = game.state, tick0 = state.tick, d = game.director;
+  function skipTo(when, opts = {}) {
+    const t0 = performance.now(), state = game.state, tick0 = state.tick, d = game.director, stop = opts.stop || null;
     const toTick = Math.min(Math.round(parseTime(when, state.tick / TPS) * TPS), V.DAY_TICKS);
     if (game.phase !== 'play') return finish('held:BRIEFING', t0, tick0, false, null);
     if (D.directorFrame(d, state)) saveSeen();
@@ -583,6 +587,7 @@ export function openGame(o = {}) {
       if (state.tick >= toTick) { why = 'target'; break; }
       const sB = gridS();
       G.tickOnce(game);
+      if (stop && state.tick % TPS === 0 && stop({state, game, tick: state.tick})) { why = 'pred'; break; }   // (W7: opts.stop)
       if (on && state.tick % TPS > 1 && state.conts.length === conts && state.tick !== end && d.shedW === shed && D.handAt(state) === hand) continue;
       if (on) { dt += realBetween(from, sB, hand); rate = rateAt(sB, hand); }
       const last = D.rateOfLastTick(d, state), r = rateNow();
@@ -634,7 +639,7 @@ export function openGame(o = {}) {
     const hid = id => { const e = $(id); return !e || isHidden(e); };
     const tx = (id, skip) => textOf($(id), skip);
     const obs = vm ? vm.obs : null;
-    const ck = tx('clock-text'), allIn = tx('chip-allin'), hand = tx('chip-hand'); // (the ALL-IN chip, Q-48, and HAND, D-7: empty while hidden)
+    const ck = tx('clock-text'), allIn = tx('chip-allin'), hand = tx('chip-hand'); // (the ALL-IN chip, Q-48: 'SCORE FROM 21:00' until 21:00, W7 Q-117; and HAND, D-7: empty while hidden)
     L.push('CLOCK ' + ck + (obs && /^\d\d:\d\d$/.test(ck) ? ':' + pad(Math.floor(obs.s) % 60) : '') + ' | ' + tx('rate-text') +
       ' | ' + ['chip-lights', 'chip-cost', 'chip-co2'].map(id => tx(id)).join(' | ') + (allIn ? ' | ' + allIn : '') + (hand ? ' | ' + hand : ''));
     if (!hid('briefing-card')) L.push('BRIEFING ' + tx('briefing-day') + ' ' + tx('briefing-watch'));
@@ -740,14 +745,17 @@ export function openGame(o = {}) {
    * D-2's clock (desk/README.md §32.2): the real seconds from the Space that ran the clock to now
    * against E, the profile's real seconds over the same grid time (sim/clock.js realBetween) plus,
    * for each span played off the profile, its real seconds as played minus the profile's. The
-   * spans come from the sim's records and the game's offers, not the director: each watch
+   * spans come from the sim's records and the game's offers, not the director's rates: each watch
    * (startTick to watchEndTick), each card (the frames held at its watchEndTick), FOCUS (the
-   * synchroscope open, and RESTORE_FOCUS_S after each accepted restore input), RESTORE (Q-91: the
+   * synchroscope open, and each of the player's restores from its close to its FOCUS's end, W7 Q-115: the
+   * game's record of it, director.rfs, whose end G.tickOnce finds tick by tick from the sim's frequency;
+   * one still running counts to its cap; D-27's queued closes and the night shift's have none), RESTORE (Q-91: the
    * feeder cards' held real s, the frames that run no tick from a feeder card's hold tick,
    * feederHeldAt: the tick after a dark task feeder's allowed second's own, re-armed by every later
    * restore of any district, before 21:00), RESPOND's 30x part (the card to backInBandTick or + RESPOND_MAX_S;
    * no card or RESPOND from a night scenario's 21:00) and OFFER (any offered unit while it waits at
-   * full speed, at most AUTO_SYNC_S from its own offer, before the night shift has the desk). A frame
+   * full speed, at most AUTO_SYNC_S from its own offer, before the night shift has the desk; W7, Q-115: HAND
+   * days only, so an AGC day's OFFER is n 0, 0 real s). A frame
    * counts in the first of these holding its middle, in the director's precedence (a frame that
    * runs no tick at a watch's end: the card, a feeder card queued behind it included; a feeder
    * card holds over FOCUS). parts[k].n counts the spans begun after Space and before now
@@ -767,8 +775,8 @@ export function openGame(o = {}) {
       const b = Math.min(back, w + V.RESPOND_MAX_S, nightS);
       if (b > w) spans.RESPOND.push({a: w, b});
     }
-    // every accepted restore: its own FOCUS
-    for (const r of st.log) if (r.type === 'restore') spans.FOCUS.push({a: r.tick / TPS, b: r.tick / TPS + D.RESTORE_FOCUS_S});
+    // each of the player's restores: its own FOCUS, to its end (W7, Q-115)
+    for (const r of game.director.rfs) spans.FOCUS.push({a: r.tick / TPS, b: (r.end >= 0 ? r.end : r.tick + D.RESTORE_FOCUS_MAX_S * TPS) / TPS});
     const K = ['WATCH', 'card', 'FOCUS', 'RESTORE', 'RESPOND', 'OFFER'], parts = {};
     for (const k of K) parts[k] = {n: 0, realS: 0, overS: 0};
     for (const k of Object.keys(spans)) parts[k].n = spans[k].filter(x => x.a >= fromS && x.a < toS).length;

@@ -1,4 +1,4 @@
-// app/shell.js: the game page (next.html) around app/game.js. It mounts the map, the desk and
+// app/shell.js: the game page (index.html) around app/game.js. It mounts the map, the desk and
 // the Live Stack (whichever modules boot.js passes in), draws the header and the overlays
 // (briefing, watch, respond card, end card, drawer, "?" labels, toast, ?perf), runs the frame
 // loop (ticks, then the view model, then every module draws: never inside step(), X-26),
@@ -44,6 +44,7 @@
 // puts the focus in its popover.
 
 import {V} from '../sim/params.js';
+import {NIGHT_S} from '../sim/clock.js';
 import * as G from './game.js';
 import {allIn, grade, parShedMWh} from './score.js';
 import {startRaf} from './loop.js';
@@ -55,12 +56,13 @@ import {BEATS, FEEDER_ON} from './watch.js';
 import {modeOf, feederCard} from './director.js';
 import {observe} from '../sim/step.js';
 import {unitLabel} from '../desk/util.js';
+import {n1Word} from '../desk/calc.js';
 import {puzzleNumber} from './share.js';
 import {localYmd} from './history.js';
 import {pastDailies, hardDays, resultText, isoOf} from './shelf.js';
-import {outlookWord} from './week.js';
+import {outlookWord, eveningTrip} from './week.js';
 
-/** K-17: header, map and desk heights (px) for a viewport; the CSS in next.html does the same. */
+/** K-17: header, map and desk heights (px) for a viewport; the CSS in index.html does the same. */
 export function layoutSizes(width, height) {
   const header = width >= 1600 ? 40 : 32;
   const desk = Math.max(300, Math.floor((height - header) / 2));
@@ -115,6 +117,15 @@ const KIND_WORD = Object.freeze({
 export const CONSIDER_WORD = '? IF PRESSED';
 /** The words while a guard's cover is up (vm.armed), and for a unit on its way (level 'ok'). */
 export const ARMED_WORD = '● ARMED', UNDER_WAY_WORD = '✓ UNDER WAY';
+/**
+ * W7 Q4 (review): the GUARD ring's price once the move is made: the ring sends on release or key-up (desk/rotary.js), so
+ * a key step is made before its price is read, and a drag once let go; '? IF PRESSED' only while the ring is still turning.
+ */
+export const GUARD_SET_WORD = '✓ GUARD SET';
+/** The GUARD ring's price (vm.consider, target 'ring-guard') stands for a move the GUARD has made: it stands at the ring's MW. */
+export const guardSet = (c, obs) => !!c && c.target === 'ring-guard' && Number.isFinite(c.toMW) && !!obs.battery && obs.battery.guardMW === c.toMW;
+/** The word beside a consider line (C-10): ARMED while its cover is up, GUARD SET for a GUARD made, UNDER WAY for a unit on its way, else IF PRESSED. */
+export const considerWord = (c, obs, armed = false) => (armed ? ARMED_WORD : guardSet(c, obs) ? GUARD_SET_WORD : c.level === 'ok' ? UNDER_WAY_WORD : CONSIDER_WORD);
 
 /** The glyph and word shown beside an objective line {kind, level} (app/objective.js). */
 export function objectiveWord(o) {
@@ -128,19 +139,28 @@ export function objectiveWord(o) {
  * weekday, from the public obs.day only (a heatwave day reads HOT, C-2). plan: on a day the event
  * director planned, {heat: a heatwave announced at 04:00, word: the day's outlook word} (Q-80: a HOT
  * day without one has none coming; Q-110: a storm or low wind "likely later", as the week ahead said,
- * its time in the warning on the day); null on the classic day, whose heatwave is announced mid-morning.
+ * its time in the warning on the day; W7, Q-121: trip, the plan has the evening trip: TRIP_LINE, no minute); null on
+ * the classic day, whose heatwave is announced mid-morning.
  */
 export function dayText(day, plan) {
   if (!day) return '';
   const when = day.weekend ? 'weekend' : 'weekday';
-  const lean = day.weekend ? ', one coal unit off' : '', later = (plan && LATER[plan.word]) || '';
+  const lean = day.weekend ? ', one coal unit off' : '', later = ((plan && LATER[plan.word]) || '') + (plan && plan.trip ? TRIP_LINE : '');
   if (day.temp === 'MILD') return 'Today: a mild ' + when + lean + (day.weekend ? '.' : ': rooftop solar cuts midday demand.') + later;
   return 'Today: a hot ' + when + lean + (!plan ? '; any heatwave warning comes mid-morning.' : plan.heat ? ', heatwave this afternoon.' : ', no heatwave forecast.') + later;
 }
 /** Q-110: the day line's outlook sentence for a storm or a wind drought (app/week.js's words): no time, which the warning gives. */
 export const LATER = Object.freeze({storm: ' Storms likely later.', 'low wind': ' Low wind likely later.'});
+/**
+ * W7 (Q-121): the day line's sentence when the plan has the evening trip of the largest machine (app/week.js eveningTrip): no
+ * minute. A span, the game's own "evening peak" (the badge's PEAK and its alarm, 16:30-20:00, sim/clock.js PEAK, which holds
+ * the trip's 17:00-19:30), not "at the peak": Marg names the peak as a minute ("Peak about 6,500 MW at 19:34"), and the trip
+ * comes a median hour or so before it.
+ */
+export const TRIP_LINE = ' Expect a trip during the evening peak.';
 /** The day line's plan (dayText) from the state at 04:00 and its obs: null on the classic day (no director's plan). */
-export const dayPlan = (st, obs) => (st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0), word: outlookWord(st.seed, st.scn)} : null);
+export const dayPlan = (st, obs) => (st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0), word: outlookWord(st.seed, st.scn),
+  trip: eveningTrip(st.seed, st.scn)} : null);
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -191,7 +211,7 @@ export const NO_DAILY = 'No daily today · PRACTICE';
 /** Q-75: a daily played outside the gate-checked list says so, before play and after (app/endcard.js). */
 export const NOT_GATED = 'Not gate-checked: this day may not be solvable.';
 /**
- * The briefing's "Watch for" into `w` (next.html #briefing-watch, in the card's own colour): a bold head and the
+ * The briefing's "Watch for" into `w` (index.html #briefing-watch, in the card's own colour): a bold head and the
  * day's briefs (<= 30 words, D-3; guardMW: watchFor's), then NOT_GATED on its own line when `gated` is false; hidden with neither.
  */
 export function watchForInto(doc, w, obs, gated, guardMW = 0) {
@@ -212,6 +232,19 @@ export const HAND_CHIP = Object.freeze({
   day: ['HAND', 'Flown by hand: no AGC trim from 04:30 until 21:00, when the night shift takes the desk on AGC'],
   night: ['HAND-FLOWN · NIGHT SHIFT ON AGC', 'You flew the day by hand; the night shift has the desk on AGC until 04:00'],
 });
+/**
+ * W7 (Q-117): the SCORE chip keeps its place all day but shows no number before 21:00: its key over SCORE_LATER, in grey
+ * (index.html #chip-allin.later), and SCORE_LATER_TIP as its title (`allIn` with no par to compare: the chip then shows ALL-IN).
+ */
+export const SCORE_LATER = 'FROM 21:00';
+export const SCORE_LATER_TIP = Object.freeze({
+  score: 'Your score shows here from 21:00, when the night shift takes the desk, and moves with the night\'s totals to 04:00, ' +
+    'when your day is scored: 1000 × par\'s ALL-IN ÷ yours.',
+  allIn: 'Your ALL-IN shows here from 21:00, when the night shift takes the desk, and moves with the night\'s totals to 04:00. ' +
+    'There is no par to compare today.',
+});
+/** W7 (Q-117): the chip shows its number from 21:00 (the night shift's desk; on a day with no night shift, its clock) and once the day is over. */
+export const scoreShown = (obs, night = true) => !!(obs.over || obs.nightShift || (!night && obs.s >= NIGHT_S));
 /** Q-73: the night strip redraws its figures at most this often (real ms), so each can be read. */
 export const NIGHT_REDRAW_MS = 500;
 /** A toast lives max(TOAST_MS, TOAST_WORD_MS a word) (real ms), so it can be read (§32.11). */
@@ -225,7 +258,7 @@ const millions = x => '$' + (x / 1e6).toFixed(1) + 'M';
 export const LIVE_GAP_MS = 2000;
 // What waits is one slot per kind (the newest of a kind replaces the older: "newest alarm
 // wins"), said in this order: a card that holds the clock first (the RESPOND card, the end card's score).
-const LIVE_ORDER = ['card', 'alarm', 'line', 'tray', 'band', 'level', 'mode'];
+const LIVE_ORDER = ['card', 'alarm', 'line', 'guard', 'tray', 'band', 'level', 'mode'];
 const BAND_TEXT = {normal: 'Frequency back in the normal band', outside: 'Frequency outside the normal band',
   containment: 'Frequency outside the containment band'};
 
@@ -238,7 +271,7 @@ export function bandOf(hz) {
 /** A new live-region model (pure; liveFrame feeds it a vm per frame). */
 export function createLive() {
   return {primed: false, lastMs: -Infinity, tick: -1, mode: '', seg: '', act: 0, band: '', bandSaid: '', level: '', levelSaid: '', tiles: {}, cards: new Set(),
-    respond: -1, line: '', lineSaid: '', heldSaid: false, q: {}};
+    respond: -1, line: '', lineSaid: '', guardSaid: '', heldSaid: false, q: {}};
 }
 
 /** The objective line is hidden (Q-73: the night strip has its place; Q-91: a card holds the clock, but for a ‼ URGENT line at a feeder card). */
@@ -283,7 +316,7 @@ export function liveFrame(L, vm, nowMs) {
   }
   const band = bandOf(obs.f.hz);
   if (band !== L.band) { L.band = band; if (first) L.bandSaid = band; else L.q.band = BAND_TEXT[band] + ', ' + obs.f.hz.toFixed(2) + ' Hz'; }
-  const level = obs.sec.level;
+  const level = n1Word(L.n1 || (L.n1 = {}), obs, nowMs);   // (W7 Q2: the desk's word, TRIP SHEDS held as the gauge holds it)
   if (level !== L.level) { L.level = level; if (first) L.levelSaid = level; else L.q.level = 'N-1 ' + level; }
   for (const t of vm.alarms.tiles) {
     const was = L.tiles[t.id], is = t.state + (t.escalated ? '!' : '');
@@ -304,10 +337,19 @@ export function liveFrame(L, vm, nowMs) {
   if (r && r.n !== L.respond && !first) L.q.card = respondWords(r);
   L.respond = r ? r.n : -1;
   // K-23: the objective line (Q-18), whole, when what it asks changes (its level, kind and first control): new figures alone never
-  // make it speak, and it never says the C-10 consider text, nor the paused suffix but once at the desk's opening (below)
+  // make it speak, and it never says a START or STOP guard's C-10 consider text (a hover would), nor the paused suffix but once at the desk's opening (below)
   // (#objective is no live region: it rewrites itself several times a minute)
   const o = vm.objective && vm.objective.text && !lineHidden(vm) ? vm.objective : null, line = o ? o.level + '|' + o.kind + '|' + (o.targets[0] || '') : '';
   if (line !== L.line) { L.line = line; if (first) L.lineSaid = line; else if (o) L.q.line = lineWords(o); else delete L.q.line; }
+  // Q4 (W7): the GUARD ring turned down is priced in #objective; the ring's own value says only "GUARD n MW", so its
+  // price is said here once the move is made (GUARD SET: a key step is sent on key-up, so a key reach is said once, never
+  // "if pressed" and then again as made), once a move (fromMW → toMW), the newest replacing one not yet said (a turn
+  // of several steps says its last; figures that move while it waits, their newest). A price gone from the screen (the
+  // ring turned back, the reach rested) before it was said is dropped; the next reach, the same move too, is said again.
+  // (guardSaid: the move queued last, said or waiting)
+  const g = vm.consider && !lineHidden(vm) && guardSet(vm.consider, obs) ? vm.consider : null, guard = g ? g.fromMW + '→' + g.toMW : '';
+  if (!g) { delete L.q.guard; L.guardSaid = ''; }
+  else if (L.q.guard || guard !== L.guardSaid) { L.guardSaid = guard; L.q.guard = GUARD_SET_WORD.slice(2) + ': ' + g.text; }
   if (nowMs - L.lastMs < LIVE_GAP_MS) return null;
   // A band, level or line that flapped back to what was last said has nothing to say.
   if (L.q.band && L.band === L.bandSaid) delete L.q.band;
@@ -328,7 +370,7 @@ export function liveFrame(L, vm, nowMs) {
   return null;
 }
 
-// vm.settings key -> the popover's control id (next.html #settings).
+// vm.settings key -> the popover's control id (index.html #settings).
 const SET_RANGES = {volume: 'set-volume', hum: 'set-hum', fx: 'set-fx', alarms: 'set-alarms'};
 const SET_CHECKS = {reducedMotion: 'set-rm', reducedEffects: 'set-fxlow', crt: 'set-crt'};
 
@@ -372,6 +414,7 @@ export function bootGame(doc, deps) {
   const actions = {
     input: x => { const r = base.input(x), lock = G.isLock(r); if (r) showToast(lock ? r : 'Refused: ' + r, lock ? 'info' : ''); return r; },
     redispatch: () => { const r = base.redispatch(), lock = G.isLock(r); if (r) showToast(lock ? r : 'RE-DISPATCH: ' + r, lock ? 'info' : ''); return r; },
+    soakCity: atS => { const r = base.soakCity(atS), lock = G.isLock(r); if (r) showToast(lock ? r : 'Refused: ' + r, lock ? 'info' : ''); return r; },   // (Q1)
     ui: cmd => {
       const inTray = cmd && cmd.do === 'tray' && $('tray') && $('tray').contains(doc.activeElement);
       const wasOpen = !!game.ui.alarmsOpen, wasCard = game.ui.suburb;
@@ -769,7 +812,8 @@ export function bootGame(doc, deps) {
 
   // The standing objective (Q-18): one line, with the level as a glyph and a word. While the
   // player is hovering, focusing or has lifted a START / STOP guard, the line says what that press
-  // would do instead (C-10, vm.consider), under the word '? IF PRESSED' (ARMED: amber unless critical).
+  // would do instead (C-10, vm.consider), under the word '? IF PRESSED' (ARMED: amber unless critical);
+  // the GUARD ring turned down, its price (W7 Q4), under GUARD SET once the GUARD stands where it was turned to.
   function drawObjective(v) {
     const box = $('objective');
     if (!box) return;
@@ -782,7 +826,7 @@ export function bootGame(doc, deps) {
     const armed = !!c && v.armed === c.target;
     const cls = c ? (armed && c.level !== 'crit' ? 'act' : c.level) + ' consider' : o.level;
     if (box.className !== cls) box.className = cls;
-    setText('objective-level', !c ? objectiveWord(o) : armed ? ARMED_WORD : c.level === 'ok' ? UNDER_WAY_WORD : CONSIDER_WORD);
+    setText('objective-level', !c ? objectiveWord(o) : considerWord(c, v.obs, armed));
     setText('objective-text', c ? (armed ? 'Press again to confirm. ' : '') + c.text
       : (o.text || '') + (paused ? '  ·  ' + HELD_NOTE : ''));
   }
@@ -814,7 +858,7 @@ export function bootGame(doc, deps) {
     if (chip.hidden !== !k) chip.hidden = !k;
     if (!k || chip.className === 'chip ' + k) return;
     chip.className = 'chip ' + k; chip.title = HAND_CHIP[k][1];
-    // (the night's words on two lines, broken only at the '·': next.html #chip-hand span)
+    // (the night's words on two lines, broken only at the '·': index.html #chip-hand span)
     chip.replaceChildren(...HAND_CHIP[k][0].split(' · ').flatMap((s, i, a) => {
       const e = doc.createElement('span'); e.textContent = s + (i < a.length - 1 ? ' ·' : ''); return i ? [' ', e] : [e];
     }));
@@ -828,6 +872,7 @@ export function bootGame(doc, deps) {
   }
 
   // Q-48: the chip: SCORE against par ('SCORE …' until par gets there); with no par to compare, ALL-IN in cents per kWh asked for.
+  // W7 (Q-117): only from 21:00 (scoreShown): before, nothing ranks the day against par: the key over FROM 21:00, no number.
   let allInTip = '';
   function drawAllIn(v) {
     const chip = $('chip-allin');
@@ -835,10 +880,12 @@ export function bootGame(doc, deps) {
     chip.hidden = v.phase !== 'play';
     // (Q-73: in the night roll it moves with the night strip, every NIGHT_REDRAW_MS, so the two say the same)
     if (chip.hidden || (v.obs.nightShift && !v.obs.over && v.frame.nowMs - nightMs < NIGHT_REDRAW_MS)) return;
-    const {you, p, off, g0, g} = scoreOf(v), c = allInCents(you);
-    setText('chip-allin-k', off && !g0 ? 'ALL-IN' : 'SCORE');
-    setText('chip-allin-v', off && !g0 ? c + 'c' : g ? String(g.points) : '…');
-    const tip = 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +
+    const later = !scoreShown(v.obs, !!game.state.scn.night), {you, p, off, g0, g} = scoreOf(v), c = allInCents(you), cents = off && !g0;
+    if (chip.classList.contains('later') !== later) chip.classList.toggle('later', later);
+    if (chip.classList.contains('allin') !== cents) chip.classList.toggle('allin', cents);   // (its own width: index.html #chip-allin.allin)
+    setText('chip-allin-k', cents ? 'ALL-IN' : 'SCORE');
+    setText('chip-allin-v', later ? SCORE_LATER : cents ? c + 'c' : g ? String(g.points) : '…');
+    const tip = later ? SCORE_LATER_TIP[off ? 'allIn' : 'score'] : 'ALL-IN so far: ' + c + ' c/kWh' + (off ? '' : ' (par ' + (p ? allInCents(p) : '…') + ')') + ', SAIDI ' + you.saidiMin.toFixed(1) +
       ' min. The day\'s cost to the community per kWh the city asked for: supply + your MWh dark × ' + VCR_TEXT + ' (VCR; a feeder under ' +
       'repair is yours from its hand-back) + CO₂ × ' + VER_TEXT + ' (VER). Not a price or a bill.';
     if (tip !== allInTip) { allInTip = tip; chip.title = tip; chip.setAttribute('aria-label', tip); }

@@ -1,6 +1,6 @@
 // app/suburbcard.js: a suburb's card (SPEC §9.1 Q-56; §31.6 card, §31.9.3-§31.9.7). On demand (Q-44,
 // cap 6.5 KB in tests/budget.test.js since 2c); its CSS is injected once (#sc-css). Presentation and two sim
-// inputs, flex and flexDel; the shell owns opening, closing, hiding in the watch and the focus.
+// inputs, flex and flexDel, and SOAK THE CITY's press (actions.soakCity, Q1); the shell owns opening, closing, hiding in the watch and the focus.
 //
 //   const card = createSuburbCard(doc, root, actions, {toast, loadText, toggleHelp, now});
 //   card.update(vm, day)  every frame while vm.suburb is set, also while the watch hides it (its pre-checks
@@ -33,6 +33,10 @@
 //   patience 40: 90% respond (all respond from 50; air-con locked under 25; only on a day air-con
 //     is offered, else "patience 40": it scales air-con alone, P2) · draws <lit MW> · roofs <MW>
 //   per offered lever (obs.levers.offered; on a MILD day "AIR-CON CYCLE: hot days only (…)"):
+//     soak, while two suburbs or more are free (Q1, W7): THE CITY +480 MW 11:00–15:00 [SOAK THE CITY] (city-soak-all,
+//       first, so card.focus() lands on it): one press books every free suburb's soak (actions.soakCity, one action) at
+//       the open suburb's aim while it is free (◀ ▶ move both), else at the first free one's; each booked block keeps
+//       its CANCEL for trimming (a cloud front's warning), and BOOK books one suburb as before
 //     each booked block: SOAK 10:30–14:30 booked|under way|done: tonight's heating −525 MWh   [CANCEL]
 //                        AIR-CON 18:45–20:15 booked: pre-cool from 17:45 · snapback to 21:45 · $22.5k · patience −10 [CANCEL]
 //       (CANCEL city-<ID>-<lever>-cancel-HHMM; dimmed, aria-disabled, once its del is not '': under
@@ -111,8 +115,10 @@ const STEP_S = 900, CSS = '#suburb-card .sc{padding:4px 10px;font-size:11px}#sub
 // LV.block as standing words (P4)
 const LAST = V.AIRCON_TO_S - V.AIRCON_S, notNow = (lever, L) => L.block === LEVER_WHY.late ? 'too late today: ' + (lever === 'soak' ? 'soaks start by ' + hm(V.SOAK_TO_S - V.SOAK_S)
   : 'cycles start by ' + hm(LAST) + ' (pre-cool from ' + hm(LAST - V.PRECOOL_S) + ')') : L.block === LEVER_WHY.overlap ? 'no room today for another cycle around the booked one' : L.block;
+// Q1: the suburbs whose soak can be booked now
+const freeSoaks = lv => lv.suburbs.filter(s => s.soak && s.soak.block === '');
 // a part's energy (MWh)
-const mwh = kn => kn.reduce((a, k, i) => (i ? a + (k[0] - kn[i - 1][0]) * (k[1] + kn[i - 1][1]) / 2 : 0), 0) / V.S_PER_H;
+const mwh =kn => kn.reduce((a, k, i) => (i ? a + (k[0] - kn[i - 1][0]) * (k[1] + kn[i - 1][1]) / 2 : 0), 0) / V.S_PER_H;
 const partsOf = (lever, atS, m) => Object.fromEntries(flexParts({lever, atS}, m).map(p => [p.kind, p.knots]));
 
 /** §31.9.4: the air-con verdict for a relief from atS on aimFlex's line: '✓ …', '✕ …' or '' (no column in the window). */
@@ -193,6 +199,24 @@ export function createSuburbCard(doc, root, actions, deps) {
     rests[id + lever] = {until: now() + COMMIT_LOCK_MS, text: said(lever, a, b ? 'cancelled' : 'booked')};
     if (b) aims[id + lever] = a; else delete aims[id + lever]; // (a cancelled block's time is the aim to re-aim from)
   }
+  // Q1 (W7): SOAK THE CITY's time: the open suburb's soak aim while it is free (◀ ▶ move both), else the first free one's
+  function cityAt(v) {
+    const free = freeSoaks(v.obs.levers), own = free.find(s => s.id === v.suburb), s = own || free[0];
+    return free.length > 1 ? aimOf(own ? v : Object.assign({}, v, {suburb: s.id}), 'soak', s.soak) : -1;
+  }
+  // its press: one action for every free suburb (app/game.js soakCity); the rest covers every row it booked
+  function soakAll() {
+    const v = vm, free = freeSoaks(v.obs.levers), r = rests.city;
+    if (r && now() < r.until) return say(r.text);
+    const why = v.phase === 'briefing' ? 'Take the desk first: Enter.' : v.obs.over ? 'Day over: PLAY THIS DAY AGAIN for another go'
+      : v.mode.locked ? 'desk locked while the grid catches itself' : free.length < 2 ? 'the city\'s soak is booked' : '';
+    if (why) return say(why);
+    const a = cityAt(v);
+    if (actions.soakCity(a)) return;
+    const rest = {until: now() + COMMIT_LOCK_MS, text: 'booked: the city\'s soak ' + span('soak', a)};
+    rests.city = rest;
+    for (const s of free) { rests[s.id + 'soak'] = rest; delete aims[s.id + 'soak']; }
+  }
   // ◀ ▶ (and - =): 15-min steps of the unbooked aim; a booked block is never moved in place
   function step(v, lever, L, d, b) {
     const mine = v.obs.levers.blocks.filter(q => q.suburb === v.suburb && q.lever === lever),
@@ -246,6 +270,13 @@ export function createSuburbCard(doc, root, actions, deps) {
       body.appendChild(g);
       if (!lv.offered.includes(lever)) { g.appendChild(el(doc, 'p', '', T.name + ': hot days only (a mild day has no cooling load to relieve)')); continue; }
       const R = E.lv[lever] = {blocks: []};
+      // Q1 (W7): SOAK THE CITY, first in the soak's rows (card.focus() lands on it after H), while two suburbs or more are free
+      if (lever === 'soak' && freeSoaks(lv).length > 1) {
+        const c = el(doc, 'div', 'sc-r');
+        c.append(el(doc, 'b', '', 'THE CITY'), E.cityT = el(doc, 'span', 'sc-t'), E.city = btn('SOAK THE CITY', 'city-soak-all', () => soakAll(), true));
+        E.city.title = 'Book every free suburb\'s soak at this time, in one press; CANCEL one below to trim';
+        g.appendChild(c);
+      }
       for (const b of lv.blocks) {
         if (b.suburb !== id || b.lever !== lever) continue;
         const row = el(doc, 'div', 'sc-b'), c = btn('CANCEL', 'city-' + id + '-' + lever + '-cancel-' + hm(b.atS).replace(':', ''), () => press(lever, 'cancel', b), true);
@@ -284,7 +315,7 @@ export function createSuburbCard(doc, root, actions, deps) {
       if (!s) return;
       const obs = v.obs, sub = subOf(v), lv = obs.levers, ds = obs.districts.filter(d => d.suburb === id), D = darkOf(obs, id), mine = D.n > D.h;
       // (Q-69: a task feeder before its hand-back is the network's: its time, and no RESTORE; the map's words)
-      const key = id + lv.offered + (D.n ? mine ? 'd' : 'h' : '') + (sub ? '' : 'x') + lv.blocks.map(b => b.suburb + b.lever + b.atS);
+      const free = freeSoaks(lv), key = id + lv.offered + (D.n ? mine ? 'd' : 'h' : '') + (sub ? '' : 'x') + (free.length > 1 ? 'c' : '') + lv.blocks.map(b => b.suburb + b.lever + b.atS);
       if (key !== shape) { shape = key; build(v, id, sub, D.n, mine); }
       setText(name, s.name.toUpperCase());
       setAttr(root, 'aria-label', s.name);
@@ -320,6 +351,11 @@ export function createSuburbCard(doc, root, actions, deps) {
           setCls(R.v, 'ok', w[0] === '✓');
           setCls(R.v, 'bad', w[0] === '✕');
         }
+      }
+      if (E.city) {   // (Q1: the free suburbs' MW and the time a press books)
+        const a = cityAt(v), t = '+' + mw(free.reduce((x, s) => x + s.soak.mw, 0)) + ' MW ' + span('soak', a);
+        setText(E.cityT, t);
+        setAttr(E.city, 'aria-label', 'SOAK THE CITY: the hot water soak of the ' + free.length + ' free suburbs, ' + t.slice(1));
       }
     },
     focus() { (root.querySelector('[data-row]') || x).focus(); },

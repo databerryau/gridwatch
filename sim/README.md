@@ -51,19 +51,22 @@ about balance or par. The default tests keep small samples of the same checks.
 Cross-module calls (the only ones allowed):
 
 ```
-step.js      -> weather, events, dayplan, fleet, physics, grid, market, rng, clock (2c: NIGHT_S, the night flip)
-grid.js      -> fleet, physics.previewTrip, params, rng (play stream), weather (readers), clock (2c: hhmm)
+step.js      -> weather, events, dayplan, fleet, physics, grid, market, rng, clock (2c: NIGHT_S, the night flip),
+                onat (W7: observe()'s startToMinS)
+grid.js      -> fleet, physics.previewTrip, params, rng (play stream), weather (readers), clock (2c: hhmm),
+                onat (W7: the executor's onAtS)
 events.js    -> fleet (tripUnit / tripTie / tripSmelter; 2c: setDistrictDark, refreshHeld, setTieLimit,
                 setOutage, unitIndex), clock (hhmm), params, rng
 physics.js   -> fleet (operateUfls, setOfgsStage, setDistrictDark), params
 market.js    -> fleet (startBlock, resetAcc, litDemandMW), weather (readers), params
 autopilot.js -> step (createState, step, observe, hashState, applyInput, inWatch), clock (stepReal),
-                dark (darkShareAt, litMW), params   ONLY (S-4 barrier, linted)
+                dark (darkShareAt, litMW), onat (W7: onInS, startFromS), params   ONLY (S-4 barrier, linted)
 weather.js   -> params, rng, dayplan (2c: prerollRegime delegates on a dayplan scenario)
 dayplan.js   -> params, rng, clock, events   ONLY: never weather (2c, linted)
 fleet.js     -> params, clock (hhmm)
 clock.js     -> params   ONLY (2c, pure, linted)
 dark.js      -> params   ONLY (2c, pure, reads obs only, linted)
+onat.js      -> params   ONLY (W7 Q6, pure, reads a unit row and the mode only, linted)
 ```
 
 No cycles except through `step.js` at run time. Stubs mean every import resolves today.
@@ -949,7 +952,10 @@ never per tick. `canonicalHash(x)` is the same walk for any plain value (on the 
 * **Test budget** (F-10 < 60 s; since SPEC Q-40 each test file <= 6 s alone, see `CLAUDE.md`):
   `tests/integration.test.js` and `tests/autopilot.test.js` use short windows, injected trips at
   04:31 instead of waiting for pre-rolled ones, and par days played once and resumed;
-  `tests/baseline-v4.test.js` plays one par day (seed 4) in-process against its golden row.
+  `tests/par-classic.test.js` plays one par day (seed 4) in-process (S-4, D-9, H-8, H-4; W7 Q15: no
+  longer against the golden, which `npm run golden:v4 -- --check` compares on demand), and
+  `tests/par-guard.test.js` one daily's par day against the selftest's golden hours, and
+  `tests/hand-guard.test.js` one HAND day with the player's START to 09:00 against recorded hours.
   Whole days over many seeds are measured with `tools/par.js` and `tools/baseline-v4.js`, not tests.
 * **Measured at the end of Phase 0.2** (the owner's laptop, Node 24, other work running): a par
   day took 2.0-2.3 s (`tools/par.js`; 2.2-2.5 s in `tools/baseline-v4.js`, which adds the H-8
@@ -2007,6 +2013,12 @@ Its contract is the header of `sim/clock.js` (moved back into the file in W1, X-
 
 Its contract is the header of `sim/dark.js` (moved back into the file in W1, X-49).
 
+### onat.js (W7 Q6; decisions/2026-10-16-open-questions.md §6)
+
+One answer to "when is this unit on" (`onInS`, `startFromS`, `startToMinS`, `syncWaitS`), read by
+the executor, `observe()`, par, the line and the Live Stack. Its contract, its readers and the
+four copies that keep rules of their own are the header of `sim/onat.js`.
+
 ### dayplan.js (2c; desk/README.md §32.6.1, Q-65)
 
 Its contract is the header of `sim/dayplan.js` (moved back into the file in W1, X-49).
@@ -2126,8 +2138,8 @@ What changed, with the measured effect (`tools/par.js`; SPEC S-12 has the table)
 
 ### Bench (wave 2: `next.html`, `app/`, `render/`, `content/text.js`)
 
-* `next.html` plays a whole day through the bench (Exit Phase 0): serve the repo root
-  (`py -m http.server 8642`) and open `http://localhost:8642/next.html`; options
+* `next.html` (the bench until Phase 1a, now `bench.html`: desk/README.md A-5) plays a whole day through the bench (Exit Phase 0): serve the repo root
+  (`py -m http.server 8642`) and open `http://localhost:8642/bench.html`; options
   `?seed=N&assist=off|plan|par&speed=0.25|1|60|120|240|2100&play=1`. Every module loads from
   the same origin. The rate badge is always visible; a contingency plays the K-15 watch
   (0.15x -> 1x -> 10x over 30 grid-s, ~29 real s) with the desk locked; SKIP plays the rest at

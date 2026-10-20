@@ -1,8 +1,8 @@
 // app/share.js: W6's share card (SPEC §4.7), DOM-free but for copyText.
 //   Y-1  puzzleNumber: the daily's number, #1 on the launch date (content/dailies.js `from`), counted in UTC days
 //        (Date.UTC differences), so a daylight-saving change never skips or repeats one.
-//   Y-4  shareCard: text only, at most MAX_LINES lines and MAX_CHARS characters: the number, the date, the score and
-//        letter (★ at par or better), the tags, the sparkline (12 two-hour blocks from 04:00, each the worst deviation
+//   Y-4  shareCard: text only, at most MAX_LINES lines and MAX_CHARS characters: the number, the date, the score,
+//        letter (★ at par or better) and rank (W7, Q-118: app/score.js RANKS), the tags, the sparkline (12 two-hour blocks from 04:00, each the worst deviation
 //        from 50 Hz in its window: score.spark) and the lowest Hz, three rows against par, the closing line, the link.
 //        No event names and no clock times: lintCard is the check (the tests run it on every card they build).
 //   Y-5  copyText: the clipboard, else a hidden textarea and execCommand('copy'); the end card says "Copied".
@@ -14,6 +14,7 @@ import {DAILIES} from '../content/dailies.js';
 import {CLOSING} from '../content/closing.js';
 import {DESK} from '../content/scenarios.js';
 import {STATION_SHORT} from '../desk/util.js';
+import {letterText} from './score.js';
 
 /** Y-4: the card's limits. */
 export const MAX_LINES = 7, MAX_CHARS = 280;
@@ -133,7 +134,7 @@ export function shareRows(you, par, black) {
  * @returns {{text:string, lines:string[]}} the closing line is dropped, then the last tags, to stay within MAX_CHARS.
  */
 export function shareCard(o) {
-  const g = o.grade, score = g ? g.points + ' ' + g.letter + (g.star ? ' ★' : '') + (o.perfect ? ' · PERFECT' : '') : 'no score';
+  const g = o.grade, score = g ? g.points + ' ' + letterText(g) + (o.perfect ? ' · PERFECT' : '') : 'no score';   // (W7, Q-118: the rank)
   const head = tags => ['GRIDWATCH' + (o.n ? ' #' + o.n : ''), o.ymd && shortDate(o.ymd) ? shortDate(o.ymd) : o.name || 'seed ' + o.seed, score, ...tags].join(' · ');
   const r = shareRows(o.you, o.par, o.black), row = (k, v) => (v ? (k + '        ').slice(0, 8) + v : '');
   const body = [sparkline(o.spark, o.endS) + '  low ' + (Number.isFinite(o.lowHz) ? o.lowHz.toFixed(2) : '-') + ' Hz',

@@ -61,6 +61,7 @@ test('Y-3: STREAK counts finished official dates in a row to today (or yesterday
 import {openGame} from './lib/play.js';
 import * as G from '../app/game.js';
 import {V} from '../sim/params.js';
+import {letterText} from '../app/score.js';
 
 const TODAY = new Date(2026, 9, 16), PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh: 0.56, centsPerKWh: 4}, series: []};
 // A localStorage stand-in (the same Map across games: a closed tab reopened), or one that refuses every write
@@ -96,7 +97,8 @@ test('Y-2 on the page: a first shift is practice until COUNT THIS ONE; then it i
   assert.equal(p.$('briefing-title').textContent, 'Daily #5 · PRACTICE');
   p.key('Enter');
   endDay(p);
-  assert.equal(p.$('end-run').textContent, 'PRACTICE: today\'s official run is in (' + e.points + ' ' + e.letter + ').');
+  assert.equal(p.$('end-run').textContent, 'PRACTICE: today\'s official run is in (' + e.points + ' ' + letterText(e) + ').');   // (W7, Q-118: with its rank)
+  assert.match(letterText(e), /^[A-DF]( ★)? [A-Z' ]+$/);
   assert.ok(p.game.end.share.tags.includes('PRACTICE'));
   assert.deepEqual(stored(s).days[20261016], e, 'practice never changes the official entry');
   assert.deepEqual(p.h.mods.errors, []);

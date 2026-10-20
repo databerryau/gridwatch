@@ -11,7 +11,7 @@ import {aimFlex} from '../sim/autopilot.js';
 import {V} from '../sim/params.js';
 import {DESK, CLASSIC} from '../content/scenarios.js';
 import * as PV from '../app/planview.js';
-import {objective, capacityGap, stick, LINE_MAX_CHARS, ACT_WITHIN_S} from '../app/objective.js';
+import {objective, capacityGap, stick, inputsOf, LINE_MAX_CHARS, ACT_WITHIN_S} from '../app/objective.js';
 import {followDay} from './lib/follow.js';
 import {withoutTask} from './lib/sim-helpers.js';
 
@@ -53,22 +53,38 @@ function spill(obs, mw, when = inWin) {
   return P;
 }
 
-test('Q-59 soak (b): spill the battery will not take names the free suburb with the most MW under the excess, aimed by aimFlex, with the full flex input', () => {
+// Q1 (W7): the soak line asks for the city's, every free suburb at once, most MW first
+const CITY = ['HAZ', 'RED', 'TAL', 'SOL', 'SAL', 'HAR'];
+
+test('Q-59, Q1 soak (b): spill the battery will not take asks for the city\'s soak, every free suburb in one booking aimed by aimFlex; the last free suburb by name', () => {
   const {st, obs} = mild();
   assert.equal(obs.day.temp, 'MILD');
   assert.match(lineOf(obs).text, /^Next: start /, 'the morning\'s own line: commit-later, nothing to do now');
   const b = obs.battery;
   assert.equal(b.ratedMW - b.guardMW, 100, 'the GUARD leaves the battery 100 MW to charge');
-  // 300 MW spilled 10:00-11:00, the battery takes 100: 200 over, Old Hazelton's 140 fits
+  // 300 MW spilled 10:00-11:00, the battery takes 100: 200 over: the city's 480 MW, one booking
   const x = lineOf(obs, {proj: spill(obs, 300)}), atS = aimFlex(obs.dayAhead, obs.levers, 'HAZ', 'soak');
   assert.equal(atS, V.SOAK_FROM_S);
-  assert.deepEqual([x.kind, x.level, x.targets, x.action, x.startBy], ['city', 'plan', ['suburb-HAZ'], {type: 'flex', suburb: 'HAZ', lever: 'soak', atS}, atS]);
-  assert.match(x.text, /^The battery cannot take all of noon's spill\. Book a HOT WATER SOAK in Old Hazelton, (\d\d:\d\d)–(\d\d:\d\d) \(140 MW\): tanks take the rest; tonight's heating falls by as much\.$/);
-  assert.ok(accepted(st, x.action), 'the sim books it as said');
-  // under the excess: 60 MW over books Solstice Rise (60), the first of the two 60s in city order
-  assert.equal(lineOf(obs, {proj: spill(obs, 160)}).action.suburb, 'SOL');
-  // no suburb under it: the smallest free one
-  assert.equal(lineOf(block(copy(obs), ['HAR', 'SOL', 'SAL'], 'soak'), {proj: spill(obs, 160)}).action.suburb, 'TAL');
+  assert.deepEqual(CITY.map(id => aimFlex(obs.dayAhead, obs.levers, id, 'soak')), CITY.map(() => atS), 'every free suburb aims alike');
+  assert.deepEqual([x.kind, x.level, x.targets, x.action, x.startBy],
+    ['city', 'plan', CITY.map(id => 'suburb-' + id), {type: 'soakCity', lever: 'soak', atS, suburbs: CITY}, atS]);
+  assert.equal(x.text, 'The battery cannot take all of noon\'s spill. Book the city\'s HOT WATER SOAK, 10:00–14:00 (480 MW): tanks take the rest; tonight\'s heating falls by as much.');
+  assert.equal(obs.levers.suburbs.reduce((a, s) => a + s.soak.mw, 0), 480);
+  // the sim books each as said (inputsOf: one flex input a suburb), on one copy of the state
+  const one = JSON.parse(JSON.stringify(st));
+  assert.deepEqual(inputsOf(x.action).map(i => applyInput(one, i, []).ok), CITY.map(() => true));
+  assert.deepEqual(inputsOf({type: 'start', unit: 'gta1'}), [{type: 'start', unit: 'gta1'}], 'any other action is itself');
+  // the excess no longer sizes it (one press books the city; the card trims): 60 MW over asks for the same
+  assert.deepEqual(lineOf(obs, {proj: spill(obs, 160)}).action, x.action);
+  // some booked: the other suburbs, by count and MW
+  const some = lineOf(block(copy(obs), ['HAR', 'SOL', 'SAL'], 'soak'), {proj: spill(obs, 160)});
+  assert.deepEqual([some.targets, some.action.suburbs], [['suburb-HAZ', 'suburb-RED', 'suburb-TAL'], ['HAZ', 'RED', 'TAL']]);
+  assert.match(some.text, / Book the HOT WATER SOAK in the other 3 suburbs, 10:00–14:00 \(340 MW\): /);
+  // the last free one: its own flex input, by name (as the card's BOOK sends it)
+  const last = lineOf(block(copy(obs), ['HAZ', 'RED', 'SOL', 'SAL', 'HAR'], 'soak'), {proj: spill(obs, 300)});
+  assert.deepEqual([last.targets, last.action], [['suburb-TAL'], {type: 'flex', suburb: 'TAL', lever: 'soak', atS}]);
+  assert.match(last.text, / Book a HOT WATER SOAK in Tallowood Heights, 10:00–14:00 \(90 MW\): tanks take the rest; /);
+  assert.ok(accepted(st, last.action), 'the sim books it as said');
   // at SURPLUS_MIN_MW over, or under it: nothing
   assert.equal(lineOf(obs, {proj: spill(obs, 100 + V.SURPLUS_MIN_MW)}).kind, 'commit');
   // no free suburb: nothing
@@ -84,22 +100,25 @@ test('Q-59 soak (b): the battery as the battery line charges it: up to what the 
   const free = copy(obs);
   free.battery.ratedMW = free.battery.guardMW + 400; // the GUARD leaves 400 MW: 350 of charge (PAR_BATT_CHARGE_MAX_MW)
   assert.equal(lineOf(free, {proj: spill(free, 300)}).kind, 'commit', 'it takes all 300 MW: the morning\'s own line');
-  assert.equal(lineOf(free, {proj: spill(free, 350 + V.SURPLUS_MIN_MW + 5)}).action.suburb, 'HAR', '55 MW over');
+  assert.ok(isCity(lineOf(free, {proj: spill(free, 350 + V.SURPLUS_MIN_MW + 5)}), 'soak'), '55 MW over');
+  assert.equal(lineOf(free, {proj: spill(free, 350 + V.SURPLUS_MIN_MW)}).kind, 'commit', 'SURPLUS_MIN_MW over: nothing');
   const full = copy(free);
   full.battery.socMWh = full.battery.capMWh;
-  assert.equal(lineOf(full, {proj: spill(full, 300)}).action.suburb, 'HAZ', 'a full battery takes nothing');
+  assert.ok(isCity(lineOf(full, {proj: spill(full, 300)}), 'soak'), 'a full battery takes nothing');
   // spill from 08:00 fills it before 10:00 (394 MWh of room at 300 MW): the window's spill is all over
   const early = t => t >= V.SOAK_FROM_S - 2 * H && t <= V.SOAK_TO_S;
-  assert.equal(lineOf(free, {proj: spill(free, 300, early)}).action.suburb, 'HAZ');
+  assert.ok(isCity(lineOf(free, {proj: spill(free, 300, early)}), 'soak'));
   // spill before the window only: no soak
   assert.equal(lineOf(full, {proj: spill(full, 300, t => t < V.SOAK_FROM_S)}).kind, 'commit');
   // a present charge order is part of what the battery takes
   const P = spill(obs, 0);
   for (let k = 0; k < P.n; k++) if (inWin(P.times[k])) { P.surplusMW[k] = 250; P.charging[k] = 100; }
-  assert.equal(lineOf(obs, {proj: P}).action.suburb, 'HAZ', '250 + 100 spilled, 100 taken: 250 over');
+  assert.ok(isCity(lineOf(obs, {proj: P}), 'soak'), '250 + 100 spilled, 100 taken: 250 over');
+  for (let k = 0; k < P.n; k++) if (inWin(P.times[k])) P.surplusMW[k] = V.SURPLUS_MIN_MW;
+  assert.equal(lineOf(obs, {proj: P}).kind, 'commit', 'SURPLUS_MIN_MW + 100 spilled, 100 taken: SURPLUS_MIN_MW over');
 });
 
-test('Q-59 soak (a): an MSL notice ahead books the most MW until the window\'s forecast clears it (the notice is re-checked every 5 min)', () => {
+test('Q-59, Q1 soak (a): an MSL notice ahead asks for the city\'s soak until the window\'s forecast clears it (the notice is re-checked every 5 min)', () => {
   const {obs} = mild(), proj = PV.project(obs);
   const msl = copy(obs), d = msl.forecast.demandP50;
   Object.assign(msl.msl, {level: 1, minMW: 1550, atS: msl.s + 4 * H, sinceS: msl.s});
@@ -107,10 +126,11 @@ test('Q-59 soak (a): an MSL notice ahead books the most MW until the window\'s f
   for (let k = 0; k < msl.forecast.n; k++) if (inWin(proj.times[k])) { d[k] = 1650; if (lo < 0) lo = k; }
   d[lo + 3] = 1550;
   const x = lineOf(msl, {proj});
-  assert.deepEqual([x.kind, x.targets, x.action.lever, x.action.atS], ['city', ['suburb-HAZ'], 'soak', aimFlex(msl.dayAhead, msl.levers, 'HAZ', 'soak')]);
-  assert.match(x.text, /^MSL1: demand falls to about 1,550 MW at \d\d:\d\d\. Book a HOT WATER SOAK in Old Hazelton, \d\d:\d\d–\d\d:\d\d \(140 MW\): it lifts the low; tonight's heating falls by as much\.$/);
-  // Old Hazelton booked: the next most
-  assert.equal(lineOf(block(copy(msl), ['HAZ'], 'soak'), {proj}).action.suburb, 'RED');
+  assert.deepEqual([x.kind, x.targets, x.action.type, x.action.lever, x.action.atS, x.action.suburbs],
+    ['city', CITY.map(id => 'suburb-' + id), 'soakCity', 'soak', aimFlex(msl.dayAhead, msl.levers, 'HAZ', 'soak'), CITY]);
+  assert.match(x.text, /^MSL1: demand falls to about 1,550 MW at \d\d:\d\d\. Book the city's HOT WATER SOAK, \d\d:\d\d–\d\d:\d\d \(480 MW\): it lifts the low; tonight's heating falls by as much\.$/);
+  // Old Hazelton booked: the other five
+  assert.deepEqual(lineOf(block(copy(msl), ['HAZ'], 'soak'), {proj}).action.suburbs, CITY.slice(1));
   // the window's forecast above the clear line (MSL1_MW + MSL_CLEAR_MW): the notice will clear, no line
   const clear = copy(msl);
   for (let k = 0; k < clear.forecast.n; k++) if (inWin(proj.times[k])) clear.forecast.demandP50[k] = V.MSL1_MW + V.MSL_CLEAR_MW + 1;
@@ -131,7 +151,7 @@ test('Q-59 soak (a): an MSL notice ahead books the most MW until the window\'s f
   assert.notEqual(lineOf(tie, {proj}).kind, 'city');
   Object.assign(tie.tie, {tripped: true, lockoutS: V.SOAK_TO_S + H - tie.s});
   const y = lineOf(tie, {proj});
-  assert.deepEqual([y.kind, y.action && y.action.suburb], ['city', 'HAZ']);
+  assert.deepEqual([y.kind, y.action && y.action.suburbs], ['city', CITY]);
   assert.match(y.text, /^MSL1: demand falls to about 1,800 MW/);
   tie.tie.lockoutS = V.SOAK_FROM_S - H - tie.s;
   assert.notEqual(lineOf(tie, {proj}).kind, 'city', 'the tie back by 09:00: no lift in the window');
@@ -246,6 +266,15 @@ test('Q-59: every city line fits LINE_MAX_CHARS with the longest name (Tallowood
     assert.match(x.text, /Tallowood Heights/);
     assert.ok(x.text.length <= LINE_MAX_CHARS, x.text.length + ': ' + x.text);
     assert.doesNotMatch(x.text, /undefined|NaN|Infinity/);
+  }
+  // Q1: the city's, and the other five's, at MSL3 with four-figure MW (it drops "tonight's heating..." only when it must)
+  for (const ids of [[], ['HAR']]) {
+    const c = block(copy(msl), [], 'soak');
+    for (const s of c.levers.suburbs) { s.soak.block = ids.includes(s.id) ? 'poked' : ''; s.soak.mw = 290; }
+    const x = lineOf(c, {proj});
+    assert.equal(x.action.type, 'soakCity');
+    assert.match(x.text, ids.length ? /the HOT WATER SOAK in the other 5 suburbs, .* \(1,450 MW\): it lifts the low\./ : /the city's HOT WATER SOAK, .* \(1,740 MW\): it lifts the low; tonight's/);
+    assert.ok(x.text.length <= LINE_MAX_CHARS, x.text.length + ': ' + x.text);
   }
 });
 

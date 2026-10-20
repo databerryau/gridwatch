@@ -13,6 +13,7 @@ import {readFileSync} from 'node:fs';
 import {createState} from '../sim/step.js';
 import {isClean} from '../sim/market.js';
 import {V} from '../sim/params.js';
+import {restampAdvice} from '../tools/verify.mjs';
 
 const empty = !DAILIES.from;
 const days = (from, to) => Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
@@ -81,7 +82,7 @@ test('Q-75: the page\'s day (G.dailyFrom): ?seed=N (gated only as its date\'s li
 
 test('Q-75: the shipped list is {v, from, to, attempts}, stamped with this build and a year long (skipped while empty: stage C generates it)', {skip: empty && 'the list is empty until stage C'}, () => {
   assert.deepEqual(Object.keys(DAILIES), ['v', 'from', 'to', 'attempts']);
-  assert.equal(DAILIES.v, G.dailyStamp(), 'a sim or desk-scenario change re-checks the dates: run tools/daily-gen.js');
+  assert.equal(DAILIES.v, G.dailyStamp(), 'a sim or desk-scenario change re-checks the dates: ' + restampAdvice(DAILIES.from, DAILIES.to));
   assert.ok(days(DAILIES.from, DAILIES.to) >= 365, DAILIES.from + ' to ' + DAILIES.to);
   for (const [d, k] of Object.entries(DAILIES.attempts)) {
     assert.ok(Number.isInteger(k) && k >= 1 && k <= 42, d + ': attempt ' + k);

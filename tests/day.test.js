@@ -1,4 +1,4 @@
-// Stage C (desk/README.md §9): the greybox game end to end. next.html booted through
+// Stage C (desk/README.md §9): the greybox game end to end. index.html booted through
 // app/shell.js with every REAL module (desk, map, Live Stack, system operator, plan view) in the
 // stand-in DOM, driven by fake frames and a scripted player that only uses `actions`:
 // 04:00-09:00 with desk, stack and RE-DISPATCH inputs, replayed headless to the same hashState
@@ -28,7 +28,7 @@ import {realBetween} from '../sim/clock.js';
 import {replay, hashState} from '../sim/step.js';
 import {CLASSIC} from '../content/scenarios.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S;
 const tickAt = h => Math.round((h - V.DAY_START_H) * 3600 * TPS);
 
@@ -369,7 +369,7 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   tap(' ');
   // An alarm tile says what it means when pressed; ACK with nothing flashing says so.
   $('tile-n1').click();
-  assert.match($('annunciator').textContent, /N-1 INSECURE: losing your biggest unit/);
+  assert.match($('annunciator').textContent, /LIGHTS AT RISK: if your biggest risk tripped now/);
   // A map click selects the plant's control.
   assert.deepEqual(h.mods.errors, []);
   const r = replay(7, DESK, h.game.state.log, {untilTick: h.game.state.tick});

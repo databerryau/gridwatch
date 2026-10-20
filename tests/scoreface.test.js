@@ -1,19 +1,19 @@
-// Q-48 (desk/README.md §30.7 "Face", §30.9): the ALL-IN score's face. The header chip (SCORE against
+// Q-48 (desk/README.md §30.7 "Face", §30.9): the ALL-IN score's face. The header chip (from 21:00, W7 Q-117: SCORE against
 // par at the same grid time, 'SCORE …' until par gets there, ALL-IN c/kWh with no par to compare),
 // the briefing's goals, and the end card, which loads on demand (app/endcard.js): the score and its
 // letter, YOU / PAR / Δ for SUPPLY, OUTAGES, CARBON and ALL-IN, the biggest gap, the rule, the
 // reliability readouts and their "?". Prices come from V.VCR and V.VER, never typed in. The wording
 // never calls ALL-IN or SUPPLY "what customers pay", "your bill" or "the price".
 //
-// Headless (CLAUDE.md): the shell alone on next.html (no desk, map or stack) for the chip and the
+// Headless (CLAUDE.md): the shell alone on index.html (no desk, map or stack) for the chip and the
 // card; end-card tests set state.over and inject par ({score, series?, black?} or a runner with a
 // step()), never playing to 04:00. One sampled play through tests/lib/play.js at the end.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {bootGame, GOALS_TEXT} from '../app/shell.js';
+import {bootGame, GOALS_TEXT, NIGHT_REDRAW_MS} from '../app/shell.js';
 import * as endCard from '../app/endcard.js';
-import {allIn, grade} from '../app/score.js';
+import {allIn, grade, RANKS} from '../app/score.js';
 import {seriesAt, PAR_MARK_S} from '../app/par.js';
 import {dollars} from '../render/format.js';
 import {V} from '../sim/params.js';
@@ -22,7 +22,7 @@ import {makeDocument} from './lib/dom.js';
 import {openGame} from './lib/play.js';
 
 const read = rel => readFileSync(new URL(rel, import.meta.url), 'utf8');
-const NEXT = read('../next.html');
+const NEXT = read('../index.html');
 const usd = x => '$' + x.toLocaleString('en-US');
 const VCR = usd(V.VCR), VER = usd(V.VER);
 const FORBIDDEN = /what customers pay|your bill|the price\b/i;
@@ -38,7 +38,7 @@ function parSeries(f = 1) {
 const runner = o => Object.assign({step() { return this.done; }, done: false, score: null, series: [], progress: 0, black: false,
   at(s) { return seriesAt(this.series, s); }}, o);
 
-// The shell alone on next.html, the texts and the end card passed in (the page loads them on demand).
+// The shell alone on index.html, the texts and the end card passed in (the page loads them on demand).
 function boot(o = {}) {
   const doc = makeDocument(NEXT);
   const h = bootGame(doc, Object.assign({search: '?seed=20261008', storage: null, audioWin: {}, raf: false, now: () => 0,
@@ -52,17 +52,21 @@ function boot(o = {}) {
     rows: () => $('end-card').querySelectorAll('tr').map(r => r.children.map(c => squash(c.textContent))),
     lines: () => $('end-card').querySelectorAll('p').map(p => squash(p.textContent))};
 }
-const scoreText = (g, perfect) => 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + (perfect ? ' · PERFECT' : ''); // (S-6)
+const scoreText = (g, perfect) => 'SCORE ' + g.points + ' · ' + g.letter + (g.star ? ' ★' : '') + ' ' + RANKS[g.letter === 'A' && g.star ? 'A★' : g.letter] +
+  (perfect ? ' · PERFECT' : ''); // (S-6; W7, Q-118: the rank beside the letter)
 
-test('Q-48: the chip: hidden at the briefing; from TAKE THE DESK, SCORE against par at the same grid time ("SCORE …" until par is there); its title', () => {
-  const run = runner({progress: 0.2});
-  const b = boot({par: run});
+test('Q-48: the chip: hidden at the briefing; from 21:00 (W7, Q-117: SCORE FROM 21:00 before), SCORE against par at the same grid time ("SCORE …" until par is there); its title', () => {
+  const run = runner({progress: 0.2}), clock = {t: 0};
+  const b = boot({par: run, now: () => clock.t});
   assert.equal(b.$('chip-allin').hidden, true, 'hidden in the briefing');
   b.take();
   assert.equal(b.$('chip-allin').hidden, false);
+  assert.equal(b.chip(), 'SCORE FROM 21:00', 'no number before 21:00 (tests/score-reveal.test.js)');
+  b.game.state.control.nightShift = true;   // (the sim's flag from 21:00; the grid clock stays at 04:30)
+  clock.t += NIGHT_REDRAW_MS; b.frame();
   assert.equal(b.chip(), 'SCORE …', 'par has not reached 04:30 yet');
   run.series = parSeries(0.9);
-  b.frame();
+  clock.t += NIGHT_REDRAW_MS; b.frame();   // (at night the chip moves with the strip, every NIGHT_REDRAW_MS)
   const v = b.h.vm(), hh = b.game.households, you = allIn(v.obs.score, hh), par = allIn(run.at(v.obs.s), hh);
   const g = grade(you, par, false);
   assert.ok(g && g.points > 0);
@@ -78,9 +82,12 @@ test('Q-48: the chip: hidden at the briefing; from TAKE THE DESK, SCORE against 
   assert.ok(q && q.parentElement.id === 'hdr', 'an inline "?" in the header');
   q.click();
   assert.match(b.$('popover').textContent, /^The score divides par's ALL-IN by yours.*Customers pay the market price plus network and retail charges\. Those charges, most of a bill, are the same whatever you do and are left out\. VCR and VER are what regulators count an outage and a tonne as worth, not money anyone is paid\./s);
-  // par off: the ALL-IN in cents per kWh the city asked for, and no par in the title
+  // par off: the ALL-IN in cents per kWh the city asked for, and no par in the title (from 21:00 too)
   const off = boot();
   off.take();
+  assert.equal(off.chip(), 'ALL-IN FROM 21:00');
+  off.game.state.control.nightShift = true;
+  off.frame();
   const mine = allIn(off.h.vm().obs.score, off.game.households);
   assert.equal(off.chip(), 'ALL-IN ' + mine.cents.toFixed(1) + 'c');
   assert.match(off.$('chip-allin').title, /^ALL-IN so far: [\d.]+ c\/kWh, SAIDI/);
@@ -100,6 +107,8 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.equal(card.firstElementChild.tagName, 'H2');
   assert.equal(card.firstElementChild.textContent, 'Day over: 04:00.', 'the h2 first and unchanged');
   assert.equal(b.$('end-score').textContent, scoreText(g, b.game.end.perfect));
+  // (W7, Q-118: the letter's rule under it names every rank, so the player finds their own and the next one up)
+  assert.ok(Object.values(RANKS).every(r => b.$('end-letter').textContent.includes(r)), b.$('end-letter').textContent);
   assert.equal(b.chip(), 'SCORE ' + g.points, 'the chip at 04:00 is the card\'s score');
   const rows = b.rows();
   assert.deepEqual(rows[0], ['', 'YOU', 'PAR', 'Δ']);
@@ -173,7 +182,7 @@ test('Q-48: par off, a black day, and a par that went black', () => {
   black.take();
   black.over(true);
   assert.equal(black.$('end-card').firstElementChild.textContent, 'The grid went black.');
-  assert.equal(black.$('end-score').textContent, 'SCORE 0 · F');
+  assert.equal(black.$('end-score').textContent, 'SCORE 0 · F BLACK START CREW');
   assert.equal(black.chip(), 'SCORE 0');
   assert.ok(black.lines().includes('The grid went black at 04:30: the day was cut short, so it has no YOU column.'), black.lines().join('\n'));
   const rows = black.rows(), par = allIn(PAR, black.game.households);
@@ -208,7 +217,7 @@ test('Q-48: the card\'s arithmetic: SAIDI\'s worth at VCR, the biggest gap named
   assert.ok(dark.lines.includes('SAIDI 2.5 min · SAIFI 0.12 · MAIFI 0.00 per household today (par: SAIDI 0.0 min)'));
   // cheaper and cleaner than par: ★ and no gap
   const win = mount(Object.assign({}, base, {costDollars: 3.5e6, co2tPerMWh: 0.5}), base, 0);
-  assert.ok(win.lines[0].startsWith('SCORE ') && win.lines[0].endsWith(' · A ★'), win.lines[0]);
+  assert.ok(win.lines[0].startsWith('SCORE ') && win.lines[0].endsWith(' · A ★ MARG\'S CHAIR'), win.lines[0]);
   assert.ok(win.lines.includes('You beat par on all three.'));
   // the prices are the params', never typed into the face's code
   for (const f of ['../app/endcard.js', '../app/shell.js', '../render/format.js']) {
@@ -265,12 +274,11 @@ test('Q-48: the briefing names the three goals and their prices (≤ 60 words); 
   assert.match(byId.get('carbon-generation').ours, /In the ALL-IN score, every MWh the city asked for, imports and dark load included, is charged at this intensity\.$/);
 });
 
-test('Q-48, played (sampled): the CLOCK line carries SCORE against par through the day, and the END line at 04:00 the same score', () => {
+test('Q-48, played (sampled): the CLOCK line carries SCORE FROM 21:00 through the day (W7, Q-117), and the END line at 04:00 the score', () => {
   const series = parSeries(0.9), par = {score: series.at(-1), series};
   const p = openGame({seed: 20261008, par});
   p.to('04:45');
-  const v = p.vm(), hh = p.game.households, g = grade(allIn(v.obs.score, hh), allIn(seriesAt(series, v.obs.s), hh), false);
-  assert.match(p.look({controls: false}), new RegExp('^CLOCK 04:45:\\d\\d \\| .* \\| SCORE ' + g.points + '$', 'm'));
+  assert.match(p.look({controls: false}), /^CLOCK 04:45:\d\d \| .* \| SCORE FROM 21:00$/m, 'no number before 21:00 (tests/night-strip.test.js plays the reveal)');
   p.game.state.over = true;
   p.frames(2);
   const end = p.game.end.grade, look = p.look({controls: false});

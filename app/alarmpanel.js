@@ -1,6 +1,6 @@
 // app/alarmpanel.js: the alarm panel (SPEC §9.1 Q-46, desk/README.md §30.6). EXPLAIN (or W, or a
 // second press on a tile) pops the alarms out over the desk while the clock is held. On the left
-// the 12 tiles as a 4 × 3 board (glyph, label, state word, a short live reading), sorted once each
+// the tiles (eight since W7 Q3) 4 to a row (glyph, label, state word, a short live reading), sorted once each
 // time the panel opens (an ACK changes a face in place, never moves it): alarm, then cleared but
 // not acknowledged, then acknowledged, then quiet (a darker face and a plain label, never faded: W6 a11y,
 // its words keep 4.5:1); within a group escalated first, then
@@ -11,9 +11,9 @@
 // no button sends a sim input. The focus is the shell's (§30.3.4): focus() is called once per
 // opening, on the frame the panel first shows; update(vm) never moves it.
 //
-// content/alarmhelp.js ALARM_HELP[tileId] = {means, why, todo: {text, target}, real, trigger, reading(obs, tile)}:
+// content/alarmhelp.js ALARM_HELP[tileId] = {means, why, todo: {text, target}, real, trigger, reading(obs, tile, vm)}:
 //   todo.target  the control GO TO focuses: one the player acts on, never a readout (READOUT); null
-//                for the tile's own (STORAGE LOW's moves between the hydro wheel and the battery).
+//                for the tile's own (LOW STORAGE's moves between the hydro wheel and the battery).
 //                While the plan line says ▶ ACT NOW or ‼ URGENT and names a control, GO TO offers it.
 //   real         ON THE REAL GRID, naming its source: {text, facts: [SPEC §8.1 Fact titles]} says only
 //                what those rows' Value cells say, with each row's confidence as a word (H well
@@ -21,7 +21,7 @@
 //                title>'} only its Real world cell; {own: text} GRIDWATCH's own rule. A §8.1 limit is
 //                the standard's, never a control room's alarm setting.
 //   trigger      when the tile sets and clears: GRIDWATCH's thresholds, built from the constants
-//   reading      NOW: at least one live number from vm.obs; up to its first ' · ' is the board's
+//   reading      NOW: at least one live number from vm.obs (LIGHTS AT RISK's cost from vm.sheds); up to its first ' · ' is the board's
 // Numbers come from sim/params.js and app/alarms.js constants, never typed in; a number no constant
 // holds is the cited row's. Nothing on SPEC §8.3's unverified list is stated as fact; the trip
 // lockout is GRIDWATCH's rule, and ACK is this desk's ACK.
@@ -190,7 +190,7 @@ export function createAlarmPanel(doc, root, actions) {
     }
     setText(title, t.glyph + ' ' + t.label + ' · ' + WORD[t.state] + ' · ' + t.prio + (t.escalated ? ' (escalated)' : '') +
       (t.setAtS >= 0 ? ' · set ' + clockOf(t.setAtS) : ''));
-    setText(now, h.reading(v.obs, t));
+    setText(now, h.reading(v.obs, t, v));
     const plan = planTarget(v.objective);
     gotoId = plan || h.todo.target || t.target;
     setText(todo, (plan ? 'The plan line above says act now: GO TO ' + controlName(plan) + ' first. ' : '') + h.todo.text);
@@ -211,7 +211,7 @@ export function createAlarmPanel(doc, root, actions) {
         setAttr(T.b, 'class', 'ap-t s-' + t.state + (t.escalated && t.state !== 'normal' ? ' esc' : ''));
         setText(T.l, (t.escalated ? '‼' : '') + t.glyph + ' ' + t.label);
         setText(T.w, WORD[t.state] + ' · ' + t.prio);
-        setText(T.r, h ? h.reading(vm.obs, t).split(' · ')[0] : '');
+        setText(T.r, h ? h.reading(vm.obs, t, vm).split(' · ')[0] : '');
         setAttr(T.b, 'aria-label', t.label + ': ' + WORD[t.state] + ', ' + t.prio + (t.escalated ? ', escalated' : ''));
       }
       if (!order) sort();

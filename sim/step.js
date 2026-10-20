@@ -25,6 +25,7 @@ import * as market from './market.js';
 import * as dayplan from './dayplan.js';
 import {hash32} from './rng.js';
 import {NIGHT_S} from './clock.js';
+import {startToMinS} from './onat.js';
 
 export {SIM_VERSION};
 
@@ -507,8 +508,8 @@ export function observe(state, opts) {
       const r = {id: u.id, station: u.station, name: m.name, cls: m.cls, mode: u.mode, sync: u.sync, timerS: u.timerS,
         outMW: u.outMW, schedMW: u.schedMW, basePointMW: u.basePointMW, agcTrimMW: u.agcTrimMW, govMW: u.govMW,
         availMW: u.availMW, minMW: m.minMW, ratingMW: m.ratingMW, rampMWMin: m.rampMWs * S_PER_MIN, offer: m.offer,
-        // X-43: in HAND there is no auto-synchroniser (the player SYNCs at full speed), as the plan executor counts it
-        startToMinS: m.t1S + (state.control.mode === 'AGC' ? V.AUTO_SYNC_S : 0) + m.t2S, hotS: u.hotS, starts: u.starts,
+        // X-43: in HAND there is no auto-synchroniser (the player SYNCs at full speed), as the plan executor counts it (sim/onat.js)
+        startToMinS: startToMinS(m, state.control.mode), hotS: u.hotS, starts: u.starts,
         upForS: s - u.upSinceS, downForS: s - u.downSinceS,
         startBlock: fleet.startBlock(state, u.k), stopBlock: fleet.stopBlock(state, u.k),
         slipHz: 0, phaseDeg: 0, outUntilS: u.outUntilS};
@@ -704,4 +705,4 @@ export function replay(seed, scenario, log, opts = {}) {
   }
   return state;
 }
-export const BUILD = '2026-10-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-10-20';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

@@ -202,8 +202,14 @@ test('a MILD morning to 13:00 (seed 8): the follower starts the CCGT for the mor
   assert.ok(stops.every(x => x.s < secOfH(12)), 'both before 12:00');
   assert.ok(stops[1].s - stops[0].s >= O.STOP_GAP_S, 'one STOP at a time');
   // (the saving rests on the day going as forecast until the unit is back: the line says so)
-  for (const x of stops) assert.match(x.text, /^CCGT \d is not needed until \d\d:\d\d\. Stop it: saves about \$[\d,]+ if nothing trips before then\. Start it again by \d\d:\d\d\.$/);
+  // (W7 Q10: the saving counts the carbon the score charges, and says so)
+  for (const x of stops) assert.match(x.text, /^CCGT \d is not needed until \d\d:\d\d\. Stop it: saves about \$[\d,]+, carbon included, if nothing trips before then\. Start it again by \d\d:\d\d\.$/);
   assert.ok(did.includes('battery:battery:charge'), 'the battery charged before the evening');
+  // Q1 (W7): the soak asked for once, the city's: one press, a booking a suburb at one time (before: six asks in 14 grid min)
+  const soaks = day.said.filter(x => x.kind === 'city');
+  assert.deepEqual(soaks.map(x => [x.accepted, x.action.type, x.action.suburbs.length]), [[true, 'soakCity', 6]]);
+  assert.match(soaks[0].text, /Book the city's HOT WATER SOAK, \d\d:\d\d–\d\d:\d\d \(480 MW\): /);
+  assert.deepEqual(day.st.log.filter(r => r.type === 'flex').map(r => r.args.atS), soaks[0].action.suburbs.map(() => soaks[0].action.atS));
   // never thrash: the battery branch's own orders, idle included, are at least a quarter of an hour apart
   const orders = day.said.filter(x => x.accepted && x.kind === 'battery' && x.action.type === 'battery');
   for (let i = 1; i < orders.length; i++) assert.ok(orders[i].s - orders[i - 1].s >= 900, 'battery orders ' + at(orders[i - 1].s) + ' and ' + at(orders[i].s));
@@ -328,8 +334,8 @@ test('STOP condition 4: not for a saving under $10,000; at MSL2 and MSL3 the sav
   const u = unit(base, 'ccgt2'), proj = PV.project(base);
   const short = O.stopSaving(base, u, base.s + 4 * S_PER_H, base.dayAhead, proj, PV), long = O.stopSaving(base, u, base.s + 6 * S_PER_H, base.dayAhead, proj, PV);
   assert.ok(long > short, 'six idle hours save more than four: ' + Math.round(long) + ' vs ' + Math.round(short));
-  const m = machine('ccgt2'), perH = u.minMW * u.offer + m.noLoadPerS * S_PER_H;
-  assert.ok(long - short < 2 * perH + 1 && long - short > 0, 'never more than its own fuel and no-load for the two hours ($' + Math.round(perH) + ' an hour)');
+  const m = machine('ccgt2'), perH = u.minMW * (u.offer + V.VER * m.co2) + m.noLoadPerS * S_PER_H;
+  assert.ok(long - short < 2 * perH + 1 && long - short > 0, 'never more than its own fuel, carbon and no-load for the two hours ($' + Math.round(perH) + ' an hour)');
 });
 
 test('STOP, one at a time and never a unit that cannot stop: no second STOP while a unit is on its way down or just off; a blocked candidate is not replaced', () => {
@@ -614,7 +620,7 @@ test('STOP saving: the energy that replaces the unit is free in columns where po
   const paid = O.stopSaving(base, u, backS, base.dayAhead, none, PV), free = O.stopSaving(base, u, backS, base.dayAhead, all, PV);
   assert.ok(free > paid + 1000, 'free replacement saves more: ' + Math.round(free) + ' vs ' + Math.round(paid));
   // its idle columns all inside the plan view and all spilled: the saving is exactly the unit's own
-  // fuel and no-load for them, less one start
+  // fuel, carbon at the VER (W7 Q10: the score's) and no-load for them, less one start
   const h = base.dayAhead.stepS / S_PER_H, offS = base.s + Math.max(0, u.outMW - u.minMW) / m.rampMWs + m.t4S / 2, onS = backS + m.t1S + V.AUTO_SYNC_S + m.t2S / 2;
   let n = 0, inside = true;
   for (let k = 0; k < base.dayAhead.n; k++) {
@@ -622,8 +628,23 @@ test('STOP saving: the energy that replaces the unit is free in columns where po
     if (t > offS && t <= onS) { n++; if (!(k < proj.n && Math.abs(proj.times[k] - t) < 1)) inside = false; }
   }
   assert.ok(inside && n > 20, n + ' idle columns, all inside the plan view');
-  const own = (u.minMW * u.offer + m.noLoadPerS * S_PER_H) * h;
+  const own = (u.minMW * (u.offer + V.VER * m.co2) + m.noLoadPerS * S_PER_H) * h;
   assert.ok(Math.abs(free - (n * own - m.startCost)) < 1, Math.round(free) + ' vs ' + Math.round(n * own - m.startCost));
+});
+
+test('W7 Q10: a STOP saving counts the replacement\'s carbon as the ALL-IN score does: an import at the region\'s present intensity', () => {
+  // (the stopped unit's own tonnes at the VER: the spilled-columns test above, exactly)
+  const base = morning().keep.stop, u = unit(base, 'ccgt2'), m = machine('ccgt2');
+  const proj = PV.project(base), backS = base.s + 3 * S_PER_H, none = Object.assign({}, proj, {surplusMW: new Float64Array(proj.n)});
+  // the tie first in the merit order (a neighbour at -$1,000), so imports replace the unit; its carbon is the mix's
+  const cheap = copy(base);
+  cheap.dayAhead.neighbourPrice = Array.from(cheap.dayAhead.neighbourPrice, () => -1000);
+  const at = mix => { const o = copy(cheap); o.score.co2tPerMWh = mix; return O.stopSaving(o, u, backS, o.dayAhead, none, PV); };
+  const h = base.dayAhead.stepS / S_PER_H, offS = base.s + Math.max(0, u.outMW - u.minMW) / m.rampMWs + m.t4S / 2, onS = backS + m.t1S + V.AUTO_SYNC_S + m.t2S / 2;
+  let n = 0;
+  for (let k = 0; k < base.dayAhead.n; k++) { const t = base.dayAhead.fromS + (k + 1) * base.dayAhead.stepS; if (t > offS && t <= onS) n++; }
+  const d = at(0) - at(1), most = V.VER * u.minMW * h * n;
+  assert.ok(d > 0.5 * most && d <= most + 1, 'an import at 1 t/MWh costs the STOP up to $' + Math.round(most) + ' over ' + n + ' columns: $' + Math.round(d));
 });
 
 test('the water as par and the plan view count it: the reserve sits above HYDRO_STOP_MWH, and the water value is the plan view\'s', () => {
@@ -772,6 +793,29 @@ test('spare: the GUARD for the first second, asked once for all the battery can 
   assert.equal(V.RERT_MW * V.RERT_COST / S_PER_MIN, 80000);
   armed.rert.standingDown = true;
   assert.notDeepEqual(lineOf(armed).action, {type: 'standDownRERT'}, 'not twice');
+});
+
+test('W7 integration review: the GUARD ask says what the N-1 gauge says: under TRIP SHEDS the relays would shed, other words than "too low to be secure", so a line kept for its figure gives way at once', () => {
+  const {keep} = morning(), at = (hz, n1) => {
+    const o = copy(keep.guard);
+    Object.assign(o.sec, {level: 'TIGHT', previewNadirHz: hz});
+    return objective(o, {edited: false, planview: PV, dayAhead: o.dayAhead, n1});
+  };
+  const ask = / Raise the battery GUARD to \d+ MW: it catches the fall in the first second\.$/;
+  const was = at(49.22), now = at(48.974);
+  assert.match(was.text, /would fall to 49\.22 Hz: too low to be secure\./);
+  assert.match(was.text, ask);
+  // under 49.0 Hz, rounded down as the gauge shows it (desk/gauge.js): without the gauge's word, the sim's (desk/calc.js tripSheds)
+  assert.match(now.text, /^If (your biggest unit|the tie line) tripped now, frequency would fall to 48\.97 Hz: the relays would shed districts\./);
+  assert.match(now.text, ask);
+  assert.deepEqual(now.action, was.action);
+  // the gauge's own word, held by time (n1Word): TIGHT through its dwell under 49.0 Hz, TRIP SHEDS over a preview back above it
+  assert.match(at(48.974, 'TIGHT').text, /would fall to 48\.97 Hz: too low to be secure\./);
+  assert.match(at(49.01, 'TRIP SHEDS').text, /would fall to 49\.01 Hz: above the relays now\./);
+  // the review's case: a line kept for its figure (steady) beside the gauge's TRIP SHEDS; the relays' words are news, shown at once
+  const held = steady(null, was, keep.guard.s);
+  assert.equal(steady(held, at(49.05), keep.guard.s + 60).line.text, was.text, 'a figure: kept');
+  assert.equal(steady(held, now, keep.guard.s + 60).line.text, now.text, 'the relays: at once');
 });
 
 test('spare after a trip: a fired GUARD still giving while frequency is high is turned down; a fired GUARD is never raised; once re-armed it goes back up', () => {
@@ -1145,7 +1189,21 @@ test('C-10 consequence: STOP says when the unit leaves the grid and the earliest
   const gas = consequence(obs, 'guard-stop-ccgt2', ctx), gb = backOf(obs, 'ccgt2');
   assert.ok(gas.text.startsWith('STOP CCGT 2: off the grid in ' + span(gb.openS - obs.s) + ', and not back at minimum load before ' + at(gb.backS) + '.'), gas.text);
   assert.equal(gas.level, 'plan');
-  assert.match(gas.text, /( It is needed again from \d\d:\d\d: start it by \d\d:\d\d\.| Nothing ahead needs it today\.)$/);
+  // W7 Q4: what it saves, the line's own STOP quote (carbon included, Q10) and on what it rests, then when it is needed again
+  assert.match(gas.text, /( Saves about \$[\d,]+, carbon included(, if nothing trips first)?\.| Running on costs no more, carbon included\.)( It is needed again from \d\d:\d\d: start it by \d\d:\d\d\.| Start it again by \d\d:\d\d\.| Nothing ahead needs it today\.)$/);
+  const line = lineOf(obs);
+  assert.deepEqual([line.kind, line.action.unit], ['stop', 'ccgt2']);
+  assert.equal(Number(/Saves about \$([\d,]+)/.exec(gas.text)[1].replace(/,/g, '')), Math.round(line.saving / 1000) * 1000, 'the line\'s quote: ' + line.text);
+  assert.ok(gas.text.length <= O.LINE_MAX_CHARS, gas.text);
+  // (W7 Q4 review) the quote prices the unit at its floor (stopSaving: its minimum MW), so it is said only there, as the
+  // line's own STOP asks only there (condition 3): above it, the MW it gives over its minimum would be replaced too, by
+  // dearer machines the quote does not count (a CCGT at 612 MW quoted "saves about $72,000" cost $16,000)
+  const up = copy(obs);
+  unit(up, 'ccgt2').outMW = unit(up, 'ccgt2').minMW + O.STOP_FLOOR_MW + 1;
+  const uc = consequence(up, 'guard-stop-ccgt2', {dayAhead: up.dayAhead, planview: PV});
+  assert.equal(uc.level, 'plan', uc.text);
+  assert.match(uc.text, /^STOP CCGT 2: off the grid in .*\.( It is needed again from \d\d:\d\d: start it by \d\d:\d\d\.| Nothing ahead needs it today\.)$/, uc.text);
+  assert.doesNotMatch(uc.text, /Saves about|costs no more/, 'no quote above its floor: ' + uc.text);
   // a shortfall that begins after the unit could be back is the restart's business, not this press's:
   // the level stays 'plan' and the line says by when to start it again
   const later = copy(obs), Gl = O.capacityGap(later, later.dayAhead, {marginMW: O.MARGIN_MW, leaving: 'ccgt2'});
@@ -1153,7 +1211,7 @@ test('C-10 consequence: STOP says when the unit leaves the grid and the earliest
   setGap(later.dayAhead, Gl, -2000, -Infinity, gb.backS + 2 * S_PER_H); setGap(later.dayAhead, Gl, -2000, gb.backS + 3 * S_PER_H);
   const lc = consequence(later, 'guard-stop-ccgt2', {dayAhead: later.dayAhead, planview: PV});
   assert.equal(lc.level, 'plan', lc.text);
-  assert.match(lc.text, / It is needed again from \d\d:\d\d: start it by \d\d:\d\d\.$/);
+  assert.match(lc.text, /( It is needed again from \d\d:\d\d: start it| Start it again) by \d\d:\d\d\.$/);
   // a stop that opens a shortfall at once
   const now = copy(obs);
   for (const fc of [now.forecast, now.dayAhead]) for (let k = 0; k < fc.n; k++) fc.demandP50[k] += 1700;

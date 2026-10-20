@@ -9,7 +9,7 @@ One copy per tester (SPEC §5 W2). Print it and fill it in by hand while you wat
 
 ## Before: what you say, and nothing more
 
-Send only the link: **https://databerryau.github.io/gridwatch/next.html**
+Send only the link: **https://databerryau.github.io/gridwatch/**
 Say: *"This is a game I'm making. Play today's day and say out loud what you're thinking."*
 Their own computer, sound on. Then stay silent.
 

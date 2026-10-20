@@ -2,7 +2,7 @@
 
 Build: `v4-core-2d.0`, scenario `classic`, sources of sim/ and content/ bc01e36f9e. Command: `node tools/baseline-v4.js`.
 
-The SPEC.md §6 rows that the v4 core can measure before the desk exists (Exit Phase 0). Par is `sim/autopilot.js` (S-4) on the classic scenario, v4 physics, no rooftop PV yet. Sections 1–3 are deterministic for a build and its flags; section 3 rows depend only on their seed (tests/baseline-v4.test.js re-runs a few and compares them with the golden). Section 4 varies by machine.
+The SPEC.md §6 rows that the v4 core can measure before the desk exists (Exit Phase 0). Par is `sim/autopilot.js` (S-4) on the classic scenario, v4 physics, no rooftop PV yet. Sections 1–3 are deterministic for a build and its flags; section 3 rows depend only on their seed (`npm run golden:v4 -- --check` re-runs them and compares them with the golden). Section 4 varies by machine.
 
 ## 1. Fixed probes (independent of the seed range)
 

@@ -607,7 +607,7 @@ test('K-9: tray shows at most 3 cards and its buttons only focus (never an input
 });
 
 test('K-8: an annunciator tile focuses its target; ACK and SILENCE work, even in the watch', () => {
-  const tiles = ['UNDER FREQ', 'N-1 INSECURE', 'UNIT TRIP'].map((l, i) => ({id: 't' + i, label: l, prio: 'P' + (i + 1), state: i ? 'ackd' : 'alarm',
+  const tiles = ['LOW FREQ', 'LIGHTS AT RISK', 'UNIT TRIP'].map((l, i) => ({id: 't' + i, label: l, prio: 'P' + (i + 1), state: i ? 'ackd' : 'alarm',
     flash: i ? null : 'fast', glyph: '◆', target: ['dial-freq', 'gauge-n1', 'bay-sync'][i]}));
   const vm = baseVm(clone(TRIP.obs), {mode: {mode: 'WATCH', rate: 0.15, watchS: 2, locked: true, watchVersion: 'compact'},
     alarms: {tiles, sounding: true}});
@@ -619,7 +619,7 @@ test('K-8: an annunciator tile focuses its target; ACK and SILENCE work, even in
   $('btn-ack').click();
   $('btn-silence').click();
   assert.deepEqual(uiOf(a).slice(-2), [{do: 'ack'}, {do: 'silence'}]);
-  assert.equal($('annunciator').querySelectorAll('.dk-tile').length, 12);
+  assert.equal($('annunciator').querySelectorAll('.dk-tile').length, 8, 'the board\'s 4 × 2 slots (W7 Q3), three of them in use here');
 });
 
 test('K-15: during the watch the desk is locked (only ACK / SILENCE act)', () => {
@@ -2225,7 +2225,7 @@ test('K-3 / K-23 (playtest): each guard\'s tooltip says how to press it, each le
   LEVER_STATIONS.forEach((sid, i) => assert.equal(slotOf($, sid).querySelector('.dk-kcap').textContent, String(i + 1), sid));
   assert.equal(slotOf($, 'ccgt').querySelector('.dk-lever-foot').title, 'SET (white): where the lever is ▸ OUT (orange): what CCGT makes now, MW');
   // the armed face: amber across its row (the other guard folds to no width, still drawn: the next test), a bar that
-  // drains (5 s; 2 s by key), held still under reduced motion. '.dk ' outranks next.html's button:hover border.
+  // drains (5 s; 2 s by key), held still under reduced motion. '.dk ' outranks index.html's button:hover border.
   assert.match(CSS, /\.dk \.dk-guard\.lifted \{ flex: 1 1 auto; position: relative; background: #d2992244; border-color: var\(--dk-amber\);/);
   assert.match(CSS, /\.dk-mach\.armed \{ gap: 0; \}/);
   assert.match(CSS, /\.dk \.dk-mach\.armed > \.dk-guard:not\(\.lifted\) \{ width: 0; min-width: 0; border-width: 0; overflow: hidden; \}/);

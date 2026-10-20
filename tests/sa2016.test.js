@@ -19,6 +19,7 @@ import {SA2016} from '../content/anniversaries.js';
 import {SCENARIOS, DESK, SA2016_SCENARIO} from '../content/scenarios.js';
 import {DAILIES, seedOf} from '../content/dailies.js';
 import {openGame} from './lib/play.js';
+import {restampAdvice} from '../tools/verify.mjs';
 
 const TPS = V.TICKS_PER_S, MIN = V.S_PER_MIN, toS = h => Math.round((h - V.DAY_START_H) * V.S_PER_H);
 const words = s => s.trim().split(/\s+/).filter(Boolean).length;
@@ -40,7 +41,7 @@ test('D-29, S-7: SA 2016 is the shelf\'s first Hard day, on its own seed and sce
   for (const s of [20160928, seedOf(20160928, 2)]) assert.equal(G.scenarioForSeed(s), DESK, s + ': its date\'s own day');
   assert.equal(G.dailyFrom('?seed=' + SA2016.seed).scenarioId, 'desk-sa2016');
   // the desk scenarios (the dailies' stamp) are untouched; the city, its rooftop and the fleet's 04:00 are the desk's own
-  assert.equal(DAILIES.v, G.dailyStamp());
+  assert.equal(DAILIES.v, G.dailyStamp(), 'content/dailies.js is stale: ' + restampAdvice(DAILIES.from, DAILIES.to));
   assert.equal(DESK.dayplan.incident, undefined);
   for (const k of ['city', 'rooftop', 'commitment', 'levers']) assert.equal(SA2016_SCENARIO[k], DESK[k], k);
   // on the page's path: a Hard day, practice, no date's daily, graded by the page's own par (no stored par)
@@ -111,7 +112,7 @@ test('D-29, S-7 on the page: Hard day 1 from the shelf opens on THIS REALLY HAPP
   p.game.state.over = true;
   p.frames(2);
   const s = p.game.end.share;
-  assert.match(s.lines[0], /^GRIDWATCH · Hard day 1 · \d+ [A-F]( ★)?( · PERFECT)? · PRACTICE · HARD DAY$/, 'HARD DAY, no ANNIVERSARY: played on any date');
+  assert.match(s.lines[0], /^GRIDWATCH · Hard day 1 · \d+ [A-F]( ★)? [A-Z' ]+[A-Z]( · PERFECT)? · PRACTICE · HARD DAY$/, 'HARD DAY, no ANNIVERSARY: played on any date');   // (W7, Q-118: the rank)
   assert.deepEqual(SH.lintCard(s.text), [], 'no event words, no place, no time');
   assert.doesNotMatch(s.text, /SA|2016|black/i);
   // (review) a Hard day can be beaten (content/anniversaries.js SA2016): beside PERFECT, the card says that par shed, never

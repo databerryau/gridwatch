@@ -25,6 +25,8 @@ import {openGame} from './lib/play.js';
 const TPS = V.TICKS_PER_S, HOT = 20261007; // a DESK weekday whose Act I task holds RED5 and RED7 dark from 04:00
 const hhS = (h, m = 0) => (h - V.DAY_START_H) * 3600 + m * 60;
 const C2 = V.MACHINES[unitIndex('ccgt2')], TO_MIN = C2.t1S + V.AUTO_SYNC_S + C2.t2S, TIE_RATE = V.TIE_RAMP_MW_MIN / 60;
+// (W7 Q6: on a HAND day there is no auto-synchroniser, so START to MIN is T1 + T2: the stack's drag below is a HAND day's)
+const TO_MIN_HAND = C2.t1S + C2.t2S;
 const run = (s, S) => { while (s.tick < S * TPS) step(s, []); return s; };
 let HOT0430 = null;
 /** HOT's live day at 04:30, nobody at the desk (the state as JSON, parsed per call). */
@@ -96,13 +98,13 @@ test('Q-68: the tie limit holds each column\'s import until its end; an injected
   assert.deepEqual([knob(400), knob(V.TIE_MAX_MW)], [[END + Math.ceil(PV.SNAP_MW / TIE_RATE)], []]);
   const {v: stack, cv} = mount(createLiveStack, 336, 164);
   stack.update(baseVm(Object.assign(structuredClone(obs), {mode: 'HAND'}))); // (K-24: a drag on the stack is a HAND day's)
-  assert.deepEqual(stack.debug.ghosts.filter(g => g.station === 'ccgt').map(g => [g.unit, g.atS]), [['ccgt2', OUT + TO_MIN]], 'the stack\'s ghost');
+  assert.deepEqual(stack.debug.ghosts.filter(g => g.station === 'ccgt').map(g => [g.unit, g.atS]), [['ccgt2', OUT + TO_MIN_HAND]], 'the stack\'s ghost (HAND)');
   // the ghost says why it is late, and so does a drag before it
   const gh = stack.debug.ghosts.find(g => g.unit === 'ccgt2'), y = gh.y + gh.h / 2, xBook = stack.debug.geom.x(BOOK + TO_MIN);
   cv.dispatch('pointermove', {clientX: gh.x + 2, clientY: y});
-  assert.match(stack.el.querySelector('.livestack-tip').textContent, new RegExp('^CCGT 2 is on outage until 07:30: earliest on ' + clockText(OUT + TO_MIN, false) + '\n'));
+  assert.match(stack.el.querySelector('.livestack-tip').textContent, new RegExp('^CCGT 2 is on outage until 07:30: earliest on ' + clockText(OUT + TO_MIN_HAND, false) + '\n'));
   for (const [type, x] of [['pointerdown', gh.x + 2], ['pointermove', xBook], ['pointerup', xBook]]) cv.dispatch(type, {clientX: x, clientY: y, pointerId: 1});
-  assert.match(stack.debug.message, new RegExp('^Too soon: CCGT 2 is on outage until 07:30, so earliest ' + clockText(Math.ceil((OUT + TO_MIN) / 900) * 900, false) + '\\. '));
+  assert.match(stack.debug.message, new RegExp('^Too soon: CCGT 2 is on outage until 07:30, so earliest ' + clockText(Math.ceil((OUT + TO_MIN_HAND) / 900) * 900, false) + '\\. '));
   // a booking made by planLoad before the return waits in plan.starts (the sim's startDueS): the mirror starts it at OUT;
   // a tie key under the limit leads from the import the limit lets run (100 MW at 06:00 from 400, not 800: grid.js tiePlanSecond)
   assert.ok(applyInput(s, {type: 'planLoad', fromS: s.tick / TPS, stations: {}, tie: [[BOOK, 100]], starts: [['ccgt2', BOOK]], stops: []}).ok);
@@ -174,7 +176,7 @@ test('Q-69: a held task feeder\'s suburb: a blue label with its hand-back times,
   assert.equal(dark(), '2 DARK · BACK 06:45, 07:15');
   assert.equal(doc.getElementById('city-RED-restore'), null);
   card.focus();
-  assert.equal(doc.activeElement.id, 'city-RED-soak', 'the first row takes the focus');
+  assert.equal(doc.activeElement.id, 'city-soak-all', 'the first row takes the focus (W7 Q1: SOAK THE CITY, the soak\'s first)');
   const handed = structuredClone(obs);
   handed.s = red[0].clearS;
   card.update(vm(handed), 1);

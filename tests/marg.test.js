@@ -4,6 +4,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createMarg, margSay, MARG_LINES, MARG_WORDS, MARG_FIRST, MARG_LATER, HANDOVER} from '../app/marg.js';
+import {RANKS, rankOf, letterText} from '../app/score.js';
 import {openGame} from './lib/play.js';
 
 const fc = {fromS: 0, stepS: 900, n: 96, demandP50: Array.from({length: 96}, (_, k) => 4000 + 2500 * Math.exp(-(((k - 60) / 8) ** 2)) - 1500 * Math.exp(-(((k - 32) / 6) ** 2)))};
@@ -21,6 +22,21 @@ test('O-6: every line is at most 20 words and carries a live number or a decisio
   }
   assert.equal(MARG_LINES.handover(), HANDOVER);
   assert.match(MARG_LINES.take(obs(1800), fc), /^Morning\. Peak about [\d,]+ MW at \d\d:\d\d\./);
+});
+
+test('W7 (Q-118): one table of ranks beside the letters; Marg\'s verdict names the rank and never contradicts it', () => {
+  assert.deepEqual({...RANKS}, {D: 'TRAINEE', C: 'SHIFT OPERATOR', B: 'SENIOR OPERATOR', A: 'SHIFT SUPERVISOR', 'A★': 'MARG\'S CHAIR', F: 'BLACK START CREW'});
+  assert.deepEqual([rankOf({letter: 'A', star: true}), rankOf({letter: 'A', star: false}), rankOf({letter: 'F'}), rankOf(null), rankOf({letter: null})],
+    ['MARG\'S CHAIR', 'SHIFT SUPERVISOR', 'BLACK START CREW', '', '']);
+  assert.deepEqual([letterText({letter: 'A', star: true}), letterText({letter: 'D'}), letterText(null)], ['A ★ MARG\'S CHAIR', 'D TRAINEE', '']);
+  const closing = 'Nobody noticed. That\'s the job.';
+  assert.equal(MARG_LINES.verdict({points: 1004, letter: 'A', star: true}, closing), '1004 points, A ★: MARG\'S CHAIR. Don\'t get comfortable. ' + closing);
+  assert.equal(MARG_LINES.verdict({points: 0, letter: 'F', star: false}, 'Lights out. Every one of them.'), '0 points, F: BLACK START CREW. Lights out. Every one of them.');
+  for (const g of [{points: 995, letter: 'A'}, {points: 960, letter: 'B'}, {points: 850, letter: 'C'}, {points: 640, letter: 'D'}]) {
+    const t = MARG_LINES.verdict(g, closing);
+    assert.equal(t, g.points + ' points, ' + g.letter + ': ' + RANKS[g.letter] + '. ' + closing);
+    assert.doesNotMatch(t, /chair|comfortable/i, 'only an A ★ sits in her chair');
+  }
 });
 
 test('O-6: a first shift holds at most 25 lines and a later day 6; each beat speaks once; a longer line is cut at 20 words', () => {
@@ -41,6 +57,6 @@ test('O-6 on the page: her first line is a tray card at TAKE THE DESK; the day o
   assert.match(p.look({controls: false}), /^TRAY .*i MARG, SUPERVISOR 04:30 Morning\. Peak about [\d,]+ MW at \d\d:\d\d\. Commit early: starts take time\. SHOW ME/m);
   p.game.state.over = true;
   p.frames(2);
-  assert.match(p.look({controls: false}), /^END .* MARG \d+ points, [A-DF]\. /m);
+  assert.match(p.look({controls: false}), /^END .* MARG \d+ points, [A-DF]( ★)?: [A-Z' ]+\. /m);
   assert.deepEqual(p.h.mods.errors, []);
 });

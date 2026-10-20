@@ -1,6 +1,6 @@
 // app/landing.js: W6, Y-8: the page a shared link opens on a phone, or in a window too small for the desk. The game needs a
 // keyboard, a mouse and a screen of at least DESK_W x DESK_H (C-9), and a shared link is mostly opened on a phone; so below
-// that viewport, or with a touch-only pointer, next.html shows this instead of the desk, and the game is never loaded
+// that viewport, or with a touch-only pointer, index.html shows this instead of the desk, and the game is never loaded
 // (app/start.js). On a phone it says what GRIDWATCH is, shows the link preview (og.png), and offers COPY LINK, to send it to
 // a computer. On a computer (its main pointer aims, a screen bigger than a phone's) it is the window that is small, not the
 // device: a 1920x1080 laptop at 150% is 1280x720, and its maximised browser about 1280x587. Then it says how far the window

@@ -6,7 +6,7 @@
 // reads (dotted for nested ones, e.g. 'FLEET.coal.rampMWMin'). `anchorId` is the id of the
 // element the bench's "?" sits beside in bench.html (ui: 'drawer' = only in the bench's
 // drawer); `game` is the element the game's "?" sits beside: a desk/README.md §5 control id or
-// a next.html element ('drawer' = only in the game's drawer).
+// a index.html element ('drawer' = only in the game's drawer).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -97,12 +97,12 @@ test('H-14: every anchor the bench shows exists in bench.html; drawer-only entri
   }
 });
 
-test('H-14: every game anchor is a §5 control id or a next.html element (or the drawer)', async () => {
+test('H-14: every game anchor is a §5 control id or a index.html element (or the drawer)', async () => {
   const {TEXT} = await import('../content/text.js');
-  const html = read('../next.html'), ids = contractIds();
+  const html = read('../index.html'), ids = contractIds();
   for (const e of TEXT.abstractions) {
     if (e.game === 'drawer') continue;
-    assert.ok(ids.has(e.game) || html.includes('id="' + e.game + '"'), e.id + ': no #' + e.game + ' in §5 or next.html');
+    assert.ok(ids.has(e.game) || html.includes('id="' + e.game + '"'), e.id + ': no #' + e.game + ' in §5 or index.html');
   }
   // The new desk elements are labelled: the scope, the restore bay, the levers, RE-DISPATCH, the gauge, the dial, the hum.
   for (const g of ['bay-sync', 'bay-restore', 'lever-coal', 'btn-redispatch', 'gauge-n1', 'dial-freq', 'btn-mute', 'wheel-hydro']) {
@@ -143,6 +143,11 @@ test('H-14, Phase 2a (desk/README.md §19.5): the belly\'s rows, with their exac
   assert.ok(mild.ours.includes('by ' + V.WEEKEND_DEMAND_FACTOR + ' all day') && mild.ours.includes(V.COOLING_MAX_MW.toLocaleString('en-US') + ' MW at'), mild.ours);
   assert.ok(mild.ours.includes('announced at the 04:00 briefing'), mild.ours);
   assert.ok(byId.get('auto-curtailment').ours.includes('from ' + V.SURPLUS_MIN_MW + ' MW') && /backstop is not on this desk yet/.test(byId.get('auto-curtailment').ours));
+  // W7 Q3 review: why the spill has no alarm, in the same terms as 'why' (shrinking it is yours, as a saving): never "needs nobody"
+  const spill = byId.get('auto-curtailment');
+  assert.match(spill.ours, /\(no alarm: the dispatch keeps the grid safe by itself; shrinking the spill is a saving, not an emergency\)/);
+  assert.match(spill.why, /shrinking it is yours: charge the battery, export, or stop a unit\.$/);
+  assert.ok(!/needs nobody/.test(spill.ours + spill.why), spill.ours);
   // 54 and 39 min: the run-up plus the auto-sync delay, from the fleet (never copied)
   const down = byId.get('min-down-time'), sync = id => V.STATIONS[id].t1Min + V.AUTO_SYNC_S / V.S_PER_MIN;
   assert.ok(down.ours.includes(sync('coal') + ' min for coal') && down.ours.includes(sync('ccgt') + ' min for a CCGT'), down.ours);

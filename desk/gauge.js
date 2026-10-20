@@ -6,6 +6,14 @@
 // solid fill and carries the level's glyph on its number (✓ covers 1.25 × the risk, ! covers the
 // risk, ✕ short: cross-hatched), RISK is a hatched fill.
 //
+// W7 Q2, TRIP SHEDS: the desk's fifth word (desk/calc.js n1Word; the sim keeps its four). While the sim
+// says TIGHT and its preview is below the first UFLS stage (49.0 Hz) the head reads ▼ TRIP SHEDS in red,
+// with a minimum time on and off (SHEDS_MIN_MS real ms, whatever the preview says: it lands either side of
+// the edge from one refresh to the next for grid minutes), and the caught line's place says what it would cost ("48.99 Hz: the
+// relays would shed 2 districts", calc.js shedsLine; the title and the aria label say it whole, with "would
+// fall to"). Below 49.0 Hz the preview's figures are rounded down, as under the SECURE line. The live
+// preview's caught line and the COVER row win the caught line's place.
+//
 // 2c, the COVER row (Q-74), in the caught line's place (while it shows, the live preview's caught
 // words move into the preview's title). It shows while frequency is outside 49.85-50.15 Hz
 // (fos.outsideS > 0), for BAND_OK_MS (3 real s) after it returns, while obs.inRespond, and while
@@ -28,12 +36,16 @@
 
 import {V} from '../sim/params.js';
 import {el, setText, setAttr, setCls, setStyle, setHidden, mw, hz2, fin, clamp, mmss, unitLabel, nadirClass, CLASS_GLYPH, PAN} from './util.js';
+import {n1Word, shedsLine} from './calc.js';
 
-const LEVEL_GLYPH = {SECURE: '✓', TIGHT: '!', SHORT: '✕', SHEDDING: '✕✕'};
+// W7 Q2: TRIP SHEDS (desk/calc.js n1Word) is the desk's fifth word, red, with its own glyph
+export const LEVEL_GLYPH = Object.freeze({SECURE: '✓', TIGHT: '!', 'TRIP SHEDS': '▼', SHORT: '✕', SHEDDING: '✕✕'});
 export const SECURE_LINE_HZ = V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ;   // H-4: what SECURE needs of a fresh preview
 const HELP = 'SPARE IN 5 MIN is R5: headroom that can be delivered within 5 minutes. BIGGEST RISK is L: the largest ' +
   'credible contingency (the biggest unit online, or the tie import). SECURE needs R5 ≥ ' + V.SECURE_RATIO + ' × L and a TRIP ' +
   'PREVIEW nadir ≥ ' + hz2(SECURE_LINE_HZ) + ' Hz for both; TIGHT is LOR1-like, SHORT is LOR2-like (R5 < L), SHEDDING is LOR3. ' +
+  'TRIP SHEDS is TIGHT with the TRIP PREVIEW below ' + V.UFLS_FIRST_HZ.toFixed(1) + ' Hz: the spare is there, but frequency ' +
+  'would fall faster than it arrives, and the relays would shed districts (GRIDWATCH\'s word, not AEMO\'s). ' +
   'After a trip, COVER counts ' + V.SECURE_AGAIN_S / 60 + ' min to R5 ≥ L with no district shed by relays or direction (GRIDWATCH\'s ' +
   'floor for secure again), and BAND the ' + V.FOS_RECOVER_S / 60 + ' min frequency may stay outside ' + V.NORMAL_LO_HZ + '–' + V.NORMAL_HI_HZ + ' Hz.';
 // Q-74 (real ms)
@@ -87,12 +99,15 @@ export function createGauge(ctx, parent) {
   const ptext = el(doc, 'span', 'dk-ptext');
   prev.append(pbtn, ptext);
   const caught = el(doc, 'div', 'dk-caught');
+  const sheds = el(doc, 'div', 'dk-sheds');   // W7 Q2: what TRIP SHEDS would cost, in the caught line's place
+  sheds.hidden = true;
   const cov = bar('');   // Q-74
   cov.row.className = 'dk-gbar dk-cover';
   cov.row.hidden = true;
-  box.append(head, r5.row, lb.row, prev, caught, cov.row);
+  box.append(head, r5.row, lb.row, prev, caught, sheds, cov.row);
   parent.appendChild(box);
   let vm = null, latched = false, nowMs = 0, wasOut = false, okAt = -Infinity, lastMs = -Infinity, lastTick = -1, fig = {k: '', text: '', at: 0};
+  const held = {};   // n1Word's TRIP SHEDS hold
   /** [word, class, s | null, before, after, bar, title] or null */
   function coverOf(o) {
     const c = o.contingency, f = o.fos, bad = o.sec.level === 'SHORT' || o.sec.level === 'SHEDDING', ts = t => t / V.TICKS_PER_S;
@@ -134,8 +149,9 @@ export function createGauge(ctx, parent) {
         setAttr(cov.row, 'title', title);
         setStyle(cov.fill, 'width', (clamp(full, 0, 1) * 100).toFixed(1) + '%');
       }
-      setText(word, (LEVEL_GLYPH[s.level] || '') + ' ' + s.level);
-      setAttr(word, 'class', 'dk-level lv-' + s.level);
+      const lv = n1Word(held, v.obs, nowMs), shedLine = lv === 'TRIP SHEDS' ? shedsLine(v.obs, v.sheds) : '';   // (v.sheds: the sim's own relays)
+      setText(word, (LEVEL_GLYPH[lv] || '') + ' ' + lv);
+      setAttr(word, 'class', 'dk-level lv-' + lv.replace(' ', '-'));
       const scale = Math.max(1, fin(s.r5MW), fin(s.lMW) * V.SECURE_RATIO) * 1.1;
       setStyle(r5.fill, 'width', (clamp(fin(s.r5MW) / scale, 0, 1) * 100).toFixed(1) + '%');
       setStyle(lb.fill, 'width', (clamp(fin(s.lMW) / scale, 0, 1) * 100).toFixed(1) + '%');
@@ -152,21 +168,27 @@ export function createGauge(ctx, parent) {
       // under the sim's SECURE line (H-4; higher for a cached preview, by its age at the second the sim last judged) but contained: amber
       const need = SECURE_LINE_HZ + (live ? 0 : V.PREVIEW_AGE_MARGIN_HZ_S * fin(Math.floor((v.obs.tick - 1) / V.TICKS_PER_S) - s.previewAtS));
       const needs = s.lKind !== 'none' && nadir >= V.SECURE_NADIR_HZ && nadir < need;
-      const shown = hz2(needs ? Math.floor(nadir * 100) / 100 : nadir);
+      // rounded down under a line (the SECURE line; the relays' 49.0 Hz, W7 Q2): it never reads as the line itself
+      const relays = x => hz2(x < V.UFLS_FIRST_HZ ? Math.floor(x * 100) / 100 : x);
+      const shown = needs ? hz2(Math.floor(nadir * 100) / 100) : relays(nadir);
       const cls = s.lKind === 'none' ? 'good' : needs ? 'warn' : nadirClass(nadir);
       const uHz = fin(s.previewUnitHz, nadir), kHz = fin(s.previewLinkHz, 50), line = hz2(Math.ceil(need * 100 - 1e-6) / 100);
       setText(ptext, s.lKind === 'none' ? 'no credible risk' : CLASS_GLYPH[cls] + ' ' + shown + (needs ? '<' + line : '') + ' Hz' +
-        (live ? (pv.guardMW !== undefined && pv.guardMW !== null ? ' @ GUARD ' + mw(pv.guardMW) : ' now') : needs ? '' : ' · U ' + hz2(uHz) + ' L ' + hz2(kHz)));
+        (live ? (pv.guardMW !== undefined && pv.guardMW !== null ? ' @ GUARD ' + mw(pv.guardMW) : ' now') : needs ? '' : ' · U ' + relays(uHz) + ' L ' + relays(kHz)));
       setAttr(ptext, 'class', 'dk-ptext ' + cls);
       setAttr(ptext, 'title', 'TRIP PREVIEW: where frequency would bottom out if ' + (s.lKind === 'none' ? 'nothing' : unitLabel(s.lId)) +
-        ' tripped now. Unit ' + hz2(uHz) + ' Hz, tie ' + hz2(kHz) + ' Hz. Green ≥ ' + line + ', amber to ' +
+        ' tripped now. Unit ' + relays(uHz) + ' Hz, tie ' + relays(kHz) + ' Hz. Green ≥ ' + line + ', amber to ' +
         V.UFLS_FIRST_HZ + ', red: UFLS would operate.' + (live && r ? ' Caught by ' + (caughtText(pv.caught) || '—') + '.' : ''));
       setHidden(caught, !live || !!r);
       if (live) setText(caught, caughtText(pv.caught) || '—');
+      // W7 Q2: the cost of TRIP SHEDS, where the caught line would be (the face drops 'would fall to': the preview says it)
+      setHidden(sheds, !shedLine || live || !!r);
+      setText(sheds, shedLine.replace(/^would fall to /, ''));
+      setAttr(sheds, 'title', shedLine ? 'If ' + unitLabel(s.lId) + ' tripped now, frequency ' + shedLine + '.' : '');
       setAttr(pbtn, 'aria-pressed', v.previewOn ? 'true' : 'false');
       setCls(pbtn, 'on', !!v.previewOn);
       setText(pbtn, v.previewOn ? 'T PREVIEW ●' : 'T PREVIEW');
-      setAttr(box, 'aria-label', 'N-1 gauge: ' + s.level + '. Spare in 5 minutes ' + mw(s.r5MW) + ' MW, biggest risk ' +
+      setAttr(box, 'aria-label', 'N-1 gauge: ' + lv + (shedLine ? ': ' + shedLine : '') + '. Spare in 5 minutes ' + mw(s.r5MW) + ' MW, biggest risk ' +
         (s.lKind === 'none' ? 'none' : unitLabel(s.lId) + ' ' + mw(s.lMW) + ' MW') + '. Trip preview ' + shown + ' Hz' +
         (s.lKind === 'none' ? '' : cls === 'good' ? ', contained' : needs ? ', under the SECURE line, ' + line :
           cls === 'warn' ? ', below 49.5' : ', UFLS would operate') +

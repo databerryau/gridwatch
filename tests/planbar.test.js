@@ -19,9 +19,9 @@ import {CLASSIC} from '../content/scenarios.js';
 import {TILES} from '../app/alarms.js';
 import {layoutSizes} from '../app/shell.js';
 import {createDesk} from '../desk/desk.js';
-import {AGAIN, TILE_HELP} from '../desk/annunciator.js';
+import {AGAIN, TILE_HELP, TILE_SLOTS} from '../desk/annunciator.js';
 
-const NEXT = readFileSync(new URL('../next.html', import.meta.url), 'utf8');
+const NEXT = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const CSS = readFileSync(new URL('../desk/desk.css', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S;
 /** The body of the first rule whose selector list is exactly `sel` (a regexp source). */
@@ -52,7 +52,7 @@ test('Q-45: the plan bar\'s CSS: #planbar on the desk\'s top edge, #annun-slot 4
   assert.ok(room(659, 60) < room(600, 8), 'and without the rule it would have less');
 });
 
-test('Q-45: desk.css carries the desk\'s variables, type, focus ring and glow to .dk-vars; the 6×2 annunciator fits the 432×58 slot', () => {
+test('Q-45: desk.css carries the desk\'s variables, type, focus ring and glow to .dk-vars; the 4×2 annunciator fits the 432×58 slot', () => {
   const vars = ruleOf(CSS, '\\.dk, \\.dk-vars');
   for (const v of ['--dk-k: 1', '--u: calc(1px * var(--dk-k))', '--dk-panel:', '--dk-text:', '--dk-cyan:', '--dk-mono:', 'font: calc(10 * var(--u))/1.2', 'color: var(--dk-text)']) {
     assert.ok(vars.includes(v), '.dk-vars ' + v);
@@ -67,10 +67,13 @@ test('Q-45: desk.css carries the desk\'s variables, type, focus ring and glow to
   const annun = ruleOf(CSS, '\\.dk-annun');
   const [, side, key, gap] = /grid-template-columns: 1fr (\d+)px (\d+)px; gap: (\d+)px; height: 100%;/.exec(annun).map(Number);
   const tiles = ruleOf(CSS, '\\.dk-tiles');
-  assert.match(tiles, /grid-template-columns: repeat\(6, 1fr\); grid-template-rows: repeat\(2, 1fr\);/);
+  // W7 Q3: eight tiles, 4 × 2 (TILES); TILE_SLOTS is the board's size
+  assert.match(tiles, /grid-template-columns: repeat\(4, 1fr\); grid-template-rows: repeat\(2, 1fr\);/);
+  assert.equal(TILE_SLOTS, 4 * 2);
+  assert.equal(TILES.length, TILE_SLOTS);
   const tg = pxOf(tiles, 'gap');
-  const tileW = (W - side - key - 2 * gap - 5 * tg) / 6, tileH = (H - tg) / 2;
-  assert.ok(tileW >= 48 && tileW <= 56, 'a tile is about 52 px wide: ' + tileW);
+  const tileW = (W - side - key - 2 * gap - 3 * tg) / 4, tileH = (H - tg) / 2;
+  assert.ok(tileW >= 74 && tileW <= 80, 'a tile is about 78 px wide: ' + tileW);
   assert.ok(tileH >= 24, 'a tile is at least 24 px tall: ' + tileH);
   // a label: the glyph inline (no glyph row), 8.5 px, line-height 1, at most two lines, inside an escalated tile's double border
   const tile = ruleOf(CSS, '\\.dk-tile');
@@ -81,7 +84,9 @@ test('Q-45: desk.css carries the desk\'s variables, type, focus ring and glow to
   assert.doesNotMatch(ruleOf(CSS, '\\.dk-tile-glyph'), /height:/);
   const esc = pxOf(ruleOf(CSS, '\\.dk-tile\\.esc'), 'border-width');
   assert.ok(2 * 8.5 + 2 * esc <= tileH, 'two label lines and the double border: ' + (2 * 8.5 + 2 * esc));
-  assert.match(CSS, /@media \(min-width: 1600px\) \{ \.dk-tile \{ font-size: 10px; white-space: nowrap; text-overflow: ellipsis; \} \}/);
+  // from 1600 px: 10-px words on two lines too (two 10-px lines and a 1-px border fit the tile); an escalated tile keeps to one line
+  assert.match(CSS, /@media \(min-width: 1600px\) \{ \.dk-tile \{ font-size: 10px; \} \.dk-tile\.esc \{ white-space: nowrap; text-overflow: ellipsis; \} \}/);
+  assert.ok(2 * 10 + 2 * 1 <= tileH, 'two 10-px lines and a plain border: ' + (2 * 10 + 2));
   // ACK over HORN OFF (24 px each, the face 9 px on at most two lines); EXPLAIN the slot's height
   const sideGap = pxOf(ruleOf(CSS, '\\.dk-annun-side'), 'gap');
   assert.ok(2 * 24 + sideGap <= H, 'ACK over HORN OFF: ' + (2 * 24 + sideGap) + ' of ' + H);
@@ -115,7 +120,7 @@ test('§30.4: the desk builds its annunciator into the slot (else into its colum
   const m = mount(), {$, desk, slot, root} = m;
   desk.update(vmOf());
   assert.ok(slot.contains($('annunciator')) && !desk.el.contains($('annunciator')), 'in the plan bar');
-  assert.deepEqual($('annunciator').querySelectorAll('.dk-tile').map(b => b.id), TILES.map(t => 'tile-' + t.id), '12 tiles in TILES order: 6 × 2');
+  assert.deepEqual($('annunciator').querySelectorAll('.dk-tile').map(b => b.id), TILES.map(t => 'tile-' + t.id), '8 tiles in TILES order: 4 × 2');
   assert.deepEqual($('annunciator').children.map(c => c.id || c.className), ['dk-tiles', 'dk-annun-side', 'btn-explain'], 'tiles, ACK over HORN OFF, EXPLAIN');
   assert.deepEqual($('annunciator').querySelector('.dk-annun-side').children.map(c => c.id), ['btn-ack', 'btn-silence']);
   assert.equal($('btn-silence').textContent, 'HORN OFF', 'Q-45: the face says what it does');
@@ -132,10 +137,10 @@ test('§30.4: the desk builds its annunciator into the slot (else into its colum
   desk.update(vmOf({focus: 'lever-coal'}, 1032));
   assert.ok(!$('tile-n1').classList.contains('dk-focus') && $('lever-coal').classList.contains('dk-focus'));
   // Enter on a focused tile in the slot presses it, once
-  $('tile-peak').focus();
+  $('tile-agcLimit').focus();
   m.uis.length = 0;
-  assert.equal(desk.key({type: 'keydown', key: 'Enter', target: $('tile-peak')}), true);
-  assert.deepEqual(m.uis, [{do: 'alarmsPick', id: 'peak'}, {do: 'focus', target: 'gauge-n1'}]);
+  assert.equal(desk.key({type: 'keydown', key: 'Enter', target: $('tile-agcLimit')}), true);
+  assert.deepEqual(m.uis, [{do: 'alarmsPick', id: 'agcLimit'}, {do: 'focus', target: 'bar-imbalance'}]);
   // the desk's scale and reduced motion
   root.clientWidth = 1920; root.clientHeight = 520;
   desk.update(vmOf({settings: {reducedMotion: true}}, 1048));
@@ -161,29 +166,31 @@ test('Q-46: a tile press: closed, the pick, the focus jump and a note ending "Pr
   assert.equal(noteOf($), '');
   // a different tile, or the same one once its note has gone (6 s), is a first press again
   uis.length = 0;
-  $('tile-peak').click();
+  $('tile-storageLow').click();
   assert.deepEqual(uis.map(u => u.do), ['alarmsPick', 'focus']);
-  assert.match(noteOf($), /^PEAK: .* Not in alarm now\. Press again to explain \(W\)\.$/);
+  assert.match(noteOf($), /^LOW STORAGE: .* Not in alarm now\. Press again to explain \(W\)\.$/);
   desk.update(vmOf({}, 7100));
   assert.equal(noteOf($), '', 'the note aged out');
   uis.length = 0;
-  $('tile-peak').click();
+  $('tile-storageLow').click();
   assert.deepEqual(uis.map(u => u.do), ['alarmsPick', 'focus']);
   // an ACK note in between: the next tile press is a first press
   $('btn-silence').click();
   uis.length = 0;
-  $('tile-peak').click();
+  $('tile-storageLow').click();
   assert.deepEqual(uis.map(u => u.do), ['alarmsPick', 'focus']);
   // the panel open: select only (no focus jump, no note); the tiles say Enter explains
-  desk.update(vmOf({alarmsOpen: true, alarmsSel: 'peak'}, 15000));
+  desk.update(vmOf({alarmsOpen: true, alarmsSel: 'storageLow'}, 15000));
   uis.length = 0;
   $('tile-ufls').click();
   $('tile-ufls').click();
   assert.deepEqual(uis, [{do: 'alarmsSel', id: 'ufls'}, {do: 'alarmsSel', id: 'ufls'}]);
   assert.equal(noteOf($), '');
-  assert.match($('tile-ufls').getAttribute('aria-label'), /^UFLS OPERATED: normal, P1\. Enter: explain it\.$/);
+  assert.match($('tile-ufls').getAttribute('aria-label'), /^RELAYS SHED: normal, P1\. Enter: explain it\.$/);
   desk.update(vmOf({}, 15016));
-  assert.match($('tile-n1').getAttribute('aria-label'), /^N-1 INSECURE: ALARM, not acknowledged, P2\. Enter: go to its control\.$/);
+  assert.match($('tile-n1').getAttribute('aria-label'), /^LIGHTS AT RISK: ALARM, not acknowledged, P2\. Enter: go to its control\.$/);
+  // W7 Q3: every tile's note says what it means and the action it asks for (a verb the desk answers)
+  for (const t of TILES) assert.match(TILE_HELP[t.id], new RegExp('^' + t.label + ': .*\\b(start|raise|replace|restore|charge|discharge|stop)\\b', 'i'), t.id);
 });
 
 test('Q-46: EXPLAIN (W): its attributes, the press, pressed while open, lit while a tile is in alarm until the panel has been opened that day', () => {
@@ -232,37 +239,37 @@ test('Q-45 / Q-46 on the page: the slot holds the annunciator; EXPLAIN holds the
   assert.equal(p.doc.activeElement.id, 'btn-explain');
   // a tile, closed: its control, its note (blue, on the annunciator), W's pick
   r = p.press('tile-n1');
-  assert.match(r.during, /^NOTE blue annunciator: N-1 INSECURE: .* Press again to explain \(W\)\.$/m);
+  assert.match(r.during, /^NOTE blue annunciator: LIGHTS AT RISK: .* Not in alarm now\. Press again to explain \(W\)\.$/m, 'a TIGHT dawn: dark (W7 Q3)');
   assert.equal(p.vm().focus, 'gauge-n1');
   assert.equal(p.game.ui.alarmsPick.id, 'n1');
   assert.equal(p.mode(), 'CRUISE');
   // again while its note shows: the panel at that tile, the note gone
   r = p.press('tile-n1');
-  assert.match(r.during, /^ALARMS open: N-1 INSECURE · /m);
+  assert.match(r.during, /^ALARMS open: LIGHTS AT RISK · /m);
   assert.doesNotMatch(r.during, /^NOTE /m);
   assert.equal(p.mode(), 'ALARMS');
   // open: a tile selects, nothing else (no focus jump, no note, the clock still held)
   const tick = p.game.state.tick;
   r = p.press('tile-ufls');
-  assert.match(r.after, /^ALARMS open: UFLS OPERATED · /m);
+  assert.match(r.after, /^ALARMS open: RELAYS SHED · /m);
   assert.doesNotMatch(r.after, /^NOTE /m);
   assert.equal(p.doc.activeElement.id, 'tile-ufls');
   assert.equal(p.game.state.tick, tick);
   assert.match($('tile-ufls').getAttribute('aria-label'), /Enter: explain it\.$/);
   // and Enter on a focused tile selects it too (the panel stays open; vm.focus does not follow into the bar)
   const focus = p.vm().focus;
-  $('tile-peak').focus();
+  $('tile-storageLow').focus();
   p.key('Enter');
-  assert.equal(p.vm().alarmsSel, 'peak');
+  assert.equal(p.vm().alarmsSel, 'storageLow');
   assert.equal(p.mode(), 'ALARMS');
   assert.equal(p.vm().focus, focus);
   // Esc closes it (the clock runs again); closed, Enter on a focused tile is its press, and vm.focus follows a key into the bar
   p.key('Escape');
   assert.equal(p.mode(), 'CRUISE');
-  $('tile-weather').focus();
+  $('tile-linkTrip').focus();
   p.key('Enter');
-  assert.equal(p.vm().focus, 'tray');
-  assert.match(p.look(), /^NOTE blue annunciator: WEATHER: /m);
+  assert.equal(p.vm().focus, 'knob-tie');
+  assert.match(p.look(), /^NOTE blue annunciator: TIE TRIP: /m);
   $('btn-ack').focus();
   p.key('Enter');
   assert.equal(p.vm().focus, 'btn-ack');

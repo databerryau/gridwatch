@@ -156,15 +156,21 @@ test('Q-63: FAST is 3 x the profile, refused in WATCH, the cards, RESPOND, FOCUS
   assert.equal(mode(game.director, game.state), 'CRUISE', 'MSL2 rings: FAST released');
 });
 
-test('K-12, Q-78: a scope offer plays OFFER (SYNC 30×) while its unit waits at full speed, so its 4 grid-min last 8 real s; the tally (G.tallyOffer): one offer per contingency, tight and peak share one', () => {
-  const g = G.createGame({seed: 20261002, scenario: SCENARIOS.desk, storage: null});
-  G.takeDesk(g);
-  g.director.paused = false;
-  assert.equal(G.sendInput(g, {type: 'start', unit: 'gta1'}), '');
-  const u = g.state.units.find(x => x.id === 'gta1');
-  while (u.mode !== 'ready') G.tickOnce(g);
-  const vm = G.buildVm(g, {nowMs: 1000, dtS: 1 / 60});
-  const m = D.modeOf(g.director, g.state);
+test('K-12, Q-78: a scope offer plays OFFER (SYNC 30×) while its unit waits at full speed, so its 4 grid-min last 8 real s; the tally (G.tallyOffer): one offer per contingency, tight and peak share one; W7 (Q-115): HAND days only', () => {
+  // the same START at 04:30 on the same day: HAND offers it ('tight'), AGC offers nothing and its auto-synchroniser closes it
+  const day = agc => {
+    const g = G.createGame({seed: 20261002, scenario: SCENARIOS.desk, storage: null});
+    assert.equal(G.sendInput(g, {type: 'mode', agc}), '');               // (the briefing's AGC/HAND, Q-64)
+    G.takeDesk(g);
+    g.director.paused = false;
+    assert.equal(G.sendInput(g, {type: 'start', unit: 'gta1'}), '');
+    const u = g.state.units.find(x => x.id === 'gta1');
+    while (u.mode !== 'ready') G.tickOnce(g);
+    return {g, u, vm: G.buildVm(g, {nowMs: 1000, dtS: 1 / 60}), m: D.modeOf(g.director, g.state)};
+  };
+  const a = day(true);
+  assert.deepEqual([a.u.mode, a.vm.offers, a.m.mode, a.g.tally.n, a.vm.glow.has('bay-sync')], ['ready', [], 'CRUISE', 0, false], 'an AGC day: no offer, no SYNC 30×');
+  const {g, u, vm, m} = day(false);
   assert.deepEqual([vm.offers, m.mode, D.rateOf(g.director, g.state), badgeText(m)], [[{unit: 'gta1', why: 'tight'}], 'OFFER', 30, 'SYNC 30×']);
   assert.equal(V.AUTO_SYNC_S / D.OFFER_RATE, 8);
   assert.equal(G.ui(g, {do: 'fast', on: true}), 'not now', 'no FAST past an offer');
@@ -172,10 +178,10 @@ test('K-12, Q-78: a scope offer plays OFFER (SYNC 30×) while its unit waits at 
   assert.equal(mode(g.director, g.state), 'FOCUS', 'taken: the scope plays 1x');
   g.state.scope.unit = '';
   const end = g.state.tick + V.AUTO_SYNC_S * TPS;
-  while (u.mode === 'ready' && g.state.tick < end) G.tickOnce(g);
-  assert.deepEqual([u.mode, mode(g.director, g.state)], ['loading', 'CRUISE'], 'auto-sync closed it: the profile again');
+  while (g.state.tick < end) G.tickOnce(g);
+  assert.deepEqual([u.mode, mode(g.director, g.state)], ['ready', 'CRUISE'], 'HAND has no auto-synchroniser: the unit waits, the offer\'s window has passed: the profile again');
   // the rule (pure): two contingencies give two 'respond' offers; 'tight' then 'peak' one; MAX_OFFERS in all
-  const tally = {n: 0, extra: 0, contN: -1}, obs = (n, level = 'TIGHT', s = 10 * H) => ({s, inRespond: n >= 0, contingency: {n}, sec: {level}});
+  const tally = {n: 0, extra: 0, contN: -1}, obs = (n, level = 'TIGHT', s = 10 * H) => ({s, mode: 'HAND', handFlown: true, inRespond: n >= 0, contingency: {n}, sec: {level}});
   const take = o => { const why = G.offerWhy(o, tally); if (why) G.tallyOffer(tally, why, o); return why; };
   assert.deepEqual([take(obs(0)), take(obs(0)), take(obs(-1, 'SECURE', 13 * H)), take(obs(1))], ['respond', 'tight', '', 'respond']);
   assert.deepEqual([tally, take(obs(2))], [{n: 3, extra: 1, contN: 1}, '']);
