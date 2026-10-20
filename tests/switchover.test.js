@@ -65,4 +65,9 @@ test('Q-126: classic.html says what it is and links the root; its script, which 
   assert.match(banner[1], /the original GRIDWATCH \(v2\)/);
   assert.match(banner[1], /<a href="\.\/"[^>]*>databerryau\.github\.io\/gridwatch<\/a>/);
   assert.ok(html.indexOf('id="classic-banner"') < html.indexOf('<script'), 'outside the script');
+  // #app keeps min-height:100vh from the frozen styles; after the banner it must fill only what is left, or the page
+  // is the banner's height taller than the window, and Space on the start and end screens scrolls it
+  const after = html.slice(html.indexOf('</style>'), html.indexOf('id="classic-banner"'));
+  assert.match(after, /body\{display:flex;flex-direction:column;min-height:100vh\}/, 'the body is a column a window high');
+  assert.match(after, /#app\{flex:1 0 auto;min-height:0;/, '#app fills what the banner leaves');
 });
