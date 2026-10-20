@@ -43,6 +43,7 @@ node tools/daily-gen.js --check -j 8    # re-gate the shipped list under this bu
 node tools/ladder.mjs -j 6              # W6 Y-11: the ladder (did nothing, lean, competent vs par) on every daily, after daily-gen (~20 min)
 node tools/og-image.mjs                 # W6 Y-8: draw og.png, the 1200x630 link preview
 node tools/day-measure.mjs --from 2026-10-12 --days 100 -j 8  # D-10 per act, the Q-77 returning player
+node tools/coal-off.mjs --n 60 -j 4     # W7 Q10: coal off through the midday dip, against the line-follower, on the ALL-IN (~25 min loaded)
 node tools/par.js --scenario desk --seeds 1-100 -j 8 --proxy competent,slow --allin   # §32.10: the slow proxy beside competent
 node tools/d6.mjs 20261012              # D-6: one input log at 1x, with F held and with 50 pauses: one hash (~30 s)
 node tools/l2.mjs --scenario desk --seeds 1-100                 # L-2: the forecast's P10-P90 coverage at 1 h and 4 h

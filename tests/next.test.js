@@ -177,7 +177,7 @@ test('the shell boots: briefing (AGC/HAND, TAKE THE DESK), the modules mounted w
   assert.equal(h.game.state.tick, 0, 'paused behind the briefing');
   for (const name of ['map', 'desk', 'stack']) {
     const a = mods.seen[name + 'Actions'];
-    assert.deepEqual(Object.keys(a).sort(), ['input', 'previewTrip', 'redispatch', 'restorePreview', 'ui'], name);
+    assert.deepEqual(Object.keys(a).sort(), ['input', 'previewTrip', 'redispatch', 'restorePreview', 'soakCity', 'ui'], name);   // (W7 Q1: SOAK THE CITY)
     assert.ok(mods.seen[name].length >= 2, name + ' updated each frame');
   }
   assert.equal(mods.seen.stack.length, mods.seen.desk.length);

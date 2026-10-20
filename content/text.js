@@ -707,7 +707,9 @@ const ABSTRACTIONS = [
       'neighbour\'s; the end card also shows the tonnes your plants emitted.',
     why: 'Charging the tonnes emitted would make shedding and importing look clean (dark load and the neighbour\'s plants ' +
       'emit nothing here). Intensity × the energy asked for leaves a cleaner mix the only way down: shedding barely moves ' +
-      'it, and importing lowers it only through the mix you run.',
+      'it, and importing lowers it only through the mix you run. At ' + usd(V.VER) + ' a tonne coal and the CCGT cost about the ' +
+      'same, so carbon seldom flips a choice: taking coal off through noon saves its tonnes but buys gas for the evening, ' +
+      'and almost never pays. The line\'s STOP savings count the tonnes too.',
     params: ['VER'],
   },
   {
