@@ -238,11 +238,13 @@ function latestNews(obs, kind) {
 /**
  * Grid second at which unit u (observe row, index i) is (or will be) 'on', or -1 if it is not coming (W7 Q6: sim/onat.js onInS).
  * Not `scoped`: par never takes the synchroscope, and the system's dispatch keeps the auto-synchroniser's wait for a unit the
- * player has on it (the executor and the line count the player's close as now). In HAND a starting unit has no auto-sync wait,
- * as the executor counts it (it had one here before W7: only the system's dispatch on a HAND day read that).
+ * player has on it (the executor and the line count the player's close as now). Its own rule for a STARTING unit: counted as
+ * AGC counts it, the auto-synchroniser's wait included, in HAND too (the executor and the line count none there). Only the
+ * system's dispatch on a HAND day reads that; counting HAND's way would move every HAND day where the player starts a unit, and
+ * a HAND shift saved (F-7) by an older build of this SIM_VERSION would fail its replay (W7 Q6 review; tests/hand-guard.test.js).
  */
 function onFromNow(u, i, now, auto) {
-  const d = onInS(u, M[i], auto ? 'AGC' : 'HAND', false);
+  const d = onInS(u, M[i], auto || u.mode === 'starting' ? 'AGC' : 'HAND', false);
   return d < 0 ? -1 : now + d;
 }
 
@@ -1072,7 +1074,7 @@ function situation(obs, memo) {
   if (PROXIES[memo.proxy].stops) {
     for (const e of obs.plan.stops) {
       const i = V.MACHINE_IDS.indexOf(e.unit);
-      if (committedMode(obs.units[i].mode) && stopRuns(obs.units[i], i, e.atS - now, obs.mode)) offS[i] = Math.min(offS[i], e.atS);
+      if (committedMode(obs.units[i].mode) && stopRuns(obs.units[i], i, e.atS - now)) offS[i] = Math.min(offS[i], e.atS);
     }
   }
   // Net demand the fleet must cover in forecast column k: P50 - wind - solar - the tie's planned import.
@@ -1090,11 +1092,12 @@ function situation(obs, memo) {
 /**
  * Does a STOP booked `wait` s ahead run on committed unit i (an observe row)? The executor drops one
  * fleet.stopBlock refuses: inside the minimum up time from the breaker's close (a start not yet
- * synchronised by then is aborted). mode: obs.mode.
+ * synchronised by then is aborted).
  */
-function stopRuns(u, i, wait, mode) {
+function stopRuns(u, i, wait) {
   if (u.mode === 'on' || u.mode === 'loading') return u.upForS + wait >= M[i].minUpS;
-  const syncIn = onInS(u, M[i], mode) - M[i].t2S; // the breaker's close (sim/onat.js: T1 left and the auto-sync's wait, AGC only)
+  // the breaker's close as AGC counts it (sim/onat.js: T1 left, the auto-sync's wait), in HAND too: onFromNow's own rule
+  const syncIn = onInS(u, M[i], 'AGC') - M[i].t2S;
   return wait < syncIn || wait - syncIn >= M[i].minUpS;
 }
 

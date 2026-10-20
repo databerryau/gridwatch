@@ -2016,7 +2016,7 @@ Its contract is the header of `sim/dark.js` (moved back into the file in W1, X-4
 
 One answer to "when is this unit on" (`onInS`, `startFromS`, `startToMinS`, `syncWaitS`), read by
 the executor, `observe()`, par, the line and the Live Stack. Its contract, its readers and the
-three copies that keep rules of their own are the header of `sim/onat.js`.
+four copies that keep rules of their own are the header of `sim/onat.js`.
 
 ### dayplan.js (2c; desk/README.md §32.6.1, Q-65)
 
