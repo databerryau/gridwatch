@@ -149,7 +149,7 @@ export function createGauge(ctx, parent) {
         setAttr(cov.row, 'title', title);
         setStyle(cov.fill, 'width', (clamp(full, 0, 1) * 100).toFixed(1) + '%');
       }
-      const lv = n1Word(held, v.obs, nowMs), shedLine = lv === 'TRIP SHEDS' ? shedsLine(v.obs) : '';
+      const lv = n1Word(held, v.obs, nowMs), shedLine = lv === 'TRIP SHEDS' ? shedsLine(v.obs, v.sheds) : '';   // (v.sheds: the sim's own relays)
       setText(word, (LEVEL_GLYPH[lv] || '') + ' ' + lv);
       setAttr(word, 'class', 'dk-level lv-' + lv.replace(' ', '-'));
       const scale = Math.max(1, fin(s.r5MW), fin(s.lMW) * V.SECURE_RATIO) * 1.1;

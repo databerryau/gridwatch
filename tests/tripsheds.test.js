@@ -11,14 +11,18 @@ import {makeDocument} from './lib/dom.js';
 import {baseVm} from './lib/vm-fixture.js';
 import {followDay} from './lib/follow.js';
 import {V} from '../sim/params.js';
-import {createState, observe} from '../sim/step.js';
+import {createState, observe, hashState} from '../sim/step.js';
 import {stepReal} from '../sim/clock.js';
+import * as physics from '../sim/physics.js';
+import * as fleet from '../sim/fleet.js';
+import * as G from '../app/game.js';
 import {DESK, getScenario} from '../content/scenarios.js';
 import {dailyFor} from '../content/dailies.js';
 import {tripSheds, shedDistricts, shedsLine, n1Word, SHEDS_MIN_MS} from '../desk/calc.js';
 import {createGauge, LEVEL_GLYPH} from '../desk/gauge.js';
 import {createLive, liveFrame, LIVE_GAP_MS} from '../app/shell.js';
 import * as W from '../app/watch.js';
+import {ALARM_HELP} from '../content/alarmhelp.js';
 
 const BASE = observe(createState(20261014, DESK));
 /** BASE with every district lit (04:00 has feeders under repair) and the N-1 level and preview poked in. */
@@ -56,6 +60,60 @@ test('W7 Q2: the districts it would shed: the lit ones of each stage whose thres
   // a stage that has operated is spent until all its districts are back (sim/fleet.js rearmUfls)
   Object.assign(stage(ds, 2)[0], {dark: true, shedBy: 'ufls'});
   assert.equal(shedDistricts(ds, 48.80), 1);
+});
+
+test('W7 Q2 review: by the preview\'s own relays: the first stages not spent, as many as its run operated; the sim\'s spent flags, a district dark for any reason keeping a stage spent', () => {
+  const ds = obsAt('TIGHT', 50).districts, none = new Array(V.UFLS_STAGES).fill(false);
+  // 2026-10-19 19:16 on the followed day: the cached preview says 48.75 Hz, under three thresholds, but the relays wait
+  // V.UFLS_DELAY_S and the fall overshoots the last threshold while they do: the preview's run operates two stages
+  assert.equal(shedDistricts(ds, 48.746), 6, 'the thresholds alone: one stage too many');
+  assert.equal(shedDistricts(ds, 48.746, {stages: 2, operated: none}), 4);
+  assert.equal(shedsLine(obsAt('TIGHT', 48.746), {stages: 2, operated: none}), 'would fall to 48.74 Hz: the relays would shed 4 districts');
+  // a run that shed nothing beside a cached figure under 49.0 Hz (the cached one is up to a refresh older): the figure's stages
+  assert.equal(shedDistricts(ds, 48.987, {stages: 0, operated: none}), 2);
+  // stage 1 operated; its UFLS district relit while its partner is dark for a repair: the sim keeps it spent (rearmUfls),
+  // the relays skip it, and the preview's two stages are stages 2 and 3
+  Object.assign(stage(ds, 1)[1], {dark: true, shedBy: 'task'});
+  const spent1 = none.slice(); spent1[0] = true;
+  assert.equal(shedDistricts(ds, 48.987), 1, 'obs alone cannot tell: it counts the lit one');
+  assert.equal(shedDistricts(ds, 48.987, {stages: 0, operated: spent1}), 0, 'with the sim\'s flags: none');
+  assert.equal(shedDistricts(ds, 48.6, {stages: 2, operated: spent1}), 4);
+  assert.equal(shedsLine(obsAt('TIGHT', 48.987), {stages: 0, operated: spent1}), 'would fall to 48.98 Hz: below the relays, with none left to shed');
+});
+
+test('W7 Q2 review: the gauge, the RESPOND card and LIGHTS AT RISK\'s NOW all count by vm.sheds when the page has it', () => {
+  const none = new Array(V.UFLS_STAGES).fill(false), sheds = {stages: 2, operated: none}, o = obsAt('TIGHT', 48.746);
+  const doc = makeDocument(), g = createGauge({doc, note() {}, cue() {}, ui() {}}, doc.body);
+  g.update(baseVm(o, {sheds, frame: {nowMs: 1000, dtS: 1 / 60, alpha: 0}}), null);
+  assert.equal(g.el.querySelector('.dk-sheds').textContent, '48.74 Hz: the relays would shed 4 districts');
+  assert.match(g.el.getAttribute('aria-label'), /^N-1 gauge: TRIP SHEDS: would fall to 48\.74 Hz: the relays would shed 4 districts\./);
+  const c = {n: 1, lostMW: 600, extremeHz: 49.41, startTick: 0, secureByTick: V.SECURE_AGAIN_S * V.TICKS_PER_S,
+    caught: {inertiaMW: 0, batteryMW: 120, guardMW: 0, governorsMW: 300, loadReliefMW: 20, uflsMW: 0, inverterMW: 0}};
+  o.tick = V.WATCH_S * V.TICKS_PER_S;
+  assert.match(W.respondCard(o, c, {sheds}).lines[2], /Frequency would fall to 48\.74 Hz: the relays would shed 4 districts\.$/);
+  assert.match(ALARM_HELP.n1.reading(o, {id: 'n1'}, {sheds}), /^TRIP SHEDS: would fall to 48\.74 Hz: the relays would shed 4 districts · /);
+  assert.match(ALARM_HELP.n1.reading(o, {id: 'n1'}), /shed 6 districts/, 'without the page\'s vm: the thresholds');
+});
+
+test('W7 Q2 review: G.shedsOf reads the sim\'s own relays on a real TRIP SHEDS (2026-10-14, 05:30, no input): the preview\'s run of the same risk, and state.ufls.operated', () => {
+  const d = dailyFor(20261014);
+  const {st} = followDay(d.seed, getScenario(d.scenarioId), {follow: false, untilH: 5.5});
+  const game = {state: st, previewS: -1, previewCache: new Map()}, obs = observe(st), h0 = hashState(st);
+  assert.ok(tripSheds(obs.sec), 'TRIP SHEDS here: ' + obs.sec.level + ' ' + obs.sec.previewNadirHz);
+  const risk = obs.sec.lKind === 'link' ? {kind: 'link', id: 'tie'} : {kind: 'unit', id: obs.sec.lId};
+  const sh = G.shedsOf(game, obs);
+  assert.deepEqual(sh, {stages: physics.previewTrip(st, risk).uflsStages, operated: st.ufls.operated.slice()});
+  assert.equal(hashState(st), h0, 'presentation only: the state is as it was');
+  assert.equal(G.shedsOf(game, obsAt('TIGHT', 49.3)), null, 'nothing to run without TRIP SHEDS');
+  // the finding's state, made here: stage 1 operated, one of its districts relit and the other dark for a repair
+  const ds = st.city.districts, k1 = ds.map((x, i) => i).filter(i => ds[i].uflsStage === 1);
+  for (const i of k1) if (ds[i].dark) fleet.setDistrictDark(st, i, false, null);
+  fleet.setDistrictDark(st, k1[1], true, 'task');
+  st.ufls.operated[0] = true;
+  const o2 = observe(st), sh2 = G.shedsOf({state: st, previewS: -1, previewCache: new Map()}, o2);
+  assert.equal(sh2.operated[0], true);
+  assert.equal(shedsLine(o2), 'would fall to ' + (Math.floor(o2.sec.previewNadirHz * 100) / 100).toFixed(2) + ' Hz: the relays would shed 1 district', 'obs alone');
+  assert.match(shedsLine(o2, sh2), / Hz: below the relays, with none left to shed$/, 'by the sim: stage 1 is spent and 48.875 Hz is not reached');
 });
 
 test('W7 Q2: what it would cost, in words: "would", rounded down below 49.0 Hz; a held word over a preview back above the relays says so', () => {

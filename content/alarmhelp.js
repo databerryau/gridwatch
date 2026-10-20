@@ -15,8 +15,8 @@ const LOR = 'AEMO\'s reserve levels: LOR1 is reserve below the two largest risks
 const BAND = hz(V.NORMAL_LO_HZ) + '–' + hz(V.NORMAL_HI_HZ) + ' Hz';
 const esc = (w, x) => '; ' + w + ' ' + hz(x) + ' Hz it escalates to P1, the horn.';
 const fNow = o => hz3(o.f.hz) + ' Hz' + (o.fos.outsideS > 0 ? ' · ' + mmss(o.fos.outsideS) + ' outside ' + BAND : '');
-// the gauge's word (W7 Q2: TRIP SHEDS with what it would cost), then the spare against the risk
-const atRisk = o => (tripSheds(o.sec) ? 'TRIP SHEDS: ' + shedsLine(o) : 'N-1 ' + o.sec.level) + ' · spare ' + mw(o.sec.r5MW) + ' vs ' +
+// the gauge's word (W7 Q2: TRIP SHEDS with what it would cost, by the sim's own relays: vm.sheds), then the spare against the risk
+const atRisk = (o, t, v) => (tripSheds(o.sec) ? 'TRIP SHEDS: ' + shedsLine(o, v && v.sheds) : 'N-1 ' + o.sec.level) + ' · spare ' + mw(o.sec.r5MW) + ' vs ' +
   mw(o.sec.lMW) + ' MW · biggest risk ' + unitLabel(o.sec.lId);
 
 export const ALARM_HELP = {

@@ -15,6 +15,7 @@ import {ALARM_HELP} from '../content/alarmhelp.js';
 import {READOUT, controlName, planTarget, panelOrder, realText} from '../app/alarmpanel.js';
 import {openGame} from './lib/play.js';
 import {injectTrip} from './lib/sim-helpers.js';
+import * as physics from '../sim/physics.js';
 
 const TPS = V.TICKS_PER_S;
 const read = rel => readFileSync(new URL(rel, import.meta.url), 'utf8');
@@ -126,6 +127,9 @@ test('Q-46: with the panel open its tiles select and keep the focus in it; arrow
   // W7 Q2 on the real page: the gauge's word, red, and what the next trip would cost; the tile lit for it
   assert.match(p.look(), /^N-1 ▼ TRIP SHEDS SPARE IN 5 MIN .* ✕ (48\.\d\d) Hz · U \1 L \1 \1 Hz: the relays would shed 2 districts$/m);
   assert.equal(p.game.alarms.tiles.n1.cond, true);
+  // W7 Q2 review: the count is by the sim's own relays: vm.sheds, a TRIP PREVIEW of the risk the cached one names, and the spent stages
+  const v0 = p.vm(), sec0 = v0.obs.sec, risk = sec0.lKind === 'link' ? {kind: 'link', id: 'tie'} : {kind: 'unit', id: sec0.lId};
+  assert.deepEqual(v0.sheds, {stages: physics.previewTrip(p.game.state, risk).uflsStages, operated: p.game.state.ufls.operated.slice()});
   p.key('w');
   const box = p.$('alarm-panel'), inBox = () => box.contains(p.doc.activeElement);
   const order = () => p.$('alarm-panel').querySelector('.ap-board').children.map(b => b.id.slice(3));

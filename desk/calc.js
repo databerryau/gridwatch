@@ -267,21 +267,32 @@ export function n1Word(mem, obs, nowMs) {
 }
 
 /**
- * The districts the relays would shed if frequency fell to nadirHz: the lit districts of every
- * UFLS stage whose threshold (V.UFLS_FIRST_HZ, then V.UFLS_STEP_HZ apart) is above it. A stage
- * that has operated is spent until all its districts are back (sim/fleet.js rearmUfls), so a
- * stage with a district dark for UFLS counts none. An estimate: the preview's nadir is the
- * fall with the relays acting, and a relay needs V.UFLS_DELAY_S below its threshold to trip.
+ * The districts the relays would shed: the lit districts of the UFLS stages that would operate.
+ * A stage that has operated is spent until every one of its districts is lit again (sim/fleet.js
+ * rearmUfls: one dark for any reason keeps it spent), and the relays skip it (sim/physics.js).
+ * o.operated: the sim's own flags (state.ufls.operated, from app/game.js shedsOf); without them a
+ * stage with a district dark for UFLS is spent, which is all obs can tell (a stage whose UFLS
+ * district was relit while its partner is dark for a repair stays spent in the sim).
+ * o.stages (W7 Q2 review): how many stages a TRIP PREVIEW's own run operated (physics.previewTrip
+ * uflsStages): then the first that many stages not spent, as frequency reaches them in order.
+ * Without it, or 0 (a run that shed nothing beside a cached figure below 49.0 Hz, which is up to a
+ * refresh older), every stage not spent whose threshold (V.UFLS_FIRST_HZ, then V.UFLS_STEP_HZ
+ * apart) is above nadirHz. That counts a stage too many where the nadir only crosses the last
+ * threshold while the stage above waits its V.UFLS_DELAY_S (2026-10-19 19:16 followed: 48.75 Hz is
+ * under three thresholds; the preview's run operates two).
  * @param {Array} districts obs.districts
  * @param {number} nadirHz
+ * @param {{stages?:number, operated?:boolean[]}} [o]
  * @returns {number}
  */
-export function shedDistricts(districts, nadirHz) {
-  let n = 0;
+export function shedDistricts(districts, nadirHz, o = {}) {
+  const runs = fin(o.stages) > 0 ? o.stages : 0, hz = fin(nadirHz, V.F0_HZ);
+  let n = 0, left = runs;
   for (let k = 0; k < V.UFLS_STAGES; k++) {
-    if (!(fin(nadirHz, V.F0_HZ) < V.UFLS_FIRST_HZ - k * V.UFLS_STEP_HZ)) break;
+    if (runs ? left <= 0 : !(hz < V.UFLS_FIRST_HZ - k * V.UFLS_STEP_HZ)) break;
     const stage = (districts || []).filter(d => d.uflsStage === k + 1);
-    if (stage.some(d => d.dark && d.shedBy === 'ufls')) continue;
+    if (o.operated ? o.operated[k] : stage.some(d => d.dark && d.shedBy === 'ufls')) continue;
+    left--;
     n += stage.filter(d => !d.dark).length;
   }
   return n;
@@ -291,13 +302,15 @@ export function shedDistricts(districts, nadirHz) {
  * What TRIP SHEDS would cost, from the sim's preview (obs.sec.previewNadirHz) and the districts:
  * 'would fall to 48.99 Hz: the relays would shed 2 districts'. Below 49.0 Hz the figure is rounded
  * down (as the gauge's preview figure), so it never reads as the threshold itself. A word still
- * held (n1Word) over a preview back at or above 49.0 Hz says so: 'above the relays now'.
+ * held (n1Word) over a preview back at or above 49.0 Hz says so: 'above the relays now'. sheds:
+ * the sim's own relays (vm.sheds, app/game.js shedsOf: {stages, operated}; see shedDistricts).
  * @param {{sec:object, districts:Array}} obs
+ * @param {{stages:number, operated:boolean[]}|null} [sheds]
  */
-export function shedsLine(obs) {
+export function shedsLine(obs, sheds) {
   const hz = fin(obs.sec.previewNadirHz, V.F0_HZ), at = x => 'would fall to ' + x.toFixed(2) + ' Hz: ';
   if (!(hz < V.UFLS_FIRST_HZ)) return at(hz) + 'above the relays now';
-  const n = shedDistricts(obs.districts, hz);
+  const n = shedDistricts(obs.districts, hz, sheds || {});
   return at(Math.floor(hz * 100) / 100) + (n ? 'the relays would shed ' + n + ' district' + (n > 1 ? 's' : '') : 'below the relays, with none left to shed');
 }
 

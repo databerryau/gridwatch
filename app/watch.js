@@ -207,7 +207,8 @@ const mmss = s => { const t = Math.max(0, Math.round(s)); return Math.floor(t / 
  * The K-16 respond card.
  * @param {object} obs observe() at the card (the watch's end)
  * @param {object} c the contingency record (obs.contingency)
- * @param {{glow?:Set<string>|string[], nightGuard?:boolean}} [o] nightGuard: the GUARD is still the night shift's (D-29)
+ * @param {{glow?:Set<string>|string[], nightGuard?:boolean, sheds?:object}} [o] nightGuard: the GUARD is still the night shift's
+ *   (D-29); sheds: what TRIP SHEDS would cost by the sim's own relays (app/game.js shedsOf, W7 Q2 review)
  * The "Caught by" line names each source with the MW it caught as a magnitude, in the words of the
  * event's sign: after a loss of supply the battery and the governors gave N MW; after a loss of
  * load the battery took N MW and the governors backed off N MW. The inverters (Phase 2a, C-7) are
@@ -256,7 +257,7 @@ export function respondCard(obs, c, o) {
   if (sec.level === 'SECURE') problem = 'N-1 SECURE: the fleet can take the next trip.';
   else if (sec.level === 'SHEDDING') problem = 'SHEDDING: ' + ds + ': relight ' + (n > 1 ? 'them' : 'it') + (short > 0 ? ' and cover ' + mw(short) + ' MW' : '') + ' within ' + mmss(secureInS) + '.';
   else if (sec.level === 'SHORT' || short > 0) problem = 'N-1 SHORT: ' + mw(short) + ' MW short: cover it within ' + mmss(secureInS) + '.';
-  else if (tripSheds(sec)) problem = 'N-1 TRIP SHEDS: enough spare, but too slow to catch the next trip. Frequency ' + shedsLine(obs) + '.';   // (W7 Q2)
+  else if (tripSheds(sec)) problem = 'N-1 TRIP SHEDS: enough spare, but too slow to catch the next trip. Frequency ' + shedsLine(obs, o && o.sheds) + '.';   // (W7 Q2; o.sheds: app/game.js shedsOf)
   else problem = 'N-1 TIGHT: spare covers the next trip, without SECURE\'s margin.';
   if (n && sec.level !== 'SHEDDING') problem += ' ' + ds + '.';
   const glow = new Set(o && o.glow ? o.glow : []);
