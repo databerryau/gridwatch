@@ -142,12 +142,13 @@ anything differs it writes nothing, prints each date and field that differs (and
 state hashes moved), and prints the full regeneration: `tools/daily-gen.js`, then `tools/ladder.mjs`,
 then `tools/selftest-gen.mjs`. Not checked: the attempts before a listed one (a regeneration may pick
 an earlier attempt that now passes; the listed one still passes D-9), the scripted players off the
-sample, daily-gen's D-10 and Hard-day pool, and the classic golden. Measured once (2026-10-20, the
-owner's laptop with other work running): 446 dailies, the players on 62, the 5 selftest cases and the
-check on 11 workers in 577 s (at this build: MATCH, nothing written) and 701 s (SIM_VERSION bumped:
-MATCH, restamped). CI runs `--check` on pushes that
-touch sim/, the scenarios, the dailies' files or app/system.js, in a workflow of its own, so the
-test job is not slowed.
+sample, daily-gen's D-10 and Hard-day pool, and the classic golden. Measured (2026-10-20, the owner's
+laptop with other agents' tests running): 446 dailies, the players on 62, the 5 selftest cases and the
+check on 11 workers in 577 s (v4-core-2d.0 before W7 Q6: MATCH, nothing written), 701 s (with Q6 and
+SIM_VERSION bumped by hand: MATCH, restamped; put back) and 722 s (bumped, and one stored par total
+changed by $1: refused, the date and field named, nothing written; put back). CI runs `--check` on
+pushes that touch sim/, the scenarios, the dailies' files, app/system.js or app/score.js, in a
+workflow of its own, so the test job is not slowed.
 
 ## Play the real page, fast (`play.mjs`)
 
