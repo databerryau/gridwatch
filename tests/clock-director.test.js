@@ -169,10 +169,7 @@ test('K-12, Q-78: a scope offer plays OFFER (SYNC 30×) while its unit waits at 
     return {g, u, vm: G.buildVm(g, {nowMs: 1000, dtS: 1 / 60}), m: D.modeOf(g.director, g.state)};
   };
   const a = day(true);
-  assert.deepEqual([a.vm.offers, a.m.mode, a.g.tally.n, a.vm.glow.has('bay-sync')], [[], 'CRUISE', 0, false], 'an AGC day: no offer, no SYNC 30×');
-  const endA = a.g.state.tick + V.AUTO_SYNC_S * TPS;
-  while (a.u.mode === 'ready' && a.g.state.tick < endA) { G.tickOnce(a.g); assert.notEqual(mode(a.g.director, a.g.state), 'OFFER'); }
-  assert.equal(a.u.mode, 'loading', 'the auto-synchroniser closed it');
+  assert.deepEqual([a.u.mode, a.vm.offers, a.m.mode, a.g.tally.n, a.vm.glow.has('bay-sync')], ['ready', [], 'CRUISE', 0, false], 'an AGC day: no offer, no SYNC 30×');
   const {g, u, vm, m} = day(false);
   assert.deepEqual([vm.offers, m.mode, D.rateOf(g.director, g.state), badgeText(m)], [[{unit: 'gta1', why: 'tight'}], 'OFFER', 30, 'SYNC 30×']);
   assert.equal(V.AUTO_SYNC_S / D.OFFER_RATE, 8);
@@ -184,7 +181,7 @@ test('K-12, Q-78: a scope offer plays OFFER (SYNC 30×) while its unit waits at 
   while (g.state.tick < end) G.tickOnce(g);
   assert.deepEqual([u.mode, mode(g.director, g.state)], ['ready', 'CRUISE'], 'HAND has no auto-synchroniser: the unit waits, the offer\'s window has passed: the profile again');
   // the rule (pure): two contingencies give two 'respond' offers; 'tight' then 'peak' one; MAX_OFFERS in all
-  const tally = {n: 0, extra: 0, contN: -1}, obs = (n, level = 'TIGHT', s = 10 * H) => ({s, inRespond: n >= 0, contingency: {n}, sec: {level}});
+  const tally = {n: 0, extra: 0, contN: -1}, obs = (n, level = 'TIGHT', s = 10 * H) => ({s, mode: 'HAND', handFlown: true, inRespond: n >= 0, contingency: {n}, sec: {level}});
   const take = o => { const why = G.offerWhy(o, tally); if (why) G.tallyOffer(tally, why, o); return why; };
   assert.deepEqual([take(obs(0)), take(obs(0)), take(obs(-1, 'SECURE', 13 * H)), take(obs(1))], ['respond', 'tight', '', 'respond']);
   assert.deepEqual([tally, take(obs(2))], [{n: 3, extra: 1, contN: 1}, '']);
