@@ -4,7 +4,8 @@
 // machines, tie, air-con and a GUARD par let go, the most MW first; the thinnest margin only when par's spare was more; a
 // rise, a par that did not finish, and a minute where nothing differs say nothing. Then the twin (one replay, a preview per
 // GUARD, one more on the kept state at once), par's minute record against the sim's own states, and one sampled play: a
-// real trip with your GUARD at 0 against par's 300 MW, and with yours at 100 (SAVE IMAGE still waits for the twin).
+// real trip with your GUARD at 0 against par's 300 MW, and with yours at 100 (SAVE IMAGE still waits for the twin), par
+// finished before the day's end or (the page's usual order) after it: the twin made then, or the one made asked then.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import * as VD from '../app/verdict.js';
@@ -187,8 +188,9 @@ test('Q-119: par keeps what it had a minute each, as the sim\'s own states say, 
   assert.deepEqual([k.done, k.had, k.trips, k.blocks, parHad(k, 0)], [true, [], null, null, null]);
 });
 
-// One sampled play: a trip just after the desk is taken, the day's end, a par that had GUARD (and a machine) at that minute
-function play(guard, parGuard, extra = 0) {
+// One sampled play: a trip just after the desk is taken, the day's end, a par that had GUARD (and a machine) at that minute.
+// late: par is still running at the day's end (the page's usual order); finish(p) then finishes it, a frame later.
+function play(guard, parGuard, extra = 0, late = false) {
   const p = openGame({seed: 20261007, par: {}}), st = p.game.state;
   if (guard) p.send({type: 'guard', mw: guard});
   injectTrip(st, 30 * 60 + 90);
@@ -200,16 +202,21 @@ function play(guard, parGuard, extra = 0) {
   // par: you, but with parGuard (and the machines in extra) at every minute; its trip yours
   const mem = p.game.verdict, n = V.DAY_S / MIN, par = p.game.par, c = st.conts[0], minutes = [], had = [];
   for (let k = 0; k < n; k++) { minutes.push(49.99, 50.01, 2000); had.push(parGuard, (mem.on[k] >= 0 ? mem.on[k] : 0) | extra, Math.round(mem.tie[k] || 0)); }
-  Object.assign(par, {score: JSON.parse(JSON.stringify(st.score)), minutes, had, trips: [{tick: c.startTick, cause: c.cause, id: c.id, mw: Math.round(c.lostMW)}], blocks: []});
+  Object.assign(par, {score: JSON.parse(JSON.stringify(st.score)), minutes, had, trips: [{tick: c.startTick, cause: c.cause, id: c.id, mw: Math.round(c.lostMW)}], blocks: [],
+    done: !late});
   p.frames(1);
   return p;
 }
+const finish = p => { p.game.par.done = true; p.frames(1); };
 const momentText = p => p.$('end-moment').children.filter(x => x.tagName === 'P').map(x => x.textContent);
 
-test('Q-119 on the page: your GUARD at 0, par\'s at 300 MW: par\'s GUARD on your trip computes after the day, then is said; SAVE IMAGE does not wait for it', () => {
-  const p = play(0, 300), g = p.game, mem = g.verdict, k = VD.diffMinute(g.end.verdict.moment);
+test('Q-119 on the page: your GUARD at 0, par\'s at 300 MW, par finishing after the day: the twin is made then, computes, then is said; SAVE IMAGE does not wait for it', () => {
+  const p = play(0, 300, 0, true), g = p.game;
+  assert.ok(g.end.verdict && !g.twin && !momentText(p).some(l => /^Par/.test(l)), 'par still running at the day\'s end: no twin, nothing of par\'s');
+  finish(p);
+  const mem = g.verdict, k = VD.diffMinute(g.end.verdict.moment);
   assert.deepEqual([mem.guard[k], mem.on[k] > 0, Number.isFinite(mem.tie[k])], [0, true, true], 'your minute recorded: ' + [mem.guard[k], mem.on[k], mem.tie[k]]);
-  assert.ok(g.twin && !g.twin.done && g.twin.tried(300) === null && g.twin.tried(0) === undefined, 'a twin for par\'s GUARD only');
+  assert.ok(g.twin && !g.twin.done && g.twin.tried(300) === null && g.twin.tried(0) === undefined, 'a twin for par\'s GUARD only, made when par finished');
   assert.ok(momentText(p).includes('Par had a GUARD of 300 MW. With it on your trip: computing…'), JSON.stringify(momentText(p)));
   const b = p.$('btn-save-moment');
   assert.deepEqual([b.disabled, b.textContent], [false, 'SAVE IMAGE'], 'the picture has no par\'s GUARD: it does not wait');
@@ -235,4 +242,18 @@ test('Q-119 on the page: your GUARD at 100, par\'s at 300 and a machine more: on
   assert.ok(t.includes('Par had ' + unitLabel('gtc2') + ' running; you didn\'t.'), JSON.stringify(t));
   assert.ok(t.filter(l => /^Par(?! at)/.test(l)).length <= VD.DIFF_MAX);
   assert.deepEqual(p.h.mods.errors, []);
+});
+
+test('Q-119 on the page: your GUARD at 100, par\'s at 300, par finishing after the twin: the same twin is asked par\'s GUARD then, and says it at once', () => {
+  const p = play(100, 300, 0, true), g = p.game, twin = g.twin;
+  assert.ok(twin && twin.tried(0) === null && twin.tried(300) === undefined, 'par still running at the day\'s end: the twin for no GUARD only');
+  twin.step(Infinity);
+  p.frames(1);
+  assert.ok(momentText(p).some(l => /^With no GUARD \(100 MW held back\): \d\d\.\d\d Hz\.$/.test(l)) && !momentText(p).some(l => /^Par/.test(l)), JSON.stringify(momentText(p)));
+  finish(p);
+  const t = momentText(p), line = t.find(l => /^Par had a GUARD/.test(l)), r = twin.tried(300);
+  assert.ok(g.twin === twin && r && Number.isFinite(r.nadirHz), 'asked of the replayed twin, made at once');
+  assert.equal(line, 'Par had a GUARD of 300 MW. With it on your trip: ' + r.nadirHz.toFixed(2) + ' Hz' + (r.uflsStages ? ', and the relays would shed ' + r.uflsStages + ' stage' + (r.uflsStages > 1 ? 's' : '') : ', no relays') + '.');
+  assert.ok(r.nadirHz > g.end.verdict.moment.numbers.noGuardHz, 'par\'s GUARD on your trip holds it higher than none: ' + r.nadirHz + ' > ' + g.end.verdict.moment.numbers.noGuardHz);
+  assert.deepEqual([p.$('btn-save-moment').disabled, p.h.mods.errors], [false, []]);
 });
