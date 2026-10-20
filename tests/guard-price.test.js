@@ -42,15 +42,16 @@ test('Q4: the GUARD turned down prices both sides: the gas and carbon the freed 
     text: 'GUARD 400 → 200 MW: the battery could replace up to about $27,000 more gas and carbon by 21:00. A COAL 1 trip would then shed about 330 MW: $1.7M per 10 minutes dark.'});
   assert.ok(c.text.length <= LINE_MAX_CHARS, c.text.length);
   assert.equal(Math.round(332 * V.VCR / 6 / 1e5) / 10, 1.7, 'the VCR the score charges, for 10 minutes');
-  // nothing shed: still caught, with the nadir
+  // nothing shed: where it would bottom, and whether that is still secure (the N-1 gauge's line, 49.55 Hz)
   // (150 MW free gives 525 MWh: 175 more)
   assert.deepEqual(guardConsequence(o, 400, 350, () => ({nadirHz: 49.213, caught: {uflsMW: 0}})), {target: 'ring-guard', level: 'plan',
-    text: 'GUARD 400 → 350 MW: the battery could replace up to about $19,000 more gas and carbon by 21:00. A COAL 1 trip would still be caught above the relays, at about 49.21 Hz.'});
+    text: 'GUARD 400 → 350 MW: the battery could replace up to about $19,000 more gas and carbon by 21:00. A COAL 1 trip would bottom at about 49.21 Hz: no relays, but not secure.'});
+  assert.match(guardConsequence(o, 400, 350, () => ({nadirHz: V.SECURE_NADIR_HZ + V.PREVIEW_MARGIN_HZ, caught: {uflsMW: 0}})).text, / A COAL 1 trip would bottom at about 49\.55 Hz: still secure\.$/);
   // shedding already at 400: the more, and the tie as the largest loss
   const tie = evening(800);
   Object.assign(tie.sec, {lKind: 'link', lId: 'tie'});
   assert.match(guardConsequence(tie, 400, 200, g => ({nadirHz: 48.9, caught: {uflsMW: g >= 400 ? 120 : 332}})).text, / A tie trip would then shed about 330 MW \(120 MW now\)[:,] /);
-  assert.match(guardConsequence(tie, 400, 300, g => ({nadirHz: 48.9, caught: {uflsMW: 120}})).text, / A tie trip would shed no more, at about 48\.90 Hz\.$/);
+  assert.match(guardConsequence(tie, 400, 300, g => ({nadirHz: 48.9, caught: {uflsMW: 120}})).text, / A tie trip would bottom at about 48\.90 Hz: it sheds no more\.$/);
   // the charge runs out first either way: no energy to price
   assert.match(guardConsequence(evening(500), 400, 200, sheds(332)).text, /^GUARD 400 → 200 MW: no more energy by 21:00: the battery's charge runs out first either way\. A COAL 1 trip/);
   // before the evening: 16:30-21:00 at tonight's gas (the CCGT's offer and carbon), on the charge the battery line fills it to by 15:30
@@ -77,7 +78,7 @@ test('Q4 in the page: turning the GUARD ring down by keys says both sides under 
   p.key('ArrowDown');
   p.key('ArrowDown');
   const line = () => p.$('objective-level').textContent + ' ' + p.$('objective-text').textContent;
-  assert.match(line(), /^\? IF PRESSED GUARD 400 → 300 MW: the battery could replace up to about \$[\d,]+ more gas and carbon by 21:00\. A [A-Z]+ \d trip would (still be caught above the relays, at about 4\d\.\d\d Hz|then shed about [\d,]+ MW[:,] \$[\d.,]+M? per 10 min(utes)? dark)\.$/, line());
+  assert.match(line(), /^\? IF PRESSED GUARD 400 → 300 MW: the battery could replace up to about \$[\d,]+ more gas and carbon by 21:00\. A [A-Z]+ \d trip would (bottom at about 4\d\.\d\d Hz: (still secure|no relays, but not secure)|then shed about [\d,]+ MW[:,] \$[\d.,]+M? per 10 min(utes)? dark)\.$/, line());
   // (the clock is held: real seconds pass in a few long frames, as tests/card.test.js lets a rest pass)
   p.real(0.35, 0.35);   // (each key sent its GUARD; the reach is from 400 until its rest)
   assert.equal(p.game.state.battery.guardMW, 300);
@@ -96,6 +97,7 @@ test('Q4 in the page: turning the GUARD ring down by keys says both sides under 
   assert.equal(guardReach(g, p.now), null);
   g.objective.action.mw = 300;
   assert.equal(guardReach(g, p.now), reach);
-  assert.equal(guardReach(g, p.now + CONSIDER_REST_MS + 1), g.ui.previewGuardMW === null ? null : reach, 'rested once the ring\'s ghost is gone');
+  assert.equal(g.ui.previewGuardMW, null, 'the ring\'s ghost is gone');
+  assert.equal(guardReach(g, p.now + CONSIDER_REST_MS + 1), null, 'rested');
   assert.deepEqual(p.h.mods.errors, []);
 });

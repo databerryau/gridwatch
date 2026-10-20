@@ -1583,7 +1583,8 @@ export function consequence(obs, target, ctx = {}) {
  *     (before 15:30 the charge the battery line fills it to, as aircon() counts it). Valued as the score values gas it
  *     replaces: the marginal offer while gas sets the price (else the CCGT's, tonight's gas), plus that unit's carbon at the VER.
  *   risked: preview(mw), the TRIP PREVIEW of the largest loss at that GUARD ({nadirHz, caught: {uflsMW}}: app/game.js
- *     previewTrip): the MW the relays would shed at toMW (against fromMW's), at the VCR the score charges, per 10 minutes dark.
+ *     previewTrip): the MW the relays would shed at toMW (against fromMW's), at the VCR the score charges, per 10 minutes dark;
+ *     with none more, where it would bottom and whether that is still secure (SECURE_HZ, the N-1 gauge's line).
  * @param {object} obs observe(state)
  * @param {number} fromMW the GUARD when the turn began
  * @param {number} toMW where the ring is now
@@ -1604,7 +1605,11 @@ export function guardConsequence(obs, fromMW, toMW, preview) {
   const p1 = sec.lKind === 'none' ? null : preview(toMW), p0 = p1 ? preview(fromMW) : null;
   if (!p1 || !Number.isFinite(p1.nadirHz)) return {target: 'ring-guard', text: head, level: 'plan'};
   const who = sec.lKind === 'link' ? 'A tie trip' : 'A ' + unitName(sec.lId) + ' trip', shed = Math.max(0, p1.caught ? p1.caught.uflsMW : 0), was = Math.max(0, p0 && p0.caught ? p0.caught.uflsMW : 0);
-  if (shed < BATT_MIN_MW / 5 || shed <= was) return {target: 'ring-guard', level: 'plan', text: head + ' ' + who + ' would ' + (was >= BATT_MIN_MW / 5 ? 'shed no more' : 'still be caught above the relays') + ', at about ' + p1.nadirHz.toFixed(2) + ' Hz.'};
+  // (no more shed: where it would bottom, and whether that is still secure, the N-1 gauge's word: SECURE_HZ, as spare() reads the preview)
+  if (shed < BATT_MIN_MW / 5 || shed <= was) {
+    return {target: 'ring-guard', level: 'plan', text: head + ' ' + who + ' would bottom at about ' + p1.nadirHz.toFixed(2) + ' Hz: ' +
+      (was >= BATT_MIN_MW / 5 ? 'it sheds no more.' : p1.nadirHz >= SECURE_HZ ? 'still secure.' : 'no relays, but not secure.')};
+  }
   const cost = shed * V.VCR / 6, big = cost >= 1e6 ? '$' + (cost / 1e6).toFixed(1) + 'M' : usdText(cost);
   const tail = ' would then shed about ' + mwText(shed) + (was >= BATT_MIN_MW / 5 ? ' (' + mwText(was) + ' now)' : '');
   const fit = [head + ' ' + who + tail + ': ' + big + ' per 10 minutes dark.', head + ' ' + who + tail + ', ' + big + ' per 10 min dark.'];
