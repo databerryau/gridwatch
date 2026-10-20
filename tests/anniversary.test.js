@@ -208,7 +208,7 @@ test('D-29: the share card carries ANNIVERSARY (the lint allows it), first of th
   p.game.state.over = true;
   p.frames(2);
   const s = p.game.end.share;
-  assert.match(s.lines[0], /^GRIDWATCH #226 · Tue 25 May · \d+ [A-F]( ★)?( · PERFECT)? · ANNIVERSARY · FIRST SHIFT · PRACTICE$/);
+  assert.match(s.lines[0], /^GRIDWATCH #226 · Tue 25 May · \d+ [A-F]( ★)? [A-Z' ]+[A-Z]( · PERFECT)? · ANNIVERSARY · FIRST SHIFT · PRACTICE$/);   // (W7, Q-118: the rank)
   assert.deepEqual(SH.lintCard(s.text), []);
   assert.equal(G.anniversaryFor(G.createGame({seed: 20270525, scenario: DESK, storage: null})), null, 'the date on another scenario is no anniversary');
   assert.equal(G.anniversaryFor(G.createGame({seed: 20261016, scenario: G.scenarioForSeed, storage: null})), null);
