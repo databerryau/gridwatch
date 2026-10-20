@@ -186,8 +186,22 @@ function add(tr, c, atS) {
   const card = {id: 'card' + tr.nextId++, from: c.from, atS, text: words(c.text), button: c.button, sev: c.sev,
     untilS: Math.max(stepAfter(Math.max(atS, V.PLAYER_START_S), V.TRAY_LIFE_REAL_S), c.holdS || 0)};
   if (c.done) card.done = c.done;
+  if (c.keep) card.keep = true;
   tr.cards.push(card);
   return card;
+}
+
+/**
+ * K-9: past MAX_CARDS the oldest card from before the newest `n` goes to the LOG (`n` < 1: any), information first. W7
+ * integration review: a card marked keep (Marg's once-only lines: a first-time line, a first shift's watch line) is passed
+ * over for its life, as a warning is, and goes only when every other card is one too; before, a restore's caption or the
+ * next shed's warning sent her once-a-browser relays line to the LOG seconds after it came, already kept as said.
+ */
+function evict(tr, n) {
+  const cs = tr.cards, old = j => j < n || n < 1;
+  let i = cs.findIndex((c, j) => old(j) && c.sev === 'info' && !c.keep);
+  if (i < 0) i = cs.findIndex((c, j) => old(j) && !c.keep);
+  toLog(tr, cs.splice(Math.max(0, i), 1)[0]);
 }
 
 /**
@@ -210,7 +224,7 @@ export function trayRecords(tr, recs) {
     if (c.sev === 'warn') { cues.push('ring2'); tr.rings++; } else cues.push('tick');
   }
   // the oldest goes, information first; the n from before this call before any new
-  while (tr.cards.length > MAX_CARDS) { const n = tr.cards.length - made, i = tr.cards.findIndex((c, j) => c.sev === 'info' && (j < n || n < 1)); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
+  while (tr.cards.length > MAX_CARDS) evict(tr, tr.cards.length - made);
   if (made) tr.rev++;
   return cues;
 }
@@ -219,11 +233,12 @@ export function trayRecords(tr, recs) {
  * O-6: one of Marg's lines (app/marg.js) as an information card; its button goes to the control it is about. ['tick'], or [] at night.
  * W7 (Q-115): the game's own lines too ({text, target, atS}, from a sender, with its button's `label`): a restore's caption.
  * Over three cards, an older one goes to the LOG, information first (K-9, as trayRecords): never the new line itself, which
- * three warnings (a shed evening's) used to push straight to the LOG under its own tick.
+ * three warnings (a shed evening's) used to push straight to the LOG under its own tick. line.keep: one of Marg's once-only
+ * lines, passed over by K-9 for its life (evict).
  */
 export function trayMarg(tr, line, from, label = 'SHOW ME') {
-  if (!add(tr, {key: null, from, sev: 'info', text: line.text, button: {label, target: line.target}}, line.atS)) return [];
-  while (tr.cards.length > MAX_CARDS) { const n = tr.cards.length - 1, i = tr.cards.findIndex((c, j) => c.sev === 'info' && j < n); toLog(tr, tr.cards.splice(Math.max(0, i), 1)[0]); }
+  if (!add(tr, {key: null, from, sev: 'info', text: line.text, button: {label, target: line.target}, keep: !!line.keep}, line.atS)) return [];
+  while (tr.cards.length > MAX_CARDS) evict(tr, tr.cards.length - 1);
   tr.rev++;
   return tr.night ? [] : ['tick'];
 }

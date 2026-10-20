@@ -40,3 +40,18 @@ test('Q-124 review: a daily\'s natural first relay shed: Marg says it within a g
   assert.ok(g.tray.log.some(c => c.from === 'CITY DESK' && c.atS < S.at), 'an older shed\'s warning went to the LOG');
   assert.match(p.look({controls: false}), /^TRAY .*! CITY DESK 17:10 Relays shed .* \|\| i MARG, SUPERVISOR 17:10 The relays shed /m);
 });
+
+test('W7 integration review: the player\'s RESTORE at the relays\' card, then its caption (Q-115): her line keeps its place for its life, the city desk\'s oldest warning goes to the LOG instead', () => {
+  const p = S.p, g = p.game, mine = () => g.tray.cards.find(c => c.from === MARG_FROM && /^The relays shed /.test(c.text));
+  assert.ok(mine() && mine().keep, 'her once-only line, kept (app/tray.js evict)');
+  for (let n = 0; n < 20 && p.mode() !== 'FEEDER-CARD'; n++) p.until('card', {max: '+5m'});
+  assert.equal(p.mode(), 'FEEDER-CARD');
+  p.key('Enter');
+  assert.equal(p.mode(), 'FOCUS', 'RESTORE accepted');
+  assert.equal(p.until(({game}) => game.tray.cards.some(c => /^Cold load picked up: /.test(c.text)), {max: '+1m'}).why, 'pred');
+  const s = Math.floor(g.state.tick / TPS);
+  assert.ok(mine() && s < mine().untilS, 'her line still on the tray, inside its life (before: in the LOG 6 real s after it came)');
+  assert.deepEqual(g.tray.cards.map(c => c.sev + ' ' + c.from).slice(-2), ['info ' + MARG_FROM, 'info CITY DESK'], 'her line, then the caption');
+  assert.ok(!g.tray.log.some(c => c.from === MARG_FROM && /^The relays shed /.test(c.text)), 'not in the LOG');
+  assert.ok(g.tray.log.some(c => c.sev === 'warn' && /^District .* shed \(directed/.test(c.text)), 'the oldest warning, a directed shed\'s, went');
+});

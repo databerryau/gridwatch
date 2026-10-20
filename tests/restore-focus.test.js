@@ -107,6 +107,29 @@ test('Q-115 (review), K-9: the caption is never pushed out by its own arrival: w
   assert.deepEqual([tr2.cards.map(c => c.sev + ' ' + c.atS), tr2.log.map(c => c.atS)], [['warn 201', 'warn 203', 'info 230'], [202]]);
 });
 
+test('W7 integration review, K-9: a card kept (Marg\'s once-only lines) is passed over for its life, by a caption and by the next warning; the oldest of the others goes', () => {
+  const tr = T.createTray(), ufls = (s, stage, d) => ({tick: s * TPS, kind: 'ufls', stage, districts: d, mw: 424});
+  const caption = atS => ({text: 'Cold load picked up: 254 MW, back in band in 6 s.', target: 'dial-freq', atS});
+  T.trayRecords(tr, [{tick: 200 * TPS, kind: 'shed', district: 'RED5', why: 'directed', mw: 210}, ufls(201, 1, ['RED1', 'SAL1'])]);
+  T.trayMarg(tr, {text: 'The relays shed 2 districts on their own.', target: 'bay-restore', atS: 202, keep: true}, 'MARG, SUPERVISOR');
+  assert.deepEqual(tr.cards.map(c => c.sev + (c.keep ? ' kept' : '')), ['warn', 'warn', 'info kept']);
+  T.trayMarg(tr, caption(220), T.SENDERS.city, 'TO THE DIAL');
+  assert.deepEqual([tr.cards.map(c => c.atS), tr.log.map(c => c.atS)], [[201, 202, 220], [200]], 'the directed shed\'s warning went, not her line');
+  T.trayRecords(tr, [ufls(230, 2, ['HAR1', 'SAL2'])]);
+  assert.deepEqual([tr.cards.map(c => c.atS), tr.log.map(c => c.atS)], [[201, 202, 230], [200, 220]], 'the caption (information first), not her line');
+  T.trayRecords(tr, [ufls(240, 3, ['SOL1', 'RED2'])]);
+  assert.deepEqual(tr.cards.map(c => c.atS), [202, 230, 240], 'then the oldest warning');
+  // its life over, it goes as any card does
+  T.trayFrame(tr, tr.cards[0].untilS);
+  assert.ok(!tr.cards.some(c => c.keep) && tr.log.some(c => c.keep));
+  // without keep, K-9 as before: information first
+  const tr2 = T.createTray();
+  T.trayRecords(tr2, [ufls(201, 1, ['RED1', 'SAL1'])]);
+  T.trayMarg(tr2, {text: 'Back to the plan.', target: 'stack', atS: 202}, 'MARG, SUPERVISOR');
+  T.trayRecords(tr2, [ufls(203, 2, ['HAR1', 'SAL2']), ufls(204, 3, ['SOL1', 'RED2'])]);
+  assert.deepEqual([tr2.cards.map(c => c.atS), tr2.log.map(c => c.atS)], [[201, 203, 204], [202]]);
+});
+
 test('Q-115 on the page: an AGC morning offers nothing when a unit reaches full speed at TIGHT (a HAND day would), and START on it still opens its synchroscope', () => {
   const p = openGame({seed: 20261002}), st = p.game.state, gta1 = st.units.find(u => u.id === 'gta1');
   assert.equal(st.control.mode, 'AGC');

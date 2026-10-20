@@ -1167,7 +1167,9 @@ export function doneBefore(game) {
 export function margBeat(game, key, text, target, reserve = 0) {
   if (!game.marg) return null;
   const line = margSay(game.marg, key, text, Math.floor(game.state.tick / TPS), target, reserve);
-  if (line) for (const c of T.trayMarg(game.tray, line, MARG_FROM)) pushCue(game, c);
+  // (W7 integration review: her once-only lines, a first-time line and a first shift's watch line, are kept on the tray for
+  // their life: app/tray.js evict; a restore's caption sent the relays line to the LOG 6 real s after it came)
+  if (line) for (const c of T.trayMarg(game.tray, /^first:|^watch$/.test(key) ? Object.assign({}, line, {keep: true}) : line, MARG_FROM)) pushCue(game, c);
   return line;
 }
 // Once a frame in play: the act changes, the first watch's settle (a first shift's), the 21:00 handover. Never in a resume's
@@ -1213,7 +1215,7 @@ const shedCard = c => c.sev === 'warn' && c.from === T.SENDERS.city;
 function lessonRoom(game, k) {
   const cards = game.tray.cards;
   if (cards.length < T.MAX_CARDS) return true;
-  const out = cards.find(c => c.sev === 'info');
+  const out = cards.find(c => c.sev === 'info' && !c.keep);   // (the card K-9 would send: app/tray.js evict)
   if (out && out.from !== MARG_FROM) return true;
   return (k === 'relays' && cards.find(shedCard)) || null;
 }
