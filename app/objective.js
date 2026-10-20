@@ -189,6 +189,7 @@ import {imbalanceSegments} from '../desk/calc.js';
 import {aimFlex} from '../sim/autopilot.js';
 import {gridAfter, NIGHT_S} from '../sim/clock.js';
 import {darkShareAt, litMW} from '../sim/dark.js';
+import {onInS as unitOnInS, syncWaitS, startFromS} from '../sim/onat.js';
 
 /** The objective line and the consequence line are one line each: at most this many characters (§21.4). */
 export const LINE_MAX_CHARS = 170;
@@ -238,7 +239,7 @@ export const PICKUP_AHEAD_S = 3600;
 
 const M = V.MACHINES, LOADING = V.PLAN_MAX_LOADING, TIE_FIRM_MW = V.STATIONS.coal.ratingMW;
 const COMMIT_TRIP_MW = COMMIT_MARGIN_MW - MARGIN_MW; // the part of the commit margin that is for a trip (tripGap)
-const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN, DAY_S = V.DAY_S, AUTO = V.AUTO_SYNC_S;
+const S_PER_H = V.S_PER_H, S_PER_MIN = V.S_PER_MIN, DAY_S = V.DAY_S;
 const HYDRO_LAST = 1e6;
 const secOfH = h => (h - V.DAY_START_H) * S_PER_H;
 const HOLD_UNTIL_S = secOfH(V.PAR_WATER_HOLD_UNTIL_H), EMPTY_BY_S = secOfH(V.PAR_WATER_EMPTY_BY_H);
@@ -304,20 +305,12 @@ function heldShare(obs) {
   };
 }
 
-// The auto-synchroniser's wait: none in HAND, where the player SYNCs at full speed (X-43).
-const syncOf = obs => obs.mode === 'HAND' ? 0 : AUTO;
+// The auto-synchroniser's wait: none in HAND, where the player SYNCs at full speed (X-43; sim/onat.js).
+const syncOf = obs => syncWaitS(obs.mode);
 
-// Seconds from now until unit u (an observe row) is at minimum load, by its mode; -1: not coming.
-// In HAND a unit at full speed is SYNCed now (the line asks for it), as the plan executor counts it.
-function onInS(u, m, obs) {
-  switch (u.mode) {
-    case 'on': return 0;
-    case 'loading': return u.timerS;
-    case 'ready': return (syncOf(obs) ? u.timerS : 0) + m.t2S;
-    case 'starting': return u.timerS + syncOf(obs) + m.t2S;
-    default: return -1;
-  }
-}
+// Seconds from now until unit u (an observe row) is at minimum load, by its mode; -1: not coming (W7 Q6: sim/onat.js, the
+// executor's answer). In HAND a unit at full speed is SYNCed now (the line asks for it), and so is one on the synchroscope.
+const onInS = (u, m, obs) => unitOnInS(u, m, obs.mode, !!obs.scope && obs.scope.unit === u.id);
 
 /**
  * MW a unit on its way off still gives d grid seconds from now (H-1): down its ramp to minimum
@@ -332,6 +325,7 @@ function leavingMW(u, m, d) {
 }
 
 /**
+ * What is short ahead, THE LINE'S CHECK (W7 Q6: one of three, each for what it checks; sim/onat.js lists them):
  * Capacity against the forecast, per column: gap[k] = demand + margin - capacity (MW; > 0 is
  * short). Pure; reads obs only.
  * @param {object} obs observe(state)
@@ -460,9 +454,8 @@ function startable(obs, later = false) {
   const booked = new Set(obs.plan.starts.map(e => e.unit));
   return obs.units.filter(u => u.mode === 'off' && (u.startBlock === '' || (later && OUT_RE.test(u.startBlock))) && !booked.has(u.id)).map(u => {
     const climb = Math.max(0, u.ratingMW * (u.station === 'hydro' ? 1 : LOADING) - u.minMW) / (u.rampMWMin / S_PER_MIN);
-    const downS = u.startBlock !== '' && u.downForS >= 0 ? obs.s - u.downForS + M.find(m => m.id === u.id).minDownS : -1;
     return {unit: u.id, id: 'guard-start-' + u.id, lead: u.startToMinS, climb, plan: u.startToMinS + Math.max(0, climb - RAMP_HEAD_S),
-      offer: u.station === 'hydro' ? HYDRO_LAST : u.offer, cls: u.cls, fromS: Math.max(obs.s, u.outUntilS, downS)};
+      offer: u.station === 'hydro' ? HYDRO_LAST : u.offer, cls: u.cls, fromS: startFromS(u, M.find(m => m.id === u.id), obs.s)}; // (sim/onat.js: its return, a minimum down time under a block)
   }).sort((a, b) => a.offer - b.offer || a.lead - b.lead);
 }
 // When a start of c made as soon as it may be reaches minimum load.

@@ -13,6 +13,7 @@ import {DAILIES} from '../content/dailies.js';
 import * as G from '../app/game.js';
 import {grade} from '../app/score.js';
 import {nothingCheck, ladderText} from '../tools/ladder.mjs';
+import {restampAdvice, movedAdvice} from '../tools/verify.mjs';
 import {openGame} from './lib/play.js';
 
 const PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh: 0.56, centsPerKWh: 4}, series: []};
@@ -21,7 +22,7 @@ const days = (a, b) => Math.round((Date.UTC(Math.floor(b / 1e4), Math.floor(b / 
 const median = a => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
 
 test('Y-11: the ladder is current (the build\'s stamp) and has a row for every daily', () => {
-  assert.equal(LADDER.v, G.dailyStamp(), 'content/ladder.js is stale: run node tools/ladder.mjs -j 6 (after tools/daily-gen.js)');
+  assert.equal(LADDER.v, G.dailyStamp(), 'content/ladder.js is stale: ' + restampAdvice(DAILIES.from, DAILIES.to));
   const from = ymdOf(DAILIES.from), to = ymdOf(DAILIES.to), keys = Object.keys(LADDER.rows).map(Number).sort((a, b) => a - b);
   assert.equal(keys.length, days(from, to), 'one row a date, none missing');
   assert.deepEqual([keys[0], keys[keys.length - 1]], [from, to]);
@@ -38,7 +39,8 @@ test('Y-11: the ladder is current (the build\'s stamp) and has a row for every d
 
 test('Y-11: the first daily\'s no-input day, replayed on the page\'s path to 14:00, is the stored one (the dispatch has not moved under the stamp)', async () => {
   assert.equal(LADDER.check.ymd, ymdOf(DAILIES.from));
-  assert.deepEqual(await nothingCheck(LADDER.check.ymd), LADDER.check, 'the page\'s no-input day changed: run node tools/ladder.mjs -j 6');
+  assert.deepEqual(await nothingCheck(LADDER.check.ymd), LADDER.check,
+    movedAdvice(LADDER.v === G.dailyStamp(), 'content/ladder.js', 'the page\'s no-input day', DAILIES.from, DAILIES.to));
 });
 
 test('Y-11 (Q-108): did nothing, the better script as "a scripted shift", par and YOU in their places; none off the calendar or with a stale list', () => {

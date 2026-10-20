@@ -125,7 +125,7 @@ async function main() {
   else { writeFileSync(OUT, file); console.log('wrote content/ladder.js: ' + Object.keys(rows).length + ' dates (' + dates.length + ' made) in ' + Math.round((Date.now() - t0) / 1000) + ' s'); }
 }
 
-if (process.argv.includes('--worker')) {
+if (process.argv.includes('--worker') && fileURLToPath(import.meta.url) === process.argv[1]) { // (only as its own worker: another tool's worker imports this file too)
   process.on('message', async ymd => {
     try { process.send({ymd, row: await ladderOf(ymd)}); } catch (e) { process.send({ymd, error: String(e && e.stack || e)}); }
   });

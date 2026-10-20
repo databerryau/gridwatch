@@ -7,7 +7,8 @@
 //            a checkpoint a few grid hours in (the page replays a log in one call, which cannot pause)
 // The file carries the build stamp (app/game.js dailyStamp), like the ladder: tests/selftest.test.js fails when it is stale, and
 // plays the cases to a checkpoint against it. It prints what each log covers (its inputs and their kinds, the first relays, a
-// trip), so a re-run shows when a pick has lost its point. About 10 s; run it once per SIM_VERSION, after tools/ladder.mjs.
+// trip), so a re-run shows when a pick has lost its point. About 10 s; run it once per SIM_VERSION, after tools/ladder.mjs
+// (W7 Q15: `npm run verify` first, which restamps this file and the lists when every stored value still holds).
 //
 //   node tools/selftest-gen.mjs [--dry]   (--dry prints and writes nothing)
 import {writeFileSync} from 'node:fs';
@@ -73,19 +74,24 @@ async function main() {
     cases.push(c);
     console.log(ST.caseName(c) + ' to ' + clock(c.tick) + ': ' + said);
   }
-  const body = cases.map(c => {
-    const {log, ...rest} = c, s = JSON.stringify(rest);
-    return log ? s.slice(0, -1) + ',"log":[\n    ' + log.map(r => JSON.stringify(r)).join(',\n    ') + ']}' : s;
-  }).join(',\n  ');
-  const file = '// content/selftest.js: W6 (risk 5): the golden values next.html?selftest (app/selftest.js) checks a browser against,\n' +
-    '// measured in Node with the page\'s own runner. par: par\'s day to its end (the hash each grid hour from 05:00 and at its end,\n' +
-    '// and its ALL-IN, which is content/ladder.js\'s stored par); nothing: the page\'s no-input day to 14:00 (the ladder\'s check);\n' +
-    '// replay: a scripted player\'s input log (sim/autopilot.js fuzz) and the hash at its checkpoint. Hashes: hashState, unsigned.\n' +
-    '// Written by tools/selftest-gen.mjs; do not edit. The stamp is app/game.js dailyStamp\'s.\n' +
-    'export const SELFTEST = {v: ' + JSON.stringify(stamp) + ', cases: [\n  ' + body + ',\n]};\n';
+  const file = selftestText({v: stamp, cases});
   console.log('the cases took ' + (ms / 1000).toFixed(1) + ' s in Node (the page: about that, plus its drawing)');
   if (dry) console.log(file.slice(0, 2000));
   else { writeFileSync(OUT, file); console.log('wrote content/selftest.js: ' + cases.length + ' cases, ' + file.length + ' bytes, in ' + Math.round((Date.now() - t0) / 1000) + ' s'); }
 }
 
-main().catch(e => { console.error(e.message || e); process.exit(1); });
+/** content/selftest.js's text for {v, cases} (main writes it; W7 Q15: tools/verify.mjs restamps the shipped file through it). */
+export function selftestText(S) {
+  const body = S.cases.map(c => {
+    const {log, ...rest} = c, s = JSON.stringify(rest);
+    return log ? s.slice(0, -1) + ',"log":[\n    ' + log.map(r => JSON.stringify(r)).join(',\n    ') + ']}' : s;
+  }).join(',\n  ');
+  return '// content/selftest.js: W6 (risk 5): the golden values next.html?selftest (app/selftest.js) checks a browser against,\n' +
+    '// measured in Node with the page\'s own runner. par: par\'s day to its end (the hash each grid hour from 05:00 and at its end,\n' +
+    '// and its ALL-IN, which is content/ladder.js\'s stored par); nothing: the page\'s no-input day to 14:00 (the ladder\'s check);\n' +
+    '// replay: a scripted player\'s input log (sim/autopilot.js fuzz) and the hash at its checkpoint. Hashes: hashState, unsigned.\n' +
+    '// Written by tools/selftest-gen.mjs; do not edit. The stamp is app/game.js dailyStamp\'s.\n' +
+    'export const SELFTEST = {v: ' + JSON.stringify(S.v) + ', cases: [\n  ' + body + ',\n]};\n';
+}
+
+if (fileURLToPath(import.meta.url) === process.argv[1]) main().catch(e => { console.error(e.message || e); process.exit(1); });

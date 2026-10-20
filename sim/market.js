@@ -115,6 +115,8 @@ function fillStack(state) {
       if (m.thermal) put(u.id, RANK[i], m.cls, offer, u.availMW - m.minMW);
       else put(u.id, RANK[i], m.cls, offer, wet ? u.availMW : u.schedMW);
     } else if (mode === 'starting' || mode === 'ready') {
+      // (W7 Q6: P-5's own rule, not sim/onat.js onInS: the offer counts the auto-sync wait for a starting unit in HAND too;
+      // the same in AGC, and unifying it would move a HAND day's price)
       const toMinS = u.timerS + (mode === 'starting' ? AUTO_SYNC_S : 0) + m.t2S;
       if (toMinS <= START_WITHIN_S) put(u.id, RANK[i], m.cls, offer, u.availMW);
     } else if (mode === 'off') {

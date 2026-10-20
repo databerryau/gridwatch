@@ -13,8 +13,10 @@ import {V, SIM_VERSION} from '../sim/params.js';
 import * as G from '../app/game.js';
 import {SELFTEST} from '../content/selftest.js';
 import {LADDER} from '../content/ladder.js';
-import {dailyFor} from '../content/dailies.js';
+import {DAILIES, dailyFor} from '../content/dailies.js';
 import {showSelftest, runCases, judge, summaryLine, browserOf, caseName} from '../app/selftest.js';
+import {selftestText} from '../tools/selftest-gen.mjs';
+import {restampAdvice} from '../tools/verify.mjs';
 import {start} from '../app/start.js';
 import {makeDocument} from './lib/dom.js';
 
@@ -30,7 +32,8 @@ function win({w = 1920, h = 1080, coarse = false, search = '?selftest', clip = n
 }
 
 test('risk 5: the golden file is this build\'s; par\'s totals are the stored par; the no-input day is the ladder\'s check', () => {
-  assert.equal(SELFTEST.v, G.dailyStamp(), 'content/selftest.js is stale: run node tools/selftest-gen.mjs (after tools/ladder.mjs)');
+  assert.equal(SELFTEST.v, G.dailyStamp(), 'content/selftest.js is stale: ' + restampAdvice(DAILIES.from, DAILIES.to));
+  assert.equal(selftestText(SELFTEST), readFileSync(join(ROOT, 'content', 'selftest.js'), 'utf8'), 'tools/selftest-gen.mjs writes the file back as it reads (W7 Q15: the restamp)');
   assert.equal(kind('par').length, 2);
   assert.equal(kind('nothing').length, 1);
   assert.ok(kind('replay').length >= 1);

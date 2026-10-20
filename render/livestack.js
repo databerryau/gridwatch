@@ -370,7 +370,7 @@ export function createLiveStack(doc, root, actions) {
       for (const e of plan.starts) {
         const m = V.MACHINES.find(q => q.id === e.unit);
         if (!m) continue;
-        const onAt = Math.max(e.atS, obs.units[m.k].outUntilS ?? -1) + m.t1S + V.AUTO_SYNC_S + m.t2S;
+        const onAt = Math.max(e.atS, obs.units[m.k].outUntilS ?? -1) + PV.startToMin(m, obs); // (W7 Q6: sim/onat.js, the executor's)
         if (onAt > G.tB) continue;
         const li = layerIndex(m.station), c = colOf(Math.max(s, onAt));
         out.push({kind: 'start', unit: e.unit, station: m.station, onAtS: onAt, x: G.x(Math.max(s, onAt)), y: G.y(B.base[li][c] + m.minMW)});

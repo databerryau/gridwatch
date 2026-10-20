@@ -131,6 +131,7 @@ import {V} from './params.js';
 import {createState, step, observe, hashState, applyInput, inWatch} from './step.js';
 import {stepReal, NIGHT_S} from './clock.js';
 import {darkShareAt, litMW} from './dark.js';
+import {onInS, startFromS} from './onat.js';
 
 // ------------------------------------------------------------------ constants (hoisted)
 
@@ -154,7 +155,7 @@ const MERIT_DESC = MERIT.slice().reverse();
 
 const TIE_MAX = V.TIE_MAX_MW, TIE_COL = V.TIE_RAMP_MW_MIN / S_PER_MIN * STEP_S;
 const BATT_MW = V.BATT_MW, BATT_MWH = V.BATT_MWH, BATT_EFF = V.BATT_CHARGE_EFF, SUSTAIN_H = V.BATT_R5_SUSTAIN_H;
-const AUTO_SYNC_S = V.AUTO_SYNC_S, DERATE_KEEP = 1 - V.HEAT_THERMAL_DERATE, HEAT_UP = V.HEAT_DEMAND_UPLIFT;
+const DERATE_KEEP = 1 - V.HEAT_THERMAL_DERATE, HEAT_UP = V.HEAT_DEMAND_UPLIFT;
 const HYDRO_ALLOC = V.HYDRO_ALLOCATION_MWH, HYDRO_STOP = V.HYDRO_STOP_MWH, WV = V.HYDRO_WATER_VALUE;
 const RERT_MW = V.RERT_MW, DR_MW = V.DR_MW, FLOOR_OFFER = V.MIN_LOAD_OFFER;
 const R5_MIN = V.R5_WINDOW_MIN;
@@ -234,15 +235,17 @@ function latestNews(obs, kind) {
   return null;
 }
 
-/** Grid second at which unit u (observe row, index i) is (or will be) 'on', or -1 if it is not coming. */
+/**
+ * Grid second at which unit u (observe row, index i) is (or will be) 'on', or -1 if it is not coming (W7 Q6: sim/onat.js onInS).
+ * Not `scoped`: par never takes the synchroscope, and the system's dispatch keeps the auto-synchroniser's wait for a unit the
+ * player has on it (the executor and the line count the player's close as now). Its own rule for a STARTING unit: counted as
+ * AGC counts it, the auto-synchroniser's wait included, in HAND too (the executor and the line count none there). Only the
+ * system's dispatch on a HAND day reads that; counting HAND's way would move every HAND day where the player starts a unit, and
+ * a HAND shift saved (F-7) by an older build of this SIM_VERSION would fail its replay (W7 Q6 review; tests/hand-guard.test.js).
+ */
 function onFromNow(u, i, now, auto) {
-  switch (u.mode) {
-    case 'on': return now;
-    case 'loading': return now + u.timerS;
-    case 'ready': return now + (auto ? u.timerS : 0) + M[i].t2S;
-    case 'starting': return now + u.timerS + AUTO_SYNC_S + M[i].t2S;
-    default: return -1;
-  }
+  const d = onInS(u, M[i], auto || u.mode === 'starting' ? 'AGC' : 'HAND', false);
+  return d < 0 ? -1 : now + d;
 }
 
 const committedMode = mode => mode === 'on' || mode === 'loading' || mode === 'starting' || mode === 'ready';
@@ -598,9 +601,8 @@ function commitPlan(obs, P, cx) {
         if (u.mode !== 'off' && u.mode !== 'tripped') continue;
         if (m.station === 'hydro' && !hydroWet(obs)) continue;
         // D1: a tripped unit waits out its lockout only; minimum down time follows a planned
-        // stop, and startBlock says whether it still binds.
-        const wait = u.mode === 'tripped' ? u.timerS : u.startBlock === '' ? 0 : Math.max(0, m.minDownS - u.downForS);
-        earliest = Math.max(now + wait, u.outUntilS) + u.startToMinS; // Q-68: not before a late return
+        // stop, and startBlock says whether it still binds; Q-68: not before a late return (sim/onat.js startFromS)
+        earliest = startFromS(u, m, now) + u.startToMinS;
       }
       if (earliest <= t1) { best = i; bestOn = earliest; break; }
       if (earliest < bestOn) { best = i; bestOn = earliest; }
@@ -1046,7 +1048,11 @@ function reflowLit(obs, memo, periodic) {
 
 // ------------------------------------------------------------------ decide (S-4 rules)
 
-/** What the rules share, computed once per decision from obs (and the plan). */
+/**
+ * What the rules share, computed once per decision from obs (and the plan). What is short ahead, PAR'S CHECKS (W7 Q6: the
+ * third of three, each for what it checks; sim/onat.js lists them): this one's net demand for rule 3's commitment, walk() for
+ * rule 8's adequacy (and rule 1's DR call) and eveningHolds() for rule 4's coal stop.
+ */
 function situation(obs, memo) {
   const fc = obs.forecast, now = obs.s;
   let capCommitted = 0, hydroCap = 0, big = 0;
@@ -1090,7 +1096,8 @@ function situation(obs, memo) {
  */
 function stopRuns(u, i, wait) {
   if (u.mode === 'on' || u.mode === 'loading') return u.upForS + wait >= M[i].minUpS;
-  const syncIn = u.timerS + (u.mode === 'starting' ? AUTO_SYNC_S : 0);
+  // the breaker's close as AGC counts it (sim/onat.js: T1 left, the auto-sync's wait), in HAND too: onFromNow's own rule
+  const syncIn = onInS(u, M[i], 'AGC') - M[i].t2S;
   return wait < syncIn || wait - syncIn >= M[i].minUpS;
 }
 
@@ -1290,6 +1297,7 @@ function msl2S(obs) {
 }
 
 /**
+ * Par's check of what is short ahead for rule 4's stop (W7 Q6).
  * Does the evening hold N-1 without machine `without`, in every plan column from now until it
  * could be back at minimum load (backS)? Firm supply as par counts it elsewhere: every other
  * machine that is on, coming, or free to start by then, at PAR_MAX_LOADING x its available MW
@@ -1545,8 +1553,10 @@ function adequacySetup(obs) {
     const u = obs.units[i];
     if (M[i].station === 'hydro' && !wet) continue;
     if (committedMode(u.mode)) onAt[i] = onFromNow(u, i, now, auto);
+    // W7 Q6: rule 8's own rule for an off unit, not sim/onat.js startFromS: only one free to start now or back from an outage
+    // counts, with no minimum down time (startFromS waits out a minimum down time); unifying it would move par's day
     else if (u.mode === 'off' && (u.startBlock === '' || u.outUntilS > now)) onAt[i] = Math.max(now, u.outUntilS) + u.startToMinS;
-    else if (u.mode === 'tripped') onAt[i] = now + u.timerS + u.startToMinS;
+    else if (u.mode === 'tripped') onAt[i] = startFromS(u, M[i], now) + u.startToMinS;
   }
   return {obs, now, lit: litColumns(obs.forecast, obs), onAt, heat: latestNews(obs, 'heat'), tieBack: obs.tie.tripped ? now + obs.tie.lockoutS : now,
     hydroE: Math.max(0, obs.hydro.storageMWh - WATER_FLOOR), drE: DR_MW * (dr.callsLeft + Math.max(0, dr.activeS) / S_PER_H),
@@ -1568,7 +1578,7 @@ function unitsAt(A, t) {
 const RERT_AS_ARMED = -1, RERT_NEVER = -2;
 
 /**
- * The walk: {un, need} per step [present, column 0, column 1, ...]; need = net demand + margin
+ * The walk (par's check of what is short ahead for rule 8's adequacy, W7 Q6): {un, need} per step [present, column 0, column 1, ...]; need = net demand + margin
  * beyond the firm supply, un = what the pool leaves uncovered. rertLead >= 0: the diesel counts
  * from that lead as if armed now; RERT_AS_ARMED: from its lead if armed; RERT_NEVER: never.
  */
