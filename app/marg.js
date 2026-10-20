@@ -98,7 +98,8 @@ export const MARG_LINES = Object.freeze({
     : 'Stopped at ' + c.extremeHz.toFixed(2) + ' Hz. Spin, battery, governors: that is the order. Your job is before it.'),
   handover: () => HANDOVER,
   // (W6, Y-7: `closing` is the share card's closing line, so the card quotes her; with no grade, par could not finish.
-  // W7, Q-118: the rank beside the letter; at A ★ the player has outplayed her coach's line and sits in her chair)
+  // W7, Q-118: the rank beside the letter; at A ★, par or better, the player sits in her chair. She never says they
+  // outplayed her coach: following its line reaches the chair on about half the days, measured once over 41 dailies)
   verdict: (g, closing) => (g ? g.points + ' points, ' + g.letter + (g.star ? ' ★' : '') + (rankOf(g) ? ': ' + rankOf(g) : '') + '. ' +
     (rankOf(g) === RANKS['A★'] ? 'Don\'t get comfortable. ' : '') +
     (closing || (g.letter === 'A' ? 'Clean shift. Same again tomorrow.' : 'Read the moment, then take tomorrow\'s.'))

@@ -101,6 +101,8 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.equal(card.firstElementChild.tagName, 'H2');
   assert.equal(card.firstElementChild.textContent, 'Day over: 04:00.', 'the h2 first and unchanged');
   assert.equal(b.$('end-score').textContent, scoreText(g, b.game.end.perfect));
+  // (W7, Q-118: the letter's rule under it names every rank, so the player finds their own and the next one up)
+  assert.ok(Object.values(RANKS).every(r => b.$('end-letter').textContent.includes(r)), b.$('end-letter').textContent);
   assert.equal(b.chip(), 'SCORE ' + g.points, 'the chip at 04:00 is the card\'s score');
   const rows = b.rows();
   assert.deepEqual(rows[0], ['', 'YOU', 'PAR', 'Δ']);
