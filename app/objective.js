@@ -130,7 +130,7 @@
 //   consequence(obs, target, {planview, dayAhead, proj?}) -> {target, text, level} | null
 //     what a guarded press would do, said before it is made (C-10): target is
 //     'guard-start-<unit>' or 'guard-stop-<unit>'; level 'ok' (starting) | 'plan' | 'crit'.
-//     A STOP that opens no shortfall says what it saves (stopQuote, the line's own; Q4, W7).
+//     A STOP that opens no shortfall, of a unit at its floor, says what it saves (stopQuote, the line's own; Q4, W7).
 //   guardConsequence(obs, fromMW, toMW, preview) -> {target: 'ring-guard', text, level} | null
 //     the GUARD ring turned down, priced on both sides (Q4, W7): the gas and carbon the freed MW
 //     could replace by the evening's end, against what the largest loss would then shed at the VCR.
@@ -1484,7 +1484,8 @@ function commitLater(X, line) {
  * that are not missing already (the evening's units not yet started are the objective's to ask
  * for, not this press's doing). A STOP that opens none says what it saves, the line's own quote
  * (stopQuote, carbon included), and that it rests on nothing tripping first (Q4, W7; ctx.proj:
- * the line's projection, else planview.project(obs)). The GUARD ring's price: guardConsequence.
+ * the line's projection, else planview.project(obs)); only from the unit's floor (STOP_FLOOR_MW),
+ * where the quote holds. The GUARD ring's price: guardConsequence.
  * @returns {{target:string, text:string, level:'ok'|'plan'|'crit'}|null} level 'crit' when the press
  *   opens a shortfall the unit cannot be back for
  */
@@ -1560,8 +1561,12 @@ export function consequence(obs, target, ctx = {}) {
   const trip = firstRun(tripGap(obs, day, COMMIT_TRIP_MW, lv));
   if (trip && trip.crossS < backS) return out(head + (trip.atS - s <= nowS ? ' One trip would then leave you short.' : ' From ' + atMark(trip.crossS) + ' one trip would then leave you short.'), 'crit');
   // Q4 (W7): a STOP that opens no shortfall says what it saves, the line's own quote (stopQuote: carbon included, Q10),
-  // and on what it rests; where the line is too long, "needed again from" goes first, then the price
-  const PV = ctx.planview, q = cancel || u.station === 'hydro' || !PV || !PV.waterValue ? null : stopQuote(obs, u, day, ctx.proj || (PV.project ? PV.project(obs) : null), PV, nightOf(obs) ? NIGHT_S : Infinity);
+  // and on what it rests; where the line is too long, "needed again from" goes first, then the price. Only from the
+  // unit's floor, as the line's STOP (condition 3): the quote prices its minimum MW, and above it the MW it gives over
+  // that would be replaced too, by dearer machines the quote does not count (review: a CCGT at 612 MW quoted at
+  // $72,000 saved cost $16,000)
+  const PV = ctx.planview, floor = u.outMW <= u.minMW + STOP_FLOOR_MW;
+  const q = cancel || !floor || u.station === 'hydro' || !PV || !PV.waterValue ? null : stopQuote(obs, u, day, ctx.proj || (PV.project ? PV.project(obs) : null), PV, nightOf(obs) ? NIGHT_S : Infinity);
   const price = !q ? '' : q.saving >= 1000 ? ' Saves about ' + usdText(q.saving) + ', carbon included' + (q.need ? ', if nothing trips first.' : '.') : ' Running on costs no more, carbon included.';
   const fit = (...ts) => ts.find(t => t.length <= LINE_MAX_CHARS) || ts[ts.length - 1];
   // the latest START that is back in time: no sooner than minimum down time allows after a stop (C-12:

@@ -1172,6 +1172,15 @@ test('C-10 consequence: STOP says when the unit leaves the grid and the earliest
   assert.deepEqual([line.kind, line.action.unit], ['stop', 'ccgt2']);
   assert.equal(Number(/Saves about \$([\d,]+)/.exec(gas.text)[1].replace(/,/g, '')), Math.round(line.saving / 1000) * 1000, 'the line\'s quote: ' + line.text);
   assert.ok(gas.text.length <= O.LINE_MAX_CHARS, gas.text);
+  // (W7 Q4 review) the quote prices the unit at its floor (stopSaving: its minimum MW), so it is said only there, as the
+  // line's own STOP asks only there (condition 3): above it, the MW it gives over its minimum would be replaced too, by
+  // dearer machines the quote does not count (a CCGT at 612 MW quoted "saves about $72,000" cost $16,000)
+  const up = copy(obs);
+  unit(up, 'ccgt2').outMW = unit(up, 'ccgt2').minMW + O.STOP_FLOOR_MW + 1;
+  const uc = consequence(up, 'guard-stop-ccgt2', {dayAhead: up.dayAhead, planview: PV});
+  assert.equal(uc.level, 'plan', uc.text);
+  assert.match(uc.text, /^STOP CCGT 2: off the grid in .*\.( It is needed again from \d\d:\d\d: start it by \d\d:\d\d\.| Nothing ahead needs it today\.)$/, uc.text);
+  assert.doesNotMatch(uc.text, /Saves about|costs no more/, 'no quote above its floor: ' + uc.text);
   // a shortfall that begins after the unit could be back is the restart's business, not this press's:
   // the level stays 'plan' and the line says by when to start it again
   const later = copy(obs), Gl = O.capacityGap(later, later.dayAhead, {marginMW: O.MARGIN_MW, leaving: 'ccgt2'});
