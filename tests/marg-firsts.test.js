@@ -108,7 +108,7 @@ test('Q-124: margFirsts (the page\'s and the driver\'s test): not once seen, not
   assert.deepEqual(G.margFirsts(full, 'CRUISE'), [], 'a later day with its one free line used');
 });
 
-test('Q-124 review: one lesson never sends another to the LOG: with the tray full, hers waits while the card that would give way is a lesson', () => {
+test('Q-124 review: she never sends her own card to the LOG: with the tray full, a lesson waits while the card that would give way is hers', () => {
   // the price's line said (a first shift), and now coal at its minimum with solar spilling too
   const atMin = stateOf().units.map(u => (V.MACHINES[u.k].id === 'coal3' ? Object.assign({}, u, {schedMW: V.MACHINES[u.k].minMW}) : u));
   const withPrice = cards => {
@@ -120,7 +120,9 @@ test('Q-124 review: one lesson never sends another to the LOG: with the tray ful
   assert.deepEqual(G.margFirsts(withPrice([card('warn'), card('warn'), lesson]), 'CRUISE'), [], 'the price\'s card would give way: coal waits');
   assert.deepEqual(G.margFirsts(withPrice([card('warn'), lesson]), 'CRUISE'), ['coal'], 'a free place: both show');
   assert.deepEqual(G.margFirsts(withPrice([other, card('warn'), lesson]), 'CRUISE'), ['coal'], 'an older information card gives way instead');
-  assert.deepEqual(G.margFirsts(withPrice([card('warn'), card('warn'), Object.assign({}, lesson, {from: 'STATION'})]), 'CRUISE'), ['coal'], 'only her own card is a lesson');
+  assert.deepEqual(G.margFirsts(withPrice([card('warn'), card('warn'), Object.assign({}, lesson, {from: 'STATION'})]), 'CRUISE'), ['coal'], 'only her own cards are kept');
+  const act3 = {sev: 'info', from: MARG_FROM, text: 'Evening: about 6,000 MW by 19:35. Anything slower than a gas turbine is late now.'};
+  assert.deepEqual(G.margFirsts(withPrice([card('warn'), card('warn'), act3]), 'CRUISE'), [], 'nor over a fixed beat of hers just said');
 });
 
 test('Q-124 review: with warnings filling the tray, the relays\' line takes the place of the city desk\'s oldest warning (a shed); the others wait', () => {

@@ -1086,7 +1086,7 @@ function margFrame(game, obs, mode) {
   }
   if (obs.nightShift) margBeat(game, 'handover', MARG_LINES.handover());
   // W7 (Q-124): a first-time line, kept in the seen memory once said (with storage blocked, in the page's memory: once a day
-  // at most). One a frame: the next waits for room on the tray, so one lesson never sends another to the LOG.
+  // at most). One a frame: the next waits for room on the tray, so she never sends her own card to the LOG unseen.
   for (const k of margFirsts(game, mode.mode)) {
     const text = MARG_LINES[k](obs, game.dayAhead, game.verdict), room = text && lessonRoom(game, k);
     if (!room) continue;
@@ -1097,30 +1097,30 @@ function margFrame(game, obs, mode) {
     break;
   }
 }
-// W7 (Q-124 review): a tray card that is one of today's first-time lines (hers, by its text); a city desk's warning, which
-// is always a shed (app/tray.js cardOf: the relays' 'ufls', a directed 'shed', DIRECTED_SHED)
-const lessonCard = (game, c) => c.from === MARG_FROM && game.marg.said.some(l => l.key.startsWith('first:') && l.text === c.text);
+// W7 (Q-124 review): a city desk's warning, which is always a shed (app/tray.js cardOf: the relays' 'ufls', a directed
+// 'shed', DIRECTED_SHED)
 const shedCard = c => c.sev === 'warn' && c.from === T.SENDERS.city;
 /**
  * W7 (Q-124 review): where first-time line `k` would show on the tray now: true for a free place, or when the information
- * card that gives way to hers (app/tray.js trayMarg: the oldest) is not another first-time line. With MAX_CARDS warnings
- * hers would go straight to the LOG, so it waits; but the relays' line takes the place of the city desk's oldest warning,
- * a shed (the relays' or a directed one: the districts her line is about), which goes to the LOG: that card. Else null
- * (it waits). The sheds' own warnings keep the tray full while the city sheds: they held her line back for hours of grid
- * time, past the next trip.
+ * card that gives way to hers (app/tray.js trayMarg: the oldest) is not one of her own (another lesson, or a fixed beat
+ * said this frame or just before: she never talks over herself). With MAX_CARDS warnings hers would go straight to the
+ * LOG, so it waits; but the relays' line takes the place of the city desk's oldest warning, a shed (the relays' or a
+ * directed one: the districts her line is about), which goes to the LOG: that card. Else null (it waits). The sheds' own
+ * warnings keep the tray full while the city sheds: they held her line back for hours of grid time, past the next trip.
  */
 function lessonRoom(game, k) {
   const cards = game.tray.cards;
   if (cards.length < T.MAX_CARDS) return true;
   const out = cards.find(c => c.sev === 'info');
-  if (out) return lessonCard(game, out) ? null : true;
+  if (out) return out.from === MARG_FROM ? null : true;
   return (k === 'relays' && cards.find(shedCard)) || null;
 }
 /**
  * W7 (Q-124): the first-time lines Marg would say now (app/marg.js firstsNow's keys this browser has not met yet, not said
  * today): none in a resume's replay (F-7), in a watch, once the night shift has the desk, without room on the tray
- * (lessonRoom: three warnings, or another lesson that would give way), or with no room left beside the fixed beats to come.
- * Cheap: tests/lib/play.js asks it between frames, so a jump draws the frame that says one.
+ * (lessonRoom: three warnings, bar the relays' line and a shed's warning; or a card of hers that would give way), or with
+ * no room left beside the fixed beats to come. Cheap: tests/lib/play.js asks it between frames, so a jump draws the frame
+ * that says one.
  */
 export function margFirsts(game, mode) {
   const m = game.marg, st = game.state;
