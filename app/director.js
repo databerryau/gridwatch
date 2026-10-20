@@ -126,8 +126,10 @@ export const RESTORE_FOCUS_S = 2;
  * W7 (Q-115): ... and at most this many, if frequency is not back in the normal band by then. Measured (the play driver,
  * 1x from each close at a card, 2026-10-07 and 10-14 to 10-31): the morning's hand-backs were back in band 0.9-5.0 grid s
  * after the close (11 of 11 within 5.0), their nadir at 1.0-1.9 s; the evening's closes after a shed, 0.2-17 s (36% within
- * 6, 76% within 10), their nadir within 4.8 s on all but 2 of 76. Six seconds shows every morning recovery whole and the
- * fall and turn of nearly every evening one, at 4 real s more than the 2 it was.
+ * 6, 76% within 10), their nadir within 4.8 s on all but 2 of 76. A close at a card comes on the tick after a grid second's
+ * own, so a crossing by 5.0 s has its whole second in band by 6: six seconds shows every measured morning recovery whole and the
+ * fall and turn of nearly every evening one. Played through (a line-following player, 2026-10-22 to 10-24 to 21:00): 7
+ * FOCUSes of 3.0-6.0 grid s, two of them evening closes ended at the cap, out of band; the 2 s it was is the floor.
  */
 export const RESTORE_FOCUS_MAX_S = 6;
 /** Debug speeds offered by the bench (grid seconds per real second); 2100x is D-2's fastest. */
