@@ -1070,9 +1070,10 @@ export function margBeat(game, key, text, target, reserve = 0) {
   if (line) for (const c of T.trayMarg(game.tray, line, MARG_FROM)) pushCue(game, c);
   return line;
 }
-// Once a frame in play: the act changes, the first watch's settle (a first shift's), the 21:00 handover.
+// Once a frame in play: the act changes, the first watch's settle (a first shift's), the 21:00 handover. Never in a resume's
+// replay (F-7: it is silent; her day comes back from the save, and a first-time line said there would be kept as seen).
 function margFrame(game, obs, mode) {
-  if (!game.marg || game.phase !== 'play' || obs.over) return;
+  if (!game.marg || game.replay || game.phase !== 'play' || obs.over) return;
   if (mode.act !== game.margAct) {
     const was = game.margAct;
     game.margAct = mode.act;
@@ -1093,13 +1094,13 @@ function margFrame(game, obs, mode) {
 }
 /**
  * W7 (Q-124): the first-time lines Marg would say now (app/marg.js firstsNow's keys this browser has not met yet, not said
- * today): none in a watch, once the night shift has the desk, while the tray shows MAX_CARDS warnings (it would log her
- * card at once: app/tray.js trayMarg), or with no room left beside the fixed beats to come. Cheap: tests/lib/play.js asks
- * it between frames, so a jump draws the frame that says one.
+ * today): none in a resume's replay (F-7), in a watch, once the night shift has the desk, while the tray shows MAX_CARDS
+ * warnings (it would log her card at once: app/tray.js trayMarg), or with no room left beside the fixed beats to come.
+ * Cheap: tests/lib/play.js asks it between frames, so a jump draws the frame that says one.
  */
 export function margFirsts(game, mode) {
   const m = game.marg, st = game.state;
-  if (!m || game.phase !== 'play' || st.over || mode === 'WATCH' || mode === 'SHED-WATCH' || st.control.nightShift) return [];
+  if (!m || game.replay || game.phase !== 'play' || st.over || mode === 'WATCH' || mode === 'SHED-WATCH' || st.control.nightShift) return [];
   if (game.tray.cards.filter(c => c.sev !== 'info').length >= T.MAX_CARDS) return [];
   if (m.said.length + beatsAhead(m, game.margAct, game.margWatched) >= (m.first ? MARG_FIRST : MARG_LATER)) return [];
   const seen = game.director.seen.marg || {};
