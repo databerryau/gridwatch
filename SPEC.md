@@ -551,7 +551,7 @@ what was rough, then get the gate 1 kit ready. BUILD 2026-10-22. No sim change.*
   - The briefing's "Watch for: HAR4, HAR3 feeders back 06:40, 07:50" and "Real NEM physics" are jargon on a first
     shift; the briefing is at its word cap (D-3), so they wait for gate 1.
   - No ask between about 10:50 and 15:45 on the game clock for the coach-follower (§6, D-10, judged at gate 1).
-  - A first shift's card says PRACTICE unless COUNT THIS ONE is pressed (Y-2): put to the owner.
+  - A first shift's card says PRACTICE unless COUNT THIS ONE is pressed (Y-2). Put to the owner on 2026-10-22, who kept it as built: the first shift is a learning day.
 - **The gate 1 kit:** `playtest/gate1-README.md` (the protocol, what never to say, how each pass line is scored),
   `gate1-tester-log.md` and `gate1-results.md`.
 
