@@ -109,10 +109,12 @@ export function heatRampAt(heat, s) {
  * hot day with its cooling load removed, cooling = COOLING_MAX_MW x clamp((T - COOLING_BASE_C)
  * / COOLING_SPAN_C) with T from the scenario's (hot-day) temperature table; a weekend
  * multiplies any type by WEEKEND_DEMAND_FACTOR. A HOT weekday is demandBaseMW(scn, h) exactly.
+ * A season's month (Q-127, content/seasons.js) gives its MILD day as a table of its own (demand.mildBaseMW, its heating in it).
  */
 export function underlyingBaseMW(scn, day, h) {
   let mw = demandBaseMW(scn, h);
-  if (day.temp === 'MILD') {
+  if (day.temp === 'MILD' && scn.demand.mildBaseMW) mw = tableSmooth(scn.demand.mildBaseMW, h);
+  else if (day.temp === 'MILD') {
     const t = tableLinear(scn.temperatureC.table, h);
     mw -= V.COOLING_MAX_MW * Math.min(1, Math.max(0, (t - V.COOLING_BASE_C) / V.COOLING_SPAN_C));
   }

@@ -9,13 +9,18 @@ import {V} from '../sim/params.js';
  */
 export const LETTERS = Object.freeze([['A', 10], ['B', 150], ['C', 600], ['D', Infinity]].map(l => Object.freeze(l)));
 /**
- * W7 (Q-118): the rank beside each letter, everywhere the letter shows. 'A★' is an A at par or better (the ★): Marg's own
- * chair. (Measured once, tools/follow.mjs on 41 dailies: following the coach's line reaches it on about half of them, so
- * it does not mean the player outplayed the coach.) F, a black grid, is the crew that restarts it.
+ * W7 (Q-118): the rank beside each letter, everywhere the letter shows. 'A★' is an A at STAR_POINTS or more (the ★): Marg's
+ * own chair. F, a black grid, is the crew that restarts it.
  */
+/**
+ * W8 (Q-128): the ★, MARG'S CHAIR, needs this many points: a clear win over par, not par itself. Measured once (2026-10-21,
+ * the coach-following player of tools/follow.mjs on 96 dailies over the whole calendar, graded on the stored par): at 1000 it
+ * sat in the chair on 56% of them, at 1040 on 13% (weekdays 13%, Saturdays 16%).
+ */
+export const STAR_POINTS = 1040;
 export const RANKS = Object.freeze({D: 'TRAINEE', C: 'SHIFT OPERATOR', B: 'SENIOR OPERATOR', A: 'SHIFT SUPERVISOR', 'A★': 'MARG\'S CHAIR', F: 'BLACK START CREW'});
 /** The card's one line on the letter (S-5), each letter with its rank as the SCORE line shows it (Q-118). */
-export const LETTER_RULE = 'Letter: how far behind par, in MWh dark at VCR: A ★ ' + RANKS['A★'] + ' at par or better, ' +
+export const LETTER_RULE = 'Letter: how far behind par, in MWh dark at VCR: A ★ ' + RANKS['A★'] + ' at ' + STAR_POINTS + ' points or more, ' +
   LETTERS.map(([l, mwh]) => l + ' ' + RANKS[l] + (mwh < Infinity ? ' within ' + mwh : ' beyond')).join(', ') + '; F ' + RANKS.F + ' if the grid goes black.';
 /** Q-118: a grade's rank (grade's {letter, star}, or a history entry's), '' with no letter. */
 export const rankOf = g => (g && g.letter ? RANKS[g.letter === 'A' && g.star ? 'A★' : g.letter] || '' : '');
@@ -56,7 +61,7 @@ export function grade(you, par, black, shedMWh = 0) {
   const hard = shedMWh >= OUTAGE_MIN_MWH ? shedMWh : 0, off = V.VCR * hard, p = par.total - off, y = you.total - off;
   const points = hard ? Math.min(HARD_MAX_POINTS, Math.round(1000 * p / Math.max(y, p * 1000 / HARD_MAX_POINTS))) : Math.round(1000 * par.total / you.total);
   const gapMWh = (you.total - par.total) / V.VCR;
-  const g = {points, letter: LETTERS.find(l => gapMWh <= l[1])[0], star: points >= 1000, gapMWh};
+  const g = {points, letter: LETTERS.find(l => gapMWh <= l[1])[0], star: points >= STAR_POINTS, gapMWh};
   return hard ? Object.assign(g, {hardMWh: hard}) : g;
 }
 export const BUILD = '2026-10-20';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

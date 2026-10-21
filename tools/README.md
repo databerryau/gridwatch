@@ -40,6 +40,7 @@ node tools/baseline-v4.js --quick       # section 1 plus par on seeds 1-2, ~10 s
 npm run golden:v4                       # re-record tools/baseline-v4.golden.md
 npm run golden:v4 -- --check            # compare with it instead (~5 min; add --quick for ~15 s)
 npm run verify                          # W7 Q15: after a SIM_VERSION change, replay par on every daily; restamp if nothing moved
+node tools/seasons-gen.mjs              # W8 Q-127: write the light seasons' month table, content/seasons.js (--check: is it current?)
 node tools/daily-gen.js --from 2026-10-12 --days 365 -j 8   # D-9: gate the dailies, write content/dailies.js
 node tools/daily-gen.js --check -j 8    # re-gate the shipped list under this build (no write)
 node tools/ladder.mjs -j 6              # W6 Y-11: the ladder (did nothing, lean, competent vs par) on every daily, after daily-gen (~20 min)

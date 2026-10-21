@@ -21,11 +21,12 @@
 import {P, V} from '../sim/params.js';
 import {CLASSIC, DESK, DESK_WEEKEND} from './scenarios.js';
 import {ANNIVERSARIES} from './anniversaries.js';
+import {SEASON_MONTHS} from './seasons.js';
 import {SEGMENTS, gridBefore} from '../sim/clock.js';
 import {FLAT_RATE, WATCH_SCHEDULE, RESPOND_RATE, RESPOND_MAX_S, FAST_FACTOR, OFFER_RATE, FOCUS_RATE, RESTORE_FOCUS_S, RESTORE_FOCUS_MAX_S} from '../app/director.js';
 import {HUM_K, F0, REF_REL_DB, HUM_DBFS} from '../audio/model.js';
 import {HORN_REPEAT_S} from '../app/alarms.js';
-import {LETTERS, RANKS} from '../app/score.js';
+import {LETTERS, RANKS, STAR_POINTS} from '../app/score.js';
 
 // ------------------------------------------------------------------ formatting
 
@@ -37,6 +38,7 @@ function num(x) {
 }
 const pct = frac => num(frac * V.PCT);
 const minutes = s => num(s / V.S_PER_MIN);
+const JUN = SEASON_MONTHS[6], peakOf = t => Math.max(...t.map(p => p[1])); // Q-127: the light-seasons entry
 const hhmm = h => {
   const m = Math.round(h * V.S_PER_MIN) % (V.DAY_H * V.S_PER_MIN);
   return String(Math.floor(m / V.S_PER_MIN)).padStart(2, '0') + ':' + String(m % V.S_PER_MIN).padStart(2, '0');
@@ -441,6 +443,20 @@ const ABSTRACTIONS = [
     params: ['HEAT_SHARE', 'COOLING_MAX_MW', 'COOLING_BASE_C', 'COOLING_SPAN_C', 'WEEKEND_DEMAND_FACTOR'],
   },
   {
+    // Q-127 (light seasons, Q-122): content/seasons.js, written by tools/seasons-gen.mjs.
+    id: 'light-seasons', row: 'Seasons: one typical day a month, from April 2027.', anchorId: 'light-seasons',
+    ui: 'drawer', game: 'drawer',
+    real: 'Every day of the year has its own sun, weather and demand: winter brings short days, a low sun and a heating peak ' +
+      'after dark, and heatwaves come only in summer.',
+    ours: 'Until the end of March 2027 every daily is the same late-summer day (sun ' + hhmm(DESK.sun.riseH) + '-' + hhmm(DESK.sun.setH) +
+      '). From April each month has one typical day: in June the sun is up ' + hhmm(JUN.sun.riseH) + '-' + hhmm(JUN.sun.setH) +
+      ', solar peaks at ' + pct(peakOf(JUN.clearSkyMW) / peakOf(DESK.solar.clearSkyMW)) + '% of late summer\'s, and a cold day\'s heating ' +
+      'lifts the morning and the evening. A heatwave comes only from November to March. Weather inside a month (fronts, storms, ' +
+      'wind) is the same all year.',
+    why: 'A June daily that played like February would be wrong to anyone who lives here; a full year of weather would be a game of its own.',
+    params: [],
+  },
+  {
     // W6 realism (2026-10-17): AEMO's summer 2019-20 analysis puts a mainland state's slope at 260-360 MW/°C (SPEC §8.1).
     id: 'cooling-slope', row: 'Cooling load: 100 MW per °C above 22 °C, in a straight line.', anchorId: 'cooling-slope',
     ui: 'drawer', game: 'drawer',
@@ -677,7 +693,7 @@ const ABSTRACTIONS = [
       'The letter comes from how far your ALL-IN is behind par\'s, in MWh dark at VCR: ' +
       LETTERS.slice(0, -1).map(l => l[0] + ' within ' + num(l[1])).join(', ') + ', ' + LETTERS[LETTERS.length - 1][0] +
       ' beyond, so the same mistake earns the same letter on any day. Each letter has its rank: ' +
-      ['D', 'C', 'B', 'A'].map(l => l + ' ' + RANKS[l]).join(', ') + ', and A ★ (par or better) ' + RANKS['A★'] + '; a black grid\'s F is ' +
+      ['D', 'C', 'B', 'A'].map(l => l + ' ' + RANKS[l]).join(', ') + ', and A ★ (' + num(STAR_POINTS) + ' points or more) ' + RANKS['A★'] + '; a black grid\'s F is ' +
       RANKS.F + '. From 21:00, when the night shift takes the desk, the chip compares you with par at the same grid time; before then it shows no number. ALL-IN is the day\'s cost to the ' +
       'community, not a price or a bill.',
     why: 'One currency is how regulators trade the three goals off, so the score teaches the real trade: an MWh dark weighs ' +

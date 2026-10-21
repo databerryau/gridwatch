@@ -22,7 +22,7 @@ const day = (seed, scn) => { const regime = prerollRegime(seed, scn); return {se
 const DATES = [], SEEDS = [];
 for (let k = 0, t = Date.UTC(2026, 0, 1); k < 2000; k++, t += 864e5) {
   const d = new Date(t), ymd = d.getUTCFullYear() * 1e4 + (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
-  DATES.push(day(ymd, SCN[scenarioIdOf(ymd)]));
+  DATES.push(day(ymd, SCN[scenarioIdOf(ymd).startsWith('desk-weekend') ? 'desk-weekend' : 'desk'])); // the desk's own climate on every date (Q-127's months are tests/seasons.test.js's)
 }
 for (let seed = 1; seed <= 2000; seed++) SEEDS.push(day(seed, SCN.desk));
 const ALL = DATES.concat(SEEDS);

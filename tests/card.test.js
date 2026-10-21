@@ -308,7 +308,7 @@ test('Q-51 a mild day offers the soak only, and the card says why; a new attempt
   const p = openGame({seed: MILD});
   p.suburb('SOL');
   assert.deepEqual(p.vm().obs.levers.offered, ['soak']);
-  assert.ok(card(p).endsWith('AIR-CON CYCLE: hot days only (a mild day has no cooling load to relieve)'));
+  assert.ok(card(p).endsWith('AIR-CON CYCLE: hot days only (today has no cooling load to relieve)'));
   assert.match(card(p), /” patience 70 · draws /, 'patience only scales air-con: no "respond" when none is offered (P2)');
   assert.equal(p.$('city-SOL-aircon'), null);
   // PLAY THIS DAY AGAIN (resetDay, as the end card's again): a new attempt forgets the player's aim

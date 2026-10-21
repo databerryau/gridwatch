@@ -164,6 +164,19 @@ const TAU = Math.PI * 2;
 const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
 const hour = h => ((h % 24) + 24) % 24;
 
+// Q-127 (light seasons): the curves above are drawn for the late-summer sun (06:12-19:48). Another month's day is laid onto
+// them, piecewise linear through its sunrise, solar noon and sunset, and shifted with its sunrise or sunset outside them.
+const LS_RISE_H = 6.2, LS_SET_H = 19.8, LS_NOON_H = (LS_RISE_H + LS_SET_H) / 2;
+/** The hour on the late-summer sky that obs's clock time looks like under its own day's sun (obs.sky.sun); the clock's without one. */
+export function skyHour(obs) {
+  const h = hour(obs.clock ? obs.clock.h : 12), sun = obs.sky && obs.sky.sun;
+  if (!sun || (sun.riseH === LS_RISE_H && sun.setH === LS_SET_H)) return h;
+  const r = sun.riseH, t = sun.setH, n = (r + t) / 2;
+  if (h <= r) return hour(h + LS_RISE_H - r);
+  if (h >= t) return hour(h + LS_SET_H - t);
+  return h <= n ? LS_RISE_H + (h - r) * (LS_NOON_H - LS_RISE_H) / (n - r) : LS_NOON_H + (h - n) * (LS_SET_H - LS_NOON_H) / (t - n);
+}
+
 /** 0 at night, 1 at midday, easing through dawn and dusk (hour of day). */
 export function sunAmount(h) {
   if (h < SUNRISE_H - 1 || h > SUNSET_H + 1) return 0;
@@ -209,7 +222,7 @@ const windFracOf = obs => clamp01(obs.sky && Number.isFinite(obs.sky.windFrac) ?
 export function weatherOf(obs) {
   const sky = obs.sky || {}, wf = windFracOf(obs);
   const clear = clamp01(Number.isFinite(sky.clearness) ? sky.clearness : 1);
-  const h = obs.clock ? obs.clock.h : 12;
+  const h = skyHour(obs);
   let e = -1, hold = STORM_HOLD_S;
   for (const n of obs.news || []) if (n.kind === 'storm' && n.fromS <= obs.s && (e < 0 || obs.s - n.fromS < e)) { e = obs.s - n.fromS; hold = stormHold(n); }
   let storm = 0;
@@ -265,7 +278,7 @@ const cloudOfSky = c => clamp01((FRONT_CLEAR - c) / FRONT_SPAN);
 /** W6 (G-4, Q-79): the cloud over suburb `id` (0..1) from its own sky, in daylight only (pure). */
 export function suburbCloud(obs, id) {
   const rs = obs.rooftop && obs.rooftop.suburbs;
-  if (!rs || !(sunAmount(hour(obs.clock ? obs.clock.h : 12)) > 0)) return 0;
+  if (!rs || !(sunAmount(skyHour(obs)) > 0)) return 0;
   for (let i = 0; i < rs.length; i++) if (rs[i].id === id) return Number.isFinite(rs[i].clearness) ? cloudOfSky(rs[i].clearness) : 0; // (no find: the text alternative runs beside the frame loop)
   return 0;
 }
@@ -496,7 +509,7 @@ export function darkOf(obs, id) {
  */
 export function mapSummary(vm, hoverId) {
   const obs = vm.obs, wx = weatherOf(obs), parts = [];
-  const sky = skyState(obs.clock ? obs.clock.h : 12);
+  const sky = skyState(skyHour(obs));
   // W6: the storm on the horizon before it arrives, and a storm from the warned arrival on (while its shelf crosses, as
   // it builds); the suburbs under cloud while a front crosses the city
   const band = stormBandOf(obs), stormy = wx.storm > 0.3 || (band.lead >= 0 && band.trail < 0);
@@ -1583,7 +1596,7 @@ export function createMap(doc, root, actions) {
     debug.scale = layout.scale; debug.layout = layout;
     syncBlocks(obs);
     syncRoof(obs);
-    const h = hour(obs.clock ? obs.clock.h : 12);
+    const h = skyHour(obs); // Q-127: the light follows the month's sun (lifeFrame's traffic keeps the clock)
     const sun = sunAmount(h), night = 1 - sun, wx = weatherOf(obs);
     fx.sky = skyState(h); fx.heat = wx.heat; fx.storm = wx.storm; fx.cloud = wx.cloud;
     // the sun: east (right) at dawn to west (left) at sunset; shadows fall away from it
@@ -1605,7 +1618,7 @@ export function createMap(doc, root, actions) {
     // W6: a storm's gloom by day lights some of them and the streetlights, as dusk does
     const gloom = 0.6 * WX.stormB / 4 * sun, glow = Math.max(night, gloom);
     const dm = obs.demand, usingMW = dm ? (Number.isFinite(dm.underlyingMW) ? dm.underlyingMW : dm.nowMW) : 5000;
-    const lit = Math.round(30 * occupancy(h) * (0.3 + 0.8 * clamp01(usingMW / 8000)) * (night >= gloom ? 1 : 0.6));
+    const lit = Math.round(30 * occupancy(hour(obs.clock ? obs.clock.h : 12)) * (0.3 + 0.8 * clamp01(usingMW / 8000)) * (night >= gloom ? 1 : 0.6));
     const ck = lk + '|' + sig + '|' + (glow > 0.05 ? lit + ':' + Math.round(glow * 4) : '');
     fx.gloom = gloom;
     if (lk !== lightKey) { drawSky(WX); drawClouds(WX); drawTerrain(WX, SH); lightKey = lk; }

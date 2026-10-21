@@ -529,7 +529,7 @@ export function observe(state, opts) {
     wind: {availMW: env.windAvailMW, outMW: windOut, limitPct: state.ren.windLimitPct, ofgsTrippedFrac: state.ofgs.trippedFrac,
       autoMW: state.ren.windAutoMW},
     solar: {availMW: env.solarAvailMW, outMW: state.ren.solarMW, limitPct: state.ren.solarLimitPct, autoMW: state.ren.solarAutoMW},
-    sky: {clearness: env.clearness, windFrac: env.windFrac},
+    sky: {clearness: env.clearness, windFrac: env.windFrac, sun: {riseH: state.scn.sun.riseH, setH: state.scn.sun.setH}}, // Q-127: the map's light
     hydro: {storageMWh: state.hydro.storageMWh, allocationMWh: V.HYDRO_ALLOCATION_MWH,
       frac: state.hydro.storageMWh / V.HYDRO_ALLOCATION_MWH},
     dr: {callsLeft: state.dr.callsLeft, activeS: state.dr.activeS, mw: state.dr.mw},
