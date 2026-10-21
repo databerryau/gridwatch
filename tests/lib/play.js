@@ -85,6 +85,7 @@ import * as alarmPanel from '../../app/alarmpanel.js';
 import * as endCard from '../../app/endcard.js';
 import * as perf from '../../app/perf.js';
 import * as suburbCard from '../../app/suburbcard.js';
+import {inputsOf} from '../../app/objective.js';
 
 const NEXT = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
 const TPS = V.TICKS_PER_S, TICK_S = 1 / TPS, DAY_S = V.DAY_S;
@@ -821,12 +822,39 @@ export function openGame(o = {}) {
     return null;
   }
 
+  /**
+   * W10: a stranger who does what the coach's line says, up to `when` ('HH:MM'; default the day's end): at each new ask
+   * (the line carrying an action) it presses what the line names, sent as the page's control sends it (a RE-DISPATCH, SOAK
+   * THE CITY, or the line's inputs through actions.input), and at each card it presses Enter (a shed card: go on, as
+   * tripFrom). Returns {acts: [{at, text}], cards} for a report; never the same ask twice in one grid minute.
+   */
+  function follow(when, opts = {}) {
+    const st = game.state, endS = when === undefined ? DAY_S : parseTime(when, st.tick / TPS), acts = [];
+    let cards = 0, last = '';
+    const answer = () => { cards++; if (shedCard()) { G.ui(game, {do: 'goOn'}); frame(); } else key('Enter'); };
+    for (let n = 0; n < 4000 && !st.over && st.tick / TPS < endS; n++) {
+      const o = game.objective, x = o && o.action, sig = x && Math.floor(st.tick / TPS / 60) + '|' + o.text;
+      if (x && sig !== last && modeNow() !== 'WATCH') {
+        last = sig;
+        if (x.redispatch) { $('btn-redispatch').click(); frame(); }
+        else if (x.type === 'soakCity') send(x);
+        else for (const i of inputsOf(x)) send(i);
+        acts.push({at: clockOfS(st.tick / TPS), text: o.text});
+        continue;
+      }
+      const r = until('ask', {max: endS, line: opts.line});
+      if (r.why.startsWith('held')) answer();
+      else if (r.why === 'target' || st.over) break;
+    }
+    return {acts, cards};
+  }
+
   const api = {
     doc, h, game, $,
     get now() { return t; },
     /** The page time of the Space that ran the clock (-1 before it), for D-2's clock (clockReport). */
     get spaceMs() { return spaceMs; },
-    frame, frames, real, to, until, skipTo, realJump, tripFrom, look, lookDiff, buttons, timeline, clockReport,
+    frame, frames, real, to, until, skipTo, realJump, tripFrom, follow, look, lookDiff, buttons, timeline, clockReport,
     click, hover, key, keyDown, keyUp, hold, pointer, send, suburb, press, pressKey,
     vm: () => h.vm(),
     clock: () => clockOfS(game.state.tick / TPS),
