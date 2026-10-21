@@ -23,7 +23,7 @@ import {openGame} from './lib/play.js';
 import {restampAdvice} from '../tools/verify.mjs';
 
 const DG = createRequire(import.meta.url)('../tools/daily-gen.js');
-const STAMP = G.dailyStamp(), DAYS = [20261214, 20270213, 20270525];
+const STAMP = G.dailyStamp(), DAYS = [20261214, 20270125, 20270130, 20270131, 20270213, 20270525, 20270615, 20270825];   // W9: five more
 const ymdIn = s => +s.replace(/-/g, ''), local = ymd => new Date(Math.floor(ymd / 1e4), Math.floor(ymd / 100) % 100 - 1, ymd % 100, 8);
 const words = s => s.trim().split(/\s+/).filter(Boolean).length;
 const toS = h => Math.round((h - V.DAY_START_H) * V.S_PER_H);
@@ -31,7 +31,7 @@ const toS = h => Math.round((h - V.DAY_START_H) * V.S_PER_H);
 const daily = ymd => { const d = dailyFor(ymd, STAMP), scn = G.scenarioForSeed(d.seed); return {d, scn, st: createState(d.seed, scn)}; };
 const PAR = {score: {costDollars: 4e6, lightsMWh: 0, servedMWh: 1e5, co2tPerMWh: 0.56, centsPerKWh: 4}, series: []};
 
-test('D-29: three dates in the calendar, each the variant of its desk scenario on every attempt; the dates around them are the desk\'s', () => {
+test('D-29 (W9: eight): the dates in the calendar, each the variant of its desk scenario on every attempt; the dates around them are the desk\'s', () => {
   assert.deepEqual(Object.keys(ANNIVERSARIES).map(Number), DAYS);
   assert.deepEqual(Object.keys(ANNIVERSARY_KEYS).map(Number), DAYS, 'content/dailies.js keys the same dates');
   for (const ymd of DAYS) {
@@ -44,8 +44,11 @@ test('D-29: three dates in the calendar, each the variant of its desk scenario o
     // the overrides shape the day; the city, its rooftop and the fleet's units are the desk's own
     assert.equal(v.city, base.city);
     assert.equal(v.rooftop, base.rooftop);
-    assert.deepEqual(v.commitment.units, base.commitment.units);
-    for (const x of [ymd - 1, ymd + 1]) assert.equal(G.scenarioForSeed(x), SCENARIOS[scenarioIdOf(x)], x + ': no anniversary');
+    // W9: a forced outage's units are off at 04:00, the rest run harder to cover them
+    const out = (v.dayplan.incident.outages || {units: []}).units;
+    if (!out.length) assert.deepEqual(v.commitment.units, base.commitment.units);
+    else assert.deepEqual(Object.keys(v.commitment.units).sort(), Object.keys(base.commitment.units).filter(u => !out.includes(u)).sort());
+    for (const x of [ymd - 1, ymd + 1].filter(x => !DAYS.includes(x))) assert.equal(G.scenarioForSeed(x), SCENARIOS[scenarioIdOf(x)], x + ': no anniversary');
   }
   assert.equal(DESK.dayplan.incident, undefined, 'no desk scenario has an incident: no other day\'s plan changes');
   assert.equal(DESK_WEEKEND.dayplan.incident, undefined);
@@ -120,10 +123,15 @@ test('D-29: the help behind the tray\'s "?" says where each anniversary breaks t
   // the rules, then the exceptions (the plans above hold them: before 09:00; a third unwarned trip 5 grid-minutes on; an unannounced limit)
   assert.ok(dense.includes('At most two unwarned trips a day, none before 09:00 or from 21:00, at least 90 real s and 60 grid-minutes apart. ' +
     'The anniversary dailies keep their real incident instead: 14 Dec (Loy Yang A3, 2017), the largest unit trips between 05:15 and 06:00; ' +
+    '25 Jan (Victorian heatwave, 2019), Mt Hazel coal 4 out of service all day; ' +
+    '30 Jan (Melbourne heatwave, 2009), tie imports limited, unannounced, to 450 MW at 14:12 and then 150 MW at 17:01; ' +
+    '31 Jan (Heywood separation, 2020), in the storm the tie trips with no warning and stays out for the rest of the day; ' +
     '13 Feb (Moorabool towers, 2024), in the storm the tie is limited to 400 MW, unannounced, as the largest unit trips; ' +
-    '25 May (Callide C, 2021), Act III\'s trip takes the next largest unit with it 5 grid-minutes later.'), dense);   // (W7, Q-121: the briefing announces that trip)
-  assert.ok(ours('warning-leads').includes('announced at 04:00, before the clock runs. On 13 Feb (Moorabool towers, 2024), the storm limits ' +
-    'the tie with no notice (Event-dense day). No trip\'s minute is ever warned'), ours('warning-leads'));
+    '25 May (Callide C, 2021), Act III\'s trip takes the next largest unit with it 5 grid-minutes later; ' +   // (W7, Q-121: the briefing announces that trip)
+    '15 Jun (Market suspension, 2022), Mt Hazel coal 4 out of service all day; ' +
+    '25 Aug (QNI lightning, 2018), the tie trips with no warning between 13:00 and 13:30.'), dense);   // (W9: five more)
+  assert.ok(ours('warning-leads').includes('announced at 04:00, before the clock runs. On 30 Jan (Melbourne heatwave, 2009) and 13 Feb ' +
+    '(Moorabool towers, 2024), the tie is limited with no notice (Event-dense day). No trip\'s minute is ever warned'), ours('warning-leads'));
 });
 
 test('D-29: the incident draws from its own slot: the rest of the plan is the date\'s own (the late return aside: it keeps one action from it)', () => {
@@ -149,7 +157,8 @@ test('D-29: the briefing: ON THIS DAY, the sourced account (60 words at most) an
     const box = words(['ON THIS DAY', a.account, a.echo, src.textContent].join(' '));
     assert.ok(words(a.account) <= 60 && box <= 65, ymd + ': the account ' + words(a.account) + ' words, the box ' + box);
     assert.equal(src.textContent, 'Source: ' + a.sourceName);
-    assert.match(src.href, a.sourceName === 'AEMO' ? /^https:\/\/(www\.)?aemo\.com\.au\/.+\.pdf$/ : /^https:\/\/wattclarity\.com\.au\//);
+    assert.match(src.href, a.sourceName === 'WattClarity' ? /^https:\/\/wattclarity\.com\.au\// : /^https:\/\/(www\.)?aemo\.com\.au\/.+/,
+      'AEMO\'s site (W9: NEMMCO\'s 2009 report is in its archive, 2019\'s is a media release) or WattClarity');
     assert.equal(p.$('briefing-title').textContent, 'Daily #' + SH.puzzleNumber(ymd) + ' · ' + a.name + ', ' + a.year + ' · PRACTICE', 'no storage: history off');
     assert.deepEqual(card.querySelectorAll('button').filter(b => !b.hidden).map(b => b.id), ['btn-agc', 'btn-take']);
     // Enter on the focused source link is the link's (it opens the source): the desk is not taken, the key not consumed
@@ -196,8 +205,8 @@ test('D-29: Loy Yang\'s dawn trip: the battery catches most of it (the echo: "no
 });
 
 test('D-29: the week ahead and the briefing say the variant\'s day (the towers: storm, where the desk scenario draws low wind)', () => {
-  const w = weekAhead(20261210, STAMP).concat(weekAhead(20270210, STAMP), weekAhead(20270520, STAMP)), word = ymd => w.find(x => x.ymd === ymd).word;
-  assert.deepEqual(DAYS.map(word), ['hot', 'storm', 'mild']);
+  const word = ymd => weekAhead(ymd - 1, STAMP, 1)[0].word;   // (W9: the day before each, so the week ahead names it)
+  assert.deepEqual(DAYS.map(word), ['hot', 'HEATWAVE', 'HEATWAVE', 'storm', 'storm', 'mild', 'low wind', 'cold']);
   const {d, scn, st} = daily(20270213);
   assert.equal(outlookWord(d.seed, scn), 'storm');
   assert.equal(outlookWord(d.seed, DESK_WEEKEND), 'low wind', 'the desk scenario would draw another day: the variant is the one passed');

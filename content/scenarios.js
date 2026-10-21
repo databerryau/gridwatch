@@ -312,12 +312,12 @@ deepFreeze(CLASSIC);
 deepFreeze(DESK);
 deepFreeze(DESK_WEEKEND);
 
-// W6 (D-29): `over` laid over `base`: plain objects merged key by key, arrays and values replaced
+// W6 (D-29): `over` laid over `base`: plain objects merged key by key, arrays and values replaced; W9: a null removes the key
 function overlay(base, over) {
   const plain = x => x !== null && typeof x === 'object' && !Array.isArray(x);
   if (!plain(base) || !plain(over)) return over;
   const o = Object.assign({}, base);
-  for (const k of Object.keys(over)) o[k] = overlay(base[k], over[k]);
+  for (const k of Object.keys(over)) if (over[k] === null) delete o[k]; else o[k] = overlay(base[k], over[k]); // W9: null removes a key (a unit off at 04:00)
   return o;
 }
 /**

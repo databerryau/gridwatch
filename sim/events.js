@@ -343,8 +343,9 @@ function applyEvent(state, e, out) {
     case 'unitOutage': {
       const k = unitIndex(a.unit);
       setOutage(state, k, a.untilS);
-      announce(state, out, e, 'outage', e.atS, a.untilS, 'Late return from maintenance: ' + V.MACHINES[k].name +
-        ' unavailable until ' + clockText(a.untilS) + '.', 'UNIT_OUTAGE');
+      announce(state, out, e, 'outage', e.atS, a.untilS, a.forced // W9: an anniversary's forced outage, all day
+        ? 'Forced outage: ' + V.MACHINES[k].name + ' is out of service all day.'
+        : 'Late return from maintenance: ' + V.MACHINES[k].name + ' unavailable until ' + clockText(a.untilS) + '.', 'UNIT_OUTAGE');
       return;
     }
     case 'unitReturn': {
