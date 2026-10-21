@@ -147,6 +147,9 @@ export function dayText(day, plan) {
   const when = day.weekend ? 'weekend' : 'weekday';
   const lean = day.weekend ? ', one coal unit off' : '', later = ((plan && LATER[plan.word]) || '') + (plan && plan.trip ? TRIP_LINE : '');
   if (day.temp === 'MILD') return 'Today: a mild ' + when + lean + (day.weekend ? '.' : ': rooftop solar cuts midday demand.') + later;
+  const word = plan && plan.season; // Q-127: a season's month names its day type; no heatwave comes on a warm or cold day
+  if (word === 'cold') return 'Today: a cold ' + when + lean + (day.weekend ? '.' : ': heating lifts the morning and the evening.') + later;
+  if (word === 'warm') return 'Today: a warm ' + when + lean + '.' + later;
   return 'Today: a hot ' + when + lean + (!plan ? '; any heatwave warning comes mid-morning.' : plan.heat ? ', heatwave this afternoon.' : ', no heatwave forecast.') + later;
 }
 /** Q-110: the day line's outlook sentence for a storm or a wind drought (app/week.js's words): no time, which the warning gives. */
@@ -160,6 +163,7 @@ export const LATER = Object.freeze({storm: ' Storms likely later.', 'low wind': 
 export const TRIP_LINE = ' Expect a trip during the evening peak.';
 /** The day line's plan (dayText) from the state at 04:00 and its obs: null on the classic day (no director's plan). */
 export const dayPlan = (st, obs) => (st.scn.dayplan ? {heat: obs.news.some(n => n.kind === 'heat' && n.atS === 0), word: outlookWord(st.seed, st.scn),
+  ...(st.scn.season ? {season: st.scn.season.word} : {}),
   trip: eveningTrip(st.seed, st.scn)} : null);
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

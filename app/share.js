@@ -2,7 +2,7 @@
 //   Y-1  puzzleNumber: the daily's number, #1 on the launch date (content/dailies.js `from`), counted in UTC days
 //        (Date.UTC differences), so a daylight-saving change never skips or repeats one.
 //   Y-4  shareCard: text only, at most MAX_LINES lines and MAX_CHARS characters: the number, the date, the score,
-//        letter (★ at par or better) and rank (W7, Q-118: app/score.js RANKS), the tags, the sparkline (12 two-hour blocks from 04:00, each the worst deviation
+//        letter (★ at STAR_POINTS or more: W8, Q-128) and rank (W7, Q-118: app/score.js RANKS), the tags, the sparkline (12 two-hour blocks from 04:00, each the worst deviation
 //        from 50 Hz in its window: score.spark) and the lowest Hz, three rows against par, the closing line, the link.
 //        No event names and no clock times: lintCard is the check (the tests run it on every card they build).
 //   Y-5  copyText: the clipboard, else a hidden textarea and execCommand('copy'); the end card says "Copied".

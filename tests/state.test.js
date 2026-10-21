@@ -179,7 +179,7 @@ const OBS_SHAPE = {
   balance: ['schedSupplyMW', 'supplyMW', 'servedMW', 'loadMW', 'imbalanceMW', 'inertiaMW', 'governorsMW', 'batteryPfrMW',
     'guardMW', 'loadReliefMW', 'shedMW', 'renPfrMW', 'roofPfrMW'],
   demand: ['nowMW', 'servedMW', 'shedMW', 'heatActive', 'tempC', 'underlyingMW', 'rooftopMW', 'litMW', 'unservedMW', 'flexMW'],
-  sky: ['clearness', 'windFrac'],
+  sky: ['clearness', 'windFrac', 'sun'], // Q-127: sun {riseH, setH}, the map's light
   'units[]': ['id', 'station', 'name', 'cls', 'mode', 'sync', 'timerS', 'outMW', 'schedMW', 'basePointMW', 'agcTrimMW',
     'govMW', 'availMW', 'minMW', 'ratingMW', 'rampMWMin', 'offer', 'startToMinS', 'hotS', 'starts', 'upForS', 'downForS',
     'startBlock', 'stopBlock', 'slipHz', 'phaseDeg', 'outUntilS'],

@@ -24,7 +24,7 @@ import * as weather from '../sim/weather.js';
 import {rateAt, gridAfter, NIGHT_S, PEAK} from '../sim/clock.js';
 import {restoreAllowedS, isPerfect} from '../sim/market.js';
 import {imbalanceSegments, tripSheds, n1Word} from '../desk/calc.js';
-import {CLASSIC, SCENARIOS, SA2016_SCENARIO} from '../content/scenarios.js';
+import {CLASSIC, SCENARIOS, SA2016_SCENARIO, SEASON_SCENARIOS} from '../content/scenarios.js';
 import {BRIEF_LOCK, NIGHT_LOCK, RESUME_LOCK, RESUMING} from '../render/format.js';
 import {DAILIES, dailyScenarioIdOf, ymdOf, dailyFor} from '../content/dailies.js';
 import {anniversaryOf, SA2016} from '../content/anniversaries.js';
@@ -182,8 +182,9 @@ export function anniversaryFor(game) {
  */
 export const nightGuard = state => state.battery.guardMW > 0 && !state.log.some(r => r.type === 'guard');
 
-// The build stamp a daily list is gated under (Q-75).
-export const dailyStamp = () => SIM_VERSION + '|' + scenarioHash(SCENARIOS.desk) + '|' + scenarioHash(SCENARIOS['desk-weekend']);
+// The build stamp a daily list is gated under (Q-75); Q-127: and the season months' scenarios, all in one hash.
+export const dailyStamp = () => SIM_VERSION + '|' + scenarioHash(SCENARIOS.desk) + '|' + scenarioHash(SCENARIOS['desk-weekend']) +
+  '|' + scenarioHash(Object.values(SEASON_SCENARIOS));
 
 /**
  * W6 (D-29): what an anniversary's daily is made from, beyond the stamp (which hashes the desk scenarios only): {seed (its

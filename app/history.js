@@ -9,7 +9,7 @@
 //             dnf is written, so closing the tab after 09:00 leaves a DNF; the day's end fills the entry in
 //   practice  anything else: a past date, a seed off the calendar, or today's daily once its official run is in
 // STREAK counts consecutive dates with a finished official run, to today (or to yesterday while today is not yet in);
-// BEST counts the consecutive dates at par or better (★) among them, the same way.
+// BEST counts the consecutive dates with the ★ (app/score.js STAR_POINTS; W8, Q-128) among them, the same way.
 
 import {V} from '../sim/params.js';
 

@@ -4,8 +4,8 @@
 // Pure: no day is played here (tools/daily-gen.js runs the gate).
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {DAILIES, seedOf, ymdOf, scenarioIdOf, dailyFor} from '../content/dailies.js';
-import {DESK, DESK_WEEKEND} from '../content/scenarios.js';
+import {DAILIES, seedOf, ymdOf, scenarioIdOf, dailyFor, SEASONS_FROM} from '../content/dailies.js';
+import {DESK, DESK_WEEKEND, SEASON_SCENARIOS, SCENARIOS} from '../content/scenarios.js';
 import * as G from '../app/game.js';
 import * as St from '../sim/step.js';
 import {createRequire} from 'node:module';
@@ -73,7 +73,7 @@ test('Q-75: the page\'s day (G.dailyFrom): ?seed=N (gated only as its date\'s li
   assert.deepEqual(G.dailyFrom('', today), dailyFor(today, G.dailyStamp()), 'no query: today\'s');
   assert.deepEqual(G.dailyFrom('?date=tomorrow', today), dailyFor(today, G.dailyStamp()), 'a bad date: today\'s');
   assert.deepEqual(G.dailyFrom('?seed=', today), dailyFor(today, G.dailyStamp()), 'an empty seed: today\'s');
-  assert.match(G.dailyStamp(), /^v4-core-[^|]+\|\d+\|\d+$/, 'SIM_VERSION and the two desk scenarios\' hashes');
+  assert.match(G.dailyStamp(), /^v4-core-[^|]+\|\d+\|\d+\|\d+$/, 'SIM_VERSION, the two desk scenarios\' hashes and the season months\' (Q-127)');
   // the game carries its daily; a game made from a bare seed (tests, the bench) has none
   const g = G.createGame({daily: G.dailyFrom('?seed=20261003', today), scenario: G.scenarioForSeed, storage: null});
   assert.deepEqual([g.seed, g.scenario, g.daily.ymd], [20261003, DESK_WEEKEND, 20261003]);
@@ -91,8 +91,26 @@ test('Q-75: the shipped list is {v, from, to, attempts}, stamped with this build
 });
 
 // Q-75's stamp hashes what the sim hashes (createState's scnHash: the data without its src/note prose).
-test('Q-75: the stamp is SIM_VERSION and the scenario hashes the sim records', () => {
-  assert.equal(G.dailyStamp(), [St.SIM_VERSION, St.createState(1, DESK).scnHash, St.createState(1, DESK_WEEKEND).scnHash].join('|'));
+test('Q-75: the stamp is SIM_VERSION and the scenario hashes the sim records (Q-127: and the season months\' in one)', () => {
+  assert.equal(G.dailyStamp(), [St.SIM_VERSION, St.createState(1, DESK).scnHash, St.createState(1, DESK_WEEKEND).scnHash,
+    St.scenarioHash(Object.values(SEASON_SCENARIOS))].join('|'));
+});
+
+// Q-127 (light seasons): a date plays its month from SEASONS_FROM; before it, and in February, the late-summer desk.
+test('Q-127: a date from SEASONS_FROM plays its month\'s scenario, weekday or weekend; February and every earlier date the desk\'s own', () => {
+  assert.equal(SEASONS_FROM, 20270401);
+  for (const [d, id] of [[20270331, 'desk'], [20270401, 'desk-apr'], [20270403, 'desk-weekend-apr'], [20270615, 'desk-jun'],
+    [20271225, 'desk-weekend-dec'], [20280215, 'desk'], [20280108, 'desk-weekend-jan'], [20261225, 'desk'], [20270116, 'desk-weekend']]) {
+    assert.equal(scenarioIdOf(d), id, String(d));
+    assert.ok(SCENARIOS[id], id + ' is listed');
+  }
+  assert.equal(G.scenarioForSeed(seedOf(20270525, 3)).id, 'desk-may-callide', 'an anniversary in a season month: its month\'s variant');
+  for (const s of Object.values(SEASON_SCENARIOS)) {
+    assert.ok(s.season && ['hot', 'warm', 'cold'].includes(s.season.word), s.id);
+    assert.equal(s.levers.menu.HOT.includes('aircon'), s.season.word !== 'cold', s.id + ': no air-con lever on a cold day');
+    if (s.season.word !== 'hot') assert.equal(s.weather.heatShare, 0, s.id + ': no heatwave out of season');
+    assert.ok(s.sun.riseH < 12 && s.sun.setH > 16 && s.demand.mildBaseMW.length === 49, s.id);
+  }
 });
 
 // tools/daily-gen.js (wave 2, par): its pure parts. No day is played here.

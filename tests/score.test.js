@@ -12,7 +12,7 @@ import {createState, step, observe} from '../sim/step.js';
 import {runPar} from '../sim/autopilot.js';
 import {V, SIM_VERSION} from '../sim/params.js';
 import {DESK} from '../content/scenarios.js';
-import {allIn, grade, LETTERS, LETTER_RULE, parShedMWh, HARD_MAX_POINTS} from '../app/score.js';
+import {allIn, grade, LETTERS, LETTER_RULE, parShedMWh, HARD_MAX_POINTS, STAR_POINTS, RANKS, rankOf} from '../app/score.js';
 import {createParRunner, PAR_KEY, PAR_MARK_S, PAR_CHUNK_TICKS} from '../app/par.js';
 import * as G from '../app/game.js';
 
@@ -107,7 +107,7 @@ test('Q-48: ALL-IN on seed 20261008: par $9.124M (supply 4.331 + carbon 4.793); 
   assert.deepEqual(['competent', 'lean', 'commitAll', 'doNothing'].map(k => pts(ROWS[k]).points), [987, 945, 809, 11]);
   assert.equal(pts(parDark(ROWS.par, 10)).points, 968);
   near(allIn(parDark(ROWS.par, 10), 0).total - par.total, 10 * V.VCR, 'a dark MWh costs VCR, and nothing else moves');
-  assert.deepEqual(pts(ROWS.par), {points: 1000, letter: 'A', star: true, gapMWh: 0});
+  assert.deepEqual(pts(ROWS.par), {points: 1000, letter: 'A', star: false, gapMWh: 0}, 'par itself is an A, not the chair (W8, Q-128)');
   const nd = allIn(ROWS.doNothing, 1.9e6);
   assert.deepEqual([nd.saidiMin, nd.saifi, nd.maifi], [ROWS.doNothing.saidiMin, 0.53, 0], 'the reliability readouts are copied, never added in');
   near(nd.total, nd.supply + nd.outage + nd.carbon, 'ALL-IN');
@@ -117,7 +117,7 @@ test('S-5 (Q-98): the letter comes from the gap to par in MWh-equivalents: A wit
   assert.deepEqual(LETTERS.map(l => l[0]), ['A', 'B', 'C', 'D']);
   assert.deepEqual(LETTERS.map(l => l[1]), [10, 150, 600, Infinity]);
   // (W7, Q-118: each letter with its rank, as the SCORE line above it shows them)
-  assert.equal(LETTER_RULE, 'Letter: how far behind par, in MWh dark at VCR: A ★ MARG\'S CHAIR at par or better, A SHIFT SUPERVISOR within 10, ' +
+  assert.equal(LETTER_RULE, 'Letter: how far behind par, in MWh dark at VCR: A ★ MARG\'S CHAIR at 1040 points or more, A SHIFT SUPERVISOR within 10, ' +
     'B SENIOR OPERATOR within 150, C SHIFT OPERATOR within 600, D TRAINEE beyond; F BLACK START CREW if the grid goes black.');
   // the same mistake (MWh dark added to par's own day) on a cheap day (20261008) and the median one (DESK seed 55)
   for (const day of [ROWS.par, MEDIAN_PAR]) {
@@ -131,14 +131,19 @@ test('S-5 (Q-98): the letter comes from the gap to par in MWh-equivalents: A wit
     ['competent', 'lean', 'commitAll', 'doNothing'].map(k => k + ' ' + g(ROWS[k]).gapMWh.toFixed(1)).join(', '));
 });
 
-test('Q-48: grade: a black day is an F at once; no par, or nothing to compare, is no grade; star from 1000', () => {
+test('Q-48: grade: a black day is an F at once; no par, or nothing to compare, is no grade; star from STAR_POINTS (W8, Q-128: 1040)', () => {
   const par = allIn(ROWS.par, 0);
   assert.deepEqual(grade(allIn(ROWS.lean, 0), par, true), {points: 0, letter: 'F', star: false});
   assert.deepEqual(grade(allIn(ROWS.lean, 0), null, true), {points: 0, letter: 'F', star: false}, 'without par');
   assert.equal(grade(allIn(ROWS.lean, 0), null, false), null);
   assert.equal(grade(allIn(ROWS.lean, 0), allIn({}, 0), false), null, 'par with no total');
-  const better = Object.assign({}, ROWS.par, {costDollars: ROWS.par.costDollars - 1e5});
-  assert.deepEqual(grade(allIn(better, 0), par, false).star, true, 'beating par');
+  assert.equal(STAR_POINTS, 1040);
+  const by = d => grade(allIn(Object.assign({}, ROWS.par, {costDollars: ROWS.par.costDollars - d}), 0), par, false);
+  const at = x => { let lo = 0, hi = par.total; while (hi - lo > 1) { const m = (lo + hi) / 2; if (by(m).points >= x) hi = m; else lo = m; } return hi; };
+  assert.equal(by(1e5).star, false, 'beating par by a little is not the chair');
+  const g = by(at(STAR_POINTS));
+  assert.deepEqual([g.points, g.star, rankOf(g)], [STAR_POINTS, true, RANKS['A★']], 'the chair from STAR_POINTS');
+  assert.deepEqual([by(at(STAR_POINTS - 1)).star, rankOf(by(at(STAR_POINTS - 1)))], [false, 'SHIFT SUPERVISOR'], 'one point under: an A');
 });
 
 test('Q-48 / H-12: shedding is never cheaper than the reserves: VCR > the price cap > RERT\'s price > DR\'s price (Q-55: > air-con\'s > the soak\'s)', () => {
@@ -231,7 +236,7 @@ test('S-7: on a Hard day (par shed) the points leave par\'s shed MWh out of both
   assert.equal(parShedMWh(parRow), shed);
   const par = allIn(parRow, 0), you = (mwh, k = 1) => allIn(Object.assign({}, ROWS.par, {costDollars: ROWS.par.costDollars * k, lightsMWh: mwh}), 0);
   const same = grade(you(shed), par, false, shed);
-  assert.deepEqual([same.points, same.letter, same.star, same.hardMWh], [1000, 'A', true, shed], 'par\'s own day: 1000');
+  assert.deepEqual([same.points, same.letter, same.star, same.hardMWh], [1000, 'A', false, shed], 'par\'s own day: 1000, an A (W8, Q-128: the chair needs STAR_POINTS)');
   // 20 MWh more dark than par: 10 MWh past an A, as on any day; the points against the outage-free part, not par's whole total
   const worse = grade(you(shed + 20), par, false, shed), plain = grade(you(shed + 20), par, false);
   assert.deepEqual([worse.letter, plain.letter], ['B', 'B'], 'the letter is the gap');

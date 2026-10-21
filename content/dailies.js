@@ -1,8 +1,8 @@
 // content/dailies.js: the gate-checked dailies (D-9, Q-75): exceptions only. desk/README.md §32.4.8.
-export const DAILIES = {v: 'v4-core-2d.0|2010181300|1748646610', from: '2026-10-12', to: '2027-12-31', attempts: {
-  20261023: 2, 20261026: 7, 20261127: 8, 20261207: 2, 20261216: 7, 20261217: 32, 20270128: 4, 20270507: 7,
-  20270512: 25, 20270514: 18, 20270517: 8, 20270704: 4, 20270728: 3, 20270806: 2, 20270924: 8, 20270927: 5,
-  20271112: 1, 20271123: 8, 20271213: 12, 20271216: 3, 20271229: 4, 20271230: 21, 20271231: 17,
+export const DAILIES = {v: 'v4-core-2d.0|2010181300|1748646610|3131276438', from: '2026-10-12', to: '2027-12-31', attempts: {
+  20261023: 2, 20261026: 7, 20261127: 8, 20261207: 2, 20261216: 7, 20261217: 32, 20270128: 4, 20270411: 5,
+  20270418: 3, 20270627: 2, 20270726: 2, 20270913: 7, 20270930: 25, 20271012: 1, 20271023: 39, 20271116: 4,
+  20271220: 5,
 }};
 
 export const seedOf = (ymd, k = 0) => ymd + k * 1e8;
@@ -14,9 +14,16 @@ const dayOf = ymd => {
   return y >= 1900 && t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d ? t : null;
 };
 
+/**
+ * Q-127 (light seasons, Q-122): from this date a daily plays its month (content/seasons.js), '<desk id>-<key>'; before it, and
+ * in February (the late-summer day itself), the desk's own day. The dates before it keep the day they were gated on.
+ */
+export const SEASONS_FROM = 20270401;
+export const MONTH_KEYS = Object.freeze(['', 'jan', '', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']);
+
 export function scenarioIdOf(ymd) {
-  const t = dayOf(ymd);
-  return t && t.getUTCDay() % 6 === 0 ? 'desk-weekend' : 'desk';
+  const t = dayOf(ymd), id = t && t.getUTCDay() % 6 === 0 ? 'desk-weekend' : 'desk', key = t && ymd >= SEASONS_FROM && MONTH_KEYS[t.getUTCMonth() + 1];
+  return key ? id + '-' + key : id;
 }
 
 /**

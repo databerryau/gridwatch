@@ -12,6 +12,7 @@
 import {P} from '../sim/params.js';
 import {ANNIVERSARIES, SA2016} from './anniversaries.js';
 import {scenarioIdOf, dailyScenarioIdOf} from './dailies.js';
+import {SEASON_MONTHS, SEASON_NOTE} from './seasons.js';
 
 const LEG = 'legacy index.html';
 
@@ -319,7 +320,29 @@ function overlay(base, over) {
   for (const k of Object.keys(over)) o[k] = overlay(base[k], over[k]);
   return o;
 }
-const DESKS = {desk: DESK, 'desk-weekend': DESK_WEEKEND};
+/**
+ * Q-127 (light seasons, Q-122): each month of content/seasons.js laid over DESK and DESK_WEEKEND, as 'desk-<key>' and
+ * 'desk-weekend-<key>' (content/dailies.js scenarioIdOf names a date's). Only the sun, solar, rooftop, temperatures, demand,
+ * the heatwave and MILD shares and the air-con lever change; `season` gives the app the month and its day type's word.
+ */
+function seasonOf(base, r) {
+  const src = SEASON_NOTE;
+  return deepFreeze(overlay(base, {
+    id: base.id + '-' + r.key, name: base.name.replace('Late-summer', r.name),
+    season: {src, key: r.key, name: r.name, word: r.word},
+    sun: {src, ...r.sun},
+    solar: {src, clearSkyMW: r.clearSkyMW},
+    rooftop: {note: src, clearFactor: r.clearFactor, shapePm: r.shapePm},
+    temperatureC: {note: src, table: r.table, mildTable: r.mildTable},
+    demand: {src, baseMW: r.baseMW, mildBaseMW: r.mildBaseMW},
+    weather: {src, heatShare: r.heatShare, mildShare: r.mildShare},
+    levers: {note: src + ' Air-con on hot and warm days only.', menu: {MILD: ['soak'], HOT: r.aircon ? ['soak', 'aircon'] : ['soak']}},
+  }));
+}
+export const SEASON_SCENARIOS = Object.freeze(Object.fromEntries(Object.values(SEASON_MONTHS)
+  .flatMap(r => [DESK, DESK_WEEKEND].map(b => seasonOf(b, r))).map(s => [s.id, s])));
+
+const DESKS = {desk: DESK, 'desk-weekend': DESK_WEEKEND, ...SEASON_SCENARIOS};
 /**
  * W6 (D-29): the anniversary dailies' scenarios, by id: the date's own desk scenario with the incident's overrides
  * (content/anniversaries.js), under the id content/dailies.js dailyScenarioIdOf gives the date. Listed in SCENARIOS, so a state's
@@ -338,7 +361,7 @@ export const ANNIVERSARY_SCENARIOS = Object.freeze(Object.fromEntries(Object.ent
 export const SA2016_SCENARIO = deepFreeze(overlay(DESK, Object.assign({}, SA2016.overrides, {id: 'desk-' + SA2016.key,
   name: DESK.name + '; the ' + SA2016.name + ' (' + SA2016.year + '), a Hard day'})));
 
-export const SCENARIOS = Object.freeze({classic: CLASSIC, desk: DESK, 'desk-weekend': DESK_WEEKEND, ...ANNIVERSARY_SCENARIOS,
+export const SCENARIOS = Object.freeze({classic: CLASSIC, desk: DESK, 'desk-weekend': DESK_WEEKEND, ...SEASON_SCENARIOS, ...ANNIVERSARY_SCENARIOS,
   [SA2016_SCENARIO.id]: SA2016_SCENARIO});
 
 /** Scenario by id; throws on an unknown id. */

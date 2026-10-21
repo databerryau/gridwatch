@@ -1,6 +1,6 @@
 // app/endcard.js: the end card (Q-48; desk/README.md §30.7 "Face", §30.9), loaded on demand when the
 // day ends and mounted into #end-card by the shell (deps.endCard, the alarm panel's pattern). The h2
-// first and unchanged; the SCORE, its letter (★ at 1000 or more) and its rank (W7, Q-118); YOU / PAR / Δ for SUPPLY,
+// first and unchanged; the SCORE, its letter (★ at STAR_POINTS or more, W8 Q-128) and its rank (W7, Q-118); YOU / PAR / Δ for SUPPLY,
 // OUTAGES, CARBON and ALL-IN with the arithmetic under each; the biggest gap to par; the rule; the
 // reliability readouts (SAIDI, SAIFI, MAIFI: beside OUTAGES, never added in) and their "?"; the seed
 // and hash; DOWNLOAD REPLAY LOG and PLAY THIS DAY AGAIN. Prices come from V.VCR and V.VER, never typed
@@ -18,7 +18,7 @@
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
-import {LETTER_RULE, letterText} from './score.js';
+import {LETTER_RULE, letterText, STAR_POINTS} from './score.js';
 import {copyText} from './share.js';
 import {weekText, WEEK_NOTE} from './week.js';
 import {drawMoment, drawDemandPair, COL} from '../render/charts.js';
@@ -80,7 +80,7 @@ export const parDriftText = d => 'This browser worked par out ' + signed(d) + ' 
 export const MOMENT_IMAGE_NOTE = 'Save THE MOMENT as a picture to share: no times and no events, so it spoils nobody\'s day';
 export const MOMENT_IMAGE_WAIT = 'SAVE IMAGE (computing…)', MOMENT_IMAGE_WAIT_NOTE = 'The picture waits for the fall with no GUARD, computing above';
 /** Y-3: the streaks' rule (the end card's STREAK line, as its title); and what a browser without storage is told. */
-export const STREAK_RULE = 'STREAK: days in a row with an official run finished. ★ STREAK: days in a row at par or better.';
+export const STREAK_RULE = 'STREAK: days in a row with an official run finished. ★ STREAK: days in a row in MARG\'S CHAIR (' + STAR_POINTS + ' points or more).';
 export const HISTORY_OFF = 'History off: this browser keeps no storage, so there is no streak.';
 /** Y-2 (Q-99): the end card's line on the run (app/game.js runView's). */
 export function runText(r) {

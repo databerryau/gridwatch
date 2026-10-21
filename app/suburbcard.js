@@ -268,7 +268,7 @@ export function createSuburbCard(doc, root, actions, deps) {
       const T = LEVERS[lever], g = el(doc, 'div');
       g.dataset.lever = lever;
       body.appendChild(g);
-      if (!lv.offered.includes(lever)) { g.appendChild(el(doc, 'p', '', T.name + ': hot days only (a mild day has no cooling load to relieve)')); continue; }
+      if (!lv.offered.includes(lever)) { g.appendChild(el(doc, 'p', '', T.name + ': hot days only (today has no cooling load to relieve)')); continue; }
       const R = E.lv[lever] = {blocks: []};
       // Q1 (W7): SOAK THE CITY, first in the soak's rows (card.focus() lands on it after H), while two suburbs or more are free
       if (lever === 'soak' && freeSoaks(lv).length > 1) {

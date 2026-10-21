@@ -17,16 +17,19 @@ export const WEEK_NOTE = 'The coming dailies\' outlook, as a forecast gives it: 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const utc = ymd => Date.UTC(Math.floor(ymd / 1e4), Math.floor(ymd / 100) % 100 - 1, ymd % 100);
 
-/** A regime in a word: HEATWAVE, storm, low wind (a wind drought: the stack's LOW WIND, wind toward 12% of capacity), hot, mild. */
-export function dayWord(regime) {
+/**
+ * A regime in a word: HEATWAVE, storm, low wind (a wind drought: the stack's LOW WIND, wind toward 12% of capacity), hot, mild;
+ * Q-127: in a season's month (scn.season) its non-mild type's word, warm or cold, in place of hot.
+ */
+export function dayWord(regime, scn) {
   if (regime.cls === 'heat') return 'HEATWAVE';
   if (regime.cls === 'storm') return 'storm';
   if (regime.cls === 'drought') return 'low wind';
-  return regime.temp === 'MILD' ? 'mild' : 'hot';
+  return regime.temp === 'MILD' ? 'mild' : (scn && scn.season && scn.season.word) || 'hot';
 }
 
 /** D-28: a day's word from its seed (the regime drawn first): the week ahead's, and the day's own briefing's (app/shell.js dayPlan). */
-export const outlookWord = (seed, scn) => dayWord(prerollRegime(seed, scn));
+export const outlookWord = (seed, scn) => dayWord(prerollRegime(seed, scn), scn);
 
 /**
  * W7 (Q-121): whether the day's plan has Act III's evening trip of the largest machine (sim/dayplan.js: a heatwave, wind

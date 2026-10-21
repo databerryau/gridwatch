@@ -113,7 +113,7 @@ export const SA2016 = deepFreeze({seed: 120160928, key: 'sa2016', name: 'SA blac
   }});
 
 /** Written by tools/daily-gen.js: {v: the dailies' stamp, hashes: {YYYYMMDD: the variant's scenarioHash}} when each was gated. */
-export const GATED = {v: 'v4-core-2d.0|2010181300|1748646610', hashes: {20261214: 1740361102, 20270213: 832125625, 20270525: 3868733141}};
+export const GATED = {v: 'v4-core-2d.0|2010181300|1748646610|3131276438', hashes: {20261214: 1740361102, 20270213: 832125625, 20270525: 421652195}};
 
 function deepFreeze(x) {
   if (x !== null && typeof x === 'object' && !Object.isFrozen(x)) {
