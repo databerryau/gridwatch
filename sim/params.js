@@ -597,4 +597,4 @@ v.MACHINE_IDS = v.MACHINES.map(m => m.id);
 
 /** Plain, frozen values of every param plus derived tables. Hot code hoists what it needs. */
 export const V = deepFreeze(v);
-export const BUILD = '2026-10-20';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-10-21';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

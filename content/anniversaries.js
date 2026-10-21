@@ -62,6 +62,76 @@ export const ANNIVERSARIES = deepFreeze({
       weather: {src: ON_THIS_DAY + ': mild and settled', heatShare: 0, stormShare: 0, droughtShare: 0, mildShare: 1},
       dayplan: {incident: {follow: {act: 3, afterS: 300, lockoutMin: [90, 150]}}},
     }},
+  // W9 (2026-10-21): five more, each account read in its source that day. Victoria, 25 Jan 2019: a heatwave with coal 4 out at
+  // 04:00 and all day. D-9 softened it: the source's "up to 1,600 MW" would be two of the desk's 650-MW units, and with two out
+  // par was short of supply on all 41 attempts (as on June 2022's)
+  20270125: {name: 'Victorian heatwave', year: 2019,
+    account: 'On Friday 25 January 2019, record-breaking heat in Victoria coincided with the loss of up to 1,600 MW of thermal ' +
+      'generation. AEMO called on emergency reserves, but load shedding still affected more than 200,000 Victorian ' +
+      'consumers across two hours.',
+    echo: 'Today\'s desk, softened: a heatwave with one coal unit out all day.',
+    source: 'https://www.aemo.com.au/Newsroom/Media-Release/AEMO-summer-operations-event-report', sourceName: 'AEMO',
+    overrides: {
+      weather: {src: ON_THIS_DAY + ': a heatwave', heatShare: 1, stormShare: 0, droughtShare: 0, mildShare: 0},
+      commitment: {src: 'D-29, Victoria 2019: the desk\'s 04:00 commitment with coal 4 out (a forced outage) and the rest run ' +
+        'harder overnight to cover it: simplified.', units: {coal1: 600, coal2: 600, coal3: 600, coal4: null, ccgt1: 520, hydro1: 200, hydro2: 200}},
+      dayplan: {incident: {outages: {units: ['coal4']}}},
+    }},
+  // Melbourne, 30 Jan 2009: a heatwave Saturday; two 500 kV lines fail at the report's minutes (14:12, 17:01). The desk has one
+  // tie, so each failure is a tighter import limit until the day's end
+  20270130: {name: 'Melbourne heatwave', year: 2009,
+    account: 'On 30 January 2009, in Victoria\'s heat above 40 °C, the South Morang to Keilor 500 kV line went out at 14:12, ' +
+      'and a second South Morang 500 kV line failed at 17:01. NEMMCO instructed shedding of up to 1,200 MW in western Melbourne.',
+    echo: 'Today\'s desk echoes it in the tie: each failure cuts your imports.',
+    source: 'https://www.aemo.com.au/-/media/files/electricity/nem/market_notices_and_events/market_event_reports/archive/180-0091-pdf.pdf',
+    sourceName: 'NEMMCO',
+    overrides: {
+      weather: {src: ON_THIS_DAY + ': a heatwave', heatShare: 1, stormShare: 0, droughtShare: 0, mildShare: 0},
+      dayplan: {incident: {lines: {steps: [{atH: 14.2, limitMW: 450}, {atH: 17 + 1 / 60, limitMW: 150}]}}},
+    }},
+  // Heywood, 31 Jan 2020: a hot Sunday with a storm; in it the tie trips and stays out for the rest of the day (South Australia
+  // was an island for 17 days)
+  20270131: {name: 'Heywood separation', year: 2020,
+    account: 'At about 13:24 on 31 January 2020, thunderstorm winds brought down transmission towers on two 500 kV lines in ' +
+      'Victoria. South Australia was cut off from Victoria and ran as an island until 17 February, the longest ' +
+      'separation of the two networks.',
+    echo: 'Today\'s desk: in the storm your tie trips, out for the rest of the day.',
+    source: 'https://www.aemo.com.au/-/media/files/electricity/nem/market_notices_and_events/power_system_incident_reports/2020/final-report-vic-sa-separation-31-jan--2020.pdf',
+    sourceName: 'AEMO',
+    overrides: {
+      weather: {src: ON_THIS_DAY + ': hot, with a storm', heatShare: 0, stormShare: 1, droughtShare: 0, mildShare: 0},
+      dayplan: {act2: {mix: {front: 1, unit: 0, smelter: 0, tie: 0}}, act3: {storm: {linkTripP: 0}},
+        incident: {separation: {cause: 'storm', restOfDay: true}}},
+    }},
+  // The market suspension, 15 Jun 2022: a cold Tuesday with low wind and a coal unit out all day (W8's June day). The desk
+  // has no market to suspend: the echo says so
+  20270615: {name: 'Market suspension', year: 2022,
+    account: 'In June 2022, unit outages, low wind and solar output and high winter demand made running the market under its ' +
+      'rules impossible. With close to 5 GW under direction, AEMO suspended the spot market from 14:05 on 15 June. No ' +
+      'customer load was shed.',
+    echo: 'Today\'s desk: a coal unit out, low wind, a cold evening, and no market to suspend.',
+    source: 'https://www.aemo.com.au/-/media/files/electricity/nem/market_notices_and_events/market_event_reports/2022/nem-market-suspension-and-operational-challenges-in-june-2022.pdf',
+    sourceName: 'AEMO',
+    overrides: {
+      weather: {src: ON_THIS_DAY + ': cold, with low wind', heatShare: 0, stormShare: 0, droughtShare: 1, mildShare: 0},
+      commitment: {src: 'D-29, June 2022: the desk\'s 04:00 commitment with coal 4 out (a forced outage) and the rest run ' +
+        'harder overnight to cover it: simplified.', units: {coal1: 600, coal2: 600, coal3: 600, coal4: null, ccgt1: 520, hydro1: 200, hydro2: 200}},
+      dayplan: {incident: {outages: {units: ['coal4']}}},
+    }},
+  // QNI, 25 Aug 2018: a settled winter Wednesday; early in the afternoon the tie trips with no warning (lightning), and returns
+  // after the usual 90-150 minutes. Act II keeps to a cloud front, so its own tie or unit event never sits beside it
+  20270825: {name: 'QNI lightning', year: 2018,
+    account: 'At 13:11 on 25 August 2018, both circuits joining Queensland to New South Wales tripped, with a flashover ' +
+      'consistent with lightning. Queensland and South Australia were cut off, and relays shed load in New South Wales, ' +
+      'Victoria and Tasmania. All load was back by 15:28.',
+    echo: 'Today\'s desk: early in the afternoon your tie trips without warning.',
+    source: 'https://www.aemo.com.au/-/media/Files/Electricity/NEM/Market_Notices_and_Events/Power_System_Incident_Reports/2018/Preliminary-report-Qld-SA-System-Separation-25-August-2018.pdf',
+    sourceName: 'AEMO',
+    overrides: {
+      weather: {src: ON_THIS_DAY + ': settled (no heatwave, storm or wind drought)', heatShare: 0, stormShare: 0, droughtShare: 0},
+      dayplan: {act2: {mix: {front: 1, unit: 0, smelter: 0, tie: 0}},
+        incident: {separation: {cause: 'lightning', windowH: [13, 13.5], lockoutMin: [90, 150]}}},
+    }},
 });
 
 /** The anniversary of a YYYYMMDD, or null. */
@@ -113,7 +183,7 @@ export const SA2016 = deepFreeze({seed: 120160928, key: 'sa2016', name: 'SA blac
   }});
 
 /** Written by tools/daily-gen.js: {v: the dailies' stamp, hashes: {YYYYMMDD: the variant's scenarioHash}} when each was gated. */
-export const GATED = {v: 'v4-core-2d.0|2010181300|1748646610|3131276438', hashes: {20261214: 1740361102, 20270213: 832125625, 20270525: 421652195}};
+export const GATED = {v: 'v4-core-2d.0|2010181300|1748646610|3131276438', hashes: {20261214: 1740361102, 20270125: 1227152058, 20270130: 3668823352, 20270131: 53523633, 20270213: 832125625, 20270525: 421652195, 20270615: 2798029781, 20270825: 1180989165}};
 
 function deepFreeze(x) {
   if (x !== null && typeof x === 'object' && !Object.isFrozen(x)) {

@@ -76,7 +76,21 @@ test('Q-121: the anniversaries and the Hard days say it as their plans do, each 
   const tw = of(20270213);
   assert.equal(tw.text, 'Today: a hot weekend, one coal unit off, no heatwave forecast. Storms likely later.', tw.why);
   assert.deepEqual([tw.at, incident(tw, 3).length], [-1, 1]);
-  assert.deepEqual(Object.keys(ANNIVERSARY_KEYS).map(Number), [20261214, 20270213, 20270525], 'every anniversary is above');
+  // W9: the five more. Their incidents are outages, limits and tie trips, never a unit's: the line follows the plan's own evening
+  // trip, and none of them says a time
+  const w9 = [20270125, 20270130, 20270131, 20270615, 20270825], lines = {};
+  for (const ymd of w9) {
+    const x = of(ymd);
+    assert.equal(x.says, x.at >= 0, x.why);
+    if (x.at >= 0) inPeak(x.at, x.why);
+    assert.doesNotMatch(x.text, /\d:\d\d/, x.why);
+    assert.equal(x.st.ext.events.filter(e => e.incident && e.type === 'unitTrip').length, 0, x.why + ': no unit trip is an incident');
+    lines[ymd] = x.text;
+  }
+  assert.match(lines[20270125], /^Today: a hot weekday, heatwave this afternoon\./);
+  assert.match(lines[20270615], /^Today: a cold weekday: heating lifts the morning and the evening\. Low wind likely later\./);
+  assert.match(lines[20270131], /Storms likely later\.$/, 'Heywood: the storm, whose tie trip the account tells');
+  assert.deepEqual(Object.keys(ANNIVERSARY_KEYS).map(Number), [20261214, 20270213, 20270525].concat(w9).sort(), 'every anniversary is above');
   // the Hard days: the gate's rejected attempts play the desk's plans; SA 2016 is a storm whose tie trips at the peak, unwarned (no line)
   const hard = SF.hardDays();
   for (const h of hard) {

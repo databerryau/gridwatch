@@ -1245,4 +1245,4 @@ export function createLiveStack(doc, root, actions) {
     },
   };
 }
-export const BUILD = '2026-10-20';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-10-21';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

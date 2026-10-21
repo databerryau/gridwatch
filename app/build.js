@@ -10,7 +10,7 @@
 // and first this page's files and LATE are fetched again past the cache (refetch), so the refresh loads one release.
 // (A cached app/start.js can meet a newer copy of this file: keep the name loadFailed.)
 
-export const BUILD = '2026-10-20';
+export const BUILD = '2026-10-21';
 /** The live build, beside index.html: {"build": BUILD}. */
 export const VERSION_FILE = 'version.json';
 /** At most one live check per this many ms (a tab flicked back and forth asks once). */

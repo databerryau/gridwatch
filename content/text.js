@@ -91,12 +91,18 @@ const leads = [a2.front.onsetH, a3.storm.arriveH, a3.drought.onsetH].flatMap(([h
 const ACT_NAMES = ['I', 'II', 'III'], MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const annivs = Object.entries(ANNIVERSARIES).map(([d, a]) => ({
   on: num(+d % 100) + ' ' + MONTH_NAMES[Math.floor(+d / 100) % 100 - 1] + ' (' + a.name + ', ' + a.year + ')', i: a.overrides.dayplan.incident}));
+const unitName = id => V.MACHINES.find(m => m.id === id).name;
 const incidentText = i => (i.early ? 'the largest unit trips between ' + hhmm(i.early.windowH[0]) + ' and ' + hhmm(i.early.windowH[1])
   : i.follow ? 'Act ' + ACT_NAMES[i.follow.act - 1] + '\'s trip takes the next largest unit with it ' + minutes(i.follow.afterS) + ' grid-minutes later'
-    : 'in the storm the tie is limited to ' + num(i.towers.limitMW) + ' MW, unannounced, as the largest unit trips');
+    : i.towers ? 'in the storm the tie is limited to ' + num(i.towers.limitMW) + ' MW, unannounced, as the largest unit trips'
+      // W9: the forced outages, the line failures and the separations
+      : i.outages ? i.outages.units.map(unitName).join(' and ') + ' out of service all day'
+        : i.lines ? 'tie imports limited, unannounced, to ' + i.lines.steps.map(x => num(x.limitMW) + ' MW at ' + hhmm(x.atH)).join(' and then ')
+          : i.separation && i.separation.windowH ? 'the tie trips with no warning between ' + hhmm(i.separation.windowH[0]) + ' and ' + hhmm(i.separation.windowH[1])
+            : 'in the storm the tie trips with no warning and stays out for the rest of the day');
 const ANNIV_RULES = 'The anniversary dailies keep their real incident instead: ' + annivs.map(x => x.on + ', ' + incidentText(x.i)).join('; ') + '.';
-const towersOn = annivs.filter(x => x.i.towers).map(x => x.on);
-const ANNIV_TIE = towersOn.length ? ' On ' + towersOn.join(' and ') + ', the storm limits the tie with no notice (Event-dense day).' : '';
+const towersOn = annivs.filter(x => x.i.towers || x.i.lines).map(x => x.on); // W9: and the line failures' limits
+const ANNIV_TIE = towersOn.length ? ' On ' + towersOn.join(' and ') + ', the tie is limited with no notice (Event-dense day).' : '';
 
 // The K-12 synchroscope's speed, from the sim's Phase 1a params (desk/README.md §3.3) once
 // they exist; until the sim branch merges, the Phase 0.2 stub's text.

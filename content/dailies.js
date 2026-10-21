@@ -1,8 +1,8 @@
 // content/dailies.js: the gate-checked dailies (D-9, Q-75): exceptions only. desk/README.md §32.4.8.
 export const DAILIES = {v: 'v4-core-2d.0|2010181300|1748646610|3131276438', from: '2026-10-12', to: '2027-12-31', attempts: {
-  20261023: 2, 20261026: 7, 20261127: 8, 20261207: 2, 20261216: 7, 20261217: 32, 20270128: 4, 20270411: 5,
-  20270418: 3, 20270627: 2, 20270726: 2, 20270913: 7, 20270930: 25, 20271012: 1, 20271023: 39, 20271116: 4,
-  20271220: 5,
+  20261023: 2, 20261026: 7, 20261127: 8, 20261207: 2, 20261216: 7, 20261217: 32, 20270125: 3, 20270128: 4,
+  20270411: 5, 20270418: 3, 20270615: 13, 20270627: 2, 20270726: 2, 20270825: 1, 20270913: 7, 20270930: 25,
+  20271012: 1, 20271023: 39, 20271116: 4, 20271220: 5,
 }};
 
 export const seedOf = (ymd, k = 0) => ymd + k * 1e8;
@@ -31,7 +31,8 @@ export function scenarioIdOf(ymd) {
  * (content/anniversaries.js holds the account and the overrides; content/scenarios.js makes the variant). Kept here, so this
  * module imports nothing (tools/daily-gen.js rewrites it; tests/dailies.test.js imports the rewritten text on its own).
  */
-export const ANNIVERSARY_KEYS = Object.freeze({20261214: 'loyyang', 20270213: 'towers', 20270525: 'callide'});
+export const ANNIVERSARY_KEYS = Object.freeze({20261214: 'loyyang', 20270125: 'vic2019', 20270130: 'melb2009', 20270131: 'heywood2020',
+  20270213: 'towers', 20270525: 'callide', 20270615: 'suspend2022', 20270825: 'qni2018'});
 
 /** The scenario a date's day plays, on every attempt: scenarioIdOf's, or on an anniversary its variant (D-29). */
 export function dailyScenarioIdOf(ymd) {

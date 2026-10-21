@@ -278,6 +278,21 @@ export function preroll(seed, scn, regime) {
         incident(III, t, 'unitTrip', {rule: 'largest', lockoutS: mins(r(), x.lockoutMin)});
       }
     }
+    if (I.outages) { // W9 (Victoria 2019, June 2022): units out on forced outage all day, off at 04:00 (the variant's commitment)
+      for (const u of I.outages.units) incident(1, 0, 'unitOutage', {unit: u, untilS: V.DAY_S, forced: true});
+    }
+    if (I.lines) { // W9 (Melbourne 2009): lines fail at their own minutes: each a tighter tie import limit to the day's end
+      for (const x of I.lines.steps) { const t = toS(x.atH); incident(actAt(t), t, 'tieDerate', {limitMW: x.limitMW, untilS: V.DAY_S}); away(t); }
+    }
+    if (I.separation) { // W9 (QNI 2018, SA 2020): the tie trips and stays out: in `windowH`, or while the storm blows
+      const x = I.separation, at = list.find(y => y.type === 'stormArrive'), ps = list.find(y => y.type === 'stormPass');
+      const t = x.windowH ? trip(r(), toS(x.windowH[0]), toS(x.windowH[1]))
+        : at && ps ? when(r(), at.atS + MIN, ps.atS - 1, MIN, trs.map(y => ban(y, SP, V.SPACING_GRID_S))) : -1;
+      if (t >= 0) {
+        if (!x.windowH) trs.push(t), away(t);
+        incident(actAt(t), t, 'linkTrip', {cause: x.cause, lockoutS: x.restOfDay ? V.DAY_S - t : mins(r(), x.lockoutMin)});
+      }
+    }
     if (I.cascade) { // SA 2016: the storm's cut-out (the wind farms dropping out) and, afterS later, the tie, overloaded, trips
       const x = I.cascade, co = list.find(y => y.type === 'windCutout');
       if (co) incident(III, co.atS + x.afterS, 'linkTrip', {cause: 'storm', lockoutS: mins(r(), x.lockoutMin)}), away(co.atS + x.afterS);
