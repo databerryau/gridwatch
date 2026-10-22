@@ -107,8 +107,9 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.equal(card.firstElementChild.tagName, 'H2');
   assert.equal(card.firstElementChild.textContent, 'Day over: 04:00.', 'the h2 first and unchanged');
   assert.equal(b.$('end-score').textContent, scoreText(g, b.game.end.perfect));
-  // (W7, Q-118: the letter's rule under it names every rank, so the player finds their own and the next one up)
-  assert.ok(Object.values(RANKS).every(r => b.$('end-letter').textContent.includes(r)), b.$('end-letter').textContent);
+  // (W7, Q-118: the letter's rule names every rank, so the player finds their own and the next one up; W10: on the why line's title)
+  assert.ok(Object.values(RANKS).every(r => b.$('end-letter').title.includes(r)), b.$('end-letter').title);
+  assert.match(b.$('end-letter').textContent, /^[A-DF]( ★ [A-Z' ]+)?: /, 'W10: why this letter, in money');
   assert.equal(b.chip(), 'SCORE ' + g.points, 'the chip at 04:00 is the card\'s score');
   const rows = b.rows();
   assert.deepEqual(rows[0], ['', 'YOU', 'PAR', 'Δ']);
@@ -130,7 +131,7 @@ test('Q-48: at 04:00 the chip equals the end card\'s score; the card: h2 first, 
   assert.deepEqual(b.$('end-reliability').querySelectorAll('p').map(p => squash(p.textContent)),
     ['SAIDI 0.0 min · SAIFI 0.00 · MAIFI 0.00 per household today (par: SAIDI 0.0 min)', 'No household was off for more than 3 minutes. ?']);
   assert.match(lines.at(-2), /^Seed 20261008 · v4-[\w.-]+ · 0 inputs · hash 0x[0-9a-f]{8}$/);
-  assert.deepEqual(card.querySelectorAll('button').map(x => x.id), ['btn-save-moment', 'btn-share', 'q-reliability', 'btn-save-log', 'btn-again', 'btn-shelf']);
+  assert.deepEqual(card.querySelectorAll('button').map(x => x.id), ['btn-share-top', 'btn-save-moment', 'btn-share', 'q-reliability', 'btn-save-log', 'btn-again', 'btn-shelf']);   // (W10: SHARE at the headline too)
   assert.doesNotMatch(text, FORBIDDEN);
   // the reliability "?": a button inside the card that toggles the reliability entry's popover
   const q = b.$('q-reliability');
@@ -283,7 +284,7 @@ test('Q-48, played (sampled): the CLOCK line carries SCORE FROM 21:00 through th
   p.frames(2);
   const end = p.game.end.grade, look = p.look({controls: false});
   // (2c, Q-75: a bare seed outside the shipped list's dates is not gate-checked, and says so under the h2)
-  assert.match(look, new RegExp('^END Day over: 04:00\\. Not gate-checked: this day may not be solvable\\. PRACTICE: [^.]*\\. History off: [^.]*\\. ' + scoreText(end, p.game.end.perfect).replace(/[★·]/g, '.') + '( PERFECT: [^.]*\\.)? Letter: .* LIGHTS .* THE NUMBERS YOU PAR Δ SUPPLY', 'm'), look); // (W3: the verdict, then THE NUMBERS)
+  assert.match(look, new RegExp('^END Day over: 04:00\\. Not gate-checked: this day may not be solvable\\. PRACTICE: [^.]*\\. History off: [^.]*\\. ' + scoreText(end, p.game.end.perfect).replace(/[★·]/g, '.') + ' [A-DF][^:]*: .* LIGHTS .* THE NUMBERS YOU PAR Δ SUPPLY', 'm'), look); // (W3: the verdict, then THE NUMBERS)
   assert.match(look, new RegExp('\\| SCORE ' + end.points + '$', 'm'));
   assert.deepEqual(p.h.mods.errors, []);
 });

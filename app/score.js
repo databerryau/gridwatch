@@ -64,4 +64,4 @@ export function grade(you, par, black, shedMWh = 0) {
   const g = {points, letter: LETTERS.find(l => gapMWh <= l[1])[0], star: points >= STAR_POINTS, gapMWh};
   return hard ? Object.assign(g, {hardMWh: hard}) : g;
 }
-export const BUILD = '2026-10-21';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-10-22';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

@@ -268,6 +268,7 @@ Every step ships something playable, and the live game works after every step.
 | **W7** | The owner's answers to the open questions (Q-111–Q-126): the desk, the line, the score's reveal, the ending, the tools, and the switch-over | Started 2026-10-20 ahead of W5's playtests, at the owner's request; see W7 below |
 | **W8** | Light seasons (Q-122, Q-127) and MARG'S CHAIR's margin over par (Q-128) | Built 2026-10-21 at the owner's request ("next feature please"); see W8 below |
 | **W9** | Five more anniversary dailies, two of them in winter (Q-129) | Built 2026-10-21 at the owner's request; see W9 below |
+| **W10** | The core-loop pass (Q-130): the grade judged at gate 1, the end card's why line and headline SHARE, plain closing lines, the gate 1 kit | Built 2026-10-22 at the owner's request; see W10 below |
 | Later | A region-wide VPP on evidence only (Q-123) | Not scheduled; Phase 5 (week mode) is cut |
 
 The order is the owner's (Q-107), with two placements of mine: the dark-district holds (D-26) go into W3 with the respond-card work, and the commitment desk goes into W4 with the cover plates, because the plates sit on it.
@@ -333,7 +334,7 @@ One slice, one `SIM_VERSION` bump (H-18 changes the sim), the golden re-recorded
 *Accept:* a run that presses Esc at every card ends the morning with both feeders restored; a day with two feeders has one morning hold, plus one only if a queued close is refused; no card holds while R would be refused; par's reference playback counts the holds as before.
 
 **S-5 (amended, Q-98) — Letters from the gap in MWh-equivalents.** The score stays 1000 × par's ALL-IN ÷ yours (the chip from 21:00, Q-117; the night strip; the card). Each letter has its rank (Q-118). The letter comes from g = (your ALL-IN − par's) ÷ VCR: A for g ≤ 10 MWh, B ≤ 150, C ≤ 600, D above; F for a black grid. The card says the rule in one line, with the ranks (Q-118).
-*Accept:* the same added mistake earns the same letter on a heatwave, a drought, a calm weekday and a weekend daily; `tools/par.js --allin` re-measures the competent proxy (target ≥70% A) and the lean proxy (target ≤40% A), and the result is recorded in §6.
+*Accept:* the same added mistake earns the same letter on a heatwave, a drought, a calm weekday and a weekend daily; `tools/par.js --allin` re-measures the competent proxy (target ≥70% A) and the lean proxy (recorded, no target since Q-130: gate 1 judges the letter), and the result is recorded in §6.
 
 **H-18 — No invented rules** (Q-102).
 - The random hot-unit trip (H-2) is removed. Its 96% gate stays as what it is in the physics: a unit at its limit has no raise headroom above it, which the TRIP PREVIEW shows. The lever's "✕ 3.5%/h" face goes.
@@ -521,6 +522,39 @@ Requirement text for each Y- and F- item is in `SPEC-history.md` Phase 4, amende
 - **Softened by D-9**, as Callide C was. The 2019 source loses "up to 1,600 MW" of thermal plant, and June 2022 had several units out. With two coal units out, par was short of supply on all 41 attempts of both dates, so each takes one unit, and the 2019 echo says it is softened. Gated: 2019 on attempt 3, June 2022 on attempt 13 (hard days), QNI on attempt 1, the other two on attempt 0; their ladder rows were remade.
 - **Not built:** separate end cards. The existing THIS REALLY HAPPENED cards already fire on these days' events (the tie tripped, the relays or the city desk shed, the diesel called, the heat).
 
+### W10 — The core-loop pass (Q-130)
+
+*2026-10-22, branch `w10-core-loop`. Midway through a winter look for the map (parked, nothing built), the owner asked
+whether the score and sharing systems were finished, "I feel like we're building out all these days when we don't
+really have the core loop finished". They chose to fix the grade, play a stranger's first daily end to end and fix
+what was rough, then get the gate 1 kit ready. BUILD 2026-10-22. No sim change.*
+- **Q-130, the grade.** Tuning the letters cannot meet S-5's "lean ≤40% A". On the 446 stored dailies the lean script
+  is +1.9 MWh-eq behind par on the median day and beats par on about 45% of them: it runs the morning plan with its stops
+  and none of par's security rules, and on most days the risk does not land. *Measured once* (41 dailies, the
+  04:00-21:00 shift): grid minutes with the N-1 gauge red, the median per day, par 0, lean 31, competent 22. A charge
+  for that risk at $10,000 a minute takes lean to 51% A and competent to 68%. A cap on time at risk costs par itself
+  its A on about 20% of days (some days force exposure). So the letters stay as they are (A within 10 MWh-eq, B 150,
+  C 600). The lean target is retired, and gate 1's pass line 5 ("explain their grade") judges the letter with people.
+- **A stranger's first daily, played end to end** (the day of 2026-10-22, headless and in the browser). The
+  coach-following player (`tests/lib/play.js` follow, `tools/play.mjs follow`: the line's action pressed at each
+  new ask, Enter at each card) followed 15 asks, answered 1 card and finished A or B, PERFECT, about 295 real s from
+  Space to the day's end. Fixed:
+  - Under the score, the letter's rule ("how far behind par, in MWh dark at VCR …") and PERFECT's rule are now one line
+    in money, `app/endcard.js` whyText: "B: par ran the day for $312,000 less. A needs you within $300,000. PERFECT:
+    every light of yours stayed on, and every repaired street came back on time." The full rules are on its title.
+    A PERFECT day beside a B no longer reads as a contradiction.
+  - SHARE at the headline too (`btn-share-top`, under the why line). YOUR CARD stays after the verdict (D-25); it was
+    about two screens down.
+  - The closing lines no longer say "deep" (the band's name, not a word a player reads: "Spent big and still went deep."
+    after an all-lit day). They say "a hard dip".
+- **Found, not changed:**
+  - The briefing's "Watch for: HAR4, HAR3 feeders back 06:40, 07:50" and "Real NEM physics" are jargon on a first
+    shift; the briefing is at its word cap (D-3), so they wait for gate 1.
+  - No ask between about 10:50 and 15:45 on the game clock for the coach-follower (§6, D-10, judged at gate 1).
+  - A first shift's card says PRACTICE unless COUNT THIS ONE is pressed (Y-2). Put to the owner on 2026-10-22, who kept it as built: the first shift is a learning day.
+- **The gate 1 kit:** `playtest/gate1-README.md` (the protocol, what never to say, how each pass line is scored),
+  `gate1-tester-log.md` and `gate1-results.md`.
+
 ### Later, not scheduled
 
 - **Phase 3, the rest of the city (Q-123):** only a region-wide VPP (home batteries charged at noon and spent at the peak), built only if testers or telemetry show midday is dead time. The rooftop backstop becomes a 14 March anniversary daily. P-10, U-2's HOT WATER HOLD, EV DELAY, U-5, U-7 and S-14 extended are cut; their text stays in `SPEC-history.md`.
@@ -538,7 +572,7 @@ Live targets only. Figures are on the game's day (`desk`, `desk-weekend`) unless
 | Par sheds nothing, forced heatwave | 74 of 100 | ≥70% (Q-87) | `tools/par.js` |
 | Par arms the reserve diesel | `desk` 6.5–7.5% (2a) | ≤25% | `tools/par.js` (Q-2) |
 | Competent proxy earns A | 83.5% (167 of 200 `desk`+`desk-weekend` days, Q-98's letters, `v4-core-2c.2`) | ≥70% ✓ | `tools/par.js --allin` (S-5) |
-| Lean proxy earns A | 70% (140 of 200, Q-98's letters, W1; commit-all 2.5%, B on 94%) | ≤40% (S-5) ✗: a lean day is within 10 MWh-equivalents of par; open for the owner | `tools/par.js --allin` |
+| Lean proxy earns A | 68% of the 446 dailies on the stored ladder (2026-10-22); the competent proxy 88% | retired (Q-130): the scripts differ mostly by luck on one day (lean beats par on about 45% of dailies and loses big in the tail: p90 515 MWh-eq behind), so no letter line separates them; gate 1 judges the letter with people (W5 pass line 5) | `tools/par.js --allin`, `content/ladder.js` |
 | A no-input day | fails on 22 of 22 seeds (2a); 11–54 points, a D, on 2026-10-14 (review) | fails, never black | `tools/par.js` (Q-18) |
 | SECURE states that hold ≥49.5 Hz when a credible contingency trips | `desk` 6,495 of 6,495; `desk-weekend` 6,684 of 6,685 (2a) | 1,000 of 1,000 | H-8 |
 | Heatwave share | 15.4% of 2,000 raw seeds; 17.0% of the shipped year | 15 ± 2% | `tests/dayplan.test.js`, `tools/daily-gen.js` |
@@ -805,6 +839,7 @@ The owner's answers to the open-questions brief (`decisions/2026-10-16-open-ques
 | Q-127 | **Light seasons, built now** (2026-10-21, the owner: "next feature please", then chose "Light seasons" from the options put to them): from 1 April 2027 each month plays one typical day of its own (sun times, solar and rooftop output, temperatures, demand with winter heating, the heatwave and mild shares, no air-con on a cold day). The dailies before April keep the late-summer day they were gated on. | Ahead of Q-122's deadline, the last unblocked feature; an out-of-season heatwave would break the realism rule from April. Variety for players who come back for weeks. |
 | Q-128 | **MARG'S CHAIR needs a clear win over par** (2026-10-21, the owner chose "Margin above par"): the ★ is 1,040 points or more (`app/score.js` STAR_POINTS), tuned so the coach-follower sits in the chair on 13% of dailies (56% at 1,000). Par itself is an A, SHIFT SUPERVISOR. History entries keep the ★ they were given. | The chair should mean outplaying the coach; following the line now earns A SHIFT SUPERVISOR. |
 | Q-129 | **Five more anniversary dailies, two of them in winter** (2026-10-21; the owner chose "Winter anniversaries" when asked for the next feature): 25 Jan (Victoria 2019), 30 Jan (Melbourne 2009), 31 Jan (Heywood 2020), 15 Jun (the market suspension, 2022) and 25 Aug (QNI lightning, 2018), each a sourced account and a variant of its date's day. | Seasons made winter incidents playable; a real story on the day it happened is the daily's best hook. Softened where par could not win (one coal unit out, not two). |
+| Q-130 | **The grade stays; gate 1 judges it** (2026-10-22; the owner chose "Keep it; judge at W5"): the letters are unchanged and S-5's lean ≤40% A target is retired. | Measured: the scripts differ mostly by luck on one day, so no letter line, risk charge or risk cap separates them without costing par or competent play its A; real players' explanations of their grade are the test. |
 
 ### 9.2 Open questions for the owner
 

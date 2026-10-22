@@ -18,7 +18,7 @@
 
 import {SIM_VERSION, V} from '../sim/params.js';
 import {mw, dollars, clockText, allInCents, VCR_TEXT, VER_TEXT} from '../render/format.js';
-import {LETTER_RULE, letterText, STAR_POINTS} from './score.js';
+import {LETTER_RULE, LETTERS, RANKS, letterText, STAR_POINTS} from './score.js';
 import {copyText} from './share.js';
 import {weekText, WEEK_NOTE} from './week.js';
 import {drawMoment, drawDemandPair, COL} from '../render/charts.js';
@@ -32,6 +32,22 @@ const PARTS = [
   ['OUTAGES', 'outage', d => mw(d / V.VCR, 1) + ' MWh dark at ' + VCR_TEXT + ' each'],
   ['CARBON', 'carbon', () => 'a dirtier mix than par\'s'],
 ];
+/**
+ * W10 (the core-loop pass): why this letter, in money a stranger reads (S-5's gap in MWh-equivalents is dollars at VCR), and
+ * what the next letter up needs; a PERFECT day says so plainly. The full rule (LETTER_RULE) stays on the line's title.
+ */
+export function whyText(g, perfect) {
+  if (!g || !g.letter) return '';
+  const lit = perfect ? ' PERFECT: every light of yours stayed on, and every repaired street came back on time.' : '';
+  if (g.letter === 'F') return 'F: the grid went black.';
+  const usd = x => (x >= 1e6 ? '$' + (x / 1e6).toFixed(1) + 'M' : '$' + mw(Math.max(1000, Math.round(x / 1000) * 1000)));
+  const gap = g.gapMWh * V.VCR, next = LETTERS.findIndex(l => l[0] === g.letter) - 1, chair = RANKS['A★'] + ' needs ' + STAR_POINTS + ' points.';
+  if (g.star) return 'A ★ ' + RANKS['A★'] + ': you ran the day ' + usd(-gap) + ' cheaper than par (the chair needs ' + STAR_POINTS + ' points).' + lit;
+  if (g.letter === 'A') return (gap <= 0 ? 'A: you ran the day ' + usd(-gap) + ' cheaper than par. ' + chair
+    : 'A: within ' + usd(gap) + ' of par (an A allows ' + usd(LETTERS[0][1] * V.VCR) + '). ' + chair) + lit;
+  return g.letter + ': par ran the day for ' + usd(gap) + ' less. ' + LETTERS[next][0] + ' needs you within ' + usd(LETTERS[next][1] * V.VCR) + '.' + lit;
+}
+
 /** S-6: PERFECT's rule, under the score. */
 export const PERFECT_RULE = 'PERFECT: no load shed all day, and every handed-back feeder closed within ' + mw(V.RESTORE_PACE_MAX_S / V.S_PER_MIN) + ' grid-minutes of when it could be.';
 /** L-10: the strip's legend, and each column's title. W6 (a11y): never colour alone: short is hatched, a spill dotted (CSS below). */
@@ -179,8 +195,18 @@ export function createEndCard(doc, root, actions, deps) {
     score.id = 'end-score';
     // S-6, S-7: the marks' rules, and a Hard day's (par shed; a player may shed less, or none)
     if (g && g.hardMWh) line(body, 'HARD DAY: par shed ' + mw(g.hardMWh, 1) + ' MWh today. The points leave those MWh out of both totals; the letter is the gap.').id = 'end-hard';
-    if (e.perfect) line(body, PERFECT_RULE).id = 'end-perfect';
-    if (g) line(body, LETTER_RULE).id = 'end-letter';   // (S-5: the letter with its one-line rule)
+    // W10: why this letter, in money, and PERFECT in plain words (S-5's and S-6's full rules on its title)
+    if (g) { const w = line(body, whyText(g, e.perfect)); w.id = 'end-letter'; w.title = LETTER_RULE + (e.perfect ? ' ' + PERFECT_RULE : ''); }
+    // W10: SHARE at the headline too (the card itself stays after the verdict, D-25): the same copy as YOUR CARD's
+    if (v.end.share) {
+      const top = el('button', 'SHARE', '', null);
+      top.id = 'btn-share-top';
+      top.title = 'Copy your card (it is shown below, after the verdict): no times and no events';
+      top.addEventListener('click', () => { const b = doc.getElementById('btn-share'); if (b) b.click(); top.textContent = 'COPIED'; });
+      const row = line(body, '');
+      row.id = 'end-share-top';
+      row.append(top, ' your card (it is below, after the verdict)');
+    }
     if (e.ladder) ladderRow(body, e.ladder);   // (W6, Y-11: where you sit among GRIDWATCH's own players)
     verdict(body, v);
     shareBox(body, v.end.share);
