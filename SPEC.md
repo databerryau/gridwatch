@@ -3,13 +3,13 @@
 **The live spec**, rewritten 2026-10-15 (§9.1 Q-104). It says what the game is today, what it should become and what to build next, in order.
 **History:** `SPEC-history.md` is the v4 spec of 2026-09-30 as last amended (2026-10-10), frozen with its line numbers unchanged, plus the slice-2c decisions Q-61–Q-91 in its Appendix C.
 **IDs are permanent.** A requirement (C-, OD-, F-, H-, P-, S-, K-, L-, G-, D-, O-, U-, Y-, W-, X-) or decision (Q-) not defined here keeps its last text in `SPEC-history.md`. Nothing is renumbered or reused.
-**Build:** `v4-core-2d.0` (`SIM_VERSION`) on `main` (c68399a, PR #25, 2026-10-17), live at <https://databerryau.github.io/gridwatch/>; W7 keeps that sim, with BUILD `2026-10-20`. Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
+**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main` (a700686, PR #29, W10, 2026-10-22), live at <https://databerryau.github.io/gridwatch/> with BUILD `2026-10-22`. Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
 **Evidence:** the full review of 2026-10-14 (`REVIEW-2026-10-14.md`: ten lenses, 118 verified findings, the readers' reports in `REVIEW-2026-10-14-reports/`) and the owner's answers to it (Q-92–Q-107).
 
 **How to read this.**
 - §0–§2: what we are making and the rules it follows.
 - §3: the game as the review of 2026-10-14 found it (`v4-core-2c.1`), kept as that snapshot; what each step built since is in its record in §5. §4: the game we are building toward.
-- §5: the plan, in build order (W0–W7), each item with an *Accept:* test.
+- §5: the plan, in build order (W0–W10), each item with an *Accept:* test.
 - §6–§11: targets, positioning, the realism ledger, decisions and risks, verification, the release checklist. Appendix B is the glossary.
 
 **How this document is kept (Q-104).**
@@ -263,9 +263,9 @@ Every step ships something playable, and the live game works after every step.
 | **W2** | The greybox check: two strangers play | Kit ready (`playtest/W2-tester-log.md`); runs when the owner can |
 | **W3** | Slice 2d: grade, debrief and the respond window | Built (2026-10-16) ahead of W2 (the owner's call), `v4-core-2d.0`; see W3 below |
 | **W4** | Slice 2e: the commitment desk and onboarding | Built (2026-10-16) ahead of W2 (the owner's call), still `v4-core-2d.0`; see W4 below |
-| **W5** | Playtest gate 1 | After W4 |
-| **W6** | Phase 4: the daily (share card, history, streak, the phone page), then telemetry | Started (2026-10-16) ahead of W5: the share card and official runs with streaks are built; see W6 below |
-| **W7** | The owner's answers to the open questions (Q-111–Q-126): the desk, the line, the score's reveal, the ending, the tools, and the switch-over | Started 2026-10-20 ahead of W5's playtests, at the owner's request; see W7 below |
+| **W5** | Playtest gate 1 | Kit ready (W10, `playtest/gate1-README.md`); next, and no new content until its results are in (Q-131) |
+| **W6** | Phase 4: the daily (share card, history, streak, the phone page), then telemetry | Built (2026-10-16 to 2026-10-20) ahead of W5, except telemetry (Y-10), which waits on the owner (§9.2 item 1); see W6 below |
+| **W7** | The owner's answers to the open questions (Q-111–Q-126): the desk, the line, the score's reveal, the ending, the tools, and the switch-over | Built 2026-10-20 (PR #26) ahead of W5's playtests, at the owner's request; see W7 below |
 | **W8** | Light seasons (Q-122, Q-127) and MARG'S CHAIR's margin over par (Q-128) | Built 2026-10-21 at the owner's request ("next feature please"); see W8 below |
 | **W9** | Five more anniversary dailies, two of them in winter (Q-129) | Built 2026-10-21 at the owner's request; see W9 below |
 | **W10** | The core-loop pass (Q-130): the grade judged at gate 1, the end card's why line and headline SHARE, plain closing lines, the gate 1 kit | Built 2026-10-22 at the owner's request; see W10 below |
@@ -436,7 +436,7 @@ Also in W3: keep par's input log when it finishes (today `app/par.js` drops it),
 
 ### W6 — Phase 4: the daily
 
-*Started 2026-10-16 (branch `w6-daily`), ahead of W5's playtests, at the owner's request ("implement the next couple of features ... in manageable chunks"). No sim change, so `v4-core-2d.0` stands. Six chunks are in: the share card (Y-1, Y-4, Y-5, Y-7), official runs with history and streaks (Y-2, Y-3), resume (F-7), and the link on a phone (Y-8), merged as PR #19 on 2026-10-16; the practice shelf (Y-2), PR #20; then the ladder (Y-11). Each was reviewed by a small workflow (two or three reviewers and a sceptic) and its confirmed findings fixed. The rest of W6 is still to build: D-28, D-29, F-8, F-9, F-14 and Y-10. Where the build differs from the text:*
+*Started 2026-10-16 (branch `w6-daily`), ahead of W5's playtests, at the owner's request ("implement the next couple of features ... in manageable chunks"). No sim change, so `v4-core-2d.0` stands. Six chunks are in: the share card (Y-1, Y-4, Y-5, Y-7), official runs with history and streaks (Y-2, Y-3), resume (F-7), and the link on a phone (Y-8), merged as PR #19 on 2026-10-16; the practice shelf (Y-2), PR #20; then the ladder (Y-11). Each was reviewed by a small workflow (two or three reviewers and a sceptic) and its confirmed findings fixed. The rest of W6 was then built: D-28, D-29, F-8 and F-9 (their records below; PRs #22, #24 and #25) and F-14 (W7, Q-126). Only Y-10, telemetry, is open (§9.2 item 1). Where the build differs from the text:*
 - **Y-1.** The number is in the briefing's title ("Daily #5"), not on the date line, so D-3's 60 words are unchanged. A seed that is not its date's listed attempt has no number; its card names the seed.
 - **Y-4.** `app/share.js` builds the card; `lintCard` rejects clock times, event and time-of-day words, district ids and characters outside ASCII, the blocks, ★ and ·. The rows: *Lights* is the MWh of yours dark against par's ("★ every light on"); *Cost* is supply c/kWh against par's, in per cent, with ★ at par or better (within 0.5% is level); *Carbon* is t/MWh, the same way. The head's score is the points, the letter and its rank (Q-118: "975 A SHIFT SUPERVISOR"). PERFECT follows the letter. A block the day never reached (a black day) is a middle dot. A card over 280 characters drops its closing line first, then its last tags.
 - **Tags.** The coach tag marks the exception. A first shift coaches unless switched off, and since W4 a later shift is off unless switched on, so the card says NO COACH only on a first shift with the coach off, and COACHED on a later shift with it on (O-8's text had NO COACH on every later card, where it says nothing). HARD DAY is added (S-7). OFFICIAL is on the verdict, not the card: a card without PRACTICE is the official run.
@@ -840,6 +840,7 @@ The owner's answers to the open-questions brief (`decisions/2026-10-16-open-ques
 | Q-128 | **MARG'S CHAIR needs a clear win over par** (2026-10-21, the owner chose "Margin above par"): the ★ is 1,040 points or more (`app/score.js` STAR_POINTS), tuned so the coach-follower sits in the chair on 13% of dailies (56% at 1,000). Par itself is an A, SHIFT SUPERVISOR. History entries keep the ★ they were given. | The chair should mean outplaying the coach; following the line now earns A SHIFT SUPERVISOR. |
 | Q-129 | **Five more anniversary dailies, two of them in winter** (2026-10-21; the owner chose "Winter anniversaries" when asked for the next feature): 25 Jan (Victoria 2019), 30 Jan (Melbourne 2009), 31 Jan (Heywood 2020), 15 Jun (the market suspension, 2022) and 25 Aug (QNI lightning, 2018), each a sourced account and a variant of its date's day. | Seasons made winter incidents playable; a real story on the day it happened is the daily's best hook. Softened where par could not win (one coal unit out, not two). |
 | Q-130 | **The grade stays; gate 1 judges it** (2026-10-22; the owner chose "Keep it; judge at W5"): the letters are unchanged and S-5's lean ≤40% A target is retired. | Measured: the scripts differ mostly by luck on one day, so no letter line, risk charge or risk cap separates them without costing par or competent play its A; real players' explanations of their grade are the test. |
+| Q-131 | **Gate 1 first** (2026-11-13, through the owner's session; confirms the owner's 2026-10-22 "core loop first"): the next step is the gate 1 playtest (W5), and no new content (dailies, seasons, scenarios, map looks) is built until its results are in `playtest/gate1-results.md`. Fixes to what is built still ship. (W5; `CLAUDE.md` "Current focus") | W6-W10 were built ahead of the gate; the score and the first shift are only judged by people playing them. |
 
 ### 9.2 Open questions for the owner
 

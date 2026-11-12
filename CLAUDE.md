@@ -3,6 +3,18 @@
 The owner wants the loop between a change and its check to be quick (2026-10-07, SPEC Q-40).
 These rules are for every agent working in this repo.
 
+## The spec and the current focus
+
+- **`SPEC.md` is the live spec**: what the game is, what it should become and the plan in build
+  order (§5). `SPEC-history.md` is frozen history. Read SPEC before changing behaviour.
+- **Its rule for decisions (Q-104):** a decision is written into the rule it changes, in the same
+  commit, and gets one row in §9.1 (the next Q- number; IDs are never reused). Built behaviour is
+  described as built in its step's record in §5; a decided change not built yet says *decided,
+  builds in Wn*.
+- **Current focus (2026-11-13, SPEC Q-131):** the gate 1 playtest (W5, `playtest/gate1-README.md`)
+  comes first. No new content (dailies, seasons, scenarios, map looks) until its results are in
+  `playtest/gate1-results.md`. Fixes to what is built still ship.
+
 ## The loop
 
 - **While fixing, run only the tests your change can affect.** `npm run test:changed` finds them
@@ -40,3 +52,24 @@ between moments and render one frame before a press, one during it and one after
 - Parallel agents never open a browser or start a server. They check headless (`tests/lib/dom.js`,
   `tests/lib/play.js`).
 - Stop preview servers and any `setInterval` frame drivers when done.
+
+## Releasing
+
+- **Pushing `main` deploys live** (GitHub Pages). Work on a branch, open a PR, and let the owner
+  merge unless they said otherwise.
+- **At a release, bump BUILD** (the date; `.2` for a second that day) in `app/build.js`,
+  `version.json` and the eight carriers listed in `app/boot.js` CARRIED (`sim/params.js`,
+  `sim/step.js`, `app/score.js`, `app/history.js`, `app/director.js`, `desk/desk.js`,
+  `render/livestack.js`, `content/closing.js`). `tests/version.test.js` names any missed.
+- **After a `SIM_VERSION` change, run `npm run verify`** (about 10-12 min, in the background). It
+  restamps the dailies, the ladder, the anniversaries and the selftest when nothing graded moved,
+  and otherwise prints the full regeneration to run (SPEC §11). A stale stamp cannot merge.
+- After the deploy, check the live site: `playtest/release-checks.md`.
+
+## Worktrees and workflows
+
+- **The integrator cleans up after a workflow run:** `git worktree remove` each finished
+  `.claude/worktrees/wf_*` worktree, `git worktree prune`, and `git branch -d` the branches
+  that were merged. The repo lives on OneDrive; every stray worktree is thousands of synced files.
+- **Never SendMessage a workflow agent.** A send starts a second copy in the same worktree. Put
+  guidance in the prompt, or stop the run and relaunch it.
