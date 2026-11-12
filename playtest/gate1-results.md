@@ -3,7 +3,7 @@
 Fill this in from the tester logs (`gate1-tester-log.md`) when the last session is done. The pass lines are SPEC.md
 §5 W5; how each is scored is in `gate1-README.md`.
 
-**Build (footer):** __________  **Dates:** __________  **Testers:** ___ (energy professionals: ___)
+**Version (end card, Seed line: "v4-core-2d.0"):** __________  **Dates:** __________  **Testers:** ___ (energy professionals: ___)
 
 ## Per tester
 

@@ -2,7 +2,7 @@
 
 One copy per tester (`gate1-README.md`). Print it and fill it in by hand while you watch.
 
-**Tester:** ____________  **Date:** __________  **Game version (footer):** __________
+**Tester:** ____________  **Date:** __________  **Version (end card, Seed line: "v4-core-2d.0"):** __________
 **Energy professional?** Y / N  **Recorded, with consent?** Y / N  **Start time:** ______
 **Briefing title says FIRST SHIFT?** Y / N (if N, stop: use a fresh browser, see the README)
 
