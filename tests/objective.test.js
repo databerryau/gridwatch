@@ -22,6 +22,7 @@ import {objective, capacityShort, consequence, steady} from '../app/objective.js
 import {clockText} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
 import {followDay} from './lib/follow.js';
+import {dieselAdvice} from '../sim/autopilot.js';
 import * as FOLLOW from '../tools/follow.mjs';
 import {LINE_REACT_S} from '../app/game.js';
 import {FLAT_RATE} from '../app/director.js';
@@ -251,6 +252,25 @@ test('STOP: the line names the dearest committed gas unit, what it saves and whe
   const again = /Start it again by (\d\d):(\d\d)/.exec(x.text);
   const m = machine('ccgt2'), earliest = obs.s + Math.max(0, u.outMW - u.minMW) / m.rampMWs + m.t4S + m.minDownS;
   assert.ok(secOfH(Number(again[1]) + Number(again[2]) / 60) >= Math.floor(earliest / 300) * 300, 'restart ' + again[0] + ' vs the earliest START ' + at(earliest));
+});
+
+test('Q-133: from 12:00 to 14:30 a STOP that saves $50,000 or more is an ask (ACT NOW), the midday\'s decision; outside it, or saving less, a SAVING note', () => {
+  const base = morning().keep.stop, x = lineOf(base);
+  assert.ok(base.s < O.STOP_ASK_FROM_S, at(base.s));
+  assert.equal(x.level, 'plan', 'before 12:00: a note ($' + Math.round(x.saving) + ')');
+  assert.deepEqual([at(O.STOP_ASK_FROM_S), at(O.STOP_ASK_TO_S)], ['12:00', '14:30']);
+  // the same desk read at 12:30 (every clock in the observation moved on together), with gas cheap, then dear
+  const at1230 = (offer) => {
+    const noon = copy(base), d = O.STOP_ASK_FROM_S + 1800 - base.s;
+    noon.s += d;
+    for (const fc of [noon.forecast, noon.dayAhead]) fc.fromS += d;
+    for (const u of noon.units) if (u.cls === 'ccgt') u.offer += offer;
+    return lineOf(noon);
+  };
+  const cheap = at1230(-10), dear = at1230(40);
+  for (const y of [cheap, dear]) { assert.equal(y.kind, 'stop', y.text); assert.deepEqual(y.action, {type: 'stop', unit: 'ccgt2'}); }
+  assert.ok(cheap.saving < O.STOP_ASK_SAVING && dear.saving >= O.STOP_ASK_SAVING, '$' + Math.round(cheap.saving) + ', $' + Math.round(dear.saving));
+  assert.deepEqual([cheap.level, dear.level], ['plan', 'act']);
 });
 
 test('STOP condition 1: no line when the desk would be short, one trip in, before the unit could be back and an hour more', () => {
@@ -663,7 +683,7 @@ test('the water as par and the plan view count it: the reserve sits above HYDRO_
   assert.equal(x.saving, lineOf(base).saving);
 });
 
-test('the reserve diesel is stood down only when HALF of the battery\'s and demand response\'s energy would carry what is left (a band, so the two never chase each other)', () => {
+test('the reserve diesel is stood down when HALF of the battery\'s and demand response\'s energy would carry what is left, or (Q-132) when par\'s adequacy walk without it is clean; then never armed again (no chase)', () => {
   const o = plain();
   for (const u of o.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
   Object.assign(o.rert, {armed: true, leadS: 0, outMW: V.RERT_MW, standingDown: false, armedEver: true});
@@ -677,8 +697,20 @@ test('the reserve diesel is stood down only when HALF of the battery\'s and dema
   const deep = copy(o);
   setGap(deep.dayAhead, R0, gapMW, from, to); setGap(deep.forecast, F0, gapMW, from, to);
   assert.ok((gapMW + V.PAR_RERT_MARGIN_MW) * 4 > (above + drE) / 2 && (gapMW + V.PAR_RERT_MARGIN_MW) * 4 < above + drE);
-  const x = lineOf(deep);
-  assert.ok(!(x.action && x.action.type === 'standDownRERT'), 'half would not carry it: the diesel stays: ' + x.text);
+  // half would not carry it, but all of it would: par's adequacy walk (Q-132) stands it down, as par would
+  assert.deepEqual(dieselAdvice(deep), {arm: false, standDown: true});
+  assert.deepEqual(lineOf(deep).action, {type: 'standDownRERT'});
+  // stood down, the same day asks for no arm: the two never chase each other
+  const off = copy(deep);
+  Object.assign(off.rert, {armed: false, leadS: 0, outMW: 0});
+  const y = lineOf(off);
+  assert.ok(!(y.action && y.action.type === 'armRERT'), 'stood down, then: ' + y.text);
+  // more than all of their energy: neither the band nor the walk would carry it: the diesel stays
+  const deeper = copy(o);
+  setGap(deeper.dayAhead, R0, 2 * gapMW, from, to); setGap(deeper.forecast, F0, 2 * gapMW, from, to);
+  assert.equal(dieselAdvice(deeper).standDown, false);
+  const x = lineOf(deeper);
+  assert.ok(!(x.action && x.action.type === 'standDownRERT'), 'neither would carry it: the diesel stays: ' + x.text);
   // a gap a quarter of their energy carries: stand it down
   const shallow = copy(o);
   setGap(shallow.dayAhead, R0, gapMW / 3, from, to); setGap(shallow.forecast, F0, gapMW / 3, from, to);
@@ -699,10 +731,11 @@ test('the reserve diesel is armed within its 20 min and ACT_WITHIN_S of the prof
     for (const fc of [x0.forecast, x0.dayAhead]) { const R = O.capacityGap(x0, fc, {real: true}), tk = k => fc.fromS + (k + 1) * fc.stepS; setGap(fc, R, k => (tk(k) >= from && tk(k) < from + 3 * S_PER_H ? 1200 : tk(k) >= from - fc.stepS && tk(k) < from ? -50 : -700)); }
     const ctx = {edited: false, planview: PV, dayAhead: x0.dayAhead, proj, leadS: FLAT_RATE * LINE_REACT_S}; // CRUISE's
     const x = objective(x0, ctx);
-    assert.match(x.text, /more than the battery and demand response can carry\. The reserve diesel \(hold E\) takes 20 min and costs dearly(\.|: arm it by \d\d:\d\d\.)$/, min + ' min: ' + x.text);
-    const by = /short from (\d\d):(\d\d).*arm it by (\d\d):(\d\d)\.$/.exec(x.text);
-    if (by) assert.ok(60 * by[3] + Number(by[4]) + V.RERT_LEAD_S / S_PER_MIN <= 60 * by[1] + Number(by[2]), 'armed by then, there by the shortfall: ' + x.text);
-    if (!x.action) { assert.ok(min * S_PER_MIN >= cap - 300, min + ' min: not yet armed'); continue; }
+    // (Q-132: no time to arm by: par's adequacy walk decides when, and the line asks then)
+    assert.match(x.text, /more than the battery and demand response can carry\. The reserve diesel \(hold E\) takes 20 min and costs dearly(\.|: this line says when to arm it\.)$/, min + ' min: ' + x.text);
+    // (Q-132: not yet armed, as par would not arm yet: its walk arms 20-25 min (PAR_RERT_LOOKAHEAD_MIN) ahead)
+    if (!x.action) { assert.ok(min * S_PER_MIN >= cap - 300 || !dieselAdvice(x0).arm, min + ' min: not yet armed'); continue; }
+    assert.equal(dieselAdvice(x0).arm, true, min + ' min: armed only when par would arm');
     assert.ok(min * S_PER_MIN < cap, min + ' min ahead: armed inside ' + cap / S_PER_MIN + ' min');
     assert.deepEqual(x.action, {type: 'armRERT'});
     arms.push(min);

@@ -61,7 +61,7 @@ test('every new press answers: the briefing (HAND and the header\'s chip, the "?
   answers(p, 'btn-agc', /btn-agc "AGC" \[on/, 'AGC');
   assert.equal(chip.hidden, true, 'AGC: no chip');
   const r = answers(p, 'btn-take', x => !/^BRIEFING /m.test(x.after) && /^CLOCK 04:30/m.test(x.after), 'TAKE THE DESK');
-  assert.match(r.before, /^BRIEFING .* Watch for: heatwave 14:05–20:00; RED7, RED5 feeders back 06:45, 07:15; CCGT 2 out until 07:45\. /m);
+  assert.match(r.before, /^BRIEFING .* Watch for: heatwave 14:05–20:00; 2 streets under repair until 06:45, 07:15; CCGT 2 out until 07:45. /m);
   assert.deepEqual(p.h.mods.errors, []);
 });
 

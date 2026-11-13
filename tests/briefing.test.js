@@ -46,12 +46,12 @@ test('Q-81: a heat + tie derate + feeder date (20261005): Watch for names all th
   const feeders = obs.districts.filter(d => d.clearS >= 0).sort((a, c) => a.clearS - c.clearS);
   const want = {
     heat: 'heatwave ' + hm(of('heat').fromS) + '–' + hm(of('heat').toS),
-    tie: 'tie import ≤ ' + obs.tie.importLimitMW + ' MW until ' + hm(of('tie').toS),
-    network: feeders.map(d => d.id).join(', ') + ' feeders back ' + feeders.map(d => hm(d.clearS)).join(', '),
+    tie: 'imports capped at ' + obs.tie.importLimitMW + ' MW until ' + hm(of('tie').toS),
+    network: feeders.length + ' streets under repair until ' + feeders.map(d => hm(d.clearS)).join(', '),
   };
   const briefs = briefsOn(b);
   assert.deepEqual(briefs, at0.map(n => want[n.kind]), 'one brief per item, in the news order');
-  assert.deepEqual(briefs, ['heatwave 13:20–19:50', 'RED5, RED6 feeders back 06:45, 07:05', 'tie import ≤ 500 MW until 10:00'], 'the date\'s own words');
+  assert.deepEqual(briefs, ['heatwave 13:20–19:50', '2 streets under repair until 06:45, 07:05', 'imports capped at 500 MW until 10:00'], 'the date\'s own words');
   for (const x of briefs) assert.ok(words(x) <= 8, x);
   assert.ok(words('Watch for: ' + briefs.join('; ')) <= 30);
   // a bare seed is not that date's listed daily (the shipped list is empty until stage C): it says so, before play
@@ -69,20 +69,20 @@ test('Q-81: a heat + tie derate + feeder date (20261005): Watch for names all th
 
 test('Q-81: a late return names the unit as the desk does (weekday CCGT 2, weekend coal 4); a gated daily has no label; classic has no 04:00 news', () => {
   const day = observe(createState(20261007, G.scenarioForSeed(20261007)));
-  assert.deepEqual(watchFor(day), ['heatwave 14:05–20:00', 'RED7, RED5 feeders back 06:45, 07:15', 'CCGT 2 out until 07:45']);
+  assert.deepEqual(watchFor(day), ['heatwave 14:05–20:00', '2 streets under repair until 06:45, 07:15', 'CCGT 2 out until 07:45']);
   const weekend = observe(createState(20261011, G.scenarioForSeed(20261011)));
-  assert.deepEqual(watchFor(weekend), ['TAL3, TAL5 feeders back 06:30, 07:35', 'COAL 4 out until 11:30']);
+  assert.deepEqual(watchFor(weekend), ['2 streets under repair until 06:30, 07:35', 'COAL 4 out until 11:30']);
   const doc = makeDocument('<p id="w"></p>'), w = doc.getElementById('w'), into = (obs, gated) => { watchForInto(doc, w, obs, gated); return [w.hidden, w.textContent]; };
-  assert.deepEqual(into(weekend, true), [false, 'Watch for: TAL3, TAL5 feeders back 06:30, 07:35; COAL 4 out until 11:30.'], 'gated: no label');
+  assert.deepEqual(into(weekend, true), [false, 'Watch for: 2 streets under repair until 06:30, 07:35; COAL 4 out until 11:30.'], 'gated: no label');
   assert.deepEqual(into(weekend, null), into(weekend, true), 'null (not a daily): no label either');
-  assert.deepEqual(into(weekend, false), [false, 'Watch for: TAL3, TAL5 feeders back 06:30, 07:35; COAL 4 out until 11:30. ' + NOT_GATED]);
+  assert.deepEqual(into(weekend, false), [false, 'Watch for: 2 streets under repair until 06:30, 07:35; COAL 4 out until 11:30. ' + NOT_GATED]);
   const classic = observe(createState(4, CLASSIC));
   assert.deepEqual([watchFor(classic), into(classic, null)], [[], [true, '']], 'nothing announced at 04:00, nothing to watch for: hidden');
   assert.deepEqual(into(classic, false), [false, ' ' + NOT_GATED], 'the label alone');
   // one feeder alone, and two on one clearance (2e's first shift): the brief reads in the singular, one time
   const one = {news: [{atS: 0, kind: 'network', fromS: 9000, toS: 9000}], districts: [{id: 'SAL3', clearS: 9000}, {id: 'SAL4', clearS: -1}]};
   const same = {news: one.news, districts: [{id: 'SAL3', clearS: 9000}, {id: 'SAL4', clearS: 9000}]};
-  assert.deepEqual([watchFor(one), watchFor(same)], [['SAL3 feeder back 06:30'], ['SAL3, SAL4 feeders back 06:30']]);
+  assert.deepEqual([watchFor(one), watchFor(same)], [['1 street under repair until 06:30'], ['2 streets under repair until 06:30']]);
 });
 
 test('Q-80: the day\'s line reads the 04:00 news on a planned day, and keeps the mid-morning words on the classic day', () => {

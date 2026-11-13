@@ -198,7 +198,7 @@ import {SCENARIOS} from '../content/scenarios.js';
 import {clockText, priceText} from '../render/format.js';
 import {unitLabel} from '../desk/util.js';
 import {imbalanceSegments, tripSheds} from '../desk/calc.js';
-import {aimFlex} from '../sim/autopilot.js';
+import {aimFlex, airconAdvice, dieselAdvice} from '../sim/autopilot.js';
 import {gridAfter, NIGHT_S} from '../sim/clock.js';
 import {darkShareAt, litMW} from '../sim/dark.js';
 import {onInS as unitOnInS, syncWaitS, startFromS} from '../sim/onat.js';
@@ -229,6 +229,8 @@ export const CRIT_MW = 300, NOW_S = 300;
 export const HYDRO_SUSTAIN_H = 5, HYDRO_SUSTAIN_MIN_H = 1;
 /** A STOP is worth saying from this saving ($); below it the wear of a start is not worth it. */
 export const STOP_MIN_SAVING = 10000;
+/** Q-133: from 12:00 to 14:30 (grid s from 04:00), the middle of the solar belly, a STOP saving at least this much is an ask (ACT NOW), not a SAVING note. */
+export const STOP_ASK_SAVING = 50000, STOP_ASK_FROM_S = 8 * 3600, STOP_ASK_TO_S = 10.5 * 3600;
 /** A unit is "at its floor" within this of its minimum (MW). */
 export const STOP_FLOOR_MW = 20;
 /** No second STOP while a unit is unloading or has been down for less than this (grid seconds). */
@@ -940,13 +942,17 @@ function commitNow(X, line) {
 function reserveDiesel(X, line, back) {
   const obs = X.obs, s = X.s, R = capacityGap(obs, X.day, {real: true});
   const late = firstRun(R, s + V.RERT_LEAD_S, s + V.FC_HORIZON_S);
-  if (!late || !beyondReserves(obs, R, late) || (back && arrival(back) <= late.atS)) return null;
+  const outS = late ? reservesOutS(obs, R, late) : -1;
+  if (outS < 0 || (back && arrival(back) <= late.atS)) return null;
   const head = 'You will be ' + figure(hourOf(R, late)) + ' short from ' + atMark(late.crossS) + ', more than the battery and demand response can carry. ';
   if (obs.rert.armed) return line({level: 'crit', kind: 'commit', text: head + (obs.rert.standingDown ? 'The reserve diesel is standing down: it can be armed again once it is off.' : 'The reserve diesel is on its way.'), startBy: s, short: pub(late)});
   // (ACT_WITHIN_S of the profile before its 20 min, no reading lead: it costs by the minute; never past
   // spare()'s stand-down look-ahead, so the two never chase each other)
-  const arm = late.atS - s < Math.min(V.RERT_LEAD_S + X.actS, V.PAR_RERT_STANDDOWN_MIN * S_PER_MIN);
-  return line({level: 'crit', kind: 'commit', text: head + 'The reserve diesel (hold E) takes 20 min and costs dearly' + (arm ? '.' : ': arm it by ' + atMark(late.crossS - V.RERT_LEAD_S) + '.'),
+  // Q-132: armed when par's own adequacy walk would arm it (sim/autopilot.js dieselAdvice: the hydro, demand response and the
+  // battery spent forward, the diesel 20 min out), never before the battery and demand response run out (outS) is within its
+  // lead: armed for the shortfall's start, it ran its 300 MW, $80,000 a minute, through the hour they could carry.
+  const arm = outS - s < Math.min(V.RERT_LEAD_S + X.actS, V.PAR_RERT_STANDDOWN_MIN * S_PER_MIN) && dieselAdvice(obs).arm;
+  return line({level: 'crit', kind: 'commit', text: head + 'The reserve diesel (hold E) takes 20 min and costs dearly' + (arm ? '.' : ': this line says when to arm it.'),
     targets: ['key-rert'], action: arm ? {type: 'armRERT'} : null, startBy: s, short: pub(late)});
 }
 
@@ -1037,7 +1043,11 @@ function aircon(X, line) {
       }
     }
   }
-  return null;
+  // Q-132: else the cycle par would book now (its adequacy walk spends the water, demand response and the battery forward and
+  // finds the peak uncovered inside the cycle), so the peak is not left to the reserve diesel at $80,000 a minute
+  const p = airconAdvice(X.obs), x = p && free.find(y => y.id === p.suburb);
+  return x ? city(X, line, x, 'aircon', p.atS, 'The battery and demand response will not cover the peak. ',
+    'pre-cool from ' + at(p.atS - V.PRECOOL_S) + '; ' + Math.round(100 * V.SNAPBACK_FRAC) + '% of the relief comes back after.') : null;
 }
 
 // A run as the line carries it (the public shape of capacityShort).
@@ -1059,7 +1069,13 @@ function hourOf(G, run) {
 // rule 8. Demand response first, while it has hours: the use of the two that lasts longest. frac:
 // the share of their energy counted (the diesel is armed against all of it and stood down only
 // when half would do: the band that keeps the two from chasing each other).
-function beyondReserves(obs, R, run, frac = 1) {
+function beyondReserves(obs, R, run, frac = 1) { return reservesOutS(obs, R, run, frac) >= 0; }
+
+// The first column of run where the battery and demand response, spent forward as beyondReserves
+// spends them, no longer cover the gap (grid s), or -1. The diesel is wanted from then, not from
+// the run's start: armed for the start it ran its 300 MW, at $80,000 a minute, through the hour
+// the battery and demand response could carry (Q-132; the coach-follower's 13 Nov 2026).
+function reservesOutS(obs, R, run, frac = 1) {
   const b = obs.battery, h = R.stepS / S_PER_H;
   let battE = frac * Math.max(0, b.socMWh - RESERVE_MWH), drE = frac * V.DR_MW * (obs.dr.callsLeft * V.DR_DURATION_S + Math.max(0, obs.dr.activeS)) / S_PER_H;
   for (let k = 0; k < R.n; k++) {
@@ -1068,10 +1084,10 @@ function beyondReserves(obs, R, run, frac = 1) {
     const need = R.gap[k] + V.PAR_RERT_MARGIN_MW;
     if (need <= 0) continue;
     const fromDr = Math.min(need, drE > 0 ? V.DR_MW : 0), fromBatt = Math.min(need - fromDr, battE > 0 ? b.ratedMW : 0);
-    if (fromBatt + fromDr < need - 1) return true;
+    if (fromBatt + fromDr < need - 1) return t;
     battE -= fromBatt * h; drE -= fromDr * h;
   }
-  return false;
+  return -1;
 }
 
 // What a feeder under repair picks up at its return (MW): its cold load now, with the forecast's underlying demand then.
@@ -1128,7 +1144,8 @@ function spare(X, line) {
     const until = s + V.PAR_RERT_STANDDOWN_MIN * S_PER_MIN;
     const R = capacityGap(obs, X.day, {real: true, rert: false});
     const run = firstRun(R, -Infinity, until);
-    if (!(run && beyondReserves(obs, R, run, RERT_STANDDOWN_FRAC)) && X.redNowMW < SHORT_MIN_MW && sec.level !== 'SHEDDING') {
+    // (Q-132: or when par's adequacy walk without it is clean for the whole horizon, as par stands it down)
+    if ((!(run && beyondReserves(obs, R, run, RERT_STANDDOWN_FRAC)) || dieselAdvice(obs).standDown) && X.redNowMW < SHORT_MIN_MW && sec.level !== 'SHEDDING') {
       return line({level: 'act', kind: 'spare', text: 'The desk holds without the reserve diesel for the next ' + V.PAR_RERT_STANDDOWN_MIN + ' min. Stand it down (hold E): it costs ' +
         usdText(V.RERT_MW * V.RERT_COST / S_PER_MIN) + ' a minute.', targets: ['key-rert'], action: {type: 'standDownRERT'}, startBy: s});
     }
@@ -1268,7 +1285,11 @@ function stop(X, line) {
   const spareOk = u.cls === 'ocgt' ? 'Spare holds without it now: ' : '';
   const text = msl ? 'Demand is falling under what the running units must make. Stop ' + name + ': it ' + until + '.' + again
     : spareOk + name + ' ' + until + '. Stop it: saves about ' + usdText(saving) + ', carbon included' + (need ? ', if nothing trips before then' : '') + '.' + again;
-  return line({level: msl ? 'act' : 'plan', kind: 'stop', text, targets: ['guard-stop-' + u.id], action: {type: 'stop', unit: u.id}, startBy: s, saving});
+  // Q-133: in the middle of the belly (solar carries the city; the day's trips come in the morning and the evening) a large
+  // saving is the midday's decision, asked as one: par decommits there too, and the coach-follower had no ask from about
+  // 12:00 to 15:20 (42 real s on 13 Nov 2026, against D-10's 40). Earlier it stays a SAVING note, so the asks split the gap.
+  const ask = msl || (s >= STOP_ASK_FROM_S && s <= STOP_ASK_TO_S && saving >= STOP_ASK_SAVING);
+  return line({level: ask ? 'act' : 'plan', kind: 'stop', text, targets: ['guard-stop-' + u.id], action: {type: 'stop', unit: u.id}, startBy: s, saving});
 }
 
 /**
