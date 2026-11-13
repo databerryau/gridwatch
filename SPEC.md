@@ -3,7 +3,7 @@
 **The live spec**, rewritten 2026-10-15 (§9.1 Q-104). It says what the game is today, what it should become and what to build next, in order.
 **History:** `SPEC-history.md` is the v4 spec of 2026-09-30 as last amended (2026-10-10), frozen with its line numbers unchanged, plus the slice-2c decisions Q-61–Q-91 in its Appendix C.
 **IDs are permanent.** A requirement (C-, OD-, F-, H-, P-, S-, K-, L-, G-, D-, O-, U-, Y-, W-, X-) or decision (Q-) not defined here keeps its last text in `SPEC-history.md`. Nothing is renumbered or reused.
-**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main`, live at <https://databerryau.github.io/gridwatch/>; BUILD `2026-11-13` since W11 (`2026-10-22` for W10, PR #29). Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
+**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main`, live at <https://databerryau.github.io/gridwatch/>; BUILD `2026-11-13.2` since W12 (`2026-11-13` for W11, PR #32). Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
 **Evidence:** the full review of 2026-10-14 (`REVIEW-2026-10-14.md`: ten lenses, 118 verified findings, the readers' reports in `REVIEW-2026-10-14-reports/`) and the owner's answers to it (Q-92–Q-107).
 
 **How to read this.**
@@ -270,6 +270,7 @@ Every step ships something playable, and the live game works after every step.
 | **W9** | Five more anniversary dailies, two of them in winter (Q-129) | Built 2026-10-21 at the owner's request; see W9 below |
 | **W10** | The core-loop pass (Q-130): the grade judged at gate 1, the end card's why line and headline SHARE, plain closing lines, the gate 1 kit | Built 2026-10-22 at the owner's request; see W10 below |
 | **W11** | Gate 1 fixes (Q-132–Q-134): the coach's reserve diesel and air-con, a midday ask, the briefing's Watch for in plain words | Built 2026-11-13 (fixes to the gate 1 build under Q-131, no new content); see W11 below |
+| **W12** | Gate 1 readiness: the defects the review of 2026-11-13 found that a tester would meet (`REVIEW-2026-11-13.md`) | Built 2026-11-13 (fixes under Q-131, no sim change); see W12 below |
 | Later | A region-wide VPP on evidence only (Q-123) | Not scheduled; Phase 5 (week mode) is cut |
 
 The order is the owner's (Q-107), with two placements of mine: the dark-district holds (D-26) go into W3 with the respond-card work, and the commitment desk goes into W4 with the cover plates, because the plates sit on it.
@@ -596,6 +597,46 @@ on a first shift or with COACH ON, so nobody else's game gets easier. BUILD 2026
   the days left over 40 s no unit is worth 0,000 to stop at midday: what is left of D-10's midday is gate 1's to judge.
   The play is deterministic: a second run of both reproduced all 59 grades.
 
+### W12 — Gate 1 readiness (the review of 2026-11-13)
+
+*2026-11-13, branch `gate1-readiness-fixes`. A full review of the strategy and the code (`REVIEW-2026-11-13.md`, ten
+readers, each finding confirmed by a script or by reading) found defects a gate 1 tester would meet inside six minutes. Its
+pre-playtest list, fixed here. No sim change, no SIM_VERSION bump; BUILD 2026-11-13.2. Each fix has a test that failed on
+the old code (`tests/held-keys.test.js`, `coach-stop-note`, `resume-redispatch`, `relays-tile`, `stack-newday`).*
+- **Keys and clicks (K-3, K-24).** A key's auto-repeat is never a guard's second press: a held X on the coal lever had
+  stopped all four units. S, X and P are the desk's alone, so the shell's fallback never sends an unguarded START or STOP
+  (it did whenever the focus was on another desk control). On an AGC day an arrow never hand-sets a base point (one
+  PageDown had held the dispatch, the trap Q-93 removed). The second click of a double-click is never the second press.
+  A press on a knob changes nothing until the pointer turns 5°; the wheel steps once per 40 px of scroll (a trackpad
+  swipe had run the GUARD 0 → 500). A held C, U, O, R, B or N acts once; a held Space, ?, comma, T or L toggles once.
+- **The first minutes.** COACH ON and I'VE DONE THIS BEFORE take mouse clicks (the plan bar let clicks through to the
+  map). HOW TO PLAY says "click START beside its lever" (it described a ○ button the AGC desk does not have), and holds
+  the clock while it is open. In the briefing, Enter on a focused button of the header, the drawer, SETTINGS or a
+  popover presses that button (Enter on "?" had started the day); anywhere else it takes the desk; a held Enter takes
+  nothing.
+- **The coach (W11's diesel and STOP).** The battery and demand response are spent from now, as par's walk spends them,
+  so with the gap already open the diesel is asked for when par would arm it, not about 20 minutes later. A STOP that is
+  only a saving (level plan) waits for any later branch with something to do (the battery's charge while power spills,
+  a soak that is due) and shows when none has. *Measured once* (`tools/play.mjs <seed> follow`): 13 Nov 2026 1008 A →
+  1064 A★ ($824,000 under par); 12 Oct 2026 995 A. The coach-follower in MARG'S CHAIR on a heatwave day is the review's
+  point about par (its P1, P2), not a reason to weaken the coach.
+- **The rest.** RE-DISPATCH scans the player's edits before it plans, so a tie move then RE-DISPATCH with no frame
+  between (a resume's replay) plans as live play did; such a shift had failed to resume. A periodic save waits 5 real s
+  after the last save (each hashes the whole day, about 11 ms; at the night roll they came every 0.43 s), and only the
+  selftest keeps an hourly hash. RELAYS SHED lights while districts the relays shed are dark and not restored, also
+  when they operated outside a trip's watch (the failing newcomer's case). The Live Stack keys its projection on the
+  day's seed, so another day picked in a briefing redraws.
+- **The browser pass** (1280×600, the daily of 14 Oct 2026, fresh modules at BUILD 2026-11-13.2). A real click on
+  COACH ON turned it off. The levers on an AGC day measured at opacity 0.45 (the aria-disabled dimming): readouts are now
+  at full strength. The header does not clip at 1280 with LIGHTS reading "2 DARK · 310 MW" and the HAND chip shown (the
+  review's suspicion, refuted). The feeder card over the suburb card's right edge was not reproduced: with the pane's
+  frames driven by hand the feeder card did not show at its hand-back, so that check is left to a played session.
+- **Left for later, with the reason.** The card's link without `https://` stays: R-2 (`playtest/release-checks.md`)
+  tests in each app whether it matters, against a long card losing its closing line under the 280-character cap. One
+  name per thing on the first shift's path (the link, the dark streets, the cost) is a wording pass across sim news,
+  the tray and the desk, for after gate 1. The release path (deploying only after the tests pass) needs the owner's
+  repository settings.
+
 ### Later, not scheduled
 
 - **Phase 3, the rest of the city (Q-123):** only a region-wide VPP (home batteries charged at noon and spent at the peak), built only if testers or telemetry show midday is dead time. The rooftop backstop becomes a 14 March anniversary daily. P-10, U-2's HOT WATER HOLD, EV DELAY, U-5, U-7 and S-14 extended are cut; their text stays in `SPEC-history.md`.
@@ -913,7 +954,7 @@ The fifteen questions the review raised were answered on 2026-10-20 (Q-111–Q-1
 **Local run.** `.claude/launch.json` serves the repo (`py -m http.server 8642`) at <http://localhost:8642/> (the game is `index.html` since Q-126). ES modules need http; never `file://`.
 
 **Headless first** (`CLAUDE.md` holds the rules):
-- `node --test` runs the suite (916 tests, about 45–75 s); `npm run test:changed` runs only the tests a change can affect.
+- `node --test` runs the suite (1,208 tests, about 100 s on the owner's PC, 7–10 min in CI); `npm run test:changed` runs only the tests a change can affect.
 - `node tools/play.mjs <seed> ...` plays the real page headless by jumping the sim between moments (`--help`). A day takes seconds.
 - `tools/par.js` (par and the proxies on any seeds), `tools/follow.mjs` (the hint-following player), `tools/daily-gen.js` (writes `content/dailies.js`), `tools/baseline-v4.js` (the classic day's golden, now a tool check: `npm run golden:v4 -- --check`), `tools/verify.mjs` (par on every daily, then the restamp, Q-125), `tools/perf.mjs` (frame cost, sizes). These are statistics: run one only when the change is about balance or par, once.
 

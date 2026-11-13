@@ -313,10 +313,22 @@ test('K-23 key map (pure): S S / X X guarded, arrows and detents on the focused 
   vm.focus = 'lever-coal';
   const k = K.createKeys();
   const coal = vm.obs.stations.find(s => s.id === 'coal');
-  assert.deepEqual(K.keyDown(k, {key: 'ArrowUp'}, vm, 0), {input: {type: 'basePoint', station: 'coal', mw: Math.round(coal.basePointMW + 10)}});
-  assert.deepEqual(K.keyDown(k, {key: 'ArrowDown', shiftKey: true}, vm, 10).input.mw, Math.round(coal.basePointMW - 1));
-  const pg = K.keyDown(k, {key: 'PageUp'}, vm, 20).input.mw;
+  // K-24: on an AGC day the levers are readouts, so an arrow never hand-sets a base point; in HAND it moves the lever
+  assert.equal(vm.obs.mode, 'AGC');
+  for (const key of ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown']) assert.equal(K.keyDown(k, {key}, vm, 0), null, key + ' on an AGC day');
+  const vh = Object.assign({}, vm, {obs: Object.assign({}, vm.obs, {mode: 'HAND'})});
+  assert.deepEqual(K.keyDown(k, {key: 'ArrowUp'}, vh, 0), {input: {type: 'basePoint', station: 'coal', mw: Math.round(coal.basePointMW + 10)}});
+  assert.deepEqual(K.keyDown(k, {key: 'ArrowDown', shiftKey: true}, vh, 10).input.mw, Math.round(coal.basePointMW - 1));
+  const pg = K.keyDown(k, {key: 'PageUp'}, vh, 20).input.mw;
   assert.ok(pg > coal.basePointMW && pg <= coal.maxMW);
+  // K-3: a held key's auto-repeat is never the second press, and a held Space toggles once
+  const kr = K.createKeys();
+  assert.equal(K.keyDown(kr, {key: 'x'}, vm, 0), null);
+  assert.equal(K.keyDown(kr, {key: 'x', repeat: true}, vm, 30), null, 'X held: the repeat is not X X');
+  assert.equal(K.keyDown(kr, {key: ' ', repeat: true}, vm, 60), null, 'Space held: no second toggle');
+  const kd = K.createKeys({holds: false});
+  assert.equal(K.keyDown(kd, {key: 's'}, vm, 0), null);
+  assert.equal(K.keyDown(kd, {key: 's'}, vm, 100), null, 'with a desk mounted S S is the desk\'s guard, never the fallback\'s');
   assert.equal(K.keyDown(k, {key: 's'}, vm, 1000), null, 'one S does nothing (K-3)');
   const off = vm.obs.units.find(u => u.station === 'coal' && u.mode === 'off' && u.startBlock === '');
   const ss = K.keyDown(k, {key: 's'}, vm, 1500);
@@ -431,7 +443,8 @@ test('K-16 via the shell: the respond card goes with a click on it, as with Ente
 
 test('C-4 / F-5: the briefing says where START is and that Space pauses; a click on the rate badge pauses and runs, as Space does', () => {
   const how = /<p id="how-keys"[^>]*>([^<]*)<\/p>/.exec(NEXT)[1];   // (D-3: behind the header "?", HOW TO PLAY)
-  assert.match(how, /click its ○ button on the lever bank \(hydro units: beside the HYDRO wheel\); it turns into START\?, so click it again to confirm\./);
+  assert.match(how, /To start a station, click START beside its lever: it turns into START\?, so click it again to confirm/);
+  assert.match(how, /The clock holds while this page is open\./);
   assert.match(how, /Keys: 1–5 pick a lever \(6 the HYDRO wheel\), then S S\./);
   assert.match(how, /The battery's outer ring is its GUARD/);
   assert.match(how, /Space pauses at any time, and you can act while paused/);

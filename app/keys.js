@@ -85,8 +85,11 @@ export function keyDown(k, ev, vm, nowMs) {
   if (ev.ctrlKey || ev.metaKey || ev.altKey) return null;
   const key = ev.key, obs = vm && vm.obs, focus = vm ? vm.focus : null;
   const lower = key.length === 1 ? key.toLowerCase() : key;
-  const double = lower === k.last.key && nowMs - k.last.atMs <= DOUBLE_MS;
+  // (a key's auto-repeat is never a second press, K-3)
+  const double = !ev.repeat && lower === k.last.key && nowMs - k.last.atMs <= DOUBLE_MS;
   if (!ev.repeat) k.last = double ? {key: '', atMs: -Infinity} : {key: lower, atMs: nowMs};
+  // a held Space, ?, comma, T or L toggles once, not thirty times a second
+  if (ev.repeat && (key === ' ' || key === 'Spacebar' || key === '?' || key === ',' || lower === 't' || lower === 'l')) return null;
   // Holds: D, E, F.
   if (lower === 'd' || lower === 'e' || lower === 'f') {
     if (lower !== 'f' && k.deskHolds) return null; // the desk's own hold keys (§13.3)
@@ -112,16 +115,21 @@ export function keyDown(k, ev, vm, nowMs) {
   // The synchroscope.
   const scopeUnit = obs.scope && obs.scope.unit ? obs.scope.unit : '';
   if (key === '[' || key === ']') return scopeUnit ? {input: {type: 'syncTrim', unit: scopeUnit, dHz: key === '[' ? -0.05 : 0.05}} : null;
-  if (lower === 'c') return scopeUnit ? {input: {type: 'syncClose', unit: scopeUnit, bypass: false}} : null;
-  if (lower === 'u') return scopeUnit ? {input: {type: 'syncAuto', unit: scopeUnit}} : null;
+  if (lower === 'c') return scopeUnit && !ev.repeat ? {input: {type: 'syncClose', unit: scopeUnit, bypass: false}} : null;
+  if (lower === 'u') return scopeUnit && !ev.repeat ? {input: {type: 'syncAuto', unit: scopeUnit}} : null;
   // The focused lever or the hydro wheel.
   const station = focus === 'wheel-hydro' ? 'hydro' : leverStation(focus);
   if (!station) return null;
   const st = stationOf(obs, station);
   if (!st) return null;
+  // With a desk mounted, S, X and P are its own (its guards, its "? IF PRESSED" line): never an unguarded START here.
+  if (k.deskHolds && (lower === 's' || lower === 'x' || lower === 'p')) return null;
   if (lower === 'p') return obs.mode === 'HAND' ? {input: {type: 'planRejoin', station, keep: false}} : null;
   if (lower === 's' && double) { const u = startable(obs, station); return u ? {input: {type: 'start', unit: u.id}} : null; }
   if (lower === 'x' && double) { const u = stoppable(obs, station); return u ? {input: {type: 'stop', unit: u.id}} : null; }
+  // K-24 (Q-93): on an AGC day the levers and the wheel are readouts. An arrow must never hand-set a base point,
+  // which would hold the dispatch until RE-DISPATCH (the trap the commitment desk removed).
+  if (obs.mode !== 'HAND') return null;
   let mw = null;
   const rating = V.STATIONS[station].ratingMW;
   if (station === 'hydro' && (key === 'ArrowLeft' || key === 'ArrowRight')) {

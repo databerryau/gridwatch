@@ -2304,12 +2304,12 @@ test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why whe
   assert.equal(refusal.textContent, '✕ no gas');
   assert.ok(!refusal.classList.contains('info'));
   // S with nothing to start on the focused station: what each unit is doing, said on the lever as help (it may be
-  // the S after an S S); the key is still not the desk's
+  // the S after an S S); the key is the desk's all the same (the review of 2026-11-13: S, X and P never reach the shell's unguarded fallback)
   const coal = playVm();
   for (const u of coal.obs.units) if (u.station === 'coal') Object.assign(u, {mode: 'on', sync: true, stopBlock: ''});
   const m = mount(at(coal, 1000));
   tap(m, '1');
-  assert.equal(tap(m, 's'), false);
+  assert.equal(tap(m, 's'), true);
   const coalNote = slotOf(m.$, 'coal').querySelector('.dk-note');
   assert.equal(coalNote.textContent, 'nothing to start: all running');
   assert.ok(coalNote.classList.contains('info'));
@@ -2325,7 +2325,7 @@ test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why whe
   Object.assign(rdy.obs.units.find(u => u.id === 'gtc2'), {mode: 'on', sync: true, stopBlock: ''});
   const r = mount(at(rdy, 1000));
   tap(r, '5');
-  assert.equal(tap(r, 's'), false);
+  assert.equal(tap(r, 's'), true);
   assert.equal(slotOf(r.$, 'gtc').querySelector('.dk-note').textContent, 'nothing to start: all running');
   Object.assign(rdy.obs.units.find(u => u.id === 'gtc2'), {mode: 'starting', sync: false, timerS: 300});
   r.desk.update(at(rdy, 1100));
@@ -2340,7 +2340,7 @@ test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why whe
   assert.deepEqual(g.actions.inputs, [{type: 'start', unit: 'gtc1'}]);
   Object.assign(gt.obs.units.find(u => u.id === 'gtc1'), {mode: 'starting', timerS: 300});
   g.desk.update(at(gt, 1300));
-  assert.equal(tap(g, 's'), false);
+  assert.equal(tap(g, 's'), true);
   const third = slotOf(g.$, 'gtc').querySelector('.dk-note');
   assert.equal(third.textContent, 'nothing to start: GT·C 1 STARTING: full speed in 5:00, GT·C 2 OFF: minimum down time: 29 min left');
   assert.ok(third.classList.contains('info'), 'not a red refusal');
@@ -2352,7 +2352,7 @@ test('K-22 / S-7 (playtest): help is drawn as help; a refused press says why whe
   Object.assign(gt.obs.units.find(u => u.id === 'gta1'), {mode: 'on', sync: true, stopBlock: 'minimum up time: 30 min left'});
   g.desk.update(at(gt, 3000));
   tap(g, '3');
-  assert.equal(tap(g, 'x'), false);
+  assert.equal(tap(g, 'x'), true);
   assert.equal(slotOf(g.$, 'gta').querySelector('.dk-note').textContent, 'nothing to stop: GT·A ON: minimum up time: 30 min left');
   assert.equal(g.actions.inputs.length, 1);
   // the watch: a press on a guard says the desk is locked (help: blue, ctx.lockNote), and sends nothing
@@ -2664,14 +2664,14 @@ test('Q-41: the hydro wheel answers S, X and P as a lever does, in blue; P rejoi
     return v;
   };
   const box = m => m.$('wheel-hydro').closest('.dk-rot');
-  // S with every machine running, X with none: what there is (the shell's map would do nothing)
+  // S with every machine running, X with none: what there is (the key is the desk's: the shell's map never sees it)
   const on = mount(at(hv('AGC', false, {mode: 'on', sync: true}), 1000));
   tap(on, '6');
-  assert.equal(tap(on, 's'), false);
+  assert.equal(tap(on, 's'), true);
   assert.equal(noteOn(box(on)), 'blue nothing to start: all running');
   const off = mount(at(hv('HAND', false, {mode: 'off', sync: false, startBlock: ''}), 1000));
   tap(off, '6');
-  assert.equal(tap(off, 'x'), false);
+  assert.equal(tap(off, 'x'), true);
   assert.equal(noteOn(box(off)), 'blue nothing to stop: none running');
   assert.equal(on.actions.inputs.length + off.actions.inputs.length, 0);
   // P on the plan already: why, taken at the wheel (the shell's map would send a rejoin the sim refuses in red)

@@ -625,10 +625,14 @@ export function objective(obs, ctx) {
   // feeder comes first (Q-91's card holds the clock for it) unless the desk is really short within instS.
   const back = obs.districts.some(d => d.dark && d.shedBy === 'task' && !(d.clearS > s) && d.restoreBlock === '') && !(realShort(X).soonMW >= BATT_MIN_MW);
   let passive = null, crit = null, ask = null;
+  // A STOP that is only a saving (level plan) is a note: it waits for any later branch with something to do (the
+  // battery's charge while power spills, a soak that is due), and shows when none has; a player who keeps the unit
+  // would otherwise never see them (the review of 2026-11-13, C2). A STOP asked as one (MSL, Q-133's midday) acts.
   for (const branch of [...(back ? [restore] : []), commitNow, shortAhead, aircon, restore, spare, pickupAhead, stop, battery, soak, commitLater]) {
     const x = branch(X, line);
     if (!x) continue;
-    if ((x.action || x.problem) && (x.kind !== 'city' || x.level === 'act')) return x;   // (O-8: a problem to act on now counts, though it names nothing)
+    const note = x.kind === 'city' && x.level !== 'act' || x.kind === 'stop' && x.level === 'plan';
+    if ((x.action || x.problem) && !note) return x;   // (O-8: a problem to act on now counts, though it names nothing)
     if (x.action) ask = ask || x; else if (x.level === 'crit') crit = crit || x; else passive = passive || x;
   }
   // 10. Quiet.
@@ -1071,20 +1075,25 @@ function hourOf(G, run) {
 // when half would do: the band that keeps the two from chasing each other).
 function beyondReserves(obs, R, run, frac = 1) { return reservesOutS(obs, R, run, frac) >= 0; }
 
-// The first column of run where the battery and demand response, spent forward as beyondReserves
-// spends them, no longer cover the gap (grid s), or -1. The diesel is wanted from then, not from
-// the run's start: armed for the start it ran its 300 MW, at $80,000 a minute, through the hour
-// the battery and demand response could carry (Q-132; the coach-follower's 13 Nov 2026).
+// The first column up to the end of run where the battery and demand response, spent forward from
+// now, no longer cover the gap (grid s), or -1. The diesel is wanted from then, not from the run's
+// start: armed for the start it ran its 300 MW, at $80,000 a minute, through the hour the battery
+// and demand response could carry (Q-132; the coach-follower's 13 Nov 2026). Spent from now, as
+// par's walk spends them: what they carry before the run is gone by its start (with the gap
+// already open, counting only from the run armed the diesel about 20 min late: the review of
+// 2026-11-13, C1). Each column asks PAR_RERT_MARGIN_MW of margin in MW, and spends its energy on
+// the gap itself, never more than is left (a last column cannot overdraw).
 function reservesOutS(obs, R, run, frac = 1) {
   const b = obs.battery, h = R.stepS / S_PER_H;
   let battE = frac * Math.max(0, b.socMWh - RESERVE_MWH), drE = frac * V.DR_MW * (obs.dr.callsLeft * V.DR_DURATION_S + Math.max(0, obs.dr.activeS)) / S_PER_H;
   for (let k = 0; k < R.n; k++) {
     const t = R.fromS + (k + 1) * R.stepS;
-    if (t < run.atS || t > run.endS) continue;
-    const need = R.gap[k] + V.PAR_RERT_MARGIN_MW;
-    if (need <= 0) continue;
-    const fromDr = Math.min(need, drE > 0 ? V.DR_MW : 0), fromBatt = Math.min(need - fromDr, battE > 0 ? b.ratedMW : 0);
-    if (fromBatt + fromDr < need - 1) return t;
+    if (t > run.endS) break;
+    const gap = R.gap[k];
+    if (gap + V.PAR_RERT_MARGIN_MW <= 0) continue;
+    const drP = drE > 0 ? Math.min(V.DR_MW, drE / h) : 0, battP = battE > 0 ? Math.min(b.ratedMW, battE / h) : 0;
+    if (drP + battP < gap + V.PAR_RERT_MARGIN_MW - 1) return t;
+    const fromDr = Math.min(Math.max(0, gap), drP), fromBatt = Math.min(Math.max(0, gap) - fromDr, battP);
     battE -= fromBatt * h; drE -= fromDr * h;
   }
   return -1;

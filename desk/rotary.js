@@ -20,6 +20,9 @@ export const SEND_IDLE_MS = 250;        // scroll / key auto-repeat: send after 
 export const PREVIEW_LINGER_MS = 1500;  // K-5: the guard ghost stays this long after the last turn
 export const SHAKE_MS = 600;            // K-12: a rough close shakes the wheel this long
 export const TIE_STEP_MW = 50, BATT_STEP_MW = 50, FINE_MW = 10, FINEST_MW = 1;   // §13.3 key steps (Shift: 10, Ctrl: 1)
+export const DRAG_START_DEG = 5;        // a press turns nothing until the pointer has moved this far round (a click focuses)
+export const WHEEL_STEP_PX = 40;        // one wheel step per this much scroll (a mouse notch is about 100 px)
+const WHEEL_LINE_PX = 16;               // deltaMode 1 (Firefox counts lines)
 const HYDRO = V.STATIONS.hydro;
 const keyStep = (ev, coarse) => (ev.ctrlKey ? FINEST_MW : ev.shiftKey ? FINE_MW : coarse);
 
@@ -37,7 +40,7 @@ function makeRotary(ctx, o) {
   const feel = (a, b) => ctx.feel(feelSt, Math.round(a), Math.round(b), o.detents ? o.detents() : null, null, o.pan);
   const pointer = el(doc, 'i', 'dk-pointer');
   knob.appendChild(pointer);
-  let drag = null, pending = null, shown = null;
+  let drag = null, pending = null, shown = null, wheelAcc = 0;
   const cur = () => (drag ? drag.v : pending ? pending.v : shown ? shown.v : o.value());
   const center = () => { const r = knob.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; };
   function apply(v, dragging) { const [lo, hi] = o.bounds(); v = clamp(v, lo, hi); return o.snap ? o.snap(v) : dragging && o.dragSnap ? o.dragSnap(v) : Math.round(v); }
@@ -53,9 +56,9 @@ function makeRotary(ctx, o) {
     knob.setPointerCapture && knob.setPointerCapture(ev.pointerId);
     const [cx, cy] = center();
     const a = pointerAngle(cx, cy, ev.clientX, ev.clientY);
-    drag = {v: cur(), a, v0: cur()};
-    if (o.angleValue) { drag.v = apply(o.angleValue(a), true); feel(drag.v0, drag.v); }
-    if (o.turning) o.turning(drag.v);
+    // A press alone changes nothing (a click to focus the knob for its keys must not jump it to the pointer's
+    // angle): the value follows the pointer only once it has turned DRAG_START_DEG from where it went down.
+    drag = {v: cur(), a, a0: a, v0: cur(), moved: false};
     knob.focus && knob.focus();
     o.render();
   });
@@ -63,6 +66,11 @@ function makeRotary(ctx, o) {
     if (!drag) return;
     const [cx, cy] = center();
     const a = pointerAngle(cx, cy, ev.clientX, ev.clientY);
+    if (!drag.moved) {
+      if (Math.abs(wrapDeg(a - drag.a0)) < DRAG_START_DEG) return;
+      drag.moved = true;
+      if (o.turning) o.turning(apply(drag.v, true));
+    }
     let v;
     if (o.angleValue) v = apply(o.angleValue(a), true);
     else { const da = wrapDeg(a - drag.a); drag.a = a; v = clamp(drag.v + da / 360 * o.perTurn, ...o.bounds()); }
@@ -98,7 +106,14 @@ function makeRotary(ctx, o) {
   knob.addEventListener('wheel', ev => {
     if (!ctx.vm() || !o.wheelStep || lockedPress(ctx, o.host) || needs()) return;
     ev.preventDefault && ev.preventDefault();
-    const v = apply(cur() + (fin(ev.deltaY) < 0 ? 1 : -1) * o.wheelStep(ev));
+    // A step per WHEEL_STEP_PX of scroll, not per event: a trackpad sends many small events (twelve 4-px events
+    // once ran the GUARD from 0 to 500). Shift+wheel arrives as deltaX in Chromium. Lines and pages count as pixels.
+    const d = fin(ev.deltaY) || fin(ev.deltaX), unit = ev.deltaMode === 1 ? WHEEL_LINE_PX : ev.deltaMode === 2 ? WHEEL_STEP_PX : 1;
+    wheelAcc += d * unit;
+    if (Math.abs(wheelAcc) < WHEEL_STEP_PX) return;
+    const up = wheelAcc < 0;
+    wheelAcc = 0;
+    const v = apply(cur() + (up ? 1 : -1) * o.wheelStep(ev));
     feel(cur(), v);
     pending = {v, t: ctx.now()};
     if (o.turning) o.turning(v);

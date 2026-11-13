@@ -20,7 +20,7 @@ import {V} from '../sim/params.js';
 import {leverScale, nextDetent, rampCone, agcBandMW, stationUnits} from './calc.js';
 import {lockedNote} from './emergency.js';
 import {el, control, setText, setAttr, setCls, setStyle, setHidden, mw, clamp, fin, clockOf, mmss, unitLabel,
-  STATION_SHORT, LEVER_STATIONS, MODE_GLYPH, MODE_WORD, PAN, GUARD_MS, GUARD_CLICK_MS, DISPATCH_NOTE, agcDesk} from './util.js';
+  STATION_SHORT, LEVER_STATIONS, MODE_GLYPH, MODE_WORD, PAN, GUARD_MS, GUARD_CLICK_MS, DISPATCH_NOTE, agcDesk, dblClick} from './util.js';
 
 export const GATE_PX = 12;          // K-1: extra drag past the spring gate
 export const DRAG_SEND_MS = 250;    // K-1: at most one basePoint per 250 ms while dragging
@@ -142,9 +142,9 @@ export function createMachine(ctx, k, pan) {
     if (a === 'abort') sent({type: 'abortStop', unit: m.id}, ' ABORT');
     else guarded(stop, a === 'cancel' ? ' CANCEL START' : ' STOP', {type: 'stop', unit: m.id}, byKey === true);
   }
-  // a folded guard (keys only) presses the armed one
-  start.addEventListener('click', () => (ctx.guards.lifted(stop.id) ? pressStop : pressStart)(false));
-  stop.addEventListener('click', () => (ctx.guards.lifted(start.id) ? pressStart : pressStop)(false));
+  // a folded guard (keys only) presses the armed one; a double-click's second click is never the guard's second press (K-3)
+  start.addEventListener('click', ev => { if (!dblClick(ev)) (ctx.guards.lifted(stop.id) ? pressStop : pressStart)(false); });
+  stop.addEventListener('click', ev => { if (!dblClick(ev)) (ctx.guards.lifted(start.id) ? pressStart : pressStop)(false); });
 
   function render() {
     if (!u) return;
@@ -263,14 +263,14 @@ export function stationButtons(ctx, sid, machines, pan) {
     b.addEventListener('focus', () => { const t = target(b, pick()); if (t) ctx.consider.focus(t, true); });
     b.addEventListener('blur', () => { for (const m of machines) ctx.consider.focus(k === 'start' ? m.start.id : m.stop.id, false); });
   }
-  bs.addEventListener('click', () => {
-    if (lockedPress(ctx, row)) return;
+  bs.addEventListener('click', ev => {
+    if (dblClick(ev) || lockedPress(ctx, row)) return;
     const m = forStart();
     if (m) { ctx.consider.press(m.start.id); m.pressStart(false); ctx.consider.up(m.start.id); return; }
     help(ctx, row, S + ': nothing to start (' + machines.map(x => x.start.getAttribute('title')).join(', ') + ')');
   });
-  bx.addEventListener('click', () => {
-    if (lockedPress(ctx, row)) return;
+  bx.addEventListener('click', ev => {
+    if (dblClick(ev) || lockedPress(ctx, row)) return;
     const m = forStop();
     if (m) { ctx.consider.press(m.stop.id); m.pressStop(false); ctx.consider.up(m.stop.id); return; }
     help(ctx, row, S + ': nothing to stop (none running)');
