@@ -123,7 +123,7 @@ recorded under their version: neither par, the no-input day nor the verify plays
 
 ```
 npm run verify                                 # replay and compare; restamp the four files when everything matches
-node tools/verify.mjs --check -j 4             # compare only (CI: .github/workflows/verify.yml)
+node tools/verify.mjs --check -j 4             # compare only, and fail on a stale stamp (CI: .github/workflows/verify.yml, a required check, Q-135)
 node tools/verify.mjs --dates 2026-10-16,2027-02-13   # these dates only (never writes)
 node tools/verify.mjs --players 1              # the scripted players on every date too (the whole ladder, ~4x the time)
 ```

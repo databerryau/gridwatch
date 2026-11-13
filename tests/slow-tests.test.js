@@ -66,10 +66,12 @@ test('report: the slowest first, OVER past the budget, FAILED named with its fir
 test('the tool on a file of its own: "suite > test" names, lines and times from node:test\'s events; its CPU time with its child\'s; a failing test marked; exit 0', () => {
   const dir = mkdtempSync(join(tmpdir(), 'slow-tests-')), f = join(dir, 'x.test.js'), out = join(dir, 'out.json');
   try {
-    // (a suite's test waits 60 ms on a timer; the other starts a node process that burns 0.4 s of CPU, then fails)
+    // (a suite's test waits 60 ms on a timer; the other starts a node process that burns 0.4 s of CPU, then fails. The child
+    // spins until it has used 0.4 s of CPU, not 0.4 s of wall time: on a busy CI runner a wall-time spin got less CPU than
+    // that, and this test turned main red on 2026-10-20, run 39376721889)
     writeFileSync(f, "import {test, describe} from 'node:test';\nimport {spawnSync} from 'node:child_process';\n" +
       "describe('a suite', () => { test('waits', async () => { await new Promise(r => setTimeout(r, 60)); }); });\n" +
-      "test('fails', () => { spawnSync(process.execPath, ['-e', 'const t = Date.now(); while (Date.now() - t < 400);']); throw new Error('on purpose\\nsecond line'); });\n");
+      "test('fails', () => { spawnSync(process.execPath, ['-e', 'const t = process.cpuUsage(); for (;;) { const u = process.cpuUsage(t); if (u.user + u.system >= 4e5) break; }']); throw new Error('on purpose\\nsecond line'); });\n");
     const env = {...process.env};
     delete env.NODE_TEST_CONTEXT;   // (node:test's run() runs nothing inside a test process; the tool is its own)
     const r = spawnSync(process.execPath, [TOOL, '--raw', '-j', '1', '--json', out, f], {encoding: 'utf8', env});
