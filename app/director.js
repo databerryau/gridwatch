@@ -29,7 +29,7 @@
 //                 card, so the card never shows before it), while it is dark with shedBy
 //                 'task' and before 21:00, after any watch and the respond card (it waits for both:
 //                 feederOn), the earliest allowed first. It holds until the feeder is restored (it is
-//                 no longer dark), or the card is answered (answerFeeder): Esc goes on (app/game.js
+//                 no longer dark), or the card is answered (answerFeeder): goOn (app/game.js
 //                 ui 'goOn': d.fc[id] = Infinity, never held again), any other desk input dismisses
 //                 it for that allowed second (d.fc[id] = it; app/game.js sendInput and redispatch,
 //                 with the card shown at the press), so a later restore that moves its allowed second
@@ -594,4 +594,4 @@ export function answerFeeder(d, state, id, leave) {
   for (let j = 0; j < at.length; j += 4) { const x = ds[at[j]]; if (x.id === id || (g && cardGroup(x) === g)) d.fc[x.id] = leave ? Infinity : at[j + 2]; }
   return true;
 }
-export const BUILD = '2026-11-13.2';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-11-13.3';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

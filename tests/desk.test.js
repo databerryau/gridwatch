@@ -2011,7 +2011,7 @@ test('K-3 (playtest): STOP? on a running unit; a third click inside 1 s of the s
   desk.update(at(vm, 3000 + COMMIT_LOCK_MS));
   $(gx).click();
   assert.deepEqual(a.inputs.at(-1), {type: 'abortStop', unit: 'ccgt1'}, 'after it, ABORT is one press');
-  assert.equal(liveText(desk), 'CCGT 1 ABORT sent');
+  assert.equal(liveText(desk), 'CCGT 1: the stop is undone, it stays on', 'said where it was pressed (the review of 2026-11-13, K6)');
   // the ABORT locks the unit's guards for 1 s too: the unit back on, a click inside it does not arm STOP?
   vm.obs.units.find(u => u.id === 'ccgt1').mode = 'on';
   desk.update(at(vm, 4000 + COMMIT_LOCK_MS / 2));

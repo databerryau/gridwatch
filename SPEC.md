@@ -3,7 +3,7 @@
 **The live spec**, rewritten 2026-10-15 (§9.1 Q-104). It says what the game is today, what it should become and what to build next, in order.
 **History:** `SPEC-history.md` is the v4 spec of 2026-09-30 as last amended (2026-10-10), frozen with its line numbers unchanged, plus the slice-2c decisions Q-61–Q-91 in its Appendix C.
 **IDs are permanent.** A requirement (C-, OD-, F-, H-, P-, S-, K-, L-, G-, D-, O-, U-, Y-, W-, X-) or decision (Q-) not defined here keeps its last text in `SPEC-history.md`. Nothing is renumbered or reused.
-**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main`, live at <https://databerryau.github.io/gridwatch/>; BUILD `2026-11-13.2` since W12 (`2026-11-13` for W11, PR #32). Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
+**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main`, live at <https://databerryau.github.io/gridwatch/>; BUILD `2026-11-13.3` since W13 (`2026-11-13.2` for W12, PR #33). Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
 **Evidence:** the full review of 2026-10-14 (`REVIEW-2026-10-14.md`: ten lenses, 118 verified findings, the readers' reports in `REVIEW-2026-10-14-reports/`) and the owner's answers to it (Q-92–Q-107).
 
 **How to read this.**
@@ -271,6 +271,7 @@ Every step ships something playable, and the live game works after every step.
 | **W10** | The core-loop pass (Q-130): the grade judged at gate 1, the end card's why line and headline SHARE, plain closing lines, the gate 1 kit | Built 2026-10-22 at the owner's request; see W10 below |
 | **W11** | Gate 1 fixes (Q-132–Q-134): the coach's reserve diesel and air-con, a midday ask, the briefing's Watch for in plain words | Built 2026-11-13 (fixes to the gate 1 build under Q-131, no new content); see W11 below |
 | **W12** | Gate 1 readiness: the defects the review of 2026-11-13 found that a tester would meet (`REVIEW-2026-11-13.md`) | Built 2026-11-13 (fixes under Q-131, no sim change); see W12 below |
+| **W13** | Gate 1 readiness, second pass: the review's remaining medium defects a first shift can meet, and a reaction time for the coach-follower | Built 2026-11-13 (fixes under Q-131, no sim change); see W13 below |
 | Later | A region-wide VPP on evidence only (Q-123) | Not scheduled; Phase 5 (week mode) is cut |
 
 The order is the owner's (Q-107), with two placements of mine: the dark-district holds (D-26) go into W3 with the respond-card work, and the commitment desk goes into W4 with the cover plates, because the plates sit on it.
@@ -637,6 +638,31 @@ the old code (`tests/held-keys.test.js`, `coach-stop-note`, `resume-redispatch`,
   the tray and the desk, for after gate 1. The release path (deploying only after the tests pass) is Q-135, built
   straight after.
 
+### W13 — Gate 1 readiness, second pass
+
+*2026-11-13, branch `gate1-second-pass`, after W12 and Q-135. More of the review's medium findings that a first shift can
+meet, fixed under Q-131. No sim change; BUILD 2026-11-13.3. Tests: `tests/held-keys.test.js` (K-7), `tray-words`,
+`why-line`, and the existing desk and line tests brought to the new words.*
+- **The opening.** The plan line puts the pause note first, in plain words: "Press Space to run the clock. You can act
+  first." (it was "Clock held: press Space to run…" after a 30-word ask: the one thing that unsticks the opening came last).
+- **Lost key-ups (K-7).** A window that loses focus, or a tab that hides, lets go of every held key and fires nothing:
+  FAST had stayed on with no key down, and an E held at Alt+Tab armed the reserve diesel by itself. A hidden tab's audio
+  rests, and a context a browser left suspended resumes on the next press.
+- **UNDO, not STOP.** A station's STOP word whose machine is already on its way down reads UNDO, and an undone stop says
+  so at the desk (a STOP pressed again "to be sure" had put the unit back on, with no word).
+- **Whole cards (K-9).** NOT ENOUGH SPARE is written from the sim's record ("Not enough spare. If COAL 1 (544 MW) tripped
+  now, only 310 MW could replace it within 5 min. Frequency would fall to 49.28 Hz."); it had been the record pasted
+  after a heading and cut mid-sentence. The MSL3 card fits too. The feeder card's label says Esc restores (Q-96).
+- **Edges.** The why line rounds a gap behind par up, so it never reads as the next letter's limit ("$300,000 less. A
+  needs you within $300,000" was $300,400), and par's own replay is "level with par". The Live Stack's past columns
+  read the last whole column (the one beside the now line blinked every 2.5 grid min).
+- **A reaction time for the coach-follower (the review's X2).** `follow(when, {react})`, `tools/play.mjs <seed> follow
+  --react=3`: each new ask first plays that many real seconds, then the line is read again. *Measured once* (W12 and W13
+  built), 0 s → 3 s: 13 Nov 2026 1064 A★ → 956 B; 17 Nov 994 A → 997 A; 18 Nov 963 B → 959 B. Every light stayed on in
+  all six. 18 Nov at 0 s was 990 A before W12: with the STOP notes no longer in front of the battery's asks the instant
+  follower stops fewer gas units at midday, which costs it 27 points there. The spec's earlier follower figures (W10,
+  W11) are 0-s figures, the most a person could match.
+
 ### Later, not scheduled
 
 - **Phase 3, the rest of the city (Q-123):** only a region-wide VPP (home batteries charged at noon and spent at the peak), built only if testers or telemetry show midday is dead time. The rooftop backstop becomes a 14 March anniversary daily. P-10, U-2's HOT WATER HOLD, EV DELAY, U-5, U-7 and S-14 extended are cut; their text stays in `SPEC-history.md`.
@@ -955,7 +981,7 @@ The fifteen questions the review raised were answered on 2026-10-20 (Q-111–Q-1
 **Local run.** `.claude/launch.json` serves the repo (`py -m http.server 8642`) at <http://localhost:8642/> (the game is `index.html` since Q-126). ES modules need http; never `file://`.
 
 **Headless first** (`CLAUDE.md` holds the rules):
-- `node --test` runs the suite (1,208 tests, about 100 s on the owner's PC, 7–10 min in CI); `npm run test:changed` runs only the tests a change can affect.
+- `node --test` runs the suite (1,211 tests, about 100 s on the owner's PC, 7–10 min in CI); `npm run test:changed` runs only the tests a change can affect.
 - `node tools/play.mjs <seed> ...` plays the real page headless by jumping the sim between moments (`--help`). A day takes seconds.
 - `tools/par.js` (par and the proxies on any seeds), `tools/follow.mjs` (the hint-following player), `tools/daily-gen.js` (writes `content/dailies.js`), `tools/baseline-v4.js` (the classic day's golden, now a tool check: `npm run golden:v4 -- --check`), `tools/verify.mjs` (par on every daily, then the restamp, Q-125), `tools/perf.mjs` (frame cost, sizes). These are statistics: run one only when the change is about balance or par, once.
 

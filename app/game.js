@@ -730,7 +730,7 @@ export function ui(game, cmd) {
       if (!game.offered[cmd.unit]) return 'not offered';
       game.offered[cmd.unit].taken = true; return '';
     case 'dismissRespond': return D.dismissCard(d, state) ? '' : 'no card';
-    // Q-91: Esc at the feeder card goes on (the feeder stays dark and is not held again)
+    // Q-91: goOn leaves the feeder dark and does not hold it again. Since Q-96 Esc restores at the card (shell.js feederFirst); goOn is the shed card's GO ON and the tests' way past a card
     case 'goOn': { const fc = D.feederCard(d, state); return fc && D.answerFeeder(d, state, fc, true) ? '' : 'no card'; }
     case 'pause':
       if (u.alarmsOpen) { close(); if (play) d.paused = false; return play ? '' : 'not now'; } // Q-46: closes it, then runs

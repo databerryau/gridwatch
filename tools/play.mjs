@@ -18,7 +18,9 @@
 //                           1/60 real s, the page's real clock charged as its pacer would; the objective line is said
 //                           afresh at the drawn frame (W6, the test budget)
 //   follow[=HH:MM]          do what the coach's line says (its action, as the control sends it), answering each card
-//                           with Enter, to HH:MM or the day's end; lists every ask followed (W10)
+//                           with Enter, to HH:MM or the day's end; lists every ask followed (W10). --react=S gives
+//                           it S real seconds to read and reach each ask (3 is a fair first shift; 0, the default,
+//                           presses on the ask's own frame, which no person does)
 //   until=EV[,EV][@MAX]     jump until an event: trip, card (the RESPOND card or a feeder card), mode, notice (a tray card or news),
 //                           line (the objective's text changed), ask (a new ask to act), event
 //                           (all but line); MAX ('HH:MM', '+2h') guards it (default: day's end)
@@ -118,9 +120,10 @@ for (const step of rest) {
         out = jumpOut(p.until(evs ? evs.split(',') : 'event', {line, max: max || undefined}));
         break;
       }
-      case 'follow': { // W10: the coach-following stranger, to arg ('HH:MM') or the day's end
-        const f = p.follow(arg || undefined, {line});
-        out = f.acts.length + ' asks followed, ' + f.cards + ' cards answered' + (f.acts.length ? ':\n' + f.acts.map(x => '  ' + x.at + ' ' + x.text).join('\n') : '');
+      case 'follow': { // W10: the coach-following stranger, to arg ('HH:MM') or the day's end; --react=S: S real s to read and reach
+        const react = Number(flag('react')) || 0;
+        const f = p.follow(arg || undefined, {line, react});
+        out = f.acts.length + ' asks followed, ' + f.cards + ' cards answered' + (react ? ', ' + f.gone + ' gone before the press (' + react + ' s to react)' : '') + (f.acts.length ? ':\n' + f.acts.map(x => '  ' + x.at + ' ' + x.text).join('\n') : '');
         break;
       }
       case 'look': out = prev = p.look(lookOpts); break;
