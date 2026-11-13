@@ -334,7 +334,11 @@ async function main() {
   const moved = versionOf(SELFTEST.v) !== SIM_VERSION ? ' (with SIM_VERSION, which every state hash covers, the selftest\'s hashes and the ladder\'s check: each held under ' +
     versionOf(SELFTEST.v) + ')' : '';
   if (o.check) {
-    console.log('\nMATCH: every stored value holds under ' + stamp + '. --check: nothing written; `npm run verify` restamps ' + out.map(f => f.path).join(', ') + moved + '.');
+    // (a stale stamp cannot merge, SPEC §11: the values hold, but the page would drop the stored par and the ladder on
+    // every daily until the files carry this build's stamp, so the check fails until they do)
+    console.log('\nMATCH: every stored value holds under ' + stamp + ', but the stamps are stale. --check: nothing written; `npm run verify` restamps ' +
+      out.map(f => f.path).join(', ') + moved + '.');
+    process.exitCode = 1;
     return;
   }
   for (const f of out) writeFileSync(file(f.path), f.text);

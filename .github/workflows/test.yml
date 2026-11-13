@@ -1,5 +1,6 @@
-# Runs the test suite on every push and pull request. It only reports: GitHub Pages
-# deployment from main is unaffected (spec F-10).
+# Runs the test suite on every push and pull request. A required check (SPEC Q-135): main is protected, so a pull
+# request merges, and GitHub Pages deploys it, only when this job and verify.yml's have passed on it, up to date
+# with main. On a pull request it also checks that a change the page ships bumps BUILD (F-9: a merge is a release).
 name: tests
 on:
   push:
@@ -10,9 +11,21 @@ jobs:
     timeout-minutes: 15   # (the suite, then each test file again alone for the budget: about 5 min on a runner)
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # (the BUILD check diffs the pull request against its base)
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
+      - name: a change the page ships bumps BUILD (F-9; CLAUDE.md, Releasing)
+        if: github.event_name == 'pull_request'
+        run: |
+          changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          if echo "$changed" | grep -qE '^(index\.html|next\.html|classic\.html|version\.json|(app|sim|desk|render|content|audio)/)'; then
+            if ! echo "$changed" | grep -qx 'app/build.js'; then
+              echo "::error::This pull request changes files the page ships but not BUILD. Bump it in app/build.js, version.json and the carriers app/boot.js lists (tests/version.test.js names any missed)."
+              exit 1
+            fi
+          fi
       - run: node --test
       - run: node tools/calendar-left.mjs   # F-8: warns when fewer than 60 days of dailies are left
       - run: node tools/slow-tests.mjs      # CLAUDE.md's test budget: warns about a file over 6 s alone or a test over 2.5 s

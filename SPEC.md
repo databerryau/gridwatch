@@ -71,7 +71,7 @@ The owner's standing calls. Since 2026-10-14 none of them is gospel: "do not tak
 | C-1 | A plain static site served as-is from `main`: HTML, CSS and ES modules. No build, bundle or copy step. No runtime npm dependency. No request to another origin (telemetry, Q-105, will need its own decision when it is built). |
 | C-2 | `<meta charset="utf-8">` is the first element of every HTML file. |
 | C-3 | Restart, retry and next-day are in-page resets (`createState`). Never `location.reload()`. |
-| C-4 | <https://databerryau.github.io/gridwatch/> is the one canonical host. Pushing `main` deploys. |
+| C-4 | <https://databerryau.github.io/gridwatch/> is the one canonical host. Pushing `main` deploys. `main` is protected (Q-135): a change reaches it only through a pull request whose `test` and `verify` checks passed, up to date with `main`; a pull request that changes what the page ships bumps BUILD. |
 | C-5 | Physics and market behaviour are defensible against the real NEM. Each deliberate abstraction is labelled in-game next to the real value (§8). |
 | C-6 | Determinism. Sim output depends only on `SIM_VERSION`, the seed, the scenario and the input log. External events never depend on play. |
 | C-7 | Honest time. One grid clock; physics is always integrated in grid seconds; only the playback rate varies, and it is always shown. |
@@ -634,8 +634,8 @@ the old code (`tests/held-keys.test.js`, `coach-stop-note`, `resume-redispatch`,
 - **Left for later, with the reason.** The card's link without `https://` stays: R-2 (`playtest/release-checks.md`)
   tests in each app whether it matters, against a long card losing its closing line under the 280-character cap. One
   name per thing on the first shift's path (the link, the dark streets, the cost) is a wording pass across sim news,
-  the tray and the desk, for after gate 1. The release path (deploying only after the tests pass) needs the owner's
-  repository settings.
+  the tray and the desk, for after gate 1. The release path (deploying only after the tests pass) is Q-135, built
+  straight after.
 
 ### Later, not scheduled
 
@@ -926,6 +926,7 @@ The owner's answers to the open-questions brief (`decisions/2026-10-16-open-ques
 | Q-132 | **The coach asks par about the reserve diesel and the air-con** (2026-11-13, gate 1 fixes under Q-131): arm and stand down when par's adequacy walk would, and offer the air-con cycle par would book. (W11) | Following the coach on 13 Nov 2026 armed the diesel an hour early and ran it 117 min: 639, a C; par's walk already knew when. |
 | Q-133 | **A large midday STOP is an ask** (2026-11-13): from 12:00 to 14:30 a STOP saving $50,000 or more says ACT NOW. (W11, D-10) | The coach-follower had no ask from about 12:00 to 15:20 (42 real s); decommitting through the belly is the real decision there, and par makes it. |
 | Q-134 | **The briefing's Watch for in plain words** (2026-11-13): streets under repair, imports capped; the word guards move up one. (W11, D-3) | "HAR4, HAR3 feeders back" and "tie import ≤" were jargon on a first shift (W10's finding). |
+| Q-135 | **A failing build cannot go live** (2026-11-13, the owner: "Yes, do it" to the review's release gate): `main` is protected. A pull request merges only when the `test` and `verify` checks passed on it, up to date with `main`, and no one pushes to `main` directly, the owner included. Both checks run on every pull request (verify lost its paths filter: a required check that never runs blocks the merge). The test job fails a pull request that changes what the page ships without bumping BUILD; `verify --check` fails on a stale stamp. The site is still served as-is from `main` (C-1). (C-4, F-9, §11) | Pages deploys about 40 s after a merge and the suite takes 7–10 min, so `main` was live before its checks ended: PR #26 went live red (a flaky CPU-time test, now fixed) and PR #27 without its BUILD bump. With testers on the live site, a broken deploy spoils a session. |
 
 ### 9.2 Open questions for the owner
 
@@ -974,7 +975,7 @@ The fifteen questions the review raised were answered on 2026-10-20 (Q-111–Q-1
 - [ ] §6 rows the slice moves re-measured and pasted into the PR
 - [ ] Decisions written into the rules they change and into §9.1, in the same PR (Q-104)
 - [ ] At a release: BUILD bumped in `app/build.js`, `version.json` and the eight carriers (F-9; `tests/version.test.js` names any missed); after a `SIM_VERSION` change, the selftest restamped by `npm run verify` when nothing graded moved, or by `node tools/selftest-gen.mjs` after the ladder when the full regeneration runs (risk 5)
-- [ ] Pushed to `main`; Pages green; the live site checked (`curl -sI https://databerryau.github.io/gridwatch/` and a played day)
+- [ ] Merged through a pull request with `test` and `verify` green (Q-135; BUILD bumped if the page's files changed); Pages green; the live site checked (`curl -sI https://databerryau.github.io/gridwatch/` and a played day)
 
 **W1:** X-39–X-49, K-15, D-27, S-5, H-18, D-3 and D-7 accepts met; one browser pass at 1280×600 and 1280×720 (X-47).
 **W2:** two logs; pass or the top issue fixed and re-checked.

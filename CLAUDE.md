@@ -55,8 +55,10 @@ between moments and render one frame before a press, one during it and one after
 
 ## Releasing
 
-- **Pushing `main` deploys live** (GitHub Pages). Work on a branch, open a PR, and let the owner
-  merge unless they said otherwise.
+- **Pushing `main` deploys live** (GitHub Pages). `main` is protected (SPEC Q-135): work on a branch and open a PR;
+  it merges only when the `test` and `verify` checks have passed on it, up to date with `main`. Let the owner merge
+  unless they said otherwise. A PR that changes what the page ships (`app/ sim/ desk/ render/ content/ audio/`, the
+  HTML, `version.json`) must bump BUILD, or the test job fails it.
 - **At a release, bump BUILD** (the date; `.2` for a second that day) in `app/build.js`,
   `version.json` and the eight carriers listed in `app/boot.js` CARRIED (`sim/params.js`,
   `sim/step.js`, `app/score.js`, `app/history.js`, `app/director.js`, `desk/desk.js`,
