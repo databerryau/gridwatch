@@ -74,6 +74,9 @@
   border-bottom-width: 3px; }
 .dk-btn.lit { border-color: var(--dk-amber); color: var(--dk-bright); }
 .dk [aria-disabled="true"], .dk button:disabled { opacity: 0.45; cursor: default; }
+/* K-24: on an AGC day the levers and the hydro wheel are the dispatch's readouts, not dead controls: full strength
+   (measured in the browser at 0.45 on 2026-11-13, so the desk's main gauges looked switched off) */
+.dk .readout [aria-disabled="true"], .dk .dk-hydro .dk-wheel[aria-disabled="true"] { opacity: 1; }
 .dk-locked .dk-guard { cursor: not-allowed; }
 
 /* ---- column 1: frequency dial, imbalance bar, N-1 gauge */
