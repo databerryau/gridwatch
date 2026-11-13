@@ -81,6 +81,8 @@ Ask in this order, straight after the end card. Write down their words, not your
   the game clock on many days (SPEC §6 "Longest gap with no decision", left to this gate to judge). Note what they do
   through the middle of the day, and whether they say they are bored.
 - **The letter:** does the letter feel fair? A cautious player can score a B on a PERFECT day (every light on, but
-  dearer than par). Note what they say about it.
+  dearer than par). Following the coach is no guarantee either: on the daily of 13 Nov 2026, the coach-following
+  script (`tools/play.mjs 20261113 follow`) kept every light on but broke the glass for the diesel after the evening
+  trip and scored 639, a C ($7.8M behind par). Note what they say about it.
 - **The share card:** do they notice YOUR CARD and SHARE? Would they send it?
 - **Question 5's answer:** the most important number for the daily.
