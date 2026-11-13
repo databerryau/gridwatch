@@ -626,6 +626,11 @@ the old code (`tests/held-keys.test.js`, `coach-stop-note`, `resume-redispatch`,
   selftest keeps an hourly hash. RELAYS SHED lights while districts the relays shed are dark and not restored, also
   when they operated outside a trip's watch (the failing newcomer's case). The Live Stack keys its projection on the
   day's seed, so another day picked in a briefing redraws.
+- **The browser pass** (1280×600, the daily of 14 Oct 2026, fresh modules at BUILD 2026-11-13.2). A real click on
+  COACH ON turned it off. The levers on an AGC day measured at opacity 0.45 (the aria-disabled dimming): readouts are now
+  at full strength. The header does not clip at 1280 with LIGHTS reading "2 DARK · 310 MW" and the HAND chip shown (the
+  review's suspicion, refuted). The feeder card over the suburb card's right edge was not reproduced: with the pane's
+  frames driven by hand the feeder card did not show at its hand-back, so that check is left to a played session.
 - **Left for later, with the reason.** The card's link without `https://` stays: R-2 (`playtest/release-checks.md`)
   tests in each app whether it matters, against a long card losing its closing line under the 280-character cap. One
   name per thing on the first shift's path (the link, the dark streets, the cost) is a wording pass across sim news,
