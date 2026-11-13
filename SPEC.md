@@ -3,7 +3,7 @@
 **The live spec**, rewritten 2026-10-15 (§9.1 Q-104). It says what the game is today, what it should become and what to build next, in order.
 **History:** `SPEC-history.md` is the v4 spec of 2026-09-30 as last amended (2026-10-10), frozen with its line numbers unchanged, plus the slice-2c decisions Q-61–Q-91 in its Appendix C.
 **IDs are permanent.** A requirement (C-, OD-, F-, H-, P-, S-, K-, L-, G-, D-, O-, U-, Y-, W-, X-) or decision (Q-) not defined here keeps its last text in `SPEC-history.md`. Nothing is renumbered or reused.
-**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main` (a700686, PR #29, W10, 2026-10-22), live at <https://databerryau.github.io/gridwatch/> with BUILD `2026-10-22`. Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
+**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main`, live at <https://databerryau.github.io/gridwatch/>; BUILD `2026-11-13` since W11 (`2026-10-22` for W10, PR #29). Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
 **Evidence:** the full review of 2026-10-14 (`REVIEW-2026-10-14.md`: ten lenses, 118 verified findings, the readers' reports in `REVIEW-2026-10-14-reports/`) and the owner's answers to it (Q-92–Q-107).
 
 **How to read this.**
@@ -269,6 +269,7 @@ Every step ships something playable, and the live game works after every step.
 | **W8** | Light seasons (Q-122, Q-127) and MARG'S CHAIR's margin over par (Q-128) | Built 2026-10-21 at the owner's request ("next feature please"); see W8 below |
 | **W9** | Five more anniversary dailies, two of them in winter (Q-129) | Built 2026-10-21 at the owner's request; see W9 below |
 | **W10** | The core-loop pass (Q-130): the grade judged at gate 1, the end card's why line and headline SHARE, plain closing lines, the gate 1 kit | Built 2026-10-22 at the owner's request; see W10 below |
+| **W11** | Gate 1 fixes (Q-132–Q-134): the coach's reserve diesel and air-con, a midday ask, the briefing's Watch for in plain words | Built 2026-11-13 (fixes to the gate 1 build under Q-131, no new content); see W11 below |
 | Later | A region-wide VPP on evidence only (Q-123) | Not scheduled; Phase 5 (week mode) is cut |
 
 The order is the owner's (Q-107), with two placements of mine: the dark-district holds (D-26) go into W3 with the respond-card work, and the commitment desk goes into W4 with the cover plates, because the plates sit on it.
@@ -549,11 +550,51 @@ what was rough, then get the gate 1 kit ready. BUILD 2026-10-22. No sim change.*
     after an all-lit day). They say "a hard dip".
 - **Found, not changed:**
   - The briefing's "Watch for: HAR4, HAR3 feeders back 06:40, 07:50" and "Real NEM physics" are jargon on a first
-    shift; the briefing is at its word cap (D-3), so they wait for gate 1.
-  - No ask between about 10:50 and 15:45 on the game clock for the coach-follower (§6, D-10, judged at gate 1).
+    shift; the briefing is at its word cap (D-3), so they wait for gate 1. (Watch for: plain words in W11, Q-134.)
+  - No ask between about 10:50 and 15:45 on the game clock for the coach-follower (§6, D-10, judged at gate 1). (A
+    midday ask in W11, Q-133.)
   - A first shift's card says PRACTICE unless COUNT THIS ONE is pressed (Y-2). Put to the owner on 2026-10-22, who kept it as built: the first shift is a learning day.
 - **The gate 1 kit:** `playtest/gate1-README.md` (the protocol, what never to say, how each pass line is scored),
   `gate1-tester-log.md` and `gate1-results.md`.
+
+### W11 — Gate 1 fixes (Q-132–Q-134)
+
+*2026-11-13, branch `coach-fix-gate1`. The gate 1 readiness pass played the day's daily (Daily #33, 13 Nov 2026, a
+HEATWAVE Friday) as a newcomer who does what the coach says (`tools/play.mjs 20261113 follow`): every light on, but 639,
+a C, below the ladder's scripted shift (722). Fixes to the gate 1 build under Q-131, not new content. No sim change and
+no SIM_VERSION bump: par's day is unchanged (rule 8's arm test is factored out, bit for bit), and the coach only speaks
+on a first shift or with COACH ON, so nobody else's game gets easier. BUILD 2026-11-13.*
+- **The cause (measured once each: `tools/par.js --seed 20261113`, `tools/follow.mjs --seed 20261113 --lines`).** Not
+  the seed alone and not par: the player's plan cost was par's within 2% ($5.37M against $5.25M). The gap was the
+  reserve diesel: the line asked to arm it at 17:28, 20 min before the shortfall's *start*, though the battery and demand
+  response carried the first hour, and to stand it down at 19:45, so it ran 117 min at $80,000 a minute ($9.36M). Par
+  armed at 18:38, stood down at 19:23 and booked air-con cycles in four suburbs first. Seeds with the evening diesel
+  (heatwave days, mostly) are where the coach fell to C.
+- **Q-132, the coach asks par's adequacy walk about the diesel and the air-con.** `sim/autopilot.js` exports
+  `dieselAdvice` (rule 8's arm test, and a stand-down when the walk without the diesel is clean over the horizon, the
+  diesel has arrived and nothing sags; the player's diesel has no minimum run, so par's 45 min is not asked) and
+  `airconAdvice` (rule 8's air-con booking), both from the observation alone (S-4). `app/objective.js`: the diesel's
+  line arms only when par would and not before the battery and demand response run out within its lead (`reservesOutS`),
+  and says "this line says when to arm it" until then (no clock time to arm by); it stands down on the old half-energy
+  band *or* par's walk (no chase: stood down on a clean walk, the walk asks no arm); the AIR-CON CYCLE line, when its own
+  test finds nothing, offers the cycle par would book ("The battery and demand response will not cover the peak. Book an
+  AIR-CON CYCLE in Redgum Flats, 18:30–20:00 (45 MW): …"). On 13 Nov that is one line per suburb, six presses at about 17:27.
+- **Q-133, a midday ask.** From 12:00 to 14:30 a STOP that saves $50,000 or more (`STOP_ASK_SAVING`,
+  `STOP_ASK_FROM_S`, `STOP_ASK_TO_S`) is an ask (ACT NOW), not a SAVING note: decommitting an idle gas unit through the
+  belly is the midday's real decision, and par makes it. Before 12:00 it stays a note, so the asks fall inside the gap.
+- **Q-134, Watch for in plain words** (`app/shell.js` BRIEF): "2 streets under repair until 06:45, 07:05" for "RED5,
+  RED6 feeders back 06:45, 07:05", "imports capped at 500 MW until 10:00" for "tie import ≤ 500 MW until 10:00"; the
+  heatwave and a unit's late return keep their words. A day with repairs reads a word longer: over the calendar the day
+  and Watch for is at most 41 words (40 before), so `tests/briefing60.test.js`'s guards move from 69/37 to 70/38. "Real
+  NEM physics" is left for gate 1.
+- *Measured* (the coach-follower through the real page, `tools/play.mjs <seed> follow`, once before and once after, on
+  59 dailies: every 17th date from 12 Oct 2026, today's, and all 31 other HEATWAVE dates on the calendar; the grade is
+  the end card's, on the stored par): B or better on 48 before, 57 after. Every C moved to B or A except 18 Mar 2027
+  (640 → 741) and 26 Mar 2027 (462 → 540), both days with streets dark; 26 Oct 2026 went from 325 (D) to 961 (B).
+  The longest stretch with no ask between 11:00 and 16:00 (real seconds of the profile, from the asks' grid times):
+  at most 40 s on 28 of 59 before and 40 of 59 after, median 41 s → 36 s, longest 65 s → 58 s; 13 Nov 42 s → 31 s. On
+  the days left over 40 s no unit is worth 0,000 to stop at midday: what is left of D-10's midday is gate 1's to judge.
+  The play is deterministic: a second run of both reproduced all 59 grades.
 
 ### Later, not scheduled
 
@@ -841,6 +882,9 @@ The owner's answers to the open-questions brief (`decisions/2026-10-16-open-ques
 | Q-129 | **Five more anniversary dailies, two of them in winter** (2026-10-21; the owner chose "Winter anniversaries" when asked for the next feature): 25 Jan (Victoria 2019), 30 Jan (Melbourne 2009), 31 Jan (Heywood 2020), 15 Jun (the market suspension, 2022) and 25 Aug (QNI lightning, 2018), each a sourced account and a variant of its date's day. | Seasons made winter incidents playable; a real story on the day it happened is the daily's best hook. Softened where par could not win (one coal unit out, not two). |
 | Q-130 | **The grade stays; gate 1 judges it** (2026-10-22; the owner chose "Keep it; judge at W5"): the letters are unchanged and S-5's lean ≤40% A target is retired. | Measured: the scripts differ mostly by luck on one day, so no letter line, risk charge or risk cap separates them without costing par or competent play its A; real players' explanations of their grade are the test. |
 | Q-131 | **Gate 1 first** (2026-11-13, through the owner's session; confirms the owner's 2026-10-22 "core loop first"): the next step is the gate 1 playtest (W5), and no new content (dailies, seasons, scenarios, map looks) is built until its results are in `playtest/gate1-results.md`. Fixes to what is built still ship. (W5; `CLAUDE.md` "Current focus") | W6-W10 were built ahead of the gate; the score and the first shift are only judged by people playing them. |
+| Q-132 | **The coach asks par about the reserve diesel and the air-con** (2026-11-13, gate 1 fixes under Q-131): arm and stand down when par's adequacy walk would, and offer the air-con cycle par would book. (W11) | Following the coach on 13 Nov 2026 armed the diesel an hour early and ran it 117 min: 639, a C; par's walk already knew when. |
+| Q-133 | **A large midday STOP is an ask** (2026-11-13): from 12:00 to 14:30 a STOP saving $50,000 or more says ACT NOW. (W11, D-10) | The coach-follower had no ask from about 12:00 to 15:20 (42 real s); decommitting through the belly is the real decision there, and par makes it. |
+| Q-134 | **The briefing's Watch for in plain words** (2026-11-13): streets under repair, imports capped; the word guards move up one. (W11, D-3) | "HAR4, HAR3 feeders back" and "tie import ≤" were jargon on a first shift (W10's finding). |
 
 ### 9.2 Open questions for the owner
 

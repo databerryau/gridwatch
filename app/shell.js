@@ -176,15 +176,16 @@ export function dateText(seed) {
   return DAYS[t.getUTCDay()] + ' ' + d + ' ' + MONTHS[m - 1] + ' ' + y;
 }
 
-// Q-81 (§32.8.2): one brief per 04:00 news item, from its kind and the public obs (each <= 8 words)
+// Q-81 (§32.8.2): one brief per 04:00 news item, from its kind and the public obs (each <= 8 words). Q-134: in plain words, as
+// a first shift reads them: no feeder ids, no "tie import", no ≤ (the desk's own labels, TIE and RESTORE, say the rest).
 const hm = s => clockText(s, false);
 const BRIEF = {
   heat: n => 'heatwave ' + hm(n.fromS) + '–' + hm(n.toS),
-  tie: (n, o) => 'tie import ≤ ' + mw(o.tie.importLimitMW) + ' MW until ' + hm(n.toS),
+  tie: (n, o) => 'imports capped at ' + mw(o.tie.importLimitMW) + ' MW until ' + hm(n.toS),
   outage: (n, o) => unitLabel((o.units.find(u => u.outUntilS === n.toS) || {}).id) + ' out until ' + hm(n.toS),
   network: (n, o) => {
     const ds = o.districts.filter(d => d.clearS >= 0).sort((a, b) => a.clearS - b.clearS);
-    return ds.map(d => d.id).join(', ') + (ds.length > 1 ? ' feeders' : ' feeder') + ' back ' + [...new Set(ds.map(d => hm(d.clearS)))].join(', ');
+    return ds.length + (ds.length > 1 ? ' streets' : ' street') + ' under repair until ' + [...new Set(ds.map(d => hm(d.clearS)))].join(', ');
   },
 };
 /**

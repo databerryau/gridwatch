@@ -1458,7 +1458,11 @@ function soak(obs) {
 // the walk's first short step at or after atS is in the relief, none in its pre-cool hour, none within
 // PRECOOL_S of now (DR's and RERT's).
 function aircon(obs, memo, W) {
-  const x = PROXIES[memo.proxy].rules.includes('rule6') ? freeMost(obs.levers, 'aircon') : null;
+  return PROXIES[memo.proxy].rules.includes('rule6') ? airconAt(obs, W) : null;
+}
+/** Rule 8's air-con test on the walk W: the free suburb with the most MW, when the first uncovered step falls inside its cycle. */
+function airconAt(obs, W) {
+  const x = freeMost(obs.levers, 'aircon');
   const at = x ? aimFlex(obs.forecast, obs.levers, x.id, 'aircon') : -1;
   if (at < 0) return null;
   for (let k = 1; k < W.un.length; k++) {
@@ -1626,7 +1630,6 @@ function rule8(obs, memo) {
   const rert = obs.rert, dr = obs.dr, now = obs.s, fc = obs.forecast, h = fc.stepS / S_PER_H;
   const A = adequacySetup(obs);
   const W0 = walk(A, RERT_AS_ARMED);
-  const kLead = Math.ceil(V.RERT_LEAD_S / fc.stepS), kLook = Math.floor(RERT_LOOK_S / fc.stepS);
   const sagging = (obs.agc.unmetMW > 0 && obs.f.hz < NORMAL_LO) || obs.districts.some(d => d.dark && d.shedBy === 'ufls');
   if (dr.activeS <= 0 && dr.callsLeft > 0) {
     let call = sagging;
@@ -1641,19 +1644,40 @@ function rule8(obs, memo) {
   }
   const ac = aircon(obs, memo, W0);
   if (ac) return ac;
-  if (!rert.armed) {
-    let arm = shortAt(W0, kLead, kLook) >= 0;
-    if (!arm) {
-      const k1 = shortAt(W0, kLook + 1, W0.un.length - 1);
-      if (k1 >= 0) {
-        const late = uncoveredMWh(walk(A, (k1 - kLook + kLead) * fc.stepS), h), early = uncoveredMWh(walk(A, kLead * fc.stepS), h);
-        arm = late > EPS && early < late - EPS;
-      }
-    }
-    if (arm) { memo.rertSinceS = now; return {type: 'armRERT'}; }
-  }
+  if (!rert.armed && armNow(A, W0)) { memo.rertSinceS = now; return {type: 'armRERT'}; }
   if (rertStandDown(obs, memo, A)) return {type: 'standDownRERT'};
   return null;
+}
+
+/** Rule 8's arm test: a short step the diesel can still reach, or (energy-driven) arming now leaves less uncovered than arming just in time. */
+function armNow(A, W0) {
+  const fc = A.obs.forecast, h = fc.stepS / S_PER_H;
+  const kLead = Math.ceil(V.RERT_LEAD_S / fc.stepS), kLook = Math.floor(RERT_LOOK_S / fc.stepS);
+  if (shortAt(W0, kLead, kLook) >= 0) return true;
+  const k1 = shortAt(W0, kLook + 1, W0.un.length - 1);
+  if (k1 < 0) return false;
+  const late = uncoveredMWh(walk(A, (k1 - kLook + kLead) * fc.stepS), h), early = uncoveredMWh(walk(A, kLead * fc.stepS), h);
+  return late > EPS && early < late - EPS;
+}
+
+/**
+ * Q-132: par's own adequacy walk, asked by the coach (app/objective.js). airconAdvice: rule 8's air-con booking, as par would
+ * book it now ({suburb, atS} or null), whatever the coach's own checks say. Reads only the observation (S-4).
+ */
+export function airconAdvice(obs) {
+  const f = airconAt(obs, walk(adequacySetup(obs), RERT_AS_ARMED));
+  return f ? {suburb: f.suburb, atS: f.atS} : null;
+}
+/**
+ * Q-132: the same walk on the reserve diesel: arm (rule 8's test, as par would arm now) and standDown (the walk without it finds
+ * nothing uncovered in the horizon, nothing sagging, and it has arrived: a player's diesel has no minimum run, so par's
+ * PAR_RERT_STANDDOWN_MIN is not asked).
+ */
+export function dieselAdvice(obs) {
+  const rert = obs.rert, A = adequacySetup(obs);
+  if (!rert.armed) return {arm: armNow(A, walk(A, RERT_AS_ARMED)), standDown: false};
+  const sagging = (obs.agc.unmetMW > 0 && obs.f.hz < NORMAL_LO) || obs.districts.some(d => d.dark && d.shedBy === 'ufls');
+  return {arm: false, standDown: !rert.standingDown && rert.leadS <= 0 && !sagging && shortAt(walk(A, RERT_NEVER), 0, obs.forecast.n) < 0};
 }
 
 /**

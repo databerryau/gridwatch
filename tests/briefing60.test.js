@@ -17,9 +17,12 @@ const textOf = id => new RegExp('<p id="' + id + '"[^>]*>([^<]*)</p>').exec(NEXT
 // W7 (Q-121): "Expect a trip during the evening peak." adds 7 words on every day whose plan has the evening trip (331 of the
 // 446 dailies, 2026-10-12 to 2027-12-31); over the whole calendar the most is 69 words, the day and Watch for 37 (five
 // wind-drought weekends with a tie derate and two feeders: measured 2026-10-20, on the listed seeds; 263 dates over D-3's 60).
-const MOST_WORDS = 69, DAY_WORDS = 37;
+// Q-134 (2026-11-13): the Watch for briefs in plain words ("2 streets under repair until 06:30, 07:35" for "TAL3, TAL5 feeders
+// back 06:30, 07:35") add a word on a day with repairs: the day and Watch for at most 38 in this window (41 on the whole calendar, 15 Jun
+// 2027; it was 40), so the guards move up one word.
+const MOST_WORDS = 70, DAY_WORDS = 38;
 
-test('D-3 (Q-110, Q-121): the briefing is 69 words or fewer on every date of two months (the day and Watch for 37 or fewer); a gated daily', () => {
+test('D-3 (Q-110, Q-121): the briefing is 70 words or fewer on every date of two months (the day and Watch for 38 or fewer); a gated daily', () => {
   const fixed = words(textOf('briefing-goal')) + words(textOf('briefing-real'));
   assert.equal(textOf('briefing-goal'), 'Keep the lights on: start power stations before the city needs them. The line above the desk says what\'s next.');
   let most = 0, at = 0;
