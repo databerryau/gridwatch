@@ -139,7 +139,8 @@ export function createMachine(ctx, k, pan) {
     if (ctx.guards.locked(m.id)) { rest(); return; }
     const a = stopAction();
     if (!a) { help(ctx, box, says(stopWhy() || 'nothing to stop')); return; }
-    if (a === 'abort') sent({type: 'abortStop', unit: m.id}, ' ABORT');
+    // (an undone stop says so where it was pressed: a STOP pressed again "to be sure" had undone it with no word)
+    if (a === 'abort') { sent({type: 'abortStop', unit: m.id}, ' ABORT'); if (ctx.guards.locked(m.id)) help(ctx, box, name + ': the stop is undone, it stays on'); }
     else guarded(stop, a === 'cancel' ? ' CANCEL START' : ' STOP', {type: 'stop', unit: m.id}, byKey === true);
   }
   // a folded guard (keys only) presses the armed one; a double-click's second click is never the guard's second press (K-3)
@@ -287,7 +288,9 @@ export function stationButtons(ctx, sid, machines, pan) {
       const starting = machines.filter(m => m.mode() === 'starting'), out = machines.filter(m => m.mode() === 'tripped');
       setText(bs, upS ? 'START?' : canS ? 'START' : starting.length ? '◔ ' + mmss(Math.min(...starting.map(m => m.timerS()))) :
         out.length ? '✕ ' + mmss(Math.min(...out.map(m => m.timerS()))) : 'START');
-      setText(bx, upX ? (mx.stopAction() === 'cancel' ? 'CANCEL?' : 'STOP?') : 'STOP');
+      // (a machine on its way down: the word is UNDO, never a STOP that would put it back on: the review of 2026-11-13, K6)
+      const undo = canX && mx.stopAction() === 'abort';
+      setText(bx, upX ? (mx.stopAction() === 'cancel' ? 'CANCEL?' : 'STOP?') : undo ? 'UNDO' : 'STOP');
       setCls(bs, 'lifted', upS); setCls(bx, 'lifted', upX);
       setCls(bs, 'live', canS); setCls(bx, 'live', canX);
       setCls(bs, 'glow', machines.some(m => m.glowS())); setCls(bx, 'glow', machines.some(m => m.glowX()));
@@ -296,7 +299,7 @@ export function stationButtons(ctx, sid, machines, pan) {
       setAttr(bs, 'title', ms ? ms.start.getAttribute('title') : S + ': nothing to start');
       setAttr(bx, 'title', mx ? mx.stop.getAttribute('title') : S + ': nothing to stop');
       setAttr(bs, 'aria-label', S + ' START: ' + (ms ? ms.start.getAttribute('aria-label') : 'nothing to start'));
-      setAttr(bx, 'aria-label', S + ' STOP: ' + (mx ? mx.stop.getAttribute('aria-label') : 'nothing to stop'));
+      setAttr(bx, 'aria-label', S + (undo ? ' UNDO STOP: ' : ' STOP: ') + (mx ? mx.stop.getAttribute('aria-label') : 'nothing to stop'));
     },
   };
 }

@@ -826,15 +826,28 @@ export function openGame(o = {}) {
    * W10: a stranger who does what the coach's line says, up to `when` ('HH:MM'; default the day's end): at each new ask
    * (the line carrying an action) it presses what the line names, sent as the page's control sends it (a RE-DISPATCH, SOAK
    * THE CITY, or the line's inputs through actions.input), and at each card it presses Enter (a shed card: go on, as
-   * tripFrom). Returns {acts: [{at, text}], cards} for a report; never the same ask twice in one grid minute.
+   * tripFrom). Returns {acts: [{at, text}], cards, gone} for a report; never the same ask twice in one grid minute.
+   * opts.react (real s, default 0): a person's reading and reaching time. Each new ask first plays that long on the clock
+   * (the watch's lock waited out), then the line is read again and what it asks then is pressed; an ask that went meanwhile
+   * is counted in `gone`. With 0 the press lands on the frame the ask appears, which no person matches: the review of
+   * 2026-11-13 (X2) measured 3-9 s taking the follower from A to B on two of three dailies.
    */
   function follow(when, opts = {}) {
-    const st = game.state, endS = when === undefined ? DAY_S : parseTime(when, st.tick / TPS), acts = [];
-    let cards = 0, last = '';
+    const st = game.state, endS = when === undefined ? DAY_S : parseTime(when, st.tick / TPS), acts = [], react = opts.react || 0;
+    let cards = 0, last = '', gone = 0;
     const answer = () => { cards++; if (shedCard()) { G.ui(game, {do: 'goOn'}); frame(); } else key('Enter'); };
+    const sigOf = () => { const o = game.objective, x = o && o.action; return x ? Math.floor(st.tick / TPS / 60) + '|' + o.text : ''; };
     for (let n = 0; n < 4000 && !st.over && st.tick / TPS < endS; n++) {
-      const o = game.objective, x = o && o.action, sig = x && Math.floor(st.tick / TPS / 60) + '|' + o.text;
-      if (x && sig !== last && modeNow() !== 'WATCH') {
+      let sig = sigOf();
+      if (sig && sig !== last && modeNow() !== 'WATCH') {
+        if (react > 0) {
+          real(react);
+          for (let k = 0; k < 60 && modeNow() === 'WATCH'; k++) real(1);
+          if (st.over) break;
+          sig = sigOf();
+          if (!sig) { gone++; continue; }
+        }
+        const o = game.objective, x = o.action;
         last = sig;
         if (x.redispatch) { $('btn-redispatch').click(); frame(); }
         else if (x.type === 'soakCity') send(x);
@@ -846,7 +859,7 @@ export function openGame(o = {}) {
       if (r.why.startsWith('held')) answer();
       else if (r.why === 'target' || st.over) break;
     }
-    return {acts, cards};
+    return {acts, cards, gone};
   }
 
   const api = {

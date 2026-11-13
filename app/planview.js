@@ -441,7 +441,9 @@ export function pastFromHist(hist, pastTimes, obs) {
     if (!Array.isArray(arr)) return;
     if (cols && (arr.length === 0 || typeof arr[0] === 'number')) {
       for (let p = 0; p < N_PAST; p++) {
-        const c = Math.round((pastTimes[p] - hist.colFromS) / hist.colS) - 1;
+        // (floor: the last whole column. Rounded, the column beside the now line was the one in progress, empty for half of
+        // every 5 grid min, and the past columns blinked one slot over and back: the review of 2026-11-13, V3)
+        const c = Math.floor((pastTimes[p] - hist.colFromS) / hist.colS) - 1;
         if (c >= 0 && c < arr.length && Number.isFinite(arr[c])) dst[p] = arr[c];
       }
       return;

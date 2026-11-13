@@ -39,8 +39,8 @@
 // fallbackGlow's tie test reads obs.tie.importLimitMW (a derate's limit, Q-68).
 // Q-91: feederCard(obs, id, suburbs, why, lamp) is the feeder card's model (the clock held at a hand-back):
 // the feeder, its suburb's name and its pickup with its cold load to the 10 MW ("SAL4's feeder in Saltbush
-// Bay is repaired: about 230 MW with its cold load."), the keys (FEEDER_KEYS "R or Enter: restore it now ·
-// Esc: go on"), what going on means (FEEDER_ON), a refused restore's reason (why), and before one why a
+// Bay is repaired: about 230 MW with its cold load."), the keys (FEEDER_KEYS; since Q-96 Esc restores
+// too, shell.js feederFirst), what going on means (FEEDER_ON), a refused restore's reason (why), and before one why a
 // restore would be refused now (lamp: the RESTORE PREVIEW's reason, '' once why is set).
 
 import {V} from '../sim/params.js';
