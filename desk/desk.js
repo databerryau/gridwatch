@@ -456,11 +456,20 @@ export function createDesk(doc, root, actions, opts = {}) {
       if (bayKey || k === 'n') { if (!ev.repeat) (k === 'n' ? emerg.redispatch() : bay.key(k)); return true; }
       return false;
     }
-    // S, X, P: the focused control's, also when focus has left it (Space blurs) and vm.focus still names it
-    const tgt = active && desk.contains(active) ? active : vm.focus && doc.getElementById(vm.focus);
-    if (k === 's' || k === 'x' || k === 'p') return levers.key(tgt, k, !!ev.shiftKey) || hydro.key(tgt, k, !!ev.shiftKey);
-    if (bayKey) return ev.repeat && k !== '[' && k !== ']' ? false : bay.key(k);
-    if (k === 'n') return ev.repeat ? false : emerg.redispatch();
+    // S, X, P: the focused control's, also when focus has left it (Space blurs, or a click on another desk control
+    // such as T PREVIEW) and vm.focus still names it. They are the desk's alone: a held key is one press (its
+    // auto-repeat is never a guard's second press, K-3), and the shell's fallback never sends an unguarded START.
+    if (k === 's' || k === 'x' || k === 'p') {
+      if (ev.repeat) return true;
+      const named = vm.focus && doc.getElementById(vm.focus);
+      const tgt = active && desk.contains(active) ? active : named;
+      const on = e => !!e && (levers.key(e, k, !!ev.shiftKey) || hydro.key(e, k, !!ev.shiftKey));
+      if (!on(tgt) && named !== tgt) on(named);
+      return true;
+    }
+    // the bay's keys: a repeat is swallowed (31 CLOSEs a second from one held C), except the scope's slip trim
+    if (bayKey) return ev.repeat && k !== '[' && k !== ']' ? true : bay.key(k);
+    if (k === 'n') return ev.repeat ? true : emerg.redispatch();
     return false;
   }
 
@@ -474,4 +483,4 @@ export function createDesk(doc, root, actions, opts = {}) {
 
   return {el: desk, update, key, focus, closeHelp, slots: {stack}, ids: DESK_IDS};
 }
-export const BUILD = '2026-11-13';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-11-13.2';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

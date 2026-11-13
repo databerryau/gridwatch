@@ -201,9 +201,12 @@ export function redispatch(sys, state) {
   if (inWatch(state)) return {input: null, reason: 'not during the watch'};
   if (state.control.nightShift) return {input: null, reason: 'the night shift has the desk'};
   if (sys.memo.plan === null || state.tick < START_TICK) return {input: null, reason: 'no plan before 04:30'};
+  // The player's edits (a tie move) go into the plan before it is made. In live play a frame's buildVm has scanned them
+  // already; a resume's replay has no frame between the tie move and this, and planned without them (its hash then
+  // differed and the shift could not resume: the review of 2026-11-13, G1).
+  scanEdits(sys, state);
   const input = AP.replan(observe(state), sys.memo);
   if (!input) return {input: null, reason: 'no plan before 04:30'};
-  scanEdits(sys, state);
   loaded(sys, state, 1);
   if (sys.commit === 'player') { sys.sig = ''; sys.dispatchS = Math.floor(state.tick / TPS); }
   return {input, reason: ''};

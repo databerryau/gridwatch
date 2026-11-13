@@ -77,7 +77,7 @@ async function measurePar(c, o) {
 // The page's day with no input at all (the system on, no card answered): tools/ladder.mjs nothingDay's
 async function measureNothing(c, o) {
   const game = G.createGame({daily: dailyFor(c.ymd, G.dailyStamp()), scenario: G.scenarioForSeed, system, commit: 'player', startPaused: true,
-    storage: null, par: false});
+    storage: null, par: false, hourlyHashes: true});
   G.takeDesk(game);
   await sliced(game.state, Math.min(o.upTo, c.tick), t => G.runTo(game, t), o);
   return {tick: game.state.tick, hashes: game.hashes.map(h => h >>> 0), hash: hashState(game.state) >>> 0};

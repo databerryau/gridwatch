@@ -1278,6 +1278,13 @@ export function bootGame(doc, deps) {
       if (game.phase !== 'briefing') return false;
       if (radioKey(ev)) return true;
       if (ev.key !== 'Enter' || (ev.target && (ev.target.id === 'btn-restart' || ev.target.tagName === 'A')) || shelfOwns(ev.target)) return false;   // (F-7: Enter on a focused START OVER is its own; W6: so is the shelf's, and a link's: D-29's source)
+      // A held Enter (from PLAY THIS DAY AGAIN or a shelf day) never takes the new desk unread (K-3). Enter on a focused button
+      // of the header (?, SETTINGS, SOUND), the drawer, SETTINGS or a popover presses that button, as a browser's Enter does:
+      // a stranger who tabbed to "?" for HOW TO PLAY got the day started instead. Anywhere else Enter takes the desk, as the
+      // briefing's "Take the desk first: Enter." says.
+      if (ev.repeat) return true;
+      const t = ev.target;
+      if (t && t.tagName === 'BUTTON' && ['hdr', 'drawer', 'settings', 'popover'].some(id => within(id, t))) return false;
       take(); return true;
     },
     chain: () => [mods.desk, mods.stack, mods.map],

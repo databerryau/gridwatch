@@ -123,6 +123,13 @@ export const COMMIT_LOCK_MS = 1000;   // K-3: a unit's guards rest 1 s after a c
 export const HOLD_MS = 600;           // K-7: emergency controls commit only after a 0.6-s hold
 
 /**
+ * K-3: a click that is the second (or later) of a double-click. It is never a guard's second press: the player
+ * double-clicked out of habit and never read the "? IF PRESSED" line. A key's auto-repeat is held off the same way
+ * (ev.repeat, desk.js key()).
+ */
+export const dblClick = ev => !!ev && ev.detail > 1;
+
+/**
  * Guard covers: the first press lifts the cover for `ms`, a second press while it is up
  * commits; a lift drops any other. Time comes from `now()` (the desk's frame clock), never from timers.
  */

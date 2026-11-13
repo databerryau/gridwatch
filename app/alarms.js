@@ -159,6 +159,7 @@ export function alarmInput(obs) {
     contCount: obs.contingencies.length,
     cont: c ? {n: c.n, cause: c.cause, id: c.id, uflsStages: c.uflsStages, watchEndS: Math.floor(c.watchEndTick / TPS)} : null,
     night: obs.nightShift,
+    uflsDark: uflsDark(obs.districts),
   };
 }
 
@@ -174,8 +175,14 @@ export function alarmInputFromState(state) {
     contCount: state.conts.length,
     cont: c ? {n: c.n, cause: c.cause, id: c.id, uflsStages: c.uflsStages, watchEndS: Math.floor(c.watchEndTick / TPS)} : null,
     night: state.control.nightShift,
+    uflsDark: uflsDark(state.city.districts),
   };
 }
+
+// RELAYS SHED's own condition besides a trip's watch: districts the relays darkened and nobody has restored yet. Relays
+// that operate with no trip (a desk run short until frequency sags) or after a watch ends lit no tile before (the review
+// of 2026-11-13, G3), and those districts are the player's to restore.
+const uflsDark = ds => ds.reduce((n, d) => n + (d.dark && d.shedBy === 'ufls' ? 1 : 0), 0);
 
 // Set/clear with hysteresis: returns the new condition.
 const hyst = (was, setNow, clearNow) => (was ? !clearNow : setNow);
@@ -226,7 +233,7 @@ export function updateAlarms(a, x, ctx) {
     n1: hyst(T.n1.cond, riskLong, safeLong),
     unitTrip: s < a.eventUntilS.unitTrip,
     linkTrip: s < a.eventUntilS.linkTrip,
-    ufls: s < a.eventUntilS.ufls,
+    ufls: s < a.eventUntilS.ufls || x.uflsDark > 0,
     agcLimit: a.agcRealS > AGC_LIMIT_REAL_S,
     storageLow: hyst(T.storageLow.cond, x.hydroFrac < HYDRO_LOW || x.battFrac < BATT_LOW, x.hydroFrac >= HYDRO_OK && x.battFrac >= BATT_OK),
   };

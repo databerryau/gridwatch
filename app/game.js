@@ -227,6 +227,9 @@ export function createGame(o) {
   const settings = cleanSettings(readJson(storage, SETTINGS_KEY));
   const game = {
     seed, daily: o.daily || null, scenario, scenarioOf, storage, sysMod: o.system || null, planview: o.planview || null,
+    // hourlyHashes: keep game.hashes (a hashState each grid hour, about 11 ms with the day's log): the selftest reads them,
+    // the page does not (at the night roll's 2,100x an hour passes every 1.7 real s)
+    hourlyHashes: !!o.hourlyHashes,
     // SPEC §9.1 Q-18: 'player' = the commitment is the player's (the real page); 'system' = the
     // Phase 1a system operator, which commits units itself. startPaused: the desk opens at 04:30
     // with the clock held, so the first decision is made before anything moves.
@@ -240,7 +243,7 @@ export function createGame(o) {
     rec: null, alarms: null, tray: null, watchMem: null,
     phase: 'briefing',
     ui: {focus: null, hover: null, hoverGlow: [], stackExpanded: false, previewOn: false, previewGuardMW: null, trayOpen: false,
-      drawer: false, settingsOpen: false, consider: null, considerMs: null, armed: null,
+      drawer: false, drawerPaused: false, settingsOpen: false, consider: null, considerMs: null, armed: null,
       alarmsOpen: false, alarmsSel: null, alarmsPick: null}, // Q-46: the alarm panel, its tile, W's pick {id, untilMs}
     settings, systemReducedMotion: o.reducedMotion === undefined ? false : o.reducedMotion,
     suburbs: null,
@@ -303,7 +306,7 @@ export function resetDay(game, seed) {
   game.previewCache.clear(); game.previewS = -1; game.restoreCache.clear(); game.restoreS = -1;
   game.hist = createHist();
   game.histView = null; game.histViewS = -1;
-  game.hashes = []; game.end = null; game.lastFrameMs = -1; game.playerInputs = 0;
+  game.hashes = []; game.end = null; game.lastFrameMs = -1; game.savedMs = -1e9; game.playerInputs = 0;
   game.verdict = VD.createVerdictMem(); game.guardAt = {}; game.guardNight = {}; game.twin = null; game.verdictKey = ''; // (W3: the verdict's memory)
   game.acts = [];   // (F-7: the player's actions, for the save)
   game.noCoach = false;   // (O-8: set when the desk is taken)
@@ -503,11 +506,13 @@ export function tickOnce(game) {
   A.sampleTick(game.alarms, state);
   if (state.tick % TPS === 0) {
     if (game.run.status === 'official' && !game.run.started && state.tick >= HI.OFFICIAL_S * TPS) startOfficial(game);   // (W6, Q-99)
-    if (!game.replay && game.phase === 'play' && state.tick % (RESUME_EVERY_S * TPS) === 0) saveResume(game);   // (F-7)
+    // (F-7; a save hashes the whole day, about 11 ms by evening: at the night roll's 2,100x every 15 grid min is every 0.43
+    // real s, so a periodic save waits RESUME_GAP_MS of real time since the last one; a player's press still saves at once)
+    if (!game.replay && game.phase === 'play' && state.tick % (RESUME_EVERY_S * TPS) === 0 && !(game.lastFrameMs - game.savedMs < RESUME_GAP_MS)) saveResume(game);
     histSecond(game);
     if (VD.verdictSecond(game.verdict, state, game.rec) && game.phase === 'play') pushCue(game, 'ramp'); // (L-10: a clean ramp)
   }
-  if (state.tick % (TPS * V.S_PER_H) === 0) game.hashes.push(hashState(state));
+  if (game.hourlyHashes && state.tick % (TPS * V.S_PER_H) === 0) game.hashes.push(hashState(state));
 }
 
 /**
@@ -733,7 +738,14 @@ export function ui(game, cmd) {
       D.togglePause(d); return '';
     case 'fast': return D.setFast(d, state, !!cmd.on) || !cmd.on ? '' : 'not now';
     case 'skipWatch': return D.skipWatch(d, state) ? '' : 'nothing to skip';
-    case 'drawer': u.drawer = cmd.on === undefined ? !u.drawer : !!cmd.on; return '';
+    case 'drawer': {
+      // HOW TO PLAY and the "?" ledger hold the clock while they are open (a stranger reading help at 540× lost the
+      // morning: the review of 2026-11-13, S4); closing runs it again only if opening it was what paused it.
+      const on = cmd.on === undefined ? !u.drawer : !!cmd.on;
+      if (on && !u.drawer && play && !d.paused) { d.paused = true; D.endFast(d); u.drawerPaused = true; }
+      if (!on && u.drawer && u.drawerPaused) { if (play && d.paused) d.paused = false; u.drawerPaused = false; }
+      u.drawer = on; return '';
+    }
     case 'tray': u.trayOpen = !u.trayOpen; u.focus = 'tray'; return '';
     // C-10 (desk/README.md §19.5): the guard the player is hovering, focusing or has lifted.
     case 'consider': {
@@ -1389,6 +1401,8 @@ function startOfficial(game) {
 export const RESUME_KEY = 'gridwatch:v4:resume', RESUME_SLOTS = Object.freeze(['daily', 'practice']);
 /** F-7: in play the run is saved this often (grid s), at each action of the player's, and when the tab is hidden or closed. */
 export const RESUME_EVERY_S = 15 * V.S_PER_MIN;
+/** F-7: a periodic save waits this long (real ms) after the last save of any kind (the night roll's 0.43-s saves). */
+export const RESUME_GAP_MS = 5000;
 /** F-7: the presses (actions.ui) that change what a later tick does: the cards' answers. */
 export const REPLAY_UI = Object.freeze(['dismissRespond', 'goOn', 'skipWatch']);
 const slotOf = game => RESUME_KEY + ':' + (game.run.status === 'practice' ? 'practice' : 'daily');
@@ -1408,6 +1422,7 @@ export function saveResume(game) {
     noCoach: !!game.noCoach, plates: [...game.plates], marg: game.marg ? {said: game.marg.said, beats: game.marg.beats, watched: game.margWatched} : null,
     tally: game.tally, offered: game.offered});
   if (!ok) { try { game.storage.removeItem(key); } catch { /* (blocked) */ } }
+  game.savedMs = game.lastFrameMs;
   const o = readJson(game.storage, other);   // (this run's save in the other slot, from before it turned practice, goes)
   if (o && o.seed === game.seed && o.run && o.run.id === r.id) { try { game.storage.removeItem(other); } catch { /* (blocked) */ } }
   return ok;

@@ -310,7 +310,9 @@ export function createLiveStack(doc, root, actions) {
     'Read-only during the watch' + (vm.mode.canSkip ? ' (Esc skips)' : ': watch this one'), 'info');
 
   function ensureProj() {
-    const obs = vm.obs, k = signature(obs) + '|' + Math.floor(obs.s / RECOMPUTE_S);
+    // (the seed: another day picked at the same grid second, from the shelf in a briefing, is another projection; the
+    // observation carries no seed, S-4. The review of 2026-11-13, V2: the old day's skyline stayed up to 417 MW wrong.)
+    const obs = vm.obs, k = signature(obs) + '|' + Math.floor(obs.s / RECOMPUTE_S) + '|' + vm.seed;
     if (!proj || k !== sig) { proj = PV.project(obs, {hist: vm.hist}); sig = k; stats.recomputes++; runs = gapRuns(proj); blues = PV.blueRuns(proj); }
     else if (vm.hist) proj.past = PV.pastFromHist(vm.hist, proj.pastTimes, obs);
     return proj;
@@ -1227,7 +1229,7 @@ export function createLiveStack(doc, root, actions) {
     if (!live && !night) {
       let glow = '';
       if (v.glow && typeof v.glow.forEach === 'function') v.glow.forEach(id => { glow += id + ','; });
-      key = signature(v.obs) + '|' + Math.floor(v.obs.s / NOW_STEP_S) + '|' + (v.hover || '') + '|' + glow + '|' + Math.round(priceNow(v.obs)) + (spillingNow(v.obs) ? 'S' : '');
+      key = signature(v.obs) + '|' + v.seed + '|' + Math.floor(v.obs.s / NOW_STEP_S) + '|' + (v.hover || '') + '|' + glow + '|' + Math.round(priceNow(v.obs)) + (spillingNow(v.obs) ? 'S' : '');
       // (the S: the word SPILL comes and goes with the spill at the same price)
     }
     if (live || size !== drawnSize || (key !== drawnKey && !(nowMs - drawnAt < 1000 / V.STACK_MAX_HZ && nowMs >= drawnAt))) {
@@ -1245,4 +1247,4 @@ export function createLiveStack(doc, root, actions) {
     },
   };
 }
-export const BUILD = '2026-11-13';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-11-13.2';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
