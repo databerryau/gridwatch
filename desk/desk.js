@@ -481,6 +481,9 @@ export function createDesk(doc, root, actions, opts = {}) {
     return !!top;
   }
 
-  return {el: desk, update, key, focus, closeHelp, slots: {stack}, ids: DESK_IDS};
+  /** Let go of every hold (D, E, a held press on DR, BREAK GLASS or DIRECT SHED) without firing it: the shell calls it when
+   * the window loses focus or the tab hides, since the key-up may never come (the review of 2026-11-13, K7). */
+  const letGo = () => ctx.holds.clear();
+  return {el: desk, update, key, focus, closeHelp, letGo, slots: {stack}, ids: DESK_IDS};
 }
-export const BUILD = '2026-11-13.2';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-11-13.3';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

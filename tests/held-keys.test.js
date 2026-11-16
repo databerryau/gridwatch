@@ -90,6 +90,17 @@ test('in the briefing, Enter on a focused header button is that button\'s; a hel
   assert.equal(p.game.phase, 'play', 'Enter on the card takes the desk');
 });
 
+test('K-7: a key-up lost to Alt+Tab lets go of every held key: no reserve diesel armed by itself, no FAST left on', () => {
+  const p = openGame({seed: 20261014});
+  p.keyDown('f'); p.real(0.2);
+  assert.equal(p.game.director.fast, true, 'F held: FAST');
+  p.keyDown('e'); p.real(0.2);
+  p.h.letGo();   // (the window's blur: the stand-in DOM has no window, so the test calls what the shell's listener calls)
+  p.real(1.2);
+  assert.equal(p.game.director.fast, false, 'FAST ended with the focus');
+  assert.equal(sent(p, 'armRERT'), 0, 'E was held 0.2 s when the focus went: nothing armed');
+});
+
 test('a held Space toggles the clock once', () => {
   const p = openGame({seed: 20261014, run: false});
   assert.equal(p.game.director.paused, true);

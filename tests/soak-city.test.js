@@ -60,7 +60,7 @@ test('Q1: H on the line\'s city soak opens its first suburb\'s card with SOAK TH
     text: 'The battery cannot take all of noon\'s spill. Book the city\'s HOT WATER SOAK, 10:45–14:45 (480 MW): tanks take the rest.',
     action: {type: 'soakCity', lever: 'soak', atS, suburbs: ids}};
   p.frame();
-  assert.match(p.look({controls: false}), /^LINE ◇ SUBURB \(H\) The battery cannot take all of noon's spill\. Book the city's HOT WATER SOAK/m);
+  assert.match(p.look({controls: false}), /^LINE ◇ SUBURB \(H\) (Press Space to run the clock\. You can act first\. · )?The battery cannot take all of noon's spill\. Book the city's HOT WATER SOAK/m);
   p.key('h');
   assert.deepEqual([p.vm().suburb, p.doc.activeElement.id], ['HAZ', 'city-soak-all']);
   assert.ok(card(p).includes('THE CITY +480 MW 10:45–14:45 HOT WATER SOAK +140 MW 10:45–14:45 '), card(p));

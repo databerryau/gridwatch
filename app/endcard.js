@@ -40,12 +40,15 @@ export function whyText(g, perfect) {
   if (!g || !g.letter) return '';
   const lit = perfect ? ' PERFECT: every light of yours stayed on, and every repaired street came back on time.' : '';
   if (g.letter === 'F') return 'F: the grid went black.';
-  const usd = x => (x >= 1e6 ? '$' + (x / 1e6).toFixed(1) + 'M' : '$' + mw(Math.max(1000, Math.round(x / 1000) * 1000)));
+  // (a gap behind par is rounded up, so it never reads as the next letter's own limit: "par ran the day for $300,000 less. A needs
+  // you within $300,000" was a gap of $300,400. The review of 2026-11-13, C8.)
+  const usd = (x, up) => { const f = up ? Math.ceil : Math.round; return x >= 1e6 ? '$' + (f(x / 1e5) / 10).toFixed(1) + 'M' : '$' + mw(Math.max(1000, f(x / 1000) * 1000)); };
   const gap = g.gapMWh * V.VCR, next = LETTERS.findIndex(l => l[0] === g.letter) - 1, chair = RANKS['A★'] + ' needs ' + STAR_POINTS + ' points.';
+  if (g.letter === 'A' && !g.star && Math.abs(gap) < 500) return 'A: level with par. ' + chair + lit;   // (par's own replay: never "$1,000 cheaper")
   if (g.star) return 'A ★ ' + RANKS['A★'] + ': you ran the day ' + usd(-gap) + ' cheaper than par (the chair needs ' + STAR_POINTS + ' points).' + lit;
   if (g.letter === 'A') return (gap <= 0 ? 'A: you ran the day ' + usd(-gap) + ' cheaper than par. ' + chair
-    : 'A: within ' + usd(gap) + ' of par (an A allows ' + usd(LETTERS[0][1] * V.VCR) + '). ' + chair) + lit;
-  return g.letter + ': par ran the day for ' + usd(gap) + ' less. ' + LETTERS[next][0] + ' needs you within ' + usd(LETTERS[next][1] * V.VCR) + '.' + lit;
+    : 'A: within ' + usd(gap, true) + ' of par (an A allows ' + usd(LETTERS[0][1] * V.VCR) + '). ' + chair) + lit;
+  return g.letter + ': par ran the day for ' + usd(gap, true) + ' less. ' + LETTERS[next][0] + ' needs you within ' + usd(LETTERS[next][1] * V.VCR) + '.' + lit;
 }
 
 /** S-6: PERFECT's rule, under the score. */

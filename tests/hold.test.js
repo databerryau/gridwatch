@@ -84,7 +84,7 @@ test('Q-46: GO TO leaves the clock paused and focuses its target (also when vm.f
   p.frame();
   assert.deepEqual(held(p), {mode: 'PAUSE', open: false, paused: true, held: false});
   assert.equal(p.$('alarm-panel').hidden, true);
-  assert.match(p.look(), /Clock held: press Space to run/, 'the hold became an ordinary pause, with its note');
+  assert.match(p.look(), /Press Space to run the clock. You can act first./, 'the hold became an ordinary pause, with its note');
   // a click elsewhere that focuses a control (a map suburb, a tray button) while the panel is open
   p.key(' ');
   p.key('w');

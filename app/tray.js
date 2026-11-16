@@ -39,6 +39,7 @@
 import {V} from '../sim/params.js';
 import {stepAfter} from '../sim/clock.js';
 import {isWeather} from './alarms.js';
+import {unitLabel} from '../desk/util.js';   // (the desk's and the coach's names: COAL 1, not the plant's)
 
 const TPS = V.TICKS_PER_S;
 /** Visible cards (K-9). */
@@ -65,6 +66,17 @@ const leverOf = unitId => {
 // the lever of the unit a text names by its full name (a log line: 'name:')
 const leverIn = (t, end = '') => { const m = V.MACHINES.find(x => t.includes(x.name + end)); return m ? leverOf(m.id) : 'stack'; };
 const unitName = id => { const m = V.MACHINES.find(x => x.id === id); return m ? m.name : id; };
+/**
+ * SECURITY SHORT in words, from the sim's record (its message: 'SECURITY SHORT: spare in 5 min 310 MW, biggest risk coal1 544 MW,
+ * trip preview 49.28 Hz.'), within MAX_WORDS. The card had been the record pasted after a heading and cut mid-sentence, a raw
+ * unit id and no Hz (the review of 2026-11-13, S5).
+ */
+export function securityShort(msg) {
+  const m = /spare in 5 min (\d+) MW, biggest risk (?:none|(\S+) (\d+) MW), trip preview ([\d.]+) Hz/.exec(msg);
+  if (!m || !m[2]) return 'Not enough spare. Less can come on within 5 min than the biggest risk would take away.';
+  return 'Not enough spare. If ' + (m[2] === 'tie' ? 'the tie' : unitLabel(m[2])) + ' (' + m[3] + ' MW) tripped now, only ' + m[1] +
+    ' MW could replace it within 5 min. Frequency would fall to ' + m[4] + ' Hz.';
+}
 const hhmm = s => {
   const sod = ((V.DAY_START_H * V.S_PER_H + s) % V.DAY_S + V.DAY_S) % V.DAY_S;
   return String(Math.floor(sod / V.S_PER_H)).padStart(2, '0') + ':' + String(Math.floor((sod % V.S_PER_H) / V.S_PER_MIN)).padStart(2, '0');
@@ -96,7 +108,7 @@ function mslCard(r) {
       : now ? ' Charge the battery if it has room.' : ' Power spilled then can go into the battery: charge it on the spill.'), button: soak ? sub : {label: 'TO THE BATTERY', target: 'dial-battery'}};
     case 2: return {key, from: SENDERS.market, sev: 'warn', text: low + (soak ? ' Make room: book the city\'s hot-water soak, charge the battery, and stop a gas unit if one is running.'
       : ' Make room: charge the battery, and stop a gas unit if one is running.'), button: soak ? sub : stack};
-    case 3: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Units at minimum make more than the city uses: stop one, or frequency climbs until rooftop solar cuts back.', button: stack};
+    case 3: return {key, from: SENDERS.market, sev: 'warn', text: low + ' Units at minimum make more than the city uses. Stop one before frequency climbs.', button: stack};
     default: return {key, from: SENDERS.market, sev: 'info', text: 'Low-demand notice cancelled: ' + (now ? 'demand is ' + mwc(r.minMW) + ' MW now, and the forecast does not go lower.'
       : 'the lowest demand forecast is now ' + mwc(r.minMW) + ' MW, at ' + hhmm(r.atS) + '.'), button: stack};
   }
@@ -166,7 +178,7 @@ export function cardOf(r, night = false) {
           if (/SECURITY (SHORT|SHEDDING)/.test(r.msg)) {
             const lvl = /SHEDDING/.test(r.msg) ? 'SHEDDING' : 'SHORT';
             return {key: 'sec:' + lvl + ':' + Math.floor(r.tick / TPS / 1800), from: SENDERS.market, sev: 'warn',
-              text: lvl === 'SHORT' ? 'Lack of reserve: spare in 5 min is below the biggest risk. ' + r.msg.replace(/^SECURITY SHORT: /, '')
+              text: lvl === 'SHORT' ? securityShort(r.msg)
                 : 'Load is off supply: the system is SHEDDING.', button: {label: 'TO THE GAUGE', target: 'gauge-n1'}};
           }
           return null;

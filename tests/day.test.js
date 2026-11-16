@@ -307,7 +307,7 @@ test('Q-18, the real page: the clock is held at 04:30, the objective names a uni
   frame();
   assert.equal(h.vm().mode.mode, 'PAUSE', 'the desk opens with the clock held');
   assert.equal($('objective').hidden, false);
-  assert.match($('objective-text').textContent, /press Space to run/);
+  assert.match($('objective-text').textContent, /^Press Space to run the clock. /, 'the pause note first');
   const tick0 = h.game.state.tick;
   for (let i = 0; i < 20; i++) frame();
   assert.equal(h.game.state.tick, tick0);

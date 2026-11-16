@@ -799,13 +799,13 @@ test('C-10 via the shell: while a guard is under the player\'s hand the line say
   const o = h.vm().objective;
   assert.equal($('objective-level').textContent, objectiveWord(o));
   assert.equal($('objective').className, o.level);
-  assert.equal($('objective-text').textContent, o.text + '  ·  Clock held: press Space to run (you can act while paused).');
+  assert.equal($('objective-text').textContent, 'Press Space to run the clock. You can act first.  ·  ' + o.text, 'the pause note first');
   assert.equal(h.vm().consider, null);
   // the longest line with the paused note still fits the line's two rows at 1280 px
   const long = 'Start CCGT 2 now: ' + 'w'.repeat(LINE_MAX_CHARS - 18);
   h.game.objective = Object.assign({}, o, {text: long});
   frames(1);
-  assert.ok($('objective-text').textContent.startsWith(long) && $('objective-text').textContent.length <= SHOWN_MAX_CHARS, $('objective-text').textContent.length + ' characters');
+  assert.ok($('objective-text').textContent.endsWith(long) && $('objective-text').textContent.length <= SHOWN_MAX_CHARS, $('objective-text').textContent.length + ' characters');
   h.game.objective = o;
   // STOP on a coal machine at 04:30: the line says what it would cost, before the press
   assert.equal(h.actions.ui({do: 'consider', target: 'guard-stop-coal1'}), '');

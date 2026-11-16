@@ -29,7 +29,7 @@
 // red (the grid's refusal), and two blue buttons: #feeder-restore "RESTORE <id>" (the restore of its feeder)
 // and #feeder-go-on "GO ON" (ui 'goOn')). On the capture phase (feederFirst, after Esc's closeTop: an Esc that
 // closed something stops there), while the director plays FEEDER-CARD, Enter or R sends the restore of the
-// feeder it names (actions.input: a refusal toasts in red and the card stays) and Esc goes on, but in
+// feeder it names (actions.input: a refusal toasts in red and the card stays), and so does Esc (Q-96), but in
 // SETTINGS, the drawer and "?", and but Enter on a RESTORE row (the bay's CLOSE), the suburb card or the
 // card's own buttons, which is theirs. A key's auto-repeat is swallowed, and so is an Enter or R within
 // FEEDER_ARM_MS (250 real ms) of the Enter that closed the RESPOND card (cardFirst; a queued card shows on
@@ -288,7 +288,7 @@ const firstSentence = s => (/^.*?[.!?](?=\s|$)/.exec(s) || [s])[0];
  */
 export const lineWords = o => objectiveWord(o).replace(/^\S+\s+/, '') + ': ' + o.text;
 /** Q-18: the line's note while the clock is held (the desk opens so); K-23: the live region says it once, at the desk's opening. */
-export const HELD_NOTE = 'Clock held: press Space to run (you can act while paused).';
+export const HELD_NOTE = 'Press Space to run the clock. You can act first.';
 const heldAtOpening = v => v.phase === 'play' && v.mode.mode === 'PAUSE' && !v.obs.over && v.obs.tick === V.PLAYER_START_TICK;
 /** K-23: what it says of a RESPOND card: what happened (its first sentence), what it leaves you, and the key (watch.js respondCard's lines). */
 export const respondWords = r => [firstSentence(r.lines[0]), ...r.lines.slice(2)].join(' ');
@@ -833,7 +833,7 @@ export function bootGame(doc, deps) {
     if (box.className !== cls) box.className = cls;
     setText('objective-level', !c ? objectiveWord(o) : considerWord(c, v.obs, armed));
     setText('objective-text', c ? (armed ? 'Press again to confirm. ' : '') + c.text
-      : (o.text || '') + (paused ? '  ·  ' + HELD_NOTE : ''));
+      : (paused ? HELD_NOTE + '  ·  ' : '') + (o.text || ''));   // (the note first: it is what unsticks a first shift's opening)
   }
 
   function drawHeader(v) {
@@ -1296,25 +1296,40 @@ export function bootGame(doc, deps) {
     },
     error: e => { mods.errors.push('key: ' + (e && e.message ? e.message : e)); },
   });
-  const gesture = () => { if (!audio.started) audio.start(); };
+  // (a context that came up suspended, or was suspended by a browser, resumes on the next press: Safari never resumes it itself)
+  const gesture = () => { if (!audio.started) audio.start(); else if (audio.rest) audio.rest(false); };
   doc.addEventListener('pointerdown', gesture);
   doc.addEventListener('keydown', gesture);
 
+  // A key-up can be lost to Alt+Tab or a notification: F then held FAST on with no key down, and a D or E hold completed
+  // by itself (the review of 2026-11-13, K7 and G5). A window that loses focus, or a tab that hides, lets go of every
+  // held key, firing nothing; the audio rests while the tab is hidden (V9).
+  const letGo = () => {
+    for (const k of Object.keys(keys.holds)) { delete keys.holds[k]; delete keys.fired[k]; }
+    G.ui(game, {do: 'fast', on: false});
+    if (mods.desk && typeof mods.desk.letGo === 'function') mods.desk.letGo();
+  };
   let stopRaf = null;
   // (F-7: a hidden or closing tab saves the run where it is)
-  if (o.raf !== false) stopRaf = startRaf(onFrame, hidden => { game.director.hidden = hidden; if (hidden) G.saveResume(game); });
+  if (o.raf !== false) stopRaf = startRaf(onFrame, hidden => {
+    game.director.hidden = hidden;
+    if (hidden) { G.saveResume(game); letGo(); }
+    if (audio.rest) audio.rest(hidden);
+  });
   const win = doc.defaultView;
+  if (win && typeof win.addEventListener === 'function') win.addEventListener('blur', letGo);
   if (win && typeof win.addEventListener === 'function') win.addEventListener('pagehide', () => G.saveResume(game));
   if (mods.errors.length) showToast(mods.errors[0]);
 
   const handle = {
-    game, actions, audio, mods, keys, live, loadText, closeTop,
+    game, actions, audio, mods, keys, live, loadText, closeTop, letGo,
     get perf() { return perf; },
     frame: onFrame,
     vm: () => vm,
     unbind() {
       unbindKeys(); for (const f of [escFirst, panelFirst, cardFirst, feederFirst, modality]) doc.removeEventListener('keydown', f, true);
       doc.removeEventListener('pointerdown', modality, true); if (stopRaf) stopRaf();
+      if (win && typeof win.removeEventListener === 'function') win.removeEventListener('blur', letGo);
     },
   };
   // F-11: ?debug exposes the boot handle for stage C's shot and perf tools (nothing else may use it).

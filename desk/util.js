@@ -168,6 +168,8 @@ export function makeHolds(now) {
       return 'short';
     },
     cancel(id) { held.delete(id); },
+    /** every hold let go, none fired (a window that lost focus may never send the key-up) */
+    clear() { held.clear(); },
     active: id => held.has(id),
     progress(id) { const h = held.get(id); return h ? clamp((now() - h.t0) / HOLD_MS, 0, 1) : 0; },
     tick() {

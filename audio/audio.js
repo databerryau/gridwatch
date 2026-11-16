@@ -65,6 +65,18 @@ export function createAudio(win) {
       }
       return au.started;
     },
+    /**
+     * rest(true) suspends the context (a hidden tab: the hum and the end's tones had gone on sounding behind other tabs);
+     * rest(false) resumes it, also one a browser left suspended (Safari never resumes it itself). Never throws.
+     */
+    rest(on) {
+      const ctx = au.ctx;
+      if (!au.started || !ctx) return;
+      try {
+        const p = on ? ctx.state === 'running' && ctx.suspend && ctx.suspend() : ctx.state !== 'running' && ctx.state !== 'closed' && ctx.resume && ctx.resume();
+        if (p && p.catch) p.catch(() => {});
+      } catch { /* ignore */ }
+    },
     update(vm) {
       if (!au.started) return;
       try {

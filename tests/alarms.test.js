@@ -461,7 +461,7 @@ test('MSL cards: MARKET NOTICE, the forecast minimum and its time and the one th
   // gas unit is running or the battery is already charging on the spill; the objective says that)
   assert.equal(c1.text, 'Lowest demand 1,540 MW at 12:40. Power spilled then can go into the battery: charge it on the spill.');
   assert.equal(c2.text, 'Lowest demand 1,262 MW at 12:40. Make room: charge the battery, and stop a gas unit if one is running.');
-  assert.equal(c3.text, 'Lowest demand 980 MW at 12:40. Units at minimum make more than the city uses: stop one, or frequency climbs until rooftop solar cuts back.');
+  assert.equal(c3.text, 'Lowest demand 980 MW at 12:40. Units at minimum make more than the city uses. Stop one before frequency climbs.');
   assert.equal(c0.text, 'Low-demand notice cancelled: the lowest demand forecast is now 1,712 MW, at 12:40.');
   // MSL1 is information; MSL2 and MSL3 ring
   assert.deepEqual([c1.sev, c2.sev, c3.sev, c0.sev], ['info', 'warn', 'warn', 'info']);
