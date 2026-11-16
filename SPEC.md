@@ -3,7 +3,7 @@
 **The live spec**, rewritten 2026-10-15 (§9.1 Q-104). It says what the game is today, what it should become and what to build next, in order.
 **History:** `SPEC-history.md` is the v4 spec of 2026-09-30 as last amended (2026-10-10), frozen with its line numbers unchanged, plus the slice-2c decisions Q-61–Q-91 in its Appendix C.
 **IDs are permanent.** A requirement (C-, OD-, F-, H-, P-, S-, K-, L-, G-, D-, O-, U-, Y-, W-, X-) or decision (Q-) not defined here keeps its last text in `SPEC-history.md`. Nothing is renumbered or reused.
-**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main`, live at <https://databerryau.github.io/gridwatch/>; BUILD `2026-11-13.3` since W13 (`2026-11-13.2` for W12, PR #33). Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
+**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main`, live at <https://databerryau.github.io/gridwatch/>; BUILD `2026-11-16` since W13's browser pass (`2026-11-13.3` for W13, PR #35). Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
 **Evidence:** the full review of 2026-10-14 (`REVIEW-2026-10-14.md`: ten lenses, 118 verified findings, the readers' reports in `REVIEW-2026-10-14-reports/`) and the owner's answers to it (Q-92–Q-107).
 
 **How to read this.**
@@ -662,6 +662,20 @@ meet, fixed under Q-131. No sim change; BUILD 2026-11-13.3. Tests: `tests/held-k
   all six. 18 Nov at 0 s was 990 A before W12: with the STOP notes no longer in front of the battery's asks the instant
   follower stops fewer gas units at midday, which costs it 27 points there. The spec's earlier follower figures (W10,
   W11) are 0-s figures, the most a person could match.
+- **The browser pass (2026-11-16, BUILD 2026-11-16).** A first shift on today's daily in the browser, fresh storage, at
+  1280×600 and at 1536×864 (a 1080p laptop at Windows' 125%), from the briefing ("Daily #36 · FIRST SHIFT") to the end
+  card. Found and fixed:
+  - At the 07:20 hand-back with a suburb card open, the feeder card covered SOAK THE CITY and BOOK (the review's S7,
+    seen this time). A card that holds the clock now starts right of an open suburb card (`body.suburb-open`).
+  - At 1536×864 the map was drawn at two CSS pixels per art pixel with 128-px bars each side and uneven rows (V7). It
+    now takes a whole number of device pixels when that fills more: three, the full width. A map click still opens
+    the suburb under it.
+  - A smelter trip spotlit the tie, which had not tripped (V8): a lost load has no spot now.
+  - The long sounds render while the briefing or the held desk is on screen, not on the first frame of the first
+    trip's watch (V5, 20-60 ms there).
+  - Seen and fine: the briefing at 1280×600, the pause note first, the coach's first ask, the compact watch, the end
+    card with SHARE at its head. Noted for gate 1: on 16 Nov the coach's first ask is the GUARD ("If your biggest unit
+    tripped now, frequency would fall to 49.28 Hz: too low to be secure"), not a START.
 
 ### Later, not scheduled
 
@@ -981,7 +995,7 @@ The fifteen questions the review raised were answered on 2026-10-20 (Q-111–Q-1
 **Local run.** `.claude/launch.json` serves the repo (`py -m http.server 8642`) at <http://localhost:8642/> (the game is `index.html` since Q-126). ES modules need http; never `file://`.
 
 **Headless first** (`CLAUDE.md` holds the rules):
-- `node --test` runs the suite (1,211 tests, about 100 s on the owner's PC, 7–10 min in CI); `npm run test:changed` runs only the tests a change can affect.
+- `node --test` runs the suite (1,213 tests, about 100 s on the owner's PC, 7–10 min in CI); `npm run test:changed` runs only the tests a change can affect.
 - `node tools/play.mjs <seed> ...` plays the real page headless by jumping the sim between moments (`--help`). A day takes seconds.
 - `tools/par.js` (par and the proxies on any seeds), `tools/follow.mjs` (the hint-following player), `tools/daily-gen.js` (writes `content/dailies.js`), `tools/baseline-v4.js` (the classic day's golden, now a tool check: `npm run golden:v4 -- --check`), `tools/verify.mjs` (par on every daily, then the restamp, Q-125), `tools/perf.mjs` (frame cost, sizes). These are statistics: run one only when the change is about balance or par, once.
 

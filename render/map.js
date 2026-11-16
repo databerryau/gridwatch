@@ -1483,9 +1483,12 @@ export function createMap(doc, root, actions) {
     fx.cross++;
   }
 
-  /** B-5: where the watch points: the tripped machine, else the tie. */
+  /** B-5: where the watch points: the tripped machine, else the tie when the tie tripped; a lost load (the smelter, which the
+   * map does not draw) has no spot, only the watch's vignette (it had spotlit the tie, which had not tripped: the review of
+   * 2026-11-13, V8). */
   function spotTarget(obs) {
     const c = obs.contingency;
+    if (c && c.cause === 'load' && !obs.tie.tripped) return false;
     if (c && c.cause === 'unit') for (const p of PLANTS) for (const mc of p.machines) if (mc.unit === c.id) { spotX = mc.x; spotY = mc.y - 6; return true; }
     if (!c || c.cause === 'unit') for (const p of PLANTS) for (const mc of p.machines) { const u = unitOf(obs, mc.unit); if (u && u.mode === 'tripped') { spotX = mc.x; spotY = mc.y - 6; return true; } }
     if (c || obs.tie.tripped) { spotX = tiePylons[1].x; spotY = tiePylons[1].y - 10; return true; }
@@ -1592,7 +1595,8 @@ export function createMap(doc, root, actions) {
     const rm = !!(vm.settings && vm.settings.reducedMotion);
     // the map area's layout first, so the frame can fit what it draws to the rows shown (the storm's wall)
     const cw = Math.max(1, el.clientWidth || root.clientWidth || 1280), ch = Math.max(1, el.clientHeight || root.clientHeight || 268);
-    if (!layout || layout.cw !== cw || layout.ch !== ch) { layout = scaleFor(cw, ch); layout.cw = cw; layout.ch = ch; }
+    const dprNow = globalThis.devicePixelRatio || 1;
+    if (!layout || layout.cw !== cw || layout.ch !== ch || layout.dpr !== dprNow) { layout = scaleFor(cw, ch, dprNow); layout.cw = cw; layout.ch = ch; layout.dpr = dprNow; }
     debug.scale = layout.scale; debug.layout = layout;
     syncBlocks(obs);
     syncRoof(obs);

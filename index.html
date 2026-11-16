@@ -135,6 +135,9 @@
   /* Q-91: a hand-back holds the clock: over the map (never the desk's Live Stack or bay); with the stack out (L), over the levers */
   #feeder-card { top: calc(var(--hdr) + 60px); width: 560px; border-color: var(--blue); cursor: pointer; }
   @media (max-height: 659px) { #feeder-card { top: calc(var(--hdr) + 8px); } }
+  /* the suburb card open (32-432 px): a card that holds the clock starts right of it, so it never covers BOOK, SOAK THE CITY
+     or ✕ (measured in the browser at a 07:20 hand-back, 2026-11-16) */
+  body.suburb-open #feeder-card, body.suburb-open #respond-card { left: 448px; transform: none; }
   body.stack-out #feeder-card { top: auto; bottom: 8px; left: 8px; transform: none; }
   #feeder-card p.what { font: 600 14px/1.4 system-ui, sans-serif; color: var(--bright); }
   #feeder-card p.hint { font: 700 13px var(--mono); color: var(--blue); }

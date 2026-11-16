@@ -353,10 +353,19 @@ export function buildingBoxes(districts) {
  *   srcY: first base row shown; (dx, dy): where base row srcY, column 0 lands (CSS px, may be
  *   > 0: letterbox); drawW/drawH: the blitted base area in CSS px.
  */
-export function scaleFor(cw, ch) {
+export function scaleFor(cw, ch, dpr = 1) {
   cw = Math.max(1, Math.floor(cw)); ch = Math.max(1, Math.floor(ch));
   let scale = Math.max(1, Math.floor(cw / BASE_W));
   while (scale > 1 && SAFE.h * scale > ch) scale--;
+  // A whole number of DEVICE pixels per art pixel, when that fills more of the width than a whole number of CSS pixels: a
+  // 1080p laptop at Windows' 125% is 1,536 CSS px and 1,920 device px wide, so three device pixels per art pixel fill it
+  // exactly, where two CSS pixels left 128-px bars each side and 2.5 device pixels made rows uneven (the review of
+  // 2026-11-13, V7; seen in the browser 2026-11-16). The scale is then fractional in CSS px; every position stays in CSS px.
+  if (dpr > 1) {
+    let s = Math.floor(cw * dpr / BASE_W);
+    while (s > 1 && SAFE.h * s / dpr > ch) s--;
+    if (s / dpr > scale) scale = s / dpr;
+  }
   const viewW = cw / scale, viewH = ch / scale;
   const shownH = Math.min(BASE_H, Math.ceil(viewH));
   const srcY = BASE_H - shownH;

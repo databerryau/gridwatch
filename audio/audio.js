@@ -59,6 +59,7 @@ export function createAudio(win) {
         au.live = au.peak = BASE_NODES;
         au.started = true;
         applyGains(au);
+        warm(au);   // (V5: the long voices rendered before their first cue)
         if (ctx.resume) { try { const p = ctx.resume(); if (p && p.catch) p.catch(() => {}); } catch { /* ignore */ } }
       } catch {
         au.ok = false; au.started = false; au.ctx = null; au.master = null; au.bus = null; au.hum = null; au.live = 0;
@@ -258,16 +259,31 @@ function tone(au, spec, g, gain, t0, nodes) {
   return last;
 }
 
-// A foley voice: its rendered buffer (made once per context) through one gain.
-function voice(au, name, g, gain, t0, nodes) {
-  const ctx = au.ctx, spec = VOICES[name];
+// A foley voice's rendered buffer, made once per context. The long ones take 20-60 ms on the main thread (twice that at a 96 kHz
+// output): rendered at their first cue they stalled the first frame of the first trip's watch (the review of 2026-11-13, V5), so
+// start() renders them ahead, one at a time, while the briefing or the held desk is on screen (WARM).
+function bufferOf(au, name) {
+  const ctx = au.ctx;
   let buf = au.buffers[name];
   if (!buf) {
-    const sr = ctx.sampleRate || 48000, data = renderVoice(spec, sr);
+    const sr = ctx.sampleRate || 48000, data = renderVoice(VOICES[name], sr);
     buf = ctx.createBuffer(1, data.length, sr);
     if (buf.copyToChannel) buf.copyToChannel(data, 0); else buf.getChannelData(0).set(data);
     au.buffers[name] = buf;
   }
+  return buf;
+}
+/** The voices rendered ahead of their first cue, in this order, WARM_GAP_MS apart (spoolDown plays at the first trip or stop). */
+export const WARM = Object.freeze(['spoolDown', 'spoolUp', 'growl']), WARM_GAP_MS = 400;
+function warm(au, i = 0) {
+  if (i >= WARM.length || typeof setTimeout !== 'function') return;
+  setTimeout(() => { if (!au.started || !au.ctx) return; try { if (VOICES[WARM[i]]) bufferOf(au, WARM[i]); } catch { /* the voice renders at its cue */ } warm(au, i + 1); }, WARM_GAP_MS);
+}
+
+// A foley voice: its rendered buffer (made once per context) through one gain.
+function voice(au, name, g, gain, t0, nodes) {
+  const ctx = au.ctx, spec = VOICES[name];
+  const buf = bufferOf(au, name);
   const src = ctx.createBufferSource();
   nodes.push(src);
   src.buffer = buf;
