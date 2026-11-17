@@ -240,7 +240,7 @@ const vmOf = (o = {}) => ({phase: o.phase || 'play', obs: {tick: o.tick || 100, 
   objective: o.line === undefined ? null : o.line, respond: o.respond || null, feeder: null, consider: o.consider || null, end: o.end || null});
 const LINE = (level, kind, text, target) => ({level, kind, text, targets: target ? [target] : []});
 // app/objective.js's lines as seed 20261007 shows them: what is wrong first, then the ask (the control, what to do)
-const GTA = (mw, at) => LINE('act', 'commit', 'You will be ' + mw + ' MW short from ' + at + ' (CCGT 2 out until 07:45). Start GT·A now: it takes 12 min to reach the grid.', 'guard-start-gta1');
+const GTA = (mw, at) => LINE('act', 'commit', 'From ' + at + ' you will be ' + mw + ' MW short of a safe margin (CCGT 2 out until 07:45). Start GT·A now: it takes 12 min to reach the grid.', 'guard-start-gta1');
 const GTC = LINE('act', 'commit', 'Within the hour you will be up to 200 MW short of a safe margin. Start GT·C 1 now: it takes 9 min to reach the grid.', 'guard-start-gtc1');
 const SPARE = LINE('act', 'spare', 'If your biggest unit tripped now, frequency would fall to 49.07 Hz: too low to be secure. Raise the battery GUARD to 400 MW: it catches the fall in the first second.', 'gauge-n1');
 const BATTERY = pct => LINE('plan', 'battery', 'The battery is at ' + pct + '%. Charge it at 70 MW now, to be full by 15:30: tonight\'s peak will want it.', 'dial-battery');

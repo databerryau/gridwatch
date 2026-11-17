@@ -1056,7 +1056,7 @@ test('the game shows the line through steady(): a line the player has not acted 
   for (const x of seen) assert.ok(x.text.length <= LINE_MAX_CHARS);
   // the first ask stood as it was said while its figures moved under it (2c: at 540x the 13-real-s reading
   // lead, gridAfter, is two grid-hours, so GT·A's START outranks the GUARD line at 04:30; wave 3: with Q-68's reason, CCGT 2's outage)
-  assert.match(seen[0].text, /^You will be \d+ MW short from \d\d:\d\d \(CCGT 2 out until \d\d:\d\d\)\. Start GT·A now/);
+  assert.match(seen[0].text, /^From \d\d:\d\d you will be \d+ MW short of a safe margin \(CCGT 2 out until \d\d:\d\d\)\. Start GT·A now/);
   assert.deepEqual(h.vm().objective.action, game.objectiveHeld.line.action);
 });
 

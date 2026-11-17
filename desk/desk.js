@@ -486,4 +486,4 @@ export function createDesk(doc, root, actions, opts = {}) {
   const letGo = () => ctx.holds.clear();
   return {el: desk, update, key, focus, closeHelp, letGo, slots: {stack}, ids: DESK_IDS};
 }
-export const BUILD = '2026-11-16';   // W6 (F-9): app/build.js's, copied; app/boot.js compares
+export const BUILD = '2026-11-17';   // W6 (F-9): app/build.js's, copied; app/boot.js compares

@@ -24,6 +24,9 @@ import {objective, capacityGap, consequence, spanAt} from '../app/objective.js';
 import {clockText} from '../render/format.js';
 import {followDay} from './lib/follow.js';
 import {openGame} from './lib/play.js';
+// A unit that cannot start today: out until the day ends (the review of 2026-11-13, C4: a minimum down time is counted
+// from its end now, so a stub of one no longer keeps a unit out of the look-ahead).
+const NO_START = Object.freeze({startBlock: 'on outage until 04:00', outUntilS: V.DAY_S});
 
 const TPS = V.TICKS_PER_S, H = V.S_PER_H;
 const secOf = (h, m = 0) => (h - V.DAY_START_H) * H + m * 60;
@@ -186,7 +189,7 @@ test('Q-68, the late return: a unit out for maintenance is planned from its retu
   // every other unit blocked and a shortfall beyond the battery and demand response from 08:45: CCGT 2,
   // back in time for it, is the plan; the reserve diesel's line is not said in its place
   const deep = copy(obs);
-  for (const u of deep.units) if (u.mode === 'off' && u.id !== 'ccgt2') u.startBlock = 'minimum down time: 100 min left';
+  for (const u of deep.units) if (u.mode === 'off' && u.id !== 'ccgt2') Object.assign(u, NO_START);
   const R0 = capacityGap(deep, deep.dayAhead, {real: true}), P0 = O.tripGap(deep, deep.dayAhead, O.COMMIT_MARGIN_MW - O.MARGIN_MW);
   for (let j = 0; j < deep.dayAhead.n; j++) { const t = deep.dayAhead.fromS + (j + 1) * deep.dayAhead.stepS; deep.dayAhead.demandP50[j] += t >= secOf(8, 45) && t < secOf(10, 45) ? 900 - R0.gap[j] : -200 - P0.gap[j]; }
   const d = lineOf(deep);
@@ -227,7 +230,7 @@ test('Q-69: before a hand-back the line plans the pickup, from its return; at it
   // a spare problem now outranks it: the pickup line is passive, after spare()'s own (§31.8)
   const short = copy(seen.near);
   Object.assign(short.sec, {level: 'TIGHT', r5MW: 300, lMW: 500, previewNadirHz: 49.95, lKind: 'unit'});
-  for (const u of short.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
+  for (const u of short.units) if (u.mode === 'off') Object.assign(u, NO_START);
   assert.match(lineOf(short).text, /^Demand is covered, but losing your biggest unit would not be caught/);
   // spare(): the pickup of a feeder under repair counts once its return is within the act window, not before
   // (with the game's reading lead, LINE_REACT_S of the profile). An unreal L of 50 MW makes the pickup the
@@ -274,7 +277,7 @@ test('Q-69, the announced return: the look-ahead takes a feeder under repair off
   assert.ok(off >= 20 && same >= 20, off + ' columns held, ' + same + ' beside the stack\'s');
   // the morning's ask reads the lit demand: a smaller shortfall, later, than the held feeders' load made it
   obs.sec.previewNadirHz = lit.sec.previewNadirHz = 49.95; // (the GUARD ask aside)
-  const from = x => { const m = /short from (\d\d):(\d\d)/.exec(x.text); return m ? secOf(Number(m[1]), Number(m[2])) : -1; };
+  const from = x => { const m = /^From (\d\d):(\d\d) you will be /.exec(x.text); return m ? secOf(Number(m[1]), Number(m[2])) : -1; };
   const x = lineOf(obs), y = lineOf(lit);
   assert.ok(from(x) > from(y) && from(y) > 0, x.text + ' / with the held load: ' + y.text);
 });
@@ -296,7 +299,7 @@ test('Q-70: at a hand-back with its lamp lit the RESTORE ask comes before a marg
 
 test('the battery\'s order waits for an instant resource\'s window, ACT_WITHIN_S + NOW_S of grid time (never under NOW_S of the profile): at 540x a gap 40 min ahead is "be ready", 10 min ahead the order', () => {
   const {obs} = dayTo(20261008, secOf(4, 30));
-  for (const u of obs.units) if (u.mode === 'off') u.startBlock = 'minimum down time: 100 min left';
+  for (const u of obs.units) if (u.mode === 'off') Object.assign(u, NO_START);
   Object.assign(obs.battery, {mode: 'idle', orderMW: 0, socMWh: 0.9 * obs.battery.capMWh, guardMW: 0});
   const proj = PV.project(obs); // (the plan as it was: the shortAhead branch, not the plan's red)
   const gapAt = min => {

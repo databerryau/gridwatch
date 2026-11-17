@@ -177,7 +177,8 @@ test('Q-59 soak: aimed only when the window is in view (no day-ahead: the low is
 // hand: -300 MW everywhere, and `g(k)` in the evening around the column nearest 19:15.
 function evening(o, g) {
   const obs = o || hot().obs, day = obs.dayAhead;
-  for (const u of obs.units) if (u.mode === 'off') u.startBlock = 'poked';
+  // (out until the day ends: a block that ends today is counted from its end, C4)
+  for (const u of obs.units) if (u.mode === 'off') Object.assign(u, {startBlock: 'on outage until 04:00', outUntilS: V.DAY_S});
   day.solarMW.fill(0);
   const R = capacityGap(obs, day, {real: true});
   let peak = 0;
@@ -237,8 +238,14 @@ test('Q-59 air-con: not when the pre-cool lands in the gap, the peak is past the
   assert.ok(isCity(lineOf(small(24)), 'aircon'));
   // a unit that can still be started for it: the commit lines' (a start beats air-con)
   const start = evening(null, BUMP);
-  start.units.find(u => u.id === 'gta1').startBlock = '';
+  Object.assign(start.units.find(u => u.id === 'gta1'), {startBlock: '', outUntilS: -1});
   assert.ok(!isCity(lineOf(start), 'aircon'));
+  // C4: a unit locked out after a trip counts from the lockout's end: free at 17:00 it is there before the gap, and the
+  // start still beats air-con; free at 19:00 it arrives inside the gap, and air-con is still offered (13 Nov 2026: CCGT 1
+  // tripped at 17:27 and must not hide the 18:30 cycle)
+  const lockedTo = h => { const o = evening(null, BUMP); Object.assign(o.units.find(u => u.id === 'gta1'), {mode: 'tripped', timerS: (h - V.DAY_START_H) * H - o.s, startBlock: 'unit is tripped', outUntilS: -1}); return o; };
+  assert.ok(!isCity(lineOf(lockedTo(17)), 'aircon'));
+  assert.ok(isCity(lineOf(lockedTo(19)), 'aircon'));
   // short within the next quarter of an hour with no battery and no demand response left: not air-con's
   const soon = evening(null, BUMP);
   for (let k = 1; k <= 3; k++) soon.forecast.demandP50[k] += 3000;

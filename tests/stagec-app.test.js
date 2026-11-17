@@ -127,7 +127,7 @@ test('Q-18 (stage C): the dwell holds a line\'s words and glow, never an action 
 
 test('Q-18 (stage C): "for the afternoon" and "for the evening" near 17:00 are the shortfall\'s time moving, so steady() keeps the line shown, look to look', () => {
   assert.equal(O.masked('Next: start CCGT 2 by 16:10 for the afternoon. It takes 49 min.'), O.masked('Next: start CCGT 2 by 16:15 for the evening. It takes 49 min.'));
-  assert.equal(O.masked('Tonight\'s peak would be 300 MW short from 18:10.'), O.masked('The afternoon would be 250 MW short from 16:55.'));
+  assert.equal(O.masked('Tonight\'s peak would be 300 MW short of a safe margin from 18:10.'), O.masked('The afternoon would be 250 MW short of a safe margin from 16:55.'));
   assert.notEqual(O.masked('Next: start CCGT 2 by 16:10 for the afternoon.'), O.masked('Next: start GT·A by 16:10 for the afternoon.'), 'another unit is news');
   const next = (by, part, startBy) => ({kind: 'commit', level: 'plan', text: 'Next: start CCGT 2 by ' + by + ' for ' + part + '. It takes 49 min to reach the grid.', targets: ['guard-start-ccgt2'], action: null, startBy});
   const a = next('16:10', 'the afternoon', secOf(16, 10)), b = next('16:15', 'the evening', secOf(16, 15));
