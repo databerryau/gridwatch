@@ -773,6 +773,7 @@ export function bootGame(doc, deps) {
     const box = $('suburb-card'), on = !!v.suburb && !v.mode.locked;
     if (!box) return;
     if (box.hidden === on) box.hidden = !on;
+    if (doc.body.classList.contains('suburb-open') !== on) doc.body.classList.toggle('suburb-open', on);   // (index.html: the cards that hold the clock step right of it)
     if (!on) { if (box.contains(doc.activeElement)) doc.activeElement.blur(); if (box.contains(popAnchor)) closePopover(); }
     if (!v.suburb) return; // (kept up to date while the watch hides it: its pre-checks read the latest vm)
     if (!cardState) {
