@@ -3,7 +3,7 @@
 **The live spec**, rewritten 2026-10-15 (§9.1 Q-104). It says what the game is today, what it should become and what to build next, in order.
 **History:** `SPEC-history.md` is the v4 spec of 2026-09-30 as last amended (2026-10-10), frozen with its line numbers unchanged, plus the slice-2c decisions Q-61–Q-91 in its Appendix C.
 **IDs are permanent.** A requirement (C-, OD-, F-, H-, P-, S-, K-, L-, G-, D-, O-, U-, Y-, W-, X-) or decision (Q-) not defined here keeps its last text in `SPEC-history.md`. Nothing is renumbered or reused.
-**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main`, live at <https://databerryau.github.io/gridwatch/>; BUILD `2026-11-16` since W13's browser pass (`2026-11-13.3` for W13, PR #35). Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
+**Build:** `v4-core-2d.0` (`SIM_VERSION`, unchanged since PR #25, 2026-10-17) on `main`, live at <https://databerryau.github.io/gridwatch/>; BUILD `2026-11-17` since W13's coach fixes (`2026-11-16` for the browser pass, PR #36; `2026-11-13.3` for W13, PR #35). Since W7 (Q-126) the root is the game itself (`index.html`); `next.html`, its address until then, sends old links there.
 **Evidence:** the full review of 2026-10-14 (`REVIEW-2026-10-14.md`: ten lenses, 118 verified findings, the readers' reports in `REVIEW-2026-10-14-reports/`) and the owner's answers to it (Q-92–Q-107).
 
 **How to read this.**
@@ -676,6 +676,23 @@ meet, fixed under Q-131. No sim change; BUILD 2026-11-13.3. Tests: `tests/held-k
   - Seen and fine: the briefing at 1280×600, the pause note first, the coach's first ask, the compact watch, the end
     card with SHARE at its head. Noted for gate 1: on 16 Nov the coach's first ask is the GUARD ("If your biggest unit
     tripped now, frequency would fall to 49.28 Hz: too low to be secure"), not a START.
+- **The coach says only what is true (2026-11-17, BUILD 2026-11-17; the review's C4 and C5).** `tests/coach-truth.test.js`.
+  - A unit waiting out a minimum down time or a trip's lockout is counted from when it may start (`sim/onat.js`
+    startFromS), as one out for maintenance is: "Start CCGT 2 at 07:30, when it can start again" ("when it is back"
+    stays for maintenance), and why() says "CCGT 2 cannot start until 07:30". A unit not free before the day ends is
+    left out. The quiet line says "Every unit that can run is committed" only when no unit can start today; with one
+    free too late for the gap, "Every unit that can start in time is committed". It had said "every unit that can run"
+    at 11:01 and "Start CCGT 1 now" at 12:31 on the same day. A start still beats an AIR-CON CYCLE, but a unit not free
+    now does so only when it would be on before the gap the cycle is for (on 13 Nov CCGT 1 trips at 17:27, is locked
+    out to about 19:18, and must not hide the 18:30 cycle).
+  - *Measured once* (`tools/play.mjs 20261113 follow --react=3`): the same 24 asks as before the fix, the words aside,
+    and the same 956 B with every light on.
+  - A figure from the planning check (the forecast plus MARGIN_MW's 150 MW, the water kept for the evening) is said as what
+    it is: "From 13:20 you will be 450 MW short of a safe margin", in the commit line, the spare line's second reason
+    and a STOP's hover. It had been "You will be 450 MW short from 13:20", on a day the desk at its limits had no gap
+    until 15:26. The reserve diesel's line keeps plain "short": its figure is the desk at its limits. In problem mode,
+    "Next: the evening will be short of spare."
+  - The coach tests that stubbed "cannot start" with a fake minimum down time now use an outage to the day's end.
 
 ### Later, not scheduled
 
@@ -995,7 +1012,7 @@ The fifteen questions the review raised were answered on 2026-10-20 (Q-111–Q-1
 **Local run.** `.claude/launch.json` serves the repo (`py -m http.server 8642`) at <http://localhost:8642/> (the game is `index.html` since Q-126). ES modules need http; never `file://`.
 
 **Headless first** (`CLAUDE.md` holds the rules):
-- `node --test` runs the suite (1,213 tests, about 100 s on the owner's PC, 7–10 min in CI); `npm run test:changed` runs only the tests a change can affect.
+- `node --test` runs the suite (1,217 tests, about 100 s on the owner's PC, 7–10 min in CI); `npm run test:changed` runs only the tests a change can affect.
 - `node tools/play.mjs <seed> ...` plays the real page headless by jumping the sim between moments (`--help`). A day takes seconds.
 - `tools/par.js` (par and the proxies on any seeds), `tools/follow.mjs` (the hint-following player), `tools/daily-gen.js` (writes `content/dailies.js`), `tools/baseline-v4.js` (the classic day's golden, now a tool check: `npm run golden:v4 -- --check`), `tools/verify.mjs` (par on every daily, then the restamp, Q-125), `tools/perf.mjs` (frame cost, sizes). These are statistics: run one only when the change is about balance or par, once.
 

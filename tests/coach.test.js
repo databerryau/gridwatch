@@ -21,7 +21,7 @@ test('O-8: a first shift coaches ("Start CCGT 2 now"); a second shift states the
   const lit = q.targets.filter(t => t.startsWith('guard-start-'));
   assert.ok(lit.length >= 2, 'two or more lit: ' + q.targets.join(' '));
   assert.doesNotMatch(q.text, /\bStart (CCGT|GT|COAL|HYDRO|Mt|Riverton|Greyfell)/i, q.text);
-  assert.match(q.text, new RegExp('^You will be \\d+ MW short from \\d\\d:\\d\\d.*' + lit.length + ' units can still make it in time: the lit STARTs\\.$'));
+  assert.match(q.text, new RegExp('^From \\d\\d:\\d\\d you will be \\d+ MW short of a safe margin.*' + lit.length + ' units can still make it in time: the lit STARTs\\.$'));
   assert.equal(q.action, null, 'the problem carries no action of its own');
   // the desk glows each lit unit's station START
   for (const t of lit) {

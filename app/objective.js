@@ -468,15 +468,24 @@ export function capacityShort(obs, fc = obs.forecast, o) {
 // lead: START to minimum load; climb: from there to the plan's loading at its ramp (two hours for
 // a coal machine); plan: the lead a start is planned with, the climb counted beyond the half hour
 // the look-ahead already allows (RAMP_HEAD_S), so the unit is at full load when it is needed.
-// later: units out for maintenance too, each from its return or a minimum down time ending later (Q-68, §31.8); the others from now.
+// later: units not free to start now too, each from when it may (sim/onat.js startFromS): its return from maintenance,
+// the end of a minimum down time, a trip's lockout (Q-68, §31.8). The review of 2026-11-13, C4: a unit waiting out a
+// minimum down time or a lockout was left out, so the line said every unit that can run was committed and asked for
+// it by name once it was free. A unit not free before the day ends is left out (it cannot run today). why: 'out' (an
+// outage), 'down' (a minimum down time or a lockout), '' (free now).
 function startable(obs, later = false) {
   const booked = new Set(obs.plan.starts.map(e => e.unit));
-  return obs.units.filter(u => u.mode === 'off' && (u.startBlock === '' || (later && OUT_RE.test(u.startBlock))) && !booked.has(u.id)).map(u => {
+  return obs.units.filter(u => !booked.has(u.id) && (u.mode === 'off' || (later && u.mode === 'tripped'))).map(u => {
+    const fromS = startFromS(u, M.find(m => m.id === u.id), obs.s);
+    const why = u.mode === 'off' && u.startBlock === '' ? '' : OUT_RE.test(u.startBlock) ? 'out' : 'down';
+    if (why && !(later && fromS >= 0 && fromS < DAY_S)) return null;
     const climb = Math.max(0, u.ratingMW * (u.station === 'hydro' ? 1 : LOADING) - u.minMW) / (u.rampMWMin / S_PER_MIN);
     return {unit: u.id, id: 'guard-start-' + u.id, lead: u.startToMinS, climb, plan: u.startToMinS + Math.max(0, climb - RAMP_HEAD_S),
-      offer: u.station === 'hydro' ? HYDRO_LAST : u.offer, cls: u.cls, fromS: startFromS(u, M.find(m => m.id === u.id), obs.s)}; // (sim/onat.js: its return, a minimum down time under a block)
-  }).sort((a, b) => a.offer - b.offer || a.lead - b.lead);
+      offer: u.station === 'hydro' ? HYDRO_LAST : u.offer, cls: u.cls, fromS, why};
+  }).filter(Boolean).sort((a, b) => a.offer - b.offer || a.lead - b.lead);
 }
+// When a unit not free now may start, as a line says it: "when it is back" from maintenance, else "when it can start again".
+const whenFree = c => (c.why === 'out' ? 'when it is back' : 'when it can start again');
 // When a start of c made as soon as it may be reaches minimum load.
 const arrival = c => c.fromS + c.lead;
 
@@ -664,12 +673,16 @@ function quiet(X, line, dayAhead) {
   for (let k = 0; k < G.n && thinS < 0; k++) { const t = G.fromS + (k + 1) * G.stepS; if (t < X.endS && G.gap[k] >= THIN_MW) thinS = t; }
   if (thinS < 0) return line({text: 'Enough plant is committed for ' + (dayAhead ? 'the rest of the day. ' : 'the next 4½ hours. ') + peak});
   const fits = t => (t.length + 1 + peak.length <= LINE_MAX_CHARS ? t + ' ' + peak : t);
-  if (startable(obs, true).length) {
+  // (a unit that could be on by then: one free later only if it arrives in time, C4)
+  const later = startable(obs, true);
+  if (later.some(c => arrival(c) <= thinS)) {
     return line({text: fits('Committed plant covers the forecast, but with little spare for a trip' + (thinS - X.s > S_PER_H ? ' from about ' + at(Math.ceil(thinS / QUARTER_S) * QUARTER_S) : '') + '.')});
   }
-  // Every unit that can run is committed: what they cannot give, even at their limits, is the
-  // battery's and demand response's to carry (the reserve diesel's only beyond both).
-  const all = obs.units.every(u => u.mode !== 'off' && u.mode !== 'tripped') ? 'Every unit is committed. ' : 'Every unit that can run is committed. ';
+  // Every unit that can run (or start in time) is committed: what they cannot give, even at their limits, is the
+  // battery's and demand response's to carry (the reserve diesel's only beyond both). Never "every unit that can
+  // run" while one waits out a minimum down time or a lockout today (the review of 2026-11-13, C4).
+  const all = obs.units.every(u => u.mode !== 'off' && u.mode !== 'tripped') ? 'Every unit is committed. '
+    : later.length ? 'Every unit that can start in time is committed. ' : 'Every unit that can run is committed. ';
   const R = capacityGap(obs, day, {real: true});
   const run = firstRun(R, -Infinity, X.endS);
   if (run) {
@@ -723,7 +736,7 @@ function problemPick(X, cands) {
 function why(X, fromS, c) {
   const obs = X.obs, tie = obs.tie, out = [];
   const o = startable(obs, true).find(x => x.fromS > X.s && X.s + x.lead <= fromS && arrival(x) > fromS && (!c || x.offer < c.offer));
-  if (o) out.push(unitName(o.unit) + ' out until ' + at(o.fromS));
+  if (o) out.push(unitName(o.unit) + (o.why === 'out' ? ' out until ' : ' cannot start until ') + at(o.fromS));
   if (!tie.tripped && tie.limitUntilS > fromS && tie.importLimitMW < V.TIE_MAX_MW) out.push('the tie limited to ' + tie.importLimitMW + ' MW until ' + at(tie.limitUntilS));
   return out.length ? ' (' + out.join('; ') + ')' : '';
 }
@@ -752,16 +765,18 @@ function thinOf(T, run) {
 // or before need - lead, then never reads as the very minute of the need).
 const needAt = (thin, crossS) => (thin.real ? atMark(crossS) : at(Math.ceil(crossS / QUARTER_S) * QUARTER_S));
 
-// The head of a commit line: short of the forecast and its margin ("You will be 380 MW short from
-// 06:10."), or only of the spare one trip needs ("From about 17:10 one trip would leave you short.":
-// no figure, it moves with every forecast; the deadline is what matters). The figure is the
-// planning check's (the forecast plus MARGIN_MW, the water kept for the evening): a shortfall that
-// begins now is said in the present tense only when the desk, every unit and the water at their
-// limits, really cannot cover demand in the next minutes; otherwise it is what the coming hour
-// lacks against a safe margin (the grid is not short now, and frequency says so). reason: why()'s.
+// The head of a commit line: short of the forecast and its margin ("From 06:10 you will be 380 MW
+// short of a safe margin."), or only of the spare one trip needs ("From about 17:10 one trip would
+// leave you short.": no figure, it moves with every forecast; the deadline is what matters). The
+// figure is the planning check's (the forecast plus MARGIN_MW, the water kept for the evening), so
+// it is always said as short of a safe margin, never as plain "short": the desk at its limits can
+// cover hours of it (the review of 2026-11-13, C5: "You will be 450 MW short from 13:20" on a day the
+// desk had no gap until 15:26). A shortfall that begins now is said in the present tense only when
+// the desk, every unit and the water at their limits, really cannot cover demand in the next
+// minutes (the grid is not short now, and frequency says so). reason: why()'s.
 function shortHead(X, fromS, thin, reason = '') {
   const s = X.s, nowish = fromS - s <= X.nowS;
-  if (thin.real && !nowish) return 'You will be ' + mwText(thin.mw) + ' short from ' + needAt(thin, fromS) + reason + '. ';
+  if (thin.real && !nowish) return 'From ' + needAt(thin, fromS) + ' you will be ' + mwText(thin.mw) + ' short of a safe margin' + reason + '. ';
   if (thin.real) {
     const R = realShort(X);
     return R.nowMW >= BATT_MIN_MW ? 'Your units are ' + figure(R.nowMW) + ' below demand now' + reason + '. ' : 'Within the hour you will be up to ' + mwText(thin.mw) + ' short of a safe margin' + reason + '. ';
@@ -935,7 +950,7 @@ function commitNow(X, line) {
     return line(Object.assign(tgt, {text: fitWhy(reason, r => 'Start ' + name + ' now: it reaches the grid at ' + at(arriveS) + ', too late for ' + atMark(A.first.crossS) + r + '. Until then, ' +
       (gapS >= 0 ? 'what the plant cannot give is the battery\'s to carry.' : 'the plant covers the forecast with less spare than it should have.'))}));
   }
-  const by = A.reach.crossS - c.plan, when = act ? ' now' : back && mark(by) <= c.fromS ? ' at ' + at(c.fromS) + ', when it is back' : ' by ' + atMark(by);
+  const by = A.reach.crossS - c.plan, when = act ? ' now' : back && mark(by) <= c.fromS ? ' at ' + at(c.fromS) + ', ' + whenFree(c) : ' by ' + atMark(by);
   return line(Object.assign(tgt, {text: fitWhy(reason, r => shortHead(X, fromS, A.thin, r) + 'Start ' + name + when + ': it takes ' + leadText(c) +
     (gapS >= 0 && c.plan === c.lead ? '; until then ' + carries(obs) : '') + '.')}));
 }
@@ -1029,7 +1044,10 @@ const freeFor = (lv, lever) => lv.suburbs.filter(x => x[lever].block === '').sor
 // 3c. AIR-CON CYCLE (§31.8).
 function aircon(X, line) {
   const A = lookAhead(X), b = X.obs.battery, lv = X.obs.levers, free = freeFor(lv, 'aircon');
-  if (!free.length || (A && A.unit) || realShort(X).soonMW >= BATT_MIN_MW) return null;
+  // A start beats air-con. A unit not free now (a minimum down time, a lockout, maintenance: C4) beats it only when it
+  // would be on before the gap the cycle is for opens (backS: when it would be on; -1: the unit is free now, or none).
+  const backS = A && A.unit && A.unit.fromS > X.s ? arrival(A.unit) : -1;
+  if (!free.length || (A && A.unit && backS < 0) || realShort(X).soonMW >= BATT_MIN_MW) return null;
   const R = capacityGap(X.obs, X.day, {real: true}), h = R.stepS / S_PER_H;
   const held = (X.s < CHARGE_BY_S ? Math.max(b.socMWh, CHARGE_TO_MWH) : b.socMWh) - RESERVE_MWH;
   for (const x of free) {
@@ -1041,6 +1059,7 @@ function aircon(X, line) {
         if (t >= atS - V.PRECOOL_S && t <= atS && g > 0) pre = 1;
         if (t >= run.atS && t <= run.endS) { mwh += g * h; if (g === run.mw && !topS) topS = t; }
       }
+      if (backS >= 0 && backS <= run.atS) return null;
       if (!pre && topS >= atS && topS <= atS + V.AIRCON_S && (run.mw > b.ratedMW || mwh > held)) {
         return city(X, line, x, 'aircon', atS, 'From about ' + atMark(run.crossS) + ' committed units fall short. ',
           'pre-cool from ' + at(atS - V.PRECOOL_S) + '; ' + Math.round(100 * V.SNAPBACK_FRAC) + '% of the relief comes back after.');
@@ -1049,7 +1068,7 @@ function aircon(X, line) {
   }
   // Q-132: else the cycle par would book now (its adequacy walk spends the water, demand response and the battery forward and
   // finds the peak uncovered inside the cycle), so the peak is not left to the reserve diesel at $80,000 a minute
-  const p = airconAdvice(X.obs), x = p && free.find(y => y.id === p.suburb);
+  const p = airconAdvice(X.obs), x = p && !(backS >= 0 && backS <= p.atS) ? free.find(y => y.id === p.suburb) : null;
   return x ? city(X, line, x, 'aircon', p.atS, 'The battery and demand response will not cover the peak. ',
     'pre-cool from ' + at(p.atS - V.PRECOOL_S) + '; ' + Math.round(100 * V.SNAPBACK_FRAC) + '% of the relief comes back after.') : null;
 }
@@ -1224,7 +1243,7 @@ function spare(X, line) {
       // "by 17:45" for the same machine do not take turns
       if (A && A.unit && A.unit.unit === c.unit && A.reach.atS - s <= V.FC_HORIZON_S) {
         return line({level: 'act', kind: 'spare', text: fitWhy(why(X, A.reach.crossS, c), r => 'Start ' + unitName(c.unit) + ' now (' + minText(c.lead) + '): spare is short already, and ' +
-          (A.thin.real ? 'you will be ' + mwText(A.thin.mw) + ' short from ' + needAt(A.thin, A.reach.crossS) : 'from about ' + needAt(A.thin, A.reach.crossS) + ' one trip would leave you short') + r + '.'),
+          (A.thin.real ? 'from ' + needAt(A.thin, A.reach.crossS) + ' you will be ' + mwText(A.thin.mw) + ' short of a safe margin' : 'from about ' + needAt(A.thin, A.reach.crossS) + ' one trip would leave you short') + r + '.'),
         targets: ['gauge-n1', c.id], action: {type: 'start', unit: c.unit}, startBy: s});
       }
       return line({level: 'act', kind: 'spare', text: 'Demand is covered, but if ' + what + ' tripped the rest could not make it up in time. Start ' + unitName(c.unit) + ' (' + minText(c.lead) + ')' +
@@ -1491,11 +1510,11 @@ function commitLater(X, line) {
   const c = A.unit;
   // (until then nothing is short, margin included: the hours with nothing to do are said to be so)
   const tail = A.first.atS - X.s > V.FC_HORIZON_S && leadText(c).length < 30 ? '; until then the plant you have covers the forecast' : '';
-  // (a unit out for maintenance: from its return, Q-68)
-  const by = A.reach.crossS - c.plan, when = c.fromS > X.s && mark(by) <= c.fromS ? ' at ' + at(c.fromS) + ', when it is back,' : ' by ' + atMark(by);
+  // (a unit not free now: from when it is, Q-68, C4)
+  const by = A.reach.crossS - c.plan, when = c.fromS > X.s && mark(by) <= c.fromS ? ' at ' + at(c.fromS) + ', ' + whenFree(c) + ',' : ' by ' + atMark(by);
   const pick = problemPick(X, A.inTime);   // O-8: the problem, the units lit
   if (pick) {
-    return line({level: 'plan', kind: 'commit', text: fitWhy(why(X, A.reach.crossS, c), r => 'Next: ' + partOfDay(A.reach.atS) + ' will be short' + r + '. ' + pick.text),
+    return line({level: 'plan', kind: 'commit', text: fitWhy(why(X, A.reach.crossS, c), r => 'Next: ' + partOfDay(A.reach.atS) + ' will be short of spare' + r + '. ' + pick.text),
       targets: pick.ids, startBy: A.startBy, short: pub(A.reach)});
   }
   return line({level: 'plan', kind: 'commit', text: fitWhy(why(X, A.reach.crossS, c), r => 'Next: start ' + unitName(c.unit) + when + ' for ' + partOfDay(A.reach.atS) + r + '. It takes ' + leadText(c) + tail + '.'),
@@ -1588,7 +1607,7 @@ export function consequence(obs, target, ctx = {}) {
     if (mw >= BATT_MIN_MW) {
       const now = short.atS - s <= nowS, from = now ? 'At once' : 'From ' + atMark(short.crossS);
       return out(head + (already ? ' ' + from + ' you would need ' + mwText(mw) + ' more than the line asks for.'
-        : now ? ' You would be ' + mwText(mw) + ' short at once.' : ' ' + cap(partOfDay(short.atS)) + ' would be ' + mwText(mw) + ' short from ' + atMark(short.crossS) + '.'), 'crit');
+        : now ? ' You would be ' + mwText(mw) + ' short of a safe margin at once.' : ' ' + cap(partOfDay(short.atS)) + ' would be ' + mwText(mw) + ' short of a safe margin from ' + atMark(short.crossS) + '.'), 'crit');
     }
   }
   const trip = firstRun(tripGap(obs, day, COMMIT_TRIP_MW, lv));

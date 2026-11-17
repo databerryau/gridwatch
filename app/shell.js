@@ -284,7 +284,7 @@ const lineHidden = v => v.phase !== 'play' || v.obs.over || !!v.respond || (!!v.
 const firstSentence = s => (/^.*?[.!?](?=\s|$)/.exec(s) || [s])[0];
 /**
  * K-23: what the live region says of an objective line: its word without the glyph, and the whole line (LINE_MAX_CHARS: at most
- * about 30 words), whose problem comes first and its ask after ('ACT NOW: You will be 250 MW short from 06:30. Start GT·A now: ...').
+ * about 30 words), whose problem comes first and its ask after ('ACT NOW: From 06:30 you will be 250 MW short of a safe margin. Start GT·A now: ...').
  */
 export const lineWords = o => objectiveWord(o).replace(/^\S+\s+/, '') + ': ' + o.text;
 /** Q-18: the line's note while the clock is held (the desk opens so); K-23: the live region says it once, at the desk's opening. */
